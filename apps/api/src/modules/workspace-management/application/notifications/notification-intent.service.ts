@@ -6,6 +6,7 @@ import type {
   NotificationIntentRecord
 } from "./notification-platform.types";
 import { NotificationRoutingService } from "./notification-routing.service";
+import { ResolveWorkspaceNotificationChannelsService } from "./resolve-workspace-notification-channels.service";
 
 /**
  * Single entry point for creating notification intents.
@@ -18,7 +19,8 @@ export class NotificationIntentService {
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly routing: NotificationRoutingService
+    private readonly routing: NotificationRoutingService,
+    private readonly channelResolver: ResolveWorkspaceNotificationChannelsService
   ) {}
 
   /**
@@ -27,12 +29,11 @@ export class NotificationIntentService {
    * policy resolution, and persists to notification_intents.
    */
   async createIntent(input: CreateNotificationIntentInput): Promise<NotificationIntentRecord> {
-    // Resolve global policy snapshot for this source
-    const policyRow = await this.prisma.notificationPolicy.findUnique({
-      where: { source: input.source }
-    });
-
-    const quietHoursRow = await this.prisma.notificationQuietHours.findFirst({});
+    // Resolve global policy + quiet hours through the resolver so a fresh DB
+    // (no operator edits yet) still picks up `notification-defaults.ts` rather
+    // than silently dropping intents.
+    const policy = await this.channelResolver.resolvePolicy(input.source);
+    const quietHours = await this.channelResolver.resolveQuietHours();
 
     const channelRegistryRows = await this.prisma.notificationChannelRegistry.findMany({
       where: { enabled: true }
@@ -41,34 +42,31 @@ export class NotificationIntentService {
     const resolvedChannels =
       input.allowedChannels && input.allowedChannels.length > 0
         ? input.allowedChannels
-        : (policyRow?.channels ?? []);
+        : policy.channels;
 
-    const policySnapshot: Prisma.InputJsonValue = policyRow
-      ? {
-          source: policyRow.source,
-          enabled: policyRow.enabled,
-          channels: policyRow.channels,
-          cooldownMinutes: policyRow.cooldownMinutes,
-          maxPerDay: policyRow.maxPerDay,
-          escalationAfterMinutes: policyRow.escalationAfterMinutes,
-          escalationChannel: policyRow.escalationChannel,
-          respectQuietHours: policyRow.respectQuietHours,
-          renderStrategy: policyRow.renderStrategy
-        }
-      : { source: input.source };
+    const policySnapshot: Prisma.InputJsonValue = {
+      source: policy.source,
+      enabled: policy.enabled,
+      channels: policy.channels,
+      cooldownMinutes: policy.cooldownMinutes,
+      maxPerDay: policy.maxPerDay,
+      escalationAfterMinutes: policy.escalationAfterMinutes,
+      escalationChannel: policy.escalationChannel,
+      respectQuietHours: policy.respectQuietHours,
+      renderStrategy: policy.renderStrategy
+    };
 
-    // Determine quiet-hours deferral
-    const respectQuietHours = input.respectQuietHours ?? policyRow?.respectQuietHours ?? true;
+    const respectQuietHours = input.respectQuietHours ?? policy.respectQuietHours;
     const deferUntil = this.routing.computeQuietHoursDeferral({
       intent: { priority: input.priority, respectQuietHours },
-      quietHours: quietHoursRow
+      quietHours: quietHours.enabled
         ? {
-            enabled: quietHoursRow.enabled,
-            startLocal: quietHoursRow.startLocal,
-            endLocal: quietHoursRow.endLocal,
-            timezoneMode: quietHoursRow.timezoneMode,
-            defaultTimezone: quietHoursRow.defaultTimezone,
-            appliesToSources: quietHoursRow.appliesToSources
+            enabled: quietHours.enabled,
+            startLocal: quietHours.startLocal,
+            endLocal: quietHours.endLocal,
+            timezoneMode: quietHours.timezoneMode,
+            defaultTimezone: quietHours.defaultTimezone,
+            appliesToSources: quietHours.appliesToSources
           }
         : null,
       source: input.source
@@ -76,10 +74,9 @@ export class NotificationIntentService {
 
     const lifecycleStatus = deferUntil ? ("deferred_quiet_hours" as const) : ("pending" as const);
 
-    const escalationAfterMinutes =
-      input.escalationAfterMinutes ?? policyRow?.escalationAfterMinutes ?? null;
+    const escalationAfterMinutes = input.escalationAfterMinutes ?? policy.escalationAfterMinutes;
 
-    const escalationChannel = input.escalationChannel ?? policyRow?.escalationChannel ?? null;
+    const escalationChannel = input.escalationChannel ?? policy.escalationChannel;
 
     // Upsert with deduplication if dedupeKey provided
     if (input.dedupeKey) {

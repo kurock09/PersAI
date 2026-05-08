@@ -113,6 +113,30 @@ Slice 1 focused test coverage (as of Slice 1 closeout):
 | `handle-postmark-webhook.service.test.ts` | valid HMAC accepted; invalid HMAC rejected; unsigned accepted in dev; unsigned rejected in prod; 5 failures→healthStatus=down |
 | `admin-notifications.controller.test.ts` | all 8 endpoint shapes match OpenAPI (bare views, no wrappers; 204 discard; deadLetters key; pagination fields) |
 
+Slice 2.5 — multi-user correction (LANDED 2026-05-09 closeout):
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/resolve-workspace-notification-channels.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/handle-postmark-webhook.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/admin-notifications.controller.authz.test.ts
+corepack pnpm --filter @persai/api exec tsx test/notification-intent.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/notification-delivery-worker.service.test.ts
+```
+
+| Test file | Scenarios covered |
+|---|---|
+| `resolve-workspace-notification-channels.service.test.ts` | email available iff owner `AppUser.email` non-empty; telegram requires `AssistantChannelSurfaceBinding` `bindingState=active`; `web_thread` / `web_notification_center` always available even with no registry row or registry row disabled; `admin_webhook` unavailable when `webhookUrl` empty; `admin_webhook` disabled-globally → `channel_disabled_globally`; `resolvePolicy` / `resolveQuietHours` fall back to `notification-defaults.ts` when DB empty; DB row overrides defaults when present |
+| `handle-postmark-webhook.service.test.ts` | HMAC verified via `PlatformRuntimeProviderSecretStoreService` only (no `process.env` fallback); invalid HMAC rejected; unsigned accepted in dev; unsigned rejected in prod; 5-failure escalation to `down`; `SpamComplaint` increments `consecutiveFailures` |
+| `admin-notifications.controller.authz.test.ts` | non-admin `userId` → `ForbiddenException` on every notifications admin endpoint, including `POST /channels/:type/test-send` (the dry-run endpoint must run the same admin gate as the rest of the surface) |
+
+Interpretation rules (Slice 2.5):
+
+1. `notification_channel_registry`, `notification_policies`, and `notification_quiet_hours` are global singleton tables — code must never reintroduce a `workspaceId` column or per-workspace lookup on these models.
+2. Per-workspace channel availability must be derived at delivery time through `ResolveWorkspaceNotificationChannelsService.resolveChannel` and consume the discriminated `ChannelResolution` shape — no silent `null` returns.
+3. Postmark Server Token and Webhook Token must be resolved exclusively via `PlatformRuntimeProviderSecretStoreService` using `NOTIFICATION_CREDENTIAL_IDS`. `process.env["POSTMARK_*"]` fallbacks are forbidden.
+4. `notification_delivery_attempts` derives workspace via the parent `notification_intents` join; admin queries must not rely on a column on the attempt row.
+5. The dry-run `POST /admin/notifications/channels/:type/test-send` endpoint must run the same admin authorization gate as every other notifications admin endpoint.
+
 Slice 2 focused tests (all pass after Slice 2 landing 2026-05-08):
 
 ```bash

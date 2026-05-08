@@ -271,9 +271,11 @@ A slice that leaves any of the above residue is incomplete and must not be marke
 
 The following Prisma models replace the legacy notification tables. Names are normative; agents implementing slices use these exactly unless a follow-up ADR changes them.
 
-**Per-event tables (keep `workspaceId`):** `notification_intents`, `notification_delivery_attempts`, `notification_dead_letters`. These describe individual user notification events; `workspaceId` is required so admin history/dead-letter views can attribute every row to the right user.
+**Per-event tables (carry workspace via `notification_intents`):** `notification_intents` and `notification_dead_letters` keep their own `workspaceId` column so admin history / dead-letter queries can attribute every row to the right workspace without an extra join. `notification_delivery_attempts` deliberately does **not** have a `workspaceId` column — every attempt is anchored to its parent intent through `intentId` (cascade), and operator queries derive workspace through that join (see `ManageNotificationPlatformService.listDeliveries`). This matches the on-disk schema as of 2026-05-09 and keeps attempt rows small.
 
 **Global singleton tables (no `workspaceId`):** `notification_channel_registry`, `notification_policies`, `notification_quiet_hours`. These describe operator-level wiring shared across all workspaces; uniqueness is on the natural key (`channelType`, `source`, or singleton row).
+
+**Code defaults:** `apps/api/src/modules/workspace-management/application/notifications/defaults/notification-defaults.ts` exports `NOTIFICATION_POLICY_DEFAULTS`, `NOTIFICATION_QUIET_HOURS_DEFAULT`, and `NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS` covering every value of `NotificationSource` and `NotificationChannelType`. The resolver and intent service import from this file; no inline copies are permitted elsewhere. A fresh DB therefore works without seed.
 
 ### `notification_intents`
 
@@ -531,15 +533,16 @@ Closed must-fix items: ✓ Producer replaced, ✓ Table dropped, ✓ Policy migr
 
 Acceptance status: gates green, residue zero. Live verification (S3.9 — real test inbox in persai-dev) pending deployment.
 
-### Slice 2.5 — Multi-user correction (LANDED 2026-05-09)
+### Slice 2.5 — Multi-user correction (LANDED 2026-05-09, closeout 2026-05-09)
 
 Goal: collapse `notification_channel_registry` / `notification_policies` / `notification_quiet_hours` from per-workspace rows to global singletons, auto-derive per-workspace channel availability from existing PersAI sources, move Postmark credentials to `Admin > Tools`, and remove the seed-on-deploy hack.
 
 Delivered:
 
-- Prisma migration `20260509000000_adr088_global_notification_truth`: aggregates existing per-workspace rows into one global row per channelType/source (aborts with `RAISE EXCEPTION` if divergence detected); drops `workspace_id` column + per-workspace unique index; adds `UNIQUE(channelType)` / `UNIQUE(source)` / singleton boolean; keeps `workspaceId` on `notification_intents`, `notification_delivery_attempts`, `notification_dead_letters`.
+- Prisma migration `20260509000000_adr088_global_notification_truth`: aggregates existing per-workspace rows into one global row per channelType/source (aborts with `RAISE EXCEPTION` if divergence detected); drops `workspace_id` column + per-workspace unique index; adds `UNIQUE(channelType)` / `UNIQUE(source)` / singleton boolean; keeps `workspaceId` on `notification_intents` and `notification_dead_letters`. `notification_delivery_attempts` deliberately does NOT carry its own `workspaceId` — workspace is derived through the parent `intentId` join (see `ManageNotificationPlatformService.listDeliveries`); this matches the on-disk schema and avoids unnecessary churn.
 - `ResolveWorkspaceNotificationChannelsService` with `resolveChannel(workspaceId, channelType)`, `resolvePolicy(source)`, and `resolveQuietHours()` reading global singletons with code-default fallback.
-- `NotificationDeliveryWorkerService` uses the resolver (not per-workspace registry lookup).
+- `NotificationDeliveryWorkerService` and `NotificationIntentService` consume the resolver exclusively (not per-workspace registry lookup, no inline defaults).
+- All code-level defaults moved to `apps/api/src/modules/workspace-management/application/notifications/defaults/notification-defaults.ts` (`NOTIFICATION_POLICY_DEFAULTS`, `NOTIFICATION_QUIET_HOURS_DEFAULT`, `NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS`). Every `NotificationSource` and `NotificationChannelType` is covered.
 - Postmark credentials migrated to `Admin > Tools` credential store (`notification/email/postmark/api-key`, `notification/email/postmark/webhook-token`); `EmailChannelAdapter` and `HandlePostmarkWebhookService` resolve exclusively via `PlatformRuntimeProviderSecretStoreService` — no `process.env["POSTMARK_*"]` fallbacks.
 - `Admin > Tools` UI: new "Notifications" section listing both Postmark credential cards.
 - `infra/helm/values-dev.yaml`: `POSTMARK_SERVER_TOKEN` / `POSTMARK_WEBHOOK_TOKEN` / `POSTMARK_SENDER_DOMAIN` slots removed.
@@ -548,6 +551,15 @@ Delivered:
 - Admin > Notifications rebuilt as compact operator surface: channel health strip, summary line, collapsible delivery history and dead letters (default collapsed), per-section expand badges.
 - Hard-cut residue greps all zero in `apps/api/src` + `apps/web/app` + `packages/contracts`.
 - All 5 verification gates green (lint, format:check, API typecheck, web typecheck, API test suite).
+
+**Closeout 2026-05-09 (audit follow-through):**
+
+- Code residue cleared: `BillingLifecycleProducerService` JSDoc no longer names the deleted `ScheduleBillingLifecycleNotificationsService`.
+- Resolver hardened: `telegram_thread` requires `AssistantChannelSurfaceBinding.bindingState=active`; `web_thread` and `web_notification_center` are always available per workspace (registry row is advisory, never a gate); return type changed from `ResolvedChannel | null` to a discriminated `ChannelResolution` union with explicit `reason` (`auto_derive_unavailable` / `channel_disabled_globally` / `channel_unhealthy`); every caller (`NotificationIntentService`, worker, routing/preview) updated to consume the new shape — no silent nulls.
+- Defaults extracted: inline `POLICY_DEFAULTS` / `DEFAULT_QUIET_HOURS` were moved to `defaults/notification-defaults.ts`; resolver, worker, and intent service all import from one place. A fresh DB now works without seed.
+- Schema decision (C1): `notification_delivery_attempts` keeps no `workspaceId` column; ADR + DATA-MODEL.md amended to declare workspace derivation via the `intentId` join. Less code churn, fully consistent with admin-cockpit query surface.
+- Authz gap on `POST /admin/notifications/channels/:channelType/test-send` closed: `ManageNotificationPlatformService.assertAdminAccess` is now invoked before the dry-run payload is returned. Covered by `apps/api/test/admin-notifications.controller.authz.test.ts` (every notifications admin endpoint, including test-send, asserts `ForbiddenException` for non-admin user).
+- Doc sync: `DATA-MODEL.md` rewritten to mark singletons as global, drop `billing_lifecycle_notification_jobs`, and document per-event vs. singleton split. `API-BOUNDARY.md` documents the Postmark credential ids in tool-credentials. `TEST-PLAN.md` adds a Slice 2.5 subsection with run commands and interpretation rules.
 
 **Operator pre-deploy action (before merge to persai-dev):** paste the existing Postmark Server Token and Webhook Token into `Admin > Tools > Notifications` before the migration runs, so email delivery has zero downtime.
 

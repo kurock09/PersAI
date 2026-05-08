@@ -62,8 +62,11 @@ export class AdminNotificationsController {
     ok: boolean;
     message: string;
   }> {
-    this.resolveRequestUserId(req);
-    // In Slice 1: dry-run test-send; real send wired in Slice 4.
+    const userId = this.resolveRequestUserId(req);
+    // The dry-run path still has no DB or delivery side-effects, but it MUST
+    // run the same admin gate as every other endpoint on this surface
+    // (ADR-088 Slice 2.5 closeout — authz audit fix).
+    await this.manageNotificationPlatformService.assertAdminAccess(userId);
     return {
       requestId: req.requestId ?? null,
       ok: true,

@@ -5,9 +5,8 @@ import type { BillingLifecycleFactPayload } from "./notifications/templates/bill
 
 /**
  * Billing lifecycle notification producer.
- * Replaces ScheduleBillingLifecycleNotificationsService (Slice 3 cutover).
  *
- * For each billing lifecycle event ID, resolves the workspace notification policy
+ * For each billing lifecycle event id, resolves the global notification policy
  * for source=billing_lifecycle, determines which rules apply, and calls
  * NotificationIntentService.createIntent for each.
  *

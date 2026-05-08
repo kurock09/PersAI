@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { NotificationDeliveryWorkerService } from "../src/modules/workspace-management/application/notifications/notification-delivery-worker.service";
 import { NotificationIntentService } from "../src/modules/workspace-management/application/notifications/notification-intent.service";
 import { NotificationRoutingService } from "../src/modules/workspace-management/application/notifications/notification-routing.service";
+import { ResolveWorkspaceNotificationChannelsService } from "../src/modules/workspace-management/application/notifications/resolve-workspace-notification-channels.service";
 
 // ── Minimal stub logger ────────────────────────────────────────────────────
 
@@ -477,12 +478,27 @@ async function run(): Promise<void> {
       makeAdapter("web_thread", { shouldFail: adapterOpts?.primaryFail }),
       makeAdapter("web_notification_center")
     ];
+    // Augment the mock prisma with findUnique used by the resolver.
+    (prisma.notificationChannelRegistry as Record<string, unknown>)["findUnique"] = async (q: {
+      where: { channelType?: string };
+    }) => {
+      const list = await prisma.notificationChannelRegistry.findMany();
+      return list.find((c) => c.channelType === q.where.channelType) ?? null;
+    };
+    (prisma as Record<string, unknown>)["assistantChannelSurfaceBinding"] = {
+      findFirst: async () => null
+    };
+    (prisma as Record<string, unknown>)["workspaceMember"] = {
+      findFirst: async () => null
+    };
+    const channelResolver = new ResolveWorkspaceNotificationChannelsService(prisma as never);
     const worker = new NotificationDeliveryWorkerService(
       prisma as never,
       adapters as never,
       { render: async () => null } as never,
       { render: async () => null } as never,
-      makeStaticFallbackRenderer() as never
+      makeStaticFallbackRenderer() as never,
+      channelResolver
     );
     return { worker, prisma };
   }
@@ -563,7 +579,8 @@ async function run(): Promise<void> {
         }
       }
     };
-    const intentSvc = new NotificationIntentService(intentPrisma as never, routing);
+    const intentResolver = new ResolveWorkspaceNotificationChannelsService(intentPrisma as never);
+    const intentSvc = new NotificationIntentService(intentPrisma as never, routing, intentResolver);
 
     const baseInput = {
       workspaceId: "ws-dedup",

@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { NotificationIntentService } from "../src/modules/workspace-management/application/notifications/notification-intent.service";
 import { NotificationRoutingService } from "../src/modules/workspace-management/application/notifications/notification-routing.service";
+import { ResolveWorkspaceNotificationChannelsService } from "../src/modules/workspace-management/application/notifications/resolve-workspace-notification-channels.service";
 
 // ── Minimal in-memory Prisma mock ──────────────────────────────────────────
 
@@ -98,7 +99,8 @@ function makeService(opts?: {
 }) {
   const prisma = makePrisma(opts);
   const routing = new NotificationRoutingService();
-  return new NotificationIntentService(prisma as never, routing);
+  const channelResolver = new ResolveWorkspaceNotificationChannelsService(prisma as never);
+  return new NotificationIntentService(prisma as never, routing, channelResolver);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────

@@ -154,20 +154,27 @@ ADR-087 adds one more quota/product truth layer:
 - paid token-budget light mode is derived from effective plan truth plus the current period-scoped token counter (`used >= limit`) and lasts until that period resets; free/zero-price plans may still receive warnings but do not enter paid light mode
 - upgrade eligibility for advisory copy must derive from explicit catalog truth rather than plan-name heuristics; ADR-087 currently defines the maximum plan as the highest-priced visible paid plan
 
-`Admin > Ops Cockpit` reads support projections from these PersAI-owned tables: `workspace_subscriptions`, `workspace_subscription_lifecycle_events`, `billing_lifecycle_notification_jobs`, and period quota counters. Provider customer/subscription refs are displayed only as support identifiers; product surfaces do not read provider state directly at request time.
+`Admin > Ops Cockpit` reads support projections from these PersAI-owned tables: `workspace_subscriptions`, `workspace_subscription_lifecycle_events`, and period quota counters. Billing notification history lives in `notification_intents` / `notification_delivery_attempts` (ADR-088 Slice 3) and is surfaced through `Admin > Notifications`. Provider customer/subscription refs are displayed only as support identifiers; product surfaces do not read provider state directly at request time.
 
 ADR-082 Slice 4 adds `workspace_media_monthly_quota_counters` as the period-scoped truth for media generation/editing allowances. Rows are keyed by workspace, tool code (`image_generate`, `image_edit`, `video_generate`), and period start/end; counters separately track reserved, settled, released, and reconciliation-required units. Slice 5 uses those columns as the delivery-confirmed settlement lifecycle: reservations happen before provider work, successful delivery moves reserved units into settled units, provider/no-delivery outcomes are released or marked reconciliation-required, and only reserved plus settled units count as active user quota usage. Periods resolve from `WorkspaceSubscription.currentPeriodStartedAt/currentPeriodEndsAt` with an explicit UTC calendar-month fallback for local/manual states. `WorkspaceToolUsageDailyCounter` remains day-scoped safety/rate-limit state and is not the paid monthly media quota model.
 
 Materialization validates plan-selected image/video model keys against the capability-aware catalog and writes the resolved primary/fallback keys into each runtime bundle tool credential ref. Runtime tool execution treats that credential chain as request-time truth for `image_generate`, `image_edit`, and `video_generate`, so feature-specific requests can switch to a compatible fallback model or soft-skip before calling the provider.
 
-ADR-088 Slice 1 adds the unified notification platform tables:
+ADR-088 Slice 1 introduced the unified notification platform tables; ADR-088 Slice 2.5 (landed 2026-05-09) collapsed configuration to **global singletons** and keeps per-event tables workspace-attributed:
 
-- `notification_intents` — durable notification intent records keyed by workspace/source/class/priority/dedupe key. `lifecycleStatus` values: `pending`, `claimed`, `delivered`, `failed`, `dead_letter`, `skipped`, `deferred_quiet_hours`, `deferred_rate_limit`. Carries render strategy, template id, fact payload JSON, policy snapshot JSON, allowed channels array, escalation metadata, quiet-hours flag, surface/thread binding, and dedupe key.
-- `notification_delivery_attempts` — per-channel delivery attempt log with attempt number, claimed-at/resolved-at timestamps, `channelType`, outcome `status` (`pending`, `sent`, `delivered`, `failed`, `bounced`, `complaint`, `escalated`), provider reference, structured error JSON, and self-referential `escalationOf` FK (`ON DELETE SET NULL`) added in Slice 1 closeout migration.
-- `notification_channel_registry` — operator-managed channel configuration: one row per `NotificationChannelType` per workspace. Fields: `channelType`, `enabled`, `config` JSON, `healthStatus` (`healthy`, `degraded`, `down`, `unconfigured`), `consecutiveFailures`, `lastDeliveryAt`, `lastFailureAt`.
-- `notification_policies` — per-source notification policy. Fields: `source`, `enabled`, `channels` (array), `cooldownMinutes`, `maxPerDay`, `escalationAfterMinutes`, `escalationChannel`, `respectQuietHours`, `renderStrategy`, `renderInstructionRef`, `templateId`, `config` JSON.
-- `notification_quiet_hours` — workspace-scoped quiet hours. Fields: `enabled`, `startLocal` (HH:MM), `endLocal` (HH:MM), `timezoneMode` (`workspace_default`, `per_user_resolved`), `defaultTimezone`, `appliesToSources` (string array).
-- `notification_dead_letters` — dead-lettered intents. Fields: `intentId` (FK to `notification_intents`), `source`, `class`, `lastError` JSON, `escalationAttempts`, `claimedForReplayAt`, `resolvedAt` (NULL = active, non-NULL = replayed or discarded).
+**Per-event tables (workspace-attributed):**
+
+- `notification_intents` — durable notification intent records keyed by `workspaceId` plus source/class/priority/dedupe key. `lifecycleStatus` values: `pending`, `claimed`, `delivered`, `failed`, `dead_letter`, `skipped`, `deferred_quiet_hours`, `deferred_rate_limit`. Carries render strategy, template id, fact payload JSON, policy snapshot JSON, allowed channels array, escalation metadata, quiet-hours flag, surface/thread binding, and dedupe key.
+- `notification_delivery_attempts` — per-channel delivery attempt log keyed by `intentId` (cascade). Stores `attemptNumber`, `channel`, `status` (`pending`, `sent`, `delivered`, `failed`, `bounced`, `complaint`, `escalated`), `providerRef`, structured `error` JSON, `startedAt` / `completedAt`, and self-referential `escalationOf` FK (`ON DELETE SET NULL`). The table deliberately does **not** carry its own `workspaceId`; admin queries derive workspace through the parent intent join (see `ManageNotificationPlatformService.listDeliveries`).
+- `notification_dead_letters` — dead-lettered intents keyed by `workspaceId` and `intentId` (FK). Fields: `lastError` JSON, `escalationAttempts`, `claimedForReplayAt`, `resolvedAt` (NULL = active, non-NULL = replayed or discarded).
+
+**Global singleton tables (operator-owned, no `workspaceId`):**
+
+- `notification_channel_registry` — operator-managed channel configuration: exactly one row per `NotificationChannelType` for the whole platform (`@unique` on `channelType`). Fields: `channelType`, `enabled`, `config` JSON, `healthStatus` (`healthy`, `degraded`, `down`, `unconfigured`), `consecutiveFailures`, `lastDeliveryAt`, `lastFailureAt`. Web channels (`web_thread`, `web_notification_center`) are always available per-workspace through the resolver and the registry row is advisory for them. Other channel types use the row as the operator gate.
+- `notification_policies` — global per-source notification policy: exactly one row per `NotificationSource` (`@unique` on `source`). Fields: `source`, `enabled`, `channels` (array), `cooldownMinutes`, `maxPerDay`, `escalationAfterMinutes`, `escalationChannel`, `respectQuietHours`, `renderStrategy`, `renderInstructionRef`, `templateId`, `config` JSON.
+- `notification_quiet_hours` — global singleton quiet hours (one row, `singleton` boolean unique on `true`). Fields: `enabled`, `startLocal` (HH:MM), `endLocal` (HH:MM), `timezoneMode` (`workspace_default`, `per_user_resolved`), `defaultTimezone`, `appliesToSources` (string array).
+
+**Code-level defaults:** `apps/api/src/modules/workspace-management/application/notifications/defaults/notification-defaults.ts` exports `NOTIFICATION_POLICY_DEFAULTS`, `NOTIFICATION_QUIET_HOURS_DEFAULT`, and `NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS` covering every value of `NotificationSource` and `NotificationChannelType`. The resolver (`ResolveWorkspaceNotificationChannelsService`) and `NotificationIntentService` import from this file when no DB row exists; no inline copies are permitted elsewhere. Per-workspace channel availability is auto-derived at delivery time from `Workspace.owner.AppUser.email`, `AssistantChannelSurfaceBinding` (`bindingState=active`), and intent context — no per-workspace notification-config rows ever exist.
 
 Active enum values (Prisma source of truth):
 
@@ -183,19 +190,19 @@ Active enum values (Prisma source of truth):
 | `NotificationChannelHealth` | `healthy`, `degraded`, `down`, `unconfigured` |
 | `NotificationQuietHoursTimezoneMode` | `workspace_default`, `per_user_resolved` |
 
-Legacy notification tables retired in Slice 2 (dropped 2026-05-08):
+Legacy notification tables retired in Slices 2 and 3 (dropped 2026-05-08):
 
 | Legacy table | Retired by |
 |---|---|
 | `assistant_notification_outbox` | Slice 2 |
 | `assistant_quota_advisory_states` | Slice 2 |
 | `workspace_notification_policies` (idle + quota rows) | Slice 2 |
+| `billing_lifecycle_notification_jobs` | Slice 3 |
 
-Remaining legacy notification tables still **transitional** until Slices 3–4:
+Remaining legacy notification tables still **transitional** until Slice 4:
 
 | Legacy table | Owning producer | Retiring slice |
 |---|---|---|
-| `billing_lifecycle_notification_jobs` | `ScheduleBillingLifecycleNotificationsService` (now creates intents) | Slice 3 |
 | `workspace_admin_notification_channels` | legacy admin webhook config | Slice 4 |
 | `admin_notification_deliveries` | legacy admin webhook log | Slice 4 |
 

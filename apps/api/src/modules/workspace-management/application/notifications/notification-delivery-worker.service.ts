@@ -7,6 +7,11 @@ import type { NotificationChannelAdapter } from "../../infrastructure/notificati
 import { StaticFallbackRendererService } from "./render/static-fallback-renderer.service";
 import { TemplateRendererService } from "./render/template-renderer.service";
 import { GroundedLlmRendererService } from "./render/grounded-llm-renderer.service";
+import {
+  ResolveWorkspaceNotificationChannelsService,
+  type ChannelResolution,
+  type ChannelUnavailableReason
+} from "./resolve-workspace-notification-channels.service";
 import type { NotificationIntentRecord, RenderedPayload } from "./notification-platform.types";
 
 const WORKER_POLL_INTERVAL_MS = 10_000;
@@ -32,7 +37,8 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
     private readonly channelAdapters: NotificationChannelAdapter[],
     private readonly templateRenderer: TemplateRendererService,
     private readonly groundedLlmRenderer: GroundedLlmRendererService,
-    private readonly staticFallbackRenderer: StaticFallbackRendererService
+    private readonly staticFallbackRenderer: StaticFallbackRendererService,
+    private readonly channelResolver: ResolveWorkspaceNotificationChannelsService
   ) {}
 
   onModuleInit(): void {
@@ -113,19 +119,21 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
 
   private async deliverIntent(intent: NotificationIntentRecord, _claimExpiry: Date): Promise<void> {
     try {
-      const channelRegistry = await this.prisma.notificationChannelRegistry.findMany({});
-
       const primaryChannel = intent.allowedChannels[0] ?? null;
       if (!primaryChannel) {
         await this.markFailed(intent, "no_channel_configured");
         return;
       }
 
-      const channelRow = channelRegistry.find(
-        (r) => (r.channelType as string) === primaryChannel && r.enabled
-      );
-      if (!channelRow) {
-        await this.markFailed(intent, `channel_not_configured:${primaryChannel}`);
+      const resolution = await this.channelResolver.resolveChannel({
+        workspaceId: intent.workspaceId,
+        channelType: primaryChannel
+      });
+      if (!resolution.available) {
+        await this.markFailed(
+          intent,
+          this.formatChannelUnavailable(primaryChannel, resolution.reason)
+        );
         return;
       }
 
@@ -136,6 +144,10 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
         await this.markFailed(intent, `adapter_not_found:${primaryChannel}`);
         return;
       }
+
+      const channelRow = await this.prisma.notificationChannelRegistry.findUnique({
+        where: { channelType: primaryChannel as never }
+      });
 
       // Render
       const rendered = await this.render(intent);
@@ -167,24 +179,19 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
         traceId: intent.traceId
       });
 
-      // Deliver
-      const channelRegistryRecord = {
-        id: channelRow.id,
-        channelType: channelRow.channelType,
-        enabled: channelRow.enabled,
-        config: channelRow.config as Record<string, unknown>,
-        healthStatus: channelRow.healthStatus,
-        consecutiveFailures: channelRow.consecutiveFailures,
-        lastDeliveryAt: channelRow.lastDeliveryAt,
-        lastFailureAt: channelRow.lastFailureAt,
-        createdAt: channelRow.createdAt,
-        updatedAt: channelRow.updatedAt
-      };
+      // Deliver. Build a ChannelRegistryRow shape from the resolver output so
+      // adapters keep their typed contract; per-workspace overrides (e.g. the
+      // resolved owner email under config.toAddress) flow through resolution.
+      const channelRegistryRecord = this.toChannelRegistryRow(
+        primaryChannel,
+        resolution,
+        channelRow
+      );
 
       const result = await adapter.deliver(intent, rendered, channelRegistryRecord);
 
       if (result.status === "delivered") {
-        await this.prisma.$transaction([
+        const updateOperations: Prisma.PrismaPromise<unknown>[] = [
           this.prisma.notificationDeliveryAttempt.update({
             where: { id: attempt.id },
             data: {
@@ -196,16 +203,21 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
           this.prisma.notificationIntent.update({
             where: { id: intent.id },
             data: { lifecycleStatus: "delivered", deliveredAt: new Date() }
-          }),
-          this.prisma.notificationChannelRegistry.update({
-            where: { id: channelRow.id },
-            data: {
-              consecutiveFailures: 0,
-              lastDeliveryAt: new Date(),
-              healthStatus: "healthy"
-            }
           })
-        ]);
+        ];
+        if (channelRow) {
+          updateOperations.push(
+            this.prisma.notificationChannelRegistry.update({
+              where: { id: channelRow.id },
+              data: {
+                consecutiveFailures: 0,
+                lastDeliveryAt: new Date(),
+                healthStatus: "healthy"
+              }
+            })
+          );
+        }
+        await this.prisma.$transaction(updateOperations);
 
         this.logger.log({
           event: "notification.delivery.delivered",
@@ -235,13 +247,15 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
           }
         });
 
-        await this.prisma.notificationChannelRegistry.update({
-          where: { id: channelRow.id },
-          data: {
-            consecutiveFailures: { increment: 1 },
-            lastFailureAt: new Date()
-          }
-        });
+        if (channelRow) {
+          await this.prisma.notificationChannelRegistry.update({
+            where: { id: channelRow.id },
+            data: {
+              consecutiveFailures: { increment: 1 },
+              lastFailureAt: new Date()
+            }
+          });
+        }
 
         this.logger.warn({
           event: "notification.delivery.failed",
@@ -278,28 +292,67 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
     }
   }
 
+  private formatChannelUnavailable(channelType: string, reason: ChannelUnavailableReason): string {
+    return `channel_not_configured:${channelType}:${reason}`;
+  }
+
+  private toChannelRegistryRow(
+    channelType: string,
+    resolution: Extract<ChannelResolution, { available: true }>,
+    row: {
+      id: string;
+      channelType: string;
+      enabled: boolean;
+      consecutiveFailures: number;
+      lastDeliveryAt: Date | null;
+      lastFailureAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+      healthStatus: string;
+    } | null
+  ) {
+    const now = new Date();
+    return {
+      id: row?.id ?? `derived:${channelType}`,
+      channelType: (row?.channelType ?? channelType) as never,
+      enabled: row?.enabled ?? true,
+      config: resolution.channel.config,
+      healthStatus: (resolution.channel.healthStatus as never) ?? "healthy",
+      consecutiveFailures: row?.consecutiveFailures ?? 0,
+      lastDeliveryAt: row?.lastDeliveryAt ?? null,
+      lastFailureAt: row?.lastFailureAt ?? null,
+      createdAt: row?.createdAt ?? now,
+      updatedAt: row?.updatedAt ?? now
+    };
+  }
+
   private async tryEscalation(
     intent: NotificationIntentRecord,
     escalationChannel: string,
     primaryAttemptId: string
   ): Promise<void> {
-    const channelRow = await this.prisma.notificationChannelRegistry.findFirst({
-      where: {
-        channelType: escalationChannel as never,
-        enabled: true
-      }
+    const resolution = await this.channelResolver.resolveChannel({
+      workspaceId: intent.workspaceId,
+      channelType: escalationChannel
     });
 
     const adapter = this.channelAdapters.find(
       (a) => (a.channelType as string) === escalationChannel
     );
 
-    if (!channelRow || !adapter) {
+    if (!resolution.available || !adapter) {
+      const reason = resolution.available
+        ? `adapter_not_found:${escalationChannel}`
+        : this.formatChannelUnavailable(escalationChannel, resolution.reason);
       await this.markDeadLetter(intent, {
-        reason: `escalation_channel_unavailable:${escalationChannel}`
+        reason: `escalation_channel_unavailable:${reason}`
       });
       return;
     }
+
+    const channelRow = await this.prisma.notificationChannelRegistry.findUnique({
+      where: { channelType: escalationChannel as never }
+    });
 
     const rendered = await this.render(intent);
 
@@ -330,18 +383,11 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
       traceId: intent.traceId
     });
 
-    const channelRegistryRecord = {
-      id: channelRow.id,
-      channelType: channelRow.channelType,
-      enabled: channelRow.enabled,
-      config: channelRow.config as Record<string, unknown>,
-      healthStatus: channelRow.healthStatus,
-      consecutiveFailures: channelRow.consecutiveFailures,
-      lastDeliveryAt: channelRow.lastDeliveryAt,
-      lastFailureAt: channelRow.lastFailureAt,
-      createdAt: channelRow.createdAt,
-      updatedAt: channelRow.updatedAt
-    };
+    const channelRegistryRecord = this.toChannelRegistryRow(
+      escalationChannel,
+      resolution,
+      channelRow
+    );
 
     const result = await adapter.deliver(intent, rendered, channelRegistryRecord);
 

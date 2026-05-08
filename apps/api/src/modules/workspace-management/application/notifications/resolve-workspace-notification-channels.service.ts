@@ -1,20 +1,45 @@
 import { Injectable, Logger } from "@nestjs/common";
+import {
+  AssistantChannelBindingState,
+  NotificationChannelType,
+  type NotificationQuietHoursTimezoneMode
+} from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
+import {
+  NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS,
+  NOTIFICATION_POLICY_DEFAULTS,
+  NOTIFICATION_QUIET_HOURS_DEFAULT,
+  type NotificationChannelRegistryDefault,
+  type NotificationPolicyDefault,
+  type NotificationQuietHoursDefault
+} from "./defaults/notification-defaults";
 
 /**
- * Resolves per-workspace channel availability at delivery time.
- * Reads global singleton notification tables (channel registry, policy, quiet hours)
- * and auto-derives whether each channel type is actually available for a specific workspace.
+ * Resolves per-workspace channel availability at delivery time and reads
+ * global policy / quiet-hours singletons.
  *
- * Resolution rules per channelType (ADR-088 §T2):
- *   web_thread:               always available; no config required.
- *   web_notification_center:  always available; threadKey = "system:notifications".
- *   telegram_thread:          available iff AssistantChannelSurfaceBinding row exists
- *                             for this workspace with kind=telegram.
- *   email:                    available iff the workspace owner's AppUser.email is non-empty
- *                             AND the global Postmark token is configured.
- *   admin_webhook:            available iff global registry row has webhookUrl configured.
- *   web_push / mobile_push:   return null (future).
+ * ADR-088 §4 — channel registry is global; per-workspace availability is
+ * auto-derived from existing PersAI truth. The global registry row is
+ * advisory (provides operator config / health). For `web_thread` and
+ * `web_notification_center` it is NEVER a gate — those channels are always
+ * available because PersAI always has a web product surface for the
+ * workspace owner. For all other channel types the registry row gates
+ * delivery via `enabled` / `healthStatus` plus channel-specific availability:
+ *
+ *   web_thread:               always available; chatId from intent context.
+ *   web_notification_center:  always available; thread key
+ *                             "system:notifications".
+ *   telegram_thread:          requires AssistantChannelSurfaceBinding row
+ *                             with bindingState=active and the global registry
+ *                             row enabled+healthy.
+ *   email:                    requires workspace owner AppUser.email; the
+ *                             global registry row supplies sender domain
+ *                             config.
+ *   admin_webhook:            requires global registry row with webhookUrl.
+ *   web_push, mobile_push:    not configured yet (return reason).
+ *
+ * Failure modes return a discriminated `ChannelResolution.available=false`
+ * with an explicit `reason` so callers never silently swallow nulls.
  */
 @Injectable()
 export class ResolveWorkspaceNotificationChannelsService {
@@ -23,118 +48,172 @@ export class ResolveWorkspaceNotificationChannelsService {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
   /**
-   * Returns whether a given channel type is available for the workspace,
-   * plus any channel-specific metadata needed by the adapter.
-   * Returns null when the channel is unavailable for this workspace.
+   * Resolve a single channel for a workspace. Returns a discriminated result:
+   * - `{ available: true, channel }` when the channel is deliverable now.
+   * - `{ available: false, reason }` when the channel cannot be used; callers
+   *   must record the reason in delivery attempts / logs rather than treat it
+   *   as silent skip.
    */
   async resolveChannel(input: {
     workspaceId: string;
     channelType: string;
-  }): Promise<ResolvedChannel | null> {
+  }): Promise<ChannelResolution> {
+    const channelType = input.channelType;
+    const isWebChannel =
+      channelType === NotificationChannelType.web_thread ||
+      channelType === NotificationChannelType.web_notification_center;
+
     const globalRow = await this.prisma.notificationChannelRegistry.findUnique({
-      where: { channelType: input.channelType as never }
+      where: { channelType: channelType as NotificationChannelType }
     });
 
-    if (!globalRow || !globalRow.enabled) {
-      return null;
+    const defaults = NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS[channelType as NotificationChannelType];
+
+    // Web channels are always derivable per workspace; the registry row is
+    // advisory (operator-controlled config such as opt-in metadata) but is
+    // NOT a gate. For every other channel type the registry row remains the
+    // operator gate per ADR-088 §4.
+    if (!isWebChannel) {
+      if (!globalRow || !globalRow.enabled) {
+        return { available: false, reason: "channel_disabled_globally" };
+      }
+      if (globalRow.healthStatus === "down") {
+        return { available: false, reason: "channel_unhealthy" };
+      }
     }
 
-    switch (input.channelType) {
-      case "web_thread":
-      case "web_notification_center":
-        return {
-          channelType: input.channelType,
-          config: globalRow.config as Record<string, unknown>,
-          healthStatus: globalRow.healthStatus as string
-        };
+    const baseConfig = mergeConfig(defaults, globalRow);
+    const baseHealth = (
+      globalRow?.healthStatus ?? (defaults?.healthy ? "healthy" : "unconfigured")
+    ).toString();
 
-      case "telegram_thread": {
-        // Check if any assistant in this workspace has an active Telegram binding.
-        const binding = await this.prisma.assistantChannelSurfaceBinding.findFirst({
-          where: {
-            assistant: { workspaceId: input.workspaceId },
-            providerKey: "telegram"
-          }
-        });
-        if (!binding) return null;
+    switch (channelType) {
+      case NotificationChannelType.web_thread:
+      case NotificationChannelType.web_notification_center: {
         return {
-          channelType: input.channelType,
-          config: globalRow.config as Record<string, unknown>,
-          healthStatus: globalRow.healthStatus as string
+          available: true,
+          channel: {
+            channelType,
+            config: baseConfig,
+            healthStatus: baseHealth
+          }
         };
       }
 
-      case "email": {
-        // Check if the workspace owner has an email address configured.
+      case NotificationChannelType.telegram_thread: {
+        const binding = await this.prisma.assistantChannelSurfaceBinding.findFirst({
+          where: {
+            assistant: { workspaceId: input.workspaceId },
+            providerKey: "telegram",
+            bindingState: AssistantChannelBindingState.active
+          }
+        });
+        if (!binding) {
+          return { available: false, reason: "channel_unhealthy" };
+        }
+        return {
+          available: true,
+          channel: {
+            channelType,
+            config: baseConfig,
+            healthStatus: baseHealth
+          }
+        };
+      }
+
+      case NotificationChannelType.email: {
         const member = await this.prisma.workspaceMember.findFirst({
           where: { workspaceId: input.workspaceId, role: "owner" },
           select: { user: { select: { email: true } } }
         });
-        const ownerEmail = member?.user?.email;
-        if (!ownerEmail || ownerEmail.trim().length === 0) return null;
+        const ownerEmail = member?.user?.email?.trim();
+        if (!ownerEmail || ownerEmail.length === 0) {
+          return { available: false, reason: "auto_derive_unavailable" };
+        }
         return {
-          channelType: input.channelType,
-          config: {
-            ...(globalRow.config as Record<string, unknown>),
-            toAddress: ownerEmail
-          },
-          healthStatus: globalRow.healthStatus as string
+          available: true,
+          channel: {
+            channelType,
+            config: { ...baseConfig, toAddress: ownerEmail },
+            healthStatus: baseHealth
+          }
         };
       }
 
-      case "admin_webhook": {
-        const config = globalRow.config as Record<string, unknown>;
-        if (!config["webhookUrl"]) return null;
+      case NotificationChannelType.admin_webhook: {
+        const url = baseConfig["webhookUrl"];
+        if (typeof url !== "string" || url.trim().length === 0) {
+          return { available: false, reason: "auto_derive_unavailable" };
+        }
         return {
-          channelType: input.channelType,
-          config,
-          healthStatus: globalRow.healthStatus as string
+          available: true,
+          channel: {
+            channelType,
+            config: baseConfig,
+            healthStatus: baseHealth
+          }
         };
       }
+
+      case NotificationChannelType.web_push:
+      case NotificationChannelType.mobile_push:
+        return { available: false, reason: "auto_derive_unavailable" };
 
       default:
-        return null;
+        this.logger.warn({
+          event: "notification.resolve_channel.unknown_type",
+          channelType
+        });
+        return { available: false, reason: "auto_derive_unavailable" };
     }
   }
 
   /**
-   * Resolves the global policy for a notification source.
-   * Falls back to code defaults if no DB row exists.
+   * Resolve the global policy for a notification source, falling back to the
+   * code-level default registered in `notification-defaults.ts`.
    */
   async resolvePolicy(source: string): Promise<ResolvedPolicy> {
     const row = await this.prisma.notificationPolicy.findUnique({
       where: { source: source as never }
     });
-    if (!row) {
-      return POLICY_DEFAULTS[source] ?? DEFAULT_POLICY_FALLBACK;
+    if (row) {
+      return {
+        source,
+        enabled: row.enabled,
+        channels: row.channels,
+        cooldownMinutes: row.cooldownMinutes,
+        maxPerDay: row.maxPerDay,
+        escalationAfterMinutes: row.escalationAfterMinutes,
+        escalationChannel: row.escalationChannel,
+        respectQuietHours: row.respectQuietHours,
+        renderStrategy: row.renderStrategy as string,
+        renderInstructionRef: row.renderInstructionRef,
+        templateId: row.templateId,
+        config: (row.config as Record<string, unknown>) ?? {}
+      };
     }
-    return {
-      source,
-      enabled: row.enabled,
-      channels: row.channels,
-      cooldownMinutes: row.cooldownMinutes,
-      escalationAfterMinutes: row.escalationAfterMinutes,
-      escalationChannel: row.escalationChannel,
-      respectQuietHours: row.respectQuietHours,
-      renderStrategy: row.renderStrategy as string,
-      config: (row.config as Record<string, unknown>) ?? {}
-    };
+    const fallback =
+      NOTIFICATION_POLICY_DEFAULTS[source as keyof typeof NOTIFICATION_POLICY_DEFAULTS];
+    if (fallback) {
+      return policyDefaultToResolved(fallback);
+    }
+    return UNKNOWN_POLICY_FALLBACK(source);
   }
 
   /**
-   * Resolves the global quiet hours configuration.
-   * Falls back to disabled if no DB row exists.
+   * Resolve the global quiet-hours configuration, falling back to the disabled
+   * code-level default when no row exists.
    */
   async resolveQuietHours(): Promise<ResolvedQuietHours> {
     const row = await this.prisma.notificationQuietHours.findFirst({});
     if (!row) {
-      return DEFAULT_QUIET_HOURS;
+      return quietHoursDefaultToResolved(NOTIFICATION_QUIET_HOURS_DEFAULT);
     }
     return {
       enabled: row.enabled,
       startLocal: row.startLocal,
       endLocal: row.endLocal,
-      timezoneMode: row.timezoneMode as string,
+      timezoneMode: row.timezoneMode,
       defaultTimezone: row.defaultTimezone,
       appliesToSources: row.appliesToSources
     };
@@ -149,15 +228,27 @@ export type ResolvedChannel = {
   healthStatus: string;
 };
 
+export type ChannelUnavailableReason =
+  | "auto_derive_unavailable"
+  | "channel_disabled_globally"
+  | "channel_unhealthy";
+
+export type ChannelResolution =
+  | { available: true; channel: ResolvedChannel }
+  | { available: false; reason: ChannelUnavailableReason };
+
 export type ResolvedPolicy = {
   source: string;
   enabled: boolean;
   channels: string[];
   cooldownMinutes: number | null;
+  maxPerDay: number | null;
   escalationAfterMinutes: number | null;
   escalationChannel: string | null;
   respectQuietHours: boolean;
   renderStrategy: string;
+  renderInstructionRef: string | null;
+  templateId: string | null;
   config: Record<string, unknown>;
 };
 
@@ -165,98 +256,63 @@ export type ResolvedQuietHours = {
   enabled: boolean;
   startLocal: string;
   endLocal: string;
-  timezoneMode: string;
+  timezoneMode: NotificationQuietHoursTimezoneMode;
   defaultTimezone: string | null;
   appliesToSources: string[];
 };
 
-// ── Code-level defaults (used when no DB row exists on fresh install) ─────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-const DEFAULT_POLICY_FALLBACK: ResolvedPolicy = {
-  source: "unknown",
-  enabled: false,
-  channels: [],
-  cooldownMinutes: null,
-  escalationAfterMinutes: null,
-  escalationChannel: null,
-  respectQuietHours: true,
-  renderStrategy: "static_fallback",
-  config: {}
-};
+function mergeConfig(
+  defaults: NotificationChannelRegistryDefault | undefined,
+  row: { config: unknown } | null
+): Record<string, unknown> {
+  const base = defaults?.config ?? {};
+  const fromRow = row && row.config ? (row.config as Record<string, unknown>) : {};
+  return { ...base, ...fromRow };
+}
 
-const POLICY_DEFAULTS: Record<string, ResolvedPolicy> = {
-  idle_reengagement: {
-    source: "idle_reengagement",
+function policyDefaultToResolved(d: NotificationPolicyDefault): ResolvedPolicy {
+  return {
+    source: d.source,
+    enabled: d.enabled,
+    channels: d.channels,
+    cooldownMinutes: d.cooldownMinutes,
+    maxPerDay: d.maxPerDay,
+    escalationAfterMinutes: d.escalationAfterMinutes,
+    escalationChannel: d.escalationChannel,
+    respectQuietHours: d.respectQuietHours,
+    renderStrategy: d.renderStrategy as string,
+    renderInstructionRef: d.renderInstructionRef,
+    templateId: d.templateId,
+    config: d.config
+  };
+}
+
+function quietHoursDefaultToResolved(d: NotificationQuietHoursDefault): ResolvedQuietHours {
+  return {
+    enabled: d.enabled,
+    startLocal: d.startLocal,
+    endLocal: d.endLocal,
+    timezoneMode: d.timezoneMode,
+    defaultTimezone: d.defaultTimezone,
+    appliesToSources: d.appliesToSources
+  };
+}
+
+function UNKNOWN_POLICY_FALLBACK(source: string): ResolvedPolicy {
+  return {
+    source,
     enabled: false,
-    channels: ["web_notification_center", "telegram_thread"],
-    cooldownMinutes: 1440,
+    channels: [],
+    cooldownMinutes: null,
+    maxPerDay: null,
     escalationAfterMinutes: null,
     escalationChannel: null,
     respectQuietHours: true,
-    renderStrategy: "grounded_llm",
-    config: { idleHours: 24 }
-  },
-  quota_advisory: {
-    source: "quota_advisory",
-    enabled: true,
-    channels: ["web_thread", "telegram_thread"],
-    cooldownMinutes: 60,
-    escalationAfterMinutes: null,
-    escalationChannel: null,
-    respectQuietHours: false,
-    renderStrategy: "grounded_llm",
+    renderStrategy: "static_fallback",
+    renderInstructionRef: null,
+    templateId: null,
     config: {}
-  },
-  reminder: {
-    source: "reminder",
-    enabled: true,
-    channels: ["telegram_thread", "web_notification_center"],
-    cooldownMinutes: null,
-    escalationAfterMinutes: null,
-    escalationChannel: null,
-    respectQuietHours: false,
-    renderStrategy: "grounded_llm",
-    config: {}
-  },
-  background_task_push: {
-    source: "background_task_push",
-    enabled: true,
-    channels: ["web_notification_center", "telegram_thread"],
-    cooldownMinutes: null,
-    escalationAfterMinutes: null,
-    escalationChannel: null,
-    respectQuietHours: false,
-    renderStrategy: "grounded_llm",
-    config: {}
-  },
-  billing_lifecycle: {
-    source: "billing_lifecycle",
-    enabled: true,
-    channels: ["email"],
-    cooldownMinutes: null,
-    escalationAfterMinutes: null,
-    escalationChannel: null,
-    respectQuietHours: false,
-    renderStrategy: "template",
-    config: {
-      assistantPushEnabled: false,
-      rules: {
-        trial_ending: { enabled: true, offsetDays: 3 },
-        trial_expired: { enabled: true, offsetDays: null },
-        renewal_failed: { enabled: true, offsetDays: null },
-        grace_ending: { enabled: true, offsetDays: 1 },
-        grace_expired: { enabled: true, offsetDays: null },
-        payment_recovered: { enabled: true, offsetDays: null }
-      }
-    }
-  }
-};
-
-const DEFAULT_QUIET_HOURS: ResolvedQuietHours = {
-  enabled: false,
-  startLocal: "22:00",
-  endLocal: "08:00",
-  timezoneMode: "workspace_default",
-  defaultTimezone: null,
-  appliesToSources: []
-};
+  };
+}

@@ -189,6 +189,16 @@ export class ManageNotificationPlatformService {
     return context.workspaceId;
   }
 
+  /**
+   * Public thin admin gate. Endpoints that do not need a workspaceId or
+   * other state (e.g. dry-run test-send) call this so they pass through the
+   * same `assertCanManageAdminSystemNotifications` policy as every other
+   * endpoint on the surface.
+   */
+  async assertAdminAccess(userId: string): Promise<void> {
+    await this.resolveWorkspaceId(userId);
+  }
+
   // ── Channels ──────────────────────────────────────────────────────────────
 
   async listChannels(userId: string): Promise<NotificationChannelView[]> {

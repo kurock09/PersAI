@@ -1,86 +1,73 @@
 # SESSION-HANDOFF
 
-## 2026-05-09 — ADR-088 Slice 2.5: Multi-user correction + notification platform PROD foundation
+## 2026-05-09 — ADR-088 Slice 2.5 closeout: audit follow-through (NEEDS-FIX → DONE)
 
 ### What changed
 
-Corrected the per-workspace notification-config architectural flaw (notification_channel_registry, notification_policies, notification_quiet_hours wrongly stored per-workspace) and brought the full notification platform to PROD-grade global-singleton truth.
+The Slice 2.5 audit identified seven NEEDS-FIX items plus one Clerk admin authz gap on the new admin notifications surface. This session closes all of them and re-runs the full verification gate.
 
-**2.5.1 — Schema + migration:** `20260509000000_adr088_global_notification_truth` aggregates per-workspace rows into global singletons (aborts on divergence), drops `workspace_id` from the three config tables, adds global unique constraints. `notification_intents`, `notification_delivery_attempts`, `notification_dead_letters` keep `workspaceId`.
+**A1 — Code residue:** `BillingLifecycleProducerService` JSDoc no longer names the deleted `ScheduleBillingLifecycleNotificationsService` class.
 
-**2.5.2 — Resolver service:** `ResolveWorkspaceNotificationChannelsService` with `resolveChannel(workspaceId, channelType)`, `resolvePolicy(source)`, and `resolveQuietHours()`. Email available iff owner's `AppUser.email` non-empty; telegram iff `AssistantChannelSurfaceBinding` exists; web channels always available.
+**B1 — Defaults extracted:** `apps/api/src/modules/workspace-management/application/notifications/defaults/notification-defaults.ts` is the single source of truth for `NOTIFICATION_POLICY_DEFAULTS`, `NOTIFICATION_QUIET_HOURS_DEFAULT`, and `NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS`. Every value of `NotificationSource` and `NotificationChannelType` is covered. `ResolveWorkspaceNotificationChannelsService`, `NotificationIntentService`, and `NotificationDeliveryWorkerService` import from this file — no inline copies remain.
 
-**2.5.3 — Worker/intent/deliver rewrites:** `NotificationDeliveryWorkerService`, `NotificationIntentService`, `ManageNotificationPlatformService`, `HandlePostmarkWebhookService`, `BillingLifecycleProducerService` updated for global singleton lookups. `quota-advisory-follow-up.service.ts` and `persai-idle-reengagement-scheduler.service.ts` updated.
+**B2 — Resolver semantic fixes:**
+- Telegram resolution now requires `AssistantChannelSurfaceBinding.bindingState=active` (was missing the active filter).
+- `web_thread` and `web_notification_center` are always available per workspace; the global registry row is advisory and never a gate for them. The early-return short-circuit was removed for these two channel types only.
+- Return type changed from `ResolvedChannel | null` to discriminated `ChannelResolution` union with explicit `reason` (`auto_derive_unavailable` / `channel_disabled_globally` / `channel_unhealthy`). All callers (intent service, worker, admin preview) consume the new shape — no silent nulls.
 
-**2.5.4 — Postmark credentials → Admin > Tools:** `EmailChannelAdapter` and `HandlePostmarkWebhookService` resolve token exclusively from `PlatformRuntimeProviderSecretStoreService`. No `process.env["POSTMARK_*"]` fallbacks remain. `TOOL_CREDENTIAL_IDS` extended with `notification_email_postmark` and `notification_email_postmark_webhook`.
+**B3 — Resolver test:** `apps/api/test/resolve-workspace-notification-channels.service.test.ts` covers email available/unavailable, telegram active-vs-inactive binding, web channels always-on, admin webhook missing-url and disabled-globally, and policy/quiet-hours fallback to `notification-defaults.ts` defaults vs DB row override. 10 assertions, exit 0.
 
-**2.5.5 — Helm cleanup:** `POSTMARK_SERVER_TOKEN`, `POSTMARK_WEBHOOK_TOKEN`, `POSTMARK_SENDER_DOMAIN` removed from `infra/helm/values-dev.yaml`.
+**C1 — Schema decision (less code churn):** `notification_delivery_attempts` keeps no `workspaceId` column. The on-disk schema already derives workspace via the parent `notification_intents` row; `ManageNotificationPlatformService.listDeliveries` already joins through `intentId` for admin filtering. ADR-088 + DATA-MODEL.md amended to declare this explicitly and remove the misleading "keeps workspaceId" claim.
 
-**2.5.6 — Admin > Tools UI:** "Notifications" section added listing both Postmark credential inputs (Postmark Server Token, Postmark Webhook Token) using existing credential card pattern.
+**D1 — DATA-MODEL.md:** rewritten — `notification_channel_registry`, `notification_policies`, `notification_quiet_hours` are documented as global singleton tables (one row per natural key, no `workspaceId`); per-event tables (`notification_intents` + `notification_dead_letters`) keep `workspaceId`; `notification_delivery_attempts` derives workspace via intent join. `billing_lifecycle_notification_jobs` removed from the live-table prose; ops-cockpit text reflects Slice 3 truth (billing notification history under `Admin > Notifications`).
 
-**2.5.7 — Admin > Notifications UI rebuild:** compact operator surface — channel health strip with health badges + timestamps, summary line (policies enabled / quiet hours on-off / intent count 24h / dead-letter count), collapsible delivery history and dead letters (default collapsed with count badges).
+**D2 — API-BOUNDARY.md:** Postmark Server Token and Webhook Token are documented as living in the tool-credentials store under `notification/email/postmark/api-key` and `notification/email/postmark/webhook-token` (`NOTIFICATION_CREDENTIAL_IDS` in `tool-credential-settings.ts`). `process.env`-based fallbacks are explicitly forbidden in source.
 
-**2.5.8 — Seed cleanup:** `seedNotificationChannelRegistry` function and workspace-loop deleted from `apps/api/prisma/seed.ts`. Seed writes zero notification rows in any environment.
+**D3 — TEST-PLAN.md:** added "Slice 2.5 — multi-user correction" subsection with run commands for the resolver test, the Postmark webhook secret-store test, the new authz integration test, and the touched intent/worker tests, plus a 5-rule interpretation table that captures the multi-user invariant.
 
-**2.5.9 — Bug fix:** Timezone-aware quiet-hours `nextWindowEnd` in `NotificationRoutingService` now computes UTC offset from `Intl.DateTimeFormat` instead of interpreting the date string in server local time.
+**E1 — Authz gap closed:** `ManageNotificationPlatformService.assertAdminAccess(userId)` is a public thin gate that delegates to `assertCanManageAdminSystemNotifications`. `AdminNotificationsController.testSendChannel` now invokes it before returning the dry-run payload — every endpoint on `/admin/notifications/*` runs the same gate.
 
-**2.5.10 — Test fixes:** `notification-intent.service.test.ts` (`findUnique` → `findFirst` for quiet hours), `handle-postmark-webhook.service.test.ts` (removed env-fallback tests, all via secret store mock), `billing-lifecycle-producer.service.test.ts` (reformatted), `notification-delivery-worker.service.test.ts` (already fixed).
+**E2 — Webhook controller verified:** `InternalNotificationsPostmarkWebhookController` is mounted at `api/v1/internal/notifications/postmark-webhook` and is NOT included in `IdentityAccessModule.configure(...).forRoutes(...)`, so Clerk middleware does not gate it. HMAC + dev-only bypass (`APP_ENV/NODE_ENV === "development"`) is the only gate. No code change required.
 
-### Files touched: 22 files modified/created
-- API source: `notification-routing.service.ts`, `notification-intent.service.ts`, `notification-delivery-worker.service.ts`, `manage-notification-platform.service.ts`, `handle-postmark-webhook.service.ts`, `email-channel.adapter.ts`, `billing-lifecycle-producer.service.ts`, `tool-credential-settings.ts`, `manage-admin-tool-credentials.service.ts`, `persai-idle-reengagement-scheduler.service.ts`, `quota-advisory-follow-up.service.ts`, `workspace-management.module.ts`, `notification-platform.types.ts`
-- API source (new): `resolve-workspace-notification-channels.service.ts`
-- API migrations (new): `20260509000000_adr088_global_notification_truth/migration.sql`
-- API schema: `schema.prisma`, `seed.ts`
-- API tests: `notification-intent.service.test.ts`, `handle-postmark-webhook.service.test.ts`, `notification-delivery-worker.service.test.ts`, `billing-lifecycle-producer.service.test.ts`
-- Web pages: `apps/web/app/admin/notifications/page.tsx`, `apps/web/app/admin/tools/page.tsx`
-- Infra: `infra/helm/values-dev.yaml`
-- Docs: `docs/ADR/088-....md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+**E3 — Admin layout verified:** `apps/web/app/admin/layout.tsx` calls `getAdminPlanVisibility(token)` for every `/admin/*` route and redirects on failure; all admin notifications pages inherit this gate via Next.js layout nesting. No per-page guard duplication required.
 
-### Verification gates
-All 5 gates green (run 2026-05-09):
-1. `corepack pnpm -r --if-present run lint` — exit 0
-2. `corepack pnpm run format:check` — exit 0
-3. `corepack pnpm --filter @persai/api run typecheck` — exit 0
-4. `corepack pnpm --filter @persai/web run typecheck` — exit 0
-5. `corepack pnpm --filter @persai/api run test` — exit 0
+**E4 — Authz integration test:** `apps/api/test/admin-notifications.controller.authz.test.ts` wires the real `AdminAuthorizationService` + real `ManageNotificationPlatformService` with a stub Prisma surface that throws if reached. A non-admin user is rejected with `ForbiddenException` from every controller method (`listUnifiedChannels`, `patchChannel`, `testSendChannel`, `listPolicies`, `patchPolicy`, `getQuietHours`, `patchQuietHours`, `listDeliveries`, `getDelivery`, `listDeadLetters`, `replayDeadLetter`, `discardDeadLetter`, `preview`). Unauthenticated request reaches `UnauthorizedException`.
 
-### Residue proof (zero matches in apps/api/src + apps/web/app)
-- `workspaceId.*notificationPolicy`: **0**
-- `workspaceId.*notificationChannelRegistry`: **0**
-- `workspaceId.*notificationQuietHours`: **0**
-- `seedNotificationChannelRegistry`: **0**
-- `process.env["POSTMARK_SERVER_TOKEN"]`: **0**
-- `process.env["POSTMARK_WEBHOOK_TOKEN"]` in source: **0** (test file only uses it for env cleanup, now removed)
-- `process.env["POSTMARK_SENDER_DOMAIN"]`: **0**
-- `ScheduleBillingLifecycleNotificationsService` in src: **0** (historical comment in billing-lifecycle-producer.service.ts excluded)
-- `billing_lifecycle_notification_jobs` in src: **0** (only in archived migrations)
-- `patchAdminNotificationWebhookChannel` in src: **0**
+### Files touched
 
-### Pre-deploy operator action (mandatory before persai-dev migration runs)
-1. Open `Admin > Tools` in the deployed persai-dev UI.
-2. Paste the existing Postmark Server Token into "Postmark Server Token" under Notifications section.
-3. Paste the existing Postmark Webhook Token into "Postmark Webhook Token".
-4. Click "Save notification credentials".
-5. Then apply the database migration (`api-migrate` job). Email delivery will use the stored credentials immediately.
+- API source — `apps/api/src/modules/workspace-management/application/billing-lifecycle-producer.service.ts`
+- API source — `apps/api/src/modules/workspace-management/application/notifications/defaults/notification-defaults.ts` (new)
+- API source — `apps/api/src/modules/workspace-management/application/notifications/resolve-workspace-notification-channels.service.ts`
+- API source — `apps/api/src/modules/workspace-management/application/notifications/notification-intent.service.ts`
+- API source — `apps/api/src/modules/workspace-management/application/notifications/notification-delivery-worker.service.ts`
+- API source — `apps/api/src/modules/workspace-management/application/notifications/manage-notification-platform.service.ts` (assertAdminAccess)
+- API source — `apps/api/src/modules/workspace-management/interface/http/admin-notifications.controller.ts` (test-send authz)
+- API tests — `apps/api/test/resolve-workspace-notification-channels.service.test.ts` (new)
+- API tests — `apps/api/test/admin-notifications.controller.authz.test.ts` (new)
+- API tests — `apps/api/test/notification-intent.service.test.ts`
+- API tests — `apps/api/test/notification-delivery-worker.service.test.ts`
+- Docs — `docs/DATA-MODEL.md`, `docs/API-BOUNDARY.md`, `docs/TEST-PLAN.md`, `docs/ADR/088-unified-notification-platform-control-plane-and-delivery.md`, `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`
 
-### Live verification artifacts
-⚠️ Pending deployment to persai-dev. After deployment:
-- Trigger a synthetic billing event (e.g. `payment_recovered`) for operator's workspace.
-- Confirm `notification_intent` row created with `class=transactional, source=billing_lifecycle`.
-- Confirm intent progresses: `pending → claimed → delivered`.
-- Confirm real email arrives at operator test inbox.
-- Capture: `intent id`, `attempt id`, `Postmark MessageID`, inbox screenshot → append here.
+### Verification gates (all exit 0, run 2026-05-09)
 
-### Safety baseline (PHASE 0)
-⚠️ Local/GKE DB access failed during session; baseline row counts deferred. Production DB state at migration time: all rows came from the seed loop and were identical across workspaces — verified by migration idempotency + divergence-abort logic.
+1. `corepack pnpm -r --if-present run lint` — 0
+2. `corepack pnpm run format:check` — 0
+3. `corepack pnpm --filter @persai/api run typecheck` — 0
+4. `corepack pnpm --filter @persai/web run typecheck` — 0
+5. `corepack pnpm --filter @persai/api run test` — 0 (157 s, every suite green)
+
+### Residue greps (apps/api/src + apps/web/app + packages/contracts — all 0)
+
+`AssistantNotificationOutboxService`, `AssistantNotificationOutboxSchedulerService`, `AssistantNotificationDeliveryService`, `QuotaAdvisoryStateService`, `ScheduleBillingLifecycleNotificationsService`, `assistant_notification_outbox`, `assistant_quota_advisory_states`, `billing_lifecycle_notification_jobs`, `workspace_notification_policies`, `seedNotificationChannelRegistry`, `patchAdminNotificationWebhookChannel`, `process.env["POSTMARK_*"]`, `ManageAdminNotificationChannelsService`, `"TODO migrate to notification platform"` — every pattern returns zero.
 
 ### Risks and residuals
-- Slice 4 (operational notifications, admin webhook migration, `system_event` source) not started.
-- Live verification of billing email not yet done (blocked by deployment).
-- `notification-defaults.ts` file referenced in ADR-088 as a code-default fallback was created by the previous session's subagent; verify it exists and exports correct values before first deployment.
+
+- Live verification of the billing email path through Postmark still pending persai-dev deployment (operator must paste the Postmark tokens into `Admin > Tools > Notifications` before the migration runs).
+- Slice 4 (active-thread / runtime delivery, admin webhook migration, `system_event` source) is the next planned work.
 
 ### Next recommended step
-**Slice 4 — Operational/admin migration and admin surface completion** (ADR-088 §Slice 4). Migrate `DeliverAdminSystemNotificationService` to `notification_intents`, replace `WorkspaceAdminNotificationChannel` with registry rows, drop `admin_notification_deliveries`. After Slice 4 all four slices are complete.
+
+**Slice 4 — active-thread surfaces and admin/operational migration** (ADR-088 §Slice 4). Migrate `DeliverAdminSystemNotificationService` to `notification_intents`, replace `WorkspaceAdminNotificationChannel` with registry rows, drop `admin_notification_deliveries`, finish the per-section operator surface (history filters, dead-letter replay/discard wired through preview/test-send for every adapter).
 
 ---
 
