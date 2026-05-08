@@ -223,6 +223,29 @@ describe("ChatArea", () => {
     expect(screen.getByText("voiceTranscriptionEmptyGuidance")).toBeInTheDocument();
   });
 
+  it("renders server-provided storage issue copy without replacing it locally", () => {
+    render(
+      <ChatArea
+        chat={createChat("Hello", {
+          isStreaming: false,
+          issue: {
+            classId: "media_storage_full",
+            message: "Media storage is full (512 MB used out of 512 MB).",
+            guidance: "Delete old chats or files to free space, then try again.",
+            data: { usedMb: 512, limitMb: 512 }
+          }
+        })}
+      />
+    );
+
+    expect(
+      screen.getByText("Media storage is full (512 MB used out of 512 MB).")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Delete old chats or files to free space, then try again.")
+    ).toBeInTheDocument();
+  });
+
   it("does not show assistant thinking while the previous user message is still sending", () => {
     const userMessage: ChatMessage = {
       id: "local-user-1",

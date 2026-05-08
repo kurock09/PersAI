@@ -575,48 +575,7 @@ export function ChatArea({
             <AlertCircle className={`mt-0.5 h-4 w-4 shrink-0 ${issueIconClass}`} />
           )}
           <div className="min-w-0 flex-1">
-            {(chat.issue.classId === "media_storage_full" ||
-              chat.issue.classId === "workspace_storage_full") &&
-            typeof chat.issue.data?.limitMb === "number" ? (
-              <>
-                <p className={`text-sm font-medium ${issueTextClass}`}>
-                  {t(
-                    chat.issue.classId === "workspace_storage_full"
-                      ? "workspaceStorageFull"
-                      : "mediaStorageFull",
-                    {
-                      used: String(chat.issue.data?.usedMb ?? "?"),
-                      limit: String(chat.issue.data.limitMb)
-                    }
-                  )}
-                </p>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  {t(
-                    chat.issue.classId === "workspace_storage_full"
-                      ? "workspaceStorageFullGuidance"
-                      : "mediaStorageFullGuidance"
-                  )}
-                </p>
-              </>
-            ) : chat.issue.classId === "media_storage_full" ||
-              chat.issue.classId === "workspace_storage_full" ? (
-              <>
-                <p className={`text-sm font-medium ${issueTextClass}`}>
-                  {t(
-                    chat.issue.classId === "workspace_storage_full"
-                      ? "workspaceStorageFullNoLimit"
-                      : "mediaStorageFullNoLimit"
-                  )}
-                </p>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  {t(
-                    chat.issue.classId === "workspace_storage_full"
-                      ? "workspaceStorageFullGuidance"
-                      : "mediaStorageFullGuidance"
-                  )}
-                </p>
-              </>
-            ) : chat.issue.classId === "voice_transcription_empty" ? (
+            {chat.issue.classId === "voice_transcription_empty" ? (
               <>
                 <p className={`text-sm font-medium ${issueTextClass}`}>
                   {t("voiceTranscriptionEmptyTitle")}

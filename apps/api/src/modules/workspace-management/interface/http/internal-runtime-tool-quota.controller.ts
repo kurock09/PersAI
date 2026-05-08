@@ -10,6 +10,10 @@ type InternalRequestLike = {
   headers: Record<string, string | string[] | undefined>;
 };
 
+type InternalRuntimeQuotaStatusResponse = Awaited<
+  ReturnType<ReadInternalRuntimeQuotaStatusService["execute"]>
+>;
+
 @Controller("api/v1/internal/runtime/tools")
 export class InternalRuntimeToolQuotaController {
   constructor(
@@ -77,98 +81,7 @@ export class InternalRuntimeToolQuotaController {
   async checkToolDailyQuota(
     @Req() req: InternalRequestLike,
     @Body() body: unknown
-  ): Promise<{
-    ok: true;
-    planCode: string | null;
-    currentPlan: {
-      code: string | null;
-      displayName: string | null;
-    };
-    visiblePlans: Array<{
-      code: string;
-      displayName: string;
-      description: string | null;
-      highlighted: boolean;
-      isCurrent: boolean;
-      amountMinor: number | null;
-      amountMajor: number | null;
-      currency: string | null;
-      billingPeriod: "month" | "year" | null;
-      priceLabel: {
-        ru: string | null;
-        en: string | null;
-      };
-      enabledToolCodes: string[];
-      title: {
-        ru: string | null;
-        en: string | null;
-      };
-      subtitle: {
-        ru: string | null;
-        en: string | null;
-      };
-      notes: {
-        ru: string | null;
-        en: string | null;
-      };
-      badge: {
-        ru: string | null;
-        en: string | null;
-      };
-      ctaLabel: {
-        ru: string | null;
-        en: string | null;
-      };
-      highlightItems: {
-        ru: string[];
-        en: string[];
-      };
-      limits: {
-        tokenBudgetLimit: number | null;
-        activeWebChatsLimit: number | null;
-        messagesPerChat: number | null;
-        imageGenerateMonthlyUnitsLimit: number | null;
-        imageEditMonthlyUnitsLimit: number | null;
-        videoGenerateMonthlyUnitsLimit: number | null;
-      };
-    }>;
-    tools: Array<{
-      toolCode: string;
-      activationStatus: string;
-      dailyCallLimit: number | null;
-      currentCount: number;
-      allowed: boolean;
-    }>;
-    buckets: Array<{
-      bucketCode: string;
-      displayName: string;
-      unit: string;
-      used: number | null;
-      limit: number | null;
-      percent: number | null;
-      usageAvailable: boolean;
-      status: string;
-    }>;
-    monthlyMediaQuotas: {
-      planCode: string | null;
-      periodStartedAt: string;
-      periodEndsAt: string;
-      periodSource: "subscription_period" | "calendar_month_fallback";
-      tools: Array<{
-        toolCode: string;
-        displayName: string;
-        usedUnits: number;
-        reservedUnits: number;
-        settledUnits: number;
-        releasedUnits: number;
-        reconciliationRequiredUnits: number;
-        limitUnits: number | null;
-        remainingUnits: number | null;
-        usageAvailable: boolean;
-        status: string;
-      }>;
-    };
-  }> {
+  ): Promise<InternalRuntimeQuotaStatusResponse> {
     this.assertAuthorized(req);
     const input = this.readInternalRuntimeQuotaStatusService.parseInput(body);
     return this.readInternalRuntimeQuotaStatusService.execute(input);

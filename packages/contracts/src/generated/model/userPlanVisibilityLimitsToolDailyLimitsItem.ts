@@ -4,6 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { UserPlanVisibilityLimitsToolDailyLimitsItemPeriodSource } from "./userPlanVisibilityLimitsToolDailyLimitsItemPeriodSource";
 
 export type UserPlanVisibilityLimitsToolDailyLimitsItem = {
   toolCode: string;
@@ -15,5 +16,25 @@ export type UserPlanVisibilityLimitsToolDailyLimitsItem = {
   dailyCallLimit: number | null;
   /** @minimum 0 */
   dailyCallsUsed: number;
+  /**
+   * @minimum 0
+   * @maximum 100
+   * @nullable
+   */
+  percent: number | null;
+  finiteLimit: boolean;
+  /**
+   * @minimum 0
+   * @maximum 100
+   * @nullable
+   */
+  warningThresholdPercent: number | null;
+  warningThresholdReached: boolean;
+  /** @nullable */
+  periodStartedAt: string | null;
+  /** @nullable */
+  periodEndsAt: string | null;
+  /** @nullable */
+  periodSource: UserPlanVisibilityLimitsToolDailyLimitsItemPeriodSource;
   active: boolean;
 };

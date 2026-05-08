@@ -2,7 +2,7 @@
 
 This document describes the current active PersAI data-model truth at a high level.
 
-ADR-072 remains the historical migration record through the native-path closeout. ADR-078 is completed and archived as the consolidated follow-through program. ADR-080 is the active target-state decision for admin-controlled Knowledge authoring and Skill curation. ADR-081 is the active target-state decision for unified user-visible Files.
+ADR-072 remains the historical migration record through the native-path closeout. ADR-078 is completed and archived as the consolidated follow-through program. ADR-080 is the active target-state decision for admin-controlled Knowledge authoring and Skill curation. ADR-081 is the active target-state decision for unified user-visible Files. ADR-087 is the active target-state decision for unified quota advisories and paid light mode. ADR-088 is the active target-state decision for the unified notification platform, control plane, and delivery architecture.
 
 ## Control-plane ownership
 
@@ -22,6 +22,8 @@ PersAI is the source of truth for:
 - plan-owned retrieval policy and admin-managed knowledge governance
 - durable retrieval observability rollups/events
 - governance, quota, audit, and admin state, including subscription-period media quota counters
+- durable quota-advisory threshold/dedupe state for active-surface warning delivery
+- durable notification control-plane state across assistant outbox delivery, billing lifecycle notification jobs, admin notification channels, delivery attempts, and workspace notification policy rows, with ADR-088 defining the target-state convergence of these currently split models
 - integration state such as Telegram binding/config
 
 ## Runtime-plane ownership
@@ -114,7 +116,9 @@ Active task persistence is split by product meaning:
 
 `scheduled_action` is no longer target-state truth for assistant-side background checks. It remains the reminder tool. Background actions are evaluated by the background-task executor and deliver through the existing assistant notification preference instead of creating a second reminder.
 
-Assistant notification delivery is source-neutral and durable. `scheduled_action:user_reminder`, `background_task`, `idle_reengagement`, and future `system_event` sources enqueue rows in `assistant_notification_outbox`; `AssistantNotificationOutboxSchedulerService` claims/retries/dead-letters those rows and is the only active caller of `AssistantNotificationDeliveryService`, which resolves `Assistant.preferredNotificationChannel`, sends Telegram when configured, falls back to the web `system:notifications` thread, and persists delivered artifacts through `MediaDeliveryService`. Workspace-level user notification policy lives in `workspace_notification_policies`; the first active policy is admin-controlled `idle_reengagement` with enablement, idle threshold, cooldown, and LLM instruction.
+Assistant notification delivery is source-neutral and durable. `scheduled_action:user_reminder`, `background_task`, `idle_reengagement`, and future `system_event` sources enqueue rows in `assistant_notification_outbox`; `AssistantNotificationOutboxSchedulerService` claims/retries/dead-letters those rows and is the only active caller of `AssistantNotificationDeliveryService`, which resolves `Assistant.preferredNotificationChannel`, sends Telegram when configured, falls back to the web `system:notifications` thread, and persists delivered artifacts through `MediaDeliveryService`. Workspace-level user notification policy lives in `workspace_notification_policies`; active admin-owned sources now include `idle_reengagement` (enablement, idle threshold, cooldown, LLM instruction) and `quota_advisory` (enablement + LLM instruction for active-thread quota follow-up wording).
+
+ADR-088 adds the next target-state constraint for this area: `assistant_notification_outbox`, `billing_lifecycle_notification_jobs`, `workspace_admin_notification_channels`, `admin_notification_deliveries`, and source-specific policy rows are partial predecessors of one unified notification platform. During migration they may coexist, but new notification features should converge on one intent/policy/routing/delivery architecture instead of introducing more direct-send or feature-specific side paths.
 
 ## Persona / Voice DNA state
 
@@ -142,6 +146,13 @@ Current active runtime-provider settings persistence includes:
 - `workspace_subscriptions` as PersAI-owned subscription lifecycle truth. ADR-083 Slice 3 materializes a row from the active default registration plan when none exists, stores trial/current-period boundaries for trial registrations, stores explicit `graceStartedAt/graceEndsAt`, and uses `expired_fallback` for persisted fallback state after trial or grace expiry. The recurring follow-through extends that truth with provider-managed subscription references plus `cancelAtPeriodEnd`, which is now the canonical state for "auto-renew disabled but paid access still active until this period ends." Bind-success enablement is distinct from resume: paid access without a provider subscription can later materialize provider-managed recurring truth through a dedicated auto-renew-enable transition. Scheduled cheaper-paid downgrade is also distinct from period-end fallback: PersAI persists the requested cheaper paid target in subscription metadata before the provider mutation so partial failure cannot leave provider truth ahead of PersAI, but the actual cheaper paid plan becomes active only on the next trusted renewal/payment success whose provider amount/currency matches that scheduled cheaper plan. If the next renewal stays on the old amount, PersAI clears the stale marker instead of pretending the cheaper entitlements took effect anyway.
 - `workspace_subscription_lifecycle_events` as append-only subscription lifecycle history for trial start/expiry, fallback, payment activation, renewal success/failure, grace start/expiry, payment recovery, payment reversal, and recurring-management events such as `auto_renew_disabled`, `auto_renew_enabled`, `subscription_resumed`, and `subscription_canceled`. These events are distinct from generic assistant audit logs and are the source for Ops detail, notification scheduling, and billing support investigation.
 - `billing_lifecycle_notification_jobs` as durable billing lifecycle notification work derived from subscription lifecycle events. Rows capture required email work and optional assistant notification work with dedupe keys, schedule times, static required-facts copy, and delivery/enqueue status. Assistant notification jobs enqueue into `assistant_notification_outbox`; email jobs remain pending until a real email adapter exists.
+
+ADR-087 adds one more quota/product truth layer:
+
+- 90% warnings for finite limits are product-level advisory state, not raw transport errors
+- warning delivery is now deduplicated durably in `assistant_quota_advisory_states`, keyed by assistant/workspace + active chat/thread + limit kind + threshold kind + reset window
+- paid token-budget light mode is derived from effective plan truth plus the current period-scoped token counter (`used >= limit`) and lasts until that period resets; free/zero-price plans may still receive warnings but do not enter paid light mode
+- upgrade eligibility for advisory copy must derive from explicit catalog truth rather than plan-name heuristics; ADR-087 currently defines the maximum plan as the highest-priced visible paid plan
 
 `Admin > Ops Cockpit` reads support projections from these PersAI-owned tables: `workspace_subscriptions`, `workspace_subscription_lifecycle_events`, `billing_lifecycle_notification_jobs`, and period quota counters. Provider customer/subscription refs are displayed only as support identifiers; product surfaces do not read provider state directly at request time.
 

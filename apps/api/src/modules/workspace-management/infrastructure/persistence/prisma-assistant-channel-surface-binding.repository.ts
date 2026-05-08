@@ -68,6 +68,7 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
     const chatId = this.readTrimmedString(row.chatId);
     const userMessageId = this.readTrimmedString(row.userMessageId);
     const assistantMessageId = this.readTrimmedString(row.assistantMessageId);
+    const followUpAssistantMessageId = this.readTrimmedString(row.followUpAssistantMessageId);
     const respondedAt = this.readTrimmedString(row.respondedAt);
     const completedAt = this.readTrimmedString(row.completedAt);
     if (
@@ -86,6 +87,7 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
       chatId,
       userMessageId,
       assistantMessageId,
+      ...(followUpAssistantMessageId === null ? {} : { followUpAssistantMessageId }),
       respondedAt,
       degradedByQuotaFallback: row.degradedByQuotaFallback === true,
       quotaFallbackReason: this.readTrimmedString(row.quotaFallbackReason),

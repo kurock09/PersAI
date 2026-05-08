@@ -29,6 +29,7 @@ export interface WebChatTurnStatusState {
   chat: AssistantWebChatState | null;
   userMessage: AssistantWebChatMessageState | null;
   assistantMessage: AssistantWebChatMessageState | null;
+  followUpAssistantMessage?: AssistantWebChatMessageState | null;
   currentActivity: WebChatTurnCurrentActivityState | null;
   runtime: AssistantWebChatTurnState["runtime"] | null;
   error: { code: string | null; message: string | null } | null;
@@ -153,6 +154,9 @@ function readTerminalPayload(value: Prisma.JsonValue | null): CompletedWebTurnRe
     chatId: row.chatId,
     userMessageId: row.userMessageId,
     assistantMessageId: row.assistantMessageId,
+    ...(typeof row.followUpAssistantMessageId === "string"
+      ? { followUpAssistantMessageId: row.followUpAssistantMessageId }
+      : {}),
     respondedAt: row.respondedAt,
     degradedByQuotaFallback: row.degradedByQuotaFallback === true,
     quotaFallbackReason:
@@ -515,7 +519,8 @@ export class WebChatTurnAttemptService {
       throw new BadRequestException("Web chat turn attempt disappeared during status lookup.");
     }
 
-    const [chat, userMessage, assistantMessage] = await Promise.all([
+    const terminal = readTerminalPayload(attempt.terminalPayload);
+    const [chat, userMessage, assistantMessage, followUpAssistantMessage] = await Promise.all([
       attempt.chatId
         ? this.prisma.assistantChat.findUnique({ where: { id: attempt.chatId } })
         : Promise.resolve(null),
@@ -526,9 +531,14 @@ export class WebChatTurnAttemptService {
         ? this.prisma.assistantChatMessage.findUnique({
             where: { id: attempt.assistantMessageId }
           })
+        : Promise.resolve(null),
+      terminal?.followUpAssistantMessageId
+        ? this.prisma.assistantChatMessage.findUnique({
+            where: { id: terminal.followUpAssistantMessageId }
+          })
         : Promise.resolve(null)
     ]);
-    const messageIds = [userMessage?.id, assistantMessage?.id].filter(
+    const messageIds = [userMessage?.id, assistantMessage?.id, followUpAssistantMessage?.id].filter(
       (id): id is string => typeof id === "string"
     );
     const attachments = await this.prisma.assistantChatMessageAttachment.findMany({
@@ -541,7 +551,6 @@ export class WebChatTurnAttemptService {
       existing.push(toAttachmentState(attachment));
       attachmentsByMessageId.set(attachment.messageId, existing);
     }
-    const terminal = readTerminalPayload(attempt.terminalPayload);
     const status = attempt.status as WebChatTurnAttemptStatus;
     return {
       status,
@@ -586,6 +595,22 @@ export class WebChatTurnAttemptService {
               attachments: attachmentsByMessageId.get(assistantMessage.id) ?? [],
               createdAt: assistantMessage.createdAt.toISOString()
             },
+      ...(terminal?.followUpAssistantMessageId
+        ? {
+            followUpAssistantMessage:
+              followUpAssistantMessage === null
+                ? null
+                : {
+                    id: followUpAssistantMessage.id,
+                    chatId: followUpAssistantMessage.chatId,
+                    assistantId: followUpAssistantMessage.assistantId,
+                    author: followUpAssistantMessage.author,
+                    content: followUpAssistantMessage.content,
+                    attachments: attachmentsByMessageId.get(followUpAssistantMessage.id) ?? [],
+                    createdAt: followUpAssistantMessage.createdAt.toISOString()
+                  }
+          }
+        : {}),
       currentActivity: TERMINAL_STATUSES.has(status)
         ? null
         : readCurrentActivityPayload(attempt.currentActivity),

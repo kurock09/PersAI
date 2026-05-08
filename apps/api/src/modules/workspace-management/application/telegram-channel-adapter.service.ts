@@ -593,10 +593,14 @@ export class TelegramChannelAdapterService {
         });
       }
       const failure = toAssistantInboundFailurePayload(error);
+      const fallbackMessage =
+        failure.message.trim().length > 0
+          ? failure.message
+          : fallbackTurnFailureCopy(event.turnKind);
       const outboundMessage = this.renderAssistantInboundSurfaceMessageService.renderError(
         "telegram",
         failure.code,
-        fallbackTurnFailureCopy(event.turnKind)
+        failure.guidance !== null ? `${fallbackMessage}\n\n${failure.guidance}` : fallbackMessage
       );
       return this.replyWithTerminalTurnFailure({
         config,
@@ -684,10 +688,14 @@ export class TelegramChannelAdapterService {
         parseMode: config.parseMode,
         turnResult: outboundTurnResult,
         mediaAlreadyDelivered: deliveredAttachmentCount > 0,
-        postReplyNotices:
-          outboundTurnResult.autoCompaction === undefined
-            ? undefined
-            : [buildTelegramAutoCompactionNotice(config.locale)],
+        postReplyNotices: [
+          ...(outboundTurnResult.autoCompaction === undefined
+            ? []
+            : [buildTelegramAutoCompactionNotice(config.locale)]),
+          ...(outboundTurnResult.quotaAdvisoryMessage
+            ? [outboundTurnResult.quotaAdvisoryMessage]
+            : [])
+        ],
         onBeforeMediaSend: (media) => {
           chatActionState.current?.setAction(resolveTelegramOutboundChatAction(media));
         }

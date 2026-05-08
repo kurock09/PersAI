@@ -233,7 +233,17 @@ function isSnapshotDebugEnabled(): boolean {
   }
 }
 function shouldSurfacePreHeaderIssueAsBanner(issue: WebChatUxIssue): boolean {
-  return issue.classId === "chat_message_limit" || issue.classId === "active_chat_cap";
+  return (
+    issue.classId === "chat_message_limit" ||
+    issue.classId === "active_chat_cap" ||
+    issue.classId === "quota_limit_reached" ||
+    issue.classId === "media_storage_full" ||
+    issue.classId === "knowledge_storage_full" ||
+    issue.classId === "workspace_storage_full" ||
+    issue.classId === "assistant_not_live" ||
+    issue.classId === "feature_unavailable" ||
+    issue.classId === "auth_session"
+  );
 }
 function recordSnapshotDebugEvent(event: SnapshotDebugEvent): void {
   if (typeof window === "undefined") return;
@@ -466,30 +476,6 @@ export function formatTurnRoutingBadgeLabel(
   turnRouting: NonNullable<RuntimeTransportMeta["turnRouting"]>
 ): string {
   return `${turnRouting.executionMode} (${turnRouting.source})`;
-}
-function appendQuotaFallbackActivity(params: {
-  setActivities: React.Dispatch<React.SetStateAction<ActivityEvent[]>>;
-  runtime: RuntimeTransportMeta | null | undefined;
-  assistantMessageId: string | null;
-}): void {
-  const runtime = params.runtime;
-  if (runtime?.degradedByQuotaFallback !== true) {
-    return;
-  }
-  const detail = runtime.quotaFallbackModel
-    ? `using ${runtime.quotaFallbackModel}`
-    : "using the safe fallback model";
-  params.setActivities((prev) => [
-    ...prev,
-    {
-      id: `activity-quota-fallback-${Date.now()}`,
-      type: "info",
-      label: "Fallback mode active",
-      detail,
-      ...(runtime.respondedAt ? { timestamp: runtime.respondedAt } : {}),
-      ...(params.assistantMessageId ? { afterMessageId: params.assistantMessageId } : {})
-    }
-  ]);
 }
 function buildKnowledgeUploadActivity(params: {
   afterMessageId?: string | undefined;
@@ -1534,6 +1520,9 @@ export function useChat(threadKey: string): UseChatReturn {
       const assistantMessage = status.assistantMessage
         ? toCommittedChatMessage(status.assistantMessage)
         : null;
+      const followUpAssistantMessage = status.followUpAssistantMessage
+        ? toCommittedChatMessage(status.followUpAssistantMessage)
+        : null;
       if (status.status === "accepted" || status.status === "running") {
         if (userMessage === null && targetThreadKey !== WELCOME_THREAD_KEY) {
           return "unknown";
@@ -1724,8 +1713,20 @@ export function useChat(threadKey: string): UseChatReturn {
         abortControllersByThreadRef.current.delete(targetThreadKey);
         activeTurnSnapshotsRef.current.delete(targetThreadKey);
         markStreaming(targetThreadKey, false);
+        if (status.status === "failed" && status.error?.message) {
+          setIssue(
+            toWebChatUxIssue({
+              code: status.error.code ?? undefined,
+              message: status.error.message
+            })
+          );
+        }
         if (status.status === "completed" && userMessage !== null && assistantMessage !== null) {
-          const committed = [userMessage, assistantMessage];
+          const committed = [
+            userMessage,
+            assistantMessage,
+            ...(followUpAssistantMessage ? [followUpAssistantMessage] : [])
+          ];
           const cachedSnapshot = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
           const baseMessages =
             existingSnapshot?.messages ??
@@ -1902,7 +1903,8 @@ export function useChat(threadKey: string): UseChatReturn {
                 : false;
               latestResult = reconciled ? "terminal" : "unknown";
             },
-            onFailed: async () => {
+            onFailed: async (payload) => {
+              setIssue(toWebChatUxIssue(payload));
               const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
               const reconciled = targetChatId
                 ? await refreshLatestHistory(targetChatId, { targetThreadKey })
@@ -2734,6 +2736,11 @@ export function useChat(threadKey: string): UseChatReturn {
               content?: string;
               attachments?: ChatAttachment[];
             };
+            followUpAssistantMessage?: {
+              id?: string;
+              content?: string;
+              attachments?: ChatAttachment[];
+            };
             activeMediaJobs?: WebChatActiveMediaJobState[];
             runtime?: RuntimeTransportMeta;
           } | null;
@@ -2747,14 +2754,29 @@ export function useChat(threadKey: string): UseChatReturn {
             t.assistantMessage.attachments.length > 0
               ? (t.assistantMessage.attachments as ChatAttachment[])
               : undefined;
+          const followUpAssistantMessage =
+            typeof t?.followUpAssistantMessage?.id === "string" &&
+            typeof t?.followUpAssistantMessage?.content === "string"
+              ? ({
+                  id: t.followUpAssistantMessage.id,
+                  role: "assistant" as const,
+                  content: t.followUpAssistantMessage.content,
+                  status: "committed" as const,
+                  attachments:
+                    Array.isArray(t.followUpAssistantMessage.attachments) &&
+                    t.followUpAssistantMessage.attachments.length > 0
+                      ? (t.followUpAssistantMessage.attachments as ChatAttachment[])
+                      : undefined
+                } satisfies ChatMessage)
+              : null;
           const userServerAttachments = Array.isArray(t?.userMessage?.attachments)
             ? t.userMessage.attachments
             : undefined;
           const nextActiveMediaJobs = Array.isArray(t?.activeMediaJobs)
             ? t.activeMediaJobs
             : undefined;
-          applyThreadMessages(sendThreadKey, (prev) =>
-            prev.map((m) => {
+          applyThreadMessages(sendThreadKey, (prev) => {
+            const mapped = prev.map((m) => {
               if (m.id === assistantMsgId) {
                 return {
                   ...m,
@@ -2795,8 +2817,14 @@ export function useChat(threadKey: string): UseChatReturn {
                 };
               }
               return m;
-            })
-          );
+            });
+            if (followUpAssistantMessage === null) {
+              return mapped;
+            }
+            return mapped.some((message) => message.id === followUpAssistantMessage.id)
+              ? mapped
+              : [...mapped, followUpAssistantMessage];
+          });
           if (realUserMsgId && realUserMsgId !== userMsgId) {
             knowledgeActivityAnchorId = realUserMsgId;
             setActivities((prev) =>
@@ -2868,11 +2896,6 @@ export function useChat(threadKey: string): UseChatReturn {
             activeTurnSnapshotsRef.current.set(sendThreadKey, nextSnapshot);
             auditActiveTurnSnapshotMessages("send:onCompleted", sendThreadKey, nextSnapshot);
           }
-          appendQuotaFallbackActivity({
-            setActivities,
-            runtime: t?.runtime,
-            assistantMessageId: resolvedAssistantMessageId
-          });
           const resolvedChatId =
             typeof t?.userMessage?.chatId === "string"
               ? t.userMessage.chatId
@@ -3317,11 +3340,6 @@ export function useChat(threadKey: string): UseChatReturn {
                   [resolvedAssistantMessageId]: routingLabel
                 }));
               }
-              appendQuotaFallbackActivity({
-                setActivities,
-                runtime: t?.runtime,
-                assistantMessageId: resolvedAssistantMessageId
-              });
               const snapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
               if (snapshot !== undefined) {
                 cacheThreadHistorySnapshot(sendThreadKey, {

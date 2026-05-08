@@ -143,6 +143,7 @@ enum AssistantNotificationOutboxStatus {
 
 enum WorkspaceNotificationPolicySource {
   idle_reengagement
+  quota_advisory
 }
 
 enum BillingLifecycleNotificationChannel {
@@ -572,6 +573,7 @@ model Workspace {
   subscriptionBillingEvents         WorkspaceSubscriptionBillingEvent[]
   paymentIntents                    WorkspacePaymentIntent[]
   billingLifecycleNotificationJobs  BillingLifecycleNotificationJob[]
+  quotaAdvisoryStates               AssistantQuotaAdvisoryState[]
   mediaJobs                         AssistantMediaJob[]
 
   @@map("workspaces")
@@ -671,6 +673,7 @@ model Assistant {
   assistantFiles                       AssistantFile[]
   backgroundCompactionJobs             AssistantBackgroundCompactionJob[]
   webChatTurnAttempts                  AssistantWebChatTurnAttempt[]
+  quotaAdvisoryStates                  AssistantQuotaAdvisoryState[]
   mediaJobs                            AssistantMediaJob[]
 
   @@unique([workspaceId, userId])
@@ -1905,6 +1908,32 @@ model AssistantNotificationOutbox {
   @@index([assistantId, source, sourceId])
   @@index([workspaceId, status, createdAt(sort: Desc)])
   @@map("assistant_notification_outbox")
+}
+
+model AssistantQuotaAdvisoryState {
+  id                      String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId             String                     @map("assistant_id") @db.Uuid
+  workspaceId             String                     @map("workspace_id") @db.Uuid
+  channel                 RuntimeConversationChannel
+  externalThreadKey       String                     @map("external_thread_key") @db.VarChar(255)
+  dedupeKey               String                     @unique @map("dedupe_key") @db.VarChar(512)
+  limitCode               String                     @map("limit_code") @db.VarChar(128)
+  displayName             String                     @map("display_name") @db.VarChar(255)
+  thresholdCode           String                     @map("threshold_code") @db.VarChar(64)
+  warningThresholdPercent Int                        @map("warning_threshold_percent")
+  currentPercent          Int                        @map("current_percent")
+  periodStartedAt         DateTime?                  @map("period_started_at") @db.Timestamptz(6)
+  periodEndsAt            DateTime?                  @map("period_ends_at") @db.Timestamptz(6)
+  periodSource            String?                    @map("period_source") @db.VarChar(32)
+  deliveredAt             DateTime                   @map("delivered_at") @db.Timestamptz(6)
+  createdAt               DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant               Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace               Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([assistantId, channel, externalThreadKey, deliveredAt(sort: Desc)])
+  @@index([workspaceId, deliveredAt(sort: Desc)])
+  @@map("assistant_quota_advisory_states")
 }
 
 model WorkspaceNotificationPolicy {

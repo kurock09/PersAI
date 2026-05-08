@@ -142,7 +142,6 @@ const ACTIVITY_LABEL_KEYS: Record<string, string> = {
   retrieval_user_started: "activityRetrievalUserStart",
   retrieval_product_started: "activityRetrievalProductStart",
   retrieval_web_started: "activityRetrievalWebStart",
-  fallback_mode_active: "activityQuotaFallback",
   response_generated: "activityResponseDone"
 };
 

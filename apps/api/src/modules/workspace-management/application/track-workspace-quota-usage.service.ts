@@ -74,11 +74,14 @@ export type AssistantQuotaBucketCode =
   | "token_budget"
   | "active_web_chats"
   | "media_storage_bytes"
-  | "knowledge_storage_bytes";
+  | "knowledge_storage_bytes"
+  | "workspace_storage_bytes";
 
 export type AssistantQuotaBucketUnit = "tokens" | "count" | "bytes";
 
 export type AssistantQuotaBucketStatus = "ok" | "limit_reached" | "usage_unavailable";
+
+export const QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT = 90;
 
 export type AssistantQuotaBucketSnapshot = {
   bucketCode: AssistantQuotaBucketCode;
@@ -87,7 +90,10 @@ export type AssistantQuotaBucketSnapshot = {
   used: number | null;
   limit: number | null;
   percent: number | null;
+  finiteLimit: boolean;
   usageAvailable: boolean;
+  warningThresholdPercent: number | null;
+  warningThresholdReached: boolean;
   status: AssistantQuotaBucketStatus;
 };
 
@@ -114,7 +120,11 @@ export type AssistantMonthlyMediaQuotaToolSnapshot = {
   reconciliationRequiredUnits: number;
   limitUnits: number | null;
   remainingUnits: number | null;
+  percent: number | null;
+  finiteLimit: boolean;
   usageAvailable: boolean;
+  warningThresholdPercent: number | null;
+  warningThresholdReached: boolean;
   status: "ok" | "limit_reached" | "usage_unavailable";
 };
 
@@ -173,12 +183,18 @@ function buildQuotaBucketSnapshot(input: {
 }): AssistantQuotaBucketSnapshot {
   const percent =
     input.usageAvailable && input.used !== null ? toPercent(input.used, input.limit) : null;
+  const finiteLimit = input.limit !== null && input.limit > 0;
   const limitReached =
     input.usageAvailable &&
     input.used !== null &&
     input.limit !== null &&
     input.limit > 0 &&
     input.used >= input.limit;
+  const warningThresholdReached =
+    input.usageAvailable &&
+    finiteLimit &&
+    percent !== null &&
+    percent >= QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT;
   return {
     bucketCode: input.bucketCode,
     displayName: input.displayName,
@@ -186,7 +202,10 @@ function buildQuotaBucketSnapshot(input: {
     used: input.used,
     limit: input.limit,
     percent,
+    finiteLimit,
     usageAvailable: input.usageAvailable,
+    warningThresholdPercent: finiteLimit ? QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT : null,
+    warningThresholdReached,
     status: !input.usageAvailable ? "usage_unavailable" : limitReached ? "limit_reached" : "ok"
   };
 }
@@ -525,14 +544,29 @@ export class TrackWorkspaceQuotaUsageService {
     workspaceId: string;
     toolCode: string;
     dailyCallLimit: number | null;
-  }): Promise<{ allowed: boolean; currentCount: number; limit: number | null }> {
-    if (params.dailyCallLimit === null || params.dailyCallLimit <= 0) {
-      return { allowed: true, currentCount: 0, limit: null };
-    }
+  }): Promise<{
+    allowed: boolean;
+    currentCount: number;
+    limit: number | null;
+    periodStartedAt: string;
+    periodEndsAt: string;
+    periodSource: "utc_day";
+  }> {
     const today = new Date();
     const dateOnly = new Date(
       Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
     );
+    const periodEndsAt = new Date(dateOnly.getTime() + 86_400_000);
+    if (params.dailyCallLimit === null || params.dailyCallLimit <= 0) {
+      return {
+        allowed: true,
+        currentCount: 0,
+        limit: null,
+        periodStartedAt: dateOnly.toISOString(),
+        periodEndsAt: periodEndsAt.toISOString(),
+        periodSource: "utc_day"
+      };
+    }
     const currentCount = await this.toolDailyUsageRepository.getUsageForDate(
       params.workspaceId,
       params.toolCode,
@@ -541,7 +575,10 @@ export class TrackWorkspaceQuotaUsageService {
     return {
       allowed: currentCount < params.dailyCallLimit,
       currentCount,
-      limit: params.dailyCallLimit
+      limit: params.dailyCallLimit,
+      periodStartedAt: dateOnly.toISOString(),
+      periodEndsAt: periodEndsAt.toISOString(),
+      periodSource: "utc_day"
     };
   }
 
@@ -939,6 +976,17 @@ export class TrackWorkspaceQuotaUsageService {
           used: bigintToNumber(quotaState?.knowledgeStorageBytesUsed ?? BigInt(0)),
           limit: bigintToNumber(limits.knowledgeStorageBytesLimit),
           usageAvailable: true
+        }),
+        buildQuotaBucketSnapshot({
+          bucketCode: "workspace_storage_bytes",
+          displayName: "Workspace storage",
+          unit: "bytes",
+          used: bigintToNumber(
+            (quotaState?.mediaStorageBytesUsed ?? BigInt(0)) +
+              (quotaState?.knowledgeStorageBytesUsed ?? BigInt(0))
+          ),
+          limit: bigintToNumber(limits.workspaceStorageBytesLimit),
+          usageAvailable: true
         })
       ]
     };
@@ -1003,7 +1051,11 @@ export class TrackWorkspaceQuotaUsageService {
       const reconciliationRequiredUnits = counter?.reconciliationRequiredUnits ?? 0;
       const usedUnits = Math.max(0, settledUnits + reservedUnits);
       const remainingUnits = limitUnits === null ? null : Math.max(0, limitUnits - usedUnits);
+      const percent = toPercent(usedUnits, limitUnits);
+      const finiteLimit = limitUnits !== null && limitUnits > 0;
       const limitReached = limitUnits !== null && limitUnits > 0 && usedUnits >= limitUnits;
+      const warningThresholdReached =
+        finiteLimit && percent !== null && percent >= QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT;
       tools.push({
         toolCode: tool.toolCode,
         displayName: tool.displayName,
@@ -1014,7 +1066,11 @@ export class TrackWorkspaceQuotaUsageService {
         reconciliationRequiredUnits,
         limitUnits,
         remainingUnits,
+        percent,
+        finiteLimit,
         usageAvailable: true,
+        warningThresholdPercent: finiteLimit ? QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT : null,
+        warningThresholdReached,
         status: limitReached ? "limit_reached" : "ok"
       });
     }
@@ -1277,7 +1333,10 @@ export class TrackWorkspaceQuotaUsageService {
         planQuotaHints.mediaStorageBytesLimit ?? BigInt(config.QUOTA_MEDIA_STORAGE_BYTES_DEFAULT),
       knowledgeStorageBytesLimit:
         planQuotaHints.knowledgeStorageBytesLimit ??
-        BigInt(config.QUOTA_KNOWLEDGE_STORAGE_BYTES_DEFAULT)
+        BigInt(config.QUOTA_KNOWLEDGE_STORAGE_BYTES_DEFAULT),
+      workspaceStorageBytesLimit:
+        planQuotaHints.workspaceStorageBytesLimit ??
+        BigInt(config.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT)
     };
   }
 

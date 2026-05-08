@@ -1,5 +1,157 @@
 # SESSION-HANDOFF
 
+## 2026-05-08 (ADR-088 notification platform architecture) — define one notification control plane before more feature-specific drift lands
+
+### What changed
+
+- Added `docs/ADR/088-unified-notification-platform-control-plane-and-delivery.md` as the new target-state ADR for PersAI notifications across conversational warnings, billing lifecycle operations, email, push, and admin/system alerts.
+- Grounded the ADR in current repo truth instead of a greenfield abstraction: `assistant_notification_outbox`, `AssistantNotificationDeliveryService`, `AssistantNotificationOutboxSchedulerService`, `workspace_notification_policies`, `workspace_admin_notification_channels`, `admin_notification_deliveries`, and `billing_lifecycle_notification_jobs` are now explicitly documented as partial predecessors of one future notification platform.
+- Fixed the high-level architecture docs to reflect the new target state: `ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`, and `TEST-PLAN.md` now treat ADR-088 as active notification-platform direction and describe `Admin > Notifications` as the canonical future operator control plane rather than a forever feature-card page.
+- Kept this session bounded to the architecture/documentation slice only. No notification runtime refactor was attempted in the same session, so repo truth stays honest about what is designed versus what is already migrated.
+
+### Verification
+
+- Repo-wide verification and cleanup are the next step in this same session after the ADR/doc slice.
+
+### Risks / residuals
+
+- ADR-088 is architecture truth only in this slice; current notification delivery is still physically split between assistant outbox delivery, billing lifecycle jobs, and admin webhook delivery until future migration slices land.
+- Live end-to-end validation for ADR-087 quota advisories remains pending and is not superseded by ADR-088.
+
+### Next recommended step
+
+- Run the full repo verification gate (`lint`, `format:check`, typechecks, full tests), fix any repo-wide failures honestly, then start ADR-088 Slice 1 inventory/migration planning from the now-landed architecture truth.
+
+## 2026-05-08 (ADR-087 slice 4 active-surface advisories) — unify non-token hard-stop explanations and close the final cleanup pass
+
+### What changed
+
+- Kept the session bounded to ADR-087 Slice 4 and finished the remaining founder-requested cleanup instead of leaving 100%-limit copy split across API/runtime/web/Telegram.
+- `QuotaAdvisoryFollowUpService` remains the live 90%-threshold active-thread path for web sync/stream and Telegram follow-up messages, with admin-owned `quota_advisory` instruction storage still controlling the post-turn wording.
+- Added `QuotaGroundedLimitCopyService`, which reads live `quota_status` truth and builds exhausted-limit copy/guidance for non-token hard stops instead of letting internal runtime quota conflicts fall back to stale static phrases.
+- Internal runtime monthly-media and tool-daily quota rejections now emit shared grounded messages plus `userFacingGuidance`, so the runtime/tool path, Telegram terminal path, and web error UX all consume the same quota-truth-backed explanation instead of three divergent text branches.
+- Web `toWebChatUxIssue` now prefers server-grounded quota messages/guidance for generic quota hard stops, monthly media, daily tool limits, and storage-full states; `RenderAssistantInboundSurfaceMessageService` now passes through grounded non-token messages instead of replacing them with legacy Telegram/reminder fixed copy.
+- Completed the cleanup pass for residual storage-limit wording too: inbound media system notices now reuse the canonical server message, and assistant-facing quota truth now includes `workspace_storage_bytes` so all ADR-087 storage limits are present in the shared bucket snapshot.
+- Post-implementation parallel audit then found two real chat-path tails and they were fixed in the same slice instead of being deferred: web pre-header quota hard stops now surface the normal issue/banner UX instead of collapsing into `send_failed`, and `assistant-api-client` now reads grounded guidance from `ContractsApiError.payload` instead of dropping back to stale local quota strings on the stream error path.
+- Telegram hard-stop delivery is also tightened after the audit: `toAssistantInboundFailurePayload` now preserves `userFacingGuidance`, `TelegramChannelAdapterService` appends that grounded guidance to the terminal message when present, and the remaining Telegram-owned `token_budget_exhausted` override was removed in favor of passthrough.
+- The one confirmed user-reachable storage tail in `InboundMediaService` was cleaned too: Telegram no longer prepends a fixed storage system notice ahead of the assistant reply, and the internal attachment-failure instruction now references the exact grounded storage error instead of synthesizing a second user-facing message path.
+- Final cleanup pass removed two more structural leftovers the stricter audit found: Telegram runtime turns now actually send `resolvedInboundMedia.enrichedMessage` instead of dropping attachment/quota notes on the floor, and web replay/reattach failed-terminal paths now surface the recovered `status.error` / `onFailed` issue instead of silently cleaning up as if the turn had completed.
+- The stale chat-surface light-mode artifact is gone too: `use-chat` no longer appends `Fallback mode active` activity rows, so paid token fallback is back to ADR-087's quiet sidebar-only indicator instead of a second in-thread warning.
+- `ChatArea` also stopped replacing grounded storage issue text with local storage-banner copy; server `message` / `guidance` now wins there too.
+- Finished the ADR-087 self-audit for touched paths and updated the focused tests/docs so repo truth no longer claims Slice 4 is still pending.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/assistant-inbound-error.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-area.test.tsx`
+- `corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/render-assistant-inbound-surface-message.test.ts`
+- `corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/internal-runtime-tool-quota.controller.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check` (still fails only on pre-existing formatting drift in `apps/api/src/modules/workspace-management/application/telegram-bot.client.service.ts`, `apps/web/app/_components/app-url-open-bridge.tsx`, and `apps/web/app/app/_components/sidebar.tsx`)
+
+### Risks / residuals
+
+- ADR-087 Slice 4 is now complete in repo truth, but this session did not run live end-to-end founder validation in a real web chat plus Telegram thread.
+- Repo-wide `format:check` still reports three unrelated pre-existing files outside the ADR-087 touch surface: `apps/api/src/modules/workspace-management/application/telegram-bot.client.service.ts`, `apps/web/app/_components/app-url-open-bridge.tsx`, and `apps/web/app/app/_components/sidebar.tsx`.
+
+### Next recommended step
+
+- Run live hybrid validation for ADR-087 in web and Telegram with real quota thresholds/hard stops, then move to the next highest-priority unfinished ADR-078 continuation item.
+
+## 2026-05-08 (ADR-087 slice 3 paid token light mode) — make light mode paid-only runtime truth and expose quiet web state
+
+### What changed
+
+- Kept the session bounded to ADR-087 Slice 3 and finished the paid-token light-mode runtime/web slice instead of starting advisory delivery early.
+- `EnforceAssistantCapabilityAndQuotaService` now treats token-budget exhaustion differently based on effective zero-price state: paid plans continue through the existing safe `cost_driving_restricted` degrade path, while free/zero-price plans stay on the explicit `token_budget_exhausted` stop path and do not quietly enter paid light mode.
+- Added focused enforcement coverage so the bounded Slice 3 product rule is locked: paid token-budget exhaustion returns `degrade_allowed`, free token-budget exhaustion returns `token_budget_exhausted`.
+- Web sidebar account footer now surfaces the already-computed `plan.advisories.tokenBudget.paidLightModeActive` state as a quiet `Light mode` marker beside the plan / token-percent summary and in the compact limits popover, matching the founder-approved “visible but not noisy” requirement for the left sidebar.
+- Synced sidebar locale copy for the new quiet marker in both English and Russian.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/enforcement-points.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/sidebar.test.tsx`
+
+### Risks / residuals
+
+- Slice 3 is complete, but assistant-authored second-message advisory delivery is still not live yet. Web and Telegram follow-up warnings remain the active Slice 4 work.
+- Some older user-surface helpers may still map `token_budget_exhausted` for free-plan stop paths. That is acceptable for free/zero-price behavior, but remaining hardcoded non-token quota copy still needs unification under Slice 4.
+
+### Next recommended step
+
+- Start ADR-087 Slice 4: deliver dedupe-aware assistant-authored quota follow-up messages in active web/Telegram threads and reuse the same grounded advisory facts for non-token 100% capability-specific explanations.
+
+## 2026-05-08 (ADR-087 slice 2 quota truth + durable dedupe) — finish advisory groundwork and stop treating budget as rate-limit abuse
+
+### What changed
+
+- Kept the session bounded to ADR-087 Slice 2 and finished that slice instead of leaving durable advisory state for a later cleanup pass.
+- `TrackWorkspaceQuotaUsageService` now emits richer quota truth for user-facing quota surfaces: quota buckets and monthly media tool rows include `finiteLimit`, `warningThresholdPercent`, and `warningThresholdReached`, while token-budget period start/end/source already remain explicit.
+- `ResolvePlanVisibilityService` now exposes a new `advisories` block with real plan/quota facts needed for future LLM warnings and quiet light-mode UI: `isFreePlan`, `higherPaidPlanAvailable`, `highestVisiblePaidPlanCode`, and token-budget reset/light-mode eligibility state. Daily tool rows now also carry threshold metadata instead of forcing downstream surfaces to recompute it.
+- Added durable advisory persistence in `assistant_quota_advisory_states`, plus a dedicated `QuotaAdvisoryStateService` that evaluates thread-aware advisory candidates and deduplicates them by assistant/workspace + active thread + limit + threshold + reset window.
+- Internal/runtime `quota_status` now returns the same advisory truth so the assistant can ground future quota explanations in real facts rather than hardcoded copy, and when runtime supplies `channel` + `externalThreadKey` it also returns dedupe-aware advisory candidates for the active thread. `packages/runtime-contract` and generated web contracts were regenerated to keep all callers on the same shape.
+- `EnforceAbuseRateLimitService` no longer converts token-budget usage into `rate_limited` slowdown/block behavior. Abuse/rate-limit protection remains for peer/user/assistant traffic, but budget exhaustion is no longer treated as abuse pressure in the primary user path.
+
+### Verification
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/enforce-abuse-rate-limit.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/quota-advisory-state.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+
+### Risks / residuals
+
+- Slice 2 is complete, but no user-facing advisory delivery is live yet: quiet paid-light-mode UI and assistant-authored second-message delivery still belong to Slice 3/4.
+- `token_budget_exhausted`/legacy surface mappings may still exist in older code paths and UX helpers even though the budget-driven abuse limiter path was removed; they should be cleaned when the remaining ADR-087 delivery slices land.
+
+### Next recommended step
+
+- Start ADR-087 Slice 3: wire paid token-budget light mode as active runtime/web state, then use the new dedupe-aware advisory candidates in Slice 4 to deliver assistant-authored second messages in web and Telegram.
+
+## 2026-05-08 (ADR-087 unified quota advisories + paid light mode) — replace token slowdown/error sprawl with one quota product model
+
+### What changed
+
+- Took the session as a bounded design/documentation slice after a founder audit of current token-budget and quota UX/runtime behavior across API, runtime, web, Telegram, and docs.
+- Added `docs/ADR/087-unified-quota-advisories-and-paid-light-mode.md` as the new target-state decision for one unified quota product model.
+- ADR-087 fixes the product truth that was previously split between quota fallback, budget-driven abuse slowdown/block, web banners, and Telegram fixed error copy. The new target state is:
+  - 90% of any in-scope finite limit (`token_budget`, monthly media limits, tool daily limits, storage limits) may append one assistant-authored follow-up warning in the same active user surface/thread
+  - warning text must be grounded in real quota/plan facts rather than hardcoded surface copy
+  - warnings dedupe once per chat/thread per limit per reset window
+  - free/zero-price plans may receive warnings but do not enter paid light mode
+  - non-free token-budget exhaustion no longer treats budget pressure as the primary product stop path; instead text chat degrades into the safe `cost_driving_restricted` light-mode path until the current quota period resets
+  - quiet web light-mode state belongs in the left sidebar beside plan/usage, not as another noisy banner
+  - upgrade nudges are allowed only when a higher visible paid plan exists; ADR-087 fixes that as “highest-priced visible paid plan,” not plan-name heuristics
+- Synced `ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`, and `TEST-PLAN.md` to treat ADR-087 as active target-state truth.
+
+### Verification
+
+- Doc audit only; no runtime/code changes and no automated tests were run in this slice.
+
+### Risks / residuals
+
+- Repo truth is now intentionally ahead of implementation: current code still contains quota-pressure slowdown/block and hardcoded quota error paths that ADR-087 expects to replace.
+- `quota_status`, plan visibility, advisory dedupe persistence, Telegram/web follow-up delivery, and quiet sidebar light-mode state still need implementation slices before live behavior matches the ADR.
+
+### Next recommended step
+
+- Implement ADR-087 Slice 2 in `apps/api` + `apps/runtime`: enrich `quota_status` / plan visibility with advisory facts and reset windows, add durable advisory dedupe, and remove token-budget-driven abuse slowdown/block from the primary user-facing quota path before wiring the paid token light-mode sidebar state.
+
 ## 2026-05-08 (Tailwind `dark` variant ↔ PersAI theme) — fix premium pricing gold fill on Capacitor when OS scheme ≠ app palette
 
 ### What changed

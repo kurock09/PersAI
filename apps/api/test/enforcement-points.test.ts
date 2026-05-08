@@ -54,6 +54,13 @@ async function run(): Promise<void> {
         description: null,
         status: "active",
         billingProviderHints: {
+          presentation: {
+            price: {
+              amount: 0,
+              currency: "RUB",
+              billingPeriod: "month"
+            }
+          },
           quotaAccounting: {
             tokenBudgetLimit: 100,
             costOrTokenDrivingToolClassUnitsLimit: 3
@@ -282,6 +289,65 @@ async function run(): Promise<void> {
       activeWebChatsCount: 1
     }),
     { mode: "allow" }
+  );
+
+  const paidPlanRepo: PlanRepoStub = {
+    async findByCode() {
+      return {
+        ...(await planRepo.findByCode("starter_trial")),
+        billingProviderHints: {
+          presentation: {
+            price: {
+              amount: 9.9,
+              currency: "RUB",
+              billingPeriod: "month"
+            }
+          },
+          quotaAccounting: {
+            tokenBudgetLimit: 100,
+            costOrTokenDrivingToolClassUnitsLimit: 3
+          }
+        }
+      };
+    }
+  };
+
+  const serviceWithPaidTokenLightMode = new EnforceAssistantCapabilityAndQuotaService(
+    governanceRepo as AssistantGovernanceRepository,
+    paidPlanRepo as AssistantPlanCatalogRepository,
+    buildQuotaRepo(BigInt(120)) as WorkspaceQuotaAccountingRepository,
+    capabilityResolver as ResolveEffectiveCapabilityStateService,
+    subscriptionResolver as ResolveEffectiveSubscriptionStateService
+  );
+
+  await assert.deepEqual(
+    await serviceWithPaidTokenLightMode.enforceWebChatTurn({
+      assistant,
+      isNewThread: false,
+      activeWebChatsCount: 1
+    }),
+    { mode: "degrade_allowed", reason: "token_budget_limit_reached" }
+  );
+
+  const serviceWithFreeTokenExhausted = new EnforceAssistantCapabilityAndQuotaService(
+    governanceRepo as AssistantGovernanceRepository,
+    planRepo as AssistantPlanCatalogRepository,
+    buildQuotaRepo(BigInt(120)) as WorkspaceQuotaAccountingRepository,
+    capabilityResolver as ResolveEffectiveCapabilityStateService,
+    subscriptionResolver as ResolveEffectiveSubscriptionStateService
+  );
+
+  await assert.rejects(
+    () =>
+      serviceWithFreeTokenExhausted.enforceWebChatTurn({
+        assistant,
+        isNewThread: false,
+        activeWebChatsCount: 1
+      }),
+    (error: unknown) =>
+      error instanceof ApiErrorHttpException &&
+      error.errorObject.code === "token_budget_exhausted" &&
+      error.errorObject.message.includes("Monthly token budget has been exhausted")
   );
 }
 

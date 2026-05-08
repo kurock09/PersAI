@@ -13,6 +13,7 @@ export type WorkspaceQuotaLimitsInput = {
   activeWebChatsLimit: number | null;
   mediaStorageBytesLimit: bigint | null;
   knowledgeStorageBytesLimit: bigint | null;
+  workspaceStorageBytesLimit: bigint | null;
 };
 
 export type WorkspaceMonthlyMediaQuotaToolCode = "image_generate" | "image_edit" | "video_generate";

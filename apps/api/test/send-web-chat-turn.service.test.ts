@@ -54,6 +54,12 @@ function createSkillStatePersistenceServiceMock() {
   };
 }
 
+function createQuotaAdvisoryFollowUpServiceMock() {
+  return {
+    maybeCreateFollowUp: async () => null
+  };
+}
+
 describe("SendWebChatTurnService", () => {
   test("replays duplicate clientTurnId without starting a second sync runtime turn", async () => {
     let nativeRuntimeCalls = 0;
@@ -133,7 +139,8 @@ describe("SendWebChatTurnService", () => {
       {} as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createSkillStatePersistenceServiceMock() as never
+      createSkillStatePersistenceServiceMock() as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never
     );
 
     const result = await service.execute("user-1", {
@@ -260,7 +267,8 @@ describe("SendWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createSkillStatePersistenceServiceMock() as never
+      createSkillStatePersistenceServiceMock() as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never
     );
 
     const result = await service.execute("user-1", {
@@ -522,7 +530,8 @@ describe("SendWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createSkillStatePersistenceServiceMock() as never
+      createSkillStatePersistenceServiceMock() as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never
     );
 
     await service.execute("user-1", {
@@ -655,7 +664,8 @@ describe("SendWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createSkillStatePersistenceServiceMock() as never
+      createSkillStatePersistenceServiceMock() as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never
     );
 
     const result = await service.execute("user-1", {
@@ -795,7 +805,8 @@ describe("SendWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createSkillStatePersistenceServiceMock() as never
+      createSkillStatePersistenceServiceMock() as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never
     );
 
     const result = await service.execute("user-1", {

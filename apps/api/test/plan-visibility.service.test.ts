@@ -249,7 +249,10 @@ async function run(): Promise<void> {
               used: 1250,
               limit: 5000,
               percent: 25,
+              finiteLimit: true,
               usageAvailable: true,
+              warningThresholdPercent: 90,
+              warningThresholdReached: false,
               status: "ok"
             },
             {
@@ -259,7 +262,10 @@ async function run(): Promise<void> {
               used: 2,
               limit: 5,
               percent: 40,
+              finiteLimit: true,
               usageAvailable: true,
+              warningThresholdPercent: 90,
+              warningThresholdReached: false,
               status: "ok"
             },
             {
@@ -269,7 +275,10 @@ async function run(): Promise<void> {
               used: 2048,
               limit: 8192,
               percent: 25,
+              finiteLimit: true,
               usageAvailable: true,
+              warningThresholdPercent: 90,
+              warningThresholdReached: false,
               status: "ok"
             },
             {
@@ -279,10 +288,22 @@ async function run(): Promise<void> {
               used: 1024,
               limit: 4096,
               percent: 25,
+              finiteLimit: true,
               usageAvailable: true,
+              warningThresholdPercent: 90,
+              warningThresholdReached: false,
               status: "ok"
             }
           ]
+        };
+      },
+      async resolveAssistantTokenBudgetQuotaSnapshot() {
+        return {
+          usedCredits: BigInt(1250),
+          limitCredits: BigInt(5000),
+          periodStartedAt: "2026-05-01T00:00:00.000Z",
+          periodEndsAt: "2026-06-01T00:00:00.000Z",
+          periodSource: "subscription_period" as const
         };
       },
       async resolveAssistantMonthlyMediaQuotaSnapshot(assistant: {
@@ -307,7 +328,11 @@ async function run(): Promise<void> {
               reconciliationRequiredUnits: 0,
               limitUnits: 20,
               remainingUnits: 18,
+              percent: 10,
+              finiteLimit: true,
               usageAvailable: true,
+              warningThresholdPercent: 90,
+              warningThresholdReached: false,
               status: "ok"
             },
             {
@@ -320,7 +345,11 @@ async function run(): Promise<void> {
               reconciliationRequiredUnits: 0,
               limitUnits: null,
               remainingUnits: null,
+              percent: null,
+              finiteLimit: false,
               usageAvailable: true,
+              warningThresholdPercent: null,
+              warningThresholdReached: false,
               status: "ok"
             },
             {
@@ -333,7 +362,11 @@ async function run(): Promise<void> {
               reconciliationRequiredUnits: 0,
               limitUnits: null,
               remainingUnits: null,
+              percent: null,
+              finiteLimit: false,
               usageAvailable: true,
+              warningThresholdPercent: null,
+              warningThresholdReached: false,
               status: "ok"
             }
           ]
@@ -347,7 +380,10 @@ async function run(): Promise<void> {
         return {
           allowed: true,
           currentCount: params.dailyCallLimit === null ? 0 : 3,
-          limit: params.dailyCallLimit
+          limit: params.dailyCallLimit,
+          periodStartedAt: "2026-05-08T00:00:00.000Z",
+          periodEndsAt: "2026-05-09T00:00:00.000Z",
+          periodSource: "utc_day" as const
         };
       }
     } as never,
@@ -355,6 +391,72 @@ async function run(): Promise<void> {
       async assertCanReadAdminSurface(userId: string) {
         adminAuthCalls += 1;
         assert.equal(userId, "user-1");
+      }
+    } as never,
+    {
+      async listPublicPricingPlans() {
+        return [
+          {
+            code: "free",
+            displayName: "Free",
+            description: "Free plan",
+            enabledToolCodes: [],
+            presentation: {
+              highlighted: false,
+              title: { ru: "Бесплатно", en: "Free" },
+              subtitle: { ru: null, en: null },
+              notes: { ru: null, en: null },
+              badge: { ru: null, en: null },
+              ctaLabel: { ru: "Выбрать", en: "Choose" },
+              price: {
+                amount: 0,
+                currency: "RUB",
+                billingPeriod: "month" as const
+              },
+              highlightItems: { ru: [], en: [] }
+            }
+          },
+          {
+            code: "pro",
+            displayName: "Pro",
+            description: "Pro plan",
+            enabledToolCodes: ["memory_search"],
+            presentation: {
+              highlighted: true,
+              title: { ru: "Про", en: "Pro" },
+              subtitle: { ru: null, en: null },
+              notes: { ru: null, en: null },
+              badge: { ru: "Хит", en: "Popular" },
+              ctaLabel: { ru: "Открыть", en: "Open" },
+              price: {
+                amount: 980,
+                currency: "RUB",
+                billingPeriod: "month" as const
+              },
+              highlightItems: { ru: ["Больше лимитов"], en: ["Higher limits"] }
+            }
+          },
+          {
+            code: "max",
+            displayName: "Max",
+            description: "Max plan",
+            enabledToolCodes: ["memory_search", "image_generate"],
+            presentation: {
+              highlighted: false,
+              title: { ru: "Макс", en: "Max" },
+              subtitle: { ru: null, en: null },
+              notes: { ru: null, en: null },
+              badge: { ru: null, en: null },
+              ctaLabel: { ru: "Апгрейд", en: "Upgrade" },
+              price: {
+                amount: 1990,
+                currency: "RUB",
+                billingPeriod: "month" as const
+              },
+              highlightItems: { ru: ["Максимум"], en: ["Maximum"] }
+            }
+          }
+        ];
       }
     } as never
   );
@@ -379,9 +481,16 @@ async function run(): Promise<void> {
     used: 1250,
     limit: 5000,
     percent: 25,
+    finiteLimit: true,
     usageAvailable: true,
+    warningThresholdPercent: 90,
+    warningThresholdReached: false,
     status: "ok"
   });
+  assert.equal(visibility.advisories.isFreePlan, false);
+  assert.equal(visibility.advisories.higherPaidPlanAvailable, true);
+  assert.equal(visibility.advisories.highestVisiblePaidPlanCode, "max");
+  assert.equal(visibility.advisories.tokenBudget.periodEndsAt, "2026-06-01T00:00:00.000Z");
   assert.equal(visibility.limits.toolDailyLimits.length, 2);
   assert.equal(visibility.limits.monthlyMediaQuotas.tools[0]?.toolCode, "image_generate");
   assert.deepEqual(visibility.limits.toolDailyLimits[0], {
@@ -389,6 +498,13 @@ async function run(): Promise<void> {
     displayName: "Memory Search",
     dailyCallLimit: 25,
     dailyCallsUsed: 3,
+    percent: 12,
+    finiteLimit: true,
+    warningThresholdPercent: 90,
+    warningThresholdReached: false,
+    periodStartedAt: "2026-05-08T00:00:00.000Z",
+    periodEndsAt: "2026-05-09T00:00:00.000Z",
+    periodSource: "utc_day",
     active: true
   });
   assert.deepEqual(visibility.limits.toolDailyLimits[1], {
@@ -396,6 +512,13 @@ async function run(): Promise<void> {
     displayName: "Image Generate",
     dailyCallLimit: 3,
     dailyCallsUsed: 0,
+    percent: 0,
+    finiteLimit: true,
+    warningThresholdPercent: 90,
+    warningThresholdReached: false,
+    periodStartedAt: null,
+    periodEndsAt: null,
+    periodSource: null,
     active: false
   });
 

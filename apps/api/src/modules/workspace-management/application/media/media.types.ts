@@ -29,8 +29,6 @@ export interface RawInboundAttachment {
 export interface ResolvedInboundMedia {
   attachments: AssistantChatMessageAttachment[];
   enrichedMessage: string;
-  /** Guaranteed user-facing notices (not LLM instructions) for failed attachments. */
-  systemNotices: string[];
 }
 
 export type MediaArtifact = RuntimeMediaArtifact;

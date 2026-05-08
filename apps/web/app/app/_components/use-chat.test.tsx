@@ -903,6 +903,60 @@ describe("useChat", () => {
     expect(result.current.isStreaming).toBe(false);
   });
 
+  it("does not append a chat activity when the turn was degraded by quota fallback", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+        });
+        handlers.onCompleted?.({
+          transport: {
+            userMessage: {
+              id: "user-msg-1",
+              chatId: "chat-1",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "keep going",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:35.000Z"
+            },
+            assistantMessage: {
+              id: "assistant-msg-1",
+              chatId: "chat-1",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Still here.",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:45.000Z"
+            },
+            runtime: {
+              respondedAt: "2026-04-25T17:45:45.000Z",
+              degradedByQuotaFallback: true,
+              quotaFallbackModel: "cheap-model",
+              turnRouting: null
+            }
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("keep going");
+    });
+
+    expect(result.current.entries.some((entry) => entry.kind === "activity")).toBe(false);
+  });
+
   it("keeps only the last live status for tool-driven turns", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
@@ -2664,6 +2718,40 @@ describe("useChat", () => {
       expect(result.current.issue).toMatchObject({
         classId: "active_chat_cap",
         message: "You already have the maximum number of active chats for this plan."
+      });
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(result.current.messages).toHaveLength(0);
+    });
+
+    it("surfaces quota hard-stops as an issue instead of a send_failed bubble before headers", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockRejectedValueOnce(
+        new ContractsApiError(
+          "Browser is exhausted for the current daily limit.",
+          409,
+          {
+            error: {
+              code: "tool_daily_limit_reached",
+              message: "Browser is exhausted for the current daily limit.",
+              details: {
+                userFacingGuidance:
+                  "Try a request that does not need Browser until the daily limit resets."
+              }
+            }
+          },
+          "tool_daily_limit_reached"
+        )
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("open browser");
+      });
+
+      expect(result.current.issue).toMatchObject({
+        classId: "quota_limit_reached",
+        message: "Browser is exhausted for the current daily limit.",
+        guidance: "Try a request that does not need Browser until the daily limit resets."
       });
       expect(result.current.pendingSendStatus).toBeNull();
       expect(result.current.messages).toHaveLength(0);
@@ -4544,6 +4632,51 @@ describe("useChat", () => {
         ]);
       });
       expect(assistantApiMocks.stopAssistantWebChatTurn).not.toHaveBeenCalled();
+    });
+
+    it("surfaces failed reattach payloads as an issue", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          throw new TypeError("network disconnected before started event");
+        }
+      );
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+        async (
+          _token: string,
+          _clientTurnId: string,
+          handlers: {
+            onFailed?: (payload: { code?: string; message: string; transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onFailed?.({
+            code: "tool_daily_limit_reached",
+            message: "Browser is exhausted for the current daily limit.",
+            transport: {}
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.send("recover with failure");
+      });
+
+      await waitFor(() => {
+        expect(result.current.issue).toMatchObject({
+          classId: "quota_limit_reached",
+          message: "Browser is exhausted for the current daily limit."
+        });
+      });
     });
 
     it("uses turn status when tail history does not include the completed turn", async () => {

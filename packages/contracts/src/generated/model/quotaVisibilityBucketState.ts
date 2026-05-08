@@ -27,6 +27,14 @@ export interface QuotaVisibilityBucketState {
    * @nullable
    */
   percent: number | null;
+  finiteLimit: boolean;
   usageAvailable: boolean;
+  /**
+   * @minimum 0
+   * @maximum 100
+   * @nullable
+   */
+  warningThresholdPercent: number | null;
+  warningThresholdReached: boolean;
   status: QuotaVisibilityBucketStateStatus;
 }

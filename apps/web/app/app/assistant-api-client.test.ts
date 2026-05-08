@@ -1,3 +1,4 @@
+import { ContractsApiError } from "@persai/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compactChat,
@@ -953,7 +954,7 @@ describe("toWebChatUxIssue", () => {
       })
     ).toEqual({
       classId: "quota_limit_reached",
-      message: "A daily tool usage limit has been reached.",
+      message: "Tool limit exhausted.",
       guidance: "Try again later or use a request that does not need the exhausted tool."
     });
   });
@@ -980,9 +981,35 @@ describe("toWebChatUxIssue", () => {
       })
     ).toEqual({
       classId: "quota_limit_reached",
-      message: "This turn cannot continue on the current plan limits.",
+      message: "Quota exhausted.",
       guidance:
         "No safe fallback route is available for this request right now. Wait for quota refresh, simplify the request, or upgrade the plan."
+    });
+  });
+
+  it("prefers structured guidance from ContractsApiError payloads", () => {
+    expect(
+      toWebChatUxIssue(
+        new ContractsApiError(
+          "Browser is exhausted for the current daily limit.",
+          409,
+          {
+            error: {
+              code: "tool_daily_limit_reached",
+              message: "Browser is exhausted for the current daily limit.",
+              details: {
+                userFacingGuidance:
+                  "Try a request that does not need Browser until the daily limit resets."
+              }
+            }
+          },
+          "tool_daily_limit_reached"
+        )
+      )
+    ).toEqual({
+      classId: "quota_limit_reached",
+      message: "Browser is exhausted for the current daily limit.",
+      guidance: "Try a request that does not need Browser until the daily limit resets."
     });
   });
 
@@ -1026,9 +1053,22 @@ describe("toWebChatUxIssue", () => {
       })
     ).toEqual({
       classId: "quota_limit_reached",
-      message: "Monthly media quota has been exhausted.",
+      message: "Monthly media quota reached.",
       guidance:
         "Wait for the next billing cycle, upgrade the plan, or use a request that does not need media generation."
+    });
+  });
+
+  it("does not present rate limiting as a quota banner", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "rate_limited",
+        message: "Requests are temporarily limited right now."
+      })
+    ).toEqual({
+      classId: "channel_failure",
+      message: "Requests are temporarily limited right now.",
+      guidance: "Wait a moment, then retry the same thread."
     });
   });
 });

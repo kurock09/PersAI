@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayToolCall,
+  RuntimeConversationAddress,
   RuntimeQuotaStatusToolResult
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
@@ -20,6 +21,7 @@ export class RuntimeQuotaStatusToolService {
   async executeToolCall(params: {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
+    conversation: RuntimeConversationAddress;
     requestId: string;
     currentUserText: string;
   }): Promise<RuntimeQuotaStatusToolExecutionResult> {
@@ -56,7 +58,9 @@ export class RuntimeQuotaStatusToolService {
         });
         const quotaStatus = await this.persaiInternalApiClientService.readQuotaStatus({
           assistantId: params.bundle.metadata.assistantId,
-          toolCode: null
+          toolCode: null,
+          channel: params.conversation.channel,
+          externalThreadKey: params.conversation.externalThreadKey
         });
         return {
           payload: {
@@ -66,6 +70,8 @@ export class RuntimeQuotaStatusToolService {
             planCode: quotaStatus.planCode,
             currentPlan: quotaStatus.currentPlan,
             visiblePlans: quotaStatus.visiblePlans,
+            advisories: quotaStatus.advisories,
+            advisoryCandidates: quotaStatus.advisoryCandidates,
             tools: quotaStatus.tools,
             buckets: quotaStatus.buckets,
             monthlyMediaQuotas: quotaStatus.monthlyMediaQuotas,
@@ -80,7 +86,9 @@ export class RuntimeQuotaStatusToolService {
       }
       const outcome = await this.persaiInternalApiClientService.readQuotaStatus({
         assistantId: params.bundle.metadata.assistantId,
-        toolCode: request.toolCode
+        toolCode: request.toolCode,
+        channel: params.conversation.channel,
+        externalThreadKey: params.conversation.externalThreadKey
       });
       return {
         payload: {
@@ -90,6 +98,8 @@ export class RuntimeQuotaStatusToolService {
           planCode: outcome.planCode,
           currentPlan: outcome.currentPlan,
           visiblePlans: outcome.visiblePlans,
+          advisories: outcome.advisories,
+          advisoryCandidates: outcome.advisoryCandidates,
           tools: outcome.tools,
           buckets: outcome.buckets,
           monthlyMediaQuotas: outcome.monthlyMediaQuotas,
@@ -196,6 +206,21 @@ export class RuntimeQuotaStatusToolService {
         displayName: null
       },
       visiblePlans: [],
+      advisories: {
+        warningThresholdPercent: 90,
+        isFreePlan: false,
+        higherPaidPlanAvailable: false,
+        highestVisiblePaidPlanCode: null,
+        tokenBudget: {
+          periodStartedAt: null,
+          periodEndsAt: null,
+          periodSource: null,
+          paidLightModeEligible: false,
+          paidLightModeActive: false,
+          paidLightModeReason: null
+        }
+      },
+      advisoryCandidates: [],
       tools: [],
       buckets: [],
       monthlyMediaQuotas: null,

@@ -3,7 +3,8 @@ import type { RequestWithPlatformContext } from "../../../platform-core/interfac
 import { ManageAdminNotificationChannelsService } from "../../application/manage-admin-notification-channels.service";
 import type {
   AdminNotificationChannelState,
-  IdleReengagementNotificationPolicyState
+  IdleReengagementNotificationPolicyState,
+  QuotaAdvisoryNotificationPolicyState
 } from "../../application/admin-system-notification.types";
 
 @Controller("api/v1/admin/notifications")
@@ -33,6 +34,19 @@ export class AdminNotificationsController {
     const userId = this.resolveRequestUserId(req);
     const policy =
       await this.manageAdminNotificationChannelsService.getIdleReengagementPolicy(userId);
+    return {
+      requestId: req.requestId ?? null,
+      policy
+    };
+  }
+
+  @Get("policies/quota-advisory")
+  async getQuotaAdvisoryPolicy(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    policy: QuotaAdvisoryNotificationPolicyState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const policy = await this.manageAdminNotificationChannelsService.getQuotaAdvisoryPolicy(userId);
     return {
       requestId: req.requestId ?? null,
       policy
@@ -71,6 +85,27 @@ export class AdminNotificationsController {
     const input =
       this.manageAdminNotificationChannelsService.parseIdleReengagementPolicyUpdateInput(body);
     const policy = await this.manageAdminNotificationChannelsService.updateIdleReengagementPolicy(
+      userId,
+      input
+    );
+    return {
+      requestId: req.requestId ?? null,
+      policy
+    };
+  }
+
+  @Patch("policies/quota-advisory")
+  async updateQuotaAdvisoryPolicy(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    policy: QuotaAdvisoryNotificationPolicyState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input =
+      this.manageAdminNotificationChannelsService.parseQuotaAdvisoryPolicyUpdateInput(body);
+    const policy = await this.manageAdminNotificationChannelsService.updateQuotaAdvisoryPolicy(
       userId,
       input
     );

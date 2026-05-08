@@ -789,9 +789,17 @@ export interface RuntimeMemoryWriteToolResult {
 
 export interface RuntimeQuotaStatusToolRow {
   toolCode: string;
+  displayName: string;
   activationStatus: string;
   dailyCallLimit: number | null;
   currentCount: number;
+  percent: number | null;
+  finiteLimit: boolean;
+  warningThresholdPercent: number | null;
+  warningThresholdReached: boolean;
+  periodStartedAt: IsoTimestamp | null;
+  periodEndsAt: IsoTimestamp | null;
+  periodSource: "utc_day" | null;
   allowed: boolean;
 }
 
@@ -802,7 +810,10 @@ export interface RuntimeQuotaStatusBucket {
   used: number | null;
   limit: number | null;
   percent: number | null;
+  finiteLimit: boolean;
   usageAvailable: boolean;
+  warningThresholdPercent: number | null;
+  warningThresholdReached: boolean;
   status: "ok" | "limit_reached" | "usage_unavailable";
 }
 
@@ -816,7 +827,11 @@ export interface RuntimeMonthlyMediaQuotaStatusToolRow {
   reconciliationRequiredUnits: number;
   limitUnits: number | null;
   remainingUnits: number | null;
+  percent: number | null;
+  finiteLimit: boolean;
   usageAvailable: boolean;
+  warningThresholdPercent: number | null;
+  warningThresholdReached: boolean;
   status: "ok" | "limit_reached" | "usage_unavailable";
 }
 
@@ -831,6 +846,36 @@ export interface RuntimeMonthlyMediaQuotaStatus {
 export interface RuntimeQuotaStatusCurrentPlan {
   code: string | null;
   displayName: string | null;
+}
+
+export interface RuntimeQuotaStatusAdvisories {
+  warningThresholdPercent: number;
+  isFreePlan: boolean;
+  higherPaidPlanAvailable: boolean;
+  highestVisiblePaidPlanCode: string | null;
+  tokenBudget: {
+    periodStartedAt: IsoTimestamp | null;
+    periodEndsAt: IsoTimestamp | null;
+    periodSource: "subscription_period" | "calendar_month_fallback" | null;
+    paidLightModeEligible: boolean;
+    paidLightModeActive: boolean;
+    paidLightModeReason: "token_budget_limit_reached" | null;
+  };
+}
+
+export interface RuntimeQuotaAdvisoryCandidate {
+  dedupeKey: string | null;
+  limitCode: string;
+  displayName: string;
+  thresholdCode: "warning_90_percent";
+  warningThresholdPercent: number;
+  currentPercent: number;
+  finiteLimit: boolean;
+  periodStartedAt: IsoTimestamp | null;
+  periodEndsAt: IsoTimestamp | null;
+  periodSource: "subscription_period" | "calendar_month_fallback" | "utc_day" | null;
+  deliveryState: "eligible" | "already_sent" | "thread_context_required";
+  deliveredAt: IsoTimestamp | null;
 }
 
 export interface RuntimeQuotaStatusLocalizedText {
@@ -901,6 +946,8 @@ export interface RuntimeQuotaStatusToolResult {
   planCode: string | null;
   currentPlan: RuntimeQuotaStatusCurrentPlan;
   visiblePlans: RuntimeQuotaStatusVisiblePlan[];
+  advisories: RuntimeQuotaStatusAdvisories;
+  advisoryCandidates: RuntimeQuotaAdvisoryCandidate[];
   tools: RuntimeQuotaStatusToolRow[];
   buckets: RuntimeQuotaStatusBucket[];
   monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;

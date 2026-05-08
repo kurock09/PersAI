@@ -278,6 +278,79 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     });
   });
 
+  it("shows a quiet light-mode marker when paid token light mode is active", () => {
+    render(
+      <Sidebar
+        data={makeAppData({
+          plan: {
+            effectivePlan: {
+              code: "starter_pro",
+              displayName: "Starter Pro",
+              status: "active",
+              source: "plan",
+              subscriptionStatus: "active",
+              trialEndsAt: null,
+              graceStartedAt: null,
+              graceEndsAt: null,
+              currentPeriodEndsAt: "2026-06-01T00:00:00.000Z",
+              isTrialPlan: false,
+              trialFallbackPlanCode: null,
+              paidFallbackPlanCode: null,
+              price: { amount: 1990, currency: "RUB", billingPeriod: "month" }
+            },
+            advisories: {
+              warningThresholdPercent: 90,
+              isFreePlan: false,
+              higherPaidPlanAvailable: true,
+              highestVisiblePaidPlanCode: "pro_max",
+              tokenBudget: {
+                periodStartedAt: "2026-05-01T00:00:00.000Z",
+                periodEndsAt: "2026-06-01T00:00:00.000Z",
+                periodSource: "subscription_period",
+                paidLightModeEligible: true,
+                paidLightModeActive: true,
+                paidLightModeReason: "token_budget_limit_reached"
+              }
+            },
+            entitlements: {
+              channelsAndSurfaces: {
+                webChat: true,
+                telegram: true,
+                whatsapp: false,
+                max: false
+              }
+            },
+            limits: {
+              quotaBuckets: [
+                {
+                  bucketCode: "token_budget",
+                  displayName: "Token budget",
+                  unit: "tokens",
+                  used: 10000,
+                  limit: 10000,
+                  percent: 100,
+                  usageAvailable: true,
+                  status: "limit_reached"
+                }
+              ],
+              monthlyMediaQuotas: {
+                planCode: "starter_pro",
+                periodStartedAt: "2026-05-01T00:00:00.000Z",
+                periodEndsAt: "2026-06-01T00:00:00.000Z",
+                periodSource: "subscription_period",
+                tools: []
+              },
+              toolDailyLimits: []
+            },
+            updatedAt: "2026-05-08T10:00:00.000Z"
+          } as unknown as AppData["plan"]
+        })}
+      />
+    );
+
+    expect(screen.getByText("Starter Pro · 100% · lightModeBadge")).toBeInTheDocument();
+  });
+
   it("shows the Android APK button above the account card in the mobile sidebar", async () => {
     Object.defineProperty(window.navigator, "userAgent", {
       configurable: true,

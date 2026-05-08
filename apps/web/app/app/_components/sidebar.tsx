@@ -430,6 +430,7 @@ function AccountFooter({
   const tokenUsage = tokenBucket?.percent ?? 0;
   const tokenUsed = tokenBucket?.used ?? 0;
   const tokenLimit = tokenBucket?.limit ?? null;
+  const paidLightModeActive = data.plan?.advisories?.tokenBudget?.paidLightModeActive ?? false;
   const billingSummary = resolveBillingSummaryCopy(data.plan?.effectivePlan, locale);
 
   const telegramConnected = data.telegram?.connectionStatus === "connected";
@@ -514,7 +515,7 @@ function AccountFooter({
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-text">{displayName}</span>
           <span className="block truncate text-[11px] tracking-wide text-text-muted">
-            {planName} · {tokenUsage}%
+            {planName} · {tokenUsage}%{paidLightModeActive ? ` · ${t("lightModeBadge")}` : ""}
           </span>
         </span>
         <MoreHorizontal className="h-4 w-4 shrink-0 text-text-subtle" />
@@ -566,8 +567,13 @@ function AccountFooter({
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px]">
                 <span className="max-w-[160px] truncate text-text-muted">{planName}</span>
-                <span className="text-text-subtle">
-                  {ts("tokenPercentCompact", { pct: tokenUsage })}
+                <span className="flex items-center gap-1.5 text-text-subtle">
+                  <span>{ts("tokenPercentCompact", { pct: tokenUsage })}</span>
+                  {paidLightModeActive ? (
+                    <span className="rounded-full border border-border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-warning">
+                      {t("lightModeBadge")}
+                    </span>
+                  ) : null}
                 </span>
               </div>
               {billingSummary.dateKey && billingSummary.dateLabel ? (

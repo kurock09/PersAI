@@ -9,6 +9,11 @@ async function run(): Promise<void> {
     dailyCallLimit: number | null;
     units: number | undefined;
   }> = [];
+  const quotaGroundedLimitCopyService = {
+    async build() {
+      return null;
+    }
+  } as never;
 
   const assistant = {
     id: "assistant-1",
@@ -67,7 +72,8 @@ async function run(): Promise<void> {
           limit: input.dailyCallLimit
         };
       }
-    } as never
+    } as never,
+    quotaGroundedLimitCopyService
   );
 
   const result = await service.execute({
@@ -118,7 +124,8 @@ async function run(): Promise<void> {
         weightedCalls.push({ units: input.units, limit: input.dailyCallLimit });
         return { allowed: true, currentCount: 4, limit: input.dailyCallLimit };
       }
-    } as never
+    } as never,
+    quotaGroundedLimitCopyService
   );
   await weightedService.execute({
     assistantId: "assistant-1",
@@ -152,7 +159,8 @@ async function run(): Promise<void> {
         unlimitedCalls.push({ limit: input.dailyCallLimit });
         return { allowed: true, currentCount: 17, limit: null };
       }
-    } as never
+    } as never,
+    quotaGroundedLimitCopyService
   );
   const unlimitedResult = await unlimitedService.execute({
     assistantId: "assistant-1",
@@ -204,7 +212,12 @@ async function run(): Promise<void> {
     toolCode: "memory_write"
   });
   assert.deepEqual(platformManagedPolicy.tools, [
-    { toolCode: "memory_write", activationStatus: "active", dailyCallLimit: null }
+    {
+      toolCode: "memory_write",
+      displayName: "memory_write",
+      activationStatus: "active",
+      dailyCallLimit: null
+    }
   ]);
 
   // ── Tool deactivated mid-flight remains a hard rejection (only blocking
@@ -227,7 +240,8 @@ async function run(): Promise<void> {
             };
           }
         } as never,
-        {} as never
+        {} as never,
+        quotaGroundedLimitCopyService
       ).execute({
         assistantId: "assistant-1",
         toolCode: "web_search",

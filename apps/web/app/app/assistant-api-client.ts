@@ -448,8 +448,24 @@ function extractErrorMessage(error: unknown): string | null {
   return null;
 }
 
+function extractStructuredErrorDetails(error: unknown): Record<string, unknown> | null {
+  if (error instanceof ApiStructuredError) {
+    return error.details ?? null;
+  }
+  if (error instanceof ContractsApiError) {
+    return parseApiErrorEnvelope(error.payload)?.details ?? null;
+  }
+  return null;
+}
+
+function extractStructuredGuidance(error: unknown): string | null {
+  const value = extractStructuredErrorDetails(error)?.userFacingGuidance;
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
 export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   const rawMessage = extractErrorMessage(error) ?? "Web chat request failed.";
+  const structuredGuidance = extractStructuredGuidance(error);
 
   const normalized = normalizeRawErrorMessage(rawMessage);
   const status = error instanceof ContractsApiError ? error.status : null;
@@ -494,8 +510,9 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   if (code === "quota_limit_reached") {
     return {
       classId: "quota_limit_reached",
-      message: "This turn cannot continue on the current plan limits.",
+      message: rawMessage,
       guidance:
+        structuredGuidance ??
         "No safe fallback route is available for this request right now. Wait for quota refresh, simplify the request, or upgrade the plan."
     };
   }
@@ -511,11 +528,10 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
         : null;
     return {
       classId: "media_storage_full",
-      message:
-        limitMb !== null
-          ? `Media storage full: ${usedMb ?? "?"} MB used out of ${limitMb} MB.`
-          : "Media storage limit reached.",
-      guidance: "Delete old chats or files to free up space, then try uploading again.",
+      message: limitMb !== null ? rawMessage : rawMessage,
+      guidance:
+        structuredGuidance ??
+        "Delete old chats or files to free up space, then try uploading again.",
       data: { usedMb, limitMb }
     };
   }
@@ -531,11 +547,10 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
         : null;
     return {
       classId: "workspace_storage_full",
-      message:
-        limitMb !== null
-          ? `Workspace disk full: ${usedMb ?? "?"} MB used out of ${limitMb} MB.`
-          : "Workspace disk is full.",
-      guidance: "Delete old chats or files to free up space, then try uploading again.",
+      message: limitMb !== null ? rawMessage : rawMessage,
+      guidance:
+        structuredGuidance ??
+        "Delete old chats or files to free up space, then try uploading again.",
       data: { usedMb, limitMb }
     };
   }
@@ -551,11 +566,9 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
         : null;
     return {
       classId: "knowledge_storage_full",
-      message:
-        limitMb !== null
-          ? `Knowledge base storage full: ${usedMb ?? "?"} MB used out of ${limitMb} MB.`
-          : "Knowledge base storage limit reached.",
+      message: rawMessage,
       guidance:
+        structuredGuidance ??
         "Delete older knowledge-base documents or free assistant storage, then try uploading again.",
       data: { usedMb, limitMb }
     };
@@ -564,8 +577,9 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   if (code === "token_budget_exhausted") {
     return {
       classId: "quota_limit_reached",
-      message: "Monthly token budget has been exhausted.",
+      message: rawMessage,
       guidance:
+        structuredGuidance ??
         "Wait for the next billing cycle or upgrade the plan to continue using the assistant."
     };
   }
@@ -573,8 +587,9 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   if (code === "monthly_media_quota_exceeded" || code === "monthly_media_quota_rejected") {
     return {
       classId: "quota_limit_reached",
-      message: "Monthly media quota has been exhausted.",
+      message: rawMessage,
       guidance:
+        structuredGuidance ??
         "Wait for the next billing cycle, upgrade the plan, or use a request that does not need media generation."
     };
   }
@@ -582,8 +597,10 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   if (code === "tool_daily_limit_reached") {
     return {
       classId: "quota_limit_reached",
-      message: "A daily tool usage limit has been reached.",
-      guidance: "Try again later or use a request that does not need the exhausted tool."
+      message: rawMessage,
+      guidance:
+        structuredGuidance ??
+        "Try again later or use a request that does not need the exhausted tool."
     };
   }
 
@@ -597,8 +614,8 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
 
   if (code === "rate_limited") {
     return {
-      classId: "quota_limit_reached",
-      message: "Requests are temporarily limited right now.",
+      classId: "channel_failure",
+      message: rawMessage,
       guidance: "Wait a moment, then retry the same thread."
     };
   }
@@ -697,19 +714,6 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
       classId: "media_storage_full",
       message: "Media storage limit reached.",
       guidance: "Delete old chats or files to free up space, then try uploading again."
-    };
-  }
-
-  if (
-    normalized.includes("quota limit reached") ||
-    normalized.includes("budget limit reached") ||
-    normalized.includes("quota refresh")
-  ) {
-    return {
-      classId: "quota_limit_reached",
-      message: "You've reached your plan's usage limit.",
-      guidance:
-        "Your message quota or tool usage limit has been exceeded. Wait for the next billing cycle or upgrade your plan."
     };
   }
 
@@ -2561,6 +2565,50 @@ export async function patchAdminIdleReengagementNotificationPolicy(
   }
 }
 
+export async function getAdminQuotaAdvisoryNotificationPolicy(
+  token: string
+): Promise<QuotaAdvisoryNotificationPolicyState> {
+  try {
+    const response = await fetch(`/api/v1/admin/notifications/policies/quota-advisory`, {
+      headers: getAuthHeaders(token)
+    });
+    if (!response.ok) {
+      throw new Error(
+        "Unexpected non-success response for GET /admin/notifications/policies/quota-advisory."
+      );
+    }
+    const payload = (await response.json()) as { policy: QuotaAdvisoryNotificationPolicyState };
+    return payload.policy;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function patchAdminQuotaAdvisoryNotificationPolicy(
+  token: string,
+  input: PatchAdminQuotaAdvisoryNotificationPolicyRequest
+): Promise<QuotaAdvisoryNotificationPolicyState> {
+  try {
+    const response = await fetch(`/api/v1/admin/notifications/policies/quota-advisory`, {
+      method: "PATCH",
+      headers: {
+        ...getAuthHeaders(token),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    if (!response.ok) {
+      throw new Error(
+        "Unexpected non-success response for PATCH /admin/notifications/policies/quota-advisory."
+      );
+    }
+    const payload = (await response.json()) as { policy: QuotaAdvisoryNotificationPolicyState };
+    return payload.policy;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
 export async function getAdminPlatformRollouts(token: string): Promise<PlatformRolloutState[]> {
   try {
     const response = await getAdminPlatformRolloutsContract({
@@ -3181,6 +3229,7 @@ export type WebChatTurnStatusState = {
   chat: AssistantWebChatState | null;
   userMessage: ChatHistoryMessage | null;
   assistantMessage: ChatHistoryMessage | null;
+  followUpAssistantMessage?: ChatHistoryMessage | null;
   currentActivity: WebChatTurnCurrentActivityState | null;
   runtime: AssistantWebChatRuntimeState | null;
   error: { code: string | null; message: string | null } | null;
@@ -3197,6 +3246,19 @@ export type WebChatActiveTurnState = {
   userMessage: ChatHistoryMessage | null;
   assistantMessage: ChatHistoryMessage | null;
   canReattach: boolean;
+};
+
+export type QuotaAdvisoryNotificationPolicyState = {
+  source: "quota_advisory";
+  enabled: boolean;
+  llmInstruction: string;
+  updatedAt: string;
+  updatedByUserId: string | null;
+};
+
+export type PatchAdminQuotaAdvisoryNotificationPolicyRequest = {
+  enabled: boolean;
+  llmInstruction: string;
 };
 
 export type WebChatActiveMediaJobState = AssistantWebChatActiveMediaJobState;

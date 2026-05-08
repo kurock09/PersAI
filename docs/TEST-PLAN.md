@@ -2,7 +2,7 @@
 
 This document defines the current verification baseline for the active PersAI-native path.
 
-ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track.
+ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
 ## Required repo checks
 
@@ -44,11 +44,70 @@ Interpretation rules:
 6. Monthly media settlement must reserve before expensive media provider work, settle only after delivery succeeds, and release or mark reconciliation-required when provider/output work does not become user-visible delivery.
 7. `image_generate`, `image_edit`, and `video_generate` must not use day-keyed tool counters as paid media quota truth.
 
+## ADR-087 unified quota advisories and paid light-mode focused checks
+
+When a change touches 90%-threshold advisories, paid token light mode, `quota_status` advisory facts, free-vs-paid warning/light-mode gating, or quiet light-mode UI state, add focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/contracts run generate
+corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/enforce-abuse-rate-limit.test.ts
+corepack pnpm --filter @persai/api exec tsx test/quota-advisory-state.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts
+corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/send-web-chat-turn.service.test.ts
+corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/stream-web-chat-turn.service.test.ts
+corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/handle-internal-telegram-turn.service.test.ts
+corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/render-assistant-inbound-surface-message.test.ts
+corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/internal-runtime-tool-quota.controller.test.ts
+corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/assistant-inbound-error.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/_components/chat-area.test.tsx app/app/_components/sidebar.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. 90% warnings must apply only to finite in-scope limits and must not fire for unlimited limits.
+2. The initial ADR-087 in-scope limits are token/Credits budget, monthly media limits, daily tool limits, and storage limits; `activeWebChatsLimit` and `messagesPerChat` stay on their existing UX paths unless a later ADR expands scope.
+3. Warning delivery must be assistant-authored from real quota/plan facts and deduplicated once per chat/thread per limit per reset window.
+4. Free/zero-price plans may receive warnings but must not enter paid light mode.
+5. Paid token-budget exhaustion must not surface as generic budget-driven `rate_limited`; ordinary text turns should continue through the safe `cost_driving_restricted` light-mode path until the current quota period resets.
+6. The quiet web light-mode indicator should stay low-noise and consistent with server truth rather than competing with chat banners.
+7. Upgrade nudges must appear only when a higher visible paid plan exists; ADR-087 currently defines the maximum plan as the highest-priced visible paid plan.
+
 For production slices that touch API contracts, runtime behavior, or shared control-plane seams, also run:
 
 ```bash
 corepack pnpm run test
 ```
+
+## ADR-088 unified notification platform focused checks
+
+When a change touches notification intent modeling, channel routing, delivery backbones, admin notification governance, billing/email notification migration, or active-thread conversational notification unification, add checks that cover both the newly touched domain and the shared delivery backbone before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-notification-channels.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/assistant-notification-outbox.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/assistant-notification-outbox-scheduler.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/assistant-notification-delivery.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/schedule-billing-lifecycle-notifications.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/admin-notifications.controller.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/notifications/page.test.tsx
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+corepack pnpm run test
+```
+
+Interpretation rules:
+
+1. Conversational, transactional, operational, and administrative notifications must stay explicitly classified; do not silently collapse them into one freeform send path.
+2. Billing/admin/ops notifications must remain deterministic/template-safe unless a later ADR explicitly expands grounded rendering.
+3. New notification features should not bypass durable enqueue, policy resolution, routing, and delivery audit with ad hoc direct sends.
+4. `Admin > Notifications` should gain control-plane authority over policy/routing/history rather than accumulating one-off feature cards.
 
 ## ADR-083 subscription lifecycle focused checks
 

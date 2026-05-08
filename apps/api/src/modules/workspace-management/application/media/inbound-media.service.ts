@@ -47,13 +47,12 @@ export class InboundMediaService {
 
   async resolve(params: InboundMediaResolveParams): Promise<ResolvedInboundMedia> {
     if (params.rawAttachments.length === 0) {
-      return { attachments: [], enrichedMessage: params.userMessage, systemNotices: [] };
+      return { attachments: [], enrichedMessage: params.userMessage };
     }
 
     const attachments: AssistantChatMessageAttachment[] = [];
     const contextLines: string[] = [];
     const failureNotices: string[] = [];
-    const systemNotices: string[] = [];
 
     for (const raw of params.rawAttachments) {
       const startedAt = process.hrtime.bigint();
@@ -174,13 +173,6 @@ export class InboundMediaService {
         if (notice !== null) {
           failureNotices.push(notice);
         }
-        if (err instanceof MediaStorageQuotaExceededError) {
-          const sysNotice =
-            err.limitMb !== null
-              ? `⚠ Media storage is full (${err.usedMb} MB / ${err.limitMb} MB). Delete old chats or files to free space.`
-              : "⚠ Media storage limit reached. Delete old chats or files to free space.";
-          systemNotices.push(sysNotice);
-        }
       } finally {
         const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
         this.platformHttpMetricsService.recordMediaStage({
@@ -199,7 +191,7 @@ export class InboundMediaService {
       failureNotices
     );
 
-    return { attachments, enrichedMessage, systemNotices };
+    return { attachments, enrichedMessage };
   }
 
   /**
@@ -318,11 +310,9 @@ export class InboundMediaService {
     const filename = originalFilename.trim().length > 0 ? `"${originalFilename}"` : "The file";
 
     if (error instanceof MediaStorageQuotaExceededError) {
-      const usage =
-        error.limitMb !== null ? ` (${error.usedMb} MB used out of ${error.limitMb} MB)` : "";
       return (
-        `- ${filename} was not uploaded because the media storage limit was reached${usage}. ` +
-        "Politely tell the user how much storage is used and that they need to delete old chats or files to free up space before uploading again."
+        `- ${filename} was not uploaded. The storage system reported: "${error.message}". ` +
+        "Tell the user this exact storage-limit result and ask them to delete old chats or files before uploading again."
       );
     }
 

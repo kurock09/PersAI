@@ -13,6 +13,7 @@ import type { Assistant } from "../domain/assistant.entity";
 
 export type ResolvedInternalRuntimeToolDailyPolicyRow = {
   toolCode: string;
+  displayName: string;
   activationStatus: "active" | "inactive";
   dailyCallLimit: number | null;
 };
@@ -116,6 +117,7 @@ export class ResolveInternalRuntimeToolDailyPolicyService {
       planCode,
       tools: activations.map((activation) => ({
         toolCode: activation.toolCode,
+        displayName: activation.displayName,
         activationStatus: activation.activationStatus,
         dailyCallLimit: activation.dailyCallLimit
       }))
@@ -125,6 +127,7 @@ export class ResolveInternalRuntimeToolDailyPolicyService {
   private platformManagedToolPolicy(toolCode: string): ResolvedInternalRuntimeToolDailyPolicyRow {
     return {
       toolCode,
+      displayName: toolCode,
       activationStatus: "active",
       dailyCallLimit: null
     };

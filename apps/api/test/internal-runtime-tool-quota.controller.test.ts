@@ -146,7 +146,11 @@ async function run(): Promise<void> {
         throw new ApiErrorHttpException(409, {
           code: "tool_daily_limit_reached",
           category: "conflict",
-          message: 'Daily tool usage limit reached for "web_search".'
+          message: 'Daily tool usage limit reached for "web_search".',
+          details: {
+            userFacingGuidance:
+              "Try a request that does not need web_search until the daily limit resets."
+          }
         });
       }
     } as never,
@@ -207,7 +211,9 @@ async function run(): Promise<void> {
       ),
     (error: unknown) =>
       error instanceof ApiErrorHttpException &&
-      error.errorObject.code === "tool_daily_limit_reached"
+      error.errorObject.code === "tool_daily_limit_reached" &&
+      error.errorObject.details?.userFacingGuidance ===
+        "Try a request that does not need web_search until the daily limit resets."
   );
 }
 

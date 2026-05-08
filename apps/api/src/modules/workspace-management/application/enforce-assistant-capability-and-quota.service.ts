@@ -23,6 +23,7 @@ import { resolveRecurringQuotaPeriod } from "./recurring-quota-period";
 type ResolvedQuotaLimits = {
   tokenBudgetLimit: bigint | null;
   activeWebChatsLimit: number | null;
+  paidTokenLightModeEligible: boolean;
 };
 
 export type AssistantInboundQuotaDecision =
@@ -43,6 +44,10 @@ function asObject(value: unknown): Record<string, unknown> | null {
 
 function asInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function readLimitFromEntitlementLimits(items: unknown[] | undefined, key: string): number | null {
@@ -138,6 +143,16 @@ export class EnforceAssistantCapabilityAndQuotaService {
       governance
     );
     if (limits.tokenBudgetLimit !== null && tokenBudgetUsage >= limits.tokenBudgetLimit) {
+      if (!limits.paidTokenLightModeEligible) {
+        throw createAssistantInboundConflict(
+          "token_budget_exhausted",
+          "Monthly token budget has been exhausted. Wait for the next billing cycle or upgrade the plan.",
+          {
+            userFacingGuidance:
+              "Wait for the next billing cycle or upgrade the plan to continue using the assistant."
+          }
+        );
+      }
       return {
         mode: "degrade_allowed",
         reason: "token_budget_limit_reached"
@@ -187,6 +202,8 @@ export class EnforceAssistantCapabilityAndQuotaService {
 
     const planHints = asObject(plan?.billingProviderHints ?? null);
     const quotaHints = asObject(planHints?.quotaAccounting ?? null);
+    const presentation = asObject(planHints?.presentation);
+    const price = asObject(presentation?.price);
     const tokenLimitFromHints = asInteger(quotaHints?.tokenBudgetLimit);
     const tokenLimitFromEntitlements = readLimitFromEntitlementLimits(
       plan?.entitlementModel?.limitsPermissions,
@@ -202,6 +219,7 @@ export class EnforceAssistantCapabilityAndQuotaService {
       tokenBudgetLimit: BigInt(
         tokenLimitFromHints ?? tokenLimitFromEntitlements ?? config.QUOTA_TOKEN_BUDGET_DEFAULT
       ),
+      paidTokenLightModeEligible: (asFiniteNumber(price?.amount) ?? 0) > 0,
       activeWebChatsLimit:
         activeWebChatsLimitFromHints ??
         activeWebChatsLimitFromEntitlements ??

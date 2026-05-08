@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
+import { QuotaGroundedLimitCopyService } from "./quota-grounded-limit-copy.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
@@ -59,7 +60,8 @@ function normalizeOptionalUnits(value: unknown, fieldName: string): number {
 export class ConsumeInternalRuntimeToolDailyLimitService {
   constructor(
     private readonly resolveInternalRuntimeToolDailyPolicyService: ResolveInternalRuntimeToolDailyPolicyService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly quotaGroundedLimitCopyService: QuotaGroundedLimitCopyService
   ) {}
 
   parseInput(payload: unknown): ConsumeInternalRuntimeToolDailyLimitRequest {
@@ -95,13 +97,24 @@ export class ConsumeInternalRuntimeToolDailyLimitService {
     // unlimited-tool traffic, instead of treating "no cap" as "no
     // counter" (the second hole the L1.1 audit closed).
     if (effectiveTool === undefined || effectiveTool.activationStatus !== "active") {
-      throw createAssistantInboundConflict(
-        "tool_daily_limit_reached",
-        `Daily tool usage policy for "${input.toolCode}" is no longer active on the effective plan.`,
-        {
+      const copy = await this.quotaGroundedLimitCopyService.build({
+        assistantId: input.assistantId,
+        code: "tool_daily_limit_reached",
+        details: {
           toolCode: input.toolCode,
           runtimeReportedLimit: input.dailyCallLimit,
           effectivePlanCode: resolved.planCode
+        }
+      });
+      throw createAssistantInboundConflict(
+        "tool_daily_limit_reached",
+        copy?.message ??
+          `Daily tool usage policy for "${input.toolCode}" is no longer active on the effective plan.`,
+        {
+          toolCode: input.toolCode,
+          runtimeReportedLimit: input.dailyCallLimit,
+          effectivePlanCode: resolved.planCode,
+          ...(copy?.guidance ? { userFacingGuidance: copy.guidance } : {})
         }
       );
     }
@@ -114,15 +127,27 @@ export class ConsumeInternalRuntimeToolDailyLimitService {
     });
 
     if (!result.allowed) {
-      throw createAssistantInboundConflict(
-        "tool_daily_limit_reached",
-        `Daily tool usage limit reached for "${input.toolCode}".`,
-        {
+      const copy = await this.quotaGroundedLimitCopyService.build({
+        assistantId: input.assistantId,
+        code: "tool_daily_limit_reached",
+        details: {
           toolCode: input.toolCode,
           currentCount: result.currentCount,
           limit: result.limit,
           requestedUnits: input.units,
           runtimeReportedLimit: input.dailyCallLimit
+        }
+      });
+      throw createAssistantInboundConflict(
+        "tool_daily_limit_reached",
+        copy?.message ?? `Daily tool usage limit reached for "${input.toolCode}".`,
+        {
+          toolCode: input.toolCode,
+          currentCount: result.currentCount,
+          limit: result.limit,
+          requestedUnits: input.units,
+          runtimeReportedLimit: input.dailyCallLimit,
+          ...(copy?.guidance ? { userFacingGuidance: copy.guidance } : {})
         }
       );
     }

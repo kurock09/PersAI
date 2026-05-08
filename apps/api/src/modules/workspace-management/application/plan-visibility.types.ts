@@ -5,6 +5,21 @@ import type {
 
 export type QuotaVisibilityBucketState = AssistantQuotaBucketSnapshot;
 
+export type PlanQuotaAdvisoryState = {
+  warningThresholdPercent: number;
+  isFreePlan: boolean;
+  higherPaidPlanAvailable: boolean;
+  highestVisiblePaidPlanCode: string | null;
+  tokenBudget: {
+    periodStartedAt: string | null;
+    periodEndsAt: string | null;
+    periodSource: "subscription_period" | "calendar_month_fallback" | null;
+    paidLightModeEligible: boolean;
+    paidLightModeActive: boolean;
+    paidLightModeReason: "token_budget_limit_reached" | null;
+  };
+};
+
 export type UserPlanVisibilityState = {
   effectivePlan: {
     code: string | null;
@@ -49,6 +64,7 @@ export type UserPlanVisibilityState = {
       max: boolean;
     };
   };
+  advisories: PlanQuotaAdvisoryState;
   limits: {
     quotaBuckets: QuotaVisibilityBucketState[];
     monthlyMediaQuotas: AssistantMonthlyMediaQuotaSnapshot;
@@ -57,6 +73,13 @@ export type UserPlanVisibilityState = {
       displayName: string;
       dailyCallLimit: number | null;
       dailyCallsUsed: number;
+      percent: number | null;
+      finiteLimit: boolean;
+      warningThresholdPercent: number | null;
+      warningThresholdReached: boolean;
+      periodStartedAt: string | null;
+      periodEndsAt: string | null;
+      periodSource: "utc_day" | null;
       active: boolean;
     }>;
   };

@@ -21,16 +21,19 @@ async function run(): Promise<void> {
           tools: [
             {
               toolCode: "web_search",
+              displayName: "Web Search",
               activationStatus: "active" as const,
               dailyCallLimit: 3
             },
             {
               toolCode: "image_generate",
+              displayName: "Image generation",
               activationStatus: "active" as const,
               dailyCallLimit: null
             },
             {
               toolCode: "video_generate",
+              displayName: "Video generation",
               activationStatus: "inactive" as const,
               dailyCallLimit: null
             }
@@ -43,7 +46,10 @@ async function run(): Promise<void> {
         return {
           allowed: true,
           currentCount: input.toolCode === "web_search" ? 2 : 0,
-          limit: input.dailyCallLimit
+          limit: input.dailyCallLimit,
+          periodStartedAt: "2026-05-08T00:00:00.000Z",
+          periodEndsAt: "2026-05-09T00:00:00.000Z",
+          periodSource: "utc_day" as const
         };
       },
       async resolveAssistantQuotaSnapshot() {
@@ -57,10 +63,22 @@ async function run(): Promise<void> {
               used: 12,
               limit: 100,
               percent: 12,
+              finiteLimit: true,
               usageAvailable: true,
+              warningThresholdPercent: 90,
+              warningThresholdReached: false,
               status: "ok"
             }
           ]
+        };
+      },
+      async resolveAssistantTokenBudgetQuotaSnapshot() {
+        return {
+          usedCredits: BigInt(12),
+          limitCredits: BigInt(100),
+          periodStartedAt: "2026-05-01T00:00:00.000Z",
+          periodEndsAt: "2026-06-01T00:00:00.000Z",
+          periodSource: "subscription_period" as const
         };
       },
       async resolveAssistantMonthlyMediaQuotaSnapshot() {
@@ -80,7 +98,11 @@ async function run(): Promise<void> {
               reconciliationRequiredUnits: 1,
               limitUnits: 30,
               remainingUnits: 27,
+              percent: 10,
+              finiteLimit: true,
               usageAvailable: true,
+              warningThresholdPercent: 90,
+              warningThresholdReached: false,
               status: "ok"
             },
             {
@@ -93,7 +115,11 @@ async function run(): Promise<void> {
               reconciliationRequiredUnits: 0,
               limitUnits: 5,
               remainingUnits: 5,
+              percent: 0,
+              finiteLimit: true,
               usageAvailable: true,
+              warningThresholdPercent: 90,
+              warningThresholdReached: false,
               status: "ok"
             }
           ]
@@ -165,10 +191,35 @@ async function run(): Promise<void> {
           }
         ];
       }
+    } as never,
+    {
+      async resolveCandidates() {
+        return [
+          {
+            dedupeKey:
+              "quota_advisory:assistant-1:web:chat-thread-1:quota_bucket:token_budget:warning_90_percent:2026-05-01T00:00:00.000Z:2026-06-01T00:00:00.000Z",
+            limitCode: "quota_bucket:token_budget",
+            displayName: "Credits",
+            thresholdCode: "warning_90_percent" as const,
+            warningThresholdPercent: 90,
+            currentPercent: 12,
+            finiteLimit: true,
+            periodStartedAt: "2026-05-01T00:00:00.000Z",
+            periodEndsAt: "2026-06-01T00:00:00.000Z",
+            periodSource: "subscription_period" as const,
+            deliveryState: "eligible" as const,
+            deliveredAt: null
+          }
+        ];
+      }
     } as never
   );
 
-  const result = await service.execute({ assistantId: "assistant-1" });
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    channel: "web",
+    externalThreadKey: "chat-thread-1"
+  });
 
   assert.equal(result.planCode, "pro");
   assert.deepEqual(result.currentPlan, {
@@ -191,6 +242,14 @@ async function run(): Promise<void> {
   assert.equal(result.visiblePlans[1]?.limits.videoGenerateMonthlyUnitsLimit, null);
   assert.equal(result.tools.find((tool) => tool.toolCode === "web_search")?.currentCount, 2);
   assert.equal(
+    result.tools.find((tool) => tool.toolCode === "web_search")?.displayName,
+    "Web Search"
+  );
+  assert.equal(
+    result.tools.find((tool) => tool.toolCode === "web_search")?.periodSource,
+    "utc_day"
+  );
+  assert.equal(
     result.tools.some((tool) => tool.toolCode === "image_generate"),
     false
   );
@@ -202,6 +261,8 @@ async function run(): Promise<void> {
   assert.equal(result.monthlyMediaQuotas.tools[0]?.usedUnits, 3);
   assert.equal(result.monthlyMediaQuotas.tools[0]?.limitUnits, 30);
   assert.equal(result.monthlyMediaQuotas.tools[1], undefined);
+  assert.equal(result.advisoryCandidates[0]?.limitCode, "quota_bucket:token_budget");
+  assert.equal(result.advisoryCandidates[0]?.deliveryState, "eligible");
 }
 
 void run();

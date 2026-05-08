@@ -18,6 +18,8 @@ import type {
   RuntimeKnowledgeSearchHit,
   RuntimeMemoryWriteItem,
   RuntimeMonthlyMediaQuotaStatus,
+  RuntimeQuotaAdvisoryCandidate,
+  RuntimeQuotaStatusAdvisories,
   RuntimeQuotaStatusSubscriptionUpdate,
   RuntimeQuotaStatusCheckout,
   RuntimeQuotaStatusBucket,
@@ -124,6 +126,8 @@ export type InternalQuotaStatusOutcome = {
       videoGenerateMonthlyUnitsLimit: number | null;
     };
   }>;
+  advisories: RuntimeQuotaStatusAdvisories;
+  advisoryCandidates: RuntimeQuotaAdvisoryCandidate[];
   tools: RuntimeQuotaStatusToolRow[];
   buckets: RuntimeQuotaStatusBucket[];
   monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
@@ -731,6 +735,8 @@ export class PersaiInternalApiClientService {
   async readQuotaStatus(input: {
     assistantId: string;
     toolCode?: string | null;
+    channel?: PersaiRuntimeChannel | null;
+    externalThreadKey?: string | null;
   }): Promise<InternalQuotaStatusOutcome> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
@@ -746,6 +752,10 @@ export class PersaiInternalApiClientService {
         assistantId: input.assistantId,
         ...(typeof input.toolCode === "string" && input.toolCode.trim().length > 0
           ? { toolCode: input.toolCode.trim() }
+          : {}),
+        ...(typeof input.channel === "string" ? { channel: input.channel } : {}),
+        ...(typeof input.externalThreadKey === "string" && input.externalThreadKey.trim().length > 0
+          ? { externalThreadKey: input.externalThreadKey.trim() }
           : {})
       })
     });
@@ -756,12 +766,17 @@ export class PersaiInternalApiClientService {
       const buckets = payload?.buckets;
       const monthlyMediaQuotas = payload?.monthlyMediaQuotas;
       const visiblePlans = payload?.visiblePlans;
+      const advisories = payload?.advisories;
+      const advisoryCandidates = payload?.advisoryCandidates;
       if (
         payload?.ok === true &&
         (payload.planCode === null || typeof payload.planCode === "string") &&
         this.isQuotaStatusCurrentPlan(payload.currentPlan) &&
         Array.isArray(visiblePlans) &&
         visiblePlans.every((plan) => this.isQuotaStatusVisiblePlan(plan)) &&
+        this.isQuotaStatusAdvisories(advisories) &&
+        Array.isArray(advisoryCandidates) &&
+        advisoryCandidates.every((candidate) => this.isQuotaStatusAdvisoryCandidate(candidate)) &&
         Array.isArray(tools) &&
         tools.every((tool) => this.isQuotaStatusToolRow(tool)) &&
         Array.isArray(buckets) &&
@@ -772,6 +787,8 @@ export class PersaiInternalApiClientService {
           planCode: (payload.planCode as string | null) ?? null,
           currentPlan: payload.currentPlan as RuntimeQuotaStatusCurrentPlan,
           visiblePlans: visiblePlans as InternalQuotaStatusOutcome["visiblePlans"],
+          advisories: advisories as RuntimeQuotaStatusAdvisories,
+          advisoryCandidates: advisoryCandidates as RuntimeQuotaAdvisoryCandidate[],
           tools: tools as RuntimeQuotaStatusToolRow[],
           buckets: buckets as RuntimeQuotaStatusBucket[],
           monthlyMediaQuotas: (monthlyMediaQuotas as RuntimeMonthlyMediaQuotaStatus | null) ?? null
@@ -1712,6 +1729,7 @@ export class PersaiInternalApiClientService {
     return (
       row !== null &&
       typeof row.toolCode === "string" &&
+      typeof row.displayName === "string" &&
       typeof row.activationStatus === "string" &&
       (row.dailyCallLimit === null ||
         (typeof row.dailyCallLimit === "number" &&
@@ -1720,6 +1738,21 @@ export class PersaiInternalApiClientService {
       typeof row.currentCount === "number" &&
       Number.isInteger(row.currentCount) &&
       row.currentCount >= 0 &&
+      (row.percent === null ||
+        (typeof row.percent === "number" &&
+          Number.isFinite(row.percent) &&
+          row.percent >= 0 &&
+          row.percent <= 100)) &&
+      typeof row.finiteLimit === "boolean" &&
+      (row.warningThresholdPercent === null ||
+        (typeof row.warningThresholdPercent === "number" &&
+          Number.isFinite(row.warningThresholdPercent) &&
+          row.warningThresholdPercent >= 0 &&
+          row.warningThresholdPercent <= 100)) &&
+      typeof row.warningThresholdReached === "boolean" &&
+      (row.periodStartedAt === null || typeof row.periodStartedAt === "string") &&
+      (row.periodEndsAt === null || typeof row.periodEndsAt === "string") &&
+      (row.periodSource === null || row.periodSource === "utc_day") &&
       typeof row.allowed === "boolean"
     );
   }
@@ -1740,8 +1773,65 @@ export class PersaiInternalApiClientService {
           Number.isFinite(row.percent) &&
           row.percent >= 0 &&
           row.percent <= 100)) &&
+      typeof row.finiteLimit === "boolean" &&
       typeof row.usageAvailable === "boolean" &&
+      (row.warningThresholdPercent === null ||
+        (typeof row.warningThresholdPercent === "number" &&
+          Number.isFinite(row.warningThresholdPercent) &&
+          row.warningThresholdPercent >= 0 &&
+          row.warningThresholdPercent <= 100)) &&
+      typeof row.warningThresholdReached === "boolean" &&
       (row.status === "ok" || row.status === "limit_reached" || row.status === "usage_unavailable")
+    );
+  }
+
+  private isQuotaStatusAdvisories(value: unknown): value is RuntimeQuotaStatusAdvisories {
+    const row = this.asObject(value);
+    const tokenBudget = this.asObject(row?.tokenBudget);
+    return (
+      row !== null &&
+      this.isNonNegativeInteger(row.warningThresholdPercent) &&
+      row.warningThresholdPercent <= 100 &&
+      typeof row.isFreePlan === "boolean" &&
+      typeof row.higherPaidPlanAvailable === "boolean" &&
+      (row.highestVisiblePaidPlanCode === null ||
+        typeof row.highestVisiblePaidPlanCode === "string") &&
+      tokenBudget !== null &&
+      (tokenBudget.periodStartedAt === null || typeof tokenBudget.periodStartedAt === "string") &&
+      (tokenBudget.periodEndsAt === null || typeof tokenBudget.periodEndsAt === "string") &&
+      (tokenBudget.periodSource === null ||
+        tokenBudget.periodSource === "subscription_period" ||
+        tokenBudget.periodSource === "calendar_month_fallback") &&
+      typeof tokenBudget.paidLightModeEligible === "boolean" &&
+      typeof tokenBudget.paidLightModeActive === "boolean" &&
+      (tokenBudget.paidLightModeReason === null ||
+        tokenBudget.paidLightModeReason === "token_budget_limit_reached")
+    );
+  }
+
+  private isQuotaStatusAdvisoryCandidate(value: unknown): value is RuntimeQuotaAdvisoryCandidate {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      (row.dedupeKey === null || typeof row.dedupeKey === "string") &&
+      typeof row.limitCode === "string" &&
+      typeof row.displayName === "string" &&
+      row.thresholdCode === "warning_90_percent" &&
+      this.isNonNegativeInteger(row.warningThresholdPercent) &&
+      row.warningThresholdPercent <= 100 &&
+      this.isNonNegativeInteger(row.currentPercent) &&
+      row.currentPercent <= 100 &&
+      typeof row.finiteLimit === "boolean" &&
+      (row.periodStartedAt === null || typeof row.periodStartedAt === "string") &&
+      (row.periodEndsAt === null || typeof row.periodEndsAt === "string") &&
+      (row.periodSource === null ||
+        row.periodSource === "subscription_period" ||
+        row.periodSource === "calendar_month_fallback" ||
+        row.periodSource === "utc_day") &&
+      (row.deliveryState === "eligible" ||
+        row.deliveryState === "already_sent" ||
+        row.deliveryState === "thread_context_required") &&
+      (row.deliveredAt === null || typeof row.deliveredAt === "string")
     );
   }
 
@@ -1852,7 +1942,19 @@ export class PersaiInternalApiClientService {
       this.isNonNegativeInteger(row.reconciliationRequiredUnits) &&
       (row.limitUnits === null || this.isNonNegativeInteger(row.limitUnits)) &&
       (row.remainingUnits === null || this.isNonNegativeInteger(row.remainingUnits)) &&
+      (row.percent === null ||
+        (typeof row.percent === "number" &&
+          Number.isFinite(row.percent) &&
+          row.percent >= 0 &&
+          row.percent <= 100)) &&
+      typeof row.finiteLimit === "boolean" &&
       typeof row.usageAvailable === "boolean" &&
+      (row.warningThresholdPercent === null ||
+        (typeof row.warningThresholdPercent === "number" &&
+          Number.isFinite(row.warningThresholdPercent) &&
+          row.warningThresholdPercent >= 0 &&
+          row.warningThresholdPercent <= 100)) &&
+      typeof row.warningThresholdReached === "boolean" &&
       (row.status === "ok" || row.status === "limit_reached" || row.status === "usage_unavailable")
     );
   }

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
+import { QuotaGroundedLimitCopyService } from "./quota-grounded-limit-copy.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 import {
   TrackWorkspaceQuotaUsageService,
@@ -47,7 +48,8 @@ function normalizeUnits(value: unknown): number {
 export class ReserveInternalRuntimeMonthlyMediaQuotaService {
   constructor(
     private readonly resolveInternalRuntimeToolDailyPolicyService: ResolveInternalRuntimeToolDailyPolicyService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly quotaGroundedLimitCopyService: QuotaGroundedLimitCopyService
   ) {}
 
   parseInput(payload: unknown): ReserveInternalRuntimeMonthlyMediaQuotaRequest {
@@ -74,12 +76,22 @@ export class ReserveInternalRuntimeMonthlyMediaQuotaService {
     });
     const effectiveTool = resolved.tools[0];
     if (effectiveTool === undefined || effectiveTool.activationStatus !== "active") {
-      throw createAssistantInboundConflict(
-        "monthly_media_quota_rejected",
-        `Media generation tool "${input.toolCode}" is no longer active on the effective plan.`,
-        {
+      const copy = await this.quotaGroundedLimitCopyService.build({
+        assistantId: input.assistantId,
+        code: "monthly_media_quota_rejected",
+        details: {
           toolCode: input.toolCode,
           effectivePlanCode: resolved.planCode
+        }
+      });
+      throw createAssistantInboundConflict(
+        "monthly_media_quota_rejected",
+        copy?.message ??
+          `Media generation tool "${input.toolCode}" is no longer active on the effective plan.`,
+        {
+          toolCode: input.toolCode,
+          effectivePlanCode: resolved.planCode,
+          ...(copy?.guidance ? { userFacingGuidance: copy.guidance } : {})
         }
       );
     }
@@ -90,10 +102,10 @@ export class ReserveInternalRuntimeMonthlyMediaQuotaService {
       units: input.units
     });
     if (!result.allowed) {
-      throw createAssistantInboundConflict(
-        "monthly_media_quota_exceeded",
-        `Monthly media quota reached for "${input.toolCode}".`,
-        {
+      const copy = await this.quotaGroundedLimitCopyService.build({
+        assistantId: input.assistantId,
+        code: "monthly_media_quota_exceeded",
+        details: {
           toolCode: input.toolCode,
           currentUsedUnits: result.currentUsedUnits,
           limitUnits: result.limitUnits,
@@ -101,6 +113,20 @@ export class ReserveInternalRuntimeMonthlyMediaQuotaService {
           periodStartedAt: result.periodStartedAt,
           periodEndsAt: result.periodEndsAt,
           periodSource: result.periodSource
+        }
+      });
+      throw createAssistantInboundConflict(
+        "monthly_media_quota_exceeded",
+        copy?.message ?? `Monthly media quota reached for "${input.toolCode}".`,
+        {
+          toolCode: input.toolCode,
+          currentUsedUnits: result.currentUsedUnits,
+          limitUnits: result.limitUnits,
+          requestedUnits: input.units,
+          periodStartedAt: result.periodStartedAt,
+          periodEndsAt: result.periodEndsAt,
+          periodSource: result.periodSource,
+          ...(copy?.guidance ? { userFacingGuidance: copy.guidance } : {})
         }
       );
     }

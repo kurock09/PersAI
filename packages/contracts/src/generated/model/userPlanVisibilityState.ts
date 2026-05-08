@@ -6,11 +6,13 @@
  */
 import type { UserPlanVisibilityEffectivePlan } from "./userPlanVisibilityEffectivePlan";
 import type { UserPlanVisibilityEntitlements } from "./userPlanVisibilityEntitlements";
+import type { PlanQuotaAdvisoryState } from "./planQuotaAdvisoryState";
 import type { UserPlanVisibilityLimits } from "./userPlanVisibilityLimits";
 
 export interface UserPlanVisibilityState {
   effectivePlan: UserPlanVisibilityEffectivePlan;
   entitlements: UserPlanVisibilityEntitlements;
+  advisories: PlanQuotaAdvisoryState;
   limits: UserPlanVisibilityLimits;
   updatedAt: string;
 }

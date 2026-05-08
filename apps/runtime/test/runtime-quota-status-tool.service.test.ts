@@ -40,6 +40,15 @@ const BROWSER_CONFIG = {
   confirmationRequiredActions: ["act"]
 } satisfies RuntimeBrowserConfig;
 
+const CONVERSATION = {
+  assistantId: "assistant-1",
+  workspaceId: "workspace-1",
+  channel: "web",
+  externalThreadKey: "chat-thread-1",
+  externalUserKey: "user-1",
+  mode: "direct"
+} as const;
+
 function createBundle() {
   return compileAssistantRuntimeBundle({
     metadata: {
@@ -282,12 +291,51 @@ class FakePersaiInternalApiClientService {
         }
       }
     ],
+    advisories: {
+      warningThresholdPercent: 90,
+      isFreePlan: false,
+      higherPaidPlanAvailable: false,
+      highestVisiblePaidPlanCode: "paid",
+      tokenBudget: {
+        periodStartedAt: "2026-05-01T00:00:00.000Z",
+        periodEndsAt: "2026-06-01T00:00:00.000Z",
+        periodSource: "subscription_period",
+        paidLightModeEligible: true,
+        paidLightModeActive: false,
+        paidLightModeReason: null
+      }
+    },
+    advisoryCandidates: [
+      {
+        dedupeKey:
+          "quota_advisory:assistant-1:web:chat-thread-1:quota_bucket:token_budget:warning_90_percent:2026-05-01T00:00:00.000Z:2026-06-01T00:00:00.000Z",
+        limitCode: "quota_bucket:token_budget",
+        displayName: "Token budget",
+        thresholdCode: "warning_90_percent",
+        warningThresholdPercent: 90,
+        currentPercent: 24,
+        finiteLimit: true,
+        periodStartedAt: "2026-05-01T00:00:00.000Z",
+        periodEndsAt: "2026-06-01T00:00:00.000Z",
+        periodSource: "subscription_period",
+        deliveryState: "eligible",
+        deliveredAt: null
+      }
+    ],
     tools: [
       {
         toolCode: "web_search",
+        displayName: "Web search",
         activationStatus: "active",
         dailyCallLimit: 30,
         currentCount: 4,
+        percent: 13,
+        finiteLimit: true,
+        warningThresholdPercent: 90,
+        warningThresholdReached: false,
+        periodStartedAt: "2026-05-08T00:00:00.000Z",
+        periodEndsAt: "2026-05-09T00:00:00.000Z",
+        periodSource: "utc_day",
         allowed: true
       }
     ],
@@ -299,7 +347,10 @@ class FakePersaiInternalApiClientService {
         used: 1200,
         limit: 5000,
         percent: 24,
+        finiteLimit: true,
         usageAvailable: true,
+        warningThresholdPercent: 90,
+        warningThresholdReached: false,
         status: "ok"
       }
     ],
@@ -319,7 +370,11 @@ class FakePersaiInternalApiClientService {
           reconciliationRequiredUnits: 1,
           limitUnits: 30,
           remainingUnits: 27,
+          percent: 10,
+          finiteLimit: true,
           usageAvailable: true,
+          warningThresholdPercent: 90,
+          warningThresholdReached: false,
           status: "ok"
         }
       ]
@@ -366,6 +421,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
 
   const success = await service.executeToolCall({
     bundle,
+    conversation: CONVERSATION,
     requestId: "request-1",
     currentUserText: "show my quota",
     toolCall: createToolCall({
@@ -380,6 +436,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.visiblePlans[0]?.amountMajor, 990);
   assert.equal(normalizeSpacing(success.payload.visiblePlans[1]?.priceLabel.ru), "1 990 ₽ / месяц");
   assert.equal(success.payload.visiblePlans[1]?.limits.videoGenerateMonthlyUnitsLimit, 5);
+  assert.equal(success.payload.advisoryCandidates[0]?.limitCode, "quota_bucket:token_budget");
   assert.equal(success.payload.tools[0]?.toolCode, "web_search");
   assert.equal(success.payload.buckets[0]?.bucketCode, "token_budget");
   assert.equal(success.payload.buckets.length, 1);
@@ -388,11 +445,14 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.limitUnits, 30);
   assert.deepEqual(internalApi.readCalls.at(-1), {
     assistantId: "assistant-1",
-    toolCode: "web_search"
+    toolCode: "web_search",
+    channel: "web",
+    externalThreadKey: "chat-thread-1"
   });
 
   const allTools = await service.executeToolCall({
     bundle,
+    conversation: CONVERSATION,
     requestId: "request-2",
     currentUserText: "show all quotas",
     toolCall: createToolCall({})
@@ -402,11 +462,14 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(allTools.payload.buckets.length, 1);
   assert.deepEqual(internalApi.readCalls.at(-1), {
     assistantId: "assistant-1",
-    toolCode: null
+    toolCode: null,
+    channel: "web",
+    externalThreadKey: "chat-thread-1"
   });
 
   const invalid = await service.executeToolCall({
     bundle,
+    conversation: CONVERSATION,
     requestId: "request-3",
     currentUserText: "show quota",
     toolCall: createToolCall({
@@ -420,6 +483,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   internalApi.error = new Error("internal quota error");
   const failed = await service.executeToolCall({
     bundle,
+    conversation: CONVERSATION,
     requestId: "request-4",
     currentUserText: "show quota",
     toolCall: createToolCall({
@@ -436,6 +500,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   internalApi.error = null;
   const checkout = await service.executeToolCall({
     bundle,
+    conversation: CONVERSATION,
     requestId: "request-5",
     currentUserText: "Да",
     toolCall: createToolCall({
@@ -482,6 +547,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   };
   const oneTimeCheckout = await service.executeToolCall({
     bundle,
+    conversation: CONVERSATION,
     requestId: "request-5b",
     currentUserText: "Да, через СБП",
     toolCall: createToolCall({
@@ -513,6 +579,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   };
   const scheduledChange = await service.executeToolCall({
     bundle,
+    conversation: CONVERSATION,
     requestId: "request-5c",
     currentUserText: "Да, переключи в конце периода",
     toolCall: createToolCall({
@@ -529,6 +596,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
 
   const confirmationRequired = await service.executeToolCall({
     bundle,
+    conversation: CONVERSATION,
     requestId: "request-6",
     currentUserText: "Расскажи про тарифы",
     toolCall: createToolCall({

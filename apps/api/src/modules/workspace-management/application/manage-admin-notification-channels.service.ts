@@ -5,7 +5,8 @@ import { AdminAuthorizationService } from "./admin-authorization.service";
 import { assertPublicWebhookUrl } from "./admin-webhook-url-policy";
 import type {
   AdminNotificationChannelState,
-  IdleReengagementNotificationPolicyState
+  IdleReengagementNotificationPolicyState,
+  QuotaAdvisoryNotificationPolicyState
 } from "./admin-system-notification.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
@@ -22,10 +23,22 @@ export type UpdateIdleReengagementNotificationPolicyInput = {
   llmInstruction: string;
 };
 
+export type UpdateQuotaAdvisoryNotificationPolicyInput = {
+  enabled: boolean;
+  llmInstruction: string;
+};
+
 const DEFAULT_IDLE_REENGAGEMENT_LLM_INSTRUCTION = [
   "Decide whether to send a short, warm reengagement message after the user has been away.",
   "Use the recent conversation context and active open loops. Push only when it is genuinely helpful.",
   "The message must be one brief user-facing sentence, non-pushy, no guilt, no exact idle duration."
+].join("\n");
+
+const DEFAULT_QUOTA_ADVISORY_LLM_INSTRUCTION = [
+  "Write one short, calm follow-up assistant message when a grounded quota advisory should be sent.",
+  "Base the message only on the provided quota facts and limit candidates. Do not invent limits, reset times, package links, or plan availability.",
+  "Sound helpful and concise. Mention upgrade or purchase options only when the facts explicitly say they are available.",
+  "If the active plan is free or zero-price, do not imply paid light mode. If paid token light mode is active, explain it plainly without sounding alarming."
 ].join("\n");
 
 const DEFAULT_WEBHOOK_CHANNEL_STATE: AdminNotificationChannelState = {
@@ -108,6 +121,11 @@ export class ManageAdminNotificationChannelsService {
     return this.resolveIdleReengagementPolicyState(context.workspaceId);
   }
 
+  async getQuotaAdvisoryPolicy(userId: string): Promise<QuotaAdvisoryNotificationPolicyState> {
+    const context = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    return this.resolveQuotaAdvisoryPolicyState(context.workspaceId);
+  }
+
   parseWebhookUpdateInput(body: unknown): UpdateAdminWebhookNotificationChannelInput {
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
       throw new BadRequestException("Request body must be an object.");
@@ -151,6 +169,24 @@ export class ManageAdminNotificationChannelsService {
       enabled: row.enabled,
       idleHours: parsePositiveInteger(row.idleHours, "idleHours", 720),
       cooldownHours: parsePositiveInteger(row.cooldownHours, "cooldownHours", 720),
+      llmInstruction
+    };
+  }
+
+  parseQuotaAdvisoryPolicyUpdateInput(body: unknown): UpdateQuotaAdvisoryNotificationPolicyInput {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new BadRequestException("Request body must be an object.");
+    }
+    const row = body as Record<string, unknown>;
+    if (typeof row.enabled !== "boolean") {
+      throw new BadRequestException("enabled must be a boolean.");
+    }
+    const llmInstruction = toTrimmedOrNull(row.llmInstruction);
+    if (llmInstruction === null) {
+      throw new BadRequestException("llmInstruction is required.");
+    }
+    return {
+      enabled: row.enabled,
       llmInstruction
     };
   }
@@ -275,6 +311,59 @@ export class ManageAdminNotificationChannelsService {
     return this.toIdleReengagementPolicyState(policy);
   }
 
+  async updateQuotaAdvisoryPolicy(
+    userId: string,
+    input: UpdateQuotaAdvisoryNotificationPolicyInput
+  ): Promise<QuotaAdvisoryNotificationPolicyState> {
+    const context =
+      await this.adminAuthorizationService.assertCanManageAdminSystemNotifications(userId);
+    const policy = await this.prisma.workspaceNotificationPolicy.upsert({
+      where: {
+        workspaceId_source: {
+          workspaceId: context.workspaceId,
+          source: WorkspaceNotificationPolicySource.quota_advisory
+        }
+      },
+      create: {
+        workspaceId: context.workspaceId,
+        source: WorkspaceNotificationPolicySource.quota_advisory,
+        enabled: input.enabled,
+        idleHours: 1,
+        cooldownHours: 1,
+        llmInstruction: input.llmInstruction,
+        updatedByUserId: userId
+      },
+      update: {
+        enabled: input.enabled,
+        llmInstruction: input.llmInstruction,
+        updatedByUserId: userId
+      }
+    });
+
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: context.workspaceId,
+      assistantId: null,
+      actorUserId: userId,
+      eventCategory: "admin_action",
+      eventCode: "admin.notification_policy_updated",
+      summary: "Quota advisory notification policy updated.",
+      details: {
+        source: "quota_advisory",
+        enabled: input.enabled,
+        actorRoles: context.roles,
+        legacyOwnerFallback: context.hasLegacyOwnerFallback
+      }
+    });
+
+    return this.toQuotaAdvisoryPolicyState(policy);
+  }
+
+  async getQuotaAdvisoryPolicyForWorkspace(
+    workspaceId: string
+  ): Promise<QuotaAdvisoryNotificationPolicyState> {
+    return this.resolveQuotaAdvisoryPolicyState(workspaceId);
+  }
+
   private async resolveIdleReengagementPolicyState(
     workspaceId: string
   ): Promise<IdleReengagementNotificationPolicyState> {
@@ -300,6 +389,29 @@ export class ManageAdminNotificationChannelsService {
     return this.toIdleReengagementPolicyState(policy);
   }
 
+  private async resolveQuotaAdvisoryPolicyState(
+    workspaceId: string
+  ): Promise<QuotaAdvisoryNotificationPolicyState> {
+    const policy = await this.prisma.workspaceNotificationPolicy.findUnique({
+      where: {
+        workspaceId_source: {
+          workspaceId,
+          source: WorkspaceNotificationPolicySource.quota_advisory
+        }
+      }
+    });
+    if (policy === null) {
+      return {
+        source: "quota_advisory",
+        enabled: true,
+        llmInstruction: DEFAULT_QUOTA_ADVISORY_LLM_INSTRUCTION,
+        updatedAt: new Date(0).toISOString(),
+        updatedByUserId: null
+      };
+    }
+    return this.toQuotaAdvisoryPolicyState(policy);
+  }
+
   private toIdleReengagementPolicyState(policy: {
     enabled: boolean;
     idleHours: number;
@@ -313,6 +425,21 @@ export class ManageAdminNotificationChannelsService {
       enabled: policy.enabled,
       idleHours: policy.idleHours,
       cooldownHours: policy.cooldownHours,
+      llmInstruction: policy.llmInstruction,
+      updatedAt: policy.updatedAt.toISOString(),
+      updatedByUserId: policy.updatedByUserId
+    };
+  }
+
+  private toQuotaAdvisoryPolicyState(policy: {
+    enabled: boolean;
+    llmInstruction: string;
+    updatedAt: Date;
+    updatedByUserId: string | null;
+  }): QuotaAdvisoryNotificationPolicyState {
+    return {
+      source: "quota_advisory",
+      enabled: policy.enabled,
       llmInstruction: policy.llmInstruction,
       updatedAt: policy.updatedAt.toISOString(),
       updatedByUserId: policy.updatedByUserId

@@ -11,19 +11,10 @@ import {
   WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
   type WorkspaceQuotaAccountingRepository
 } from "../domain/workspace-quota-accounting.repository";
-import {
-  createAssistantInboundRateLimitError,
-  createAssistantInboundConflict
-} from "./assistant-inbound-error";
+import { createAssistantInboundRateLimitError } from "./assistant-inbound-error";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
 const WINDOW_MS = 60_000;
-
-type AbuseDecision = {
-  blockedUntil: Date | null;
-  slowedUntil: Date | null;
-  reason: string | null;
-};
 
 function throwTooManyRequests(message: string): never {
   throw createAssistantInboundRateLimitError(message);
@@ -38,8 +29,11 @@ export class EnforceAbuseRateLimitService {
     private readonly assistantAbuseGuardRepository: AssistantAbuseGuardRepository,
     @Inject(WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY)
     _workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
-  ) {}
+    _trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+  ) {
+    void _workspaceQuotaAccountingRepository;
+    void _trackWorkspaceQuotaUsageService;
+  }
 
   async enforceAndRegisterAttempt(params: {
     assistant: Assistant;
@@ -53,7 +47,6 @@ export class EnforceAbuseRateLimitService {
       await this.enforcePeerLimit(params.assistant.id, params.surface, params.peerKey, config, now);
     }
 
-    const quotaDecision = await this.evaluateQuotaPressureDecision(params.assistant, now);
     const registered = await this.assistantAbuseGuardRepository.registerDistributedAttempt({
       assistantId: params.assistant.id,
       userId: params.assistant.userId,
@@ -61,7 +54,7 @@ export class EnforceAbuseRateLimitService {
       surface: params.surface,
       attemptedAt: now,
       windowMs: WINDOW_MS,
-      quotaDecision: this.toDecisionSnapshot(quotaDecision),
+      quotaDecision: this.emptyDecisionSnapshot(),
       userSlowdownRequestsPerMinute: config.ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE,
       userBlockRequestsPerMinute: config.ABUSE_USER_BLOCK_REQUESTS_PER_MINUTE,
       assistantSlowdownRequestsPerMinute: config.ABUSE_ASSISTANT_SLOWDOWN_REQUESTS_PER_MINUTE,
@@ -70,35 +63,19 @@ export class EnforceAbuseRateLimitService {
       slowdownSeconds: config.ABUSE_SLOWDOWN_SECONDS
     });
 
-    const isQuotaPressure = quotaDecision.reason === "quota_pressure_temporary_block";
-
     if (
       registered.finalBlockedUntil != null &&
       registered.finalBlockedUntil.getTime() > now.getTime()
     ) {
-      this.logDistributedDecision(params.assistant.id, params.surface, registered, isQuotaPressure);
-      if (isQuotaPressure) {
-        throw createAssistantInboundConflict(
-          "token_budget_exhausted",
-          "Monthly token budget has been exhausted. Wait for the next billing cycle or upgrade the plan."
-        );
-      }
+      this.logDistributedDecision(params.assistant.id, params.surface, registered);
       throwTooManyRequests("Requests temporarily blocked due to abuse/rate-limit protection.");
     }
     if (
       registered.finalSlowedUntil != null &&
       registered.finalSlowedUntil.getTime() > now.getTime()
     ) {
-      this.logDistributedDecision(params.assistant.id, params.surface, registered, isQuotaPressure);
-      if (isQuotaPressure) {
-        throw createAssistantInboundConflict(
-          "token_budget_exhausted",
-          "Monthly token budget has been exhausted. Wait for the next billing cycle or upgrade the plan."
-        );
-      }
-      throwTooManyRequests(
-        "Requests temporarily slowed due to abuse/rate-limit and quota pressure protection."
-      );
+      this.logDistributedDecision(params.assistant.id, params.surface, registered);
+      throwTooManyRequests("Requests temporarily slowed due to abuse/rate-limit protection.");
     }
   }
 
@@ -141,48 +118,11 @@ export class EnforceAbuseRateLimitService {
     }
   }
 
-  private async evaluateQuotaPressureDecision(
-    assistant: Assistant,
-    now: Date
-  ): Promise<AbuseDecision> {
-    const config = loadApiConfig(process.env);
-    const tokenBudget =
-      await this.trackWorkspaceQuotaUsageService.resolveAssistantTokenBudgetQuotaSnapshot(
-        assistant
-      );
-    const tokenLimit = tokenBudget.limitCredits;
-    const tokenPercent =
-      tokenLimit === null || tokenLimit <= BigInt(0)
-        ? 0
-        : Number((tokenBudget.usedCredits * BigInt(100)) / tokenLimit);
-    const maxPercent = tokenPercent;
-
-    if (maxPercent >= config.ABUSE_QUOTA_BLOCK_PERCENT) {
-      return {
-        blockedUntil: new Date(now.getTime() + config.ABUSE_TEMP_BLOCK_SECONDS * 1000),
-        slowedUntil: null,
-        reason: "quota_pressure_temporary_block"
-      };
-    }
-    if (maxPercent >= config.ABUSE_QUOTA_SLOWDOWN_PERCENT) {
-      return {
-        blockedUntil: null,
-        slowedUntil: new Date(now.getTime() + config.ABUSE_SLOWDOWN_SECONDS * 1000),
-        reason: "quota_pressure_slowdown"
-      };
-    }
+  private emptyDecisionSnapshot(): AbuseDecisionSnapshot {
     return {
       blockedUntil: null,
       slowedUntil: null,
       reason: null
-    };
-  }
-
-  private toDecisionSnapshot(decision: AbuseDecision): AbuseDecisionSnapshot {
-    return {
-      blockedUntil: decision.blockedUntil,
-      slowedUntil: decision.slowedUntil,
-      reason: decision.reason
     };
   }
 
@@ -195,8 +135,7 @@ export class EnforceAbuseRateLimitService {
       finalBlockedUntil: Date | null;
       finalSlowedUntil: Date | null;
       finalReason: string | null;
-    },
-    isQuotaPressure: boolean
+    }
   ): void {
     const decision =
       registered.finalBlockedUntil != null
@@ -205,7 +144,7 @@ export class EnforceAbuseRateLimitService {
           ? "distributed_slowdown"
           : "distributed_decision";
     this.logger.warn(
-      `[abuse-rate-limit] ${decision} assistant=${assistantId} surface=${surface} userCount=${registered.userState.requestCount} assistantCount=${registered.assistantState.requestCount} reason=${registered.finalReason ?? "unknown"} quotaPressure=${isQuotaPressure}`
+      `[abuse-rate-limit] ${decision} assistant=${assistantId} surface=${surface} userCount=${registered.userState.requestCount} assistantCount=${registered.assistantState.requestCount} reason=${registered.finalReason ?? "unknown"}`
     );
   }
 }

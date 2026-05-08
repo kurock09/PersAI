@@ -81,8 +81,6 @@ const baseApiConfigSchema = z.object({
   ABUSE_PEER_BLOCK_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(12),
   ABUSE_SLOWDOWN_SECONDS: z.coerce.number().int().positive().default(15),
   ABUSE_TEMP_BLOCK_SECONDS: z.coerce.number().int().positive().default(300),
-  ABUSE_QUOTA_SLOWDOWN_PERCENT: z.coerce.number().int().min(1).max(100).default(90),
-  ABUSE_QUOTA_BLOCK_PERCENT: z.coerce.number().int().min(1).max(100).default(100),
   ABUSE_ADMIN_OVERRIDE_MINUTES_DEFAULT: z.coerce.number().int().positive().default(30),
   /** Comma-separated emails (case-insensitive). When non-empty, only these accounts may use admin APIs (after role checks). */
   PERSAI_ADMIN_ALLOWLIST_EMAILS: z.string().optional()

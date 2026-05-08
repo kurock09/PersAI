@@ -84,6 +84,7 @@ export interface AssistantWebChatTurnState {
   chat: AssistantWebChatState;
   userMessage: AssistantWebChatMessageState;
   assistantMessage: AssistantWebChatMessageState;
+  followUpAssistantMessage?: AssistantWebChatMessageState;
   activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
   runtime: {
     respondedAt: string;

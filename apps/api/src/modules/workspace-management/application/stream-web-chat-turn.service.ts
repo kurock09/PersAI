@@ -53,6 +53,7 @@ import {
   type CadenceWatchdogStallReport
 } from "./cadence-watchdog";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
+import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -177,6 +178,12 @@ export class StreamWebChatTurnService {
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly autoSkillRoutingStateService: AutoSkillRoutingStateService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
+    private readonly quotaAdvisoryFollowUpService: Pick<
+      QuotaAdvisoryFollowUpService,
+      "maybeCreateFollowUp"
+    > = {
+      maybeCreateFollowUp: async () => null
+    },
     private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
   ) {}
 
@@ -586,6 +593,17 @@ export class StreamWebChatTurnService {
         source: "web_chat_turn_stream_completed"
       });
       trace.stage("quota_recorded");
+      const quotaAdvisoryFollowUp = await this.quotaAdvisoryFollowUpService.maybeCreateFollowUp({
+        assistantId: prepared.assistantId,
+        workspaceId: prepared.workspaceId,
+        chatId: prepared.chat.id,
+        surface: "web",
+        surfaceThreadKey: prepared.chat.surfaceThreadKey,
+        mainAssistantMessage: finalAssistantContent
+      });
+      if (quotaAdvisoryFollowUp !== null) {
+        trace.stage("quota_advisory_follow_up_saved");
+      }
       if (prepared.clientTurnId !== undefined) {
         const replayState = {
           clientTurnId: prepared.clientTurnId,
@@ -596,6 +614,7 @@ export class StreamWebChatTurnService {
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
           quotaFallbackReason: prepared.quotaDegradeReason,
           quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+          followUpAssistantMessageId: quotaAdvisoryFollowUp?.assistantMessage.id ?? null,
           ...(turnRouting === undefined ? {} : { turnRouting }),
           completedAt: new Date().toISOString()
         };
@@ -698,6 +717,9 @@ export class StreamWebChatTurnService {
             attachments: attachmentStates,
             createdAt: assistantMessage.createdAt.toISOString()
           },
+          ...(quotaAdvisoryFollowUp === null
+            ? {}
+            : { followUpAssistantMessage: quotaAdvisoryFollowUp.assistantMessage }),
           activeMediaJobs,
           runtime: {
             respondedAt: respondedAt ?? new Date().toISOString(),
@@ -1255,13 +1277,23 @@ export class StreamWebChatTurnService {
       state.assistantMessageId,
       assistantId
     );
+    const followUpAssistantMessage =
+      state.followUpAssistantMessageId === undefined || state.followUpAssistantMessageId === null
+        ? null
+        : await this.assistantChatRepository.findMessageByIdForAssistant(
+            state.followUpAssistantMessageId,
+            assistantId
+          );
     if (chat === null || userMessage === null || assistantMessage === null) {
       throw new NotFoundException("Stored web turn replay state is incomplete.");
     }
 
-    const [userAttachments, assistantAttachments] = await Promise.all([
+    const [userAttachments, assistantAttachments, followUpAttachments] = await Promise.all([
       this.attachmentRepository.listByMessageId(userMessage.id),
-      this.attachmentRepository.listByMessageId(assistantMessage.id)
+      this.attachmentRepository.listByMessageId(assistantMessage.id),
+      followUpAssistantMessage === null
+        ? Promise.resolve([])
+        : this.attachmentRepository.listByMessageId(followUpAssistantMessage.id)
     ]);
     const activeMediaJobs = await this.assistantMediaJobService.listOpenJobsForWebChat({
       assistantId,
@@ -1302,6 +1334,19 @@ export class StreamWebChatTurnService {
         attachments: assistantAttachments.map((attachment) => toAttachmentState(attachment)),
         createdAt: assistantMessage.createdAt.toISOString()
       },
+      ...(followUpAssistantMessage === null
+        ? {}
+        : {
+            followUpAssistantMessage: {
+              id: followUpAssistantMessage.id,
+              chatId: followUpAssistantMessage.chatId,
+              assistantId: followUpAssistantMessage.assistantId,
+              author: followUpAssistantMessage.author,
+              content: followUpAssistantMessage.content,
+              attachments: followUpAttachments.map((attachment) => toAttachmentState(attachment)),
+              createdAt: followUpAssistantMessage.createdAt.toISOString()
+            }
+          }),
       activeMediaJobs,
       runtime: {
         respondedAt: state.respondedAt,

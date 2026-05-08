@@ -8166,7 +8166,10 @@ components:
         - used
         - limit
         - percent
+        - finiteLimit
         - usageAvailable
+        - warningThresholdPercent
+        - warningThresholdReached
         - status
       properties:
         bucketCode:
@@ -8192,7 +8195,16 @@ components:
           minimum: 0
           maximum: 100
           nullable: true
+        finiteLimit:
+          type: boolean
         usageAvailable:
+          type: boolean
+        warningThresholdPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+        warningThresholdReached:
           type: boolean
         status:
           type: string
@@ -8212,7 +8224,11 @@ components:
         - reconciliationRequiredUnits
         - limitUnits
         - remainingUnits
+        - percent
+        - finiteLimit
         - usageAvailable
+        - warningThresholdPercent
+        - warningThresholdReached
         - status
       properties:
         toolCode:
@@ -8246,7 +8262,21 @@ components:
           type: integer
           minimum: 0
           nullable: true
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+        finiteLimit:
+          type: boolean
         usageAvailable:
+          type: boolean
+        warningThresholdPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+        warningThresholdReached:
           type: boolean
         status:
           type: string
@@ -8303,6 +8333,13 @@ components:
               - displayName
               - dailyCallLimit
               - dailyCallsUsed
+              - percent
+              - finiteLimit
+              - warningThresholdPercent
+              - warningThresholdReached
+              - periodStartedAt
+              - periodEndsAt
+              - periodSource
               - active
             properties:
               toolCode:
@@ -8316,6 +8353,33 @@ components:
               dailyCallsUsed:
                 type: integer
                 minimum: 0
+              percent:
+                type: integer
+                minimum: 0
+                maximum: 100
+                nullable: true
+              finiteLimit:
+                type: boolean
+              warningThresholdPercent:
+                type: integer
+                minimum: 0
+                maximum: 100
+                nullable: true
+              warningThresholdReached:
+                type: boolean
+              periodStartedAt:
+                type: string
+                format: date-time
+                nullable: true
+              periodEndsAt:
+                type: string
+                format: date-time
+                nullable: true
+              periodSource:
+                type: string
+                enum:
+                  - utc_day
+                nullable: true
               active:
                 type: boolean
     UserPlanVisibilityEntitlements:
@@ -8339,11 +8403,67 @@ components:
               type: boolean
             max:
               type: boolean
+    QuotaAdvisoryTokenBudgetState:
+      type: object
+      required:
+        - periodStartedAt
+        - periodEndsAt
+        - periodSource
+        - paidLightModeEligible
+        - paidLightModeActive
+        - paidLightModeReason
+      properties:
+        periodStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+        periodEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        periodSource:
+          type: string
+          enum:
+            - subscription_period
+            - calendar_month_fallback
+          nullable: true
+        paidLightModeEligible:
+          type: boolean
+        paidLightModeActive:
+          type: boolean
+        paidLightModeReason:
+          type: string
+          enum:
+            - token_budget_limit_reached
+          nullable: true
+    PlanQuotaAdvisoryState:
+      type: object
+      required:
+        - warningThresholdPercent
+        - isFreePlan
+        - higherPaidPlanAvailable
+        - highestVisiblePaidPlanCode
+        - tokenBudget
+      properties:
+        warningThresholdPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        isFreePlan:
+          type: boolean
+        higherPaidPlanAvailable:
+          type: boolean
+        highestVisiblePaidPlanCode:
+          type: string
+          nullable: true
+        tokenBudget:
+          $ref: "#/components/schemas/QuotaAdvisoryTokenBudgetState"
     UserPlanVisibilityState:
       type: object
       required:
         - effectivePlan
         - entitlements
+        - advisories
         - limits
         - updatedAt
       properties:
@@ -8351,6 +8471,8 @@ components:
           $ref: "#/components/schemas/UserPlanVisibilityEffectivePlan"
         entitlements:
           $ref: "#/components/schemas/UserPlanVisibilityEntitlements"
+        advisories:
+          $ref: "#/components/schemas/PlanQuotaAdvisoryState"
         limits:
           $ref: "#/components/schemas/UserPlanVisibilityLimits"
         updatedAt:

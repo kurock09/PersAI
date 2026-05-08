@@ -152,6 +152,8 @@ There is no remaining ADR-078 implementation backlog.
 
 Mobile shell reliability/rollout, assistant background-task verification, ADR-079 Knowledge/Skills retrieval, ADR-081 Files architecture, and ADR-074 `R2` runtime/tool efficiency are founder-accepted as closed for this continuation program. ADR-074 `R3` compound tools remain cancelled. The long-tail research items stay deferred and should not be pulled into active work without new evidence or an explicit founder decision.
 
+Subsequent architecture work that is broader than ADR-078 continuation, such as the cross-domain notification-platform convergence defined in ADR-088, should open as its own ADR and must not be treated as a reopen of ADR-078 backlog.
+
 ## Consequences
 
 ### Positive

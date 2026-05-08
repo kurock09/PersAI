@@ -2417,6 +2417,7 @@ export class TurnExecutionService {
         const result = await this.runtimeQuotaStatusToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
+          conversation: acceptedTurn.session.conversation,
           requestId: acceptedTurn.receipt.requestId,
           currentUserText: input.message.text
         });

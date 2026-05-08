@@ -9,6 +9,7 @@ import { AssistantRuntimeError } from "./assistant-runtime.facade";
 export type AssistantInboundFailurePayload = {
   code: string;
   message: string;
+  guidance: string | null;
 };
 
 function createApiError(
@@ -152,7 +153,11 @@ export function createWorkspaceStorageFullError(
     limitMb !== null
       ? `Workspace disk is full: ${usedMb} MB used out of ${limitMb} MB. Delete old chats or files to free space.`
       : "Workspace disk is full. Delete old chats or files to free space.",
-    { usedMb, limitMb }
+    {
+      usedMb,
+      limitMb,
+      userFacingGuidance: "Delete old chats or files to free space, then try again."
+    }
   );
 }
 
@@ -170,7 +175,11 @@ export function createMediaStorageQuotaExceededError(
     limitMb !== null
       ? `Media storage full: ${usedMb} MB used out of ${limitMb} MB.`
       : "Media storage quota exceeded.",
-    { usedMb, limitMb }
+    {
+      usedMb,
+      limitMb,
+      userFacingGuidance: "Delete old chats or files to free space, then try again."
+    }
   );
 }
 
@@ -188,14 +197,21 @@ export function createKnowledgeStorageQuotaExceededError(
     limitMb !== null
       ? `Knowledge storage full: ${usedMb} MB used out of ${limitMb} MB.`
       : "Knowledge storage quota exceeded.",
-    { usedMb, limitMb }
+    {
+      usedMb,
+      limitMb,
+      userFacingGuidance:
+        "Delete older knowledge-base documents or free assistant storage, then try again."
+    }
   );
 }
 
 export function toAssistantInboundFailurePayload(error: unknown): AssistantInboundFailurePayload {
   const normalized = toAssistantInboundHttpException(error);
+  const guidance = normalized.errorObject.details?.userFacingGuidance;
   return {
     code: normalized.errorObject.code,
-    message: normalized.errorObject.message
+    message: normalized.errorObject.message,
+    guidance: typeof guidance === "string" && guidance.trim().length > 0 ? guidance : null
   };
 }

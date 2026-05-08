@@ -21,6 +21,14 @@ export type IdleReengagementNotificationPolicyState = {
   updatedByUserId: string | null;
 };
 
+export type QuotaAdvisoryNotificationPolicyState = {
+  source: "quota_advisory";
+  enabled: boolean;
+  llmInstruction: string;
+  updatedAt: string;
+  updatedByUserId: string | null;
+};
+
 export type AdminSystemNotificationSignalCode =
   | "assistant.runtime.apply_failed"
   | "assistant.runtime.apply_degraded"

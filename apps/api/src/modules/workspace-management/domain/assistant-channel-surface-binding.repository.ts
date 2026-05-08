@@ -27,6 +27,7 @@ export type CompletedWebTurnReplayState = {
   chatId: string;
   userMessageId: string;
   assistantMessageId: string;
+  followUpAssistantMessageId?: string | null;
   respondedAt: string;
   degradedByQuotaFallback: boolean;
   quotaFallbackReason: string | null;

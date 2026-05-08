@@ -21,9 +21,11 @@ import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
 import { SendNativeTelegramTurnService } from "./send-native-telegram-turn.service";
 import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
+import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
+  quotaAdvisoryMessage?: string;
   respondedAt: string;
   media: RuntimeMediaArtifact[];
   assistantMessageId: string;
@@ -72,7 +74,13 @@ export class HandleInternalTelegramTurnService {
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly sendNativeTelegramTurnService: SendNativeTelegramTurnService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
-    private readonly assistantMediaJobService: AssistantMediaJobService
+    private readonly assistantMediaJobService: AssistantMediaJobService,
+    private readonly quotaAdvisoryFollowUpService: Pick<
+      QuotaAdvisoryFollowUpService,
+      "maybeCreateFollowUp"
+    > = {
+      maybeCreateFollowUp: async () => null
+    }
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
@@ -189,7 +197,6 @@ export class HandleInternalTelegramTurnService {
       trace.stage("user_message_saved");
 
       let enrichedMessage = input.message;
-      let mediaSystemNotices: string[] = [];
       let runtimeAttachments: ReturnType<typeof toRuntimeAttachmentRef>[] = [];
 
       if (rawAttachments.length > 0) {
@@ -204,7 +211,6 @@ export class HandleInternalTelegramTurnService {
           rawAttachments
         });
         enrichedMessage = resolvedInboundMedia.enrichedMessage;
-        mediaSystemNotices = resolvedInboundMedia.systemNotices;
         await this.attachmentObjectAvailabilityService.assertRuntimeReadable({
           assistantId: resolved.assistantId,
           chatId: chat.id,
@@ -242,7 +248,7 @@ export class HandleInternalTelegramTurnService {
           externalUserKey: input.externalUserKey,
           mode: input.conversationMode,
           userMessageId: userMessage.id,
-          userMessage: input.message,
+          userMessage: enrichedMessage,
           attachments: runtimeAttachments,
           ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
           userTimezone: workspace.timezone,
@@ -258,10 +264,7 @@ export class HandleInternalTelegramTurnService {
       }
       trace.stage("runtime_done");
 
-      const assistantMessage =
-        mediaSystemNotices.length > 0
-          ? `${mediaSystemNotices.join("\n")}\n\n${runtimeResponse.assistantMessage}`
-          : runtimeResponse.assistantMessage;
+      const assistantMessage = runtimeResponse.assistantMessage;
 
       let assistantMessageId = "";
       let deliveredMedia = runtimeResponse.media;
@@ -331,6 +334,17 @@ export class HandleInternalTelegramTurnService {
           error instanceof Error ? error.stack : undefined
         );
       }
+      const quotaAdvisoryFollowUp = await this.quotaAdvisoryFollowUpService.maybeCreateFollowUp({
+        assistantId: resolved.assistantId,
+        workspaceId: resolved.workspaceId,
+        chatId: chat.id,
+        surface: "telegram",
+        surfaceThreadKey: input.threadId,
+        mainAssistantMessage: assistantMessage
+      });
+      if (quotaAdvisoryFollowUp !== null) {
+        trace.stage("quota_advisory_follow_up_saved");
+      }
       if (claimedUpdateId !== null) {
         const completedUpdate = await this.completeTelegramUpdateBestEffort(
           resolved.assistantId,
@@ -348,6 +362,9 @@ export class HandleInternalTelegramTurnService {
       return {
         ...runtimeResponse,
         assistantMessage,
+        ...(quotaAdvisoryFollowUp === null
+          ? {}
+          : { quotaAdvisoryMessage: quotaAdvisoryFollowUp.assistantMessage.content }),
         media: deliveredMedia,
         assistantMessageId,
         chatId: chat.id,

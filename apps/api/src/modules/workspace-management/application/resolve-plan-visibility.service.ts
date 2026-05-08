@@ -10,13 +10,17 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
-import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import {
+  QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT,
+  TrackWorkspaceQuotaUsageService
+} from "./track-workspace-quota-usage.service";
 import type {
   AdminPlanVisibilityState,
   QuotaVisibilityBucketState,
   UserPlanVisibilityState
 } from "./plan-visibility.types";
 import { AdminAuthorizationService } from "./admin-authorization.service";
+import { ManageAdminPlansService } from "./manage-admin-plans.service";
 import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
 
 function indexQuotaBuckets(
@@ -57,6 +61,90 @@ function resolvePlanPresentationPrice(
   };
 }
 
+function resolvePlanPresentationAmountMinor(
+  plan: { billingProviderHints: unknown } | null
+): number | null {
+  const price = resolvePlanPresentationPrice(plan);
+  return typeof price.amount === "number" && Number.isFinite(price.amount)
+    ? Math.round(price.amount * 100)
+    : null;
+}
+
+function resolveHighestVisiblePaidPlan(
+  input: Array<{
+    code: string;
+    presentation: {
+      price: {
+        amount: number | null;
+      };
+    };
+  }>
+): { code: string; amountMinor: number } | null {
+  let highest: { code: string; amountMinor: number } | null = null;
+  for (const plan of input) {
+    if (
+      typeof plan.presentation.price.amount !== "number" ||
+      !Number.isFinite(plan.presentation.price.amount)
+    ) {
+      continue;
+    }
+    const amountMinor = Math.round(plan.presentation.price.amount * 100);
+    if (amountMinor <= 0) {
+      continue;
+    }
+    if (highest === null || amountMinor > highest.amountMinor) {
+      highest = {
+        code: plan.code,
+        amountMinor
+      };
+    }
+  }
+  return highest;
+}
+
+function buildPlanQuotaAdvisories(input: {
+  currentPlanAmountMinor: number | null;
+  visiblePlans: Array<{
+    code: string;
+    presentation: {
+      price: {
+        amount: number | null;
+      };
+    };
+  }>;
+  tokenBudget: Awaited<
+    ReturnType<TrackWorkspaceQuotaUsageService["resolveAssistantTokenBudgetQuotaSnapshot"]>
+  >;
+  tokenBucket: QuotaVisibilityBucketState | null;
+}): UserPlanVisibilityState["advisories"] {
+  const highestVisiblePaidPlan = resolveHighestVisiblePaidPlan(input.visiblePlans);
+  const isFreePlan = input.currentPlanAmountMinor === 0;
+  const higherPaidPlanAvailable =
+    highestVisiblePaidPlan !== null &&
+    (input.currentPlanAmountMinor === null ||
+      input.currentPlanAmountMinor < highestVisiblePaidPlan.amountMinor);
+  const paidLightModeEligible =
+    !isFreePlan &&
+    input.tokenBudget.limitCredits !== null &&
+    input.tokenBudget.limitCredits > BigInt(0);
+  const paidLightModeActive =
+    paidLightModeEligible && input.tokenBucket?.status === "limit_reached";
+  return {
+    warningThresholdPercent: QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT,
+    isFreePlan,
+    higherPaidPlanAvailable,
+    highestVisiblePaidPlanCode: highestVisiblePaidPlan?.code ?? null,
+    tokenBudget: {
+      periodStartedAt: input.tokenBudget.periodStartedAt,
+      periodEndsAt: input.tokenBudget.periodEndsAt,
+      periodSource: input.tokenBudget.periodSource,
+      paidLightModeEligible,
+      paidLightModeActive,
+      paidLightModeReason: paidLightModeActive ? "token_budget_limit_reached" : null
+    }
+  };
+}
+
 @Injectable()
 export class ResolvePlanVisibilityService {
   constructor(
@@ -69,7 +157,8 @@ export class ResolvePlanVisibilityService {
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly adminAuthorizationService: AdminAuthorizationService
+    private readonly adminAuthorizationService: AdminAuthorizationService,
+    private readonly manageAdminPlansService: ManageAdminPlansService
   ) {}
 
   async getUserVisibility(userId: string): Promise<UserPlanVisibilityState> {
@@ -99,11 +188,17 @@ export class ResolvePlanVisibilityService {
     });
     const quotaSnapshot =
       await this.trackWorkspaceQuotaUsageService.resolveAssistantQuotaSnapshot(assistant);
+    const tokenBudgetSnapshot =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantTokenBudgetQuotaSnapshot(
+        assistant
+      );
     const monthlyMediaQuotas =
       await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
         assistant
       );
+    const publicPricingPlans = await this.manageAdminPlansService.listPublicPricingPlans();
     const lifecyclePolicy = resolveStoredPlanLifecyclePolicy(plan?.billingProviderHints ?? null);
+    const bucketsByCode = indexQuotaBuckets(quotaSnapshot.buckets);
     return {
       effectivePlan: {
         code: plan?.code ?? subscription.planCode,
@@ -128,6 +223,12 @@ export class ResolvePlanVisibilityService {
           max: effectiveCapabilities.channelsAndSurfaces.max
         }
       },
+      advisories: buildPlanQuotaAdvisories({
+        currentPlanAmountMinor: resolvePlanPresentationAmountMinor(plan),
+        visiblePlans: publicPricingPlans,
+        tokenBudget: tokenBudgetSnapshot,
+        tokenBucket: bucketsByCode.token_budget ?? null
+      }),
       limits: {
         quotaBuckets: quotaSnapshot.buckets,
         monthlyMediaQuotas,
@@ -238,6 +339,13 @@ export class ResolvePlanVisibilityService {
       displayName: string;
       dailyCallLimit: number | null;
       dailyCallsUsed: number;
+      percent: number | null;
+      finiteLimit: boolean;
+      warningThresholdPercent: number | null;
+      warningThresholdReached: boolean;
+      periodStartedAt: string | null;
+      periodEndsAt: string | null;
+      periodSource: "utc_day" | null;
       active: boolean;
     }>
   > {
@@ -253,12 +361,36 @@ export class ResolvePlanVisibilityService {
               toolCode: tool.toolCode,
               dailyCallLimit: tool.dailyCallLimit
             })
-          : { currentCount: 0 };
+          : {
+              currentCount: 0,
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: null
+            };
+        const finiteLimit =
+          typeof tool.dailyCallLimit === "number" && Number.isInteger(tool.dailyCallLimit)
+            ? tool.dailyCallLimit > 0
+            : false;
+        const percent =
+          finiteLimit && tool.dailyCallLimit !== null
+            ? Math.max(
+                0,
+                Math.min(100, Math.round((check.currentCount / tool.dailyCallLimit) * 100))
+              )
+            : null;
         return {
           toolCode: tool.toolCode,
           displayName: tool.displayName,
           dailyCallLimit: tool.dailyCallLimit,
           dailyCallsUsed: check.currentCount,
+          percent,
+          finiteLimit,
+          warningThresholdPercent: finiteLimit ? QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT : null,
+          warningThresholdReached:
+            finiteLimit && percent !== null && percent >= QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT,
+          periodStartedAt: check.periodStartedAt,
+          periodEndsAt: check.periodEndsAt,
+          periodSource: check.periodSource,
           active: isActive
         };
       })

@@ -1254,12 +1254,51 @@ class FakePersaiInternalApiClientService {
         }
       }
     ],
+    advisories: {
+      warningThresholdPercent: 90,
+      isFreePlan: false,
+      higherPaidPlanAvailable: false,
+      highestVisiblePaidPlanCode: "paid",
+      tokenBudget: {
+        periodStartedAt: "2026-05-01T00:00:00.000Z",
+        periodEndsAt: "2026-06-01T00:00:00.000Z",
+        periodSource: "subscription_period",
+        paidLightModeEligible: true,
+        paidLightModeActive: false,
+        paidLightModeReason: null
+      }
+    },
+    advisoryCandidates: [
+      {
+        dedupeKey:
+          "quota_advisory:assistant-1:web:chat-thread-1:quota_bucket:token_budget:warning_90_percent:2026-05-01T00:00:00.000Z:2026-06-01T00:00:00.000Z",
+        limitCode: "quota_bucket:token_budget",
+        displayName: "Token budget",
+        thresholdCode: "warning_90_percent",
+        warningThresholdPercent: 90,
+        currentPercent: 24,
+        finiteLimit: true,
+        periodStartedAt: "2026-05-01T00:00:00.000Z",
+        periodEndsAt: "2026-06-01T00:00:00.000Z",
+        periodSource: "subscription_period",
+        deliveryState: "eligible",
+        deliveredAt: null
+      }
+    ],
     tools: [
       {
         toolCode: "web_search",
+        displayName: "Web search",
         activationStatus: "active",
         dailyCallLimit: 10,
         currentCount: 1,
+        percent: 10,
+        finiteLimit: true,
+        warningThresholdPercent: 90,
+        warningThresholdReached: false,
+        periodStartedAt: "2026-05-08T00:00:00.000Z",
+        periodEndsAt: "2026-05-09T00:00:00.000Z",
+        periodSource: "utc_day",
         allowed: true
       }
     ],
@@ -1271,7 +1310,10 @@ class FakePersaiInternalApiClientService {
         used: 1200,
         limit: 5000,
         percent: 24,
+        finiteLimit: true,
         usageAvailable: true,
+        warningThresholdPercent: 90,
+        warningThresholdReached: false,
         status: "ok"
       }
     ],
@@ -3403,6 +3445,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(quotaStatusCompleted.assistantText, "reply after quota status");
   assert.deepEqual(persaiInternalApiClientService.quotaStatusCalls.at(-1), {
     assistantId: "assistant-1",
+    channel: "web",
+    externalThreadKey: quotaStatusRequest.conversation.externalThreadKey,
     toolCode: "web_search"
   });
   const quotaStatusToolHistory = JSON.parse(

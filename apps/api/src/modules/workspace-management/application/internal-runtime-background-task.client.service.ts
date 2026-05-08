@@ -25,7 +25,8 @@ export class InternalRuntimeBackgroundTaskClientService {
   private readonly logger = new Logger(InternalRuntimeBackgroundTaskClientService.name);
 
   async evaluate(
-    input: RuntimeBackgroundTaskEvaluationRequest
+    input: RuntimeBackgroundTaskEvaluationRequest,
+    options?: { timeoutMs?: number }
   ): Promise<InternalRuntimeBackgroundTaskEvaluationOutcome> {
     const config = loadApiConfig(process.env);
     const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
@@ -49,8 +50,12 @@ export class InternalRuntimeBackgroundTaskClientService {
       };
     }
 
+    const timeoutMs =
+      typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
+        ? Math.max(1_000, Math.floor(options.timeoutMs))
+        : BACKGROUND_TASK_EVALUATION_TIMEOUT_MS;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), BACKGROUND_TASK_EVALUATION_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(
         new URL("/api/v1/internal/runtime/background-tasks/evaluate", baseUrl).toString(),
@@ -92,7 +97,7 @@ export class InternalRuntimeBackgroundTaskClientService {
           retryable: true,
           status: null,
           code: "timeout",
-          message: `Background-task runtime call timed out after ${BACKGROUND_TASK_EVALUATION_TIMEOUT_MS}ms.`
+          message: `Background-task runtime call timed out after ${timeoutMs}ms.`
         };
       }
       this.logger.warn(
