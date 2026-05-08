@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Wrench, Loader2, Save, CheckCircle, XCircle, FileText, PlugZap } from "lucide-react";
+import { Wrench, Loader2, Save, CheckCircle, XCircle, FileText, PlugZap, Bell } from "lucide-react";
 
 type ProviderOption = {
   id: string;
@@ -740,6 +740,72 @@ export default function AdminToolsPage() {
           </section>
         )}
 
+        {/* ── Notifications credentials ──────────────────────────────── */}
+        {state && state.credentials.some((c) => c.toolCode === "notifications") && (
+          <section className="rounded-xl border border-border bg-surface-raised p-4">
+            <div className="mb-4 flex items-start gap-2">
+              <Bell className="mt-0.5 h-4 w-4 text-accent" />
+              <div>
+                <p className="text-sm font-semibold text-text">Notifications</p>
+                <p className="text-[11px] text-text-muted">
+                  Postmark credentials for transactional email delivery. Stored encrypted; raw
+                  values are write-only.
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {state.credentials
+                .filter((c) => c.toolCode === "notifications")
+                .map((cred) => (
+                  <div
+                    key={cred.credentialKey}
+                    className="rounded-lg border border-border bg-surface p-3"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-text">{cred.displayName}</p>
+                      {cred.configured ? (
+                        <span className="flex items-center gap-1 text-[11px] text-success">
+                          <CheckCircle className="h-3 w-3" />
+                          Configured
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-[11px] text-text-subtle">
+                          <XCircle className="h-3 w-3" />
+                          Not set
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="password"
+                      value={keyInputs[cred.credentialKey] ?? ""}
+                      onChange={(e) => updateKeyInput(cred.credentialKey, e.target.value)}
+                      placeholder={cred.configured ? `••••${cred.lastFour ?? ""}` : "Paste key…"}
+                      className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                    />
+                    {cred.updatedAt && (
+                      <p className="mt-1 text-[10px] text-text-muted">
+                        Last updated: {new Date(cred.updatedAt).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                ))}
+            </div>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void handleSave()}
+              className="mt-4 flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            >
+              {saving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Save notification credentials
+            </button>
+          </section>
+        )}
+
         <section className="space-y-4">
           <div>
             <p className="text-sm font-semibold text-text">Tool Credentials</p>
@@ -768,62 +834,64 @@ export default function AdminToolsPage() {
               </select>
             </div>
           )}
-          {state?.credentials.map((cred) => (
-            <div
-              key={cred.credentialKey}
-              className="rounded-lg border border-border bg-surface-raised p-4"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <p className="text-sm font-medium text-text">{cred.displayName}</p>
-                  <p className="text-[11px] text-text-muted">
-                    Tool: <span className="font-mono">{cred.toolCode}</span>
+          {state?.credentials
+            .filter((c) => c.toolCode !== "notifications")
+            .map((cred) => (
+              <div
+                key={cred.credentialKey}
+                className="rounded-lg border border-border bg-surface-raised p-4"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-sm font-medium text-text">{cred.displayName}</p>
+                    <p className="text-[11px] text-text-muted">
+                      Tool: <span className="font-mono">{cred.toolCode}</span>
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {cred.configured ? (
+                      <>
+                        <CheckCircle className="h-3.5 w-3.5 text-success" />
+                        <span className="text-[11px] text-success">Configured</span>
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="h-3.5 w-3.5 text-text-subtle" />
+                        <span className="text-[11px] text-text-subtle">Not set</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {cred.providerOptions && cred.providerOptions.length > 1 && (
+                  <div className="mb-2">
+                    <label className="text-[11px] text-text-muted block mb-1">Provider</label>
+                    <select
+                      value={providerInputs[cred.credentialKey] ?? cred.providerId ?? ""}
+                      onChange={(e) => updateProviderInput(cred.credentialKey, e.target.value)}
+                      className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                    >
+                      {cred.providerOptions.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <input
+                  type="password"
+                  value={keyInputs[cred.credentialKey] ?? ""}
+                  onChange={(e) => updateKeyInput(cred.credentialKey, e.target.value)}
+                  placeholder={cred.configured ? `••••${cred.lastFour ?? ""}` : "Enter API key..."}
+                  className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                />
+                {cred.updatedAt && (
+                  <p className="mt-1 text-[10px] text-text-muted">
+                    Last updated: {new Date(cred.updatedAt).toLocaleString()}
                   </p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {cred.configured ? (
-                    <>
-                      <CheckCircle className="h-3.5 w-3.5 text-success" />
-                      <span className="text-[11px] text-success">Configured</span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-3.5 w-3.5 text-text-subtle" />
-                      <span className="text-[11px] text-text-subtle">Not set</span>
-                    </>
-                  )}
-                </div>
+                )}
               </div>
-              {cred.providerOptions && cred.providerOptions.length > 1 && (
-                <div className="mb-2">
-                  <label className="text-[11px] text-text-muted block mb-1">Provider</label>
-                  <select
-                    value={providerInputs[cred.credentialKey] ?? cred.providerId ?? ""}
-                    onChange={(e) => updateProviderInput(cred.credentialKey, e.target.value)}
-                    className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                  >
-                    {cred.providerOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <input
-                type="password"
-                value={keyInputs[cred.credentialKey] ?? ""}
-                onChange={(e) => updateKeyInput(cred.credentialKey, e.target.value)}
-                placeholder={cred.configured ? `••••${cred.lastFour ?? ""}` : "Enter API key..."}
-                className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-              />
-              {cred.updatedAt && (
-                <p className="mt-1 text-[10px] text-text-muted">
-                  Last updated: {new Date(cred.updatedAt).toLocaleString()}
-                </p>
-              )}
-            </div>
-          ))}
+            ))}
 
           <button
             type="button"

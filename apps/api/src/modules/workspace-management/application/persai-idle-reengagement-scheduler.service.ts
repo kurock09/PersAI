@@ -134,7 +134,7 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
           : DEFAULT_LLM_INSTRUCTION;
 
       const assistants = await this.prisma.assistant.findMany({
-        where: { workspaceId: policy.workspaceId },
+        where: {},
         select: { id: true, userId: true, workspaceId: true },
         orderBy: { updatedAt: "asc" },
         take: Math.max(1, Math.floor(limit))

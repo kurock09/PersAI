@@ -61,7 +61,7 @@ export class QuotaAdvisoryFollowUpService {
 
     const policyRow = await this.prisma.notificationPolicy.findUnique({
       where: {
-        workspaceId_source: { workspaceId: input.workspaceId, source: "quota_advisory" }
+        source: "quota_advisory"
       },
       select: { enabled: true, config: true }
     });

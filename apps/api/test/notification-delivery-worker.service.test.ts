@@ -319,7 +319,7 @@ async function run(): Promise<void> {
 
     return {
       notificationPolicy: { findUnique: async () => null },
-      notificationQuietHours: { findUnique: async () => null },
+      notificationQuietHours: { findFirst: async () => null },
       notificationChannelRegistry: {
         findMany: async () => channelRegistry,
         findFirst: async (q: { where: { channelType?: string } }) =>
@@ -531,7 +531,7 @@ async function run(): Promise<void> {
     const routing = new NotificationRoutingService();
     const intentPrisma = {
       notificationPolicy: { findUnique: async () => null },
-      notificationQuietHours: { findUnique: async () => null },
+      notificationQuietHours: { findFirst: async () => null },
       notificationChannelRegistry: { findMany: async () => [] },
       notificationIntent: {
         create: async ({ data }: { data: Record<string, unknown> }) => {

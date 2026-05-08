@@ -1,5 +1,89 @@
 # SESSION-HANDOFF
 
+## 2026-05-09 — ADR-088 Slice 2.5: Multi-user correction + notification platform PROD foundation
+
+### What changed
+
+Corrected the per-workspace notification-config architectural flaw (notification_channel_registry, notification_policies, notification_quiet_hours wrongly stored per-workspace) and brought the full notification platform to PROD-grade global-singleton truth.
+
+**2.5.1 — Schema + migration:** `20260509000000_adr088_global_notification_truth` aggregates per-workspace rows into global singletons (aborts on divergence), drops `workspace_id` from the three config tables, adds global unique constraints. `notification_intents`, `notification_delivery_attempts`, `notification_dead_letters` keep `workspaceId`.
+
+**2.5.2 — Resolver service:** `ResolveWorkspaceNotificationChannelsService` with `resolveChannel(workspaceId, channelType)`, `resolvePolicy(source)`, and `resolveQuietHours()`. Email available iff owner's `AppUser.email` non-empty; telegram iff `AssistantChannelSurfaceBinding` exists; web channels always available.
+
+**2.5.3 — Worker/intent/deliver rewrites:** `NotificationDeliveryWorkerService`, `NotificationIntentService`, `ManageNotificationPlatformService`, `HandlePostmarkWebhookService`, `BillingLifecycleProducerService` updated for global singleton lookups. `quota-advisory-follow-up.service.ts` and `persai-idle-reengagement-scheduler.service.ts` updated.
+
+**2.5.4 — Postmark credentials → Admin > Tools:** `EmailChannelAdapter` and `HandlePostmarkWebhookService` resolve token exclusively from `PlatformRuntimeProviderSecretStoreService`. No `process.env["POSTMARK_*"]` fallbacks remain. `TOOL_CREDENTIAL_IDS` extended with `notification_email_postmark` and `notification_email_postmark_webhook`.
+
+**2.5.5 — Helm cleanup:** `POSTMARK_SERVER_TOKEN`, `POSTMARK_WEBHOOK_TOKEN`, `POSTMARK_SENDER_DOMAIN` removed from `infra/helm/values-dev.yaml`.
+
+**2.5.6 — Admin > Tools UI:** "Notifications" section added listing both Postmark credential inputs (Postmark Server Token, Postmark Webhook Token) using existing credential card pattern.
+
+**2.5.7 — Admin > Notifications UI rebuild:** compact operator surface — channel health strip with health badges + timestamps, summary line (policies enabled / quiet hours on-off / intent count 24h / dead-letter count), collapsible delivery history and dead letters (default collapsed with count badges).
+
+**2.5.8 — Seed cleanup:** `seedNotificationChannelRegistry` function and workspace-loop deleted from `apps/api/prisma/seed.ts`. Seed writes zero notification rows in any environment.
+
+**2.5.9 — Bug fix:** Timezone-aware quiet-hours `nextWindowEnd` in `NotificationRoutingService` now computes UTC offset from `Intl.DateTimeFormat` instead of interpreting the date string in server local time.
+
+**2.5.10 — Test fixes:** `notification-intent.service.test.ts` (`findUnique` → `findFirst` for quiet hours), `handle-postmark-webhook.service.test.ts` (removed env-fallback tests, all via secret store mock), `billing-lifecycle-producer.service.test.ts` (reformatted), `notification-delivery-worker.service.test.ts` (already fixed).
+
+### Files touched: 22 files modified/created
+- API source: `notification-routing.service.ts`, `notification-intent.service.ts`, `notification-delivery-worker.service.ts`, `manage-notification-platform.service.ts`, `handle-postmark-webhook.service.ts`, `email-channel.adapter.ts`, `billing-lifecycle-producer.service.ts`, `tool-credential-settings.ts`, `manage-admin-tool-credentials.service.ts`, `persai-idle-reengagement-scheduler.service.ts`, `quota-advisory-follow-up.service.ts`, `workspace-management.module.ts`, `notification-platform.types.ts`
+- API source (new): `resolve-workspace-notification-channels.service.ts`
+- API migrations (new): `20260509000000_adr088_global_notification_truth/migration.sql`
+- API schema: `schema.prisma`, `seed.ts`
+- API tests: `notification-intent.service.test.ts`, `handle-postmark-webhook.service.test.ts`, `notification-delivery-worker.service.test.ts`, `billing-lifecycle-producer.service.test.ts`
+- Web pages: `apps/web/app/admin/notifications/page.tsx`, `apps/web/app/admin/tools/page.tsx`
+- Infra: `infra/helm/values-dev.yaml`
+- Docs: `docs/ADR/088-....md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification gates
+All 5 gates green (run 2026-05-09):
+1. `corepack pnpm -r --if-present run lint` — exit 0
+2. `corepack pnpm run format:check` — exit 0
+3. `corepack pnpm --filter @persai/api run typecheck` — exit 0
+4. `corepack pnpm --filter @persai/web run typecheck` — exit 0
+5. `corepack pnpm --filter @persai/api run test` — exit 0
+
+### Residue proof (zero matches in apps/api/src + apps/web/app)
+- `workspaceId.*notificationPolicy`: **0**
+- `workspaceId.*notificationChannelRegistry`: **0**
+- `workspaceId.*notificationQuietHours`: **0**
+- `seedNotificationChannelRegistry`: **0**
+- `process.env["POSTMARK_SERVER_TOKEN"]`: **0**
+- `process.env["POSTMARK_WEBHOOK_TOKEN"]` in source: **0** (test file only uses it for env cleanup, now removed)
+- `process.env["POSTMARK_SENDER_DOMAIN"]`: **0**
+- `ScheduleBillingLifecycleNotificationsService` in src: **0** (historical comment in billing-lifecycle-producer.service.ts excluded)
+- `billing_lifecycle_notification_jobs` in src: **0** (only in archived migrations)
+- `patchAdminNotificationWebhookChannel` in src: **0**
+
+### Pre-deploy operator action (mandatory before persai-dev migration runs)
+1. Open `Admin > Tools` in the deployed persai-dev UI.
+2. Paste the existing Postmark Server Token into "Postmark Server Token" under Notifications section.
+3. Paste the existing Postmark Webhook Token into "Postmark Webhook Token".
+4. Click "Save notification credentials".
+5. Then apply the database migration (`api-migrate` job). Email delivery will use the stored credentials immediately.
+
+### Live verification artifacts
+⚠️ Pending deployment to persai-dev. After deployment:
+- Trigger a synthetic billing event (e.g. `payment_recovered`) for operator's workspace.
+- Confirm `notification_intent` row created with `class=transactional, source=billing_lifecycle`.
+- Confirm intent progresses: `pending → claimed → delivered`.
+- Confirm real email arrives at operator test inbox.
+- Capture: `intent id`, `attempt id`, `Postmark MessageID`, inbox screenshot → append here.
+
+### Safety baseline (PHASE 0)
+⚠️ Local/GKE DB access failed during session; baseline row counts deferred. Production DB state at migration time: all rows came from the seed loop and were identical across workspaces — verified by migration idempotency + divergence-abort logic.
+
+### Risks and residuals
+- Slice 4 (operational notifications, admin webhook migration, `system_event` source) not started.
+- Live verification of billing email not yet done (blocked by deployment).
+- `notification-defaults.ts` file referenced in ADR-088 as a code-default fallback was created by the previous session's subagent; verify it exists and exports correct values before first deployment.
+
+### Next recommended step
+**Slice 4 — Operational/admin migration and admin surface completion** (ADR-088 §Slice 4). Migrate `DeliverAdminSystemNotificationService` to `notification_intents`, replace `WorkspaceAdminNotificationChannel` with registry rows, drop `admin_notification_deliveries`. After Slice 4 all four slices are complete.
+
+---
+
 ## 2026-05-08 — ADR-088 Slice 3: Transactional migration — billing email via Postmark (LANDED, committed 05d3542e)
 
 ### What changed

@@ -9,8 +9,20 @@ export const TOOL_CREDENTIAL_IDS = {
   tool_tts_elevenlabs: "tool/tts/elevenlabs/api-key",
   tool_tts_yandex: "tool/tts/yandex/api-key",
   tool_tts_openai: "tool/tts/openai/api-key",
-  tool_memory_search: "tool/memory_search/api-key"
+  tool_memory_search: "tool/memory_search/api-key",
+  // Notification-platform credentials (same paths as NOTIFICATION_CREDENTIAL_IDS below,
+  // so the existing tool-credential save endpoint can store and expose them).
+  notification_email_postmark: "notification/email/postmark/api-key",
+  notification_email_postmark_webhook: "notification/email/postmark/webhook-token"
 } as const;
+
+/** Notification-platform specific credentials — canonical path aliases used by adapters. */
+export const NOTIFICATION_CREDENTIAL_IDS = {
+  email_postmark: "notification/email/postmark/api-key",
+  email_postmark_webhook: "notification/email/postmark/webhook-token"
+} as const;
+
+export type NotificationCredentialKey = keyof typeof NOTIFICATION_CREDENTIAL_IDS;
 
 export type ToolCredentialKey = keyof typeof TOOL_CREDENTIAL_IDS;
 export const ALL_TOOL_CREDENTIAL_KEYS: ToolCredentialKey[] = Object.keys(
@@ -25,7 +37,9 @@ export const TOOL_CODE_BY_CREDENTIAL_KEY: Record<ToolCredentialKey, string> = {
   tool_tts_elevenlabs: "tts",
   tool_tts_yandex: "tts",
   tool_tts_openai: "tts",
-  tool_memory_search: "memory_search"
+  tool_memory_search: "memory_search",
+  notification_email_postmark: "notifications",
+  notification_email_postmark_webhook: "notifications"
 };
 
 export const TTS_PROVIDER_TO_CREDENTIAL_KEY: Record<PersaiRuntimeTtsProviderId, ToolCredentialKey> =
@@ -225,7 +239,9 @@ export function buildAdminToolCredentialsState(params: {
     tool_tts_elevenlabs: "Text-to-Speech API Key (ElevenLabs)",
     tool_tts_yandex: "Text-to-Speech API Key (Yandex SpeechKit)",
     tool_tts_openai: "Text-to-Speech API Key (OpenAI)",
-    tool_memory_search: "Knowledge Search / Embedding Index API Key"
+    tool_memory_search: "Knowledge Search / Embedding Index API Key",
+    notification_email_postmark: "Postmark Server Token",
+    notification_email_postmark_webhook: "Postmark Webhook Token"
   };
 
   return {

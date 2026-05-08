@@ -2,11 +2,29 @@
 
 ## Status
 
-Accepted — Slice 1 landed 2026-05-08; Slice 2 landed 2026-05-08; Slice 3 landed 2026-05-08
+Accepted — Slice 1 landed 2026-05-08; Slice 2 landed 2026-05-08; Slice 3 landed 2026-05-08; **Slice 2.5 (multi-user correction) landed 2026-05-09** — global singletons, resolver service, Postmark credential store migration, env fallback removal, seed cleanup, and compact Admin > Notifications UI. Slice 4 pending.
 
 ## Date
 
-2026-05-08
+2026-05-08 (revised 2026-05-09 with multi-user correction)
+
+## Post-mortem (2026-05-09): per-workspace notification-config flaw
+
+Slices 1–3 modelled `notification_channel_registry`, `notification_policies`, and `notification_quiet_hours` as **per-workspace** rows. This was wrong for PersAI:
+
+- PersAI is a multi-user product with one operator (founder) and many self-service users.
+- Operator settings (which sources are enabled, channel order, quiet hours, render instructions, etc.) are **global** by product design — there is no per-user notification configuration UI and no plan for one.
+- Per-workspace rows forced new-user registration to write notification-config rows or fall through to "channel not configured" failures, which led to a `seed.ts`-on-every-deploy hack and a (later reverted) onboarding-time auto-provision commit.
+
+Slice 2.5 (landed 2026-05-09) corrected this. The target state:
+
+- `notification_channel_registry`, `notification_policies`, `notification_quiet_hours` become **global singletons** (no `workspaceId` column). Operator edits one row per source / per channel / one quiet-hours row in `Admin > Notifications`. Defaults live in code so a fresh DB works without seed.
+- Per-workspace channel availability is **auto-derived at delivery time** from existing PersAI sources (no notification-only rows): email from `AppUser.email` of the workspace owner, telegram from `AssistantChannelSurfaceBinding`, web from intent context (`chatId`, `surfaceThreadKey`).
+- Postmark API key and webhook token move to `Admin > Tools` (existing operator-owned credential pattern), not Kubernetes secrets.
+- `notification_intents`, `notification_delivery_attempts`, `notification_dead_letters` **keep `workspaceId`** — they describe individual user events, not config.
+- `seed.ts` writes zero notification rows. `UpsertOnboardingService` writes zero notification rows. Both kept this way permanently.
+
+All sections below reflect the corrected target state, which is now the landed on-disk reality as of Slice 2.5 (2026-05-09). Slice 1–3 acceptance text is preserved as-is for historical accuracy.
 
 ## Relates to
 
@@ -80,11 +98,13 @@ Class is declared per notification type, not derived. Class determines allowed r
 2. `template` — required for `transactional`, `operational`, `administrative`; localized, deterministic, audit-safe
 3. `static_fallback` — emergency fallback only when the intended renderer cannot produce deliverable output
 
-### 4. Channel registry, capabilities, and dumb adapters
+### 4. Channel registry is global; per-workspace channel availability is auto-derived
 
 Channel adapters deliver notifications. They do not own product policy, dedupe, or escalation logic.
 
-Target-state channel registry includes:
+The channel registry is a **global singleton** owned by the operator. There is exactly **one** `notification_channel_registry` row per `channelType` for the whole platform. No `workspaceId` column. The operator edits these rows in `Admin > Notifications`. They describe operator-level wiring (sender domain for email, signing secret for admin webhook, default templates per channel, health) — never per-user state.
+
+Channel types:
 
 - `telegram_thread` (rich text, media, in active assistant chat)
 - `web_thread` (rich text, media, in active assistant chat)
@@ -94,21 +114,39 @@ Target-state channel registry includes:
 - `web_push` (browser push, future)
 - `mobile_push` (FCM/APNs via Capacitor shell, future)
 
-Per channel: `enabled`, `config` (endpoint, credentials secret ref), `healthStatus` (`healthy`, `degraded`, `down`), `lastDeliveryAt`, `lastFailureAt`, `consecutiveFailures`. Health status is updated by the delivery worker and consumed by routing.
+Per registry row: `channelType` (PK / unique), `enabled`, `config` (sender domain, signing secret reference, locale, etc.), `healthStatus` (`healthy`, `degraded`, `down`, `unconfigured`), `lastDeliveryAt`, `lastFailureAt`, `consecutiveFailures`. Health is updated by the delivery worker and consumed by routing.
+
+**Per-workspace channel availability** for a given intent is computed at delivery time by `ResolveWorkspaceNotificationChannelsService.resolveChannel(workspaceId, channelType)`. The service reads existing PersAI truth and returns a `ResolvedChannel | null`:
+
+| channelType               | resolved how                                                                                                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `web_thread`              | always available; `chatId` from `intent.chatId`, `threadKey` from `intent.surfaceThreadKey`                                                                          |
+| `web_notification_center` | always available; `chatId` resolved via `AssistantChatRepository.findOrCreateChatBySurfaceThread(surfaceThreadKey="system:notifications")`                           |
+| `telegram_thread`         | available iff `AssistantChannelSurfaceBinding` row exists for the workspace with `kind="telegram"` and is healthy; chatId from binding                               |
+| `email`                   | available iff `Workspace.owner.AppUser.email` is non-empty; sender from global registry row's `config.sendingDomain`; Postmark token from credential store (see §10) |
+| `admin_webhook`           | available iff the global registry row has `config.webhookUrl` + `config.signingSecret`; the same single webhook serves all admin alerts                              |
+| `web_push`, `mobile_push` | `null` until configured (future ADR)                                                                                                                                 |
+
+A `null` result from the resolver is a deliverable failure (`channel_not_configured:<type>` with reason `auto_derive_unavailable`). Onboarding writes nothing into notification tables. Seed writes nothing into notification tables.
 
 `whatsapp` channel preference is removed from `AssistantPreferredNotificationChannel` until a real adapter exists (no half-implemented options in user-facing settings).
 
-### 5. Policy-driven routing with explicit timing semantics
+### 5. Policy-driven routing with explicit timing semantics — global policy, per-event delivery
 
-Routing resolves per intent:
+`notification_policies` is a **global singleton** table: exactly one row per `source`, no `workspaceId` column. The operator edits one row per source in `Admin > Notifications`. Code-level defaults (`apps/api/src/modules/workspace-management/application/notifications/defaults/notification-defaults.ts`) cover any source missing a DB row, so a fresh DB works without seed.
 
-- whether the type is enabled for this workspace
-- which channels are allowed and in which order
-- whether fallback is allowed
-- whether escalation is required and to which channel after how many minutes
-- whether quiet hours apply for this type
-- whether per-source/global rate caps allow delivery now
-- whether the intent is immediate, scheduled, digest, or skippable
+Per-workspace routing is per-event, not per-config:
+
+- routing resolves per intent (delivery time):
+  - whether the source is globally enabled
+  - which channels are allowed and in which order (from the global policy)
+  - which of those channels are actually available for this workspace (via the resolver from §4)
+  - whether quiet hours apply (from the global quiet-hours singleton, see §7)
+  - whether per-source rate caps / dedupe allow delivery now
+  - whether the intent is immediate, scheduled, digest, or skippable
+- routing never reads per-workspace policy/channel/quiet-hours rows because no such rows exist
+
+Producers may pass `allowedChannels` on `createIntent` to override the global policy's channel list for a single event (used by `QuotaAdvisoryFollowUpService` to pin advisory delivery to the surface the user is currently on). This is a per-event override, not stored config.
 
 `priority` semantics:
 
@@ -128,17 +166,18 @@ User reminders are notification intents (source `reminder`). The user picks the 
 
 Admin > Notifications quiet hours configuration must let the operator decide which sources quiet hours apply to. Reminders are off by default in that selection; the operator can opt them in if they want.
 
-### 7. Quiet hours are timezone-aware, admin-configurable, per-source
+### 7. Quiet hours are timezone-aware, admin-configurable, per-source — and global
 
-Quiet hours apply per workspace, configured in `Admin > Notifications`:
+Quiet hours are a **global singleton** row in `notification_quiet_hours` (no `workspaceId` column). The operator configures them once in `Admin > Notifications`:
 
-- `quietHoursEnabled` (boolean)
-- `quietHoursStart` (local time)
-- `quietHoursEnd` (local time)
-- `timezoneSource` (`workspace_default` or `per_user_resolved`)
-- `appliesToSources` (multi-select source codes; reminders excluded by default)
+- `enabled` (boolean)
+- `startLocal` (HH:MM)
+- `endLocal` (HH:MM)
+- `timezoneMode` (`workspace_default` resolves per-recipient via `Workspace.timezone`; `per_user_resolved` reserved for future per-user-tz support)
+- `defaultTimezone` (fallback when `Workspace.timezone` is null)
+- `appliesToSources` (multi-select; `reminder` excluded by default)
 
-When a non-immediate intent is created and falls inside quiet hours for the resolved timezone, routing defers it to the next allowed window with `lifecycleStatus = "deferred_quiet_hours"`. `immediate` priority always overrides quiet hours and is logged as an override.
+When a non-immediate intent is created and falls inside quiet hours for the resolved per-recipient timezone, routing defers it to the next allowed window with `lifecycleStatus = "deferred_quiet_hours"`. `immediate` priority always overrides quiet hours and is logged as an override.
 
 The legacy compile-time hardcoded quiet windows are removed; only admin-configured truth applies.
 
@@ -164,17 +203,24 @@ All notification intents use one durable persistence model:
 
 `assistant_notification_outbox`, `billing_lifecycle_notification_jobs`, and `admin_notification_deliveries` are predecessors and are replaced by the unified backbone in their respective migration slices. Until each slice lands, the legacy table coexists transitionally; once a slice lands, the legacy table is dropped, not repurposed. No legacy notification table survives past the slice that absorbs it.
 
-### 10. Email delivery is real
+### 10. Email delivery is real, with operator-owned credentials in Admin > Tools
 
 Email channel uses Postmark as the transactional provider:
 
-- sending domain `notifications.persai.dev` (SPF, DKIM, DMARC verified before Slice 3 ships)
-- templates are deterministic TypeScript modules that return `{ subject, html, plainText }` objects, addressable by template id; MJML compilation at build time is a future improvement and is not part of Slice 1–2
-- one `EmailChannelAdapter` service in `apps/api/src/modules/workspace-management/infrastructure/notifications/email-channel.adapter.ts`
-- bounce/complaint webhook ingress at `POST /api/v1/internal/notifications/postmark-webhook` (HMAC verified) marks the user/channel `degraded` and increments `consecutiveFailures`
-- transactional emails carry `List-Unsubscribe` and `List-Unsubscribe-Post` headers for one-click unsubscribe; user-level transactional opt-out is not exposed yet (no real users)
+- sending domain `notifications.persai.dev` (SPF, DKIM, DMARC verified before Slice 3 traffic). Stored in the global `notification_channel_registry` email row's `config.sendingDomain`, editable in `Admin > Notifications` channel registry section.
+- templates are deterministic TypeScript modules that return `{ subject, html, plainText }`, addressable by template id; MJML compilation at build time is a future improvement.
+- one `EmailChannelAdapter` service in `apps/api/src/modules/workspace-management/infrastructure/notifications/email-channel.adapter.ts`. Recipient address resolves at delivery time from `Workspace.owner.AppUser.email`.
+- bounce/complaint webhook ingress at `POST /api/v1/internal/notifications/postmark-webhook` (HMAC verified) marks the global email channel `degraded` (≥2 consecutive failures) or `down` (≥5) and increments `consecutiveFailures`.
+- transactional emails carry `List-Unsubscribe` and `List-Unsubscribe-Post` headers for one-click unsubscribe.
 
-Postmark API key is stored as Kubernetes secret `persai-api-secrets` key `POSTMARK_SERVER_TOKEN`, optional in non-prod.
+**Credentials live in the operator credential store (`Admin > Tools`), not in Kubernetes secrets:**
+
+- `notification/email/postmark/api-key` — Postmark Server Token
+- `notification/email/postmark/webhook-token` — Postmark webhook HMAC token
+
+Both ids are added to `TOOL_CREDENTIAL_IDS` (`apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`). `EmailChannelAdapter` and `HandlePostmarkWebhookService` resolve their secrets from `PlatformRuntimeProviderSecretStoreService` using these ids. The `Admin > Tools` page lists them under a "Notifications" group using the existing credential card pattern (the same pattern already used by document processing and TTS providers). No new admin UI scaffolding is needed for the keys themselves.
+
+`POSTMARK_SERVER_TOKEN`, `POSTMARK_WEBHOOK_TOKEN`, and `POSTMARK_SENDER_DOMAIN` env / secretEnv slots in `infra/helm/values-dev.yaml` were removed in Slice 2.5. The only Postmark wiring lives in DB-backed credential store + `Admin > Tools` UI.
 
 ### 11. Observability is structured-logs-first
 
@@ -192,17 +238,21 @@ Every intent creation and every delivery attempt emits structured log events wit
 
 Future Datadog/Grafana adoption is non-blocking and consumes the same fields.
 
-### 12. Admin > Notifications is the canonical operator control plane
+### 12. Admin > Notifications is the canonical operator control plane (edits global truth)
 
-`Admin > Notifications` (founder/operator-only, single-user assumption today) owns:
+`Admin > Notifications` is operator-only (founder/operator). It edits **global** notification truth — the singleton channel registry, the per-source policy rows, the single quiet-hours row. It never edits per-user / per-workspace state, because no such state exists in the notification platform.
 
-- channel registry view (status, config, health, test-send)
-- per-source/family policy editor (enabled, channels, cooldown, escalation, quiet hours opt-in, render instruction)
-- delivery history with filters (paginated, last 30 days)
-- dead-letter list with replay/discard controls
-- preview/test-send for grounded_llm and template renderers
+The page is laid out for an operator's daily glance, not as a wall:
 
-This page replaces today's three-island UX (`Admin > Notifications` partial, `Admin > Billing Settings` for lifecycle policy, `Admin > Ops` for delivery glimpse).
+- **Header strip (always visible):** one-line health badges per channel (healthy / degraded / down / unconfigured) with last delivery timestamp; one-line totals for the last 24h (`X intents, Y delivered, Z dead-letters`) with each metric clickable to scroll to the right section.
+- **Channels section:** one compact card per `channelType` — enabled toggle, config (sender domain for email, webhook URL/secret for admin webhook), test-send button. Health/last-delivery details collapsed under an accordion to keep the strip dense.
+- **Policies section:** one row per source, edit-in-place (enabled, channels with drag-to-reorder, cooldown, escalation, render strategy, render instruction id, respect-quiet-hours flag). The `billing_lifecycle` row expands to per-rule sub-policy (six rule codes) inline, not a separate page.
+- **Quiet hours section:** single compact form — enabled, start, end, timezone mode, applies-to-sources multi-select.
+- **Delivery history:** collapsed by default behind a `Show last 24h (X intents)` button. When expanded, server-side filtered + paginated table; one combined "copy id" popover per row (intent id, dedupe key, trace id) instead of per-column copy buttons.
+- **Dead letters:** collapsed by default; header badge shows unresolved count (red if > 0). When expanded, list with inline replay/discard buttons; drawer for full payload.
+- **Preview / test send:** one small card. Pick source → pick template/instruction id → fill sample fact payload → preview. Never charges quota, never sends to real recipients, clearly labelled dry-run.
+
+This page replaces today's three-island UX (`Admin > Notifications` partial, `Admin > Billing Settings` for lifecycle policy, `Admin > Ops` for delivery glimpse). Postmark API key and webhook token live in `Admin > Tools` (per §10), not on this page.
 
 ### 13. No new direct-send paths and no transitional residue
 
@@ -220,6 +270,10 @@ A slice that leaves any of the above residue is incomplete and must not be marke
 ## Target data model
 
 The following Prisma models replace the legacy notification tables. Names are normative; agents implementing slices use these exactly unless a follow-up ADR changes them.
+
+**Per-event tables (keep `workspaceId`):** `notification_intents`, `notification_delivery_attempts`, `notification_dead_letters`. These describe individual user notification events; `workspaceId` is required so admin history/dead-letter views can attribute every row to the right user.
+
+**Global singleton tables (no `workspaceId`):** `notification_channel_registry`, `notification_policies`, `notification_quiet_hours`. These describe operator-level wiring shared across all workspaces; uniqueness is on the natural key (`channelType`, `source`, or singleton row).
 
 ### `notification_intents`
 
@@ -261,25 +315,25 @@ The following Prisma models replace the legacy notification tables. Names are no
 - `startedAt`, `completedAt` timestamptz
 - `escalationOf` UUID nullable (links a follow-up attempt to the previous one)
 
-### `notification_channel_registry`
+### `notification_channel_registry` (global singleton — one row per `channelType`)
 
 - `id` UUID PK
-- `workspaceId` FK
-- `channelType` enum `NotificationChannelType` (`telegram_thread`, `web_thread`, `web_notification_center`, `email`, `admin_webhook`, `web_push`, `mobile_push`)
+- `channelType` enum `NotificationChannelType` (`telegram_thread`, `web_thread`, `web_notification_center`, `email`, `admin_webhook`, `web_push`, `mobile_push`) — **UNIQUE**
 - `enabled` boolean
-- `config` jsonb (endpoint, credentials secret ref, locale)
+- `config` jsonb (sender domain for email, webhook URL + signing-secret-ref for admin webhook, default locale, etc. — never user-specific data)
 - `healthStatus` enum `NotificationChannelHealth` (`healthy`, `degraded`, `down`, `unconfigured`)
 - `consecutiveFailures` int default 0
 - `lastDeliveryAt`, `lastFailureAt` timestamptz nullable
 - `updatedAt`, `createdAt` timestamptz
 
-### `notification_policies`
+No `workspaceId` column. Per-workspace channel availability is auto-derived at delivery time (see §4).
+
+### `notification_policies` (global singleton — one row per `source`)
 
 Replaces `workspace_notification_policies` and the embedded `BillingLifecycleSettings.metadata` notification policy.
 
 - `id` UUID PK
-- `workspaceId` FK
-- `source` enum `NotificationSource`
+- `source` enum `NotificationSource` — **UNIQUE**
 - `enabled` boolean
 - `channels` text[] (ordered preference)
 - `cooldownMinutes` int nullable
@@ -290,20 +344,23 @@ Replaces `workspace_notification_policies` and the embedded `BillingLifecycleSet
 - `renderStrategy` enum `NotificationRenderStrategy`
 - `renderInstructionRef` text nullable
 - `templateId` text nullable
-- `config` jsonb (source-specific: `idleHours`, `offsetDays`, `assistantPushEnabled`, etc.)
+- `config` jsonb (source-specific: `idleHours`, `offsetDays`, `assistantPushEnabled`; for `billing_lifecycle` the per-rule sub-policy lives at `config.rules.<ruleCode>`)
 - `updatedAt`, `createdAt` timestamptz
 
-### `notification_quiet_hours`
+No `workspaceId` column. Code-level defaults in `notification-defaults.ts` cover any source missing a DB row.
+
+### `notification_quiet_hours` (global singleton — exactly one row)
 
 - `id` UUID PK
-- `workspaceId` FK unique
 - `enabled` boolean
 - `startLocal` text (HH:MM)
 - `endLocal` text (HH:MM)
 - `timezoneMode` enum `NotificationQuietHoursTimezoneMode` (`workspace_default`, `per_user_resolved`)
-- `defaultTimezone` text nullable (used when `workspace_default` and per-recipient unknown)
+- `defaultTimezone` text nullable (used when `workspace_default` and per-recipient timezone unknown)
 - `appliesToSources` text[] (selected `NotificationSource` values; `reminder` excluded by default)
 - `updatedAt`, `createdAt` timestamptz
+
+No `workspaceId` column. Singleton enforced by a `singleton` boolean column with `UNIQUE`-on-`true` constraint, or by application-level "first row wins" logic — implementer's choice, but only one logical row.
 
 ### `notification_dead_letters`
 
@@ -474,6 +531,28 @@ Closed must-fix items: ✓ Producer replaced, ✓ Table dropped, ✓ Policy migr
 
 Acceptance status: gates green, residue zero. Live verification (S3.9 — real test inbox in persai-dev) pending deployment.
 
+### Slice 2.5 — Multi-user correction (LANDED 2026-05-09)
+
+Goal: collapse `notification_channel_registry` / `notification_policies` / `notification_quiet_hours` from per-workspace rows to global singletons, auto-derive per-workspace channel availability from existing PersAI sources, move Postmark credentials to `Admin > Tools`, and remove the seed-on-deploy hack.
+
+Delivered:
+
+- Prisma migration `20260509000000_adr088_global_notification_truth`: aggregates existing per-workspace rows into one global row per channelType/source (aborts with `RAISE EXCEPTION` if divergence detected); drops `workspace_id` column + per-workspace unique index; adds `UNIQUE(channelType)` / `UNIQUE(source)` / singleton boolean; keeps `workspaceId` on `notification_intents`, `notification_delivery_attempts`, `notification_dead_letters`.
+- `ResolveWorkspaceNotificationChannelsService` with `resolveChannel(workspaceId, channelType)`, `resolvePolicy(source)`, and `resolveQuietHours()` reading global singletons with code-default fallback.
+- `NotificationDeliveryWorkerService` uses the resolver (not per-workspace registry lookup).
+- Postmark credentials migrated to `Admin > Tools` credential store (`notification/email/postmark/api-key`, `notification/email/postmark/webhook-token`); `EmailChannelAdapter` and `HandlePostmarkWebhookService` resolve exclusively via `PlatformRuntimeProviderSecretStoreService` — no `process.env["POSTMARK_*"]` fallbacks.
+- `Admin > Tools` UI: new "Notifications" section listing both Postmark credential cards.
+- `infra/helm/values-dev.yaml`: `POSTMARK_SERVER_TOKEN` / `POSTMARK_WEBHOOK_TOKEN` / `POSTMARK_SENDER_DOMAIN` slots removed.
+- `seedNotificationChannelRegistry` and the "for all active workspaces" loop deleted from `seed.ts`. Seed writes zero notification rows.
+- Timezone-aware `nextWindowEnd` bug fixed in `NotificationRoutingService`: UTC offset computed from `Intl.DateTimeFormat` rather than server local time.
+- Admin > Notifications rebuilt as compact operator surface: channel health strip, summary line, collapsible delivery history and dead letters (default collapsed), per-section expand badges.
+- Hard-cut residue greps all zero in `apps/api/src` + `apps/web/app` + `packages/contracts`.
+- All 5 verification gates green (lint, format:check, API typecheck, web typecheck, API test suite).
+
+**Operator pre-deploy action (before merge to persai-dev):** paste the existing Postmark Server Token and Webhook Token into `Admin > Tools > Notifications` before the migration runs, so email delivery has zero downtime.
+
+Acceptance: gates green, residue zero. Live verification (fresh workspace through resolver path) pending persai-dev deployment.
+
 ### Slice 4 — Operational/admin migration and admin surface completion
 
 Goal: migrate admin webhook deliveries and finish the admin surface.
@@ -534,9 +613,15 @@ ADR-088 does not:
 
 ## Notes for implementing agents
 
-- This ADR is the source of truth for all notification work after 2026-05-08. Any drift between an implemented slice and this document must update the document or be reverted.
+- This ADR is the source of truth for all notification work after 2026-05-08 (revised 2026-05-09 with multi-user correction). Any drift between an implemented slice and this document must update the document or be reverted.
+- **Multi-user invariant:** `notification_channel_registry`, `notification_policies`, `notification_quiet_hours` are GLOBAL singleton tables — no `workspaceId` column. Per-workspace channel availability is auto-derived at delivery time from existing PersAI truth (`AppUser.email`, `AssistantChannelSurfaceBinding`, intent context). `notification_intents`, `notification_delivery_attempts`, `notification_dead_letters` keep `workspaceId` because they describe individual user events. Never re-introduce per-workspace config rows. Never write notification-config rows from `seed.ts` or `UpsertOnboardingService` or any onboarding/registration path — a fresh user must work via code defaults + auto-derived channels alone.
+- **Postmark credentials live in `Admin > Tools`** (`TOOL_CREDENTIAL_IDS` entries `notification/email/postmark/api-key` and `notification/email/postmark/webhook-token`), not in Helm secrets. `EmailChannelAdapter` and `HandlePostmarkWebhookService` resolve via `PlatformRuntimeProviderSecretStoreService`. Adding new email/notification credentials follows the same pattern.
 - Each slice ends with the legacy table(s), legacy service class(es), legacy admin endpoint(s), legacy contracts type(s), and legacy admin UI block(s) it absorbs deleted. If a slice cannot delete cleanly, the slice is incomplete.
 - No feature flag, env toggle, or `if (newPlatformEnabled)` switch is permitted to keep legacy and unified paths alive in parallel. Each slice is a hard cut for the area it covers.
 - New notification features started after Slice 1 are forbidden from creating new direct-send services. Use `NotificationIntentService.createIntent(...)`.
 - All names in this document (table names, enum values, service names, file paths, admin API paths, channel adapter names) are normative. Use them exactly. Pick a different name only with a follow-up ADR.
-- The admin surface is rewritten as multi-component, not patched. The current single-file `apps/web/app/admin/notifications/page.tsx` is dissolved in Slice 1.
+- The admin surface is rewritten as multi-component, not patched, and is laid out per §12 (compact header strip, collapsible delivery history and dead-letters, in-place policy editing). Do not put a wall of tables on the page.
+- `infra/helm/values-dev.yaml` `global.images.tag` is GitOps-owned. Code changes never edit it. Adding/removing env or secretEnv slots is allowed when doing so reflects a real architectural change (e.g. removing `POSTMARK_*` slots in Slice 2.5).
+- Verification gate is global (`corepack pnpm run format:check` over the whole repo, not just modified files). After any contract regeneration, run `corepack pnpm exec prettier --write "packages/contracts/src/generated/**/*.{ts,js}"`.
+- API tests use the project pattern: top-level `void run()` IIFE + `node:assert/strict`, executed via tsx by `apps/api/test/run-suite.ts`. Not vitest.
+- NestJS DI: required dependencies typed by concrete class, never `Pick<...>`. Optional dependencies use `@Optional()` explicitly.

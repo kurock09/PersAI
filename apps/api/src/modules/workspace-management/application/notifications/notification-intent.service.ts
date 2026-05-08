@@ -27,17 +27,15 @@ export class NotificationIntentService {
    * policy resolution, and persists to notification_intents.
    */
   async createIntent(input: CreateNotificationIntentInput): Promise<NotificationIntentRecord> {
-    // Resolve policy snapshot for this source
+    // Resolve global policy snapshot for this source
     const policyRow = await this.prisma.notificationPolicy.findUnique({
-      where: { workspaceId_source: { workspaceId: input.workspaceId, source: input.source } }
+      where: { source: input.source }
     });
 
-    const quietHoursRow = await this.prisma.notificationQuietHours.findUnique({
-      where: { workspaceId: input.workspaceId }
-    });
+    const quietHoursRow = await this.prisma.notificationQuietHours.findFirst({});
 
     const channelRegistryRows = await this.prisma.notificationChannelRegistry.findMany({
-      where: { workspaceId: input.workspaceId, enabled: true }
+      where: { enabled: true }
     });
 
     const resolvedChannels =

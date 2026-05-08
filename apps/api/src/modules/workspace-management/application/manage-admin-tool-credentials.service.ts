@@ -156,7 +156,9 @@ export class ManageAdminToolCredentialsService {
       tool_tts_elevenlabs: { configured: false, lastFour: null, updatedAt: null },
       tool_tts_yandex: { configured: false, lastFour: null, updatedAt: null },
       tool_tts_openai: { configured: false, lastFour: null, updatedAt: null },
-      tool_memory_search: { configured: false, lastFour: null, updatedAt: null }
+      tool_memory_search: { configured: false, lastFour: null, updatedAt: null },
+      notification_email_postmark: { configured: false, lastFour: null, updatedAt: null },
+      notification_email_postmark_webhook: { configured: false, lastFour: null, updatedAt: null }
     };
     const allMetadata =
       await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys(

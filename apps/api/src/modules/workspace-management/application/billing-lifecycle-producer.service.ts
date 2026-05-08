@@ -216,10 +216,10 @@ export class BillingLifecycleProducerService {
   }
 
   private async resolvePolicy(
-    workspaceId: string
+    _workspaceId: string
   ): Promise<{ policyEnabled: boolean; config: PolicyConfig }> {
     const row = await this.prisma.notificationPolicy.findUnique({
-      where: { workspaceId_source: { workspaceId, source: "billing_lifecycle" } },
+      where: { source: "billing_lifecycle" },
       select: { enabled: true, config: true }
     });
     if (row === null) {

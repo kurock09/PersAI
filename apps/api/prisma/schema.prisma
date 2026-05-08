@@ -537,9 +537,6 @@ model Workspace {
   paymentIntents                    WorkspacePaymentIntent[]
   mediaJobs                         AssistantMediaJob[]
   notificationIntents               NotificationIntent[]            @relation("NotificationIntentWorkspace")
-  notificationChannelRegistry       NotificationChannelRegistry[]   @relation("NotificationChannelRegistryWorkspace")
-  notificationPoliciesUnified       NotificationPolicy[]            @relation("NotificationPolicyWorkspace")
-  notificationQuietHours            NotificationQuietHours?         @relation("NotificationQuietHoursWorkspace")
   notificationDeadLetters           NotificationDeadLetter[]        @relation("NotificationDeadLetterWorkspace")
 
   @@map("workspaces")
@@ -2512,28 +2509,23 @@ model NotificationDeliveryAttempt {
 }
 
 model NotificationChannelRegistry {
-  id                 String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId        String                    @map("workspace_id") @db.Uuid
-  channelType        NotificationChannelType   @map("channel_type")
-  enabled            Boolean                   @default(false)
-  config             Json                      @db.JsonB
-  healthStatus       NotificationChannelHealth @default(unconfigured) @map("health_status")
-  consecutiveFailures Int                      @default(0) @map("consecutive_failures")
-  lastDeliveryAt     DateTime?                 @map("last_delivery_at") @db.Timestamptz(6)
-  lastFailureAt      DateTime?                 @map("last_failure_at") @db.Timestamptz(6)
-  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace          Workspace                 @relation("NotificationChannelRegistryWorkspace", fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                  String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channelType         NotificationChannelType   @map("channel_type") @unique
+  enabled             Boolean                   @default(false)
+  config              Json                      @db.JsonB
+  healthStatus        NotificationChannelHealth @default(unconfigured) @map("health_status")
+  consecutiveFailures Int                       @default(0) @map("consecutive_failures")
+  lastDeliveryAt      DateTime?                 @map("last_delivery_at") @db.Timestamptz(6)
+  lastFailureAt       DateTime?                 @map("last_failure_at") @db.Timestamptz(6)
+  createdAt           DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  @@unique([workspaceId, channelType])
-  @@index([workspaceId, enabled, healthStatus])
   @@map("notification_channel_registry")
 }
 
 model NotificationPolicy {
   id                     String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId            String                     @map("workspace_id") @db.Uuid
-  source                 NotificationSource
+  source                 NotificationSource         @unique
   enabled                Boolean                    @default(false)
   channels               String[]
   cooldownMinutes        Int?                       @map("cooldown_minutes")
@@ -2547,25 +2539,21 @@ model NotificationPolicy {
   config                 Json                       @db.JsonB
   createdAt              DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace              Workspace                  @relation("NotificationPolicyWorkspace", fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  @@unique([workspaceId, source])
-  @@index([workspaceId, enabled])
   @@map("notification_policies")
 }
 
 model NotificationQuietHours {
-  id               String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId      String                            @unique @map("workspace_id") @db.Uuid
-  enabled          Boolean                           @default(false)
-  startLocal       String                            @default("22:00") @map("start_local") @db.VarChar(5)
-  endLocal         String                            @default("08:00") @map("end_local") @db.VarChar(5)
+  id               String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  singleton        Boolean                            @default(true) @unique
+  enabled          Boolean                            @default(false)
+  startLocal       String                             @default("22:00") @map("start_local") @db.VarChar(5)
+  endLocal         String                             @default("08:00") @map("end_local") @db.VarChar(5)
   timezoneMode     NotificationQuietHoursTimezoneMode @default(workspace_default) @map("timezone_mode")
-  defaultTimezone  String?                           @map("default_timezone") @db.VarChar(64)
-  appliesToSources String[]                          @map("applies_to_sources")
-  createdAt        DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace        Workspace                         @relation("NotificationQuietHoursWorkspace", fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  defaultTimezone  String?                            @map("default_timezone") @db.VarChar(64)
+  appliesToSources String[]                           @map("applies_to_sources")
+  createdAt        DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("notification_quiet_hours")
 }

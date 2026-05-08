@@ -1,6 +1,4 @@
 import {
-  NotificationChannelHealth,
-  NotificationChannelType,
   PlanCatalogStatus,
   PlanToolActivationStatus,
   PrismaClient,
@@ -118,82 +116,6 @@ async function seedProductKbTextEntries(): Promise<void> {
         }
       });
     });
-  }
-}
-
-/**
- * ADR-088 Slice 1 – seed notification_channel_registry for all active workspaces.
- * Channels: telegram_thread, web_thread, web_notification_center, email,
- * admin_webhook (unconfigured). web_push and mobile_push stay unconfigured.
- * Idempotent: skips rows that already exist.
- */
-async function seedNotificationChannelRegistry(workspaceId: string): Promise<void> {
-  const channels: Array<{
-    channelType: NotificationChannelType;
-    enabled: boolean;
-    config: Record<string, unknown>;
-    healthStatus: NotificationChannelHealth;
-  }> = [
-    {
-      channelType: NotificationChannelType.telegram_thread,
-      enabled: true,
-      config: { description: "Active Telegram chat thread" },
-      healthStatus: NotificationChannelHealth.healthy
-    },
-    {
-      channelType: NotificationChannelType.web_thread,
-      enabled: true,
-      config: { description: "Active web chat thread" },
-      healthStatus: NotificationChannelHealth.healthy
-    },
-    {
-      channelType: NotificationChannelType.web_notification_center,
-      enabled: true,
-      config: { systemThreadKey: "system:notifications" },
-      healthStatus: NotificationChannelHealth.healthy
-    },
-    {
-      channelType: NotificationChannelType.email,
-      enabled: false,
-      config: { description: "Postmark transactional email (configure toAddress)" },
-      healthStatus: NotificationChannelHealth.unconfigured
-    },
-    {
-      channelType: NotificationChannelType.admin_webhook,
-      enabled: false,
-      config: { description: "Admin webhook (configure endpointUrl and signingSecret)" },
-      healthStatus: NotificationChannelHealth.unconfigured
-    },
-    {
-      channelType: NotificationChannelType.web_push,
-      enabled: false,
-      config: {},
-      healthStatus: NotificationChannelHealth.unconfigured
-    },
-    {
-      channelType: NotificationChannelType.mobile_push,
-      enabled: false,
-      config: {},
-      healthStatus: NotificationChannelHealth.unconfigured
-    }
-  ];
-
-  for (const ch of channels) {
-    const existing = await prisma.notificationChannelRegistry.findFirst({
-      where: { workspaceId, channelType: ch.channelType }
-    });
-    if (!existing) {
-      await prisma.notificationChannelRegistry.create({
-        data: {
-          workspaceId,
-          channelType: ch.channelType,
-          enabled: ch.enabled,
-          config: ch.config,
-          healthStatus: ch.healthStatus,
-          consecutiveFailures: 0
-        }
-      });
-    }
   }
 }
 
@@ -401,15 +323,6 @@ async function main(): Promise<void> {
         }
       });
     }
-  }
-
-  // ADR-088 Slice 1 – seed notification channel registry for all active workspaces
-  const allActiveWorkspaces = await prisma.workspace.findMany({
-    where: { status: WorkspaceStatus.active },
-    select: { id: true }
-  });
-  for (const ws of allActiveWorkspaces) {
-    await seedNotificationChannelRegistry(ws.id);
   }
 }
 

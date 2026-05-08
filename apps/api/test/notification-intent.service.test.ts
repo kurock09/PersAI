@@ -52,7 +52,7 @@ function makePrisma(opts?: {
       findUnique: async () => opts?.policy ?? null
     },
     notificationQuietHours: {
-      findUnique: async () => opts?.quietHours ?? null
+      findFirst: async () => opts?.quietHours ?? null
     },
     notificationChannelRegistry: {
       findMany: async () => opts?.channels ?? []

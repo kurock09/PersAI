@@ -85,6 +85,7 @@ import { TemplateRendererService } from "./application/notifications/render/temp
 import { GroundedLlmRendererService } from "./application/notifications/render/grounded-llm-renderer.service";
 import { ManageNotificationPlatformService } from "./application/notifications/manage-notification-platform.service";
 import { HandlePostmarkWebhookService } from "./application/notifications/handle-postmark-webhook.service";
+import { ResolveWorkspaceNotificationChannelsService } from "./application/notifications/resolve-workspace-notification-channels.service";
 import { TelegramThreadChannelAdapter } from "./infrastructure/notifications/channel-adapters/telegram-thread-channel.adapter";
 import { WebThreadChannelAdapter } from "./infrastructure/notifications/channel-adapters/web-thread-channel.adapter";
 import { WebNotificationCenterChannelAdapter } from "./infrastructure/notifications/channel-adapters/web-notification-center-channel.adapter";
@@ -396,6 +397,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     NotificationDeliveryWorkerService,
     ManageNotificationPlatformService,
     HandlePostmarkWebhookService,
+    ResolveWorkspaceNotificationChannelsService,
     ManagePlatformRolloutsService,
     ManageAdminRuntimeProviderSettingsService,
     ManageAdminDocumentProcessingSettingsService,

@@ -192,9 +192,8 @@ export class ManageNotificationPlatformService {
   // ── Channels ──────────────────────────────────────────────────────────────
 
   async listChannels(userId: string): Promise<NotificationChannelView[]> {
-    const workspaceId = await this.resolveWorkspaceId(userId);
+    await this.resolveWorkspaceId(userId);
     const rows = await this.prisma.notificationChannelRegistry.findMany({
-      where: { workspaceId },
       orderBy: { channelType: "asc" }
     });
     return rows.map((r) => this.channelToView(r));
@@ -208,9 +207,9 @@ export class ManageNotificationPlatformService {
     if (!VALID_CHANNEL_TYPES.includes(channelType as never)) {
       throw new BadRequestException(`Unknown channel type: ${channelType}`);
     }
-    const workspaceId = await this.resolveWorkspaceId(userId);
-    const existing = await this.prisma.notificationChannelRegistry.findFirst({
-      where: { workspaceId, channelType: channelType as never }
+    await this.resolveWorkspaceId(userId);
+    const existing = await this.prisma.notificationChannelRegistry.findUnique({
+      where: { channelType: channelType as never }
     });
     if (!existing) {
       throw new NotFoundException(`Channel not found: ${channelType}`);
@@ -230,9 +229,8 @@ export class ManageNotificationPlatformService {
   // ── Policies ──────────────────────────────────────────────────────────────
 
   async listPolicies(userId: string): Promise<NotificationPolicyView[]> {
-    const workspaceId = await this.resolveWorkspaceId(userId);
+    await this.resolveWorkspaceId(userId);
     const rows = await this.prisma.notificationPolicy.findMany({
-      where: { workspaceId },
       orderBy: { source: "asc" }
     });
     return rows.map((r) => this.policyToView(r));
@@ -249,9 +247,9 @@ export class ManageNotificationPlatformService {
     if (input.renderStrategy && !VALID_RENDER_STRATEGIES.includes(input.renderStrategy as never)) {
       throw new BadRequestException(`Unknown render strategy: ${input.renderStrategy}`);
     }
-    const workspaceId = await this.resolveWorkspaceId(userId);
-    const existing = await this.prisma.notificationPolicy.findFirst({
-      where: { workspaceId, source: source as never }
+    await this.resolveWorkspaceId(userId);
+    const existing = await this.prisma.notificationPolicy.findUnique({
+      where: { source: source as never }
     });
     if (!existing) {
       throw new NotFoundException(`Policy not found for source: ${source}`);
@@ -289,20 +287,18 @@ export class ManageNotificationPlatformService {
   // ── Quiet hours ───────────────────────────────────────────────────────────
 
   async getQuietHours(userId: string): Promise<QuietHoursView | null> {
-    const workspaceId = await this.resolveWorkspaceId(userId);
-    const row = await this.prisma.notificationQuietHours.findUnique({
-      where: { workspaceId }
-    });
+    await this.resolveWorkspaceId(userId);
+    const row = await this.prisma.notificationQuietHours.findFirst({});
     return row ? this.quietHoursToView(row) : null;
   }
 
   async patchQuietHours(userId: string, input: PatchQuietHoursInput): Promise<QuietHoursView> {
-    const workspaceId = await this.resolveWorkspaceId(userId);
+    await this.resolveWorkspaceId(userId);
 
     const updated = await this.prisma.notificationQuietHours.upsert({
-      where: { workspaceId },
+      where: { singleton: true },
       create: {
-        workspaceId,
+        singleton: true,
         enabled: input.enabled ?? false,
         startLocal: input.startLocal ?? "22:00",
         endLocal: input.endLocal ?? "08:00",

@@ -113,9 +113,7 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
 
   private async deliverIntent(intent: NotificationIntentRecord, _claimExpiry: Date): Promise<void> {
     try {
-      const channelRegistry = await this.prisma.notificationChannelRegistry.findMany({
-        where: { workspaceId: intent.workspaceId }
-      });
+      const channelRegistry = await this.prisma.notificationChannelRegistry.findMany({});
 
       const primaryChannel = intent.allowedChannels[0] ?? null;
       if (!primaryChannel) {
@@ -172,7 +170,6 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
       // Deliver
       const channelRegistryRecord = {
         id: channelRow.id,
-        workspaceId: channelRow.workspaceId,
         channelType: channelRow.channelType,
         enabled: channelRow.enabled,
         config: channelRow.config as Record<string, unknown>,
@@ -288,7 +285,6 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
   ): Promise<void> {
     const channelRow = await this.prisma.notificationChannelRegistry.findFirst({
       where: {
-        workspaceId: intent.workspaceId,
         channelType: escalationChannel as never,
         enabled: true
       }
@@ -336,7 +332,6 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
 
     const channelRegistryRecord = {
       id: channelRow.id,
-      workspaceId: channelRow.workspaceId,
       channelType: channelRow.channelType,
       enabled: channelRow.enabled,
       config: channelRow.config as Record<string, unknown>,

@@ -80,7 +80,6 @@ export type CreateNotificationIntentInput = {
 
 export type ChannelRegistryRow = {
   id: string;
-  workspaceId: string;
   channelType: NotificationChannelType;
   enabled: boolean;
   config: Record<string, unknown>;
@@ -94,7 +93,6 @@ export type ChannelRegistryRow = {
 
 export type NotificationPolicyRow = {
   id: string;
-  workspaceId: string;
   source: NotificationSource;
   enabled: boolean;
   channels: string[];
@@ -113,7 +111,7 @@ export type NotificationPolicyRow = {
 
 export type QuietHoursRow = {
   id: string;
-  workspaceId: string;
+  singleton: boolean;
   enabled: boolean;
   startLocal: string;
   endLocal: string;

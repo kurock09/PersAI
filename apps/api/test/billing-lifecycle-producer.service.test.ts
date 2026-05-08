@@ -63,9 +63,7 @@ function makeService(opts: {
       }
     },
     notificationPolicy: {
-      async findUnique(_args: {
-        where: { workspaceId_source: { workspaceId: string; source: string } };
-      }) {
+      async findUnique(_args: { where: { source: string } }) {
         if (!policyEnabled) {
           return { enabled: false, config: {} };
         }

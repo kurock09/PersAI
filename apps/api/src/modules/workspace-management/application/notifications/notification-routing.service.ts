@@ -155,26 +155,39 @@ export class NotificationRoutingService {
 
   private nextWindowEnd(now: Date, endLocal: string, tz: string): Date {
     try {
-      // endLocal is used directly below in the template string
+      // Use a full date+time formatter so we can compute the tz UTC offset.
       const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: tz,
         year: "numeric",
         month: "2-digit",
-        day: "2-digit"
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
       });
       const parts = formatter.formatToParts(now);
       const year = Number(parts.find((p) => p.type === "year")?.value);
       const month = Number(parts.find((p) => p.type === "month")?.value) - 1;
       const day = Number(parts.find((p) => p.type === "day")?.value);
+      const lHour = Number(parts.find((p) => p.type === "hour")?.value);
+      const lMin = Number(parts.find((p) => p.type === "minute")?.value);
+      const lSec = Number(parts.find((p) => p.type === "second")?.value);
 
-      // Build end time in local date; convert back to UTC
-      const localEnd = new Date(
-        `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}T${endLocal}:00`
-      );
-      if (localEnd <= now) {
-        localEnd.setDate(localEnd.getDate() + 1);
+      // Derive the UTC offset for tz at now (handles DST correctly).
+      const localAsUtcMs = Date.UTC(year, month, day, lHour, lMin, lSec);
+      const tzOffsetMs = localAsUtcMs - now.getTime();
+
+      // Build "today at endLocal in tz" as a UTC timestamp.
+      const [endH = 0, endM = 0] = endLocal.split(":").map(Number);
+      const endAsUtcMs = Date.UTC(year, month, day, endH, endM, 0) - tzOffsetMs;
+      const deferUntil = new Date(endAsUtcMs);
+
+      // If already past (overnight window end is on the next calendar day), add 24 h.
+      if (deferUntil <= now) {
+        deferUntil.setTime(deferUntil.getTime() + 24 * 60 * 60 * 1000);
       }
-      return localEnd;
+      return deferUntil;
     } catch {
       // Fallback: defer 8 hours
       return new Date(now.getTime() + 8 * 60 * 60 * 1000);
