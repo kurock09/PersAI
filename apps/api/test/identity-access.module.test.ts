@@ -239,26 +239,33 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     true,
     "GET /api/v1/app/bootstrap must be guarded by ClerkAuthMiddleware"
   );
-  // Notification Settings idle policy routes are read by the admin page during
-  // initial load. If they are missing here, the controller rejects with
-  // `resolvedAppUser === undefined`, and the UI incorrectly shows
-  // "Session expired" even with a valid Clerk session.
-  assert.equal(
-    hasRoute(consumer.routes, {
-      path: "api/v1/admin/notifications/policies/idle-reengagement",
-      method: RequestMethod.GET
-    }),
-    true,
-    "GET /api/v1/admin/notifications/policies/idle-reengagement must be guarded by ClerkAuthMiddleware"
-  );
-  assert.equal(
-    hasRoute(consumer.routes, {
-      path: "api/v1/admin/notifications/policies/idle-reengagement",
-      method: RequestMethod.PATCH
-    }),
-    true,
-    "PATCH /api/v1/admin/notifications/policies/idle-reengagement must be guarded by ClerkAuthMiddleware"
-  );
+  // ADR-088 unified notification platform — all admin control-plane routes must
+  // be guarded. If any is missing the UI incorrectly shows "Session expired".
+  const adr088AdminRoutes: Array<{ path: string; method: RequestMethod }> = [
+    { path: "api/v1/admin/notifications/channels", method: RequestMethod.GET },
+    { path: "api/v1/admin/notifications/channels/:channelType", method: RequestMethod.PATCH },
+    {
+      path: "api/v1/admin/notifications/channels/:channelType/test-send",
+      method: RequestMethod.POST
+    },
+    { path: "api/v1/admin/notifications/policies", method: RequestMethod.GET },
+    { path: "api/v1/admin/notifications/policies/:source", method: RequestMethod.PATCH },
+    { path: "api/v1/admin/notifications/quiet-hours", method: RequestMethod.GET },
+    { path: "api/v1/admin/notifications/quiet-hours", method: RequestMethod.PATCH },
+    { path: "api/v1/admin/notifications/deliveries", method: RequestMethod.GET },
+    { path: "api/v1/admin/notifications/deliveries/:intentId", method: RequestMethod.GET },
+    { path: "api/v1/admin/notifications/dead-letters", method: RequestMethod.GET },
+    { path: "api/v1/admin/notifications/dead-letters/:id/replay", method: RequestMethod.POST },
+    { path: "api/v1/admin/notifications/dead-letters/:id/discard", method: RequestMethod.POST },
+    { path: "api/v1/admin/notifications/preview", method: RequestMethod.POST }
+  ];
+  for (const route of adr088AdminRoutes) {
+    assert.equal(
+      hasRoute(consumer.routes, route),
+      true,
+      `${RequestMethod[route.method]} /${route.path} must be guarded by ClerkAuthMiddleware (ADR-088)`
+    );
+  }
   assert.equal(
     hasRoute(consumer.routes, {
       path: "api/v1/admin/ops/users/:userId/billing-support-action",

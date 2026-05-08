@@ -165,16 +165,29 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/business/platform", method: RequestMethod.GET },
       { path: "api/v1/admin/overview/dashboard", method: RequestMethod.GET },
       { path: "api/v1/admin/overview/latency-trace", method: RequestMethod.POST },
+      // ADR-088 unified notification platform — admin control plane
       { path: "api/v1/admin/notifications/channels", method: RequestMethod.GET },
-      { path: "api/v1/admin/notifications/channels/webhook", method: RequestMethod.PATCH },
+      { path: "api/v1/admin/notifications/channels/:channelType", method: RequestMethod.PATCH },
       {
-        path: "api/v1/admin/notifications/policies/idle-reengagement",
-        method: RequestMethod.GET
+        path: "api/v1/admin/notifications/channels/:channelType/test-send",
+        method: RequestMethod.POST
+      },
+      { path: "api/v1/admin/notifications/policies", method: RequestMethod.GET },
+      { path: "api/v1/admin/notifications/policies/:source", method: RequestMethod.PATCH },
+      { path: "api/v1/admin/notifications/quiet-hours", method: RequestMethod.GET },
+      { path: "api/v1/admin/notifications/quiet-hours", method: RequestMethod.PATCH },
+      { path: "api/v1/admin/notifications/deliveries", method: RequestMethod.GET },
+      { path: "api/v1/admin/notifications/deliveries/:intentId", method: RequestMethod.GET },
+      { path: "api/v1/admin/notifications/dead-letters", method: RequestMethod.GET },
+      {
+        path: "api/v1/admin/notifications/dead-letters/:id/replay",
+        method: RequestMethod.POST
       },
       {
-        path: "api/v1/admin/notifications/policies/idle-reengagement",
-        method: RequestMethod.PATCH
+        path: "api/v1/admin/notifications/dead-letters/:id/discard",
+        method: RequestMethod.POST
       },
+      { path: "api/v1/admin/notifications/preview", method: RequestMethod.POST },
       { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.GET },
       { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.PUT },
       { path: "api/v1/admin/platform-rollouts", method: RequestMethod.GET },
