@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-05-08 (post-push hotfix) — fix `api` startup crash from web quota-advisory DI
+
+### What changed
+
+- Fixed the second live `persai-dev` `api` startup blocker that remained after the Telegram hotfix: Nest then failed to resolve `SendWebChatTurnService`, and the same constructor anti-pattern also still existed in `StreamWebChatTurnService`.
+- Root cause matched the Telegram crash exactly: both web turn services accepted the new quota-advisory dependency as `Pick<QuotaAdvisoryFollowUpService, "maybeCreateFollowUp">` with an inline default object, which compiled but degraded the runtime DI token to `Object`.
+- `SendWebChatTurnService` and `StreamWebChatTurnService` now inject the real `QuotaAdvisoryFollowUpService` class, mark it `@Optional()`, and use optional chaining with `null` fallback at the follow-up call site so Nest module startup stays valid while manual tests can still omit the dependency.
+- Re-checked the touched API surface for the same quota-advisory DI smell and did not find another live occurrence under `apps/api/src`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/stream-web-chat-turn.service.test.ts`
+
+### Risks / residuals
+
+- This fixes the code-side web DI blocker, but the deployed `api` pod still needs a normal image rebuild/redeploy/rollout check before production truth is restored.
+- ADR-087 live end-to-end validation for real web + Telegram quota advisories and hard stops remains pending.
+
+### Next recommended step
+
+- Push/redeploy this hotfix, confirm the `persai-dev` `api` deployment reaches healthy steady state on the new image, then run the pending live ADR-087 web + Telegram validation.
+
 ## 2026-05-08 (post-push hotfix) — fix `api` startup crash from Telegram quota-advisory DI
 
 ### What changed

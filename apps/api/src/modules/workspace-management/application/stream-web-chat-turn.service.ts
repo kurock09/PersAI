@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import {
   ASSISTANT_CHAT_REPOSITORY,
@@ -178,12 +178,8 @@ export class StreamWebChatTurnService {
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly autoSkillRoutingStateService: AutoSkillRoutingStateService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
-    private readonly quotaAdvisoryFollowUpService: Pick<
-      QuotaAdvisoryFollowUpService,
-      "maybeCreateFollowUp"
-    > = {
-      maybeCreateFollowUp: async () => null
-    },
+    @Optional()
+    private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
     private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
   ) {}
 
@@ -593,14 +589,15 @@ export class StreamWebChatTurnService {
         source: "web_chat_turn_stream_completed"
       });
       trace.stage("quota_recorded");
-      const quotaAdvisoryFollowUp = await this.quotaAdvisoryFollowUpService.maybeCreateFollowUp({
-        assistantId: prepared.assistantId,
-        workspaceId: prepared.workspaceId,
-        chatId: prepared.chat.id,
-        surface: "web",
-        surfaceThreadKey: prepared.chat.surfaceThreadKey,
-        mainAssistantMessage: finalAssistantContent
-      });
+      const quotaAdvisoryFollowUp =
+        (await this.quotaAdvisoryFollowUpService?.maybeCreateFollowUp({
+          assistantId: prepared.assistantId,
+          workspaceId: prepared.workspaceId,
+          chatId: prepared.chat.id,
+          surface: "web",
+          surfaceThreadKey: prepared.chat.surfaceThreadKey,
+          mainAssistantMessage: finalAssistantContent
+        })) ?? null;
       if (quotaAdvisoryFollowUp !== null) {
         trace.stage("quota_advisory_follow_up_saved");
       }
