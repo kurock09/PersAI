@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-05-08 — ADR-088 PROD revision (exec-ready architecture for unified notification platform)
+
+### What changed
+
+- Rewrote `docs/ADR/088-unified-notification-platform-control-plane-and-delivery.md` from a vision-level architecture statement into an exec-ready PROD blueprint that a fresh agent session can follow without prior context.
+- Added concrete target data model: `notification_intents`, `notification_delivery_attempts`, `notification_channel_registry`, `notification_policies`, `notification_quiet_hours`, `notification_dead_letters`, with normative enum values and field names.
+- Locked email provider to Postmark with verified sending domain `notifications.persai.dev`, MJML templates, bounce webhook ingress, and `List-Unsubscribe` headers; this is the first real email implementation in the platform.
+- Defined channel registry, capability matrix, and dumb-adapter rule across `telegram_thread`, `web_thread`, `web_notification_center`, `email`, `admin_webhook`, plus stubbed `web_push` and `mobile_push` slots for future ADRs.
+- Added timezone-aware admin-configurable quiet hours with per-source opt-in selection; user reminders stay in the platform as a notification source but opt out of quiet hours and rate caps by default because the user picks the time.
+- Added explicit escalation model (per-policy `escalationAfterMinutes` + `escalationChannel`, single hop, dead-letter on second failure), priority semantics (`immediate`, `scheduled`, `digest`, `skippable`), and structured-logs-first observability contract.
+- Replaced the previous five-slice breakdown with four bounded exec-ready slices (Foundation/adapters/email/observability, Conversational migration, Transactional migration, Operational+admin completion). Each slice ends with the legacy notification tables it absorbs dropped.
+- Removed `whatsapp` from `AssistantPreferredNotificationChannel` from Slice 2 onward because no real adapter exists. Promoted `system_event` source from dead enum to real producer hook in Slice 4.
+
+### Verification
+
+- ADR rewrite only in this slice; no code changes. Repo-wide lint/format/typecheck/test gate not re-run because no source/test files were touched.
+
+### Risks / residuals
+
+- ADR-088 is now PROD architecture truth, but no migration slice has landed yet. Current notification subsystems (`assistant_notification_outbox`, `billing_lifecycle_notification_jobs`, admin webhook delivery, `QuotaAdvisoryFollowUpService` direct chat write) are still in production code paths and remain so until Slice 1 lands.
+- ADR-087 live web + Telegram quota advisory validation is still pending and is independent of ADR-088 migration.
+- The web `api` deployment image rollout for the recent quota-advisory DI hotfixes still depends on the automated CI pipeline publishing the next image; no manual `values-dev` pin should be applied to chase this.
+
+### Next recommended step
+
+- Start ADR-088 Slice 1 (Foundation): Prisma migration for the target tables/enums, `NotificationIntentService` + `NotificationRoutingService` + `NotificationDeliveryWorkerService`, channel adapters, Postmark `EmailChannelAdapter` with bounce webhook, admin notification CRUD endpoints, contracts regeneration, and structured-log contract wiring. No producer migration in Slice 1.
+
 ## 2026-05-08 — correction: revert premature manual `values-dev` image pin
 
 ### What changed
