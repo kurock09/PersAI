@@ -148,7 +148,7 @@ export default function AdminNotificationsPage() {
         getAdminNotificationChannels(token),
         listNotificationPolicies(token),
         getNotificationQuietHours(token),
-        listNotificationDeadLetters(token, { page: 1, pageSize: 1, status: "unresolved" }),
+        listNotificationDeadLetters(token, { page: 1, pageSize: 1 }),
         listNotificationDeliveries(token, { page: 1, pageSize: 1, dateFrom: yesterday })
       ]);
       setChannels(ch);
