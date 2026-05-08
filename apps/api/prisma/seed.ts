@@ -122,9 +122,10 @@ async function seedProductKbTextEntries(): Promise<void> {
 }
 
 /**
- * ADR-088 Slice 1 – seed notification_channel_registry for persai-dev.
+ * ADR-088 Slice 1 – seed notification_channel_registry for all active workspaces.
  * Channels: telegram_thread, web_thread, web_notification_center, email,
  * admin_webhook (unconfigured). web_push and mobile_push stay unconfigured.
+ * Idempotent: skips rows that already exist.
  */
 async function seedNotificationChannelRegistry(workspaceId: string): Promise<void> {
   const channels: Array<{
@@ -402,8 +403,14 @@ async function main(): Promise<void> {
     }
   }
 
-  // ADR-088 Slice 1 – seed notification channel registry
-  await seedNotificationChannelRegistry(SEED_WORKSPACE_ID);
+  // ADR-088 Slice 1 – seed notification channel registry for all active workspaces
+  const allActiveWorkspaces = await prisma.workspace.findMany({
+    where: { status: WorkspaceStatus.active },
+    select: { id: true }
+  });
+  for (const ws of allActiveWorkspaces) {
+    await seedNotificationChannelRegistry(ws.id);
+  }
 }
 
 main()
