@@ -1,5 +1,11 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { WorkspaceRole, WorkspaceStatus } from "@prisma/client";
+import {
+  NotificationChannelHealth,
+  NotificationChannelType,
+  Prisma,
+  WorkspaceRole,
+  WorkspaceStatus
+} from "@prisma/client";
 import { PrismaService } from "../infrastructure/persistence/prisma.service";
 import { CurrentUserState } from "./current-user-state.types";
 import { GetCurrentUserStateService } from "./get-current-user-state.service";
@@ -163,6 +169,8 @@ export class UpsertOnboardingService {
           }
         });
 
+        await this.provisionDefaultNotificationChannels(tx, workspace.id);
+
         return;
       }
 
@@ -222,6 +230,73 @@ export class UpsertOnboardingService {
       throw new BadRequestException(`${fieldName} is not a valid date.`);
     }
     return value;
+  }
+
+  private async provisionDefaultNotificationChannels(
+    tx: Parameters<Parameters<PrismaService["$transaction"]>[0]>[0],
+    workspaceId: string
+  ): Promise<void> {
+    const defaults: Array<{
+      channelType: NotificationChannelType;
+      enabled: boolean;
+      config: Prisma.InputJsonValue;
+      healthStatus: NotificationChannelHealth;
+    }> = [
+      {
+        channelType: NotificationChannelType.telegram_thread,
+        enabled: true,
+        config: { description: "Active Telegram chat thread" },
+        healthStatus: NotificationChannelHealth.healthy
+      },
+      {
+        channelType: NotificationChannelType.web_thread,
+        enabled: true,
+        config: { description: "Active web chat thread" },
+        healthStatus: NotificationChannelHealth.healthy
+      },
+      {
+        channelType: NotificationChannelType.web_notification_center,
+        enabled: true,
+        config: { systemThreadKey: "system:notifications" },
+        healthStatus: NotificationChannelHealth.healthy
+      },
+      {
+        channelType: NotificationChannelType.email,
+        enabled: false,
+        config: { description: "Postmark transactional email (configure toAddress)" },
+        healthStatus: NotificationChannelHealth.unconfigured
+      },
+      {
+        channelType: NotificationChannelType.admin_webhook,
+        enabled: false,
+        config: { description: "Admin webhook (configure endpointUrl and signingSecret)" },
+        healthStatus: NotificationChannelHealth.unconfigured
+      },
+      {
+        channelType: NotificationChannelType.web_push,
+        enabled: false,
+        config: {},
+        healthStatus: NotificationChannelHealth.unconfigured
+      },
+      {
+        channelType: NotificationChannelType.mobile_push,
+        enabled: false,
+        config: {},
+        healthStatus: NotificationChannelHealth.unconfigured
+      }
+    ];
+
+    await tx.notificationChannelRegistry.createMany({
+      data: defaults.map((ch) => ({
+        workspaceId,
+        channelType: ch.channelType,
+        enabled: ch.enabled,
+        config: ch.config,
+        healthStatus: ch.healthStatus,
+        consecutiveFailures: 0
+      })),
+      skipDuplicates: true
+    });
   }
 
   private parseOptionalGender(value: unknown): string | null {
