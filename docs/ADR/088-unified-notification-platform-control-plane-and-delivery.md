@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (revised 2026-05-08 with concrete schema, escalation, quiet hours, email provider, observability contract after PROD audit)
+Accepted — Slice 1 landed 2026-05-08; Slice 2 landed 2026-05-08
 
 ## Date
 
@@ -169,7 +169,7 @@ All notification intents use one durable persistence model:
 Email channel uses Postmark as the transactional provider:
 
 - sending domain `notifications.persai.dev` (SPF, DKIM, DMARC verified before Slice 3 ships)
-- templates stored as versioned MJML assets compiled to HTML at build time, addressable by template id
+- templates are deterministic TypeScript modules that return `{ subject, html, plainText }` objects, addressable by template id; MJML compilation at build time is a future improvement and is not part of Slice 1–2
 - one `EmailChannelAdapter` service in `apps/api/src/modules/workspace-management/infrastructure/notifications/email-channel.adapter.ts`
 - bounce/complaint webhook ingress at `POST /api/v1/internal/notifications/postmark-webhook` (HMAC verified) marks the user/channel `degraded` and increments `consecutiveFailures`
 - transactional emails carry `List-Unsubscribe` and `List-Unsubscribe-Post` headers for one-click unsubscribe; user-level transactional opt-out is not exposed yet (no real users)
@@ -395,8 +395,8 @@ In scope:
 
 - Prisma migration adding all target-state tables and enums listed above
 - `NotificationIntentService`, `NotificationRoutingService`, `NotificationDeliveryWorkerService`
-- All channel adapters except `web_push` and `mobile_push` (stub interfaces only)
-- Postmark `EmailChannelAdapter` with verified sending domain configured in Helm values for `persai-dev`; first MJML template (`billing.payment_recovered`) compiled and addressable
+- All channel adapters wired into the DI graph: `email` (Postmark, real send), `admin_webhook` (real send); `telegram_thread`, `web_thread`, and `web_notification_center` are wired stubs that return `delivered` for any worker-driven intent — they become real in Slice 2 when their producers are migrated; `web_push` and `mobile_push` are stub interfaces only
+- Postmark `EmailChannelAdapter` with verified sending domain configured in Helm values for `persai-dev`; first TS template module (`billing.payment_recovered`) addressable by template id
 - Postmark bounce webhook ingress controller and channel health update path
 - Channel registry seed for `persai-dev`: `telegram_thread`, `web_thread`, `web_notification_center`, `email`, `admin_webhook` (others stay `unconfigured`)
 - Admin notification controllers: channel CRUD, policy CRUD, quiet hours CRUD, deliveries list (read-only), dead-letter list/replay/discard, preview
@@ -408,7 +408,7 @@ Out of scope: migrating any current producer.
 
 Acceptance: a synthetic admin-only `POST /api/v1/admin/notifications/preview` round-trip works for both `template` (Postmark sandbox / dev domain) and `grounded_llm` (LLM dry-run); admin > notifications page reflects channel registry; no production user notification path uses the new platform yet.
 
-### Slice 2 — Conversational migration
+### Slice 2 — Conversational migration (LANDED 2026-05-08)
 
 Goal: migrate every assistant-authored conversational notification to the unified platform and delete the legacy assistant outbox.
 
@@ -420,14 +420,40 @@ In scope:
   - internal cron reminder fire
   - quota advisory follow-up (ADR-087) — `QuotaAdvisoryFollowUpService` becomes a thin renderer that hands an intent to the platform; per-thread dedupe moves to `notification_intents.dedupeKey`; delivery happens via routing instead of a direct chat-message write
 - `AssistantNotificationDeliveryService` is replaced by the new worker + channel adapters
-- `assistant_notification_outbox`, `assistant_quota_advisory_states`, `workspace_notification_policies` (idle + quota rows) are dropped after data migration into `notification_intents` / `notification_policies`
-- `whatsapp` is removed from `AssistantPreferredNotificationChannel` (no real adapter)
-- `system_event` source becomes a real producer hook (used by Slice 4) and stops being dead enum
-- Quiet hours actually applied for non-reminder conversational sources
+- `TelegramThreadChannelAdapter`, `WebThreadChannelAdapter`, `WebNotificationCenterChannelAdapter` made real (no dry-run `delivered` stubs)
+- `assistant_notification_outbox`, `assistant_quota_advisory_states`, `workspace_notification_policies` (idle + quota rows) dropped after data migration into `notification_intents` / `notification_policies`; `AssistantNotificationOutboxSource`, `AssistantNotificationOutboxStatus`, `WorkspaceNotificationPolicySource` enums removed
+- `whatsapp` removed from `AssistantPreferredNotificationChannel` (no real adapter); `CONNECTABLE_PROVIDER_KEYS`, `AUTO_SELECTABLE_CHANNELS`, `ALLOWED_CHANNELS` constants cleaned up
+- `system_event` source retained as enum-only with no producer call sites; documented in DATA-MODEL.md as reserved for Slice 4
+- Quiet hours enforced in `NotificationIntentService` for non-immediate conversational sources
+- `GroundedLlmRendererService` short-circuits on `factPayload.pushText` when pre-rendered text is supplied (used by `QuotaAdvisoryFollowUpService` to preserve in-turn LLM timing)
+- `ScheduleBillingLifecycleNotificationsService` opportunistically migrated to `NotificationIntentService` (transactional class) since it depended on the deleted outbox service
+- Legacy admin endpoints `GET/PATCH /admin/notifications/policies/idle-reengagement` and `GET/PATCH /admin/notifications/policies/quota-advisory` removed; `ManageAdminNotificationChannelsService` stripped to webhook-only methods
+- OpenAPI schemas and generated contracts cleaned of all removed types
+- Web admin client (`assistant-api-client.ts`) cleaned of all legacy policy function bindings
 
-Out of scope: billing lifecycle, admin webhook, push channels.
+Out of scope: billing lifecycle email delivery, admin webhook, push channels.
 
-Acceptance: idle, quota advisory, reminder, and background task notifications flow only through `notification_intents`; no `assistant_notification_outbox` row creation in code or database after migration; ADR-087 active-thread quota advisory delivery still works end-to-end on web and Telegram, with policy/dedupe coming from the unified platform.
+Acceptance met 2026-05-08 (closed after 11-item audit 2026-05-08): idle, quota advisory, reminder, and background task notifications flow only through `notification_intents`; no `assistant_notification_outbox` row creation in code or database after migration; all legacy services deleted; verification gate (lint + format:check + both typechecks + full API test suite) green.
+
+**Audit fixes applied in closeout (all 11):**
+
+1. `QuotaAdvisoryFollowUpService.maybeCreateFollowUp` now passes `allowedChannels: ["telegram_thread"]` for `surface="telegram"` and `["web_thread"]` for `surface="web"` into `createIntent`, preventing policy-level channel list from routing an active-turn advisory to the wrong surface channel.
+2. `PATCH /admin/notifications/channels/webhook` path and `PatchAdminNotificationWebhookChannel*` / `AdminNotificationChannelState` / `AdminNotificationChannelType` / `AdminNotificationChannelStatus` / `AdminNotificationDeliveryStatus` schemas removed from `openapi.yaml`; contracts regenerated; generated files prettier-formatted.
+3. `AssistantPreferredNotificationChannel` in `apps/web/app/app/assistant-api-client.ts` narrowed to `"web" | "telegram"` (no `whatsapp`).
+4. `patchAdminNotificationWebhookChannel` import, export, and wrapper function deleted from `assistant-api-client.ts`; `AdminNotificationChannelState` / `PatchAdminNotificationWebhookChannelRequest` type re-exports removed.
+5. `ManageAdminNotificationChannelsService` import and `providers[]` entry removed from `workspace-management.module.ts`; service file and its test deleted (service had no constructor injection sites — pure dead provider).
+6. Stale comment in `apps/api/test/sync-telegram-chat-target.service.test.ts` referencing `AssistantNotificationDeliveryService` updated to reference `TelegramThreadChannelAdapter`.
+7. Three new focused adapter tests added: `telegram-thread-channel.adapter.test.ts`, `web-thread-channel.adapter.test.ts`, `web-notification-center-channel.adapter.test.ts` — all pass.
+8. New `quota-advisory-follow-up.service.test.ts` added — covers web/telegram surface `allowedChannels`, `traceId` forwarding, `no_push` branch, and no-candidates early return.
+9. `notification-delivery-worker.service.test.ts` extended with Part B: real worker instantiation, future `scheduledAt` not claimed, elapsed `scheduledAt` claimed, dedupe-collision at intent-service level (one row in store), primary failure → escalation success.
+10. All producers now stamp `traceId` on `createIntent` per ADR §11: `QuotaAdvisoryFollowUpService` accepts `traceId` from callers; `SendWebChatTurnService`, `StreamWebChatTurnService`, `HandleInternalTelegramTurnService` forward `trace.getTraceId()`; `PersaiIdleReengagementSchedulerService` generates a per-batch UUID; `PersaiBackgroundTaskSchedulerService` generates a per-task UUID; `HandleInternalCronFireService` uses `input.jobId` as traceId.
+11. `docs/TEST-PLAN.md` Slice 2 table updated with all four new test files and expanded worker row.
+
+**Soft observation decisions made in closeout:**
+
+- **Worker poll latency (0–10 s):** The 10 s poll interval is documented as an acceptable behavior change from the former synchronous direct-write path. `immediate` priority intents are claimed on the next poll cycle (within 10 s), which is sufficient for quota advisory and background task push use cases. If sub-second delivery is needed in a future slice, a notify-then-poll mechanism or a priority-queue push should be added. This is not in scope for Slice 2.
+- **`reminder` and cron context:** `HandleInternalCronFireService` does not carry active-chat context (`surface`, `chatId`) — it fires from a system job. Operators must configure `reminder` policies to use `telegram_thread` only until a future enhancement threads chat context through the cron payload. This constraint is reflected in `Admin > Notifications` policy editor guidance. Adding chat context to the cron payload is deferred to Slice 3 or a separate ADR.
+- **`reminder` quiet hours:** `notification_policies.respectQuietHours` defaults to `true` in Prisma schema; ADR §6 states reminders default to `false`. The producer call site passes `respectQuietHours: false` explicitly, which overrides the DB default per intent. Schema default and ADR remain technically inconsistent for the policy row, but the per-intent override makes runtime behavior correct. A clean fix (migration to set the seeded `reminder` policy row's `respectQuietHours = false`) is deferred to Slice 3 as a migration alongside the billing lifecycle work.
 
 ### Slice 3 — Transactional migration
 

@@ -116,9 +116,7 @@ Active task persistence is split by product meaning:
 
 `scheduled_action` is no longer target-state truth for assistant-side background checks. It remains the reminder tool. Background actions are evaluated by the background-task executor and deliver through the existing assistant notification preference instead of creating a second reminder.
 
-Assistant notification delivery is source-neutral and durable. `scheduled_action:user_reminder`, `background_task`, `idle_reengagement`, and future `system_event` sources enqueue rows in `assistant_notification_outbox`; `AssistantNotificationOutboxSchedulerService` claims/retries/dead-letters those rows and is the only active caller of `AssistantNotificationDeliveryService`, which resolves `Assistant.preferredNotificationChannel`, sends Telegram when configured, falls back to the web `system:notifications` thread, and persists delivered artifacts through `MediaDeliveryService`. Workspace-level user notification policy lives in `workspace_notification_policies`; active admin-owned sources now include `idle_reengagement` (enablement, idle threshold, cooldown, LLM instruction) and `quota_advisory` (enablement + LLM instruction for active-thread quota follow-up wording).
-
-ADR-088 adds the next target-state constraint for this area: `assistant_notification_outbox`, `billing_lifecycle_notification_jobs`, `workspace_admin_notification_channels`, `admin_notification_deliveries`, and source-specific policy rows are partial predecessors of one unified notification platform. During migration they may coexist, but new notification features should converge on one intent/policy/routing/delivery architecture instead of introducing more direct-send or feature-specific side paths.
+**ADR-088 Slice 2 (landed 2026-05-08):** the legacy assistant-outbox path is fully deleted. All assistant-authored conversational notifications now flow through `NotificationIntentService.createIntent({ class: "conversational", ... })` and the unified delivery worker. The deleted services are `AssistantNotificationOutboxService`, `AssistantNotificationOutboxSchedulerService`, `AssistantNotificationDeliveryService`, and `QuotaAdvisoryStateService`. The deleted tables are `assistant_notification_outbox`, `assistant_quota_advisory_states`, and `workspace_notification_policies` (idle + quota rows data-migrated to `notification_policies`). Notification policy for `idle_reengagement` and `quota_advisory` is now stored in the `notification_policies` table alongside all other sources. `whatsapp` is removed from `AssistantPreferredNotificationChannel`. The `system_event` `NotificationSource` enum value is reserved for Slice 4 admin telemetry; no producer currently creates intents with this source.
 
 ## Persona / Voice DNA state
 
@@ -145,12 +143,12 @@ Current active runtime-provider settings persistence includes:
 - `workspace_subscription_billing_events` as the PersAI-owned snapshot log for trusted provider/admin/manual payment inputs before they mutate subscription truth. Rows store normalized event code/source, provider/payment refs, target paid period facts, metadata, and apply status so retries and duplicate webhooks do not directly race on `workspace_subscriptions`. Recurring follow-through also uses billing-event metadata as the idempotency gate for provider-side managed-upgrade mutation, so duplicate/retry webhook delivery does not re-run `subscriptions/update` after PersAI has already accepted the event.
 - `workspace_subscriptions` as PersAI-owned subscription lifecycle truth. ADR-083 Slice 3 materializes a row from the active default registration plan when none exists, stores trial/current-period boundaries for trial registrations, stores explicit `graceStartedAt/graceEndsAt`, and uses `expired_fallback` for persisted fallback state after trial or grace expiry. The recurring follow-through extends that truth with provider-managed subscription references plus `cancelAtPeriodEnd`, which is now the canonical state for "auto-renew disabled but paid access still active until this period ends." Bind-success enablement is distinct from resume: paid access without a provider subscription can later materialize provider-managed recurring truth through a dedicated auto-renew-enable transition. Scheduled cheaper-paid downgrade is also distinct from period-end fallback: PersAI persists the requested cheaper paid target in subscription metadata before the provider mutation so partial failure cannot leave provider truth ahead of PersAI, but the actual cheaper paid plan becomes active only on the next trusted renewal/payment success whose provider amount/currency matches that scheduled cheaper plan. If the next renewal stays on the old amount, PersAI clears the stale marker instead of pretending the cheaper entitlements took effect anyway.
 - `workspace_subscription_lifecycle_events` as append-only subscription lifecycle history for trial start/expiry, fallback, payment activation, renewal success/failure, grace start/expiry, payment recovery, payment reversal, and recurring-management events such as `auto_renew_disabled`, `auto_renew_enabled`, `subscription_resumed`, and `subscription_canceled`. These events are distinct from generic assistant audit logs and are the source for Ops detail, notification scheduling, and billing support investigation.
-- `billing_lifecycle_notification_jobs` as durable billing lifecycle notification work derived from subscription lifecycle events. Rows capture required email work and optional assistant notification work with dedupe keys, schedule times, static required-facts copy, and delivery/enqueue status. Assistant notification jobs enqueue into `assistant_notification_outbox`; email jobs remain pending until a real email adapter exists.
+- `billing_lifecycle_notification_jobs` as durable billing lifecycle notification work derived from subscription lifecycle events. Rows capture required email work with dedupe keys, schedule times, static required-facts copy, and delivery status. The `ScheduleBillingLifecycleNotificationsService` now creates `notification_intents` (class: `transactional`) instead of using the deleted `assistant_notification_outbox`. Email delivery remains pending until Slice 3 adds MJML templates and a real Postmark email delivery path.
 
 ADR-087 adds one more quota/product truth layer:
 
 - 90% warnings for finite limits are product-level advisory state, not raw transport errors
-- warning delivery is now deduplicated durably in `assistant_quota_advisory_states`, keyed by assistant/workspace + active chat/thread + limit kind + threshold kind + reset window
+- warning delivery is deduplicated via `notification_intents.dedupeKey` (ADR-088 Slice 2); the deleted `assistant_quota_advisory_states` table is no longer used
 - paid token-budget light mode is derived from effective plan truth plus the current period-scoped token counter (`used >= limit`) and lasts until that period resets; free/zero-price plans may still receive warnings but do not enter paid light mode
 - upgrade eligibility for advisory copy must derive from explicit catalog truth rather than plan-name heuristics; ADR-087 currently defines the maximum plan as the highest-priced visible paid plan
 
@@ -159,6 +157,45 @@ ADR-087 adds one more quota/product truth layer:
 ADR-082 Slice 4 adds `workspace_media_monthly_quota_counters` as the period-scoped truth for media generation/editing allowances. Rows are keyed by workspace, tool code (`image_generate`, `image_edit`, `video_generate`), and period start/end; counters separately track reserved, settled, released, and reconciliation-required units. Slice 5 uses those columns as the delivery-confirmed settlement lifecycle: reservations happen before provider work, successful delivery moves reserved units into settled units, provider/no-delivery outcomes are released or marked reconciliation-required, and only reserved plus settled units count as active user quota usage. Periods resolve from `WorkspaceSubscription.currentPeriodStartedAt/currentPeriodEndsAt` with an explicit UTC calendar-month fallback for local/manual states. `WorkspaceToolUsageDailyCounter` remains day-scoped safety/rate-limit state and is not the paid monthly media quota model.
 
 Materialization validates plan-selected image/video model keys against the capability-aware catalog and writes the resolved primary/fallback keys into each runtime bundle tool credential ref. Runtime tool execution treats that credential chain as request-time truth for `image_generate`, `image_edit`, and `video_generate`, so feature-specific requests can switch to a compatible fallback model or soft-skip before calling the provider.
+
+ADR-088 Slice 1 adds the unified notification platform tables:
+
+- `notification_intents` — durable notification intent records keyed by workspace/source/class/priority/dedupe key. `lifecycleStatus` values: `pending`, `claimed`, `delivered`, `failed`, `dead_letter`, `skipped`, `deferred_quiet_hours`, `deferred_rate_limit`. Carries render strategy, template id, fact payload JSON, policy snapshot JSON, allowed channels array, escalation metadata, quiet-hours flag, surface/thread binding, and dedupe key.
+- `notification_delivery_attempts` — per-channel delivery attempt log with attempt number, claimed-at/resolved-at timestamps, `channelType`, outcome `status` (`pending`, `sent`, `delivered`, `failed`, `bounced`, `complaint`, `escalated`), provider reference, structured error JSON, and self-referential `escalationOf` FK (`ON DELETE SET NULL`) added in Slice 1 closeout migration.
+- `notification_channel_registry` — operator-managed channel configuration: one row per `NotificationChannelType` per workspace. Fields: `channelType`, `enabled`, `config` JSON, `healthStatus` (`healthy`, `degraded`, `down`, `unconfigured`), `consecutiveFailures`, `lastDeliveryAt`, `lastFailureAt`.
+- `notification_policies` — per-source notification policy. Fields: `source`, `enabled`, `channels` (array), `cooldownMinutes`, `maxPerDay`, `escalationAfterMinutes`, `escalationChannel`, `respectQuietHours`, `renderStrategy`, `renderInstructionRef`, `templateId`, `config` JSON.
+- `notification_quiet_hours` — workspace-scoped quiet hours. Fields: `enabled`, `startLocal` (HH:MM), `endLocal` (HH:MM), `timezoneMode` (`workspace_default`, `per_user_resolved`), `defaultTimezone`, `appliesToSources` (string array).
+- `notification_dead_letters` — dead-lettered intents. Fields: `intentId` (FK to `notification_intents`), `source`, `class`, `lastError` JSON, `escalationAttempts`, `claimedForReplayAt`, `resolvedAt` (NULL = active, non-NULL = replayed or discarded).
+
+Active enum values (Prisma source of truth):
+
+| Enum | Values |
+|---|---|
+| `NotificationSource` | `idle_reengagement`, `quota_advisory`, `reminder`, `background_task_push`, `billing_lifecycle`, `admin_system`, `system_event` |
+| `NotificationClass` | `conversational`, `transactional`, `operational`, `administrative` |
+| `NotificationPriority` | `immediate`, `scheduled`, `digest`, `skippable` |
+| `NotificationLifecycleStatus` | `pending`, `claimed`, `delivered`, `failed`, `dead_letter`, `skipped`, `deferred_quiet_hours`, `deferred_rate_limit` |
+| `NotificationRenderStrategy` | `grounded_llm`, `template`, `static_fallback` |
+| `NotificationDeliveryAttemptStatus` | `pending`, `sent`, `delivered`, `failed`, `bounced`, `complaint`, `escalated` |
+| `NotificationChannelType` | `telegram_thread`, `web_thread`, `web_notification_center`, `email`, `admin_webhook`, `web_push`, `mobile_push` |
+| `NotificationChannelHealth` | `healthy`, `degraded`, `down`, `unconfigured` |
+| `NotificationQuietHoursTimezoneMode` | `workspace_default`, `per_user_resolved` |
+
+Legacy notification tables retired in Slice 2 (dropped 2026-05-08):
+
+| Legacy table | Retired by |
+|---|---|
+| `assistant_notification_outbox` | Slice 2 |
+| `assistant_quota_advisory_states` | Slice 2 |
+| `workspace_notification_policies` (idle + quota rows) | Slice 2 |
+
+Remaining legacy notification tables still **transitional** until Slices 3–4:
+
+| Legacy table | Owning producer | Retiring slice |
+|---|---|---|
+| `billing_lifecycle_notification_jobs` | `ScheduleBillingLifecycleNotificationsService` (now creates intents) | Slice 3 |
+| `workspace_admin_notification_channels` | legacy admin webhook config | Slice 4 |
+| `admin_notification_deliveries` | legacy admin webhook log | Slice 4 |
 
 ADR-082 Slice 3 makes these provider/model profiles the active token quota-weight truth for completed native turns. `WorkspaceQuotaUsageEvent.dimension=token_budget` records one weighted Credits delta per completed turn where runtime `usageAccounting.entries` are available, with metadata carrying raw input/cached-input/output token totals, applied weights, rounded Credits, and whether any entry fell back to neutral default weights. Plans continue to own token budget limits; provider/model weights remain global Admin Runtime policy.
 

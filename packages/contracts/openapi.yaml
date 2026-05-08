@@ -4018,25 +4018,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-  /admin/notifications/channels/webhook:
+  /admin/notifications/channels/{channelType}:
     patch:
-      operationId: patchAdminNotificationWebhookChannel
-      summary: Create or update admin system-notification webhook channel
+      operationId: patchUnifiedNotificationChannel
+      summary: Update a unified notification channel
       security:
         - bearerAuth: []
+      parameters:
+        - in: path
+          name: channelType
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PatchAdminNotificationWebhookChannelRequest"
+              $ref: "#/components/schemas/PatchNotificationChannelRequest"
       responses:
         "200":
-          description: Updated webhook notification channel state
+          description: Updated channel
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PatchAdminNotificationWebhookChannelResponse"
+                $ref: "#/components/schemas/NotificationChannelView"
         "400":
           description: Validation error
           content:
@@ -4050,7 +4056,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "403":
-          description: Forbidden (ops/security/super-admin role required)
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
           content:
             application/json:
               schema:
@@ -4061,19 +4073,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-  /admin/notifications/policies/idle-reengagement:
+  /admin/notifications/policies:
     get:
-      operationId: getAdminIdleReengagementNotificationPolicy
-      summary: Read idle reengagement user-notification policy
+      operationId: listNotificationPolicies
+      summary: List notification policies
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Idle reengagement notification policy
+          description: Notification policies
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetAdminIdleReengagementNotificationPolicyResponse"
+                $ref: "#/components/schemas/GetNotificationPoliciesResponse"
         "401":
           description: Unauthorized
           content:
@@ -4081,7 +4093,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "403":
-          description: Forbidden (ops/business/security/super-admin role required)
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -4092,24 +4104,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/policies/{source}:
     patch:
-      operationId: patchAdminIdleReengagementNotificationPolicy
-      summary: Update idle reengagement user-notification policy
+      operationId: patchNotificationPolicy
+      summary: Update a notification policy
       security:
         - bearerAuth: []
+      parameters:
+        - in: path
+          name: source
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PatchAdminIdleReengagementNotificationPolicyRequest"
+              $ref: "#/components/schemas/PatchNotificationPolicyRequest"
       responses:
         "200":
-          description: Updated idle reengagement notification policy
+          description: Updated policy
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PatchAdminIdleReengagementNotificationPolicyResponse"
+                $ref: "#/components/schemas/NotificationPolicyView"
         "400":
           description: Validation error
           content:
@@ -4123,7 +4142,390 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "403":
-          description: Forbidden (ops/security/super-admin role required)
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/quiet-hours:
+    get:
+      operationId: getNotificationQuietHours
+      summary: Get notification quiet hours
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Notification quiet hours
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetNotificationQuietHoursResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: patchNotificationQuietHours
+      summary: Update notification quiet hours
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchNotificationQuietHoursRequest"
+      responses:
+        "200":
+          description: Updated quiet hours
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationQuietHoursView"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/deliveries:
+    get:
+      operationId: listNotificationDeliveries
+      summary: List notification deliveries (paginated)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: source
+          schema:
+            type: string
+        - in: query
+          name: class
+          schema:
+            type: string
+        - in: query
+          name: channel
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: dateFrom
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: dateTo
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Notification deliveries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetNotificationDeliveriesResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/deliveries/{intentId}:
+    get:
+      operationId: getNotificationDelivery
+      summary: Get notification delivery detail
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: intentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Notification delivery detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliveryIntentView"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/dead-letters:
+    get:
+      operationId: listNotificationDeadLetters
+      summary: List notification dead letters (paginated, server-side filtered)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: source
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: dateFrom
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: dateTo
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Notification dead letters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetNotificationDeadLettersResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/dead-letters/{id}/replay:
+    post:
+      operationId: replayNotificationDeadLetter
+      summary: Replay a notification dead letter
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Replayed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - intentId
+                properties:
+                  requestId:
+                    type: string
+                    nullable: true
+                  intentId:
+                    type: string
+                    format: uuid
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/dead-letters/{id}/discard:
+    post:
+      operationId: discardNotificationDeadLetter
+      summary: Discard a notification dead letter
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Discarded
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/preview:
+    post:
+      operationId: previewNotification
+      summary: Dry-run renderer preview (never sends)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationPreviewRequest"
+      responses:
+        "200":
+          description: Preview result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPreviewResult"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -9349,12 +9751,12 @@ components:
       properties:
         selectedChannel:
           type: string
-          enum: [web, telegram, whatsapp]
+          enum: [web, telegram]
         availableChannels:
           type: array
           items:
             type: string
-            enum: [web, telegram, whatsapp]
+            enum: [web, telegram]
     GetAssistantNotificationPreferenceResponse:
       type: object
       required:
@@ -11372,10 +11774,6 @@ components:
           nullable: true
         cockpit:
           $ref: "#/components/schemas/AdminBusinessCockpitState"
-    AdminNotificationChannelType:
-      type: string
-      enum:
-        - webhook
     AbuseSurface:
       type: string
       enum:
@@ -11383,55 +11781,6 @@ components:
         - telegram
         - whatsapp
         - max
-    AdminNotificationChannelStatus:
-      type: string
-      enum:
-        - active
-        - inactive
-    AdminNotificationDeliveryStatus:
-      type: string
-      enum:
-        - succeeded
-        - failed
-        - skipped
-    AdminNotificationChannelState:
-      type: object
-      required:
-        - channelType
-        - status
-        - endpointUrl
-        - hasSigningSecret
-        - updatedAt
-        - lastDelivery
-      properties:
-        channelType:
-          $ref: "#/components/schemas/AdminNotificationChannelType"
-        status:
-          $ref: "#/components/schemas/AdminNotificationChannelStatus"
-        endpointUrl:
-          type: string
-          nullable: true
-        hasSigningSecret:
-          type: boolean
-        updatedAt:
-          type: string
-          format: date-time
-        lastDelivery:
-          type: object
-          nullable: true
-          required:
-            - deliveryStatus
-            - attemptedAt
-            - errorMessage
-          properties:
-            deliveryStatus:
-              $ref: "#/components/schemas/AdminNotificationDeliveryStatus"
-            attemptedAt:
-              type: string
-              format: date-time
-            errorMessage:
-              type: string
-              nullable: true
     GetAdminNotificationChannelsResponse:
       type: object
       required:
@@ -11443,103 +11792,405 @@ components:
         channels:
           type: array
           items:
-            $ref: "#/components/schemas/AdminNotificationChannelState"
-    PatchAdminNotificationWebhookChannelRequest:
+            $ref: "#/components/schemas/NotificationChannelView"
+    NotificationChannelView:
       type: object
       required:
+        - id
+        - channelType
         - enabled
-      properties:
-        enabled:
-          type: boolean
-        endpointUrl:
-          type: string
-          nullable: true
-        signingSecret:
-          type: string
-          nullable: true
-    PatchAdminNotificationWebhookChannelResponse:
-      type: object
-      required:
-        - channel
-      properties:
-        requestId:
-          type: string
-          nullable: true
-        channel:
-          $ref: "#/components/schemas/AdminNotificationChannelState"
-    IdleReengagementNotificationPolicyState:
-      type: object
-      required:
-        - source
-        - enabled
-        - idleHours
-        - cooldownHours
-        - llmInstruction
+        - config
+        - healthStatus
+        - consecutiveFailures
         - updatedAt
-        - updatedByUserId
       properties:
-        source:
+        id:
           type: string
-          enum:
-            - idle_reengagement
+          format: uuid
+        channelType:
+          type: string
         enabled:
           type: boolean
-        idleHours:
-          type: integer
-          minimum: 1
-          maximum: 720
-        cooldownHours:
-          type: integer
-          minimum: 1
-          maximum: 720
-        llmInstruction:
+        config:
+          type: object
+          additionalProperties: true
+        healthStatus:
           type: string
+        consecutiveFailures:
+          type: integer
+        lastDeliveryAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastFailureAt:
+          type: string
+          format: date-time
+          nullable: true
         updatedAt:
           type: string
           format: date-time
-        updatedByUserId:
-          type: string
-          nullable: true
-    GetAdminIdleReengagementNotificationPolicyResponse:
+    PatchNotificationChannelRequest:
       type: object
-      required:
-        - policy
-      properties:
-        requestId:
-          type: string
-          nullable: true
-        policy:
-          $ref: "#/components/schemas/IdleReengagementNotificationPolicyState"
-    PatchAdminIdleReengagementNotificationPolicyRequest:
-      type: object
-      required:
-        - enabled
-        - idleHours
-        - cooldownHours
-        - llmInstruction
       properties:
         enabled:
           type: boolean
-        idleHours:
-          type: integer
-          minimum: 1
-          maximum: 720
-        cooldownHours:
-          type: integer
-          minimum: 1
-          maximum: 720
-        llmInstruction:
+        config:
+          type: object
+          additionalProperties: true
+        healthStatus:
           type: string
-    PatchAdminIdleReengagementNotificationPolicyResponse:
+    NotificationPolicyView:
       type: object
       required:
-        - policy
+        - id
+        - source
+        - enabled
+        - channels
+        - respectQuietHours
+        - renderStrategy
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        source:
+          type: string
+        enabled:
+          type: boolean
+        channels:
+          type: array
+          items:
+            type: string
+        cooldownMinutes:
+          type: integer
+          nullable: true
+        maxPerDay:
+          type: integer
+          nullable: true
+        escalationAfterMinutes:
+          type: integer
+          nullable: true
+        escalationChannel:
+          type: string
+          nullable: true
+        respectQuietHours:
+          type: boolean
+        renderStrategy:
+          type: string
+        renderInstructionRef:
+          type: string
+          nullable: true
+        templateId:
+          type: string
+          nullable: true
+        config:
+          type: object
+          additionalProperties: true
+        updatedAt:
+          type: string
+          format: date-time
+    GetNotificationPoliciesResponse:
+      type: object
+      required:
+        - policies
       properties:
         requestId:
           type: string
           nullable: true
-        policy:
-          $ref: "#/components/schemas/IdleReengagementNotificationPolicyState"
+        policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationPolicyView"
+    PatchNotificationPolicyRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        channels:
+          type: array
+          items:
+            type: string
+        cooldownMinutes:
+          type: integer
+          nullable: true
+        maxPerDay:
+          type: integer
+          nullable: true
+        escalationAfterMinutes:
+          type: integer
+          nullable: true
+        escalationChannel:
+          type: string
+          nullable: true
+        respectQuietHours:
+          type: boolean
+        renderStrategy:
+          type: string
+        renderInstructionRef:
+          type: string
+          nullable: true
+        templateId:
+          type: string
+          nullable: true
+        config:
+          type: object
+          additionalProperties: true
+    NotificationQuietHoursView:
+      type: object
+      required:
+        - id
+        - enabled
+        - startLocal
+        - endLocal
+        - timezoneMode
+        - appliesToSources
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        enabled:
+          type: boolean
+        startLocal:
+          type: string
+        endLocal:
+          type: string
+        timezoneMode:
+          type: string
+        defaultTimezone:
+          type: string
+          nullable: true
+        appliesToSources:
+          type: array
+          items:
+            type: string
+        updatedAt:
+          type: string
+          format: date-time
+    GetNotificationQuietHoursResponse:
+      type: object
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        quietHours:
+          $ref: "#/components/schemas/NotificationQuietHoursView"
+          nullable: true
+    PatchNotificationQuietHoursRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        startLocal:
+          type: string
+        endLocal:
+          type: string
+        timezoneMode:
+          type: string
+        defaultTimezone:
+          type: string
+          nullable: true
+        appliesToSources:
+          type: array
+          items:
+            type: string
+    NotificationDeliveryAttemptView:
+      type: object
+      required:
+        - id
+        - attemptNumber
+        - channel
+        - status
+        - startedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        attemptNumber:
+          type: integer
+        channel:
+          type: string
+        status:
+          type: string
+        providerRef:
+          type: string
+          nullable: true
+        error:
+          nullable: true
+        escalationOf:
+          type: string
+          format: uuid
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+    DeliveryIntentView:
+      type: object
+      required:
+        - id
+        - source
+        - class
+        - priority
+        - lifecycleStatus
+        - renderStrategy
+        - createdAt
+        - attempts
+      properties:
+        id:
+          type: string
+          format: uuid
+        source:
+          type: string
+        class:
+          type: string
+        priority:
+          type: string
+        lifecycleStatus:
+          type: string
+        renderStrategy:
+          type: string
+        dedupeKey:
+          type: string
+          nullable: true
+        traceId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+        deadLetteredAt:
+          type: string
+          format: date-time
+          nullable: true
+        failureReason:
+          type: string
+          nullable: true
+        attempts:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationDeliveryAttemptView"
+    GetNotificationDeliveriesResponse:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - pageSize
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeliveryIntentView"
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+    NotificationDeadLetterView:
+      type: object
+      required:
+        - id
+        - intentId
+        - source
+        - class
+        - escalationAttempts
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        intentId:
+          type: string
+          format: uuid
+        source:
+          type: string
+        class:
+          type: string
+        lastError:
+          nullable: true
+        escalationAttempts:
+          type: integer
+        claimedForReplayAt:
+          type: string
+          format: date-time
+          nullable: true
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    GetNotificationDeadLettersResponse:
+      type: object
+      required:
+        - deadLetters
+        - total
+        - page
+        - pageSize
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        deadLetters:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationDeadLetterView"
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+    NotificationPreviewRequest:
+      type: object
+      required:
+        - renderStrategy
+        - factPayload
+      properties:
+        renderStrategy:
+          type: string
+          enum: [grounded_llm, template, static_fallback]
+        templateId:
+          type: string
+          nullable: true
+        renderInstructionRef:
+          type: string
+          nullable: true
+        factPayload:
+          type: object
+          additionalProperties: true
+    NotificationPreviewResult:
+      type: object
+      required:
+        - body
+        - dryRun
+      properties:
+        subject:
+          type: string
+          nullable: true
+        body:
+          type: string
+        html:
+          type: string
+          nullable: true
+        plainText:
+          type: string
+          nullable: true
+        dryRun:
+          type: boolean
     ManagedRuntimeProvider:
       type: string
       enum:

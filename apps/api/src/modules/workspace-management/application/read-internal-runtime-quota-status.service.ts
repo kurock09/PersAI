@@ -8,12 +8,24 @@ import {
   QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT,
   TrackWorkspaceQuotaUsageService
 } from "./track-workspace-quota-usage.service";
-import {
-  type QuotaAdvisoryCandidateState,
-  QuotaAdvisoryStateService
-} from "./quota-advisory-state.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 import type { UserPlanVisibilityState } from "./plan-visibility.types";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+
+export type QuotaAdvisoryCandidateState = {
+  dedupeKey: string;
+  limitCode: string;
+  displayName: string;
+  thresholdCode: "warning_90_percent" | "limit_100_percent";
+  warningThresholdPercent: number;
+  currentPercent: number | null;
+  finiteLimit: boolean;
+  periodStartedAt: string | null;
+  periodEndsAt: string | null;
+  periodSource: string | null;
+  deliveryState: "eligible" | "recently_delivered" | "not_needed";
+  deliveredAt: string | null;
+};
 
 const MONTHLY_MEDIA_QUOTA_TOOL_CODES = new Set(["image_generate", "image_edit", "video_generate"]);
 
@@ -116,7 +128,7 @@ export class ReadInternalRuntimeQuotaStatusService {
     private readonly resolveInternalRuntimeToolDailyPolicyService: ResolveInternalRuntimeToolDailyPolicyService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly manageAdminPlansService: ManageAdminPlansService,
-    private readonly quotaAdvisoryStateService: QuotaAdvisoryStateService
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   parseInput(payload: unknown): ReadInternalRuntimeQuotaStatusRequest {
@@ -331,37 +343,17 @@ export class ReadInternalRuntimeQuotaStatusService {
         paidLightModeReason: paidLightModeActive ? "token_budget_limit_reached" : null
       }
     };
-    const advisoryCandidates = await this.quotaAdvisoryStateService.resolveCandidates({
+    const advisoryCandidates = await this.computeAdvisoryCandidates({
       assistantId: resolved.assistant.id,
-      workspaceId: resolved.assistant.workspaceId,
-      threadContext:
-        input.channel && input.externalThreadKey
-          ? {
-              channel: input.channel,
-              externalThreadKey: input.externalThreadKey
-            }
-          : null,
+      channel: input.channel,
+      externalThreadKey: input.externalThreadKey,
       quotaBuckets: snapshot.buckets,
       tokenBudgetPeriod: {
         periodStartedAt: tokenBudget.periodStartedAt,
         periodEndsAt: tokenBudget.periodEndsAt,
         periodSource: tokenBudget.periodSource
       },
-      monthlyMediaQuotas,
-      toolDailyLimits: tools.map((tool) => ({
-        toolCode: tool.toolCode,
-        displayName: tool.displayName,
-        dailyCallLimit: tool.dailyCallLimit,
-        dailyCallsUsed: tool.currentCount,
-        percent: tool.percent,
-        finiteLimit: tool.finiteLimit,
-        warningThresholdPercent: tool.warningThresholdPercent,
-        warningThresholdReached: tool.warningThresholdReached,
-        periodStartedAt: tool.periodStartedAt,
-        periodEndsAt: tool.periodEndsAt,
-        periodSource: tool.periodSource,
-        active: tool.activationStatus === "active"
-      }))
+      monthlyMediaQuotas
     });
 
     return {
@@ -429,5 +421,95 @@ export class ReadInternalRuntimeQuotaStatusService {
       advisories,
       advisoryCandidates
     };
+  }
+
+  private async computeAdvisoryCandidates(input: {
+    assistantId: string;
+    channel?: string | undefined;
+    externalThreadKey?: string | undefined;
+    quotaBuckets: AssistantQuotaBucketSnapshot[];
+    tokenBudgetPeriod: {
+      periodStartedAt: string;
+      periodEndsAt: string;
+      periodSource: string;
+    };
+    monthlyMediaQuotas: AssistantMonthlyMediaQuotaSnapshot;
+  }): Promise<QuotaAdvisoryCandidateState[]> {
+    const threadPrefix =
+      input.channel && input.externalThreadKey
+        ? `${input.assistantId}:${input.channel}:${input.externalThreadKey}`
+        : input.assistantId;
+
+    const rawCandidates: Omit<QuotaAdvisoryCandidateState, "deliveryState" | "deliveredAt">[] = [];
+
+    for (const bucket of input.quotaBuckets) {
+      if (!bucket.finiteLimit) continue;
+      const isLimitReached = bucket.status === "limit_reached";
+      const isWarning = bucket.warningThresholdReached && !isLimitReached;
+      if (!isLimitReached && !isWarning) continue;
+      const thresholdCode = isLimitReached ? "limit_100_percent" : "warning_90_percent";
+      rawCandidates.push({
+        dedupeKey: `quota_advisory:${threadPrefix}:quota_bucket:${bucket.bucketCode}:${thresholdCode}:${input.tokenBudgetPeriod.periodStartedAt}:${input.tokenBudgetPeriod.periodEndsAt}`,
+        limitCode: `quota_bucket:${bucket.bucketCode}`,
+        displayName: bucket.displayName,
+        thresholdCode,
+        warningThresholdPercent:
+          bucket.warningThresholdPercent ?? QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT,
+        currentPercent: bucket.percent,
+        finiteLimit: bucket.finiteLimit,
+        periodStartedAt: input.tokenBudgetPeriod.periodStartedAt,
+        periodEndsAt: input.tokenBudgetPeriod.periodEndsAt,
+        periodSource: input.tokenBudgetPeriod.periodSource
+      });
+    }
+
+    for (const tool of input.monthlyMediaQuotas.tools) {
+      if (!tool.finiteLimit) continue;
+      const isLimitReached = tool.status === "limit_reached";
+      const isWarning = tool.warningThresholdReached && !isLimitReached;
+      if (!isLimitReached && !isWarning) continue;
+      const thresholdCode = isLimitReached ? "limit_100_percent" : "warning_90_percent";
+      rawCandidates.push({
+        dedupeKey: `quota_advisory:${threadPrefix}:monthly_media:${tool.toolCode}:${thresholdCode}:${input.monthlyMediaQuotas.periodStartedAt}:${input.monthlyMediaQuotas.periodEndsAt}`,
+        limitCode: `monthly_media:${tool.toolCode}`,
+        displayName: tool.displayName,
+        thresholdCode,
+        warningThresholdPercent:
+          tool.warningThresholdPercent ?? QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT,
+        currentPercent: tool.percent,
+        finiteLimit: tool.finiteLimit,
+        periodStartedAt: input.monthlyMediaQuotas.periodStartedAt,
+        periodEndsAt: input.monthlyMediaQuotas.periodEndsAt,
+        periodSource: input.monthlyMediaQuotas.periodSource
+      });
+    }
+
+    if (rawCandidates.length === 0) return [];
+
+    const cooldownCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recentIntents = await this.prisma.notificationIntent.findMany({
+      where: {
+        assistantId: input.assistantId,
+        source: "quota_advisory",
+        dedupeKey: { in: rawCandidates.map((c) => c.dedupeKey) },
+        createdAt: { gte: cooldownCutoff }
+      },
+      select: { dedupeKey: true, createdAt: true }
+    });
+
+    const recentByKey = new Map(
+      recentIntents
+        .filter((i): i is typeof i & { dedupeKey: string } => i.dedupeKey !== null)
+        .map((i) => [i.dedupeKey, i.createdAt.toISOString()])
+    );
+
+    return rawCandidates.map((c) => {
+      const deliveredAt = recentByKey.get(c.dedupeKey) ?? null;
+      return {
+        ...c,
+        deliveryState: deliveredAt !== null ? "recently_delivered" : "eligible",
+        deliveredAt
+      };
+    });
   }
 }

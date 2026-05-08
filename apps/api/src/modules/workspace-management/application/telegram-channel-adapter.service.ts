@@ -691,10 +691,7 @@ export class TelegramChannelAdapterService {
         postReplyNotices: [
           ...(outboundTurnResult.autoCompaction === undefined
             ? []
-            : [buildTelegramAutoCompactionNotice(config.locale)]),
-          ...(outboundTurnResult.quotaAdvisoryMessage
-            ? [outboundTurnResult.quotaAdvisoryMessage]
-            : [])
+            : [buildTelegramAutoCompactionNotice(config.locale)])
         ],
         onBeforeMediaSend: (media) => {
           chatActionState.current?.setAction(resolveTelegramOutboundChatAction(media));

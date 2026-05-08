@@ -593,13 +593,15 @@ export class StreamWebChatTurnService {
         (await this.quotaAdvisoryFollowUpService?.maybeCreateFollowUp({
           assistantId: prepared.assistantId,
           workspaceId: prepared.workspaceId,
+          userId: prepared.userId,
           chatId: prepared.chat.id,
           surface: "web",
           surfaceThreadKey: prepared.chat.surfaceThreadKey,
-          mainAssistantMessage: finalAssistantContent
+          mainAssistantMessage: finalAssistantContent,
+          traceId: trace.getTraceId()
         })) ?? null;
       if (quotaAdvisoryFollowUp !== null) {
-        trace.stage("quota_advisory_follow_up_saved");
+        trace.stage("quota_advisory_follow_up_intent_created");
       }
       if (prepared.clientTurnId !== undefined) {
         const replayState = {
@@ -611,7 +613,7 @@ export class StreamWebChatTurnService {
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
           quotaFallbackReason: prepared.quotaDegradeReason,
           quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
-          followUpAssistantMessageId: quotaAdvisoryFollowUp?.assistantMessage.id ?? null,
+          followUpAssistantMessageId: null,
           ...(turnRouting === undefined ? {} : { turnRouting }),
           completedAt: new Date().toISOString()
         };
@@ -714,9 +716,6 @@ export class StreamWebChatTurnService {
             attachments: attachmentStates,
             createdAt: assistantMessage.createdAt.toISOString()
           },
-          ...(quotaAdvisoryFollowUp === null
-            ? {}
-            : { followUpAssistantMessage: quotaAdvisoryFollowUp.assistantMessage }),
           activeMediaJobs,
           runtime: {
             respondedAt: respondedAt ?? new Date().toISOString(),

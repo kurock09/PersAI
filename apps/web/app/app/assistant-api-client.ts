@@ -1,6 +1,5 @@
 import {
   type AdminBusinessCockpitState,
-  type AdminNotificationChannelState,
   type AdminRuntimeProviderSettingsRequest,
   type AdminRuntimeProviderSettingsState,
   type AdminBillingLifecycleSettingsRequest,
@@ -10,14 +9,11 @@ import {
   type AdminSkillState,
   type AdminSkillUpsertRequest,
   type GetAssistantSkillsResponse,
-  type IdleReengagementNotificationPolicyState,
   type KnowledgeIndexingJobState,
   type PlatformRolloutState,
   type PutAssistantSkillAssignmentsRequest,
   type PostAdminPlatformRolloutRequest,
   type SkillDocumentState,
-  type PatchAdminNotificationWebhookChannelRequest,
-  type PatchAdminIdleReengagementNotificationPolicyRequest,
   type AdminPlanCreateRequest,
   type AdminDangerousActionCode,
   type AdminOpsCockpitState,
@@ -92,7 +88,6 @@ import {
   getAdminPlans as getAdminPlansContract,
   getAdminBusinessCockpit as getAdminBusinessCockpitContract,
   getAdminNotificationChannels as getAdminNotificationChannelsContract,
-  getAdminIdleReengagementNotificationPolicy as getAdminIdleReengagementNotificationPolicyContract,
   getAdminPlatformRollouts as getAdminPlatformRolloutsContract,
   getAdminOpsCockpit as getAdminOpsCockpitContract,
   postAdminOpsUserPlanOverride as postAdminOpsUserPlanOverrideContract,
@@ -106,8 +101,6 @@ import {
   getAssistantSkills as getAssistantSkillsContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
-  patchAdminNotificationWebhookChannel as patchAdminNotificationWebhookChannelContract,
-  patchAdminIdleReengagementNotificationPolicy as patchAdminIdleReengagementNotificationPolicyContract,
   postAdminAbuseControlsUnblock as postAdminAbuseControlsUnblockContract,
   putAssistantSkillAssignments as putAssistantSkillAssignmentsContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract,
@@ -115,7 +108,33 @@ import {
   postAdminPlatformRollout as postAdminPlatformRolloutContract,
   postAdminPlatformRolloutRollback as postAdminPlatformRolloutRollbackContract,
   putAdminRuntimeProviderSettings as putAdminRuntimeProviderSettingsContract,
-  putAdminBillingLifecycleSettings as putAdminBillingLifecycleSettingsContract
+  putAdminBillingLifecycleSettings as putAdminBillingLifecycleSettingsContract,
+  // ADR-088 unified notification platform
+  patchUnifiedNotificationChannel as patchUnifiedNotificationChannelContract,
+  listNotificationPolicies as listNotificationPoliciesContract,
+  patchNotificationPolicy as patchNotificationPolicyContract,
+  getNotificationQuietHours as getNotificationQuietHoursContract,
+  patchNotificationQuietHours as patchNotificationQuietHoursContract,
+  listNotificationDeliveries as listNotificationDeliveriesContract,
+  getNotificationDelivery as getNotificationDeliveryContract,
+  listNotificationDeadLetters as listNotificationDeadLettersContract,
+  replayNotificationDeadLetter as replayNotificationDeadLetterContract,
+  discardNotificationDeadLetter as discardNotificationDeadLetterContract,
+  previewNotification as previewNotificationContract,
+  type NotificationChannelView,
+  type NotificationPolicyView,
+  type NotificationQuietHoursView,
+  type DeliveryIntentView,
+  type NotificationDeadLetterView,
+  type PatchNotificationChannelRequest,
+  type PatchNotificationPolicyRequest,
+  type PatchNotificationQuietHoursRequest,
+  type NotificationPreviewRequest,
+  type NotificationPreviewResult,
+  type GetNotificationDeliveriesResponse,
+  type GetNotificationDeadLettersResponse,
+  type ListNotificationDeliveriesParams,
+  type ListNotificationDeadLettersParams
 } from "@persai/contracts";
 export type {
   AssistantBillingSubscriptionActionResult,
@@ -1912,7 +1931,7 @@ export type WorkspaceMemoryItem = {
   resolvedAt?: string | null | undefined;
 };
 
-export type AssistantPreferredNotificationChannel = "web" | "telegram" | "whatsapp";
+export type AssistantPreferredNotificationChannel = "web" | "telegram";
 
 export type AssistantNotificationPreferenceState = {
   selectedChannel: AssistantPreferredNotificationChannel;
@@ -2114,7 +2133,6 @@ export async function compactChat(
 export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };
 export type { AdminBusinessCockpitState };
 export type { AdminOpsCockpitState };
-export type { AdminNotificationChannelState, PatchAdminNotificationWebhookChannelRequest };
 export type { PlatformRolloutState, PostAdminPlatformRolloutRequest };
 export type { UserPlanVisibilityState, AdminPlanVisibilityState };
 export type { TelegramIntegrationState, AssistantTelegramConfigUpdateRequest };
@@ -2495,7 +2513,7 @@ export async function getAdminBusinessPlatform(token: string): Promise<Record<st
 
 export async function getAdminNotificationChannels(
   token: string
-): Promise<AdminNotificationChannelState[]> {
+): Promise<NotificationChannelView[]> {
   try {
     const response = await getAdminNotificationChannelsContract({
       headers: getAuthHeaders(token)
@@ -2503,107 +2521,210 @@ export async function getAdminNotificationChannels(
     if (response.status !== 200) {
       throw new Error("Unexpected non-success response for GET /admin/notifications/channels.");
     }
-    return response.data.channels;
+    return response.data.channels as NotificationChannelView[];
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
 }
 
-export async function patchAdminNotificationWebhookChannel(
+// ── ADR-088: Unified notification platform ─────────────────────────────────
+
+export type { NotificationChannelView, NotificationPolicyView, NotificationQuietHoursView };
+export type { DeliveryIntentView, NotificationDeadLetterView };
+export type { PatchNotificationChannelRequest, PatchNotificationPolicyRequest };
+export type {
+  PatchNotificationQuietHoursRequest,
+  NotificationPreviewRequest,
+  NotificationPreviewResult
+};
+export type { GetNotificationDeliveriesResponse, ListNotificationDeliveriesParams };
+
+export async function patchUnifiedNotificationChannel(
   token: string,
-  input: PatchAdminNotificationWebhookChannelRequest
-): Promise<AdminNotificationChannelState> {
+  channelType: string,
+  input: PatchNotificationChannelRequest
+): Promise<NotificationChannelView> {
   try {
-    const response = await patchAdminNotificationWebhookChannelContract(input, {
+    const response = await patchUnifiedNotificationChannelContract(channelType, input, {
       headers: getAuthHeaders(token)
     });
     if (response.status !== 200) {
       throw new Error(
-        "Unexpected non-success response for PATCH /admin/notifications/channels/webhook."
+        `Unexpected non-success response for PATCH /admin/notifications/channels/${channelType}.`
       );
     }
-    return response.data.channel;
+    return response.data as NotificationChannelView;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
 }
 
-export async function getAdminIdleReengagementNotificationPolicy(
+export async function listNotificationPolicies(token: string): Promise<NotificationPolicyView[]> {
+  try {
+    const response = await listNotificationPoliciesContract({ headers: getAuthHeaders(token) });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/notifications/policies.");
+    }
+    return response.data.policies as NotificationPolicyView[];
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function patchNotificationPolicy(
+  token: string,
+  source: string,
+  input: PatchNotificationPolicyRequest
+): Promise<NotificationPolicyView> {
+  try {
+    const response = await patchNotificationPolicyContract(source, input, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        `Unexpected non-success response for PATCH /admin/notifications/policies/${source}.`
+      );
+    }
+    return response.data as NotificationPolicyView;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getNotificationQuietHours(
   token: string
-): Promise<IdleReengagementNotificationPolicyState> {
+): Promise<NotificationQuietHoursView | null> {
   try {
-    const response = await getAdminIdleReengagementNotificationPolicyContract({
+    const response = await getNotificationQuietHoursContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/notifications/quiet-hours.");
+    }
+    return (response.data.quietHours as NotificationQuietHoursView | undefined) ?? null;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function patchNotificationQuietHours(
+  token: string,
+  input: PatchNotificationQuietHoursRequest
+): Promise<NotificationQuietHoursView> {
+  try {
+    const response = await patchNotificationQuietHoursContract(input, {
       headers: getAuthHeaders(token)
     });
     if (response.status !== 200) {
       throw new Error(
-        "Unexpected non-success response for GET /admin/notifications/policies/idle-reengagement."
+        "Unexpected non-success response for PATCH /admin/notifications/quiet-hours."
       );
     }
-    return response.data.policy;
+    return response.data as NotificationQuietHoursView;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
 }
 
-export async function patchAdminIdleReengagementNotificationPolicy(
+export async function listNotificationDeliveries(
   token: string,
-  input: PatchAdminIdleReengagementNotificationPolicyRequest
-): Promise<IdleReengagementNotificationPolicyState> {
+  params?: ListNotificationDeliveriesParams
+): Promise<GetNotificationDeliveriesResponse> {
   try {
-    const response = await patchAdminIdleReengagementNotificationPolicyContract(input, {
+    const response = await listNotificationDeliveriesContract(params, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/notifications/deliveries.");
+    }
+    return response.data as GetNotificationDeliveriesResponse;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getNotificationDelivery(
+  token: string,
+  intentId: string
+): Promise<DeliveryIntentView> {
+  try {
+    const response = await getNotificationDeliveryContract(intentId, {
       headers: getAuthHeaders(token)
     });
     if (response.status !== 200) {
       throw new Error(
-        "Unexpected non-success response for PATCH /admin/notifications/policies/idle-reengagement."
+        `Unexpected non-success response for GET /admin/notifications/deliveries/${intentId}.`
       );
     }
-    return response.data.policy;
+    return response.data as DeliveryIntentView;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
 }
 
-export async function getAdminQuotaAdvisoryNotificationPolicy(
-  token: string
-): Promise<QuotaAdvisoryNotificationPolicyState> {
+export async function listNotificationDeadLetters(
+  token: string,
+  params?: ListNotificationDeadLettersParams
+): Promise<GetNotificationDeadLettersResponse> {
   try {
-    const response = await fetch(`/api/v1/admin/notifications/policies/quota-advisory`, {
+    const response = await listNotificationDeadLettersContract(params, {
       headers: getAuthHeaders(token)
     });
-    if (!response.ok) {
-      throw new Error(
-        "Unexpected non-success response for GET /admin/notifications/policies/quota-advisory."
-      );
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/notifications/dead-letters.");
     }
-    const payload = (await response.json()) as { policy: QuotaAdvisoryNotificationPolicyState };
-    return payload.policy;
+    return response.data as GetNotificationDeadLettersResponse;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
 }
 
-export async function patchAdminQuotaAdvisoryNotificationPolicy(
+export async function replayNotificationDeadLetter(
   token: string,
-  input: PatchAdminQuotaAdvisoryNotificationPolicyRequest
-): Promise<QuotaAdvisoryNotificationPolicyState> {
+  id: string
+): Promise<{ intentId: string }> {
   try {
-    const response = await fetch(`/api/v1/admin/notifications/policies/quota-advisory`, {
-      method: "PATCH",
-      headers: {
-        ...getAuthHeaders(token),
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(input)
+    const response = await replayNotificationDeadLetterContract(id, {
+      headers: getAuthHeaders(token)
     });
-    if (!response.ok) {
+    if (response.status !== 200) {
       throw new Error(
-        "Unexpected non-success response for PATCH /admin/notifications/policies/quota-advisory."
+        `Unexpected non-success response for POST /admin/notifications/dead-letters/${id}/replay.`
       );
     }
-    const payload = (await response.json()) as { policy: QuotaAdvisoryNotificationPolicyState };
-    return payload.policy;
+    return { intentId: (response.data as { intentId: string }).intentId };
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function discardNotificationDeadLetter(token: string, id: string): Promise<void> {
+  try {
+    const response = await discardNotificationDeadLetterContract(id, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 204) {
+      throw new Error(
+        `Unexpected non-success response for POST /admin/notifications/dead-letters/${id}/discard.`
+      );
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function previewNotification(
+  token: string,
+  input: NotificationPreviewRequest
+): Promise<NotificationPreviewResult> {
+  try {
+    const response = await previewNotificationContract(input, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for POST /admin/notifications/preview.");
+    }
+    return response.data as NotificationPreviewResult;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
@@ -3246,19 +3367,6 @@ export type WebChatActiveTurnState = {
   userMessage: ChatHistoryMessage | null;
   assistantMessage: ChatHistoryMessage | null;
   canReattach: boolean;
-};
-
-export type QuotaAdvisoryNotificationPolicyState = {
-  source: "quota_advisory";
-  enabled: boolean;
-  llmInstruction: string;
-  updatedAt: string;
-  updatedByUserId: string | null;
-};
-
-export type PatchAdminQuotaAdvisoryNotificationPolicyRequest = {
-  enabled: boolean;
-  llmInstruction: string;
 };
 
 export type WebChatActiveMediaJobState = AssistantWebChatActiveMediaJobState;

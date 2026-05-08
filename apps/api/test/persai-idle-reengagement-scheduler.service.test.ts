@@ -1,22 +1,41 @@
 import assert from "node:assert/strict";
 import { PersaiIdleReengagementSchedulerService } from "../src/modules/workspace-management/application/persai-idle-reengagement-scheduler.service";
+import { NotificationIntentService } from "../src/modules/workspace-management/application/notifications/notification-intent.service";
+
+type IntentCreate = {
+  source: string;
+  class: string;
+  priority: string;
+  factPayload: Record<string, unknown>;
+};
 
 class FakeIdlePrisma {
-  policies = [
+  notificationPolicies = [
     {
       workspaceId: "ws-1",
+      source: "idle_reengagement",
       enabled: true,
-      idleHours: 24,
-      cooldownHours: 72,
-      llmInstruction: "Be warm and contextual.",
+      config: {
+        idleHours: 24,
+        cooldownHours: 72,
+        llmInstruction: "Be warm and contextual."
+      },
       updatedAt: new Date("2026-04-29T00:00:00.000Z")
     }
   ];
-  existingRecentOutbox = false;
-  outboxCreates: unknown[] = [];
+  recentIntentExists = false;
+  intentCreates: IntentCreate[] = [];
 
-  workspaceNotificationPolicy = {
-    findMany: async () => this.policies
+  notificationPolicy = {
+    findMany: async () => this.notificationPolicies
+  };
+
+  notificationIntent = {
+    findFirst: async () => (this.recentIntentExists ? { id: "intent-existing" } : null),
+    create: async (args: { data: IntentCreate }) => {
+      this.intentCreates.push(args.data);
+      return { id: "intent-1", lifecycleStatus: "pending", dedupeKey: null };
+    }
   };
 
   assistant = {
@@ -44,15 +63,6 @@ class FakeIdlePrisma {
     ]
   };
 
-  assistantNotificationOutbox = {
-    findFirst: async () => (this.existingRecentOutbox ? { id: "outbox-existing" } : null),
-    findUnique: async () => null,
-    create: async ({ data }: { data: unknown }) => {
-      this.outboxCreates.push(data);
-      return { id: "outbox-1", status: "pending" };
-    }
-  };
-
   assistantMemoryRegistryItem = {
     findMany: async () => [{ summary: "Launch follow-up is open", createdAt: new Date() }]
   };
@@ -62,6 +72,13 @@ function createScheduler(
   prisma: FakeIdlePrisma,
   decision: "push" | "no_push" = "push"
 ): PersaiIdleReengagementSchedulerService {
+  const notificationIntentService = {
+    createIntent: async (input: IntentCreate) => {
+      prisma.intentCreates.push(input);
+      return { id: "intent-1", lifecycleStatus: "pending", dedupeKey: null };
+    }
+  } as unknown as NotificationIntentService;
+
   return new PersaiIdleReengagementSchedulerService(
     prisma as never,
     {
@@ -92,57 +109,51 @@ function createScheduler(
         };
       }
     } as never,
-    {
-      enqueue: async (input: unknown) => {
-        prisma.outboxCreates.push(input);
-        return { id: "outbox-1", status: "pending", dedupeKey: "idle", created: true };
-      }
-    } as never
+    notificationIntentService
   );
 }
 
-async function runPushEnqueuesTest(): Promise<void> {
+async function runPushCreatesIntentTest(): Promise<void> {
   const prisma = new FakeIdlePrisma();
   const scheduler = createScheduler(prisma, "push");
 
   const processed = await scheduler.processDueIdleReengagementBatch(1);
 
   assert.equal(processed, 1);
-  assert.equal(prisma.outboxCreates.length, 1);
-  const input = prisma.outboxCreates[0] as { source: string; status: string; text: string };
-  assert.equal(input.source, "idle_reengagement");
-  assert.equal(input.status, "ok");
-  assert.equal(input.text, "Still thinking about the launch with you.");
+  assert.equal(prisma.intentCreates.length, 1);
+  const intent = prisma.intentCreates[0] as Record<string, unknown>;
+  assert.equal(intent["source"], "idle_reengagement");
+  assert.equal(intent["class"], "conversational");
+  assert.equal(intent["priority"], "skippable");
+  const payload = intent["factPayload"] as Record<string, unknown>;
+  assert.equal(payload["pushText"], "Still thinking about the launch with you.");
 }
 
 async function runCooldownSkipsTest(): Promise<void> {
   const prisma = new FakeIdlePrisma();
-  prisma.existingRecentOutbox = true;
+  prisma.recentIntentExists = true;
   const scheduler = createScheduler(prisma, "push");
 
   const processed = await scheduler.processDueIdleReengagementBatch(1);
 
   assert.equal(processed, 0);
-  assert.equal(prisma.outboxCreates.length, 0);
+  assert.equal(prisma.intentCreates.length, 0);
 }
 
-async function runNoPushRecordsSkippedDedupeTest(): Promise<void> {
+async function runNoPushDoesNotCreateIntentTest(): Promise<void> {
   const prisma = new FakeIdlePrisma();
   const scheduler = createScheduler(prisma, "no_push");
 
   const processed = await scheduler.processDueIdleReengagementBatch(1);
 
   assert.equal(processed, 1);
-  const input = prisma.outboxCreates[0] as { source: string; status: string; text?: string };
-  assert.equal(input.source, "idle_reengagement");
-  assert.equal(input.status, "skipped");
-  assert.equal(input.text, undefined);
+  assert.equal(prisma.intentCreates.length, 0);
 }
 
 async function run(): Promise<void> {
-  await runPushEnqueuesTest();
+  await runPushCreatesIntentTest();
   await runCooldownSkipsTest();
-  await runNoPushRecordsSkippedDedupeTest();
+  await runNoPushDoesNotCreateIntentTest();
   console.log("idle reengagement scheduler tests passed");
 }
 

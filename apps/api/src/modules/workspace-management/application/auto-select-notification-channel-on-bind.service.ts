@@ -7,12 +7,8 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 // Channels we are willing to auto-select. Mirrors the
 // `AssistantPreferredNotificationChannel` enum minus the `web` default
 // (which is the value we are *promoting away from*). Today only `telegram`
-// has a bind flow that calls this helper; `whatsapp` is included so that
-// when the WA bind lands it can call the same helper without changes here.
-const AUTO_SELECTABLE_CHANNELS = new Set<PrismaPreferredNotificationChannel>([
-  "telegram",
-  "whatsapp"
-]);
+// has a bind flow that calls this helper.
+const AUTO_SELECTABLE_CHANNELS = new Set<PrismaPreferredNotificationChannel>(["telegram"]);
 
 export type AutoSelectNotificationChannelDecisionReason =
   /** D-marker was NULL and current channel differed; promotion happened. */

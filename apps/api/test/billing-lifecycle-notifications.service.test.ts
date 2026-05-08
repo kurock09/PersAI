@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { ScheduleBillingLifecycleNotificationsService } from "../src/modules/workspace-management/application/schedule-billing-lifecycle-notifications.service";
 import { DEFAULT_BILLING_LIFECYCLE_NOTIFICATION_POLICY } from "../src/modules/workspace-management/application/billing-lifecycle-settings";
-import type { AssistantNotificationOutboxService } from "../src/modules/workspace-management/application/assistant-notification-outbox.service";
 import type { ManageAdminBillingLifecycleSettingsService } from "../src/modules/workspace-management/application/manage-admin-billing-lifecycle-settings.service";
+import type { NotificationIntentService } from "../src/modules/workspace-management/application/notifications/notification-intent.service";
 
 async function run(): Promise<void> {
   const jobs: Array<Record<string, unknown>> = [];
-  const outboxInputs: Array<Record<string, unknown>> = [];
+  const intentInputs: Array<Record<string, unknown>> = [];
   const eventsById = {
     "event-1": {
       id: "event-1",
@@ -73,6 +73,9 @@ async function run(): Promise<void> {
     },
     assistant: {
       async findFirst() {
+        return { id: "assistant-1", userId: "user-1", workspaceId: "ws-1" };
+      },
+      async findUnique() {
         return { id: "assistant-1", userId: "user-1", workspaceId: "ws-1" };
       }
     },
@@ -201,16 +204,15 @@ async function run(): Promise<void> {
       "resolveSettings"
     > as ManageAdminBillingLifecycleSettingsService,
     {
-      async enqueue(input: Record<string, unknown>) {
-        outboxInputs.push(input);
+      async createIntent(input: Record<string, unknown>) {
+        intentInputs.push(input);
         return {
-          id: "outbox-1",
-          status: "pending",
-          dedupeKey: String(input.dedupeKey),
-          created: true
+          id: `intent-${intentInputs.length}`,
+          lifecycleStatus: "pending",
+          dedupeKey: String(input.dedupeKey)
         };
       }
-    } as Pick<AssistantNotificationOutboxService, "enqueue"> as AssistantNotificationOutboxService
+    } as Pick<NotificationIntentService, "createIntent"> as NotificationIntentService
   );
 
   await service.scheduleForLifecycleEventIds(["event-1"]);
@@ -224,12 +226,13 @@ async function run(): Promise<void> {
   assert.equal(jobs[0]?.recipientEmail, "user@example.com");
   assert.equal(jobs[1]?.channel, "assistant_notification");
   assert.equal(jobs[1]?.status, "enqueued");
-  assert.equal(jobs[1]?.assistantNotificationOutboxId, "outbox-1");
-  assert.equal(outboxInputs[0]?.source, "billing_lifecycle");
-  assert.match(String(outboxInputs[0]?.text), /Payment renewal failed/);
+  assert.equal(intentInputs[0]?.source, "billing_lifecycle");
+  assert.equal(
+    (intentInputs[0]?.factPayload as Record<string, unknown>)?.notificationCode,
+    "renewal_failed"
+  );
   assert.equal(jobs[2]?.notificationCode, "billing_reminder");
   assert.equal(jobs[3]?.notificationCode, "billing_reminder");
-  assert.match(String(outboxInputs[1]?.text), /manual billing reminder/i);
 
   const graceEndingJobs = jobs.filter((job) => job.notificationCode === "grace_ending");
   assert.equal(graceEndingJobs.length, 3);

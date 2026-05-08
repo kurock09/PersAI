@@ -121,30 +121,8 @@ enum AssistantBackgroundTaskRunStatus {
 enum AssistantPreferredNotificationChannel {
   web
   telegram
-  whatsapp
 }
 
-enum AssistantNotificationOutboxSource {
-  user_reminder
-  background_task
-  idle_reengagement
-  system_event
-  billing_lifecycle
-}
-
-enum AssistantNotificationOutboxStatus {
-  pending
-  in_progress
-  delivered
-  failed
-  skipped
-  dead_letter
-}
-
-enum WorkspaceNotificationPolicySource {
-  idle_reengagement
-  quota_advisory
-}
 
 enum BillingLifecycleNotificationChannel {
   email
@@ -516,12 +494,12 @@ model AppUser {
   requestedKnowledgeIndexingJobs         KnowledgeIndexingJob[]              @relation("KnowledgeIndexingJobRequestedByUser")
   updatedPlatformRuntimeProviderSettings PlatformRuntimeProviderSettings[]   @relation("PlatformRuntimeProviderSettingsUpdatedByUser")
   updatedPlatformRuntimeProviderSecrets  PlatformRuntimeProviderSecret[]     @relation("PlatformRuntimeProviderSecretsUpdatedByUser")
-  updatedWorkspaceNotificationPolicies   WorkspaceNotificationPolicy[]       @relation("WorkspaceNotificationPolicyUpdatedByUser")
   updatedBillingLifecycleSettings        BillingLifecycleSettings[]          @relation("BillingLifecycleSettingsUpdatedByUser")
   workspaceSubscriptionLifecycleEvents   WorkspaceSubscriptionLifecycleEvent[]
   workspaceSubscriptionBillingEvents     WorkspaceSubscriptionBillingEvent[]
   workspacePaymentIntents                WorkspacePaymentIntent[]
   billingLifecycleNotificationJobs       BillingLifecycleNotificationJob[]
+  notificationIntents                    NotificationIntent[]              @relation("NotificationIntentUser")
 
   @@map("app_users")
 }
@@ -567,14 +545,16 @@ model Workspace {
   assistantBackgroundTasks          AssistantBackgroundTask[]
   assistantBackgroundTaskRuns       AssistantBackgroundTaskRun[]
   assistantWebChatTurnAttempts      AssistantWebChatTurnAttempt[]
-  assistantNotificationOutboxItems  AssistantNotificationOutbox[]
-  notificationPolicies              WorkspaceNotificationPolicy[]
   subscriptionLifecycleEvents       WorkspaceSubscriptionLifecycleEvent[]
   subscriptionBillingEvents         WorkspaceSubscriptionBillingEvent[]
   paymentIntents                    WorkspacePaymentIntent[]
   billingLifecycleNotificationJobs  BillingLifecycleNotificationJob[]
-  quotaAdvisoryStates               AssistantQuotaAdvisoryState[]
   mediaJobs                         AssistantMediaJob[]
+  notificationIntents               NotificationIntent[]            @relation("NotificationIntentWorkspace")
+  notificationChannelRegistry       NotificationChannelRegistry[]   @relation("NotificationChannelRegistryWorkspace")
+  notificationPoliciesUnified       NotificationPolicy[]            @relation("NotificationPolicyWorkspace")
+  notificationQuietHours            NotificationQuietHours?         @relation("NotificationQuietHoursWorkspace")
+  notificationDeadLetters           NotificationDeadLetter[]        @relation("NotificationDeadLetterWorkspace")
 
   @@map("workspaces")
 }
@@ -591,7 +571,6 @@ model WorkspaceMember {
   assistantTaskRegistryItems   AssistantTaskRegistryItem[]
   assistantBackgroundTasks     AssistantBackgroundTask[]
   assistantBackgroundTaskRuns  AssistantBackgroundTaskRun[]
-  assistantNotificationOutbox  AssistantNotificationOutbox[]
   assistantKnowledgeSources    AssistantKnowledgeSource[]
   assistantSkillAssignments    AssistantSkillAssignment[]
   abuseGuardStates             AssistantAbuseGuardState[]
@@ -648,7 +627,6 @@ model Assistant {
   taskRegistryItems                    AssistantTaskRegistryItem[]
   backgroundTasks                      AssistantBackgroundTask[]
   backgroundTaskRuns                   AssistantBackgroundTaskRun[]
-  notificationOutboxItems              AssistantNotificationOutbox[]
   billingLifecycleNotificationJobs     BillingLifecycleNotificationJob[]
   knowledgeSources                     AssistantKnowledgeSource[]
   knowledgeSourceChunks                AssistantKnowledgeSourceChunk[]
@@ -673,8 +651,8 @@ model Assistant {
   assistantFiles                       AssistantFile[]
   backgroundCompactionJobs             AssistantBackgroundCompactionJob[]
   webChatTurnAttempts                  AssistantWebChatTurnAttempt[]
-  quotaAdvisoryStates                  AssistantQuotaAdvisoryState[]
   mediaJobs                            AssistantMediaJob[]
+  notificationIntents                  NotificationIntent[]          @relation("NotificationIntentAssistant")
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -902,7 +880,6 @@ model BillingLifecycleNotificationJob {
   subject                       String?                               @db.VarChar(255)
   text                          String                                @db.Text
   metadata                      Json                                  @default("{}") @db.JsonB
-  assistantNotificationOutboxId String?                               @map("assistant_notification_outbox_id") @db.Uuid
   enqueuedAt                    DateTime?                             @map("enqueued_at") @db.Timestamptz(6)
   skippedAt                     DateTime?                             @map("skipped_at") @db.Timestamptz(6)
   failedAt                      DateTime?                             @map("failed_at") @db.Timestamptz(6)
@@ -919,7 +896,6 @@ model BillingLifecycleNotificationJob {
   @@index([workspaceId, scheduledFor])
   @@index([status, scheduledFor])
   @@index([lifecycleEventId])
-  @@index([assistantNotificationOutboxId])
   @@map("billing_lifecycle_notification_jobs")
 }
 
@@ -1853,7 +1829,6 @@ model AssistantBackgroundTaskRun {
   status               AssistantBackgroundTaskRunStatus @default(running)
   decisionJson         Json?                            @map("decision_json") @db.JsonB
   pushText             String?                          @map("push_text") @db.Text
-  notificationOutboxId String?                          @map("notification_outbox_id") @db.Uuid
   deliveryTarget       String?                          @map("delivery_target") @db.VarChar(64)
   deliveryResultJson   Json?                            @map("delivery_result_json") @db.JsonB
   errorCode            String?                          @map("error_code") @db.VarChar(128)
@@ -1868,91 +1843,8 @@ model AssistantBackgroundTaskRun {
 
   @@index([taskId, createdAt(sort: Desc)])
   @@index([assistantId, createdAt(sort: Desc)])
-  @@index([notificationOutboxId])
   @@index([status, createdAt(sort: Desc)])
   @@map("assistant_background_task_runs")
-}
-
-model AssistantNotificationOutbox {
-  id                      String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  source                  AssistantNotificationOutboxSource
-  sourceId                String                            @map("source_id") @db.VarChar(128)
-  dedupeKey               String                            @unique @map("dedupe_key") @db.VarChar(512)
-  assistantId             String                            @map("assistant_id") @db.Uuid
-  userId                  String                            @map("user_id") @db.Uuid
-  workspaceId             String                            @map("workspace_id") @db.Uuid
-  status                  AssistantNotificationOutboxStatus @default(pending)
-  deliveryStatus          String                            @default("ok") @map("delivery_status") @db.VarChar(32)
-  text                    String?                           @db.Text
-  artifactsJson           Json?                             @map("artifacts_json") @db.JsonB
-  metadataJson            Json?                             @map("metadata_json") @db.JsonB
-  deliveryResultJson      Json?                             @map("delivery_result_json") @db.JsonB
-  deliveryTarget          String?                           @map("delivery_target") @db.VarChar(64)
-  attemptCount            Int                               @default(0) @map("attempt_count")
-  retryAfterAt            DateTime?                         @map("retry_after_at") @db.Timestamptz(6)
-  schedulerClaimToken     String?                           @map("scheduler_claim_token") @db.VarChar(64)
-  schedulerClaimedAt      DateTime?                         @map("scheduler_claimed_at") @db.Timestamptz(6)
-  schedulerClaimExpiresAt DateTime?                         @map("scheduler_claim_expires_at") @db.Timestamptz(6)
-  lastErrorCode           String?                           @map("last_error_code") @db.VarChar(128)
-  lastErrorMessage        String?                           @map("last_error_message") @db.Text
-  deliveredAt             DateTime?                         @map("delivered_at") @db.Timestamptz(6)
-  skippedAt               DateTime?                         @map("skipped_at") @db.Timestamptz(6)
-  deadLetteredAt          DateTime?                         @map("dead_lettered_at") @db.Timestamptz(6)
-  createdAt               DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant               Assistant                         @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember         WorkspaceMember                   @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspace               Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@index([status, retryAfterAt, createdAt])
-  @@index([assistantId, source, sourceId])
-  @@index([workspaceId, status, createdAt(sort: Desc)])
-  @@map("assistant_notification_outbox")
-}
-
-model AssistantQuotaAdvisoryState {
-  id                      String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId             String                     @map("assistant_id") @db.Uuid
-  workspaceId             String                     @map("workspace_id") @db.Uuid
-  channel                 RuntimeConversationChannel
-  externalThreadKey       String                     @map("external_thread_key") @db.VarChar(255)
-  dedupeKey               String                     @unique @map("dedupe_key") @db.VarChar(512)
-  limitCode               String                     @map("limit_code") @db.VarChar(128)
-  displayName             String                     @map("display_name") @db.VarChar(255)
-  thresholdCode           String                     @map("threshold_code") @db.VarChar(64)
-  warningThresholdPercent Int                        @map("warning_threshold_percent")
-  currentPercent          Int                        @map("current_percent")
-  periodStartedAt         DateTime?                  @map("period_started_at") @db.Timestamptz(6)
-  periodEndsAt            DateTime?                  @map("period_ends_at") @db.Timestamptz(6)
-  periodSource            String?                    @map("period_source") @db.VarChar(32)
-  deliveredAt             DateTime                   @map("delivered_at") @db.Timestamptz(6)
-  createdAt               DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant               Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace               Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@index([assistantId, channel, externalThreadKey, deliveredAt(sort: Desc)])
-  @@index([workspaceId, deliveredAt(sort: Desc)])
-  @@map("assistant_quota_advisory_states")
-}
-
-model WorkspaceNotificationPolicy {
-  id              String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId     String                            @map("workspace_id") @db.Uuid
-  source          WorkspaceNotificationPolicySource
-  enabled         Boolean                           @default(false)
-  idleHours       Int                               @default(24) @map("idle_hours")
-  cooldownHours   Int                               @default(72) @map("cooldown_hours")
-  llmInstruction  String                            @map("llm_instruction") @db.Text
-  updatedByUserId String?                           @map("updated_by_user_id") @db.Uuid
-  createdAt       DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace       Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  updatedByUser   AppUser?                          @relation("WorkspaceNotificationPolicyUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-
-  @@unique([workspaceId, source])
-  @@index([workspaceId, enabled])
-  @@map("workspace_notification_policies")
 }
 
 model AssistantKnowledgeSource {
@@ -2533,4 +2425,216 @@ model PersonaArchetype {
 
   @@index([displayOrder])
   @@map("persona_archetypes")
+}
+
+// ─── ADR-088: Unified notification platform ────────────────────────────────
+
+enum NotificationSource {
+  idle_reengagement
+  quota_advisory
+  reminder
+  background_task_push
+  billing_lifecycle
+  admin_system
+  system_event
+}
+
+enum NotificationClass {
+  conversational
+  transactional
+  operational
+  administrative
+}
+
+enum NotificationPriority {
+  immediate
+  scheduled
+  digest
+  skippable
+}
+
+enum NotificationLifecycleStatus {
+  pending
+  claimed
+  delivered
+  failed
+  dead_letter
+  skipped
+  deferred_quiet_hours
+  deferred_rate_limit
+}
+
+enum NotificationRenderStrategy {
+  grounded_llm
+  template
+  static_fallback
+}
+
+enum NotificationDeliveryAttemptStatus {
+  pending
+  sent
+  delivered
+  failed
+  bounced
+  complaint
+  escalated
+}
+
+enum NotificationChannelType {
+  telegram_thread
+  web_thread
+  web_notification_center
+  email
+  admin_webhook
+  web_push
+  mobile_push
+}
+
+enum NotificationChannelHealth {
+  healthy
+  degraded
+  down
+  unconfigured
+}
+
+enum NotificationQuietHoursTimezoneMode {
+  workspace_default
+  per_user_resolved
+}
+
+model NotificationIntent {
+  id                     String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId            String                      @map("workspace_id") @db.Uuid
+  assistantId            String?                     @map("assistant_id") @db.Uuid
+  userId                 String?                     @map("user_id") @db.Uuid
+  source                 NotificationSource
+  class                  NotificationClass           @map("class")
+  priority               NotificationPriority
+  lifecycleStatus        NotificationLifecycleStatus @default(pending) @map("lifecycle_status")
+  renderStrategy         NotificationRenderStrategy  @map("render_strategy")
+  renderInstructionRef   String?                     @map("render_instruction_ref") @db.Text
+  templateId             String?                     @map("template_id") @db.Text
+  factPayload            Json                        @map("fact_payload") @db.JsonB
+  policySnapshot         Json                        @map("policy_snapshot") @db.JsonB
+  allowedChannels        String[]                    @map("allowed_channels")
+  escalationAfterMinutes Int?                        @map("escalation_after_minutes")
+  escalationChannel      String?                     @map("escalation_channel") @db.VarChar(64)
+  dedupeKey              String?                     @map("dedupe_key") @db.VarChar(512)
+  scheduledAt            DateTime?                   @map("scheduled_at") @db.Timestamptz(6)
+  respectQuietHours      Boolean                     @default(true) @map("respect_quiet_hours")
+  surface                String?                     @db.VarChar(64)
+  surfaceThreadKey       String?                     @map("surface_thread_key") @db.VarChar(255)
+  chatId                 String?                     @map("chat_id") @db.Uuid
+  traceId                String?                     @map("trace_id") @db.VarChar(255)
+  failureReason          String?                     @map("failure_reason") @db.Text
+  createdAt              DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  claimedAt              DateTime?                   @map("claimed_at") @db.Timestamptz(6)
+  deliveredAt            DateTime?                   @map("delivered_at") @db.Timestamptz(6)
+  deadLetteredAt         DateTime?                   @map("dead_lettered_at") @db.Timestamptz(6)
+  workspace              Workspace                   @relation("NotificationIntentWorkspace", fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant              Assistant?                  @relation("NotificationIntentAssistant", fields: [assistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  user                   AppUser?                    @relation("NotificationIntentUser", fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  deliveryAttempts       NotificationDeliveryAttempt[]
+  deadLetter             NotificationDeadLetter?
+
+  @@unique([workspaceId, dedupeKey])
+  @@index([workspaceId, lifecycleStatus, scheduledAt, createdAt])
+  @@index([workspaceId, source, lifecycleStatus, createdAt(sort: Desc)])
+  @@index([assistantId, lifecycleStatus, createdAt(sort: Desc)])
+  @@map("notification_intents")
+}
+
+model NotificationDeliveryAttempt {
+  id                   String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  intentId             String                             @map("intent_id") @db.Uuid
+  attemptNumber        Int                                @map("attempt_number")
+  channel              String                             @db.VarChar(64)
+  status               NotificationDeliveryAttemptStatus  @default(pending)
+  providerRef          String?                            @map("provider_ref") @db.VarChar(255)
+  error                Json?                              @db.JsonB
+  escalationOf         String?                            @map("escalation_of") @db.Uuid
+  startedAt            DateTime                           @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt          DateTime?                          @map("completed_at") @db.Timestamptz(6)
+  intent               NotificationIntent                 @relation(fields: [intentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  escalationOfAttempt  NotificationDeliveryAttempt?       @relation("EscalationChain", fields: [escalationOf], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  escalationAttempts   NotificationDeliveryAttempt[]      @relation("EscalationChain")
+
+  @@index([intentId, attemptNumber])
+  @@index([intentId, status])
+  @@map("notification_delivery_attempts")
+}
+
+model NotificationChannelRegistry {
+  id                 String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId        String                    @map("workspace_id") @db.Uuid
+  channelType        NotificationChannelType   @map("channel_type")
+  enabled            Boolean                   @default(false)
+  config             Json                      @db.JsonB
+  healthStatus       NotificationChannelHealth @default(unconfigured) @map("health_status")
+  consecutiveFailures Int                      @default(0) @map("consecutive_failures")
+  lastDeliveryAt     DateTime?                 @map("last_delivery_at") @db.Timestamptz(6)
+  lastFailureAt      DateTime?                 @map("last_failure_at") @db.Timestamptz(6)
+  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace          Workspace                 @relation("NotificationChannelRegistryWorkspace", fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([workspaceId, channelType])
+  @@index([workspaceId, enabled, healthStatus])
+  @@map("notification_channel_registry")
+}
+
+model NotificationPolicy {
+  id                     String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId            String                     @map("workspace_id") @db.Uuid
+  source                 NotificationSource
+  enabled                Boolean                    @default(false)
+  channels               String[]
+  cooldownMinutes        Int?                       @map("cooldown_minutes")
+  maxPerDay              Int?                       @map("max_per_day")
+  escalationAfterMinutes Int?                       @map("escalation_after_minutes")
+  escalationChannel      String?                    @map("escalation_channel") @db.VarChar(64)
+  respectQuietHours      Boolean                    @default(true) @map("respect_quiet_hours")
+  renderStrategy         NotificationRenderStrategy @map("render_strategy")
+  renderInstructionRef   String?                    @map("render_instruction_ref") @db.Text
+  templateId             String?                    @map("template_id") @db.Text
+  config                 Json                       @db.JsonB
+  createdAt              DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace              Workspace                  @relation("NotificationPolicyWorkspace", fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([workspaceId, source])
+  @@index([workspaceId, enabled])
+  @@map("notification_policies")
+}
+
+model NotificationQuietHours {
+  id               String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String                            @unique @map("workspace_id") @db.Uuid
+  enabled          Boolean                           @default(false)
+  startLocal       String                            @default("22:00") @map("start_local") @db.VarChar(5)
+  endLocal         String                            @default("08:00") @map("end_local") @db.VarChar(5)
+  timezoneMode     NotificationQuietHoursTimezoneMode @default(workspace_default) @map("timezone_mode")
+  defaultTimezone  String?                           @map("default_timezone") @db.VarChar(64)
+  appliesToSources String[]                          @map("applies_to_sources")
+  createdAt        DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace        Workspace                         @relation("NotificationQuietHoursWorkspace", fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("notification_quiet_hours")
+}
+
+model NotificationDeadLetter {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  intentId             String    @unique @map("intent_id") @db.Uuid
+  workspaceId          String    @map("workspace_id") @db.Uuid
+  lastError            Json      @map("last_error") @db.JsonB
+  escalationAttempts   Int       @default(0) @map("escalation_attempts")
+  claimedForReplayAt   DateTime? @map("claimed_for_replay_at") @db.Timestamptz(6)
+  resolvedAt           DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  intent               NotificationIntent @relation(fields: [intentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace            Workspace          @relation("NotificationDeadLetterWorkspace", fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([workspaceId, resolvedAt, createdAt(sort: Desc)])
+  @@map("notification_dead_letters")
 }

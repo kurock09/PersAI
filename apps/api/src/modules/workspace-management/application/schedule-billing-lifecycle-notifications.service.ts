@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { AssistantNotificationOutboxService } from "./assistant-notification-outbox.service";
 import { ManageAdminBillingLifecycleSettingsService } from "./manage-admin-billing-lifecycle-settings.service";
+import { NotificationIntentService } from "./notifications/notification-intent.service";
 import type {
   BillingLifecycleNotificationCode,
   BillingLifecycleNotificationPolicy,
@@ -62,7 +62,7 @@ export class ScheduleBillingLifecycleNotificationsService implements OnModuleIni
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly settingsService: ManageAdminBillingLifecycleSettingsService,
-    private readonly assistantNotificationOutboxService: AssistantNotificationOutboxService
+    private readonly notificationIntentService: NotificationIntentService
   ) {}
 
   onModuleInit(): void {
@@ -146,13 +146,20 @@ export class ScheduleBillingLifecycleNotificationsService implements OnModuleIni
     let processed = 0;
     for (const job of jobs) {
       try {
-        const outbox = await this.assistantNotificationOutboxService.enqueue({
+        const assistant = await this.prisma.assistant.findUnique({
+          where: { id: job.assistantId! },
+          select: { userId: true, workspaceId: true }
+        });
+        await this.notificationIntentService.createIntent({
+          workspaceId: assistant?.workspaceId ?? job.workspaceId!,
           assistantId: job.assistantId!,
+          userId: assistant?.userId ?? job.userId ?? null,
           source: "billing_lifecycle",
-          sourceId: job.id,
-          status: "ok",
-          text: job.text,
-          metadata: {
+          class: "transactional",
+          priority: "immediate",
+          renderStrategy: "static_fallback",
+          factPayload: {
+            pushText: job.text,
             billingLifecycleNotificationJobId: job.id,
             notificationCode: job.notificationCode,
             lifecycleEventId: job.lifecycleEventId,
@@ -165,7 +172,6 @@ export class ScheduleBillingLifecycleNotificationsService implements OnModuleIni
           where: { id: job.id },
           data: {
             status: "enqueued",
-            assistantNotificationOutboxId: outbox.id,
             enqueuedAt: new Date(),
             lastErrorCode: null,
             lastErrorMessage: null
@@ -178,7 +184,7 @@ export class ScheduleBillingLifecycleNotificationsService implements OnModuleIni
           data: {
             status: "failed",
             failedAt: new Date(),
-            lastErrorCode: "assistant_outbox_enqueue_failed",
+            lastErrorCode: "notification_intent_create_failed",
             lastErrorMessage: error instanceof Error ? error.message : String(error)
           }
         });
@@ -387,7 +393,6 @@ export class ScheduleBillingLifecycleNotificationsService implements OnModuleIni
             subject: input.copy.subject,
             text: input.copy.text,
             metadata: createData.metadata,
-            assistantNotificationOutboxId: null,
             enqueuedAt: null,
             skippedAt: input.status === "skipped" ? now : null,
             failedAt: null,

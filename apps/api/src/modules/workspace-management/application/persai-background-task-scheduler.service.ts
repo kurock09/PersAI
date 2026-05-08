@@ -3,8 +3,8 @@ import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { AssistantNotificationOutboxService } from "./assistant-notification-outbox.service";
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
+import { NotificationIntentService } from "./notifications/notification-intent.service";
 import {
   InternalRuntimeBackgroundTaskClientService,
   type InternalRuntimeBackgroundTaskEvaluationOutcome
@@ -68,7 +68,7 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
     private readonly assistantRepository: AssistantRepository,
     private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly internalRuntimeBackgroundTaskClientService: InternalRuntimeBackgroundTaskClientService,
-    private readonly assistantNotificationOutboxService: AssistantNotificationOutboxService
+    private readonly notificationIntentService: NotificationIntentService
   ) {}
 
   onModuleInit(): void {
@@ -288,8 +288,6 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
     outcome: Extract<InternalRuntimeBackgroundTaskEvaluationOutcome, { ok: true }>
   ): Promise<void> {
     const result = outcome.result;
-    const deliveryTarget: string | null = null;
-    let notificationOutboxId: string | null = null;
     let deliveryResultJson: Prisma.InputJsonValue | typeof Prisma.DbNull = Prisma.DbNull;
     const runStatus: "no_push" | "pushed" | "completed" =
       result.decision === "push"
@@ -298,22 +296,27 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
           ? "completed"
           : "no_push";
     if (result.decision === "push" && result.pushText) {
-      const outboxResult = await this.assistantNotificationOutboxService.enqueue({
+      const dedupeKey = `background_task:${task.id}:${task.scheduledRunAt.toISOString()}`;
+      const intent = await this.notificationIntentService.createIntent({
+        workspaceId: task.workspaceId,
         assistantId: task.assistantId,
-        source: "background_task",
-        sourceId: task.id,
-        status: "ok",
-        text: result.pushText,
-        artifacts: result.artifacts,
-        metadata: { backgroundTaskRunId: task.runId },
-        dedupeKey: `background_task:${task.id}:${task.scheduledRunAt.toISOString()}`
+        userId: task.userId,
+        source: "background_task_push",
+        class: "conversational",
+        priority: "immediate",
+        renderStrategy: "grounded_llm",
+        factPayload: {
+          pushText: result.pushText,
+          backgroundTaskRunId: task.runId,
+          artifacts: result.artifacts
+        },
+        dedupeKey,
+        traceId: randomUUID()
       });
-      notificationOutboxId = outboxResult.id;
       deliveryResultJson = {
-        outboxId: outboxResult.id,
-        outboxStatus: outboxResult.status,
-        dedupeKey: outboxResult.dedupeKey,
-        created: outboxResult.created
+        intentId: intent.id,
+        dedupeKey,
+        lifecycleStatus: intent.lifecycleStatus
       };
     }
 
@@ -361,8 +364,6 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
             }))
           } as Prisma.InputJsonValue,
           pushText: result.pushText,
-          notificationOutboxId,
-          deliveryTarget,
           deliveryResultJson,
           usageJson:
             result.usage === null

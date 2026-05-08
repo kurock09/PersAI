@@ -25,7 +25,6 @@ import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
-  quotaAdvisoryMessage?: string;
   respondedAt: string;
   media: RuntimeMediaArtifact[];
   assistantMessageId: string;
@@ -334,13 +333,15 @@ export class HandleInternalTelegramTurnService {
         (await this.quotaAdvisoryFollowUpService?.maybeCreateFollowUp({
           assistantId: resolved.assistantId,
           workspaceId: resolved.workspaceId,
+          userId: resolved.userId,
           chatId: chat.id,
           surface: "telegram",
           surfaceThreadKey: input.threadId,
-          mainAssistantMessage: assistantMessage
+          mainAssistantMessage: assistantMessage,
+          traceId: trace.getTraceId()
         })) ?? null;
       if (quotaAdvisoryFollowUp !== null) {
-        trace.stage("quota_advisory_follow_up_saved");
+        trace.stage("quota_advisory_follow_up_intent_created");
       }
       if (claimedUpdateId !== null) {
         const completedUpdate = await this.completeTelegramUpdateBestEffort(
@@ -359,9 +360,6 @@ export class HandleInternalTelegramTurnService {
       return {
         ...runtimeResponse,
         assistantMessage,
-        ...(quotaAdvisoryFollowUp === null
-          ? {}
-          : { quotaAdvisoryMessage: quotaAdvisoryFollowUp.assistantMessage.content }),
         media: deliveredMedia,
         assistantMessageId,
         chatId: chat.id,

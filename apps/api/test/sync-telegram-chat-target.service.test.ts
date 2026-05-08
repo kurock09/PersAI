@@ -159,7 +159,7 @@ async function runHelperFailureDoesNotBreakBind(): Promise<void> {
 
 async function runOrderingMetadataPatchHappensBeforeAutoSelect(): Promise<void> {
   // The auto-select helper must run AFTER the binding metadata is
-  // persisted, so any subsequent AssistantNotificationDeliveryService lookup
+  // persisted, so any subsequent TelegramThreadChannelAdapter resolution
   // sees the new telegramDmChatId. We approximate by recording call order.
   const order: string[] = [];
   class OrderedBinding extends FakeBindingRepository {

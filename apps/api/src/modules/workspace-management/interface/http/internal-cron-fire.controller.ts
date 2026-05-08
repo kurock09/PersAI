@@ -16,7 +16,7 @@ export class InternalCronFireController {
     @Req() req: InternalRequestLike,
     @Query("assistantId") assistantId: string | undefined,
     @Body() body: unknown
-  ): Promise<{ ok: true; deliveredTo: "telegram" | "web" | "fallback_web" | "none" }> {
+  ): Promise<{ ok: true; deliveredTo: "none" }> {
     this.assertAuthorized(req);
     const input = this.handleInternalCronFireService.parseInput(assistantId ?? "", body);
     return this.handleInternalCronFireService.execute(input);

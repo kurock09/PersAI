@@ -2697,7 +2697,6 @@ export function AssistantSettings({
                     (
                       {
                         telegram: "channelTelegram",
-                        whatsapp: "channelWhatsApp",
                         web: "channelWeb"
                       } as Record<string, string>
                     )[channel] ?? "channelWeb"

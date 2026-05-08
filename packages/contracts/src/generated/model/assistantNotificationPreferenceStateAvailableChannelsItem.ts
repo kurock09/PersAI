@@ -11,6 +11,5 @@ export type AssistantNotificationPreferenceStateAvailableChannelsItem =
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantNotificationPreferenceStateAvailableChannelsItem = {
   web: "web",
-  telegram: "telegram",
-  whatsapp: "whatsapp"
+  telegram: "telegram"
 } as const;

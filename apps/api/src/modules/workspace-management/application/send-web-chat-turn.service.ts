@@ -384,13 +384,15 @@ export class SendWebChatTurnService {
         (await this.quotaAdvisoryFollowUpService?.maybeCreateFollowUp({
           assistantId: prepared.assistantId,
           workspaceId: prepared.workspaceId,
+          userId: prepared.userId,
           chatId: prepared.chat.id,
           surface: "web",
           surfaceThreadKey: prepared.chat.surfaceThreadKey,
-          mainAssistantMessage: finalAssistantContent
+          mainAssistantMessage: finalAssistantContent,
+          traceId: trace.getTraceId()
         })) ?? null;
       if (quotaAdvisoryFollowUp !== null) {
-        trace.stage("quota_advisory_follow_up_saved");
+        trace.stage("quota_advisory_follow_up_intent_created");
       }
 
       if (request.clientTurnId !== undefined) {
@@ -403,7 +405,7 @@ export class SendWebChatTurnService {
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
           quotaFallbackReason: prepared.quotaDegradeReason,
           quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
-          followUpAssistantMessageId: quotaAdvisoryFollowUp?.assistantMessage.id ?? null,
+          followUpAssistantMessageId: null,
           ...(runtimeResponse.turnRouting === undefined
             ? {}
             : { turnRouting: runtimeResponse.turnRouting }),
@@ -480,9 +482,6 @@ export class SendWebChatTurnService {
           attachments: delivered.attachments,
           createdAt: assistantMessage.createdAt.toISOString()
         },
-        ...(quotaAdvisoryFollowUp === null
-          ? {}
-          : { followUpAssistantMessage: quotaAdvisoryFollowUp.assistantMessage }),
         activeMediaJobs,
         runtime: {
           respondedAt: runtimeResponse.respondedAt,

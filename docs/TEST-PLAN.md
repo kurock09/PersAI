@@ -53,7 +53,7 @@ corepack pnpm --filter @persai/contracts run generate
 corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/enforce-abuse-rate-limit.test.ts
-corepack pnpm --filter @persai/api exec tsx test/quota-advisory-state.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts
 corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/send-web-chat-turn.service.test.ts
 corepack pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/stream-web-chat-turn.service.test.ts
@@ -90,17 +90,55 @@ corepack pnpm run test
 When a change touches notification intent modeling, channel routing, delivery backbones, admin notification governance, billing/email notification migration, or active-thread conversational notification unification, add checks that cover both the newly touched domain and the shared delivery backbone before broad verification:
 
 ```bash
-corepack pnpm --filter @persai/api exec tsx test/manage-admin-notification-channels.service.test.ts
-corepack pnpm --filter @persai/api exec tsx test/assistant-notification-outbox.service.test.ts
-corepack pnpm --filter @persai/api exec tsx test/assistant-notification-outbox-scheduler.service.test.ts
-corepack pnpm --filter @persai/api exec tsx test/assistant-notification-delivery.service.test.ts
-corepack pnpm --filter @persai/api exec tsx test/schedule-billing-lifecycle-notifications.service.test.ts
+# Slice 1 focused tests (all pass after Slice 1 closeout)
+corepack pnpm --filter @persai/api exec tsx test/notification-intent.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/notification-routing.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/notification-delivery-worker.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/email-channel.adapter.test.ts
+corepack pnpm --filter @persai/api exec tsx test/handle-postmark-webhook.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/admin-notifications.controller.test.ts
-corepack pnpm --filter @persai/web exec vitest run app/admin/notifications/page.test.tsx
 corepack pnpm --filter @persai/api run typecheck
 corepack pnpm --filter @persai/web run typecheck
 corepack pnpm run test
 ```
+
+Slice 1 focused test coverage (as of Slice 1 closeout):
+
+| Test file | Scenarios covered |
+|---|---|
+| `notification-intent.service.test.ts` | basic creation, deduplication, quiet-hours deferral, immediate override, scheduled intent |
+| `notification-routing.service.test.ts` | active quiet hours → deferred; immediate override; source not in list; disabled; no config; outside window; respectQuietHours=false |
+| `notification-delivery-worker.service.test.ts` | all ADR §11 fields present in delivery.attempted; latencyMs from intent.createdAt; delivery.delivered userId+outcome; delivery.failed errorCode; intent.dead_letter lastError; delivery.escalated |
+| `email-channel.adapter.test.ts` | full Postmark request shape; List-Unsubscribe headers; no List-Unsubscribe without URL; 4xx→not retryable; 5xx→retryable; no HtmlBody when html=null |
+| `handle-postmark-webhook.service.test.ts` | valid HMAC accepted; invalid HMAC rejected; unsigned accepted in dev; unsigned rejected in prod; 5 failures→healthStatus=down |
+| `admin-notifications.controller.test.ts` | all 8 endpoint shapes match OpenAPI (bare views, no wrappers; 204 discard; deadLetters key; pagination fields) |
+
+Slice 2 focused tests (all pass after Slice 2 landing 2026-05-08):
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/notification-intent.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/notification-routing.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/notification-delivery-worker.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/admin-notifications.controller.test.ts
+corepack pnpm --filter @persai/api exec tsx test/notification-intent.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/persai-idle-reengagement-scheduler.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/notification-routing.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/notification-delivery-worker.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts
+corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-notifications.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts
+```
+
+| Test file | Scenarios covered |
+|---|---|
+| `persai-idle-reengagement-scheduler.service.test.ts` | no policy → skips; skippable intent created; cooldown dedup check against notification_intents |
+| `handle-internal-cron-fire.test.ts` | reminder intent created; respectQuietHours=false; deliveredTo="none" |
+| `billing-lifecycle-notifications.service.test.ts` | transactional intent created; assistantNotificationOutboxId references removed |
+| `read-internal-runtime-quota-status.service.test.ts` | advisoryCandidates empty when no threshold crossed |
+| `notification-intent.service.test.ts` | quiet-hours deferral via notification_intents |
+| `notification-routing.service.test.ts` | 7 quiet-hours routing scenarios |
+| `notification-delivery-worker.service.test.ts` | ADR §11 structured log fields + latencyMs + dead-letter (Part A); quiet-hours deferral end-to-end, dedupe collision at intent-service level, primary failure → escalation success (Part B) |
+| `admin-notifications.controller.test.ts` | all 8 endpoint shapes; no legacy policy endpoints |
 
 Interpretation rules:
 
@@ -108,6 +146,9 @@ Interpretation rules:
 2. Billing/admin/ops notifications must remain deterministic/template-safe unless a later ADR explicitly expands grounded rendering.
 3. New notification features should not bypass durable enqueue, policy resolution, routing, and delivery audit with ad hoc direct sends.
 4. `Admin > Notifications` should gain control-plane authority over policy/routing/history rather than accumulating one-off feature cards.
+5. All delivery log events must carry the full ADR §11 field set: `intentId`, `workspaceId`, `assistantId?`, `userId?`, `source`, `class`, `priority`, `renderStrategy`, `channel`, `attemptNumber`, `latencyMs` (from `intent.createdAt`), `outcome`, `errorCode?`, `traceId`.
+6. `latencyMs` must be computed from `intent.createdAt`, not from worker pickup time.
+7. Dead-letter `resolvedAt` must be set by both replay and discard; only `resolvedAt IS NULL` rows are returned by default list.
 
 ## ADR-083 subscription lifecycle focused checks
 
@@ -143,7 +184,7 @@ Interpretation rules:
 10. Payment recovery must restore active paid state with provider/manual period truth and append `payment_recovered`.
 11. Credits/token budget visibility, inbound enforcement, abuse quota-pressure, and admin quota-pressure surfaces must read the current `workspace_token_budget_period_counters` bucket for the effective subscription period, not stale compatibility token totals from a previous period.
 12. Billing lifecycle notification schedules must come from persisted Billing Settings policy, with email required and assistant push optional.
-13. Lifecycle events must create durable billing notification jobs instead of process-local timers; required email jobs stay pending until a real email adapter exists, and assistant push must reuse `assistant_notification_outbox` with required-facts static fallback copy.
+13. Lifecycle events must create durable `notification_intents` (class: `transactional`) via `NotificationIntentService` instead of process-local timers; required email jobs stay pending until Slice 3 adds MJML templates and a real Postmark email delivery path.
 14. Ops Cockpit user-directory rows should be billing-support rows: email, plan, lifecycle status, next relevant billing/trial/grace date, usage risk, and actions, not assistant setup trivia.
 15. Ops Cockpit selected detail must expose PersAI-owned subscription truth, lifecycle events, notification jobs, quota period, and support identifiers without reading billing-provider state directly at request time.
 16. Ops Cockpit support actions must run through lifecycle/subscription services rather than raw admin row mutation: extend trial updates trial windows, grant/extend grace preserves paid access logic, fallback now moves deterministically to configured fallback truth, manual reminder creates durable notification work, and the selected detail refreshes to the new lifecycle state after each action.
@@ -707,6 +748,147 @@ Interpretation rules:
 2. the report must include phase summaries plus admin snapshots before/after phases so restart/degradation evidence is visible alongside latency/error gates
 3. the next bottleneck must be written down explicitly after each ladder run, even if the run fails below `1000`
 4. `runtime` and `provider-gateway` HPA must stay disabled in active Helm values until the fixed-2-replica path passes rollout/restart recovery and at least one bounded load ladder with honest bottleneck evidence
+
+## ADR-088 Slice 1 — Unified Notification Platform (Foundation)
+
+These are focused tests for the new services, adapters, and API. Run them in CI alongside the standard gate.
+
+### Notification Intent Service (`notification-intent.service.ts`)
+
+- `createIntent` with valid args persists a `notification_intents` row with `status=pending`
+- `createIntent` with a duplicate `deduplicationKey` within the dedup window returns the existing intent and does not create a duplicate row
+- `createIntent` with an unknown `source` enum value is rejected with a validation error before DB write
+
+### Notification Routing Service (`notification-routing.service.ts`)
+
+- `resolveChannels` for a `conversational` class intent resolves only `telegram_thread` and `web_thread` channels when both are enabled
+- `resolveChannels` returns an empty list when all channels are disabled in the registry
+- quiet-hours check correctly suppresses a channel when the current time falls inside the quiet window (tested with a fixed UTC clock and `workspace_tz` mode)
+- quiet-hours check does not suppress the channel when the current time is outside the quiet window
+
+### Notification Delivery Worker (`notification-delivery-worker.service.ts`)
+
+- claiming an intent transitions `status` from `pending` to `routing` atomically (no double-claim under concurrent workers — use `$transaction` + optimistic lock assertion)
+- a successful adapter `deliver()` call sets attempt status to `delivered` and intent status to `delivered`
+- a failed adapter `deliver()` call (throws) increments attempt count, records `lastError`, and leaves intent for retry or escalation
+- after `maxAttempts` failures, the intent is moved to `notification_dead_letters` with a serialized failure reason
+
+### Channel Adapters
+
+- `EmailChannelAdapter.deliver()` in dev (no `POSTMARK_SERVER_TOKEN`) returns `{ status: "skipped" }` without throwing
+- `EmailChannelAdapter.deliver()` with a mock Postmark client returns `{ status: "delivered", providerRef: "<messageId>" }` on success
+- `TelegramThreadChannelAdapter.deliver()` delegates to the existing Telegram message-send path and does not duplicate its send logic
+- `WebPushChannelAdapter.deliver()` and `MobilePushChannelAdapter.deliver()` return `{ status: "skipped" }` (stubs)
+- `AdminWebhookChannelAdapter.deliver()` posts a JSON body to the configured URL and returns `delivered` on 2xx, `failed` on non-2xx
+
+### Postmark Webhook (`POST /api/v1/internal/notifications/postmark-webhook`)
+
+- request with valid HMAC signature is accepted and updates `healthStatus` and `consecutiveFailures` in `notification_channel_registry`
+- request with invalid/missing HMAC is rejected with 403 and does not mutate the registry
+- bounce event correctly sets `healthStatus=degraded` when `consecutiveFailures` threshold is crossed
+
+### Preview Endpoint (`POST /api/v1/admin/notifications/preview`)
+
+- `strategy=template` + valid `templateId` returns rendered HTML/text without calling Postmark live send
+- `strategy=grounded_llm` returns a dry-run response string without calling the LLM in live mode
+- missing required body fields return 400
+
+### Admin Notifications Page (E2E intent)
+
+- `GET /api/v1/admin/notifications/channels` returns the seeded `telegram_thread`, `web_thread`, `web_notification_center`, `email`, `admin_webhook` channel rows
+- toggling a channel via `PATCH /api/v1/admin/notifications/channels/:type` persists `isEnabled` change
+- `GET /api/v1/admin/notifications/dead-letters` returns an empty list when no dead letters exist
+- `POST /api/v1/admin/notifications/dead-letters/:id/replay` re-queues the intent and removes the dead-letter record
+
+### Legacy path non-regression
+
+- All pre-existing notification paths (idle reengagement, quota advisory, billing lifecycle, admin webhook) must continue to function unchanged after Slice 1 deploy — no production user notification path should touch `notification_intents`
+
+---
+
+## ADR-088 Slice 2 — Conversational Migration
+
+These are focused tests for the Slice 2 conversational producer migration and real adapter delivery. All live in `apps/api/test/` and run via tsx.
+
+### Telegram Thread Channel Adapter (`telegram-thread-channel.adapter.test.ts`)
+
+Run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/telegram-thread-channel.adapter.test.ts
+```
+
+Covers:
+
+- `deliver` with a valid surfaceThreadKey and bot token → `status: "delivered"`, `providerRef: "telegram:<chatId>:<messageId>"`
+- 4xx Telegram HTTP response → `status: "failed"`, `error.httpStatus` present
+- network fetch rejection → `status: "failed"`
+- missing bot token → `status: "failed"`, `error.reason === "telegram_bot_token_not_configured"`
+- missing chatId (no surfaceThreadKey, no config, no binding) → `status: "failed"`, `error.reason === "telegram_chat_id_not_resolved"`
+
+### Web Thread Channel Adapter (`web-thread-channel.adapter.test.ts`)
+
+Run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/web-thread-channel.adapter.test.ts
+```
+
+Covers:
+
+- `deliver` with chatId + assistantId → `status: "delivered"`, `providerRef: "web_thread:<chatId>:<messageId>"`
+- missing chatId → `status: "failed"`, `error.reason === "web_thread_context_missing"`
+- `createMessage` throws → `status: "failed"`
+
+### Web Notification Center Channel Adapter (`web-notification-center-channel.adapter.test.ts`)
+
+Run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/web-notification-center-channel.adapter.test.ts
+```
+
+Covers:
+
+- `deliver` calls `findOrCreateChatBySurfaceThread` with `surfaceThreadKey === "system:notifications"`
+- `providerRef === "web_nc:<chatId>:<messageId>"`
+
+### Quota Advisory Follow-Up Service (`quota-advisory-follow-up.service.test.ts`)
+
+Run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/quota-advisory-follow-up.service.test.ts
+```
+
+Covers:
+
+- Web surface turn → `createIntent` called with `allowedChannels: ["web_thread"]`, `surface: "web"`, `traceId` forwarded
+- Telegram surface turn → `createIntent` called with `allowedChannels: ["telegram_thread"]`, `surface: "telegram"`, `traceId` forwarded
+- LLM decides `no_push` → returns `null`, `createIntent` not called
+- No eligible advisory candidates → returns `null`, `createIntent` not called
+
+### Notification Delivery Worker Extended (`notification-delivery-worker.service.test.ts`)
+
+Run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/notification-delivery-worker.service.test.ts
+```
+
+Part A (original — ADR §11 structured log fields):
+
+- All `notification.delivery.attempted`, `.delivered`, `.failed`, `.escalated`, `.dead_letter` events carry required `intentId`, `workspaceId`, `assistantId`, `userId`, `source`, `class`, `priority`, `renderStrategy`, `channel`, `attemptNumber`, `latencyMs`, `outcome`, `traceId` fields
+- `latencyMs` measured from `intent.createdAt`, not worker pickup
+
+Part B (Slice 2 addition — real worker instantiation with in-memory Prisma + mock adapters):
+
+- Deferred intent with a future `scheduledAt` is **not** claimed by the worker's WHERE clause
+- Deferred intent whose `scheduledAt` has elapsed **is** claimed and delivered
+- Two `createIntent` calls with the same `dedupeKey` return the same intent ID — only one row exists in the store (deduplication at intent-service level, not worker level)
+- Primary channel failure + `escalationChannel` configured → escalation attempt succeeds, `notification.delivery.escalated` event emitted
+
+---
 
 ## User-path smoke
 

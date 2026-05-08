@@ -37,12 +37,12 @@ import type {
   DeleteAssistantKnowledgeSourceResponse,
   DeleteAssistantWebChatResponse,
   DeleteProductKnowledgeTextEntryResponse,
+  DeliveryIntentView,
   ErrorEnvelope,
   GetAdminBillingLifecycleSettingsResponse,
   GetAdminBillingProviderCredentialsResponse,
   GetAdminBusinessCockpitResponse,
   GetAdminDocumentProcessingSettingsResponse,
-  GetAdminIdleReengagementNotificationPolicyResponse,
   GetAdminKnowledgeConnectorsParams,
   GetAdminKnowledgeConnectorsResponse,
   GetAdminKnowledgeIndexingJobsParams,
@@ -85,18 +85,28 @@ import type {
   GetAssistantWebChatTurnStatusResponse,
   GetKnowledgeIndexingJobsResponse,
   GetMeResponse,
+  GetNotificationDeadLettersResponse,
+  GetNotificationDeliveriesResponse,
+  GetNotificationPoliciesResponse,
+  GetNotificationQuietHoursResponse,
   GetProductKnowledgeTextEntriesResponse,
   GetPublicPricingPlansResponse,
   GlobalKnowledgeSourceScope,
+  ListNotificationDeadLettersParams,
+  ListNotificationDeliveriesParams,
+  NotificationChannelView,
+  NotificationPolicyView,
+  NotificationPreviewRequest,
+  NotificationPreviewResult,
+  NotificationQuietHoursView,
   OnboardingRequest,
-  PatchAdminIdleReengagementNotificationPolicyRequest,
-  PatchAdminIdleReengagementNotificationPolicyResponse,
-  PatchAdminNotificationWebhookChannelRequest,
-  PatchAdminNotificationWebhookChannelResponse,
   PatchAdminPromptTemplateRequest,
   PatchAdminPromptTemplateResponse,
   PatchAdminToolPromptMetadataRequest,
   PatchAdminToolPromptMetadataResponse,
+  PatchNotificationChannelRequest,
+  PatchNotificationPolicyRequest,
+  PatchNotificationQuietHoursRequest,
   PostAdminAbuseUnblockResponse,
   PostAdminAssistantOwnershipResponse,
   PostAdminDocumentProcessingTestConnectionResponse,
@@ -138,6 +148,7 @@ import type {
   PutAdminDocumentProcessingSettingsResponse,
   PutAdminRuntimeProviderSettingsResponse,
   PutAssistantSkillAssignmentsRequest,
+  ReplayNotificationDeadLetter200,
   SkillAuthoringDraftRequest,
   SkillKnowledgeCardInput,
   SuccessResponse
@@ -5941,117 +5952,487 @@ export const getAdminNotificationChannels = async (
 };
 
 /**
- * @summary Create or update admin system-notification webhook channel
+ * @summary Update a unified notification channel
  */
-export type patchAdminNotificationWebhookChannelResponse200 = {
-  data: PatchAdminNotificationWebhookChannelResponse;
+export type patchUnifiedNotificationChannelResponse200 = {
+  data: NotificationChannelView;
   status: 200;
 };
 
-export type patchAdminNotificationWebhookChannelResponse400 = {
+export type patchUnifiedNotificationChannelResponse400 = {
   data: ErrorEnvelope;
   status: 400;
 };
 
-export type patchAdminNotificationWebhookChannelResponse401 = {
+export type patchUnifiedNotificationChannelResponse401 = {
   data: ErrorEnvelope;
   status: 401;
 };
 
-export type patchAdminNotificationWebhookChannelResponse403 = {
+export type patchUnifiedNotificationChannelResponse403 = {
   data: ErrorEnvelope;
   status: 403;
 };
 
-export type patchAdminNotificationWebhookChannelResponse500 = {
+export type patchUnifiedNotificationChannelResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type patchUnifiedNotificationChannelResponse500 = {
   data: ErrorEnvelope;
   status: 500;
 };
 
-export type patchAdminNotificationWebhookChannelResponseSuccess =
-  patchAdminNotificationWebhookChannelResponse200 & {
+export type patchUnifiedNotificationChannelResponseSuccess =
+  patchUnifiedNotificationChannelResponse200 & {
     headers: Headers;
   };
-export type patchAdminNotificationWebhookChannelResponseError = (
-  | patchAdminNotificationWebhookChannelResponse400
-  | patchAdminNotificationWebhookChannelResponse401
-  | patchAdminNotificationWebhookChannelResponse403
-  | patchAdminNotificationWebhookChannelResponse500
+export type patchUnifiedNotificationChannelResponseError = (
+  | patchUnifiedNotificationChannelResponse400
+  | patchUnifiedNotificationChannelResponse401
+  | patchUnifiedNotificationChannelResponse403
+  | patchUnifiedNotificationChannelResponse404
+  | patchUnifiedNotificationChannelResponse500
 ) & {
   headers: Headers;
 };
 
-export type patchAdminNotificationWebhookChannelResponse =
-  | patchAdminNotificationWebhookChannelResponseSuccess
-  | patchAdminNotificationWebhookChannelResponseError;
+export type patchUnifiedNotificationChannelResponse =
+  | patchUnifiedNotificationChannelResponseSuccess
+  | patchUnifiedNotificationChannelResponseError;
 
-export const getPatchAdminNotificationWebhookChannelUrl = () => {
-  return `/admin/notifications/channels/webhook`;
+export const getPatchUnifiedNotificationChannelUrl = (channelType: string) => {
+  return `/admin/notifications/channels/${channelType}`;
 };
 
-export const patchAdminNotificationWebhookChannel = async (
-  patchAdminNotificationWebhookChannelRequest: PatchAdminNotificationWebhookChannelRequest,
+export const patchUnifiedNotificationChannel = async (
+  channelType: string,
+  patchNotificationChannelRequest: PatchNotificationChannelRequest,
   options?: RequestInit
-): Promise<patchAdminNotificationWebhookChannelResponse> => {
-  return customFetch<patchAdminNotificationWebhookChannelResponse>(
-    getPatchAdminNotificationWebhookChannelUrl(),
+): Promise<patchUnifiedNotificationChannelResponse> => {
+  return customFetch<patchUnifiedNotificationChannelResponse>(
+    getPatchUnifiedNotificationChannelUrl(channelType),
     {
       ...options,
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...options?.headers },
-      body: JSON.stringify(patchAdminNotificationWebhookChannelRequest)
+      body: JSON.stringify(patchNotificationChannelRequest)
     }
   );
 };
 
 /**
- * @summary Read idle reengagement user-notification policy
+ * @summary List notification policies
  */
-export type getAdminIdleReengagementNotificationPolicyResponse200 = {
-  data: GetAdminIdleReengagementNotificationPolicyResponse;
+export type listNotificationPoliciesResponse200 = {
+  data: GetNotificationPoliciesResponse;
   status: 200;
 };
 
-export type getAdminIdleReengagementNotificationPolicyResponse401 = {
+export type listNotificationPoliciesResponse401 = {
   data: ErrorEnvelope;
   status: 401;
 };
 
-export type getAdminIdleReengagementNotificationPolicyResponse403 = {
+export type listNotificationPoliciesResponse403 = {
   data: ErrorEnvelope;
   status: 403;
 };
 
-export type getAdminIdleReengagementNotificationPolicyResponse500 = {
+export type listNotificationPoliciesResponse500 = {
   data: ErrorEnvelope;
   status: 500;
 };
 
-export type getAdminIdleReengagementNotificationPolicyResponseSuccess =
-  getAdminIdleReengagementNotificationPolicyResponse200 & {
-    headers: Headers;
-  };
-export type getAdminIdleReengagementNotificationPolicyResponseError = (
-  | getAdminIdleReengagementNotificationPolicyResponse401
-  | getAdminIdleReengagementNotificationPolicyResponse403
-  | getAdminIdleReengagementNotificationPolicyResponse500
+export type listNotificationPoliciesResponseSuccess = listNotificationPoliciesResponse200 & {
+  headers: Headers;
+};
+export type listNotificationPoliciesResponseError = (
+  | listNotificationPoliciesResponse401
+  | listNotificationPoliciesResponse403
+  | listNotificationPoliciesResponse500
 ) & {
   headers: Headers;
 };
 
-export type getAdminIdleReengagementNotificationPolicyResponse =
-  | getAdminIdleReengagementNotificationPolicyResponseSuccess
-  | getAdminIdleReengagementNotificationPolicyResponseError;
+export type listNotificationPoliciesResponse =
+  | listNotificationPoliciesResponseSuccess
+  | listNotificationPoliciesResponseError;
 
-export const getGetAdminIdleReengagementNotificationPolicyUrl = () => {
-  return `/admin/notifications/policies/idle-reengagement`;
+export const getListNotificationPoliciesUrl = () => {
+  return `/admin/notifications/policies`;
 };
 
-export const getAdminIdleReengagementNotificationPolicy = async (
+export const listNotificationPolicies = async (
   options?: RequestInit
-): Promise<getAdminIdleReengagementNotificationPolicyResponse> => {
-  return customFetch<getAdminIdleReengagementNotificationPolicyResponse>(
-    getGetAdminIdleReengagementNotificationPolicyUrl(),
+): Promise<listNotificationPoliciesResponse> => {
+  return customFetch<listNotificationPoliciesResponse>(getListNotificationPoliciesUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Update a notification policy
+ */
+export type patchNotificationPolicyResponse200 = {
+  data: NotificationPolicyView;
+  status: 200;
+};
+
+export type patchNotificationPolicyResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type patchNotificationPolicyResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type patchNotificationPolicyResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type patchNotificationPolicyResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type patchNotificationPolicyResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type patchNotificationPolicyResponseSuccess = patchNotificationPolicyResponse200 & {
+  headers: Headers;
+};
+export type patchNotificationPolicyResponseError = (
+  | patchNotificationPolicyResponse400
+  | patchNotificationPolicyResponse401
+  | patchNotificationPolicyResponse403
+  | patchNotificationPolicyResponse404
+  | patchNotificationPolicyResponse500
+) & {
+  headers: Headers;
+};
+
+export type patchNotificationPolicyResponse =
+  | patchNotificationPolicyResponseSuccess
+  | patchNotificationPolicyResponseError;
+
+export const getPatchNotificationPolicyUrl = (source: string) => {
+  return `/admin/notifications/policies/${source}`;
+};
+
+export const patchNotificationPolicy = async (
+  source: string,
+  patchNotificationPolicyRequest: PatchNotificationPolicyRequest,
+  options?: RequestInit
+): Promise<patchNotificationPolicyResponse> => {
+  return customFetch<patchNotificationPolicyResponse>(getPatchNotificationPolicyUrl(source), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(patchNotificationPolicyRequest)
+  });
+};
+
+/**
+ * @summary Get notification quiet hours
+ */
+export type getNotificationQuietHoursResponse200 = {
+  data: GetNotificationQuietHoursResponse;
+  status: 200;
+};
+
+export type getNotificationQuietHoursResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getNotificationQuietHoursResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getNotificationQuietHoursResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getNotificationQuietHoursResponseSuccess = getNotificationQuietHoursResponse200 & {
+  headers: Headers;
+};
+export type getNotificationQuietHoursResponseError = (
+  | getNotificationQuietHoursResponse401
+  | getNotificationQuietHoursResponse403
+  | getNotificationQuietHoursResponse500
+) & {
+  headers: Headers;
+};
+
+export type getNotificationQuietHoursResponse =
+  | getNotificationQuietHoursResponseSuccess
+  | getNotificationQuietHoursResponseError;
+
+export const getGetNotificationQuietHoursUrl = () => {
+  return `/admin/notifications/quiet-hours`;
+};
+
+export const getNotificationQuietHours = async (
+  options?: RequestInit
+): Promise<getNotificationQuietHoursResponse> => {
+  return customFetch<getNotificationQuietHoursResponse>(getGetNotificationQuietHoursUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Update notification quiet hours
+ */
+export type patchNotificationQuietHoursResponse200 = {
+  data: NotificationQuietHoursView;
+  status: 200;
+};
+
+export type patchNotificationQuietHoursResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type patchNotificationQuietHoursResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type patchNotificationQuietHoursResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type patchNotificationQuietHoursResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type patchNotificationQuietHoursResponseSuccess = patchNotificationQuietHoursResponse200 & {
+  headers: Headers;
+};
+export type patchNotificationQuietHoursResponseError = (
+  | patchNotificationQuietHoursResponse400
+  | patchNotificationQuietHoursResponse401
+  | patchNotificationQuietHoursResponse403
+  | patchNotificationQuietHoursResponse500
+) & {
+  headers: Headers;
+};
+
+export type patchNotificationQuietHoursResponse =
+  | patchNotificationQuietHoursResponseSuccess
+  | patchNotificationQuietHoursResponseError;
+
+export const getPatchNotificationQuietHoursUrl = () => {
+  return `/admin/notifications/quiet-hours`;
+};
+
+export const patchNotificationQuietHours = async (
+  patchNotificationQuietHoursRequest: PatchNotificationQuietHoursRequest,
+  options?: RequestInit
+): Promise<patchNotificationQuietHoursResponse> => {
+  return customFetch<patchNotificationQuietHoursResponse>(getPatchNotificationQuietHoursUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(patchNotificationQuietHoursRequest)
+  });
+};
+
+/**
+ * @summary List notification deliveries (paginated)
+ */
+export type listNotificationDeliveriesResponse200 = {
+  data: GetNotificationDeliveriesResponse;
+  status: 200;
+};
+
+export type listNotificationDeliveriesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type listNotificationDeliveriesResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type listNotificationDeliveriesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type listNotificationDeliveriesResponseSuccess = listNotificationDeliveriesResponse200 & {
+  headers: Headers;
+};
+export type listNotificationDeliveriesResponseError = (
+  | listNotificationDeliveriesResponse401
+  | listNotificationDeliveriesResponse403
+  | listNotificationDeliveriesResponse500
+) & {
+  headers: Headers;
+};
+
+export type listNotificationDeliveriesResponse =
+  | listNotificationDeliveriesResponseSuccess
+  | listNotificationDeliveriesResponseError;
+
+export const getListNotificationDeliveriesUrl = (params?: ListNotificationDeliveriesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/notifications/deliveries?${stringifiedParams}`
+    : `/admin/notifications/deliveries`;
+};
+
+export const listNotificationDeliveries = async (
+  params?: ListNotificationDeliveriesParams,
+  options?: RequestInit
+): Promise<listNotificationDeliveriesResponse> => {
+  return customFetch<listNotificationDeliveriesResponse>(getListNotificationDeliveriesUrl(params), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Get notification delivery detail
+ */
+export type getNotificationDeliveryResponse200 = {
+  data: DeliveryIntentView;
+  status: 200;
+};
+
+export type getNotificationDeliveryResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getNotificationDeliveryResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getNotificationDeliveryResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getNotificationDeliveryResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getNotificationDeliveryResponseSuccess = getNotificationDeliveryResponse200 & {
+  headers: Headers;
+};
+export type getNotificationDeliveryResponseError = (
+  | getNotificationDeliveryResponse401
+  | getNotificationDeliveryResponse403
+  | getNotificationDeliveryResponse404
+  | getNotificationDeliveryResponse500
+) & {
+  headers: Headers;
+};
+
+export type getNotificationDeliveryResponse =
+  | getNotificationDeliveryResponseSuccess
+  | getNotificationDeliveryResponseError;
+
+export const getGetNotificationDeliveryUrl = (intentId: string) => {
+  return `/admin/notifications/deliveries/${intentId}`;
+};
+
+export const getNotificationDelivery = async (
+  intentId: string,
+  options?: RequestInit
+): Promise<getNotificationDeliveryResponse> => {
+  return customFetch<getNotificationDeliveryResponse>(getGetNotificationDeliveryUrl(intentId), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary List notification dead letters (paginated, server-side filtered)
+ */
+export type listNotificationDeadLettersResponse200 = {
+  data: GetNotificationDeadLettersResponse;
+  status: 200;
+};
+
+export type listNotificationDeadLettersResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type listNotificationDeadLettersResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type listNotificationDeadLettersResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type listNotificationDeadLettersResponseSuccess = listNotificationDeadLettersResponse200 & {
+  headers: Headers;
+};
+export type listNotificationDeadLettersResponseError = (
+  | listNotificationDeadLettersResponse401
+  | listNotificationDeadLettersResponse403
+  | listNotificationDeadLettersResponse500
+) & {
+  headers: Headers;
+};
+
+export type listNotificationDeadLettersResponse =
+  | listNotificationDeadLettersResponseSuccess
+  | listNotificationDeadLettersResponseError;
+
+export const getListNotificationDeadLettersUrl = (params?: ListNotificationDeadLettersParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/notifications/dead-letters?${stringifiedParams}`
+    : `/admin/notifications/dead-letters`;
+};
+
+export const listNotificationDeadLetters = async (
+  params?: ListNotificationDeadLettersParams,
+  options?: RequestInit
+): Promise<listNotificationDeadLettersResponse> => {
+  return customFetch<listNotificationDeadLettersResponse>(
+    getListNotificationDeadLettersUrl(params),
     {
       ...options,
       method: "GET"
@@ -6060,67 +6441,184 @@ export const getAdminIdleReengagementNotificationPolicy = async (
 };
 
 /**
- * @summary Update idle reengagement user-notification policy
+ * @summary Replay a notification dead letter
  */
-export type patchAdminIdleReengagementNotificationPolicyResponse200 = {
-  data: PatchAdminIdleReengagementNotificationPolicyResponse;
+export type replayNotificationDeadLetterResponse200 = {
+  data: ReplayNotificationDeadLetter200;
   status: 200;
 };
 
-export type patchAdminIdleReengagementNotificationPolicyResponse400 = {
-  data: ErrorEnvelope;
-  status: 400;
-};
-
-export type patchAdminIdleReengagementNotificationPolicyResponse401 = {
+export type replayNotificationDeadLetterResponse401 = {
   data: ErrorEnvelope;
   status: 401;
 };
 
-export type patchAdminIdleReengagementNotificationPolicyResponse403 = {
+export type replayNotificationDeadLetterResponse403 = {
   data: ErrorEnvelope;
   status: 403;
 };
 
-export type patchAdminIdleReengagementNotificationPolicyResponse500 = {
+export type replayNotificationDeadLetterResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type replayNotificationDeadLetterResponse500 = {
   data: ErrorEnvelope;
   status: 500;
 };
 
-export type patchAdminIdleReengagementNotificationPolicyResponseSuccess =
-  patchAdminIdleReengagementNotificationPolicyResponse200 & {
+export type replayNotificationDeadLetterResponseSuccess =
+  replayNotificationDeadLetterResponse200 & {
     headers: Headers;
   };
-export type patchAdminIdleReengagementNotificationPolicyResponseError = (
-  | patchAdminIdleReengagementNotificationPolicyResponse400
-  | patchAdminIdleReengagementNotificationPolicyResponse401
-  | patchAdminIdleReengagementNotificationPolicyResponse403
-  | patchAdminIdleReengagementNotificationPolicyResponse500
+export type replayNotificationDeadLetterResponseError = (
+  | replayNotificationDeadLetterResponse401
+  | replayNotificationDeadLetterResponse403
+  | replayNotificationDeadLetterResponse404
+  | replayNotificationDeadLetterResponse500
 ) & {
   headers: Headers;
 };
 
-export type patchAdminIdleReengagementNotificationPolicyResponse =
-  | patchAdminIdleReengagementNotificationPolicyResponseSuccess
-  | patchAdminIdleReengagementNotificationPolicyResponseError;
+export type replayNotificationDeadLetterResponse =
+  | replayNotificationDeadLetterResponseSuccess
+  | replayNotificationDeadLetterResponseError;
 
-export const getPatchAdminIdleReengagementNotificationPolicyUrl = () => {
-  return `/admin/notifications/policies/idle-reengagement`;
+export const getReplayNotificationDeadLetterUrl = (id: string) => {
+  return `/admin/notifications/dead-letters/${id}/replay`;
 };
 
-export const patchAdminIdleReengagementNotificationPolicy = async (
-  patchAdminIdleReengagementNotificationPolicyRequest: PatchAdminIdleReengagementNotificationPolicyRequest,
+export const replayNotificationDeadLetter = async (
+  id: string,
   options?: RequestInit
-): Promise<patchAdminIdleReengagementNotificationPolicyResponse> => {
-  return customFetch<patchAdminIdleReengagementNotificationPolicyResponse>(
-    getPatchAdminIdleReengagementNotificationPolicyUrl(),
+): Promise<replayNotificationDeadLetterResponse> => {
+  return customFetch<replayNotificationDeadLetterResponse>(getReplayNotificationDeadLetterUrl(id), {
+    ...options,
+    method: "POST"
+  });
+};
+
+/**
+ * @summary Discard a notification dead letter
+ */
+export type discardNotificationDeadLetterResponse204 = {
+  data: void;
+  status: 204;
+};
+
+export type discardNotificationDeadLetterResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type discardNotificationDeadLetterResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type discardNotificationDeadLetterResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type discardNotificationDeadLetterResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type discardNotificationDeadLetterResponseSuccess =
+  discardNotificationDeadLetterResponse204 & {
+    headers: Headers;
+  };
+export type discardNotificationDeadLetterResponseError = (
+  | discardNotificationDeadLetterResponse401
+  | discardNotificationDeadLetterResponse403
+  | discardNotificationDeadLetterResponse404
+  | discardNotificationDeadLetterResponse500
+) & {
+  headers: Headers;
+};
+
+export type discardNotificationDeadLetterResponse =
+  | discardNotificationDeadLetterResponseSuccess
+  | discardNotificationDeadLetterResponseError;
+
+export const getDiscardNotificationDeadLetterUrl = (id: string) => {
+  return `/admin/notifications/dead-letters/${id}/discard`;
+};
+
+export const discardNotificationDeadLetter = async (
+  id: string,
+  options?: RequestInit
+): Promise<discardNotificationDeadLetterResponse> => {
+  return customFetch<discardNotificationDeadLetterResponse>(
+    getDiscardNotificationDeadLetterUrl(id),
     {
       ...options,
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...options?.headers },
-      body: JSON.stringify(patchAdminIdleReengagementNotificationPolicyRequest)
+      method: "POST"
     }
   );
+};
+
+/**
+ * @summary Dry-run renderer preview (never sends)
+ */
+export type previewNotificationResponse200 = {
+  data: NotificationPreviewResult;
+  status: 200;
+};
+
+export type previewNotificationResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type previewNotificationResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type previewNotificationResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type previewNotificationResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type previewNotificationResponseSuccess = previewNotificationResponse200 & {
+  headers: Headers;
+};
+export type previewNotificationResponseError = (
+  | previewNotificationResponse400
+  | previewNotificationResponse401
+  | previewNotificationResponse403
+  | previewNotificationResponse500
+) & {
+  headers: Headers;
+};
+
+export type previewNotificationResponse =
+  | previewNotificationResponseSuccess
+  | previewNotificationResponseError;
+
+export const getPreviewNotificationUrl = () => {
+  return `/admin/notifications/preview`;
+};
+
+export const previewNotification = async (
+  notificationPreviewRequest: NotificationPreviewRequest,
+  options?: RequestInit
+): Promise<previewNotificationResponse> => {
+  return customFetch<previewNotificationResponse>(getPreviewNotificationUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(notificationPreviewRequest)
+  });
 };
 
 /**

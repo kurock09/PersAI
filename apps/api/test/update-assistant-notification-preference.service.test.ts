@@ -13,7 +13,7 @@ import { UpdateAssistantNotificationPreferenceService } from "../src/modules/wor
 type AssistantRow = {
   id: string;
   workspaceId: string;
-  preferredNotificationChannel: "web" | "telegram" | "whatsapp";
+  preferredNotificationChannel: "web" | "telegram";
   preferredNotificationChannelChosenAt: Date | null;
   channelSurfaceBindings: Array<{ providerKey: string }>;
 };

@@ -16,7 +16,7 @@ export interface UpdateAssistantNotificationPreferenceRequest {
   channel: AssistantPreferredNotificationChannel;
 }
 
-const ALLOWED_CHANNELS: AssistantPreferredNotificationChannel[] = ["web", "telegram", "whatsapp"];
+const ALLOWED_CHANNELS: AssistantPreferredNotificationChannel[] = ["web", "telegram"];
 
 function isPreferredNotificationChannel(
   value: unknown
@@ -41,7 +41,7 @@ export class UpdateAssistantNotificationPreferenceService {
 
     const body = payload as Record<string, unknown>;
     if (!isPreferredNotificationChannel(body.channel)) {
-      throw new BadRequestException("channel must be one of: web, telegram, whatsapp.");
+      throw new BadRequestException("channel must be one of: web, telegram.");
     }
 
     return { channel: body.channel };
@@ -60,7 +60,7 @@ export class UpdateAssistantNotificationPreferenceService {
         channelSurfaceBindings: {
           where: {
             bindingState: "active",
-            providerKey: { in: ["telegram", "whatsapp"] }
+            providerKey: { in: ["telegram"] }
           },
           select: { providerKey: true }
         }
@@ -72,7 +72,7 @@ export class UpdateAssistantNotificationPreferenceService {
 
     const availableChannels = new Set<AssistantPreferredNotificationChannel>(["web"]);
     for (const binding of assistant.channelSurfaceBindings) {
-      if (binding.providerKey === "telegram" || binding.providerKey === "whatsapp") {
+      if (binding.providerKey === "telegram") {
         availableChannels.add(binding.providerKey);
       }
     }

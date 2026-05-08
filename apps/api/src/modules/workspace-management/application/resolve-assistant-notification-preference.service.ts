@@ -6,12 +6,12 @@ import type {
 } from "./assistant-notification-preference.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
-const CONNECTABLE_PROVIDER_KEYS = ["telegram", "whatsapp"] as const;
+const CONNECTABLE_PROVIDER_KEYS = ["telegram"] as const;
 
 function toPreferredNotificationChannel(
   value: PrismaPreferredNotificationChannel | null | undefined
 ): AssistantPreferredNotificationChannel {
-  if (value === "telegram" || value === "whatsapp") {
+  if (value === "telegram") {
     return value;
   }
   return "web";
@@ -41,7 +41,7 @@ export class ResolveAssistantNotificationPreferenceService {
 
     const availableChannelSet = new Set<AssistantPreferredNotificationChannel>(["web"]);
     for (const binding of assistant.channelSurfaceBindings) {
-      if (binding.providerKey === "telegram" || binding.providerKey === "whatsapp") {
+      if (binding.providerKey === "telegram") {
         availableChannelSet.add(binding.providerKey);
       }
     }

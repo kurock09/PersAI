@@ -1,18 +1,26 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import { WorkspaceNotificationPolicySource } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { AssistantNotificationOutboxService } from "./assistant-notification-outbox.service";
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
 import {
   InternalRuntimeBackgroundTaskClientService,
   type InternalRuntimeBackgroundTaskEvaluationOutcome
 } from "./internal-runtime-background-task.client.service";
 import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
+import { NotificationIntentService } from "./notifications/notification-intent.service";
 
 const IDLE_REENGAGEMENT_POLL_INTERVAL_MS = 15 * 60_000;
 const IDLE_REENGAGEMENT_BATCH_SIZE = 12;
 const RECENT_MESSAGE_LIMIT = 10;
+
+const DEFAULT_IDLE_HOURS = 24;
+const DEFAULT_COOLDOWN_HOURS = 72;
+const DEFAULT_LLM_INSTRUCTION = [
+  "Decide whether to send a short, warm reengagement message after the user has been away.",
+  "Use the recent conversation context and active open loops. Push only when it is genuinely helpful.",
+  "The message must be one brief user-facing sentence, non-pushy, no guilt, no exact idle duration."
+].join("\n");
 
 type IdleCandidate = {
   assistantId: string;
@@ -40,7 +48,7 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
     private readonly assistantRepository: AssistantRepository,
     private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly internalRuntimeBackgroundTaskClientService: InternalRuntimeBackgroundTaskClientService,
-    private readonly assistantNotificationOutboxService: AssistantNotificationOutboxService
+    private readonly notificationIntentService: NotificationIntentService
   ) {}
 
   onModuleInit(): void {
@@ -56,9 +64,10 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
   }
 
   async processDueIdleReengagementBatch(limit = IDLE_REENGAGEMENT_BATCH_SIZE): Promise<number> {
+    const batchTraceId = randomUUID();
     const candidates = await this.findDueCandidates(limit);
     for (const candidate of candidates) {
-      await this.processCandidate(candidate);
+      await this.processCandidate(candidate, batchTraceId);
     }
     return candidates.length;
   }
@@ -98,11 +107,8 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
   }
 
   private async findDueCandidates(limit: number): Promise<IdleCandidate[]> {
-    const policies = await this.prisma.workspaceNotificationPolicy.findMany({
-      where: {
-        source: WorkspaceNotificationPolicySource.idle_reengagement,
-        enabled: true
-      },
+    const policies = await this.prisma.notificationPolicy.findMany({
+      where: { source: "idle_reengagement", enabled: true },
       orderBy: { updatedAt: "asc" },
       take: Math.max(1, Math.floor(limit))
     });
@@ -110,6 +116,23 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
     const candidates: IdleCandidate[] = [];
     const now = Date.now();
     for (const policy of policies) {
+      const config =
+        typeof policy.config === "object" && policy.config !== null && !Array.isArray(policy.config)
+          ? (policy.config as Record<string, unknown>)
+          : {};
+      const idleHours =
+        typeof config["idleHours"] === "number" && config["idleHours"] > 0
+          ? config["idleHours"]
+          : DEFAULT_IDLE_HOURS;
+      const cooldownHours =
+        typeof config["cooldownHours"] === "number" && config["cooldownHours"] > 0
+          ? config["cooldownHours"]
+          : DEFAULT_COOLDOWN_HOURS;
+      const llmInstruction =
+        typeof config["llmInstruction"] === "string" && config["llmInstruction"].trim()
+          ? config["llmInstruction"].trim()
+          : DEFAULT_LLM_INSTRUCTION;
+
       const assistants = await this.prisma.assistant.findMany({
         where: { workspaceId: policy.workspaceId },
         select: { id: true, userId: true, workspaceId: true },
@@ -142,20 +165,22 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
           continue;
         }
         const idleMs = now - latestUserMessage.createdAt.getTime();
-        if (idleMs < policy.idleHours * 60 * 60 * 1000) {
+        if (idleMs < idleHours * 60 * 60 * 1000) {
           continue;
         }
-        const cooldownSince = new Date(now - policy.cooldownHours * 60 * 60 * 1000);
-        const recentIdleOutbox = await this.prisma.assistantNotificationOutbox.findFirst({
+        const cooldownSince = new Date(now - cooldownHours * 60 * 60 * 1000);
+        const recentIdleIntent = await this.prisma.notificationIntent.findFirst({
           where: {
             assistantId: assistant.id,
             source: "idle_reengagement",
             createdAt: { gte: cooldownSince },
-            status: { in: ["pending", "in_progress", "delivered", "skipped"] }
+            lifecycleStatus: {
+              in: ["pending", "claimed", "delivered", "deferred_quiet_hours", "deferred_rate_limit"]
+            }
           },
           select: { id: true }
         });
-        if (recentIdleOutbox !== null) {
+        if (recentIdleIntent !== null) {
           continue;
         }
         candidates.push({
@@ -163,19 +188,19 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
           userId: assistant.userId,
           workspaceId: assistant.workspaceId,
           chatId: latestUserMessage.chat.id,
-          surface: latestUserMessage.chat.surface,
+          surface: latestUserMessage.chat.surface as "web" | "telegram",
           surfaceThreadKey: latestUserMessage.chat.surfaceThreadKey,
           latestUserMessageAt: latestUserMessage.createdAt,
-          idleHours: policy.idleHours,
-          cooldownHours: policy.cooldownHours,
-          llmInstruction: policy.llmInstruction
+          idleHours,
+          cooldownHours,
+          llmInstruction
         });
       }
     }
     return candidates;
   }
 
-  private async processCandidate(candidate: IdleCandidate): Promise<void> {
+  private async processCandidate(candidate: IdleCandidate, batchTraceId: string): Promise<void> {
     const assistant = await this.assistantRepository.findById(candidate.assistantId);
     if (assistant === null) {
       return;
@@ -221,7 +246,7 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
       }
     });
 
-    await this.recordEvaluation(candidate, dedupeKey, contextPacket, outcome);
+    await this.recordEvaluation(candidate, dedupeKey, contextPacket, outcome, batchTraceId);
   }
 
   private async buildContextPacket(candidate: IdleCandidate): Promise<Record<string, unknown>> {
@@ -296,7 +321,8 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
     candidate: IdleCandidate,
     dedupeKey: string,
     contextPacket: Record<string, unknown>,
-    outcome: InternalRuntimeBackgroundTaskEvaluationOutcome
+    outcome: InternalRuntimeBackgroundTaskEvaluationOutcome,
+    batchTraceId: string
   ): Promise<void> {
     if (!outcome.ok) {
       this.logger.warn(
@@ -306,19 +332,30 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
     }
 
     const result = outcome.result;
-    await this.assistantNotificationOutboxService.enqueue({
+    if (result.decision !== "push" || !result.pushText) {
+      return;
+    }
+
+    await this.notificationIntentService.createIntent({
+      workspaceId: candidate.workspaceId,
       assistantId: candidate.assistantId,
+      userId: candidate.userId,
       source: "idle_reengagement",
-      sourceId: candidate.chatId,
-      status: result.decision === "push" ? "ok" : "skipped",
-      ...(result.decision === "push" && result.pushText ? { text: result.pushText } : {}),
-      dedupeKey,
-      metadata: {
+      class: "conversational",
+      priority: "skippable",
+      renderStrategy: "grounded_llm",
+      factPayload: {
+        pushText: result.pushText,
         decision: result.decision,
         rationale: result.rationale,
         confidence: result.confidence,
         contextPacket
-      }
+      },
+      dedupeKey,
+      surface: candidate.surface,
+      surfaceThreadKey: candidate.surfaceThreadKey,
+      chatId: candidate.chatId,
+      traceId: batchTraceId
     });
   }
 

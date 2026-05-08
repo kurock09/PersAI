@@ -76,8 +76,24 @@ import { ResolveAdminKnowledgeObservabilityService } from "./application/resolve
 import { ResolveAdminKnowledgeConnectorsService } from "./application/resolve-admin-knowledge-connectors.service";
 import { OverviewLatencyTraceService } from "./application/overview-latency-trace.service";
 import { ManageAdminOverviewLatencyTraceService } from "./application/manage-admin-overview-latency-trace.service";
-import { ManageAdminNotificationChannelsService } from "./application/manage-admin-notification-channels.service";
 import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
+import { NotificationIntentService } from "./application/notifications/notification-intent.service";
+import { NotificationRoutingService } from "./application/notifications/notification-routing.service";
+import { NotificationDeliveryWorkerService } from "./application/notifications/notification-delivery-worker.service";
+import { StaticFallbackRendererService } from "./application/notifications/render/static-fallback-renderer.service";
+import { TemplateRendererService } from "./application/notifications/render/template-renderer.service";
+import { GroundedLlmRendererService } from "./application/notifications/render/grounded-llm-renderer.service";
+import { ManageNotificationPlatformService } from "./application/notifications/manage-notification-platform.service";
+import { HandlePostmarkWebhookService } from "./application/notifications/handle-postmark-webhook.service";
+import { TelegramThreadChannelAdapter } from "./infrastructure/notifications/channel-adapters/telegram-thread-channel.adapter";
+import { WebThreadChannelAdapter } from "./infrastructure/notifications/channel-adapters/web-thread-channel.adapter";
+import { WebNotificationCenterChannelAdapter } from "./infrastructure/notifications/channel-adapters/web-notification-center-channel.adapter";
+import { EmailChannelAdapter } from "./infrastructure/notifications/channel-adapters/email-channel.adapter";
+import { AdminWebhookChannelAdapter } from "./infrastructure/notifications/channel-adapters/admin-webhook-channel.adapter";
+import { WebPushChannelAdapter } from "./infrastructure/notifications/channel-adapters/web-push-channel.adapter";
+import { MobilePushChannelAdapter } from "./infrastructure/notifications/channel-adapters/mobile-push-channel.adapter";
+import { NOTIFICATION_CHANNEL_ADAPTERS } from "./infrastructure/notifications/channel-adapters/channel-adapter.interface";
+import { InternalNotificationsPostmarkWebhookController } from "./interface/http/internal-notifications-postmark-webhook.controller";
 import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
 import { ManageAdminRuntimeProviderSettingsService } from "./application/manage-admin-runtime-provider-settings.service";
 import { ManageAdminDocumentProcessingSettingsService } from "./application/manage-admin-document-processing-settings.service";
@@ -179,9 +195,6 @@ import { WebRuntimeShadowComparisonService } from "./application/web-runtime-sha
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
 import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
-import { AssistantNotificationDeliveryService } from "./application/assistant-notification-delivery.service";
-import { AssistantNotificationOutboxSchedulerService } from "./application/assistant-notification-outbox-scheduler.service";
-import { AssistantNotificationOutboxService } from "./application/assistant-notification-outbox.service";
 import { BuildReminderContextSnapshotService } from "./application/build-reminder-context-snapshot.service";
 import { PersaiScheduledActionSchedulerService } from "./application/persai-scheduled-action-scheduler.service";
 import { PersaiBackgroundCompactionSchedulerService } from "./application/persai-background-compaction-scheduler.service";
@@ -196,7 +209,6 @@ import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consu
 import { MutateInternalRuntimeMonthlyMediaQuotaService } from "./application/mutate-internal-runtime-monthly-media-quota.service";
 import { ReserveInternalRuntimeMonthlyMediaQuotaService } from "./application/reserve-internal-runtime-monthly-media-quota.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./application/read-internal-runtime-quota-status.service";
-import { QuotaAdvisoryStateService } from "./application/quota-advisory-state.service";
 import { QuotaAdvisoryFollowUpService } from "./application/quota-advisory-follow-up.service";
 import { QuotaGroundedLimitCopyService } from "./application/quota-grounded-limit-copy.service";
 import { CreateInternalRuntimeQuotaCheckoutService } from "./application/create-internal-runtime-quota-checkout.service";
@@ -292,6 +304,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AdminBusinessController,
     AdminOverviewDashboardController,
     AdminNotificationsController,
+    InternalNotificationsPostmarkWebhookController,
     AdminPlatformRolloutsController,
     AdminRuntimeProviderSettingsController,
     AdminDocumentProcessingSettingsController,
@@ -345,8 +358,44 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ResolveAdminKnowledgeConnectorsService,
     OverviewLatencyTraceService,
     ManageAdminOverviewLatencyTraceService,
-    ManageAdminNotificationChannelsService,
     DeliverAdminSystemNotificationService,
+    // ADR-088: Unified notification platform – Slice 1
+    NotificationRoutingService,
+    StaticFallbackRendererService,
+    TemplateRendererService,
+    GroundedLlmRendererService,
+    TelegramThreadChannelAdapter,
+    WebThreadChannelAdapter,
+    WebNotificationCenterChannelAdapter,
+    EmailChannelAdapter,
+    AdminWebhookChannelAdapter,
+    WebPushChannelAdapter,
+    MobilePushChannelAdapter,
+    {
+      provide: NOTIFICATION_CHANNEL_ADAPTERS,
+      useFactory: (
+        telegram: TelegramThreadChannelAdapter,
+        web: WebThreadChannelAdapter,
+        webNc: WebNotificationCenterChannelAdapter,
+        email: EmailChannelAdapter,
+        adminWebhook: AdminWebhookChannelAdapter,
+        webPush: WebPushChannelAdapter,
+        mobilePush: MobilePushChannelAdapter
+      ) => [telegram, web, webNc, email, adminWebhook, webPush, mobilePush],
+      inject: [
+        TelegramThreadChannelAdapter,
+        WebThreadChannelAdapter,
+        WebNotificationCenterChannelAdapter,
+        EmailChannelAdapter,
+        AdminWebhookChannelAdapter,
+        WebPushChannelAdapter,
+        MobilePushChannelAdapter
+      ]
+    },
+    NotificationIntentService,
+    NotificationDeliveryWorkerService,
+    ManageNotificationPlatformService,
+    HandlePostmarkWebhookService,
     ManagePlatformRolloutsService,
     ManageAdminRuntimeProviderSettingsService,
     ManageAdminDocumentProcessingSettingsService,
@@ -381,9 +430,6 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ApplyWorkspaceSubscriptionBillingEventService,
     ScheduleBillingLifecycleNotificationsService,
     HandleInternalCronFireService,
-    AssistantNotificationDeliveryService,
-    AssistantNotificationOutboxService,
-    AssistantNotificationOutboxSchedulerService,
     BuildReminderContextSnapshotService,
     PersaiScheduledActionSchedulerService,
     PersaiBackgroundCompactionSchedulerService,
@@ -400,7 +446,6 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     MutateInternalRuntimeMonthlyMediaQuotaService,
     ReserveInternalRuntimeMonthlyMediaQuotaService,
     ReadInternalRuntimeQuotaStatusService,
-    QuotaAdvisoryStateService,
     QuotaAdvisoryFollowUpService,
     QuotaGroundedLimitCopyService,
     CreateInternalRuntimeQuotaCheckoutService,

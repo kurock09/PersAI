@@ -1,4 +1,4 @@
-export type AssistantPreferredNotificationChannel = "web" | "telegram" | "whatsapp";
+export type AssistantPreferredNotificationChannel = "web" | "telegram";
 
 export interface AssistantNotificationPreferenceState {
   selectedChannel: AssistantPreferredNotificationChannel;

@@ -193,24 +193,10 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async resolveCandidates() {
-        return [
-          {
-            dedupeKey:
-              "quota_advisory:assistant-1:web:chat-thread-1:quota_bucket:token_budget:warning_90_percent:2026-05-01T00:00:00.000Z:2026-06-01T00:00:00.000Z",
-            limitCode: "quota_bucket:token_budget",
-            displayName: "Credits",
-            thresholdCode: "warning_90_percent" as const,
-            warningThresholdPercent: 90,
-            currentPercent: 12,
-            finiteLimit: true,
-            periodStartedAt: "2026-05-01T00:00:00.000Z",
-            periodEndsAt: "2026-06-01T00:00:00.000Z",
-            periodSource: "subscription_period" as const,
-            deliveryState: "eligible" as const,
-            deliveredAt: null
-          }
-        ];
+      notificationIntent: {
+        async findMany() {
+          return [];
+        }
       }
     } as never
   );
@@ -261,8 +247,7 @@ async function run(): Promise<void> {
   assert.equal(result.monthlyMediaQuotas.tools[0]?.usedUnits, 3);
   assert.equal(result.monthlyMediaQuotas.tools[0]?.limitUnits, 30);
   assert.equal(result.monthlyMediaQuotas.tools[1], undefined);
-  assert.equal(result.advisoryCandidates[0]?.limitCode, "quota_bucket:token_budget");
-  assert.equal(result.advisoryCandidates[0]?.deliveryState, "eligible");
+  assert.equal(result.advisoryCandidates.length, 0);
 }
 
 void run();

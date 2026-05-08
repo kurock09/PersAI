@@ -6,8 +6,7 @@ import {
 } from "../domain/assistant-channel-surface-binding.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
-import type { AssistantNotificationDeliveryTarget } from "./assistant-notification-delivery.service";
-import { AssistantNotificationOutboxService } from "./assistant-notification-outbox.service";
+import { NotificationIntentService } from "./notifications/notification-intent.service";
 
 export interface InternalCronFireRequest {
   assistantId: string;
@@ -60,7 +59,7 @@ export class HandleInternalCronFireService {
     private readonly prisma: WorkspaceManagementPrismaService,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
-    private readonly assistantNotificationOutboxService: AssistantNotificationOutboxService
+    private readonly notificationIntentService: NotificationIntentService
   ) {}
 
   parseInput(assistantId: string, payload: unknown): InternalCronFireRequest {
@@ -119,38 +118,54 @@ export class HandleInternalCronFireService {
     };
   }
 
-  async execute(
-    input: InternalCronFireRequest
-  ): Promise<{ ok: true; deliveredTo: AssistantNotificationDeliveryTarget }> {
+  async execute(input: InternalCronFireRequest): Promise<{ ok: true; deliveredTo: "none" }> {
     const replayKey = buildReminderReplayKey(input);
     const replayed = await this.claimOrReplayReminderDelivery(input.assistantId, replayKey);
     if (replayed !== null) {
-      return { ok: true, deliveredTo: replayed.deliveredTo };
+      return { ok: true, deliveredTo: "none" };
     }
 
     try {
       await this.syncTaskRegistryFromCronRun(input);
-      await this.assistantNotificationOutboxService.enqueue({
-        assistantId: input.assistantId,
-        source: "user_reminder",
-        sourceId: input.jobId,
-        status: input.status,
-        dedupeKey: replayKey,
-        ...(input.summary === undefined ? {} : { text: input.summary })
-      });
-      const deliveredTo: AssistantNotificationDeliveryTarget = "none";
+
+      if (input.status === "ok" && input.summary) {
+        const assistant = await this.prisma.assistant.findUnique({
+          where: { id: input.assistantId },
+          select: { userId: true, workspaceId: true }
+        });
+        if (assistant !== null) {
+          await this.notificationIntentService.createIntent({
+            workspaceId: assistant.workspaceId,
+            assistantId: input.assistantId,
+            userId: assistant.userId,
+            source: "reminder",
+            class: "conversational",
+            priority: "immediate",
+            renderStrategy: "grounded_llm",
+            factPayload: {
+              pushText: input.summary,
+              jobId: input.jobId,
+              status: input.status
+            },
+            dedupeKey: replayKey,
+            respectQuietHours: false,
+            traceId: input.jobId
+          });
+        }
+      }
+
       await this.bindingRepository.completeReminderDeliveryProcessing(
         input.assistantId,
         REMINDER_REPLAY_PROVIDER_KEY,
         REMINDER_REPLAY_SURFACE_TYPE,
         {
           replayKey,
-          deliveredTo,
+          deliveredTo: "none",
           completedAt: new Date().toISOString()
         }
       );
 
-      return { ok: true, deliveredTo };
+      return { ok: true, deliveredTo: "none" };
     } catch (error) {
       await this.bindingRepository.releaseReminderDeliveryProcessing(
         input.assistantId,
@@ -165,9 +180,7 @@ export class HandleInternalCronFireService {
   private async claimOrReplayReminderDelivery(
     assistantId: string,
     replayKey: string
-  ): Promise<{
-    deliveredTo: AssistantNotificationDeliveryTarget;
-  } | null> {
+  ): Promise<{ handled: true } | null> {
     const claim = await this.bindingRepository.claimReminderDeliveryProcessing(
       assistantId,
       REMINDER_REPLAY_PROVIDER_KEY,
@@ -186,7 +199,7 @@ export class HandleInternalCronFireService {
         REMINDER_REPLAY_SURFACE_TYPE,
         replayKey
       );
-      return completed ? { deliveredTo: completed.deliveredTo } : null;
+      return completed ? { handled: true } : null;
     }
 
     const startedAt = Date.now();
@@ -198,7 +211,7 @@ export class HandleInternalCronFireService {
         replayKey
       );
       if (completed !== null) {
-        return { deliveredTo: completed.deliveredTo };
+        return { handled: true };
       }
       await delay(REMINDER_REPLAY_POLL_MS);
     }

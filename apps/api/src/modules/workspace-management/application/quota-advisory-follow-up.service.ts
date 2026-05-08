@@ -1,25 +1,26 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import {
-  ASSISTANT_CHAT_REPOSITORY,
-  type AssistantChatRepository
-} from "../domain/assistant-chat.repository";
-import type { AssistantWebChatMessageState } from "./web-chat.types";
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
-import { ManageAdminNotificationChannelsService } from "./manage-admin-notification-channels.service";
-import { QuotaAdvisoryStateService } from "./quota-advisory-state.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./read-internal-runtime-quota-status.service";
 import { InternalRuntimeBackgroundTaskClientService } from "./internal-runtime-background-task.client.service";
 import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { NotificationIntentService } from "./notifications/notification-intent.service";
 
 const QUOTA_ADVISORY_TIMEOUT_MS = 8_000;
 const RECENT_MESSAGE_LIMIT = 8;
 
+const DEFAULT_QUOTA_ADVISORY_LLM_INSTRUCTION = [
+  "Write one short, calm follow-up assistant message when a grounded quota advisory should be sent.",
+  "Base the message only on the provided quota facts and limit candidates. Do not invent limits, reset times, package links, or plan availability.",
+  "Sound helpful and concise. Mention upgrade or purchase options only when the facts explicitly say they are available.",
+  "If the active plan is free or zero-price, do not imply paid light mode. If paid token light mode is active, explain it plainly without sounding alarming."
+].join("\n");
+
 type SupportedQuotaAdvisorySurface = "web" | "telegram";
 
 export type QuotaAdvisoryFollowUpResult = {
-  assistantMessage: AssistantWebChatMessageState;
+  intentId: string;
 };
 
 @Injectable()
@@ -29,23 +30,22 @@ export class QuotaAdvisoryFollowUpService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
-    @Inject(ASSISTANT_CHAT_REPOSITORY)
-    private readonly assistantChatRepository: AssistantChatRepository,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly readInternalRuntimeQuotaStatusService: ReadInternalRuntimeQuotaStatusService,
-    private readonly manageAdminNotificationChannelsService: ManageAdminNotificationChannelsService,
     private readonly internalRuntimeBackgroundTaskClientService: InternalRuntimeBackgroundTaskClientService,
-    private readonly quotaAdvisoryStateService: QuotaAdvisoryStateService
+    private readonly notificationIntentService: NotificationIntentService
   ) {}
 
   async maybeCreateFollowUp(input: {
     assistantId: string;
     workspaceId: string;
+    userId: string;
     chatId: string;
     surface: SupportedQuotaAdvisorySurface;
     surfaceThreadKey: string;
     mainAssistantMessage: string;
+    traceId?: string | null;
   }): Promise<QuotaAdvisoryFollowUpResult | null> {
     const quotaStatus = await this.readInternalRuntimeQuotaStatusService.execute({
       assistantId: input.assistantId,
@@ -59,13 +59,27 @@ export class QuotaAdvisoryFollowUpService {
       return null;
     }
 
-    const policy =
-      await this.manageAdminNotificationChannelsService.getQuotaAdvisoryPolicyForWorkspace(
-        input.workspaceId
-      );
-    if (!policy.enabled) {
+    const policyRow = await this.prisma.notificationPolicy.findUnique({
+      where: {
+        workspaceId_source: { workspaceId: input.workspaceId, source: "quota_advisory" }
+      },
+      select: { enabled: true, config: true }
+    });
+    const policyEnabled = policyRow === null ? true : policyRow.enabled;
+    if (!policyEnabled) {
       return null;
     }
+    const policyConfig =
+      policyRow !== null &&
+      typeof policyRow.config === "object" &&
+      policyRow.config !== null &&
+      !Array.isArray(policyRow.config)
+        ? (policyRow.config as Record<string, unknown>)
+        : {};
+    const llmInstruction =
+      typeof policyConfig["llmInstruction"] === "string" && policyConfig["llmInstruction"].trim()
+        ? policyConfig["llmInstruction"].trim()
+        : DEFAULT_QUOTA_ADVISORY_LLM_INSTRUCTION;
 
     const assistant = await this.assistantRepository.findById(input.assistantId);
     if (assistant === null) {
@@ -86,7 +100,7 @@ export class QuotaAdvisoryFollowUpService {
       surfaceThreadKey: input.surfaceThreadKey,
       mainAssistantMessage: input.mainAssistantMessage,
       quotaStatus,
-      adminInstruction: policy.llmInstruction
+      adminInstruction: llmInstruction
     });
 
     const dedupeKey = [
@@ -96,6 +110,7 @@ export class QuotaAdvisoryFollowUpService {
       input.surfaceThreadKey,
       eligibleCandidates.map((candidate) => candidate.dedupeKey).join("|")
     ].join(":");
+
     const outcome = await this.internalRuntimeBackgroundTaskClientService.evaluate(
       {
         assistantId: input.assistantId,
@@ -112,7 +127,7 @@ export class QuotaAdvisoryFollowUpService {
             "If you mention an upgrade or purchase option, it must already be present in the provided facts.",
             "Return no_push if the message would be repetitive, vague, or not grounded enough.",
             "Admin instruction:",
-            policy.llmInstruction,
+            llmInstruction,
             "Context packet:",
             JSON.stringify(contextPacket, null, 2)
           ].join("\n"),
@@ -145,32 +160,37 @@ export class QuotaAdvisoryFollowUpService {
       return null;
     }
 
-    const assistantMessage = await this.assistantChatRepository.createMessage({
-      chatId: input.chatId,
-      assistantId: input.assistantId,
-      author: "assistant",
-      content: followUpText
-    });
-    await this.quotaAdvisoryStateService.recordDeliveredCandidates({
-      assistantId: input.assistantId,
+    const intent = await this.notificationIntentService.createIntent({
       workspaceId: input.workspaceId,
-      threadContext: {
-        channel: input.surface,
-        externalThreadKey: input.surfaceThreadKey
+      assistantId: input.assistantId,
+      userId: input.userId,
+      source: "quota_advisory",
+      class: "conversational",
+      priority: "immediate",
+      renderStrategy: "grounded_llm",
+      factPayload: {
+        pushText: followUpText,
+        candidates: eligibleCandidates
       },
-      candidates: eligibleCandidates
+      allowedChannels: input.surface === "telegram" ? ["telegram_thread"] : ["web_thread"],
+      dedupeKey,
+      surface: input.surface,
+      surfaceThreadKey: input.surfaceThreadKey,
+      chatId: input.chatId,
+      respectQuietHours: false,
+      traceId: input.traceId ?? null
     });
-    return {
-      assistantMessage: {
-        id: assistantMessage.id,
-        chatId: assistantMessage.chatId,
-        assistantId: assistantMessage.assistantId,
-        author: assistantMessage.author,
-        content: assistantMessage.content,
-        attachments: [],
-        createdAt: assistantMessage.createdAt.toISOString()
-      }
-    };
+
+    this.logger.log({
+      event: "notification.intent.created",
+      source: "quota_advisory",
+      class: "conversational",
+      priority: "immediate",
+      intentId: intent.id,
+      assistantId: input.assistantId
+    });
+
+    return { intentId: intent.id };
   }
 
   private async buildContextPacket(input: {
