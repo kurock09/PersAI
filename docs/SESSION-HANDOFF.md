@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-05-08 (post-push hotfix) — fix `api` startup crash from Telegram quota-advisory DI
+
+### What changed
+
+- Fixed the live `persai-dev` rollout regression where the new `api` pod (`api-664cddd77d-*`) entered `CrashLoopBackOff` immediately after boot instead of serving traffic.
+- Root cause was not Kubernetes or migrations: Nest failed to resolve `HandleInternalTelegramTurnService` because the new quota-advisory dependency had been typed as `Pick<QuotaAdvisoryFollowUpService, "maybeCreateFollowUp">` with an inline default object, which compiled but degraded the runtime DI token to `Object`.
+- `HandleInternalTelegramTurnService` now injects the real `QuotaAdvisoryFollowUpService` class again and marks it `@Optional()` so the production module resolves correctly while the manually constructed unit tests can still omit the dependency.
+- The follow-up call now uses optional chaining and falls back to `null` when the service is absent in manual tests, preserving the previous test ergonomics without breaking Nest runtime startup.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- live crash diagnosis from `kubectl -n persai-dev describe pod api-664cddd77d-ngf65` and `kubectl -n persai-dev logs api-664cddd77d-ngf65 -c api --previous`
+
+### Risks / residuals
+
+- This hotfix corrects the concrete startup blocker, but the namespace rollout still needs the normal image redeploy/rollout completion check after push.
+- ADR-087 live end-to-end validation for real quota advisories and hard stops remains pending.
+
+### Next recommended step
+
+- Confirm the `persai-dev` `api` deployment rolls to the new image cleanly and that the pending `runtime` / `web` / `sandbox` pods finish their rollout.
+
 ## 2026-05-08 (ADR-088 notification platform architecture) — define one notification control plane before more feature-specific drift lands
 
 ### What changed

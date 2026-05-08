@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { RuntimeTurnAutoCompactionState } from "@persai/runtime-contract";
 import { type RuntimeMediaArtifact } from "./assistant-runtime.facade";
@@ -75,12 +75,8 @@ export class HandleInternalTelegramTurnService {
     private readonly sendNativeTelegramTurnService: SendNativeTelegramTurnService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
-    private readonly quotaAdvisoryFollowUpService: Pick<
-      QuotaAdvisoryFollowUpService,
-      "maybeCreateFollowUp"
-    > = {
-      maybeCreateFollowUp: async () => null
-    }
+    @Optional()
+    private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
@@ -334,14 +330,15 @@ export class HandleInternalTelegramTurnService {
           error instanceof Error ? error.stack : undefined
         );
       }
-      const quotaAdvisoryFollowUp = await this.quotaAdvisoryFollowUpService.maybeCreateFollowUp({
-        assistantId: resolved.assistantId,
-        workspaceId: resolved.workspaceId,
-        chatId: chat.id,
-        surface: "telegram",
-        surfaceThreadKey: input.threadId,
-        mainAssistantMessage: assistantMessage
-      });
+      const quotaAdvisoryFollowUp =
+        (await this.quotaAdvisoryFollowUpService?.maybeCreateFollowUp({
+          assistantId: resolved.assistantId,
+          workspaceId: resolved.workspaceId,
+          chatId: chat.id,
+          surface: "telegram",
+          surfaceThreadKey: input.threadId,
+          mainAssistantMessage: assistantMessage
+        })) ?? null;
       if (quotaAdvisoryFollowUp !== null) {
         trace.stage("quota_advisory_follow_up_saved");
       }
