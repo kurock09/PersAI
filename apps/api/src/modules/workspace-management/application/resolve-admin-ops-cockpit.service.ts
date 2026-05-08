@@ -298,75 +298,59 @@ export class ResolveAdminOpsCockpitService {
     workspaceId: string,
     quotaUsage: AdminOpsCockpitQuotaUsage | null
   ): Promise<AdminOpsCockpitBillingSupport> {
-    const [subscription, latestPaidActivation, latestLifecycleEvents, latestNotificationJobs] =
-      await Promise.all([
-        this.prisma.workspaceSubscription.findUnique({
-          where: { workspaceId },
-          select: {
-            id: true,
-            planCode: true,
-            status: true,
-            trialStartedAt: true,
-            trialEndsAt: true,
-            graceStartedAt: true,
-            graceEndsAt: true,
-            currentPeriodStartedAt: true,
-            currentPeriodEndsAt: true,
-            cancelAtPeriodEnd: true,
-            providerCustomerRef: true,
-            providerSubscriptionRef: true
-          }
-        }),
-        this.prisma.workspaceSubscriptionLifecycleEvent.findFirst({
-          where: {
-            workspaceId,
-            nextStatus: "active",
-            nextPlanCode: { not: null }
-          },
-          orderBy: { createdAt: "desc" },
-          select: {
-            eventCode: true,
-            source: true,
-            nextPlanCode: true,
-            nextPeriodStartedAt: true,
-            nextPeriodEndsAt: true,
-            metadata: true,
-            createdAt: true
-          }
-        }),
-        this.prisma.workspaceSubscriptionLifecycleEvent.findMany({
-          where: { workspaceId },
-          orderBy: { createdAt: "desc" },
-          take: 8,
-          select: {
-            id: true,
-            eventCode: true,
-            source: true,
-            previousStatus: true,
-            nextStatus: true,
-            previousPlanCode: true,
-            nextPlanCode: true,
-            nextPeriodStartedAt: true,
-            nextPeriodEndsAt: true,
-            createdAt: true
-          }
-        }),
-        this.prisma.billingLifecycleNotificationJob.findMany({
-          where: { workspaceId },
-          orderBy: { createdAt: "desc" },
-          take: 8,
-          select: {
-            id: true,
-            notificationCode: true,
-            channel: true,
-            status: true,
-            scheduledFor: true,
-            recipientEmail: true,
-            lastErrorCode: true,
-            createdAt: true
-          }
-        })
-      ]);
+    const [subscription, latestPaidActivation, latestLifecycleEvents] = await Promise.all([
+      this.prisma.workspaceSubscription.findUnique({
+        where: { workspaceId },
+        select: {
+          id: true,
+          planCode: true,
+          status: true,
+          trialStartedAt: true,
+          trialEndsAt: true,
+          graceStartedAt: true,
+          graceEndsAt: true,
+          currentPeriodStartedAt: true,
+          currentPeriodEndsAt: true,
+          cancelAtPeriodEnd: true,
+          providerCustomerRef: true,
+          providerSubscriptionRef: true
+        }
+      }),
+      this.prisma.workspaceSubscriptionLifecycleEvent.findFirst({
+        where: {
+          workspaceId,
+          nextStatus: "active",
+          nextPlanCode: { not: null }
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          eventCode: true,
+          source: true,
+          nextPlanCode: true,
+          nextPeriodStartedAt: true,
+          nextPeriodEndsAt: true,
+          metadata: true,
+          createdAt: true
+        }
+      }),
+      this.prisma.workspaceSubscriptionLifecycleEvent.findMany({
+        where: { workspaceId },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        select: {
+          id: true,
+          eventCode: true,
+          source: true,
+          previousStatus: true,
+          nextStatus: true,
+          previousPlanCode: true,
+          nextPlanCode: true,
+          nextPeriodStartedAt: true,
+          nextPeriodEndsAt: true,
+          createdAt: true
+        }
+      })
+    ]);
 
     return {
       ...(() => {
@@ -419,16 +403,6 @@ export class ResolveAdminOpsCockpitService {
         nextPeriodStartedAt: asIso(event.nextPeriodStartedAt),
         nextPeriodEndsAt: asIso(event.nextPeriodEndsAt),
         createdAt: event.createdAt.toISOString()
-      })),
-      latestNotificationJobs: latestNotificationJobs.map((job) => ({
-        id: job.id,
-        notificationCode: job.notificationCode,
-        channel: job.channel,
-        status: job.status,
-        scheduledFor: job.scheduledFor.toISOString(),
-        recipientEmail: job.recipientEmail,
-        lastErrorCode: job.lastErrorCode,
-        createdAt: job.createdAt.toISOString()
       }))
     };
   }

@@ -28,8 +28,7 @@ function actionCodesForStatus(status: string | null): BillingSupportAction[] {
       source: null
     },
     latestPaidActivation: null,
-    latestLifecycleEvents: [],
-    latestNotificationJobs: []
+    latestLifecycleEvents: []
   }).map((action) => action.action);
 }
 
@@ -83,8 +82,7 @@ describe("admin ops billing support actions", () => {
             source: null
           },
           latestPaidActivation: null,
-          latestLifecycleEvents: [],
-          latestNotificationJobs: []
+          latestLifecycleEvents: []
         },
         "assistant_plan_fallback"
       ).map((action) => action.action)

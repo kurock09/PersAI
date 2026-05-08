@@ -4,11 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminBillingLifecycleNotificationPolicy } from "./adminBillingLifecycleNotificationPolicy";
 
 export interface AdminBillingLifecycleSettingsRequest {
   gracePeriodDays: number;
   /** @nullable */
   globalFallbackPlanCode: string | null;
-  notificationPolicy: AdminBillingLifecycleNotificationPolicy;
 }

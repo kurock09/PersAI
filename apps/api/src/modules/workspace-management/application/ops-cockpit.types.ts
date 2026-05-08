@@ -33,17 +33,6 @@ export type AdminOpsCockpitBillingLifecycleEvent = {
   createdAt: string;
 };
 
-export type AdminOpsCockpitBillingNotificationJob = {
-  id: string;
-  notificationCode: string;
-  channel: "email" | "assistant_notification";
-  status: "pending" | "enqueued" | "skipped" | "failed";
-  scheduledFor: string;
-  recipientEmail: string | null;
-  lastErrorCode: string | null;
-  createdAt: string;
-};
-
 export type AdminOpsCockpitPaidActivation = {
   eventCode: string;
   source: string;
@@ -76,7 +65,6 @@ export type AdminOpsCockpitBillingSupport = {
   };
   latestPaidActivation: AdminOpsCockpitPaidActivation;
   latestLifecycleEvents: AdminOpsCockpitBillingLifecycleEvent[];
-  latestNotificationJobs: AdminOpsCockpitBillingNotificationJob[];
 };
 
 export type AdminOpsCockpitChannelBinding = {

@@ -124,18 +124,6 @@ enum AssistantPreferredNotificationChannel {
 }
 
 
-enum BillingLifecycleNotificationChannel {
-  email
-  assistant_notification
-}
-
-enum BillingLifecycleNotificationJobStatus {
-  pending
-  enqueued
-  skipped
-  failed
-}
-
 enum PlanCatalogStatus {
   active
   inactive
@@ -498,7 +486,6 @@ model AppUser {
   workspaceSubscriptionLifecycleEvents   WorkspaceSubscriptionLifecycleEvent[]
   workspaceSubscriptionBillingEvents     WorkspaceSubscriptionBillingEvent[]
   workspacePaymentIntents                WorkspacePaymentIntent[]
-  billingLifecycleNotificationJobs       BillingLifecycleNotificationJob[]
   notificationIntents                    NotificationIntent[]              @relation("NotificationIntentUser")
 
   @@map("app_users")
@@ -548,7 +535,6 @@ model Workspace {
   subscriptionLifecycleEvents       WorkspaceSubscriptionLifecycleEvent[]
   subscriptionBillingEvents         WorkspaceSubscriptionBillingEvent[]
   paymentIntents                    WorkspacePaymentIntent[]
-  billingLifecycleNotificationJobs  BillingLifecycleNotificationJob[]
   mediaJobs                         AssistantMediaJob[]
   notificationIntents               NotificationIntent[]            @relation("NotificationIntentWorkspace")
   notificationChannelRegistry       NotificationChannelRegistry[]   @relation("NotificationChannelRegistryWorkspace")
@@ -627,7 +613,6 @@ model Assistant {
   taskRegistryItems                    AssistantTaskRegistryItem[]
   backgroundTasks                      AssistantBackgroundTask[]
   backgroundTaskRuns                   AssistantBackgroundTaskRun[]
-  billingLifecycleNotificationJobs     BillingLifecycleNotificationJob[]
   knowledgeSources                     AssistantKnowledgeSource[]
   knowledgeSourceChunks                AssistantKnowledgeSourceChunk[]
   skillAssignments                     AssistantSkillAssignment[]
@@ -863,42 +848,6 @@ model BillingLifecycleSettings {
   @@map("billing_lifecycle_settings")
 }
 
-model BillingLifecycleNotificationJob {
-  id                            String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId                   String                                @map("workspace_id") @db.Uuid
-  userId                        String?                               @map("user_id") @db.Uuid
-  assistantId                   String?                               @map("assistant_id") @db.Uuid
-  subscriptionId                String?                               @map("subscription_id") @db.Uuid
-  lifecycleEventId              String?                               @map("lifecycle_event_id") @db.Uuid
-  eventCode                     String                                @map("event_code") @db.VarChar(64)
-  notificationCode              String                                @map("notification_code") @db.VarChar(64)
-  channel                       BillingLifecycleNotificationChannel
-  status                        BillingLifecycleNotificationJobStatus @default(pending)
-  dedupeKey                     String                                @unique @map("dedupe_key") @db.VarChar(512)
-  scheduledFor                  DateTime                              @map("scheduled_for") @db.Timestamptz(6)
-  recipientEmail                String?                               @map("recipient_email") @db.VarChar(255)
-  subject                       String?                               @db.VarChar(255)
-  text                          String                                @db.Text
-  metadata                      Json                                  @default("{}") @db.JsonB
-  enqueuedAt                    DateTime?                             @map("enqueued_at") @db.Timestamptz(6)
-  skippedAt                     DateTime?                             @map("skipped_at") @db.Timestamptz(6)
-  failedAt                      DateTime?                             @map("failed_at") @db.Timestamptz(6)
-  lastErrorCode                 String?                               @map("last_error_code") @db.VarChar(128)
-  lastErrorMessage              String?                               @map("last_error_message") @db.Text
-  createdAt                     DateTime                              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                     DateTime                              @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace                     Workspace                             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  user                          AppUser?                              @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  assistant                     Assistant?                            @relation(fields: [assistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  subscription                  WorkspaceSubscription?                 @relation(fields: [subscriptionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  lifecycleEvent                WorkspaceSubscriptionLifecycleEvent?   @relation(fields: [lifecycleEventId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-
-  @@index([workspaceId, scheduledFor])
-  @@index([status, scheduledFor])
-  @@index([lifecycleEventId])
-  @@map("billing_lifecycle_notification_jobs")
-}
-
 model AssistantPlatformRollout {
   id                  String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   workspaceId         String                         @map("workspace_id") @db.Uuid
@@ -1106,7 +1055,6 @@ model WorkspaceSubscription {
   workspace               Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   billingEvents           WorkspaceSubscriptionBillingEvent[]
   lifecycleEvents         WorkspaceSubscriptionLifecycleEvent[]
-  billingNotificationJobs BillingLifecycleNotificationJob[]
 
   @@index([planCode, status])
   @@index([status, graceEndsAt])
@@ -1135,7 +1083,6 @@ model WorkspaceSubscriptionLifecycleEvent {
   workspace                Workspace                                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   user                     AppUser?                                   @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   subscription             WorkspaceSubscription?                     @relation(fields: [subscriptionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  billingNotificationJobs  BillingLifecycleNotificationJob[]
 
   @@index([workspaceId, createdAt(sort: Desc)])
   @@index([userId, createdAt(sort: Desc)])

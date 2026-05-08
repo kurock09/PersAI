@@ -32,7 +32,7 @@ function createService(deps: {
       }
     } as never,
     {
-      async scheduleForLifecycleEventIds() {
+      async emitForLifecycleEventIds() {
         return undefined;
       }
     } as never

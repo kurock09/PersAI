@@ -132,16 +132,6 @@ type BillingSupportData = {
     nextPeriodEndsAt: string | null;
     createdAt: string;
   }>;
-  latestNotificationJobs: Array<{
-    id: string;
-    notificationCode: string;
-    channel: "email" | "assistant_notification";
-    status: "pending" | "enqueued" | "skipped" | "failed";
-    scheduledFor: string;
-    recipientEmail: string | null;
-    lastErrorCode: string | null;
-    createdAt: string;
-  }>;
 };
 
 type ManualPaidBillingPeriod = "month" | "year";
@@ -664,19 +654,6 @@ function formatActivationSourceLabel(
     return "system";
   }
   return source ?? "unknown";
-}
-
-function notificationJobTone(status: string): string {
-  switch (status) {
-    case "enqueued":
-      return "bg-success/15 text-success";
-    case "pending":
-      return "bg-blue-500/15 text-blue-300";
-    case "failed":
-      return "bg-destructive/15 text-destructive";
-    default:
-      return "bg-surface text-text-muted";
-  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1839,36 +1816,15 @@ export default function AdminOpsPage() {
                     </div>
                     <div className="space-y-1.5">
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                        Notification work
+                        Notification delivery
                       </p>
-                      {billing.latestNotificationJobs.length === 0 ? (
-                        <p className="text-[11px] text-text-muted">No notification jobs yet.</p>
-                      ) : (
-                        billing.latestNotificationJobs.slice(0, 4).map((job) => (
-                          <div
-                            key={job.id}
-                            className="rounded border border-border/60 bg-surface-raised px-2 py-1.5"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono text-[10px] font-semibold text-text">
-                                {job.notificationCode}
-                              </span>
-                              <span
-                                className={cn(
-                                  "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase",
-                                  notificationJobTone(job.status)
-                                )}
-                              >
-                                {job.status}
-                              </span>
-                            </div>
-                            <p className="mt-0.5 text-[9px] text-text-muted">
-                              {job.channel.replace(/_/g, " ")} · {formatTs(job.scheduledFor)}
-                              {job.lastErrorCode ? ` · ${job.lastErrorCode}` : ""}
-                            </p>
-                          </div>
-                        ))
-                      )}
+                      <p className="text-[11px] text-text-muted">
+                        Billing notification delivery history is now in{" "}
+                        <a href="/admin/notifications" className="underline hover:text-text">
+                          Admin &rsaquo; Notifications
+                        </a>{" "}
+                        (source: billing_lifecycle).
+                      </p>
                     </div>
                   </div>
                 </CardShell>

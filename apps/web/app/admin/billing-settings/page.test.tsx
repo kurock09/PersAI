@@ -1,23 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { toBillingLifecycleSettingsRequest } from "./page";
 
-describe("AdminBillingSettingsPage helpers", () => {
-  it("maps the draft into the persisted lifecycle settings request", () => {
+describe("toBillingLifecycleSettingsRequest", () => {
+  it("maps valid draft to request", () => {
     expect(
       toBillingLifecycleSettingsRequest({
         gracePeriodDays: "5",
-        globalFallbackPlanCode: "starter",
-        assistantPushEnabled: true,
-        rules: [{ notificationCode: "grace_ending", enabled: true, offsetDays: 1 }]
+        globalFallbackPlanCode: "starter"
       })
     ).toEqual({
       gracePeriodDays: 5,
-      globalFallbackPlanCode: "starter",
-      notificationPolicy: {
-        emailEnabled: true,
-        assistantPushEnabled: true,
-        rules: [{ notificationCode: "grace_ending", enabled: true, offsetDays: 1 }]
-      }
+      globalFallbackPlanCode: "starter"
+    });
+  });
+
+  it("maps empty fallback plan to null", () => {
+    expect(
+      toBillingLifecycleSettingsRequest({
+        gracePeriodDays: "7",
+        globalFallbackPlanCode: ""
+      })
+    ).toEqual({
+      gracePeriodDays: 7,
+      globalFallbackPlanCode: null
     });
   });
 
@@ -25,9 +30,7 @@ describe("AdminBillingSettingsPage helpers", () => {
     expect(() =>
       toBillingLifecycleSettingsRequest({
         gracePeriodDays: "0",
-        globalFallbackPlanCode: "",
-        assistantPushEnabled: false,
-        rules: []
+        globalFallbackPlanCode: ""
       })
     ).toThrow(/Grace period/);
   });

@@ -10708,54 +10708,12 @@ components:
     AdminPlanUpdateRequest:
       allOf:
         - $ref: "#/components/schemas/AdminPlanInputBase"
-    AdminBillingLifecycleNotificationCode:
-      type: string
-      enum:
-        - trial_ending
-        - trial_expired
-        - renewal_failed
-        - grace_ending
-        - grace_expired
-        - payment_recovered
-    AdminBillingLifecycleNotificationRule:
-      type: object
-      required:
-        - notificationCode
-        - enabled
-        - offsetDays
-      properties:
-        notificationCode:
-          $ref: "#/components/schemas/AdminBillingLifecycleNotificationCode"
-        enabled:
-          type: boolean
-        offsetDays:
-          type: integer
-          nullable: true
-          minimum: 0
-          maximum: 30
-    AdminBillingLifecycleNotificationPolicy:
-      type: object
-      required:
-        - emailEnabled
-        - assistantPushEnabled
-        - rules
-      properties:
-        emailEnabled:
-          type: boolean
-          description: Email is required for billing lifecycle notifications and must be true.
-        assistantPushEnabled:
-          type: boolean
-        rules:
-          type: array
-          items:
-            $ref: "#/components/schemas/AdminBillingLifecycleNotificationRule"
     AdminBillingLifecycleSettingsState:
       type: object
       required:
         - schema
         - gracePeriodDays
         - globalFallbackPlanCode
-        - notificationPolicy
         - updatedAt
       properties:
         schema:
@@ -10765,8 +10723,6 @@ components:
         globalFallbackPlanCode:
           type: string
           nullable: true
-        notificationPolicy:
-          $ref: "#/components/schemas/AdminBillingLifecycleNotificationPolicy"
         updatedAt:
           type: string
           format: date-time
@@ -10775,15 +10731,12 @@ components:
       required:
         - gracePeriodDays
         - globalFallbackPlanCode
-        - notificationPolicy
       properties:
         gracePeriodDays:
           type: integer
         globalFallbackPlanCode:
           type: string
           nullable: true
-        notificationPolicy:
-          $ref: "#/components/schemas/AdminBillingLifecycleNotificationPolicy"
     GetAdminBillingLifecycleSettingsResponse:
       type: object
       required:
@@ -11069,7 +11022,6 @@ components:
         - quotaPeriod
         - latestPaidActivation
         - latestLifecycleEvents
-        - latestNotificationJobs
       properties:
         subscription:
           type: object
@@ -11156,10 +11108,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminOpsCockpitBillingLifecycleEvent"
-        latestNotificationJobs:
-          type: array
-          items:
-            $ref: "#/components/schemas/AdminOpsCockpitBillingNotificationJob"
     AdminOpsCockpitPaidActivation:
       nullable: true
       type: object
@@ -11232,46 +11180,6 @@ components:
         nextPeriodEndsAt:
           type: string
           format: date-time
-          nullable: true
-        createdAt:
-          type: string
-          format: date-time
-    AdminOpsCockpitBillingNotificationJob:
-      type: object
-      required:
-        - id
-        - notificationCode
-        - channel
-        - status
-        - scheduledFor
-        - recipientEmail
-        - lastErrorCode
-        - createdAt
-      properties:
-        id:
-          type: string
-        notificationCode:
-          type: string
-        channel:
-          type: string
-          enum:
-            - email
-            - assistant_notification
-        status:
-          type: string
-          enum:
-            - pending
-            - enqueued
-            - skipped
-            - failed
-        scheduledFor:
-          type: string
-          format: date-time
-        recipientEmail:
-          type: string
-          nullable: true
-        lastErrorCode:
-          type: string
           nullable: true
         createdAt:
           type: string

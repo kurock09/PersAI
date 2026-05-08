@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Loader2, Save } from "lucide-react";
+import Link from "next/link";
 import type {
-  AdminBillingLifecycleNotificationPolicy,
-  AdminBillingLifecycleNotificationRule,
   AdminBillingLifecycleSettingsRequest,
   AdminBillingLifecycleSettingsState,
   AdminPlanState
@@ -19,8 +18,6 @@ import {
 export function toBillingLifecycleSettingsRequest(input: {
   gracePeriodDays: string;
   globalFallbackPlanCode: string;
-  assistantPushEnabled: boolean;
-  rules: AdminBillingLifecycleNotificationRule[];
 }): AdminBillingLifecycleSettingsRequest {
   const gracePeriodDays = Number(input.gracePeriodDays);
   if (!Number.isInteger(gracePeriodDays) || gracePeriodDays <= 0 || gracePeriodDays > 90) {
@@ -29,41 +26,9 @@ export function toBillingLifecycleSettingsRequest(input: {
   return {
     gracePeriodDays,
     globalFallbackPlanCode:
-      input.globalFallbackPlanCode.trim().length > 0 ? input.globalFallbackPlanCode.trim() : null,
-    notificationPolicy: {
-      emailEnabled: true,
-      assistantPushEnabled: input.assistantPushEnabled,
-      rules: input.rules
-    }
+      input.globalFallbackPlanCode.trim().length > 0 ? input.globalFallbackPlanCode.trim() : null
   };
 }
-
-function defaultNotificationPolicy(): AdminBillingLifecycleNotificationPolicy {
-  return {
-    emailEnabled: true,
-    assistantPushEnabled: false,
-    rules: [
-      { notificationCode: "trial_ending", enabled: true, offsetDays: 3 },
-      { notificationCode: "trial_expired", enabled: true, offsetDays: null },
-      { notificationCode: "renewal_failed", enabled: true, offsetDays: null },
-      { notificationCode: "grace_ending", enabled: true, offsetDays: 1 },
-      { notificationCode: "grace_expired", enabled: true, offsetDays: null },
-      { notificationCode: "payment_recovered", enabled: true, offsetDays: null }
-    ]
-  };
-}
-
-const NOTIFICATION_LABELS: Record<
-  AdminBillingLifecycleNotificationRule["notificationCode"],
-  string
-> = {
-  trial_ending: "Before trial ends",
-  trial_expired: "Trial expired / fallback applied",
-  renewal_failed: "Paid renewal failed",
-  grace_ending: "Before grace ends",
-  grace_expired: "Grace expired / fallback applied",
-  payment_recovered: "Payment recovered"
-};
 
 export default function AdminBillingSettingsPage() {
   const { getToken } = useAuth();
@@ -71,10 +36,6 @@ export default function AdminBillingSettingsPage() {
   const [plans, setPlans] = useState<AdminPlanState[]>([]);
   const [gracePeriodDays, setGracePeriodDays] = useState("");
   const [globalFallbackPlanCode, setGlobalFallbackPlanCode] = useState("");
-  const [assistantPushEnabled, setAssistantPushEnabled] = useState(false);
-  const [notificationRules, setNotificationRules] = useState<
-    AdminBillingLifecycleNotificationRule[]
-  >(() => defaultNotificationPolicy().rules);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -95,8 +56,6 @@ export default function AdminBillingSettingsPage() {
       setPlans(nextPlans);
       setGracePeriodDays(String(nextSettings.gracePeriodDays));
       setGlobalFallbackPlanCode(nextSettings.globalFallbackPlanCode ?? "");
-      setAssistantPushEnabled(nextSettings.notificationPolicy.assistantPushEnabled);
-      setNotificationRules(nextSettings.notificationPolicy.rules);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to load billing settings.");
     } finally {
@@ -117,18 +76,11 @@ export default function AdminBillingSettingsPage() {
       if (!token) throw new Error("Missing auth token.");
       const response = await putAdminBillingLifecycleSettings(
         token,
-        toBillingLifecycleSettingsRequest({
-          gracePeriodDays,
-          globalFallbackPlanCode,
-          assistantPushEnabled,
-          rules: notificationRules
-        })
+        toBillingLifecycleSettingsRequest({ gracePeriodDays, globalFallbackPlanCode })
       );
       setSettings(response.settings);
       setGracePeriodDays(String(response.settings.gracePeriodDays));
       setGlobalFallbackPlanCode(response.settings.globalFallbackPlanCode ?? "");
-      setAssistantPushEnabled(response.settings.notificationPolicy.assistantPushEnabled);
-      setNotificationRules(response.settings.notificationPolicy.rules);
       setFeedback("Billing lifecycle settings saved.");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to save billing settings.");
@@ -147,6 +99,15 @@ export default function AdminBillingSettingsPage() {
           report success or failure; these settings decide how the subscription moves through grace.
         </p>
       </header>
+
+      <div className="rounded-xl border border-border/60 bg-surface-raised px-4 py-3 text-sm text-text-muted">
+        Billing notification policy (which rules to send, assistant push, offset days) is now
+        managed in{" "}
+        <Link href="/admin/notifications" className="text-accent underline hover:opacity-80">
+          Admin &rsaquo; Notifications
+        </Link>{" "}
+        (source: <span className="font-mono text-xs">billing_lifecycle</span>).
+      </div>
 
       <section className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
         {loading ? (
@@ -172,69 +133,6 @@ export default function AdminBillingSettingsPage() {
                 Paid users stay on their paid plan during grace after failed renewal.
               </span>
             </label>
-
-            <section className="grid gap-3 rounded-xl border border-border bg-surface-raised p-3">
-              <div>
-                <h2 className="text-sm font-semibold">Lifecycle notifications</h2>
-                <p className="text-xs text-text-muted">
-                  Email work is always created for billing lifecycle events. Assistant push is
-                  optional and uses the existing assistant notification channel when available.
-                </p>
-              </div>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={assistantPushEnabled}
-                  onChange={(event) => setAssistantPushEnabled(event.target.checked)}
-                  className="mt-1"
-                />
-                <span>Also enqueue assistant push / Telegram notifications when available</span>
-              </label>
-              <div className="grid gap-2">
-                {notificationRules.map((rule, index) => (
-                  <label
-                    key={rule.notificationCode}
-                    className="flex flex-wrap items-center gap-3 rounded border border-border bg-surface px-3 py-2 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={rule.enabled}
-                      onChange={(event) =>
-                        setNotificationRules((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index ? { ...item, enabled: event.target.checked } : item
-                          )
-                        )
-                      }
-                    />
-                    <span className="min-w-56 font-medium">
-                      {NOTIFICATION_LABELS[rule.notificationCode]}
-                    </span>
-                    {rule.offsetDays !== null && (
-                      <>
-                        <span className="text-xs text-text-muted">Offset days</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={30}
-                          value={rule.offsetDays}
-                          onChange={(event) =>
-                            setNotificationRules((current) =>
-                              current.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? { ...item, offsetDays: Number(event.target.value) }
-                                  : item
-                              )
-                            )
-                          }
-                          className="w-20 rounded border border-border bg-surface-raised px-2 py-1 text-sm"
-                        />
-                      </>
-                    )}
-                  </label>
-                ))}
-              </div>
-            </section>
 
             <label className="grid gap-1">
               <span className="text-xs font-semibold uppercase tracking-wide text-text-subtle">

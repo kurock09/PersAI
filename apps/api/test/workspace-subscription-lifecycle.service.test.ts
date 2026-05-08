@@ -117,7 +117,7 @@ async function run(): Promise<void> {
     prisma as never,
     settings as ManageAdminBillingLifecycleSettingsService,
     {
-      async scheduleForLifecycleEventIds(eventIds: string[]) {
+      async emitForLifecycleEventIds(eventIds: string[]) {
         scheduledEventIds.push(eventIds);
       }
     } as never,

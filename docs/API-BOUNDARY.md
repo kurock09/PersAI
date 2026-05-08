@@ -74,7 +74,9 @@ Primary public API surface:
   - **Removed (Slice 2):** `GET/PATCH /policies/idle-reengagement`, `GET/PATCH /policies/quota-advisory` — these sources are now managed via the unified `GET/PATCH /policies/:source` endpoints
   - **Removed (Slice 2 closeout):** `PATCH /channels/webhook` — deleted from `openapi.yaml` and contracts; unified `PATCH /channels/:channelType` handles all channel types including `admin_webhook`
   - All conversational notification producers now create intents through `NotificationIntentService`; legacy `assistant_notification_outbox` path is deleted.
-  - `billing_lifecycle_notification_jobs` billing email path remains pending until Slice 3 adds MJML templates and Postmark delivery.
+  - **Removed (Slice 3):** `AdminBillingLifecycleNotificationCode`, `AdminBillingLifecycleNotificationRule`, `AdminBillingLifecycleNotificationPolicy` schema types and `notificationPolicy` field from `AdminBillingLifecycleSettingsState/Request`. The billing lifecycle notification policy is now managed exclusively via `GET/PATCH /api/v1/admin/notifications/policies/billing_lifecycle`.
+  - **Removed (Slice 3):** `AdminOpsCockpitBillingNotificationJob` schema and `latestNotificationJobs` field from `AdminOpsCockpitBillingSupport`. Billing delivery history is visible in `Admin > Notifications`.
+  - **Slice 3 (LANDED):** `billing_lifecycle_notification_jobs` table is dropped. All six billing rules (`trial_ending`, `trial_expired`, `renewal_failed`, `grace_ending`, `grace_expired`, `payment_recovered`) now flow through `NotificationIntentService` with `class=transactional`, `renderStrategy=template`, real Postmark email delivery via `EmailChannelAdapter`. Operator manages billing notification policy from `Admin > Notifications` (source: billing_lifecycle).
 
 ### Telegram webhook
 

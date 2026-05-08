@@ -131,7 +131,7 @@ import { HandleCloudpaymentsWebhookService } from "./application/handle-cloudpay
 import { ManageWorkspaceSubscriptionLifecycleService } from "./application/manage-workspace-subscription-lifecycle.service";
 import { MaterializeWorkspacePaidActivationService } from "./application/materialize-workspace-paid-activation.service";
 import { ApplyWorkspaceSubscriptionBillingEventService } from "./application/apply-workspace-subscription-billing-event.service";
-import { ScheduleBillingLifecycleNotificationsService } from "./application/schedule-billing-lifecycle-notifications.service";
+import { BillingLifecycleProducerService } from "./application/billing-lifecycle-producer.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -428,7 +428,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageWorkspaceSubscriptionLifecycleService,
     MaterializeWorkspacePaidActivationService,
     ApplyWorkspaceSubscriptionBillingEventService,
-    ScheduleBillingLifecycleNotificationsService,
+    BillingLifecycleProducerService,
     HandleInternalCronFireService,
     BuildReminderContextSnapshotService,
     PersaiScheduledActionSchedulerService,

@@ -13,7 +13,7 @@ import type { WorkspaceSubscription } from "../domain/workspace-subscription.ent
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
 import { ManageWorkspaceSubscriptionLifecycleService } from "./manage-workspace-subscription-lifecycle.service";
-import { ScheduleBillingLifecycleNotificationsService } from "./schedule-billing-lifecycle-notifications.service";
+import { BillingLifecycleProducerService } from "./billing-lifecycle-producer.service";
 
 export type ResolveEffectiveSubscriptionInput = {
   userId: string;
@@ -37,7 +37,7 @@ export class ResolveEffectiveSubscriptionStateService {
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
     private readonly planCatalogRepository: AssistantPlanCatalogRepository,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly scheduleBillingLifecycleNotificationsService: ScheduleBillingLifecycleNotificationsService,
+    private readonly BillingLifecycleProducerService: BillingLifecycleProducerService,
     @Inject(forwardRef(() => ManageWorkspaceSubscriptionLifecycleService))
     private readonly manageWorkspaceSubscriptionLifecycleService: ManageWorkspaceSubscriptionLifecycleService
   ) {}
@@ -241,9 +241,7 @@ export class ResolveEffectiveSubscriptionStateService {
       );
     }
     await this.markWorkspaceAssistantsConfigDirty(workspaceId);
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
     return {
       ...this.toEffectiveWorkspaceSubscription(created),
       source: "catalog_default_fallback"
@@ -358,9 +356,7 @@ export class ResolveEffectiveSubscriptionStateService {
       })
     );
     await this.markWorkspaceAssistantsConfigDirty(workspaceId);
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
     return {
       ...this.toEffectiveWorkspaceSubscription(updated),
       source: "subscription_trial_fallback"

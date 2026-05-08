@@ -290,23 +290,6 @@ async function run(): Promise<void> {
           ];
         }
       },
-      billingLifecycleNotificationJob: {
-        async findMany() {
-          return [
-            {
-              id: "job-1",
-              notificationCode: "renewal_failed",
-              channel: "email",
-              status: "pending",
-              scheduledFor: new Date("2026-05-03T00:00:00.000Z"),
-              recipientEmail: "user@example.com",
-              deliveryTarget: null,
-              lastErrorCode: null,
-              createdAt: new Date("2026-05-03T00:00:00.000Z")
-            }
-          ];
-        }
-      },
       planCatalogPlan: {
         async findUnique(args: { where: { code: string } }) {
           assert.equal(args.where.code, "pro");
@@ -453,10 +436,6 @@ async function run(): Promise<void> {
       "activate_paid_manually"
     );
     assert.equal(result.billingSupport?.latestLifecycleEvents[0]?.eventCode, "grace_started");
-    assert.equal(
-      result.billingSupport?.latestNotificationJobs[0]?.notificationCode,
-      "renewal_failed"
-    );
     assert.equal(result.sandbox?.effectivePolicy.enabled, true);
     assert.equal(result.sandbox?.effectivePolicy.maxCpuMsPerJob, 7777);
     assert.equal(result.sandbox?.effectivePolicy.maxMemoryBytesPerJob, 64 * 1024 * 1024);

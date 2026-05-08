@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — Slice 1 landed 2026-05-08; Slice 2 landed 2026-05-08
+Accepted — Slice 1 landed 2026-05-08; Slice 2 landed 2026-05-08; Slice 3 landed 2026-05-08
 
 ## Date
 
@@ -455,19 +455,24 @@ Acceptance met 2026-05-08 (closed after 11-item audit 2026-05-08): idle, quota a
 - **`reminder` and cron context:** `HandleInternalCronFireService` does not carry active-chat context (`surface`, `chatId`) — it fires from a system job. Operators must configure `reminder` policies to use `telegram_thread` only until a future enhancement threads chat context through the cron payload. This constraint is reflected in `Admin > Notifications` policy editor guidance. Adding chat context to the cron payload is deferred to Slice 3 or a separate ADR.
 - **`reminder` quiet hours:** `notification_policies.respectQuietHours` defaults to `true` in Prisma schema; ADR §6 states reminders default to `false`. The producer call site passes `respectQuietHours: false` explicitly, which overrides the DB default per intent. Schema default and ADR remain technically inconsistent for the policy row, but the per-intent override makes runtime behavior correct. A clean fix (migration to set the seeded `reminder` policy row's `respectQuietHours = false`) is deferred to Slice 3 as a migration alongside the billing lifecycle work.
 
-### Slice 3 — Transactional migration
+### Slice 3 — Transactional migration (LANDED 2026-05-08)
 
 Goal: migrate billing lifecycle to the unified platform with real email delivery.
 
 In scope:
 
 - Replace `ScheduleBillingLifecycleNotificationsService` with a producer that creates `notification_intents` (`class: "transactional"`, `priority: "scheduled"`, `renderStrategy: "template"`)
-- Email path goes through the Postmark adapter created in Slice 1; all six billing rules (`trial_ending`, `trial_expired`, `renewal_failed`, `grace_ending`, `grace_expired`, `payment_recovered`) get MJML templates
-- Optional assistant push is created as a second intent (`class: "conversational"`, `templateId` for a deterministic short message; not `grounded_llm` because billing facts must remain deterministic)
-- `billing_lifecycle_notification_jobs` is dropped after data migration
-- Billing lifecycle policy moves out of `BillingLifecycleSettings.metadata` and into `notification_policies` rows; the notification policy block on `Admin > Billing Settings` is deleted; the operator manages billing notification policy from `Admin > Notifications` only
+- Email path goes through the Postmark adapter created in Slice 1; all six billing rules (`trial_ending`, `trial_expired`, `renewal_failed`, `grace_ending`, `grace_expired`, `payment_recovered`) have TypeScript deterministic template modules (inline HTML; MJML pipeline deferred to a future pass as noted in §10)
+- Optional assistant push is created as a second intent (`class: "conversational"`, `templateId` for a deterministic short message; not `grounded_llm` because billing facts must remain deterministic; `allowedChannels: ["web_notification_center"]`)
+- `billing_lifecycle_notification_jobs` DROPPED in migration `20260508233251_adr088_slice3_billing_policy`
+- Billing lifecycle policy moved from `BillingLifecycleSettings.metadata` into `notification_policies` rows (one row per workspace, `source=billing_lifecycle`, per-rule sub-policy in `config` JSON); the notification policy block on `Admin > Billing Settings` is deleted; operator manages billing notification policy from `Admin > Notifications` only
+- Legacy contract types `AdminBillingLifecycleNotificationCode/Rule/Policy` and `AdminOpsCockpitBillingNotificationJob` removed from `openapi.yaml` and generated contracts
+- `latestNotificationJobs` removed from `AdminOpsCockpitBillingSupport` schema and ops cockpit UI (card now links to Admin > Notifications)
+- `reminder` quiet-hours fix from Slice 2 notes applied: migration sets `respectQuietHours = false` for reminder policy rows
 
-Acceptance: real email to a verified test inbox for at least one billing rule in `persai-dev`; `Admin > Notifications` shows the delivery in history; `billing_lifecycle_notification_jobs` table is gone.
+Closed must-fix items: ✓ Producer replaced, ✓ Table dropped, ✓ Policy migrated, ✓ Admin block removed, ✓ Contracts cleaned, ✓ All residue zero.
+
+Acceptance status: gates green, residue zero. Live verification (S3.9 — real test inbox in persai-dev) pending deployment.
 
 ### Slice 4 — Operational/admin migration and admin surface completion
 
@@ -479,7 +484,7 @@ In scope:
 - `WorkspaceAdminNotificationChannel` is replaced by `notification_channel_registry` rows
 - `admin_notification_deliveries` is replaced by `notification_delivery_attempts`
 - `Admin > Notifications` gets the full surface listed above (history filters, dead-letter replay/discard, preview/test-send working for all channels, channel test-send buttons), built from the per-section components introduced in Slice 1
-- the `latestNotificationJobs` card in `Admin > Ops` is deleted and not replaced; delivery visibility lives only in `Admin > Notifications` history
+- the `latestNotificationJobs` card in `Admin > Ops` was deleted in Slice 3 (card now links to Admin > Notifications); no action needed in Slice 4
 - Web push and mobile push channel registry slots become editable but remain `unconfigured` (real adapters land later, not in this ADR)
 
 Acceptance: no notification path in `apps/api/src` writes to the legacy notification tables; legacy tables are dropped; admin operator can configure all policies, see delivery history, replay dead letters, preview templates, and run test-send on each configured channel.

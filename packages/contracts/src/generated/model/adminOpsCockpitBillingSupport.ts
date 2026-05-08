@@ -8,12 +8,10 @@ import type { AdminOpsCockpitBillingSupportSubscription } from "./adminOpsCockpi
 import type { AdminOpsCockpitBillingSupportQuotaPeriod } from "./adminOpsCockpitBillingSupportQuotaPeriod";
 import type { AdminOpsCockpitPaidActivation } from "./adminOpsCockpitPaidActivation";
 import type { AdminOpsCockpitBillingLifecycleEvent } from "./adminOpsCockpitBillingLifecycleEvent";
-import type { AdminOpsCockpitBillingNotificationJob } from "./adminOpsCockpitBillingNotificationJob";
 
 export interface AdminOpsCockpitBillingSupport {
   subscription: AdminOpsCockpitBillingSupportSubscription;
   quotaPeriod: AdminOpsCockpitBillingSupportQuotaPeriod;
   latestPaidActivation: AdminOpsCockpitPaidActivation;
   latestLifecycleEvents: AdminOpsCockpitBillingLifecycleEvent[];
-  latestNotificationJobs: AdminOpsCockpitBillingNotificationJob[];
 }

@@ -243,6 +243,48 @@ async function run(): Promise<void> {
     console.log("✓ No HtmlBody field when content.html is null");
   }
 
+  // 7. Billing template content flows through correctly
+  //    (recipientEmail from factPayload goes to To field — verified here at adapter contract level)
+  {
+    resetMocks();
+    const adapter = new TestEmailAdapter();
+    const result = await adapter.deliver({
+      intent: {
+        id: "intent-7",
+        workspaceId: "ws-billing",
+        source: "billing_lifecycle",
+        traceId: "billing-event-id-001"
+      },
+      toEmail: "billing-user@example.com",
+      fromEmail: "notifications@notifications.persai.dev",
+      fromName: "PersAI",
+      content: {
+        subject: "Your PersAI trial ends soon",
+        html: "<!DOCTYPE html><html><body><p>Trial ending</p></body></html>",
+        plainText: "Trial ending soon\n\n---\nUnsubscribe from your email client.",
+        body: "Trial ending soon"
+      },
+      unsubscribeUrl: "https://persai.app/unsubscribe/billing/token-abc"
+    });
+
+    assert.equal(result.status, "delivered");
+    assert.equal(lastRequest!.To, "billing-user@example.com");
+    assert.equal(lastRequest!.From, "PersAI <notifications@notifications.persai.dev>");
+    assert.equal(lastRequest!.Subject, "Your PersAI trial ends soon");
+    assert.equal(lastRequest!.Tag, "billing_lifecycle");
+    assert.equal(lastRequest!.Metadata!["workspaceId"], "ws-billing");
+
+    const traceHdr = lastRequest!.Headers?.find((h) => h.Name === "X-Trace-Id");
+    assert.equal(traceHdr?.Value, "billing-event-id-001", "X-Trace-Id carries billing event id");
+
+    const unsubHdr = lastRequest!.Headers?.find((h) => h.Name === "List-Unsubscribe");
+    assert.ok(unsubHdr?.Value.includes("https://persai.app/unsubscribe/billing/token-abc"));
+
+    console.log(
+      "✓ Billing template content: To/From/Subject/Tag/X-Trace-Id/List-Unsubscribe all correct"
+    );
+  }
+
   console.log("\n✅ All email-channel.adapter tests passed");
 }
 

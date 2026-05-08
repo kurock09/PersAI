@@ -868,6 +868,54 @@ Covers:
 - LLM decides `no_push` → returns `null`, `createIntent` not called
 - No eligible advisory candidates → returns `null`, `createIntent` not called
 
+### ADR-088 Slice 3 — Billing Templates (`billing-templates.test.ts`)
+
+Run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/billing-templates.test.ts
+```
+
+Covers (both `ru` and `en` locales for each rule):
+
+- `trial_ending`, `trial_expired`, `renewal_failed`, `grace_ending`, `grace_expired`, `payment_recovered` templates produce non-empty `subject`, `html`, `plainText`
+- Determinism: calling the same render function twice returns bit-identical output
+- `html` contains `<!DOCTYPE html>`, plan name, no MJML tags
+- `plainText` contains unsubscribe-related footer text
+- Six short-form templates (`.short.template.ts`) produce concise `plainText` (< 500 chars), non-empty, deterministic
+- Unknown locale falls back to `ru`
+- Null date fields produce a graceful fallback (`—`)
+
+### ADR-088 Slice 3 — Billing Lifecycle Producer (`billing-lifecycle-producer.service.test.ts`)
+
+Run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-producer.service.test.ts
+```
+
+Covers:
+
+- `payment_recovered`, `renewal_failed`, `grace_started`, `trial_started`, `trial_expired`, `grace_expired` events each produce one email intent with `class=transactional`, `source=billing_lifecycle`, `priority=scheduled`, `renderStrategy=template`, correct `templateId`, `allowedChannels=["email"]`, `respectQuietHours=false`, `traceId=eventId`, `dedupeKey=rule:workspaceId:eventId`, `factPayload.recipientEmail` from event user email
+- `assistantPushEnabled=true` → second intent with `class=conversational`, `allowedChannels=["web_notification_center"]`, same `traceId`, distinct dedupe key (`:push` suffix)
+- `policyEnabled=false` → no intents
+- `null` event → no intents (early exit)
+- Same `(rule, workspace, eventId)` called twice → one intent only (dedupe)
+- Rule disabled in policy config → no intent for that rule
+- Unknown `eventCode` → no intent
+
+### ADR-088 Slice 3 — Email Channel Adapter Slice 3 Extension (`email-channel.adapter.test.ts`)
+
+Run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/email-channel.adapter.test.ts
+```
+
+Extended with (Slice 3 addition — test 7):
+
+- Billing template content flows through correctly: `To` = `recipientEmail`, `From` = `notifications.persai.dev` address, `Subject` matches template, `Tag=billing_lifecycle`, `X-Trace-Id` carries billing event id, `List-Unsubscribe` present
+
 ### Notification Delivery Worker Extended (`notification-delivery-worker.service.test.ts`)
 
 Run:

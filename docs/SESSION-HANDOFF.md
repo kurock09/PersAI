@@ -1,5 +1,57 @@
 # SESSION-HANDOFF
 
+## 2026-05-08 — ADR-088 Slice 3: Transactional migration — billing email via Postmark (LANDED, gate-verified)
+
+### What changed
+
+Slice 3 delivers real billing email delivery through Postmark, removes the legacy billing-lifecycle queue and policy storage, and centralises billing notification operator control under Admin > Notifications.
+
+**S3.1 — Helm POSTMARK_WEBHOOK_TOKEN:** already present from Slice 1; confirmed `optional: false` in `infra/helm/values-dev.yaml`.
+
+**S3.2 — Billing templates (12 files):** Six full-form templates (`trial-ending`, `trial-expired`, `renewal-failed`, `grace-ending`, `grace-expired`, `payment-recovered`) under `apps/api/src/modules/workspace-management/application/notifications/templates/billing/`, each exporting `render(facts, locale)` → `{subject, html, plainText}` with ru/en localisation, unsubscribe footer, and deterministic output. Six matching short-form templates (`.short.template.ts`) for optional assistant push. Shared helpers in `billing-template-helpers.ts`; typed payload in `billing-lifecycle-fact-payload.ts`.
+
+**S3.3 — BillingLifecycleProducerService:** New service (`apps/api/src/modules/workspace-management/application/billing-lifecycle-producer.service.ts`) replaces `ScheduleBillingLifecycleNotificationsService`. For each billing lifecycle event: reads workspace `notification_policies` row (source=billing_lifecycle), resolves applicable rule, calls `NotificationIntentService.createIntent` with `class=transactional`, `priority=scheduled`, `renderStrategy=template`, `allowedChannels=["email"]`, `dedupeKey=rule:workspaceId:eventId`, `traceId=eventId`, `respectQuietHours=false`. Optional assistant push creates a second conversational intent with `allowedChannels=["web_notification_center"]` when `assistantPushEnabled=true`.
+
+**S3.4 — Prisma migration:** Migration `20260508233251_adr088_slice3_billing_policy` seeds `notification_policies` rows for `billing_lifecycle` per workspace, removes notification policy keys from `BillingLifecycleSettings.metadata`, and drops `billing_lifecycle_notification_jobs` table plus its two enum types. `schema.prisma` updated: `BillingLifecycleNotificationJob` model, `BillingLifecycleNotificationChannel`, `BillingLifecycleNotificationJobStatus` enums removed.
+
+**S3.5 — Producer cutover:** Deleted `schedule-billing-lifecycle-notifications.service.ts`; `manage-workspace-subscription-lifecycle.service.ts` and `resolve-effective-subscription-state.service.ts` now call `BillingLifecycleProducerService.emitForLifecycleEventIds`. Module updated.
+
+**S3.6 — Admin > Billing Settings:** Removed lifecycle notification policy block (checkboxes for assistant push + per-rule rules). Added informational note pointing to Admin > Notifications (source: billing_lifecycle). `page.test.tsx` updated.
+
+**S3.7 — Legacy contract types removed:** Removed `AdminBillingLifecycleNotificationCode`, `AdminBillingLifecycleNotificationRule`, `AdminBillingLifecycleNotificationPolicy` from `openapi.yaml`; deleted orphaned generated files; updated `packages/contracts/src/generated/model/index.ts`. Also removed `AdminOpsCockpitBillingNotificationJob` / `latestNotificationJobs` from ops cockpit schema, cockpit service, cockpit types, ops page UI, and ops page tests.
+
+**S3.8 — Bounce/complaint webhook:** `HandlePostmarkWebhookService` from Slice 1 already handles bounce/complaint → `consecutiveFailures` increment and `healthStatus` updates. No changes required; verified the flow through existing tests.
+
+**S3.9 — Live verification:** Pending — requires persai-dev deployment with Prisma migration run. DNS verification for `notifications.persai.dev` (SPF/DKIM/DMARC) was pre-existing from Slice 1 Postmark integration; Postmark token is wired. Operator must trigger a synthetic billing event and confirm intent + delivery rows. See S3.9 checklist in ADR-088.
+
+### Files touched: 42 files modified/created/deleted
+- Created: 12 template files, 1 producer service, 1 migration SQL, 2 new test files (billing-templates, billing-lifecycle-producer)
+- Modified: 13 source files (schema, module, callers, cockpit, email adapter, web pages/tests, openapi.yaml, contracts index)
+- Deleted: 1 service (schedule-billing-lifecycle-notifications), 1 test (billing-lifecycle-notifications.service.test), 3 contract files (adminBillingLifecycleNotification*), 3 ops cockpit contract files (adminOpsCockpitBillingNotificationJob*)
+
+### Verification gates
+All 5 gates green (run 2026-05-08):
+1. `corepack pnpm -r --if-present run lint` — exit 0
+2. `corepack pnpm run format:check` — exit 0
+3. `corepack pnpm --filter @persai/api run typecheck` — exit 0
+4. `corepack pnpm --filter @persai/web run typecheck` — exit 0
+5. `corepack pnpm --filter @persai/api run test` — exit 0
+
+### Residue proof (zero matches)
+- `ScheduleBillingLifecycleNotificationsService` in apps/api/src + apps/web/app + packages/contracts: **0**
+- `billing_lifecycle_notification_jobs` in apps/api/src + apps/web/app + packages/contracts: **0**
+- `BillingLifecycleNotificationJob` in apps/api/src + packages/contracts: **0**
+- `adminBillingLifecycleNotification` in packages/contracts: **0**
+- `billingLifecycleNotificationPolicy` in packages/contracts + apps/api/src + apps/web/app: **0**
+
+### Live verification artifacts
+⚠️ S3.9 live verification requires deployment. Artifacts (intent id, attempt id, Postmark message id, inbox screenshot, Admin > Notifications history screenshot) to be captured after `persai-dev` deployment run.
+
+### Next recommended step
+**Slice 4 — Operational/admin migration and admin surface completion** (ADR-088 §Slice 4). Scope: migrate `system_event` source, complete Admin > Notifications operator surface with sub-rule policy editor for billing_lifecycle (six rule rows), confirm all four ADR-088 slices landed, and retire any remaining Slice 4 residue items.
+
+---
+
 ## 2026-05-08 — ADR-088 Slice 2 Closeout: 11-item audit fixes + PROD cut (LANDED)
 
 ### What changed

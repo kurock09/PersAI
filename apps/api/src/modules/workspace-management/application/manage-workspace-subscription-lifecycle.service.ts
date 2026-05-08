@@ -10,7 +10,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { ManageAdminBillingLifecycleSettingsService } from "./manage-admin-billing-lifecycle-settings.service";
 import { MaterializeWorkspacePaidActivationService } from "./materialize-workspace-paid-activation.service";
 import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
-import { ScheduleBillingLifecycleNotificationsService } from "./schedule-billing-lifecycle-notifications.service";
+import { BillingLifecycleProducerService } from "./billing-lifecycle-producer.service";
 
 export type WorkspaceSubscriptionLifecycleEventSource = "system" | "admin" | "provider" | "manual";
 
@@ -54,7 +54,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly billingLifecycleSettingsService: ManageAdminBillingLifecycleSettingsService,
-    private readonly scheduleBillingLifecycleNotificationsService: ScheduleBillingLifecycleNotificationsService,
+    private readonly BillingLifecycleProducerService: BillingLifecycleProducerService,
     @Inject(forwardRef(() => MaterializeWorkspacePaidActivationService))
     private readonly materializeWorkspacePaidActivationService: MaterializeWorkspacePaidActivationService
   ) {}
@@ -138,9 +138,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       );
     });
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   async extendTrial(input: {
@@ -198,9 +196,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       );
     });
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   async grantGrace(input: {
@@ -252,9 +248,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       );
     });
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   async extendGrace(input: {
@@ -308,9 +302,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       );
     });
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   async expireGrace(input: {
@@ -386,9 +378,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       );
     });
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   async recoverPayment(input: {
@@ -759,9 +749,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       return;
     }
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   async applyImmediatePaidFallback(input: {
@@ -832,9 +820,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     });
 
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   async applyFallbackNow(input: {
@@ -899,9 +885,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     });
 
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   async recordBillingReminder(input: {
@@ -926,9 +910,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
         })
       );
     });
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   private async resolvePaidFallbackPlanCode(
@@ -1085,9 +1067,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
 
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
     await this.materializeWorkspacePaidActivationService.execute(input.workspaceId);
-    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
-      lifecycleEventIds
-    );
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   private async assertPaidPlanIsActive(paidPlanCode: string): Promise<void> {

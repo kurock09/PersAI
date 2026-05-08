@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { ManageAdminBillingLifecycleSettingsService } from "../src/modules/workspace-management/application/manage-admin-billing-lifecycle-settings.service";
-import { DEFAULT_BILLING_LIFECYCLE_NOTIFICATION_POLICY } from "../src/modules/workspace-management/application/billing-lifecycle-settings";
 import type { AdminAuthorizationService } from "../src/modules/workspace-management/application/admin-authorization.service";
 import type { AppendAssistantAuditEventService } from "../src/modules/workspace-management/application/append-assistant-audit-event.service";
 
@@ -18,10 +17,10 @@ async function run(): Promise<void> {
             gracePeriodDays: args.update.gracePeriodDays ?? args.create.gracePeriodDays,
             globalFallbackPlanCode:
               args.update.globalFallbackPlanCode ?? args.create.globalFallbackPlanCode ?? null,
-            metadata: { notificationPolicy: DEFAULT_BILLING_LIFECYCLE_NOTIFICATION_POLICY },
+            metadata: {},
             updatedByUserId: "admin-1",
             createdAt: new Date(),
-            updatedAt: new Date("2026-05-03T00:00:00.000Z")
+            updatedAt: new Date("2026-05-08T00:00:00.000Z")
           };
         }
       },
@@ -51,8 +50,7 @@ async function run(): Promise<void> {
 
   assert.deepEqual(service.parseUpdateInput({ gracePeriodDays: 5, globalFallbackPlanCode: "" }), {
     gracePeriodDays: 5,
-    globalFallbackPlanCode: null,
-    notificationPolicy: DEFAULT_BILLING_LIFECYCLE_NOTIFICATION_POLICY
+    globalFallbackPlanCode: null
   });
   assert.throws(() =>
     service.parseUpdateInput({ gracePeriodDays: 0, globalFallbackPlanCode: null })
@@ -60,11 +58,7 @@ async function run(): Promise<void> {
 
   const updated = await service.updateSettings(
     "admin-1",
-    {
-      gracePeriodDays: 5,
-      globalFallbackPlanCode: "starter",
-      notificationPolicy: DEFAULT_BILLING_LIFECYCLE_NOTIFICATION_POLICY
-    },
+    { gracePeriodDays: 5, globalFallbackPlanCode: "starter" },
     "step-up"
   );
   assert.equal(updated.gracePeriodDays, 5);
@@ -75,11 +69,7 @@ async function run(): Promise<void> {
     () =>
       service.updateSettings(
         "admin-1",
-        {
-          gracePeriodDays: 5,
-          globalFallbackPlanCode: "missing",
-          notificationPolicy: DEFAULT_BILLING_LIFECYCLE_NOTIFICATION_POLICY
-        },
+        { gracePeriodDays: 5, globalFallbackPlanCode: "missing" },
         "step-up"
       ),
     /globalFallbackPlanCode must reference an active plan/
