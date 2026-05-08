@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-05-08 — ADR-088 hardening (no-residue rule + admin UI quality contract)
+
+### What changed
+
+- Closed the lazy escape hatches in ADR-088 that would have allowed a slice to be marked done while leaving legacy notification residue in the repo.
+- Removed `or repurposed` from the legacy-table rule. Legacy notification tables are now strictly dropped on the slice that absorbs them, never repurposed.
+- Made principle 13 enumerative: each migration slice now must delete the legacy database tables, the legacy service classes (named explicitly), the legacy admin HTTP endpoints (named explicitly), the legacy generated contracts/types, and the legacy admin UI blocks it absorbs. Comments referencing legacy subsystems are removed in the same slice.
+- Forbade feature flags / env toggles that keep legacy and unified paths alive in parallel. Each slice is a hard cut for its area.
+- Added a UI quality contract for `Admin > Notifications`: the current single-file `apps/web/app/admin/notifications/page.tsx` is dissolved in Slice 1 and rebuilt as multi-component under `_components/`; explicit loading/empty/error states; server-side pagination and filtering for delivery history and dead letters; one-click copy of intent id / dedupe key / trace id; accessible markup; generated contracts only.
+- Locked admin notification surface convergence: the notification policy block in `Admin > Billing Settings` is deleted (not relinked) in Slice 3, and the `latestNotificationJobs` card in `Admin > Ops` is deleted in Slice 4 and not replaced. There is one notification operator surface, and it is `Admin > Notifications`.
+- Tightened the admin API surface (added `POST /channels/:type/test-send`, `GET /deliveries/:intentId` detail) and removed the previous "or links to" lazy fallback.
+
+### Verification
+
+- Doc-only slice. `corepack pnpm exec prettier --check` passes on the touched docs.
+
+### Risks / residuals
+
+- Same as before: no migration slice has landed. Legacy notification subsystems remain in production code paths and stay there until each slice executes the deletions now made normative.
+
+### Next recommended step
+
+- Same as before: start ADR-088 Slice 1. The hardening in this revision adds no extra scope to Slice 1 beyond what was already declared (foundation, adapters, email, observability, admin shell rewrite).
+
 ## 2026-05-08 — ADR-088 PROD revision (exec-ready architecture for unified notification platform)
 
 ### What changed

@@ -162,7 +162,7 @@ All notification intents use one durable persistence model:
 - delivery result audit
 - replay/manual resend for permitted classes
 
-`assistant_notification_outbox`, `billing_lifecycle_notification_jobs`, and `admin_notification_deliveries` are predecessors and are replaced by the unified backbone in their respective migration slices. Until each slice lands, the legacy table coexists transitionally; once a slice lands, the legacy table is dropped or repurposed.
+`assistant_notification_outbox`, `billing_lifecycle_notification_jobs`, and `admin_notification_deliveries` are predecessors and are replaced by the unified backbone in their respective migration slices. Until each slice lands, the legacy table coexists transitionally; once a slice lands, the legacy table is dropped, not repurposed. No legacy notification table survives past the slice that absorbs it.
 
 ### 10. Email delivery is real
 
@@ -204,9 +204,18 @@ Future Datadog/Grafana adoption is non-blocking and consumes the same fields.
 
 This page replaces today's three-island UX (`Admin > Notifications` partial, `Admin > Billing Settings` for lifecycle policy, `Admin > Ops` for delivery glimpse).
 
-### 13. No new direct-send paths
+### 13. No new direct-send paths and no transitional residue
 
-After Slice 1 lands, new notification features must not create fresh direct-send paths. Each landed migration slice deletes the superseded legacy path in the touched area.
+After Slice 1 lands, new notification features must not create fresh direct-send paths. Each landed migration slice deletes the superseded legacy path in the touched area in full:
+
+- legacy database tables are dropped, not repurposed
+- legacy service classes (`AssistantNotificationOutboxService`, `AssistantNotificationOutboxSchedulerService`, `AssistantNotificationDeliveryService`, `DeliverAdminSystemNotificationService`, the assistant-push half of `ScheduleBillingLifecycleNotificationsService`, the direct chat-message write inside `QuotaAdvisoryFollowUpService`) are deleted, not deprecated
+- legacy admin HTTP endpoints (`PATCH /api/v1/admin/notifications/policies/idle-reengagement`, `PATCH /api/v1/admin/notifications/policies/quota-advisory`, `PATCH /api/v1/admin/notifications/channels/webhook`) are removed and replaced with the unified `/api/v1/admin/notifications/...` shape from this ADR
+- legacy contracts/types in `packages/contracts/src/generated/model/` (`adminNotificationChannel*`, `idleReengagementNotificationPolicy*`, `quotaAdvisoryNotificationPolicy*`, `adminBillingLifecycleNotification*`, `assistantNotificationOutbox*`) are regenerated against the new shapes; abandoned types are removed
+- feature flags or env switches that toggle between the legacy and unified paths are explicitly forbidden; the migration is a hard cut per slice, gated only by the slice itself
+- code comments referencing legacy notification subsystems are removed in the same slice that deletes the code
+
+A slice that leaves any of the above residue is incomplete and must not be marked done.
 
 ## Target data model
 
@@ -307,7 +316,7 @@ Replaces `workspace_notification_policies` and the embedded `BillingLifecycleSet
 - `resolvedAt` timestamptz nullable (replay succeeded or operator dismissed)
 - `createdAt` timestamptz
 
-Legacy tables to drop or repurpose per slice: `assistant_notification_outbox`, `assistant_quota_advisory_states`, `billing_lifecycle_notification_jobs`, `workspace_notification_policies`, `workspace_admin_notification_channels`, `admin_notification_deliveries`. Each slice that absorbs a producer drops the corresponding legacy table; the very last legacy table is dropped at end of Slice 4.
+Legacy tables to drop per slice (no repurposing): `assistant_notification_outbox`, `assistant_quota_advisory_states`, `billing_lifecycle_notification_jobs`, `workspace_notification_policies`, `workspace_admin_notification_channels`, `admin_notification_deliveries`. Each slice that absorbs a producer drops the corresponding legacy table immediately on landing; the very last legacy table is dropped at end of Slice 4. After Slice 4 lands, no row of the unified system depends on any of the legacy tables, and no `apps/api/src` code references them.
 
 ## Service architecture
 
@@ -338,25 +347,41 @@ deliver(intent, renderedPayload, channelConfig): Promise<DeliveryResult>
 
 ## Admin > Notifications target shape
 
-Operator-only single-user surface. Sections:
+Operator-only single-user surface. The current `apps/web/app/admin/notifications/page.tsx` is rewritten in Slice 1 (foundation) and grown in Slice 4 (full surface). The legacy notification UI living in `Admin > Billing Settings` (lifecycle notification block) and `Admin > Ops` (`latestNotificationJobs` card) is deleted, not relinked. There is one notification operator surface, and it is `Admin > Notifications`.
 
-1. **Channels** — registry view; per channel: enabled toggle, config form (endpoint URL + signing secret for webhook, sender domain for email, etc.), health indicator, last delivery, optional test-send button.
-2. **Policies** — per source row: enabled, channels (drag to reorder), cooldown, max per day, escalation, render strategy, render instruction id / template id, respect-quiet-hours flag.
-3. **Quiet hours** — single workspace-level form: enabled, start, end, timezone mode, applies-to-sources multiselect.
-4. **Delivery history** — paginated, filters by source, class, channel, status, date range; includes intent id, dedupe key, attempts, latency, outcome.
-5. **Dead letters** — list of stuck/failed intents with replay (re-attempt) or discard (mark resolved without sending) actions; replay creates a new delivery attempt under the same intent.
-6. **Preview / test-send** — for any policy, render with sample factPayload (template) or live-call grounded_llm renderer with sample facts; never persists or sends to real recipients.
+### Sections
 
-API surface under `/api/v1/admin/notifications/`:
+1. **Channels** — registry view; per channel: enabled toggle, config form (endpoint URL + signing secret for webhook, sender domain for email, sender name for telegram, etc.), health indicator (`healthy` / `degraded` / `down` / `unconfigured`), last delivery and last failure timestamps, optional test-send button.
+2. **Policies** — per source row: enabled, channels (drag to reorder), cooldown, max per day, escalation (after-minutes + target channel), render strategy, render instruction id / template id, respect-quiet-hours flag.
+3. **Quiet hours** — single workspace-level form: enabled, start, end, timezone mode (`workspace_default` / `per_user_resolved`), default timezone, applies-to-sources multiselect (with `reminder` excluded by default and an explicit warning if the operator opts it in).
+4. **Delivery history** — paginated, server-side filters by source, class, channel, status, date range; row contains intent id, dedupe key, attempts count, latency, outcome, channel; row click opens a detail drawer with full delivery attempt log and structured-log trace id.
+5. **Dead letters** — list of stuck/failed intents; per row: replay (re-attempt with fresh delivery attempt under the same intent) or discard (mark resolved without sending); detail drawer shows last error, escalation history, and original fact payload.
+6. **Preview / test-send** — for any policy, render with sample factPayload (template) or live-call grounded_llm renderer with sample facts; never persists, never sends to real recipients, never charges quota; clearly labeled as dry-run.
 
-- `GET /channels` / `PATCH /channels/:type`
+### API surface under `/api/v1/admin/notifications/`
+
+- `GET /channels` / `PATCH /channels/:type` / `POST /channels/:type/test-send`
 - `GET /policies` / `PATCH /policies/:source`
 - `GET /quiet-hours` / `PATCH /quiet-hours`
-- `GET /deliveries` (paginated, filters)
+- `GET /deliveries` (paginated, server-side filters: source, class, channel, status, dateFrom, dateTo)
+- `GET /deliveries/:intentId` (detail with attempt log)
 - `GET /dead-letters` / `POST /dead-letters/:id/replay` / `POST /dead-letters/:id/discard`
-- `POST /preview` (renderer dry-run)
+- `POST /preview` (renderer dry-run, never sends)
 
-All admin notification endpoints go through the generated `@persai/contracts` client. Hand-rolled `fetch` calls (e.g. current quota-advisory policy fetch) are removed in Slice 1.
+All admin notification endpoints go through the generated `@persai/contracts` client. Hand-rolled `fetch` calls (current quota-advisory policy fetch is the offender) are removed in Slice 1. The legacy split admin endpoints listed in principle 13 are removed.
+
+### UI quality contract
+
+The notification admin surface is the operator's daily tool, not a feature-card collection. Slice 1 establishes the shell and Slice 4 finishes the contents. Both slices honor:
+
+- the page is split into real components in `apps/web/app/admin/notifications/_components/` (one component per section); the current single-file page is dissolved
+- explicit `loading`, `empty`, and `error` states for every data-driven section (no silent blank panels)
+- delivery history and dead-letter lists use server-side pagination and server-side filtering; client-only filtering is forbidden because the data set grows with usage
+- forms use the same admin form patterns already used elsewhere in the admin surface (no ad-hoc styling)
+- destructive actions (discard dead letter, reset channel config) require explicit confirmation
+- the operator can copy intent id / dedupe key / trace id with one click for log correlation
+- accessibility: keyboard navigation, focus management, semantic table markup
+- all admin notification fetches go through generated contracts; no hand-rolled `fetch`
 
 ## Migration plan
 
@@ -414,7 +439,7 @@ In scope:
 - Email path goes through the Postmark adapter created in Slice 1; all six billing rules (`trial_ending`, `trial_expired`, `renewal_failed`, `grace_ending`, `grace_expired`, `payment_recovered`) get MJML templates
 - Optional assistant push is created as a second intent (`class: "conversational"`, `templateId` for a deterministic short message; not `grounded_llm` because billing facts must remain deterministic)
 - `billing_lifecycle_notification_jobs` is dropped after data migration
-- Billing lifecycle policy moves out of `BillingLifecycleSettings.metadata` and into `notification_policies` rows; admin billing settings page consumes the same unified policy editor lens (or links to `Admin > Notifications`)
+- Billing lifecycle policy moves out of `BillingLifecycleSettings.metadata` and into `notification_policies` rows; the notification policy block on `Admin > Billing Settings` is deleted; the operator manages billing notification policy from `Admin > Notifications` only
 
 Acceptance: real email to a verified test inbox for at least one billing rule in `persai-dev`; `Admin > Notifications` shows the delivery in history; `billing_lifecycle_notification_jobs` table is gone.
 
@@ -427,7 +452,8 @@ In scope:
 - `DeliverAdminSystemNotificationService` becomes a producer that creates `notification_intents` (`class: "operational"` for delivery failures / `class: "administrative"` for audit-driven alerts)
 - `WorkspaceAdminNotificationChannel` is replaced by `notification_channel_registry` rows
 - `admin_notification_deliveries` is replaced by `notification_delivery_attempts`
-- `Admin > Notifications` gets the full surface listed above (history filters, dead-letter replay/discard, preview/test-send working for all channels, channel test-send buttons)
+- `Admin > Notifications` gets the full surface listed above (history filters, dead-letter replay/discard, preview/test-send working for all channels, channel test-send buttons), built from the per-section components introduced in Slice 1
+- the `latestNotificationJobs` card in `Admin > Ops` is deleted and not replaced; delivery visibility lives only in `Admin > Notifications` history
 - Web push and mobile push channel registry slots become editable but remain `unconfigured` (real adapters land later, not in this ADR)
 
 Acceptance: no notification path in `apps/api/src` writes to the legacy notification tables; legacy tables are dropped; admin operator can configure all policies, see delivery history, replay dead letters, preview templates, and run test-send on each configured channel.
@@ -478,6 +504,8 @@ ADR-088 does not:
 ## Notes for implementing agents
 
 - This ADR is the source of truth for all notification work after 2026-05-08. Any drift between an implemented slice and this document must update the document or be reverted.
-- Each slice ends with the legacy table(s) it absorbs dropped. If a slice cannot drop its target legacy table cleanly, the slice is incomplete.
+- Each slice ends with the legacy table(s), legacy service class(es), legacy admin endpoint(s), legacy contracts type(s), and legacy admin UI block(s) it absorbs deleted. If a slice cannot delete cleanly, the slice is incomplete.
+- No feature flag, env toggle, or `if (newPlatformEnabled)` switch is permitted to keep legacy and unified paths alive in parallel. Each slice is a hard cut for the area it covers.
 - New notification features started after Slice 1 are forbidden from creating new direct-send services. Use `NotificationIntentService.createIntent(...)`.
-- All names in this document (table names, enum values, service names, file paths, admin API paths) are normative. Use them exactly. Pick a different name only with a follow-up ADR.
+- All names in this document (table names, enum values, service names, file paths, admin API paths, channel adapter names) are normative. Use them exactly. Pick a different name only with a follow-up ADR.
+- The admin surface is rewritten as multi-component, not patched. The current single-file `apps/web/app/admin/notifications/page.tsx` is dissolved in Slice 1.
