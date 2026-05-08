@@ -4,6 +4,7 @@ import {
   PlanCatalogStatus,
   PlanToolActivationStatus,
   PrismaClient,
+  ToolCatalogStatus,
   ToolCatalogToolClass,
   WorkspaceRole,
   WorkspaceStatus,
