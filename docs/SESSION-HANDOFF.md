@@ -1,6 +1,6 @@
 # SESSION-HANDOFF
 
-## 2026-05-08 — ADR-088 Slice 3: Transactional migration — billing email via Postmark (LANDED, gate-verified)
+## 2026-05-08 — ADR-088 Slice 3: Transactional migration — billing email via Postmark (LANDED, committed 05d3542e)
 
 ### What changed
 
