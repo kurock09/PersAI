@@ -123,6 +123,10 @@ UPDATE "assistants"
 -- Create the new enum without whatsapp
 CREATE TYPE "AssistantPreferredNotificationChannel_new" AS ENUM ('web', 'telegram');
 
+-- Drop the DEFAULT (it is typed against the old enum, so ALTER TYPE would reject it)
+ALTER TABLE "assistants"
+  ALTER COLUMN "preferred_notification_channel" DROP DEFAULT;
+
 -- Migrate the column type
 ALTER TABLE "assistants"
   ALTER COLUMN "preferred_notification_channel"
@@ -133,6 +137,11 @@ ALTER TABLE "assistants"
 DROP TYPE "AssistantPreferredNotificationChannel";
 ALTER TYPE "AssistantPreferredNotificationChannel_new"
   RENAME TO "AssistantPreferredNotificationChannel";
+
+-- Restore the DEFAULT against the new enum
+ALTER TABLE "assistants"
+  ALTER COLUMN "preferred_notification_channel"
+  SET DEFAULT 'web'::"AssistantPreferredNotificationChannel";
 
 -- ── Step 5: Drop legacy enums (now safe since their tables are gone) ───────────────────────────
 
