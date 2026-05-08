@@ -1,5 +1,16 @@
 # SESSION-HANDOFF
 
+## 2026-05-08 — correction: revert premature manual `values-dev` image pin
+
+### What changed
+
+- Reverted the mistaken `chore(dev-gitops): pin dev image tag to 6e148950…` commit: that tag was not present in Artifact Registry yet, which caused `api-migrate` `ErrImagePull` and Argo noise while the normal pipeline already owns bumping `infra/helm/values-dev.yaml` once images exist.
+- Restored `global.images.tag` to the previous known-present `930ae9b9…` value so `persai-dev` can resync cleanly until CI publishes the web DI hotfix image on its own cadence.
+
+### Next recommended step
+
+- Let the automated build+pin path advance `persai-dev`; do not hand-edit `global.images.tag` for “live-fix” unless the operator explicitly owns that step out of band.
+
 ## 2026-05-08 (post-push hotfix) — fix `api` startup crash from web quota-advisory DI
 
 ### What changed
