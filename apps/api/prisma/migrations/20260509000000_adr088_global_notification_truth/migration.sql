@@ -185,7 +185,7 @@ BEGIN
   ) THEN
     -- Capture the first (and likely only) quiet hours row.
     CREATE TEMP TABLE _nqh_global AS
-    SELECT DISTINCT ON (TRUE)
+    SELECT
       gen_random_uuid() AS new_id,
       enabled,
       start_local,
@@ -196,7 +196,8 @@ BEGIN
       created_at,
       updated_at
     FROM notification_quiet_hours
-    ORDER BY TRUE, created_at ASC;
+    ORDER BY created_at ASC
+    LIMIT 1;
 
     -- Drop FK and unique index on workspace_id.
     ALTER TABLE notification_quiet_hours DROP CONSTRAINT IF EXISTS "notification_quiet_hours_workspace_id_key";
