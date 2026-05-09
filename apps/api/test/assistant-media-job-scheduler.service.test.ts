@@ -28,6 +28,7 @@ function createService(overrides?: {
 }) {
   const txUpdates: Array<Record<string, unknown>> = [];
   const finalUpdates: Array<Record<string, unknown>> = [];
+  const createdMessages: Array<Record<string, unknown>> = [];
   const prisma = {
     $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
       callback({
@@ -81,6 +82,18 @@ function createService(overrides?: {
       findById: async () => ({ id: "assistant-1" })
     } as never,
     {
+      createMessage: async (input: Record<string, unknown>) => {
+        createdMessages.push(input);
+        return {
+          id: `assistant-message-${createdMessages.length}`,
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          content: input.content,
+          createdAt: new Date("2026-05-05T09:10:00.000Z")
+        };
+      }
+    } as never,
+    {
       resolveCurrent: async () => ({
         runtimeBundleDocument: JSON.stringify({
           metadata: {
@@ -117,7 +130,7 @@ function createService(overrides?: {
     } as never
   );
 
-  return { service, txUpdates, finalUpdates };
+  return { service, txUpdates, finalUpdates, createdMessages };
 }
 
 describe("AssistantMediaJobSchedulerService", () => {
@@ -158,7 +171,7 @@ describe("AssistantMediaJobSchedulerService", () => {
   });
 
   test("fails jobs immediately when runtime returns no deliverable artifacts", async () => {
-    const { service, finalUpdates } = createService({
+    const { service, finalUpdates, createdMessages } = createService({
       runtimeOutcome: {
         ok: true,
         result: {
@@ -177,6 +190,34 @@ describe("AssistantMediaJobSchedulerService", () => {
     assert.equal(finalUpdates.length, 1);
     assert.equal(finalUpdates[0]?.data?.status, "failed");
     assert.equal(finalUpdates[0]?.data?.lastErrorCode, "media_job_artifacts_missing");
+    assert.equal(finalUpdates[0]?.data?.completionAssistantMessageId, "assistant-message-1");
+    assert.match(
+      String(createdMessages[0]?.content),
+      /couldn't finish the image request in the background/i
+    );
+  });
+
+  test("creates a user-visible policy explanation when the provider blocks the background job", async () => {
+    const { service, finalUpdates, createdMessages } = createService({
+      runtimeOutcome: {
+        ok: false,
+        retryable: false,
+        status: 400,
+        code: "content_policy_violation",
+        message: "Blocked by provider safety policy."
+      }
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates[0]?.data?.status, "failed");
+    assert.equal(finalUpdates[0]?.data?.lastErrorCode, "content_policy_violation");
+    assert.equal(finalUpdates[0]?.data?.completionAssistantMessageId, "assistant-message-1");
+    assert.match(
+      String(createdMessages[0]?.content),
+      /blocked the request under its safety policy/i
+    );
   });
 
   test("passes direct tool execution payloads through to runtime", async () => {

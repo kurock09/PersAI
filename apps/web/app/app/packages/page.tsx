@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import type { Route } from "next";
 import type { UserPlanVisibilityState } from "@persai/contracts";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useLocale, useTranslations } from "next-intl";
-import { AlertCircle, Check, ChevronLeft, Loader2, ShoppingCart } from "lucide-react";
+import { AlertCircle, Check, Loader2, ShoppingCart } from "lucide-react";
 import {
   getAssistantPlanVisibility,
   getPublicMediaPackages,
@@ -190,10 +189,21 @@ function PackageTypeCard({
   const meta = PACKAGE_TYPE_META[type];
 
   return (
-    <section className="flex h-full flex-col overflow-hidden rounded-[32px] border border-border/80 bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-6">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-subtle">
-        {pickMetaText(locale, meta.title)}
-      </p>
+    <section className="relative flex h-full flex-col overflow-hidden rounded-[32px] border border-border/80 bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-6">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-text/10 to-transparent"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-full bg-white/10 blur-3xl"
+      />
+      <div className="relative z-10">
+        <p className="min-h-[2.7rem] text-[11px] font-semibold uppercase leading-5 tracking-[0.2em] text-text-subtle">
+          {pickMetaText(locale, meta.title)}
+        </p>
+        <div className="mt-3 h-px w-full bg-gradient-to-r from-border/80 via-border/40 to-transparent" />
+      </div>
       <div className="mt-6 flex-1 space-y-3">
         {items.length === 0 ? (
           <div className="rounded-2xl border border-border/80 bg-bg/50 px-4 py-4 text-sm text-text-muted">
@@ -243,10 +253,17 @@ function SummaryCard({
   const currency = chosenItems[0]?.currency ?? "RUB";
 
   return (
-    <section className="flex h-full flex-col overflow-hidden rounded-[32px] border border-border/80 bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-6">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-subtle">
-        {locale === "ru" ? "Итог" : "Summary"}
-      </p>
+    <section className="relative flex h-full flex-col overflow-hidden rounded-[32px] border border-border/80 bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-6">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-text/10 to-transparent"
+      />
+      <div className="relative z-10">
+        <p className="min-h-[2.7rem] text-[11px] font-semibold uppercase leading-5 tracking-[0.2em] text-text-subtle">
+          {locale === "ru" ? "Итог" : "Summary"}
+        </p>
+        <div className="mt-3 h-px w-full bg-gradient-to-r from-border/80 via-border/40 to-transparent" />
+      </div>
       <div className="mt-6 flex-1 space-y-3">
         {PACKAGE_TYPE_ORDER.map((type, index) => {
           const item = selectedItems[index] ?? null;
@@ -448,27 +465,14 @@ export default function PackagesPage() {
   return (
     <div className="min-h-dvh bg-chrome text-text">
       <div className="mx-auto flex w-full max-w-7xl flex-col px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 lg:px-8">
-        <div className="mx-auto w-full max-w-3xl">
-          <Link
-            href={"/app/pricing" as Route}
-            className="inline-flex items-center gap-1.5 text-[11px] text-text-subtle transition-colors hover:text-text"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-            {locale === "ru" ? "Тарифы" : "Pricing"}
-          </Link>
-
-          <header className="mt-6">
+        <div className="mx-auto w-full max-w-3xl text-center">
+          <header className="pt-4 sm:pt-6">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-subtle">
               {locale === "ru" ? "Дополнительные лимиты" : "Additional limits"}
             </p>
             <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-text sm:text-5xl">
               {locale === "ru" ? "Пакеты медиа" : "Media packages"}
             </h1>
-            <p className="mt-3 text-sm leading-6 text-text-muted sm:text-base">
-              {locale === "ru"
-                ? "Разовые пакеты дополнительных лимитов. Действуют до конца текущего расчётного периода."
-                : "One-time add-on quota boosts. Active until the end of your current billing period."}
-            </p>
           </header>
         </div>
 

@@ -281,6 +281,37 @@ describe("ChatArea", () => {
     expect(assistantProps?.preResponseStatus).toBeUndefined();
   });
 
+  it("renders media-package billing return copy instead of subscription copy", () => {
+    render(
+      <ChatArea
+        chat={createChat("Hello", { isStreaming: false })}
+        billingReturnKind="success"
+        billingPlanCode="__media_package__"
+        billingPaymentIntentId="pi-package"
+      />
+    );
+
+    expect(screen.getByText("billingReturnPackageSuccessTitle")).toBeInTheDocument();
+    expect(screen.getByText("billingReturnPackageSuccessBody")).toBeInTheDocument();
+    expect(screen.queryByText("billingReturnSuccessTitle")).toBeNull();
+  });
+
+  it("routes failed media-package retry to packages", () => {
+    render(
+      <ChatArea
+        chat={createChat("Hello", { isStreaming: false })}
+        billingReturnKind="failed"
+        billingPlanCode="__media_package__"
+        billingPaymentIntentId="pi-package"
+      />
+    );
+
+    expect(screen.getByRole("link", { name: "billingReturnPackageRetry" })).toHaveAttribute(
+      "href",
+      "/app/packages"
+    );
+  });
+
   it("renders the chat title as quiet single-line context", () => {
     render(
       <ChatArea chat={createChat("Hello", { isStreaming: false })} title="Very long chat title" />

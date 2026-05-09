@@ -150,21 +150,21 @@ function PackageCard({
   return (
     <div
       className={cn(
-        "rounded-xl border border-border/70 bg-surface p-3 transition-colors",
+        "rounded-lg border border-border/70 bg-surface px-3 py-2.5 transition-colors",
         !item.isActive && "opacity-50"
       )}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <div className="text-lg font-semibold tabular-nums text-text">{item.units}</div>
-            <div className="text-[10px] uppercase tracking-[0.14em] text-text-subtle">units</div>
+          <div className="flex items-baseline gap-1.5">
+            <div className="text-base font-semibold tabular-nums text-text">{item.units}</div>
+            <div className="text-[9px] uppercase tracking-[0.12em] text-text-subtle">units</div>
           </div>
-          <div className="mt-1 text-[12px] font-medium text-text">
+          <div className="mt-0.5 text-[11px] font-medium text-text">
             {formatPrice(item.amountMinor, item.currency)}
           </div>
           {(item.title.ru || item.title.en) && (
-            <div className="mt-1 text-[11px] text-text-subtle">
+            <div className="mt-1 line-clamp-1 text-[10px] text-text-subtle">
               {item.title.ru && item.title.en
                 ? `${item.title.ru} / ${item.title.en}`
                 : (item.title.ru ?? item.title.en)}
@@ -176,44 +176,44 @@ function PackageCard({
             type="button"
             onClick={onEdit}
             disabled={disabled}
-            className="inline-flex items-center gap-1 rounded-md border border-border/70 px-2 py-1 text-[10px] font-medium text-text-subtle transition-colors hover:border-border hover:text-text disabled:opacity-30"
+            className="inline-flex items-center gap-1 rounded-md border border-border/70 px-1.5 py-1 text-[9px] font-medium text-text-subtle transition-colors hover:border-border hover:text-text disabled:opacity-30"
             title="Edit"
           >
-            <Pencil className="h-3 w-3" />
+            <Pencil className="h-2.5 w-2.5" />
             Edit
           </button>
           <button
             type="button"
             onClick={onDelete}
             disabled={disabled || deleting}
-            className="inline-flex items-center gap-1 rounded-md border border-border/70 px-2 py-1 text-[10px] font-medium text-text-subtle transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-30"
+            className="inline-flex items-center gap-1 rounded-md border border-border/70 px-1.5 py-1 text-[9px] font-medium text-text-subtle transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-30"
             title="Delete"
           >
             {deleting ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
             ) : (
-              <Trash2 className="h-3 w-3" />
+              <Trash2 className="h-2.5 w-2.5" />
             )}
             Delete
           </button>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <span className="rounded-full border border-border/70 bg-bg/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] text-text-subtle">
+      <div className="mt-1.5 flex flex-wrap gap-1">
+        <span className="rounded-full border border-border/70 bg-bg/60 px-1.5 py-0.5 text-[8px] uppercase tracking-[0.12em] text-text-subtle">
           order {item.displayOrder}
         </span>
-        <span className="rounded-full border border-border/70 bg-bg/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] text-text-subtle">
+        <span className="rounded-full border border-border/70 bg-bg/60 px-1.5 py-0.5 text-[8px] uppercase tracking-[0.12em] text-text-subtle">
           {item.currency}
         </span>
         {(item.badge.ru || item.badge.en) && (
-          <span className="rounded-full border border-border/70 bg-bg/60 px-2 py-0.5 text-[9px] text-text-subtle">
+          <span className="rounded-full border border-border/70 bg-bg/60 px-1.5 py-0.5 text-[8px] text-text-subtle">
             {item.badge.ru && item.badge.en
               ? `${item.badge.ru} / ${item.badge.en}`
               : (item.badge.ru ?? item.badge.en)}
           </span>
         )}
         {!item.isActive && (
-          <span className="rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] text-destructive/70">
+          <span className="rounded-full border border-destructive/20 bg-destructive/10 px-1.5 py-0.5 text-[8px] uppercase tracking-[0.12em] text-destructive/70">
             inactive
           </span>
         )}
@@ -470,10 +470,10 @@ function PackageTypeSection({
 
       {error && <p className="text-[11px] text-destructive">{error}</p>}
 
-      <div className="grid gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {items.map((item) =>
           editingId === item.id ? (
-            <div key={item.id}>
+            <div key={item.id} className="sm:col-span-2 xl:col-span-4">
               <PackageForm
                 draft={editDraft}
                 onPatch={(patch) => setEditDraft((prev) => ({ ...prev, ...patch }))}
@@ -499,7 +499,9 @@ function PackageTypeSection({
           )
         )}
         {items.length === 0 && !createOpen && (
-          <p className="text-[11px] text-text-subtle/60 italic">No presets yet.</p>
+          <p className="sm:col-span-2 xl:col-span-4 text-[11px] text-text-subtle/60 italic">
+            No presets yet.
+          </p>
         )}
       </div>
 

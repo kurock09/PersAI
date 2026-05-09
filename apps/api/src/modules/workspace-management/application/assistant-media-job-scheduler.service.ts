@@ -9,6 +9,10 @@ import type {
   RuntimeVideoGenerateRequest
 } from "@persai/runtime-contract";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import {
+  ASSISTANT_CHAT_REPOSITORY,
+  type AssistantChatRepository
+} from "../domain/assistant-chat.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
 import {
@@ -17,6 +21,10 @@ import {
 } from "./internal-runtime-media-job.client.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { AssistantMediaJobCompletionDeliveryService } from "./assistant-media-job-completion-delivery.service";
+import {
+  buildAssistantMediaJobFailureMessage,
+  inferAssistantMediaJobFailureLocale
+} from "./assistant-media-job-failure-copy.service";
 
 const MEDIA_JOB_POLL_INTERVAL_MS = 5_000;
 const MEDIA_JOB_BATCH_SIZE = 4;
@@ -88,6 +96,8 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     private readonly prisma: WorkspaceManagementPrismaService,
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
+    @Inject(ASSISTANT_CHAT_REPOSITORY)
+    private readonly assistantChatRepository: AssistantChatRepository,
     private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly internalRuntimeMediaJobClientService: InternalRuntimeMediaJobClientService,
@@ -247,14 +257,21 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         job,
         false,
         "invalid_request_payload",
-        "Media job request payload is invalid."
+        "Media job request payload is invalid.",
+        "en"
       );
       return;
     }
 
     const assistant = await this.assistantRepository.findById(job.assistantId);
     if (assistant === null) {
-      await this.failJob(job, false, "assistant_not_found", "Assistant not found.");
+      await this.failJob(
+        job,
+        false,
+        "assistant_not_found",
+        "Assistant not found.",
+        inferAssistantMediaJobFailureLocale({ sourceText: requestPayload.sourceUserMessageText })
+      );
       return;
     }
 
@@ -266,10 +283,16 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         job,
         false,
         "runtime_bundle_missing",
-        "Assistant runtime bundle is not materialized."
+        "Assistant runtime bundle is not materialized.",
+        inferAssistantMediaJobFailureLocale({ sourceText: requestPayload.sourceUserMessageText })
       );
       return;
     }
+
+    const locale = inferAssistantMediaJobFailureLocale({
+      preferredLocale: this.extractPreferredLocale(spec.runtimeBundleDocument),
+      sourceText: requestPayload.sourceUserMessageText
+    });
 
     const outcome = await this.internalRuntimeMediaJobClientService.run({
       assistantId: job.assistantId,
@@ -290,7 +313,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     } satisfies RuntimeMediaJobRunRequest);
 
     if (!outcome.ok) {
-      await this.handleFailedExecution(job, outcome);
+      await this.handleFailedExecution(job, outcome, locale);
       return;
     }
 
@@ -299,7 +322,8 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         job,
         false,
         "media_job_artifacts_missing",
-        "Media job worker completed without any deliverable artifacts."
+        "Media job worker completed without any deliverable artifacts.",
+        locale
       );
       return;
     }
@@ -323,7 +347,8 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
 
   private async handleFailedExecution(
     job: ClaimedMediaJob,
-    outcome: Extract<InternalRuntimeMediaJobRunOutcome, { ok: false }>
+    outcome: Extract<InternalRuntimeMediaJobRunOutcome, { ok: false }>,
+    locale: "ru" | "en"
   ): Promise<void> {
     const canRetry = outcome.retryable && job.attemptCount < job.maxAttempts;
     if (canRetry) {
@@ -343,15 +368,40 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       return;
     }
 
-    await this.failJob(job, false, outcome.code, outcome.message);
+    await this.failJob(job, false, outcome.code, outcome.message, locale);
   }
 
   private async failJob(
     job: ClaimedMediaJob,
     _retryable: boolean,
     code: string | null,
-    message: string
+    message: string,
+    locale: "ru" | "en"
   ): Promise<void> {
+    const failureMessage = buildAssistantMediaJobFailureMessage({
+      kind: job.kind,
+      code,
+      message,
+      locale
+    });
+    let completionAssistantMessageId: string | null = null;
+
+    try {
+      const created = await this.assistantChatRepository.createMessage({
+        chatId: job.chatId,
+        assistantId: job.assistantId,
+        author: "assistant",
+        content: failureMessage
+      });
+      completionAssistantMessageId = created.id;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to create terminal media-job failure message for ${job.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+
     await this.prisma.assistantMediaJob.updateMany({
       where: { id: job.id, schedulerClaimToken: job.claimToken },
       data: {
@@ -361,9 +411,21 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         schedulerClaimedAt: null,
         schedulerClaimExpiresAt: null,
         lastErrorCode: code,
-        lastErrorMessage: truncateLastError(message)
+        lastErrorMessage: truncateLastError(message),
+        ...(completionAssistantMessageId === null ? {} : { completionAssistantMessageId })
       }
     });
+  }
+
+  private extractPreferredLocale(runtimeBundleDocument: string): string | null {
+    try {
+      const parsed = JSON.parse(runtimeBundleDocument) as {
+        userContext?: { locale?: unknown };
+      };
+      return typeof parsed.userContext?.locale === "string" ? parsed.userContext.locale : null;
+    } catch {
+      return null;
+    }
   }
 
   private parseRequestPayload(value: unknown): MediaJobRequestPayload | null {

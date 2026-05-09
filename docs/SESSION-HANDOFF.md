@@ -1,5 +1,217 @@
 # SESSION-HANDOFF
 
+## 2026-05-10 — ADR-089 monthly media card redesign (LANDED)
+
+### What changed
+
+1. **Big translucent `+` watermark removed** — `LimitMetricCard` in `apps/web/app/app/_components/assistant-settings.tsx` no longer paints the oversized `+` glyph behind the value. The rectangle stays calm and readable.
+2. **Whole card stays clickable, with a small premium corner chip** — the entire card is still a button that navigates to `/app/packages` (closing the settings slide-over first via `onOpenPackagesPage` when available); the affordance is now an explicit small bottom-right chip `Докупить` / `Add packages` that brightens on hover and uses theme tokens, not ad hoc colors.
+3. **Bonus subline is explicit in both states** — `formatMonthlyMediaBonusSubline` now returns `включено: N тариф + M пакет` when a package bonus exists (accent tone), and `только тариф · можно докупить пакет` when no bonus is active, so the user can always tell whether package capacity is currently working or only available to be added.
+4. **Card border still highlights an active package** — the `border-accent/30` accent tone is kept only when `bonusLimitUnits > 0`, so cards with a real package look subtly premium without shouting.
+5. **i18n keys added** — `settings.monthlyMediaPlanOnlySubline` and `settings.monthlyMediaBuyChip` in `ru.json` and `en.json`.
+
+### Current slice/step
+
+ADR-089 monthly media card redesign — COMPLETE.
+
+### Files touched
+
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/messages/ru.json`
+- `apps/web/messages/en.json`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/web exec vitest run "app/app/_components/assistant-settings.test.tsx"` → ✅ (30 tests)
+- `ReadLints` on touched files → no diagnostics
+
+### Risks / notes
+
+- Card height grew slightly (`pb-7`) to make room for the chip without overlapping the subline; on the narrowest mobile width the cards still fit in the existing 3-column grid.
+- The chip is `aria-hidden` because the whole card already has the same target; screen-readers fall back to the card label and value, not the chip text.
+
+### Next recommended step
+
+- Live-check assistant settings on desktop and mobile: confirm the watermark is gone, the chip is visible but quiet, and clicking the card still closes the right slide-over and opens `/app/packages`.
+
+## 2026-05-10 — ADR-089 media-package checkout identity cleanup (LANDED)
+
+### What changed
+
+1. **No more `__media_package__` / `MEDIA PACKAGE` in user-visible flows** — both the CloudPayments embedded form and our own checkout page now describe the purchase as a media package, not as a subscription.
+2. **CloudPayments description carries a clear shortcode** — `cloudpayments-constructor-billing-provider.adapter.ts` builds `PersAI Пакет медиа N1/N2/N3 (фото/ред/видео)` from persisted `packageItems`, in fixed `image_generate / image_edit / video_generate` order, so the bank statement and CloudPayments form show what was actually bought (e.g. `100/0/10`).
+3. **Payment button text is honest about the operation** — media-package checkouts now show `Оплатить пакет` instead of `Оплатить подписку`, while ordinary plan checkouts keep `Оплатить подписку`.
+4. **Our checkout page no longer fakes a tariff label** — the page title for media packages is `Оплата пакета медиа` / `Pay for media package`, and the subtitle explicitly says it’s a one-time payment whose limits are added to available capacity, instead of the subscription-activation copy.
+5. **Focused tests added** — adapter test pins media-package description + button text, and the web checkout-page test pins the new package title and one-time subtitle.
+
+### Current slice/step
+
+ADR-089 media-package checkout identity cleanup — COMPLETE.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/infrastructure/billing/cloudpayments-constructor-billing-provider.adapter.ts`
+- `apps/api/test/cloudpayments-constructor-billing-provider.adapter.test.ts`
+- `apps/web/app/app/billing/checkout/[paymentIntentId]/page.tsx`
+- `apps/web/app/app/billing/checkout/[paymentIntentId]/page.test.tsx`
+- `apps/web/messages/ru.json`
+- `apps/web/messages/en.json`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec tsx test/cloudpayments-constructor-billing-provider.adapter.test.ts` → ✅
+- `corepack pnpm --filter @persai/web exec vitest run "app/app/billing/checkout/[paymentIntentId]/page.test.tsx"` → ✅
+- `ReadLints` on touched files → no diagnostics
+
+### Risks / notes
+
+- Description shortcode is fixed-order `image_generate / image_edit / video_generate`. Reordering or adding new media-package types in the future will require updating the shortcode order in the adapter to keep bank receipts unambiguous.
+- 54-FZ `Receipt.Items[]` (cashier-side ОФД) was not changed in this slice — only the human-readable `description` field. If full ОФД item detail is required, that should be a separate slice.
+
+### Next recommended step
+
+- Live-check one real RUB media-package purchase end-to-end and confirm: (a) CloudPayments form shows `PersAI Пакет медиа N/N/N (фото/ред/видео)` and `Оплатить пакет`, (b) our checkout page shows `Оплата пакета медиа` with one-time subtitle, (c) the bank statement entry no longer mentions a subscription.
+
+## 2026-05-10 — ADR-089 media-package chat return banner cleanup (LANDED)
+
+### What changed
+
+1. **Chat return banner now distinguishes package purchases from subscriptions** — `apps/web/app/app/_components/chat-area.tsx` no longer shows “subscription activated” when the checkout return came from `__media_package__`.
+2. **Package-specific copy covers all billing return states** — success, pending, and failed banners now use media-package wording, so one-time purchases no longer mention tariff/subscription activation semantics.
+3. **Retry action now goes to the right surface** — failed media-package returns link to `/app/packages` instead of `/app/pricing`.
+4. **Focused coverage added** — `apps/web/app/app/_components/chat-area.test.tsx` now pins both the success-copy branch and the failed retry destination for media packages.
+
+### Current slice/step
+
+ADR-089 media-package chat return banner cleanup — COMPLETE.
+
+### Files touched
+
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/_components/chat-area.test.tsx`
+- `apps/web/messages/ru.json`
+- `apps/web/messages/en.json`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/web exec vitest run "app/app/_components/chat-area.test.tsx"` → ✅
+- `ReadLints` on touched files → no diagnostics
+
+### Risks / notes
+
+- The banner still keys off the checkout return `billingPlanCode` sentinel (`__media_package__`), which is already the active truth used by media-package intents.
+
+### Next recommended step
+
+- Live-check one real package purchase return into `/app/chat` and confirm the success banner now says package activation instead of subscription activation.
+
+## 2026-05-10 — ADR-089 media-package checkout price label cleanup (LANDED)
+
+### What changed
+
+1. **One-time media-package checkout no longer looks like a subscription** — `apps/web/app/app/billing/checkout/[paymentIntentId]/page.tsx` now suppresses `/ month` and `/ year` suffixes when the payment intent is the media-package sentinel (`__media_package__`) or carries `purpose=media_package_purchase`.
+2. **Subscription checkout labeling stays intact** — ordinary plan checkout pages still use the period-aware label, so the fix stays scoped to media add-ons and does not change recurring-plan UX.
+3. **Focused regression coverage added** — `apps/web/app/app/billing/checkout/[paymentIntentId]/page.test.tsx` now asserts that plan checkout still shows `RUB 20 / month` while media-package checkout shows only the flat amount.
+
+### Current slice/step
+
+ADR-089 media-package checkout price label cleanup — COMPLETE.
+
+### Files touched
+
+- `apps/web/app/app/billing/checkout/[paymentIntentId]/page.tsx`
+- `apps/web/app/app/billing/checkout/[paymentIntentId]/page.test.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/web exec vitest run "app/app/billing/checkout/[paymentIntentId]/page.test.tsx"` → ✅
+- `ReadLints` on touched checkout files → no diagnostics
+
+### Risks / notes
+
+- This is a presentation-only fix. Backend payment-intent shape and provider checkout payloads were not changed.
+
+### Next recommended step
+
+- Live-check one real media-package purchase and one ordinary plan purchase in the browser to confirm the CloudPayments screen now shows a flat amount for add-ons but still shows the recurring suffix for subscriptions.
+
+## 2026-05-10 — ADR-089 admin media package density fix (LANDED)
+
+### What changed
+
+1. **Admin media package cards were compressed after founder review** — `apps/web/app/admin/plans/_components/MediaPackagesSection.tsx` no longer renders oversized preset tiles; the display list is now a compact responsive grid with tighter spacing and smaller chips/actions.
+2. **Preset inventory now reads like admin UI instead of promo UI** — cards show units, price, order/currency badges, and `Edit` / `Delete` in a much denser footprint, with up to four presets per row on wide screens.
+3. **Edit/create forms stay full-width when needed** — only the passive inventory display was compacted; active create/edit forms still expand across the row so data entry remains usable.
+
+### Current slice/step
+
+ADR-089 admin media package density fix — COMPLETE.
+
+### Files touched
+
+- `apps/web/app/admin/plans/_components/MediaPackagesSection.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/web run typecheck` → ✅
+- `corepack pnpm --filter @persai/web run lint -- app/admin/plans/_components/MediaPackagesSection.tsx` → ✅
+
+### Risks / notes
+
+- This is a density/layout correction only; it does not change admin package CRUD behavior or the create/edit form shape.
+
+### Next recommended step
+
+- Refresh `Admin > Plans > Media packages` with several presets per type and visually confirm the block now holds at least four compact preset cards per row on desktop.
+
+## 2026-05-10 — ADR-089 background media failure follow-up (LANDED)
+
+### What changed
+
+1. **Closed the silent background-media fail hole on web** — terminal assistant media-job failures no longer just disappear from `activeMediaJobs` while leaving the user without any assistant explanation in chat.
+2. **Scheduler failures now create assistant follow-up text** — `apps/api/src/modules/workspace-management/application/assistant-media-job-scheduler.service.ts` now creates a user-visible assistant message before marking a background media job `failed`, instead of only storing `lastErrorCode` / `lastErrorMessage` on the job row.
+3. **Safety/policy rejects get explicit copy** — new shared helper `assistant-media-job-failure-copy.service.ts` builds user-facing failure text and distinguishes provider moderation/policy blocks from generic background failures, so “too explicit” prompts now produce an honest explanation instead of a silent disappearance.
+4. **Completion-delivery failures now overwrite optimistic success copy** — `assistant-media-job-completion-delivery.service.ts` now updates the existing completion assistant message (or creates one if missing) with a failure explanation before finalizing the job as `failed`, so a web chat does not keep a stale “ready” message when attachment delivery later dies.
+5. **Focused regressions added** — `assistant-media-job-scheduler.service.test.ts` now asserts user-visible assistant messages for both generic terminal failures and provider safety-policy blocks; `assistant-media-job-completion-delivery.service.test.ts` now asserts failed web delivery replaces optimistic completion text with a failure explanation.
+
+### Current slice/step
+
+ADR-089 background media failure follow-up — COMPLETE.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/assistant-media-job-failure-copy.service.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-media-job-scheduler.service.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-media-job-completion-delivery.service.ts`
+- `apps/api/test/assistant-media-job-scheduler.service.test.ts`
+- `apps/api/test/assistant-media-job-completion-delivery.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-scheduler.service.test.ts` → ✅
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-completion-delivery.service.test.ts` → ✅
+- `corepack pnpm --filter @persai/api run typecheck` → ✅
+
+### Risks / notes
+
+- This fix guarantees assistant-visible chat text for terminal background media failures in web chat. Telegram still depends on its own delivery surface if a similar scheduler-failure UX gap needs polishing there later.
+
+### Next recommended step
+
+- Reproduce the founder-reported explicit-image case end-to-end in web: enqueue background image generation, trigger provider safety rejection, and verify the user now receives an assistant follow-up message instead of only seeing the active job chip disappear.
+
 ## 2026-05-10 — ADR-089 quota_status media package truth fix (LANDED)
 
 ### What changed

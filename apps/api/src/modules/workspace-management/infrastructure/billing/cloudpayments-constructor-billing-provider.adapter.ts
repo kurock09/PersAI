@@ -132,6 +132,46 @@ function isSupportedRecurringInterval(value: unknown): value is "Day" | "Week" |
   return value === "Day" || value === "Week" || value === "Month";
 }
 
+const MEDIA_PACKAGE_TYPE_ORDER = ["image_generate", "image_edit", "video_generate"] as const;
+
+function isMediaPackagePurchase(metadata: Record<string, unknown>): boolean {
+  return metadata["purpose"] === "media_package_purchase";
+}
+
+function buildMediaPackageDescription(metadata: Record<string, unknown>): string {
+  const rawItems = metadata["packageItems"];
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    return "PersAI Пакет медиа";
+  }
+  const totalsByType = new Map<string, number>();
+  for (const candidate of rawItems) {
+    if (candidate === null || typeof candidate !== "object") {
+      continue;
+    }
+    const row = candidate as Record<string, unknown>;
+    const packageType = typeof row["packageType"] === "string" ? row["packageType"] : null;
+    const units =
+      typeof row["units"] === "number" && Number.isFinite(row["units"]) ? row["units"] : 0;
+    if (packageType === null || units <= 0) {
+      continue;
+    }
+    totalsByType.set(packageType, (totalsByType.get(packageType) ?? 0) + units);
+  }
+  const compactCode = MEDIA_PACKAGE_TYPE_ORDER.map((type) => totalsByType.get(type) ?? 0).join("/");
+  return `PersAI Пакет медиа ${compactCode} (фото/ред/видео)`;
+}
+
+function buildPaymentButtonText(metadata: Record<string, unknown>): string {
+  return isMediaPackagePurchase(metadata) ? "Оплатить пакет" : "Оплатить подписку";
+}
+
+function buildCheckoutDescription(metadata: Record<string, unknown>, planCode: string): string {
+  if (isMediaPackagePurchase(metadata)) {
+    return buildMediaPackageDescription(metadata);
+  }
+  return `PersAI subscription ${planCode.toUpperCase()}`;
+}
+
 @Injectable()
 export class CloudpaymentsConstructorBillingProviderAdapter implements BillingProviderPort {
   constructor(
@@ -157,7 +197,7 @@ export class CloudpaymentsConstructorBillingProviderAdapter implements BillingPr
       initializationParams: {
         publicTerminalId: publicTerminalId.trim(),
         paymentSchema: "Single",
-        description: `PersAI subscription ${input.planCode.toUpperCase()}`,
+        description: buildCheckoutDescription(input.metadata, input.planCode),
         amount,
         currency: input.currency,
         externalId: input.paymentIntentId,
@@ -193,7 +233,7 @@ export class CloudpaymentsConstructorBillingProviderAdapter implements BillingPr
         },
         components: {
           paymentButton: {
-            text: "Оплатить подписку"
+            text: buildPaymentButtonText(input.metadata)
           },
           paymentForm: {
             labelFontSize: "14px",

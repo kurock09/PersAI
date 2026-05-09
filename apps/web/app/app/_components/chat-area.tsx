@@ -58,6 +58,10 @@ function formatBillingPlanLabel(planCode: string | undefined): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function isMediaPackageBillingReturn(planCode: string | undefined): boolean {
+  return planCode === "__media_package__";
+}
+
 export function ChatArea({
   chat,
   title,
@@ -92,6 +96,7 @@ export function ChatArea({
     billingReturnKind !== undefined
       ? `${billingReturnKind}:${billingPlanCode ?? ""}:${billingPaymentIntentId ?? ""}`
       : null;
+  const isMediaPackageReturn = isMediaPackageBillingReturn(billingPlanCode);
 
   // Restore the cancelled draft into the composer when the user picks
   // "Cancel" on a failed pending-send bubble (text only — media/voice
@@ -693,26 +698,40 @@ export function ChatArea({
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold text-text">
                   {billingReturnKind === "success"
-                    ? t("billingReturnSuccessTitle", {
-                        plan: formatBillingPlanLabel(billingPlanCode)
-                      })
+                    ? isMediaPackageReturn
+                      ? t("billingReturnPackageSuccessTitle")
+                      : t("billingReturnSuccessTitle", {
+                          plan: formatBillingPlanLabel(billingPlanCode)
+                        })
                     : billingReturnKind === "failed"
-                      ? t("billingReturnFailedTitle")
-                      : t("billingReturnPendingTitle")}
+                      ? isMediaPackageReturn
+                        ? t("billingReturnPackageFailedTitle")
+                        : t("billingReturnFailedTitle")
+                      : isMediaPackageReturn
+                        ? t("billingReturnPackagePendingTitle")
+                        : t("billingReturnPendingTitle")}
                 </p>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
                   {billingReturnKind === "success"
-                    ? t("billingReturnSuccessBody")
+                    ? isMediaPackageReturn
+                      ? t("billingReturnPackageSuccessBody")
+                      : t("billingReturnSuccessBody")
                     : billingReturnKind === "failed"
-                      ? t("billingReturnFailedBody")
-                      : t("billingReturnPendingBody")}
+                      ? isMediaPackageReturn
+                        ? t("billingReturnPackageFailedBody")
+                        : t("billingReturnFailedBody")
+                      : isMediaPackageReturn
+                        ? t("billingReturnPackagePendingBody")
+                        : t("billingReturnPendingBody")}
                 </p>
                 {billingReturnKind === "failed" ? (
                   <Link
-                    href={"/app/pricing" as Route}
+                    href={(isMediaPackageReturn ? "/app/packages" : "/app/pricing") as Route}
                     className="mt-2 inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
                   >
-                    {t("billingReturnRetry")}
+                    {isMediaPackageReturn
+                      ? t("billingReturnPackageRetry")
+                      : t("billingReturnRetry")}
                   </Link>
                 ) : null}
               </div>

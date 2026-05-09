@@ -124,10 +124,64 @@ describe("BillingCheckoutPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Pay for PRO PLUS")).toBeInTheDocument();
     });
+    expect(screen.getByText("RUB 20 / month")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Dev: return success" }));
     expect(routerMocks.replace).toHaveBeenCalledWith(
       "/app/chat?billingReturn=success&billingPlan=pro_plus&billingPaymentIntentId=pi-1"
     );
+  });
+
+  it("shows media package checkout price without a recurring suffix", async () => {
+    navigationMocks.params = { paymentIntentId: "pi-package" };
+    apiMocks.getAssistantBillingPaymentIntent.mockResolvedValue({
+      id: "pi-package",
+      targetPlanCode: "__media_package__",
+      action: "new_purchase",
+      purpose: "media_package_purchase",
+      status: "checkout_ready",
+      paymentMethodClass: "card",
+      amountMinor: 520000,
+      currency: "RUB",
+      billingPeriod: "month",
+      returnUrl: "/app/chat",
+      billingProvider: "manual_test",
+      providerSessionRef: "manual-pi-package",
+      providerPaymentRef: null,
+      recurring: {
+        checkoutKind: "one_time",
+        supportedBySelectedMethod: true,
+        unsupportedReason: null
+      },
+      checkout: {
+        mode: "manual_test",
+        expiresAt: "2099-05-04T18:15:00.000Z",
+        payload: {
+          schema: "persai.billing.manualTestCheckout.v1"
+        }
+      },
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      createdAt: "2026-05-04T18:00:00.000Z",
+      updatedAt: "2026-05-04T18:00:01.000Z"
+    });
+
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <BillingCheckoutPage />
+      </NextIntlClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Pay for media package")).toBeInTheDocument();
+    });
+    expect(screen.getByText("RUB 5,200")).toBeInTheDocument();
+    expect(screen.queryByText("RUB 5,200 / month")).toBeNull();
+    expect(screen.queryByText("Pay for MEDIA PACKAGE")).toBeNull();
+    expect(
+      screen.getByText(
+        "This is a one-time payment. The purchased limits will be added to your available capacity right after payment confirmation."
+      )
+    ).toBeInTheDocument();
   });
 
   it("mounts CloudPayments constructor and returns success to chat", async () => {

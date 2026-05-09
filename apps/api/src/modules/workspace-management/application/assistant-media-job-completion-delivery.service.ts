@@ -12,6 +12,10 @@ import { MediaDeliveryService } from "./media/media-delivery.service";
 import { TelegramBotClientService } from "./telegram-bot.client.service";
 import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-channel-runtime-config.service";
 import { AssistantMediaJobCompletionTurnService } from "./assistant-media-job-completion-turn.service";
+import {
+  buildAssistantMediaJobFailureMessage,
+  inferAssistantMediaJobFailureLocale
+} from "./assistant-media-job-failure-copy.service";
 
 const COMPLETION_DELIVERY_BATCH_SIZE = 4;
 const COMPLETION_DELIVERY_CLAIM_TTL_MS = 5 * 60 * 1000;
@@ -155,7 +159,8 @@ export class AssistantMediaJobCompletionDeliveryService {
         job,
         false,
         "completion_artifacts_missing",
-        "Media job has no artifacts to deliver."
+        "Media job has no artifacts to deliver.",
+        "en"
       );
       return;
     }
@@ -166,10 +171,15 @@ export class AssistantMediaJobCompletionDeliveryService {
         job,
         false,
         "completion_request_missing",
-        "Media job completion request payload is invalid."
+        "Media job completion request payload is invalid.",
+        "en"
       );
       return;
     }
+
+    const failureLocale = inferAssistantMediaJobFailureLocale({
+      sourceText: requestPayload.sourceUserMessageText
+    });
 
     const rawAssistantText = job.resultText?.trim() ?? "";
 
@@ -245,7 +255,7 @@ export class AssistantMediaJobCompletionDeliveryService {
       const message = error instanceof Error ? error.message : "Media delivery failed.";
       const canRetry = job.attemptCount < job.maxAttempts;
       if (!canRetry) {
-        await this.failDelivery(job, false, "media_delivery_failed", message);
+        await this.failDelivery(job, false, "media_delivery_failed", message, failureLocale);
         return;
       }
       await this.prisma.assistantMediaJob.updateMany({
@@ -267,8 +277,18 @@ export class AssistantMediaJobCompletionDeliveryService {
     job: ClaimedCompletionPendingMediaJob,
     _retryable: boolean,
     code: string,
-    message: string
+    message: string,
+    locale: "ru" | "en"
   ): Promise<void> {
+    const failureMessage = buildAssistantMediaJobFailureMessage({
+      kind: job.kind,
+      code,
+      message,
+      locale
+    });
+    const completionAssistantMessageId =
+      (await this.ensureFailureMessage(job, failureMessage)) ?? job.completionAssistantMessageId;
+
     await this.prisma.assistantMediaJob.updateMany({
       where: { id: job.id, schedulerClaimToken: job.claimToken },
       data: {
@@ -278,9 +298,50 @@ export class AssistantMediaJobCompletionDeliveryService {
         schedulerClaimedAt: null,
         schedulerClaimExpiresAt: null,
         lastErrorCode: code,
-        lastErrorMessage: truncateLastError(message)
+        lastErrorMessage: truncateLastError(message),
+        ...(completionAssistantMessageId === null ? {} : { completionAssistantMessageId })
       }
     });
+  }
+
+  private async ensureFailureMessage(
+    job: ClaimedCompletionPendingMediaJob,
+    failureMessage: string
+  ): Promise<string | null> {
+    if (job.completionAssistantMessageId !== null) {
+      try {
+        await this.assistantChatRepository.updateMessageContent(
+          job.completionAssistantMessageId,
+          job.assistantId,
+          failureMessage
+        );
+        return job.completionAssistantMessageId;
+      } catch (error) {
+        this.logger.warn(
+          `Failed to update terminal media-job failure message for ${job.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        return job.completionAssistantMessageId;
+      }
+    }
+
+    try {
+      const created = await this.assistantChatRepository.createMessage({
+        chatId: job.chatId,
+        assistantId: job.assistantId,
+        author: "assistant",
+        content: failureMessage
+      });
+      return created.id;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to create terminal media-job failure message for ${job.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    }
   }
 
   private async ensureCompletionMessage(

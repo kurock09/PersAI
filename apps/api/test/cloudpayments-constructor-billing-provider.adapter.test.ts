@@ -159,6 +159,37 @@ async function run(): Promise<void> {
     { accountId: "ws-new" }
   );
 
+  const mediaPackageSession = await adapter.createCheckoutSession({
+    paymentIntentId: "pi-package",
+    workspaceId: "ws-1",
+    userId: "user-1",
+    planCode: "__media_package__",
+    action: "new_purchase",
+    amountMinor: 520000,
+    currency: "RUB",
+    billingPeriod: "month",
+    paymentMethodClass: "card",
+    returnUrl: "/app/chat",
+    providerCustomerRef: null,
+    checkoutKind: "one_time",
+    recurringPlan: null,
+    metadata: {
+      purpose: "media_package_purchase",
+      packageItems: [
+        { catalogItemId: "ci-1", packageType: "image_generate", units: 100, amountMinor: 300000 },
+        { catalogItemId: "ci-2", packageType: "image_edit", units: 0, amountMinor: 0 },
+        { catalogItemId: "ci-3", packageType: "video_generate", units: 10, amountMinor: 220000 }
+      ]
+    }
+  });
+  const mediaInit = mediaPackageSession.payload.initializationParams as Record<string, unknown>;
+  assert.equal(mediaInit.description, "PersAI Пакет медиа 100/0/10 (фото/ред/видео)");
+  const mediaButton = (
+    (mediaPackageSession.payload.customizationParams as Record<string, unknown>)
+      .components as Record<string, unknown>
+  ).paymentButton as Record<string, unknown>;
+  assert.equal(mediaButton.text, "Оплатить пакет");
+
   const missingConfigAdapter = new CloudpaymentsConstructorBillingProviderAdapter({
     async resolveSecretValueByProviderKey(providerKey: string) {
       return providerKey === "billing_cloudpayments__api_secret" ? "cloudpayments-secret" : null;

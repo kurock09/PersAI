@@ -216,15 +216,36 @@ function formatSubscriptionPrice(
     currency: paymentIntent.currency,
     maximumFractionDigits: paymentIntent.amountMinor % 100 === 0 ? 0 : 2
   }).format(paymentIntent.amountMinor / 100);
+  const isMediaPackageCheckout =
+    paymentIntent.targetPlanCode === "__media_package__" ||
+    String(paymentIntent.purpose) === "media_package_purchase";
+  if (isMediaPackageCheckout) {
+    return formatted;
+  }
   return paymentIntent.billingPeriod === "year"
     ? t("pricePerYear", { price: formatted })
     : t("pricePerMonth", { price: formatted });
+}
+
+function isMediaPackageCheckoutIntent(
+  paymentIntent: AssistantBillingPaymentIntentState | null
+): boolean {
+  if (paymentIntent === null) {
+    return false;
+  }
+  return (
+    paymentIntent.targetPlanCode === "__media_package__" ||
+    String(paymentIntent.purpose) === "media_package_purchase"
+  );
 }
 
 function resolveCheckoutSubtitle(
   paymentIntent: AssistantBillingPaymentIntentState | null,
   t: ReturnType<typeof useTranslations>
 ): string {
+  if (isMediaPackageCheckoutIntent(paymentIntent)) {
+    return t("subtitlePackage");
+  }
   if (paymentIntent?.purpose === "autopay_enable_bind") {
     return t("subtitleBind");
   }
@@ -579,7 +600,11 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
               {t("eyebrow")}
             </p>
             <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-text">
-              {paymentIntent ? t("titleWithPlan", { plan: planLabel ?? "" }) : t("title")}
+              {paymentIntent
+                ? isMediaPackageCheckoutIntent(paymentIntent)
+                  ? t("titlePackage")
+                  : t("titleWithPlan", { plan: planLabel ?? "" })
+                : t("title")}
             </h1>
             <p className="mt-3 text-sm leading-6 text-text-muted">
               {resolveCheckoutSubtitle(paymentIntent, t)}

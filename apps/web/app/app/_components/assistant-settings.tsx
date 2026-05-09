@@ -672,10 +672,15 @@ export function AssistantSettings({
       : `${tool.usedUnits} / ${effectiveLimit}`;
   };
   const formatMonthlyMediaBonusSubline = (tool: MonthlyMediaQuotaToolState): string | null => {
+    if (!isMonthlyMediaQuotaToolAvailable(tool)) {
+      return null;
+    }
     const bonus = tool.bonusLimitUnits ?? 0;
-    if (bonus <= 0) return null;
-    const base = tool.limitUnits ?? 0;
-    return t("monthlyMediaBonusSubline", { base, bonus });
+    if (bonus > 0) {
+      const base = tool.limitUnits ?? 0;
+      return t("monthlyMediaBonusSubline", { base, bonus });
+    }
+    return t("monthlyMediaPlanOnlySubline");
   };
   const formatMonthlyMediaRemainingSubline = (tool: MonthlyMediaQuotaToolState): string | null => {
     if (!isMonthlyMediaQuotaToolAvailable(tool)) {
@@ -2796,7 +2801,7 @@ export function AssistantSettings({
                 <div className="mt-4 grid grid-cols-3 gap-2">
                   {featuredMonthlyMediaQuotas.map((tool) => {
                     const bonusSubline = formatMonthlyMediaBonusSubline(tool);
-                    const hasBonus = bonusSubline !== null;
+                    const hasBonus = (tool.bonusLimitUnits ?? 0) > 0;
                     return (
                       <LimitMetricCard
                         key={tool.toolCode}
@@ -2814,6 +2819,7 @@ export function AssistantSettings({
                         secondary={formatMonthlyMediaRemainingSubline(tool)}
                         bonusSubline={bonusSubline}
                         hasBonus={hasBonus}
+                        buyChipLabel={t("monthlyMediaBuyChip")}
                         onBuyClick={() => {
                           if (onOpenPackagesPage) {
                             onOpenPackagesPage();
@@ -3199,6 +3205,7 @@ function LimitMetricCard({
   secondary,
   bonusSubline,
   hasBonus,
+  buyChipLabel,
   onBuyClick
 }: {
   label: React.ReactNode;
@@ -3206,30 +3213,24 @@ function LimitMetricCard({
   secondary?: string | null;
   bonusSubline?: string | null;
   hasBonus?: boolean;
+  buyChipLabel?: string | null;
   onBuyClick?: () => void;
 }) {
   const interactive = typeof onBuyClick === "function";
   const Comp = interactive ? "button" : "div";
+  const showChip = interactive && typeof buyChipLabel === "string" && buyChipLabel.length > 0;
 
   return (
     <Comp
       type={interactive ? "button" : undefined}
       onClick={onBuyClick}
       className={cn(
-        "group relative flex h-full flex-col overflow-hidden rounded-xl border bg-surface/70 p-2.5 text-left transition-colors",
+        "group relative flex h-full flex-col overflow-hidden rounded-xl border bg-surface/70 p-2.5 pb-7 text-left transition-colors",
         hasBonus ? "border-accent/30 bg-surface/80" : "border-border/80",
         interactive &&
           "cursor-pointer hover:border-accent/30 hover:bg-surface/85 focus:outline-none focus:ring-2 focus:ring-accent/30"
       )}
     >
-      {interactive && (
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute right-2 top-[70%] -translate-y-1/2 select-none font-thin leading-none text-[3.75rem] text-text/[0.07] transition-[color] group-hover:text-text/[0.16]"
-        >
-          +
-        </span>
-      )}
       <p className="min-h-[2.4rem] text-[10px] font-medium leading-4 uppercase tracking-[0.12em] text-text-subtle">
         {label}
       </p>
@@ -3237,9 +3238,29 @@ function LimitMetricCard({
         <p className="text-xs font-semibold tabular-nums text-text">{value}</p>
         {secondary ? <p className="mt-1 text-[10px] text-text-subtle">{secondary}</p> : null}
         {bonusSubline ? (
-          <p className="mt-1 text-[10px] text-accent/70 tabular-nums">{bonusSubline}</p>
+          <p
+            className={cn(
+              "mt-1 text-[10px] tabular-nums",
+              hasBonus ? "text-accent/70" : "text-text-subtle/80"
+            )}
+          >
+            {bonusSubline}
+          </p>
         ) : null}
       </div>
+      {showChip ? (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute bottom-1.5 right-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] transition-colors",
+            hasBonus
+              ? "border-accent/30 bg-accent/[0.06] text-accent/80 group-hover:bg-accent/10 group-hover:text-accent"
+              : "border-border/70 bg-bg/50 text-text-subtle group-hover:border-accent/30 group-hover:bg-accent/[0.06] group-hover:text-accent"
+          )}
+        >
+          {buyChipLabel}
+        </span>
+      ) : null}
     </Comp>
   );
 }

@@ -244,4 +244,96 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(sendReplyCalls[0]?.mediaAlreadyDelivered, true);
     assert.equal(sendReplyCalls[0]?.turnResult?.assistantMessage, "Fresh Telegram framing.");
   });
+
+  test("replaces the optimistic completion text with a user-visible failure message when web delivery fails", async () => {
+    const finalUpdates: Array<Record<string, unknown>> = [];
+    const messageUpdates: Array<Record<string, unknown>> = [];
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-3",
+                assistantId: "assistant-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-1",
+                surface: "web",
+                kind: "image",
+                sourceUserMessageId: "user-message-3",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "make explicit image",
+                  sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "make explicit image",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: "Your image is ready.",
+                artifactsJson: [{ artifactId: "artifact-3", kind: "image" }],
+                completionAssistantMessageId: "assistant-message-3",
+                attemptCount: 5,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: {
+              update: async () => undefined
+            }
+          }),
+        assistantMediaJob: {
+          updateMany: async (input: Record<string, unknown>) => {
+            finalUpdates.push(input);
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          throw new Error("createMessage should not run when completion message already exists");
+        },
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
+          messageUpdates.push({ messageId, assistantId, content });
+          return null;
+        }
+      } as never,
+      {
+        deliver: async () => {
+          throw new Error("Blocked by provider safety policy.");
+        }
+      } as never,
+      {
+        async sendAssistantTurnReply() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return "Fresh current-context framing.";
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.at(-1)?.data?.status, "failed");
+    assert.equal(finalUpdates.at(-1)?.data?.completionAssistantMessageId, "assistant-message-3");
+    assert.match(
+      String(messageUpdates.at(-1)?.content),
+      /blocked the request under its safety policy/i
+    );
+  });
 });
