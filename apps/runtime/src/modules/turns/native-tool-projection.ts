@@ -366,7 +366,7 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
     name: "quota_status",
     description: resolveToolDefinitionDescription(
       policy,
-      "Read live PersAI quota status for the current assistant, compare public plans from the same source of truth, and create a checkout link when the user wants to open it now."
+      "Read live PersAI quota status for the current assistant, compare public plans from the same source of truth, report monthly media/package availability, and create a checkout link when the user wants to open it now."
     ),
     inputSchema: {
       type: "object",
@@ -381,7 +381,7 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
         toolCode: {
           type: "string",
           description:
-            "Optional tool code to inspect one quota-governed tool when action='report'. Leave unset to return non-media daily tool counters, the current quota bucket snapshot, monthly media quota rows, and visible plan options."
+            "Optional tool code to inspect one quota-governed tool when action='report'. Leave unset to return non-media daily tool counters, the current quota bucket snapshot, monthly media quota rows, media package availability by tool, and visible plan options."
         },
         targetPlanCode: {
           type: "string",

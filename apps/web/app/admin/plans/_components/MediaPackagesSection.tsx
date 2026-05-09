@@ -15,64 +15,18 @@ type PackageType = "image_generate" | "image_edit" | "video_generate";
 const PACKAGE_TYPES: Array<{
   value: PackageType;
   label: string;
-  watermark: React.ReactNode;
 }> = [
   {
     value: "image_generate",
-    label: "Image Generate",
-    watermark: (
-      <svg
-        viewBox="0 0 80 80"
-        aria-hidden="true"
-        className="absolute inset-0 h-full w-full opacity-[0.04] transition-opacity group-hover:opacity-[0.08]"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1"
-      >
-        <rect x="10" y="10" width="60" height="60" rx="6" />
-        <circle cx="40" cy="36" r="10" />
-        <path d="M10 56 L28 38 L42 52 L56 38 L70 56" />
-      </svg>
-    )
+    label: "Image Generate"
   },
   {
     value: "image_edit",
-    label: "Image Edit",
-    watermark: (
-      <svg
-        viewBox="0 0 80 80"
-        aria-hidden="true"
-        className="absolute inset-0 h-full w-full opacity-[0.04] transition-opacity group-hover:opacity-[0.08]"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1"
-      >
-        <rect x="12" y="12" width="56" height="56" rx="6" />
-        <path d="M26 54 L38 30 L50 54" />
-        <path d="M30 46 H46" />
-        <line x1="54" y1="26" x2="62" y2="18" />
-      </svg>
-    )
+    label: "Image Edit"
   },
   {
     value: "video_generate",
-    label: "Video Generate",
-    watermark: (
-      <svg
-        viewBox="0 0 80 80"
-        aria-hidden="true"
-        className="absolute inset-0 h-full w-full opacity-[0.04] transition-opacity group-hover:opacity-[0.08]"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1"
-      >
-        <rect x="8" y="20" width="48" height="40" rx="4" />
-        <path d="M56 32 L72 24 L72 56 L56 48 Z" />
-        <line x1="20" y1="30" x2="20" y2="50" />
-        <line x1="30" y1="28" x2="30" y2="52" />
-        <line x1="40" y1="30" x2="40" y2="50" />
-      </svg>
-    )
+    label: "Video Generate"
   }
 ];
 
@@ -182,14 +136,12 @@ function TextInput({
 
 function PackageCard({
   item,
-  watermark,
   onEdit,
   onDelete,
   disabled,
   deleting
 }: {
   item: MediaPackageCatalogItem;
-  watermark: React.ReactNode;
   onEdit: () => void;
   onDelete: () => void;
   disabled: boolean;
@@ -198,48 +150,43 @@ function PackageCard({
   return (
     <div
       className={cn(
-        "group relative overflow-hidden rounded-md border border-border/70 bg-surface-raised p-3 transition-colors",
+        "rounded-xl border border-border/70 bg-surface p-3 transition-colors",
         !item.isActive && "opacity-50"
       )}
     >
-      {watermark}
-      <div className="relative z-10 flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-xl font-semibold tabular-nums text-text">{item.units}</div>
-          <div className="text-[10px] text-text-subtle">units</div>
-          <div className="mt-1.5 text-[11px] font-medium text-text">
+          <div className="flex items-baseline gap-2">
+            <div className="text-lg font-semibold tabular-nums text-text">{item.units}</div>
+            <div className="text-[10px] uppercase tracking-[0.14em] text-text-subtle">units</div>
+          </div>
+          <div className="mt-1 text-[12px] font-medium text-text">
             {formatPrice(item.amountMinor, item.currency)}
           </div>
           {(item.title.ru || item.title.en) && (
-            <div className="mt-1 text-[10px] text-text-subtle">
+            <div className="mt-1 text-[11px] text-text-subtle">
               {item.title.ru && item.title.en
                 ? `${item.title.ru} / ${item.title.en}`
                 : (item.title.ru ?? item.title.en)}
             </div>
           )}
-          {(item.badge.ru || item.badge.en) && (
-            <span className="mt-1 inline-block rounded-full border border-border/60 px-1.5 py-0.5 text-[9px] text-text-subtle">
-              {item.badge.ru && item.badge.en
-                ? `${item.badge.ru} / ${item.badge.en}`
-                : (item.badge.ru ?? item.badge.en)}
-            </span>
-          )}
         </div>
-        <div className="flex gap-0.5">
+        <div className="flex shrink-0 gap-1">
           <button
             type="button"
             onClick={onEdit}
             disabled={disabled}
-            className="rounded p-1 text-text-subtle transition-colors hover:bg-surface hover:text-text disabled:opacity-30"
+            className="inline-flex items-center gap-1 rounded-md border border-border/70 px-2 py-1 text-[10px] font-medium text-text-subtle transition-colors hover:border-border hover:text-text disabled:opacity-30"
             title="Edit"
           >
             <Pencil className="h-3 w-3" />
+            Edit
           </button>
           <button
             type="button"
             onClick={onDelete}
             disabled={disabled || deleting}
-            className="rounded p-1 text-text-subtle transition-colors hover:bg-surface hover:text-destructive disabled:opacity-30"
+            className="inline-flex items-center gap-1 rounded-md border border-border/70 px-2 py-1 text-[10px] font-medium text-text-subtle transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-30"
             title="Delete"
           >
             {deleting ? (
@@ -247,15 +194,26 @@ function PackageCard({
             ) : (
               <Trash2 className="h-3 w-3" />
             )}
+            Delete
           </button>
         </div>
       </div>
-      <div className="relative z-10 mt-1.5 flex flex-wrap gap-1">
-        <span className="rounded-full bg-surface px-1.5 py-0.5 text-[9px] text-text-subtle/60">
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <span className="rounded-full border border-border/70 bg-bg/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] text-text-subtle">
           order {item.displayOrder}
         </span>
+        <span className="rounded-full border border-border/70 bg-bg/60 px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] text-text-subtle">
+          {item.currency}
+        </span>
+        {(item.badge.ru || item.badge.en) && (
+          <span className="rounded-full border border-border/70 bg-bg/60 px-2 py-0.5 text-[9px] text-text-subtle">
+            {item.badge.ru && item.badge.en
+              ? `${item.badge.ru} / ${item.badge.en}`
+              : (item.badge.ru ?? item.badge.en)}
+          </span>
+        )}
         {!item.isActive && (
-          <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-[9px] text-destructive/70">
+          <span className="rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] text-destructive/70">
             inactive
           </span>
         )}
@@ -512,10 +470,10 @@ function PackageTypeSection({
 
       {error && <p className="text-[11px] text-destructive">{error}</p>}
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid gap-2">
         {items.map((item) =>
           editingId === item.id ? (
-            <div key={item.id} className="col-span-2 sm:col-span-3 lg:col-span-4">
+            <div key={item.id}>
               <PackageForm
                 draft={editDraft}
                 onPatch={(patch) => setEditDraft((prev) => ({ ...prev, ...patch }))}
@@ -533,7 +491,6 @@ function PackageTypeSection({
             <PackageCard
               key={item.id}
               item={item}
-              watermark={type.watermark}
               onEdit={() => startEdit(item)}
               onDelete={() => void handleDelete(item.id)}
               disabled={isDisabled}
@@ -542,9 +499,7 @@ function PackageTypeSection({
           )
         )}
         {items.length === 0 && !createOpen && (
-          <p className="col-span-2 text-[11px] text-text-subtle/60 italic sm:col-span-3 lg:col-span-4">
-            No presets yet.
-          </p>
+          <p className="text-[11px] text-text-subtle/60 italic">No presets yet.</p>
         )}
       </div>
 
@@ -580,7 +535,7 @@ export function MediaPackagesSection({
   disabled: boolean;
 }) {
   return (
-    <div className="mt-8 space-y-4 rounded-md border border-border/70 bg-surface-raised p-4">
+    <div className="mt-8 space-y-4 rounded-xl border border-border/70 bg-surface-raised p-4">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text">

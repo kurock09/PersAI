@@ -98,6 +98,7 @@ interface AssistantSettingsProps {
   initialSection?: string | undefined;
   onOpenTelegramSettings?: (() => void) | undefined;
   onOpenPricingPage?: (() => void) | undefined;
+  onOpenPackagesPage?: (() => void) | undefined;
   onStartBillingCheckout?: ((paymentIntentId: string) => void) | undefined;
 }
 
@@ -545,6 +546,7 @@ export function AssistantSettings({
   initialSection,
   onOpenTelegramSettings,
   onOpenPricingPage,
+  onOpenPackagesPage,
   onStartBillingCheckout
 }: AssistantSettingsProps) {
   const router = useRouter();
@@ -2812,7 +2814,13 @@ export function AssistantSettings({
                         secondary={formatMonthlyMediaRemainingSubline(tool)}
                         bonusSubline={bonusSubline}
                         hasBonus={hasBonus}
-                        onBuyClick={() => router.push("/app/packages" as Route)}
+                        onBuyClick={() => {
+                          if (onOpenPackagesPage) {
+                            onOpenPackagesPage();
+                            return;
+                          }
+                          router.push("/app/packages" as Route);
+                        }}
                       />
                     );
                   })}
@@ -3200,22 +3208,27 @@ function LimitMetricCard({
   hasBonus?: boolean;
   onBuyClick?: () => void;
 }) {
+  const interactive = typeof onBuyClick === "function";
+  const Comp = interactive ? "button" : "div";
+
   return (
-    <div
+    <Comp
+      type={interactive ? "button" : undefined}
+      onClick={onBuyClick}
       className={cn(
-        "group relative overflow-hidden flex h-full flex-col rounded-xl border bg-surface/70 p-2.5 transition-colors",
-        hasBonus ? "border-accent/30 bg-surface/80" : "border-border/80"
+        "group relative flex h-full flex-col overflow-hidden rounded-xl border bg-surface/70 p-2.5 text-left transition-colors",
+        hasBonus ? "border-accent/30 bg-surface/80" : "border-border/80",
+        interactive &&
+          "cursor-pointer hover:border-accent/30 hover:bg-surface/85 focus:outline-none focus:ring-2 focus:ring-accent/30"
       )}
     >
-      {onBuyClick && (
-        <button
-          type="button"
-          onClick={onBuyClick}
-          aria-label="Buy media package"
-          className="pointer-events-auto absolute right-2 top-[70%] -translate-y-1/2 cursor-pointer select-none font-thin leading-none text-[3.75rem] text-text/[0.07] transition-[color] group-hover:text-text/[0.16] hover:text-text/[0.24]"
+      {interactive && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute right-2 top-[70%] -translate-y-1/2 select-none font-thin leading-none text-[3.75rem] text-text/[0.07] transition-[color] group-hover:text-text/[0.16]"
         >
           +
-        </button>
+        </span>
       )}
       <p className="min-h-[2.4rem] text-[10px] font-medium leading-4 uppercase tracking-[0.12em] text-text-subtle">
         {label}
@@ -3227,7 +3240,7 @@ function LimitMetricCard({
           <p className="mt-1 text-[10px] text-accent/70 tabular-nums">{bonusSubline}</p>
         ) : null}
       </div>
-    </div>
+    </Comp>
   );
 }
 

@@ -131,6 +131,7 @@ export type InternalQuotaStatusOutcome = {
   tools: RuntimeQuotaStatusToolRow[];
   buckets: RuntimeQuotaStatusBucket[];
   monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
+  packagesAvailableByTool: Record<string, boolean>;
 };
 
 export type InternalQuotaCheckoutOutcome =
@@ -765,6 +766,7 @@ export class PersaiInternalApiClientService {
       const tools = payload?.tools;
       const buckets = payload?.buckets;
       const monthlyMediaQuotas = payload?.monthlyMediaQuotas;
+      const packagesAvailableByTool = payload?.packagesAvailableByTool;
       const visiblePlans = payload?.visiblePlans;
       const advisories = payload?.advisories;
       const advisoryCandidates = payload?.advisoryCandidates;
@@ -781,7 +783,8 @@ export class PersaiInternalApiClientService {
         tools.every((tool) => this.isQuotaStatusToolRow(tool)) &&
         Array.isArray(buckets) &&
         buckets.every((bucket) => this.isQuotaStatusBucket(bucket)) &&
-        (monthlyMediaQuotas === null || this.isMonthlyMediaQuotaStatus(monthlyMediaQuotas))
+        (monthlyMediaQuotas === null || this.isMonthlyMediaQuotaStatus(monthlyMediaQuotas)) &&
+        this.isPackagesAvailableByTool(packagesAvailableByTool)
       ) {
         return {
           planCode: (payload.planCode as string | null) ?? null,
@@ -791,7 +794,8 @@ export class PersaiInternalApiClientService {
           advisoryCandidates: advisoryCandidates as RuntimeQuotaAdvisoryCandidate[],
           tools: tools as RuntimeQuotaStatusToolRow[],
           buckets: buckets as RuntimeQuotaStatusBucket[],
-          monthlyMediaQuotas: (monthlyMediaQuotas as RuntimeMonthlyMediaQuotaStatus | null) ?? null
+          monthlyMediaQuotas: (monthlyMediaQuotas as RuntimeMonthlyMediaQuotaStatus | null) ?? null,
+          packagesAvailableByTool: packagesAvailableByTool as Record<string, boolean>
         };
       }
       throw new BadGatewayException(
@@ -2038,5 +2042,12 @@ export class PersaiInternalApiClientService {
 
   private isAbortError(error: unknown): boolean {
     return error instanceof Error && error.name === "AbortError";
+  }
+
+  private isPackagesAvailableByTool(value: unknown): value is Record<string, boolean> {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return false;
+    }
+    return Object.values(value).every((entry) => typeof entry === "boolean");
   }
 }

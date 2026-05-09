@@ -810,6 +810,7 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
 describe("AssistantSettings limits", () => {
   it("prioritizes token budget, hides disabled monthly media, and keeps tool limits collapsed by default", () => {
     const openPricingPage = vi.fn();
+    const openPackagesPage = vi.fn();
 
     renderSettings(
       makeAppData({
@@ -969,7 +970,7 @@ describe("AssistantSettings limits", () => {
         } as unknown as AppData["plan"]
       }),
       "limits",
-      { onOpenPricingPage: openPricingPage }
+      { onOpenPricingPage: openPricingPage, onOpenPackagesPage: openPackagesPage }
     );
 
     expect(screen.getByText("Trial until May 12")).toBeInTheDocument();
@@ -980,6 +981,8 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("2 / 20")).toBeInTheDocument();
     expect(screen.queryByText("Image edits")).toBeNull();
     expect(screen.queryByText("Code execution")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Image generations/i }));
+    expect(openPackagesPage).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Change plan" }));
     expect(openPricingPage).toHaveBeenCalledTimes(1);
 

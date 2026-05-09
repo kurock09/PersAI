@@ -1317,7 +1317,12 @@ class FakePersaiInternalApiClientService {
         status: "ok"
       }
     ],
-    monthlyMediaQuotas: null
+    monthlyMediaQuotas: null,
+    packagesAvailableByTool: {
+      image_generate: true,
+      image_edit: true,
+      video_generate: false
+    }
   };
   quotaStatusError: Error | null = null;
   deferredMediaEnqueueCalls: Array<Record<string, unknown>> = [];

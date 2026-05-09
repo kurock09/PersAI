@@ -951,6 +951,7 @@ export interface RuntimeQuotaStatusToolResult {
   tools: RuntimeQuotaStatusToolRow[];
   buckets: RuntimeQuotaStatusBucket[];
   monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
+  packagesAvailableByTool: Record<string, boolean>;
   checkout: RuntimeQuotaStatusCheckout | null;
   subscriptionUpdate: RuntimeQuotaStatusSubscriptionUpdate | null;
   action: "reported" | "checkout_created" | "subscription_updated" | "skipped";

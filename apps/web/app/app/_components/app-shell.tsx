@@ -275,6 +275,11 @@ export function AppShell({
                   setSettingsInitialSection(undefined);
                   router.push("/app/pricing" as Route);
                 }}
+                onOpenPackagesPage={() => {
+                  setSettingsOpen(false);
+                  setSettingsInitialSection(undefined);
+                  router.push("/app/packages" as Route);
+                }}
                 onStartBillingCheckout={(paymentIntentId) => {
                   setSettingsOpen(false);
                   setSettingsInitialSection(undefined);

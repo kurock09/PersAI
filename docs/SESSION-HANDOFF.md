@@ -1,5 +1,85 @@
 # SESSION-HANDOFF
 
+## 2026-05-10 — ADR-089 quota_status media package truth fix (LANDED)
+
+### What changed
+
+1. **Found the real bridge bug behind the false “докупка недоступна” answers** — `apps/api/src/modules/workspace-management/application/read-internal-runtime-quota-status.service.ts` was already computing `packagesAvailableByTool`, but the runtime side did not carry that field forward into the assistant-visible `quota_status` result.
+2. **Runtime internal API client now preserves package availability truth** — `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts` extends `InternalQuotaStatusOutcome`, validates `packagesAvailableByTool`, and returns it instead of silently dropping the field during response projection.
+3. **`quota_status` tool payload now includes media package availability** — `apps/runtime/src/modules/turns/runtime-quota-status-tool.service.ts` now puts `packagesAvailableByTool` onto both normal `reported` payloads and refreshed post-checkout payloads; skipped/error payloads expose an empty object instead of omitting the field.
+4. **Runtime contract updated** — `packages/runtime-contract/src/index.ts` now defines `packagesAvailableByTool: Record<string, boolean>` on `RuntimeQuotaStatusToolResult`, so the model can read package availability as part of the stable tool schema.
+5. **Prompt-side tool description clarified** — `apps/runtime/src/modules/turns/native-tool-projection.ts` now explicitly says `quota_status` reports media package availability in addition to quota and plan facts, reducing the chance that the model interprets media only as plan-owned limits.
+6. **Focused runtime coverage updated** — `apps/runtime/test/runtime-quota-status-tool.service.test.ts` now asserts that `packagesAvailableByTool` survives the bridge, and `apps/runtime/test/turn-execution.service.test.ts` mock runtime quota status was updated to the new shape.
+
+### Current slice/step
+
+ADR-089 quota_status media package truth fix — COMPLETE.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-quota-status-tool.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/test/runtime-quota-status-tool.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime run typecheck` → ✅
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts` → ✅
+
+### Risks / notes
+
+- This fixes the runtime/tool payload itself. Already-materialized runtime bundles or already-open chats may still need the normal bundle refresh / next tool call before the assistant starts using the new field in live conversation.
+
+### Next recommended step
+
+- Live-check one real assistant conversation: ask whether media packages can be purchased, verify `quota_status` now acknowledges package availability, and then confirm the assistant no longer answers only from tariff monthly limits.
+
+## 2026-05-10 — ADR-089 media packages UX redesign round 2 (LANDED)
+
+### What changed
+
+1. **`/app/packages` rebuilt into the requested 3+1 pricing-style layout** — `apps/web/app/app/packages/page.tsx` now renders three fixed media-type cards plus one summary card in a single grid, keeps equal-height card structure, removes the decorative watermark drawings from user package cards, and limits selection to one preset per media type with an explicit check state.
+2. **Disabled tools can no longer be purchased** — the packages page now loads `getAssistantPlanVisibility()` and disables selection for package types whose tool is inactive on the current plan, with a clean upgrade hint inside the card instead of letting checkout start for an unavailable capability.
+3. **Assistant settings limit card is fully clickable** — `LimitMetricCard` in `apps/web/app/app/_components/assistant-settings.tsx` now uses the whole tile as the `/app/packages` trigger while keeping the quiet lower-right `+` watermark as a hover affordance.
+4. **Right settings panel no longer stays open behind packages** — `apps/web/app/app/_components/app-shell.tsx` now closes the assistant settings slide-over before routing to `/app/packages`, which fixes the desktop/mobile case where the packages page opened underneath the still-visible right panel.
+5. **Admin media packages block simplified** — `apps/web/app/admin/plans/_components/MediaPackagesSection.tsx` now uses compact admin-style preset rows with visible `Edit` / `Delete`, units, price, order/currency badges, and no decorative oversized tiles.
+6. **Focused regression coverage added** — `assistant-settings.test.tsx` now asserts that clicking the monthly media limit card calls the packages-page navigation callback.
+
+### Current slice/step
+
+ADR-089 media packages UX redesign round 2 — COMPLETE.
+
+### Files touched
+
+- `apps/web/app/app/packages/page.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/assistant-settings.test.tsx`
+- `apps/web/app/app/_components/app-shell.tsx`
+- `apps/web/app/admin/plans/_components/MediaPackagesSection.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/web run typecheck` → ✅
+- `corepack pnpm -r --if-present run lint` → ✅
+- `corepack pnpm run format:check` → ✅
+- `corepack pnpm --filter @persai/web run test -- --run app/app/_components/assistant-settings.test.tsx` → ✅
+
+### Risks / notes
+
+- The `/app/packages` layout now matches the requested interaction model, but the final visual fit still depends on the actual preset catalog the founder configures in Admin > Plans.
+- Disabled-tool purchase blocking currently relies on `planVisibility.limits.toolDailyLimits[].active`, which is the existing assistant-facing truth source for tool enablement.
+
+### Next recommended step
+
+- Live-check `/app/packages` with a real signed-in account on both desktop and mobile: open from assistant settings, confirm the right panel closes, verify disabled video/image cards stay blocked on lower plans, and run one real checkout from the new summary card.
+
 ## 2026-05-09 — ADR-089 media packages CI/auth follow-up (LANDED)
 
 ### What changed

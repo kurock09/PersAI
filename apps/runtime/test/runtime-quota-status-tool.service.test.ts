@@ -378,6 +378,11 @@ class FakePersaiInternalApiClientService {
           status: "ok"
         }
       ]
+    },
+    packagesAvailableByTool: {
+      image_generate: true,
+      image_edit: true,
+      video_generate: false
     }
   };
   error: Error | null = null;
@@ -443,6 +448,8 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.toolCode, "image_generate");
   assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.usedUnits, 3);
   assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.limitUnits, 30);
+  assert.equal(success.payload.packagesAvailableByTool.image_generate, true);
+  assert.equal(success.payload.packagesAvailableByTool.video_generate, false);
   assert.deepEqual(internalApi.readCalls.at(-1), {
     assistantId: "assistant-1",
     toolCode: "web_search",
@@ -495,6 +502,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(failed.payload.warning, "internal quota error");
   assert.deepEqual(failed.payload.buckets, []);
   assert.equal(failed.payload.monthlyMediaQuotas, null);
+  assert.deepEqual(failed.payload.packagesAvailableByTool, {});
   assert.equal(failed.isError, true);
 
   internalApi.error = null;
