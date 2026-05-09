@@ -198,6 +198,26 @@ async function run(): Promise<void> {
           return [];
         }
       }
+    } as never,
+    {
+      async listPublic() {
+        return [
+          {
+            id: "pkg-image-1",
+            packageType: "image_generate",
+            units: 10,
+            amountMinor: 9900,
+            currency: "RUB",
+            isActive: true,
+            displayOrder: 0,
+            title: { ru: "10 генераций", en: "10 generations" },
+            subtitle: { ru: "", en: "" },
+            badge: { ru: "", en: "" },
+            createdAt: "2026-05-01T00:00:00.000Z",
+            updatedAt: "2026-05-01T00:00:00.000Z"
+          }
+        ];
+      }
     } as never
   );
 

@@ -1,5 +1,41 @@
 # SESSION-HANDOFF
 
+## 2026-05-09 — ADR-089 media packages CI/auth follow-up (LANDED)
+
+### What changed
+
+1. **Admin media-package auth gap fixed** — `IdentityAccessModule` now guards all admin package catalog routes: `GET/POST /api/v1/admin/plans/packages` and `PATCH/DELETE /api/v1/admin/plans/packages/:id`. This closes the second real `Authenticated user context is missing.` path reported after landing ADR-089 UI work: the `Admin > Plans > Media packages` block itself was bypassing `ClerkAuthMiddleware`.
+2. **Middleware regression test extended** — `apps/api/test/identity-access.module.test.ts` now pins those four admin package routes in addition to the already-pinned assistant billing package routes.
+3. **CI API suite fix** — `apps/api/test/read-internal-runtime-quota-status.service.test.ts` now provides a stub for `ManageMediaPackageCatalogService.listPublic()`, matching the current constructor contract of `ReadInternalRuntimeQuotaStatusService`. Without that stub, the full API suite crashed on `this.manageMediaPackageCatalogService.listPublic()` even though local spot checks around the UI changes were green.
+4. **Full-suite verification completed** — after the two fixes above, the repository-wide `corepack pnpm run test` finished successfully locally, so this follow-up closes both the user-visible admin auth failure and the CI-only API test failure.
+
+### Current slice/step
+
+ADR-089 media packages CI/auth follow-up — COMPLETE.
+
+### Files touched
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/test/identity-access.module.test.ts`
+- `apps/api/test/read-internal-runtime-quota-status.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts` → ✅
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts` → ✅
+- `corepack pnpm --filter @persai/api run typecheck` → ✅
+- `corepack pnpm run test` → ✅
+
+### Risks / notes
+
+- This closes the two concrete auth/middleware holes around media packages that surfaced today. Any further CI failures after this point should be treated as new regressions, not fallout from the already-known ADR-089 package-route gaps.
+
+### Next recommended step
+
+- Watch the next GitHub CI run for `main`; if it still fails, treat the failing log as a fresh issue rather than continuing to patch the same media-package auth/test assumptions.
+
 ## 2026-05-09 — ADR-089 media packages UX/auth cleanup (LANDED)
 
 ### What changed
