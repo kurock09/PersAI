@@ -977,7 +977,7 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Token budget")).toBeInTheDocument();
     expect(screen.getByText("2,100/10,000")).toBeInTheDocument();
     expect(screen.getByText("Image generations")).toBeInTheDocument();
-    expect(screen.getByText("2/20")).toBeInTheDocument();
+    expect(screen.getByText("2 / 20")).toBeInTheDocument();
     expect(screen.queryByText("Image edits")).toBeNull();
     expect(screen.queryByText("Code execution")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Change plan" }));
@@ -1094,7 +1094,7 @@ describe("AssistantSettings limits", () => {
     );
 
     expect(screen.getByText("Image generations")).toBeInTheDocument();
-    expect(screen.getByText("4/20")).toBeInTheDocument();
+    expect(screen.getByText("4 / 20")).toBeInTheDocument();
     expect(screen.getByText("Video generations")).toBeInTheDocument();
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
     expect(screen.queryByText("0/1")).toBeNull();
