@@ -672,15 +672,12 @@ export function AssistantSettings({
       : `${tool.usedUnits} / ${effectiveLimit}`;
   };
   const formatMonthlyMediaBonusSubline = (tool: MonthlyMediaQuotaToolState): string | null => {
-    if (!isMonthlyMediaQuotaToolAvailable(tool)) {
+    const bonus = tool.bonusLimitUnits ?? 0;
+    if (bonus <= 0) {
       return null;
     }
-    const bonus = tool.bonusLimitUnits ?? 0;
-    if (bonus > 0) {
-      const base = tool.limitUnits ?? 0;
-      return t("monthlyMediaBonusSubline", { base, bonus });
-    }
-    return t("monthlyMediaPlanOnlySubline");
+    const base = tool.limitUnits ?? 0;
+    return t("monthlyMediaBonusSubline", { base, bonus });
   };
   const formatMonthlyMediaRemainingSubline = (tool: MonthlyMediaQuotaToolState): string | null => {
     if (!isMonthlyMediaQuotaToolAvailable(tool)) {

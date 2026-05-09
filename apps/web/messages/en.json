@@ -666,7 +666,6 @@
     "monthlyMediaVideoGenerateCompact": "Video gen",
     "monthlyMediaQuotaSettlementHint": "Media quota is reserved before generation and charged only after delivery succeeds.",
     "monthlyMediaBonusSubline": "included: {base} plan + {bonus} pkg",
-    "monthlyMediaPlanOnlySubline": "plan only · packages can be added",
     "monthlyMediaRemainingSubline": "left: {remaining}",
     "monthlyMediaBonusExpiryHint": "Package expires with period",
     "monthlyMediaBuyChip": "Add packages",
