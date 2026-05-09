@@ -16,6 +16,10 @@ import { StaticFallbackRendererService } from "./render/static-fallback-renderer
 import { NOTIFICATION_CHANNEL_ADAPTERS } from "../../infrastructure/notifications/channel-adapters/channel-adapter.interface";
 import type { NotificationChannelAdapter } from "../../infrastructure/notifications/channel-adapters/channel-adapter.interface";
 import type { NotificationIntentRecord } from "./notification-platform.types";
+import {
+  NOTIFICATION_POLICY_DEFAULTS,
+  type NotificationPolicyDefault
+} from "./defaults/notification-defaults";
 
 // ── Response types ────────────────────────────────────────────────────────────
 
@@ -348,7 +352,18 @@ export class ManageNotificationPlatformService {
     const rows = await this.prisma.notificationPolicy.findMany({
       orderBy: { source: "asc" }
     });
-    return rows.map((r) => this.policyToView(r));
+    const rowsBySource = new Map(rows.map((r) => [r.source as string, r]));
+
+    // Always return all known sources so operators can see and edit every
+    // policy even before a DB row exists. DB row takes precedence; missing
+    // rows fall back to the code-level default.
+    const allSources = Object.keys(NOTIFICATION_POLICY_DEFAULTS) as NotificationSource[];
+    return allSources.map((source) => {
+      const row = rowsBySource.get(source as string);
+      return row
+        ? this.policyToView(row)
+        : this.policyDefaultToView(NOTIFICATION_POLICY_DEFAULTS[source]);
+    });
   }
 
   async patchPolicy(
@@ -363,18 +378,28 @@ export class ManageNotificationPlatformService {
       throw new BadRequestException(`Unknown render strategy: ${input.renderStrategy}`);
     }
     await this.resolveWorkspaceId(userId);
-    const existing = await this.prisma.notificationPolicy.findUnique({
-      where: { source: source as never }
-    });
-    if (!existing) {
-      throw new NotFoundException(`Policy not found for source: ${source}`);
-    }
 
-    const updated = await this.prisma.notificationPolicy.update({
-      where: { id: existing.id },
-      data: {
+    // Use the code-level default as the base for upsert create so that
+    // sources without a DB row can be edited without a seed step.
+    const def = NOTIFICATION_POLICY_DEFAULTS[source as NotificationSource];
+    const updated = await this.prisma.notificationPolicy.upsert({
+      where: { source: source as never },
+      create: {
+        source: source as never,
+        enabled: input.enabled ?? def?.enabled ?? false,
+        channels: def?.channels ?? [],
+        cooldownMinutes: input.cooldownMinutes ?? def?.cooldownMinutes ?? null,
+        maxPerDay: input.maxPerDay ?? def?.maxPerDay ?? null,
+        escalationAfterMinutes: input.escalationAfterMinutes ?? def?.escalationAfterMinutes ?? null,
+        escalationChannel: input.escalationChannel ?? def?.escalationChannel ?? null,
+        respectQuietHours: input.respectQuietHours ?? def?.respectQuietHours ?? true,
+        renderStrategy: (input.renderStrategy as never) ?? (def?.renderStrategy as never),
+        renderInstructionRef: input.renderInstructionRef ?? def?.renderInstructionRef ?? null,
+        templateId: input.templateId ?? def?.templateId ?? null,
+        config: (input.config as Prisma.InputJsonValue) ?? {}
+      },
+      update: {
         ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
-        ...(input.channels !== undefined ? { channels: input.channels } : {}),
         ...(input.cooldownMinutes !== undefined ? { cooldownMinutes: input.cooldownMinutes } : {}),
         ...(input.maxPerDay !== undefined ? { maxPerDay: input.maxPerDay } : {}),
         ...(input.escalationAfterMinutes !== undefined
@@ -690,6 +715,25 @@ export class ManageNotificationPlatformService {
       templateId: r.templateId,
       config: (r.config as Record<string, unknown>) ?? {},
       updatedAt: r.updatedAt.toISOString()
+    };
+  }
+
+  private policyDefaultToView(d: NotificationPolicyDefault): NotificationPolicyView {
+    return {
+      id: `default:${d.source}`,
+      source: d.source,
+      enabled: d.enabled,
+      channels: d.channels,
+      cooldownMinutes: d.cooldownMinutes,
+      maxPerDay: d.maxPerDay,
+      escalationAfterMinutes: d.escalationAfterMinutes,
+      escalationChannel: d.escalationChannel,
+      respectQuietHours: d.respectQuietHours,
+      renderStrategy: d.renderStrategy,
+      renderInstructionRef: d.renderInstructionRef,
+      templateId: d.templateId,
+      config: d.config,
+      updatedAt: new Date(0).toISOString()
     };
   }
 
