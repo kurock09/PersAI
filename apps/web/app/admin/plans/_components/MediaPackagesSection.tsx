@@ -24,7 +24,7 @@ const PACKAGE_TYPES: Array<{
       <svg
         viewBox="0 0 80 80"
         aria-hidden="true"
-        className="absolute inset-0 h-full w-full opacity-[0.06] transition-opacity group-hover:opacity-[0.11]"
+        className="absolute inset-0 h-full w-full opacity-[0.04] transition-opacity group-hover:opacity-[0.08]"
         fill="none"
         stroke="currentColor"
         strokeWidth="1"
@@ -42,7 +42,7 @@ const PACKAGE_TYPES: Array<{
       <svg
         viewBox="0 0 80 80"
         aria-hidden="true"
-        className="absolute inset-0 h-full w-full opacity-[0.06] transition-opacity group-hover:opacity-[0.11]"
+        className="absolute inset-0 h-full w-full opacity-[0.04] transition-opacity group-hover:opacity-[0.08]"
         fill="none"
         stroke="currentColor"
         strokeWidth="1"
@@ -61,7 +61,7 @@ const PACKAGE_TYPES: Array<{
       <svg
         viewBox="0 0 80 80"
         aria-hidden="true"
-        className="absolute inset-0 h-full w-full opacity-[0.06] transition-opacity group-hover:opacity-[0.11]"
+        className="absolute inset-0 h-full w-full opacity-[0.04] transition-opacity group-hover:opacity-[0.08]"
         fill="none"
         stroke="currentColor"
         strokeWidth="1"
@@ -149,9 +149,9 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+      <label className="text-[9px] font-bold uppercase tracking-wider text-text-subtle">
         {label}
-        {tip && <span className="ml-1 font-normal normal-case text-zinc-600"> — {tip}</span>}
+        {tip && <span className="ml-1 font-normal normal-case text-text-subtle/60"> — {tip}</span>}
       </label>
       {children}
     </div>
@@ -172,7 +172,7 @@ function TextInput({
   return (
     <input
       type={type}
-      className="h-8 rounded border border-zinc-800 bg-zinc-900 px-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-600"
+      className="h-7 rounded border border-border/70 bg-surface px-2 text-[11px] text-text placeholder:text-text-subtle/40 focus:outline-none focus:ring-1 focus:ring-accent/50"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -198,64 +198,64 @@ function PackageCard({
   return (
     <div
       className={cn(
-        "group relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 p-4 transition-colors",
-        !item.isActive && "opacity-40"
+        "group relative overflow-hidden rounded-md border border-border/70 bg-surface-raised p-3 transition-colors",
+        !item.isActive && "opacity-50"
       )}
     >
       {watermark}
       <div className="relative z-10 flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="text-2xl font-semibold tabular-nums text-zinc-100">{item.units}</div>
-          <div className="mt-0.5 text-xs text-zinc-500">units</div>
-          <div className="mt-2 text-sm font-medium text-zinc-200">
+        <div className="min-w-0 flex-1">
+          <div className="text-xl font-semibold tabular-nums text-text">{item.units}</div>
+          <div className="text-[10px] text-text-subtle">units</div>
+          <div className="mt-1.5 text-[11px] font-medium text-text">
             {formatPrice(item.amountMinor, item.currency)}
           </div>
           {(item.title.ru || item.title.en) && (
-            <div className="mt-1 text-xs text-zinc-400">
+            <div className="mt-1 text-[10px] text-text-subtle">
               {item.title.ru && item.title.en
                 ? `${item.title.ru} / ${item.title.en}`
                 : (item.title.ru ?? item.title.en)}
             </div>
           )}
           {(item.badge.ru || item.badge.en) && (
-            <span className="mt-1 inline-block rounded-full border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400">
+            <span className="mt-1 inline-block rounded-full border border-border/60 px-1.5 py-0.5 text-[9px] text-text-subtle">
               {item.badge.ru && item.badge.en
                 ? `${item.badge.ru} / ${item.badge.en}`
                 : (item.badge.ru ?? item.badge.en)}
             </span>
           )}
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-0.5">
           <button
             type="button"
             onClick={onEdit}
             disabled={disabled}
-            className="rounded p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-30"
+            className="rounded p-1 text-text-subtle transition-colors hover:bg-surface hover:text-text disabled:opacity-30"
             title="Edit"
           >
-            <Pencil className="h-3.5 w-3.5" />
+            <Pencil className="h-3 w-3" />
           </button>
           <button
             type="button"
             onClick={onDelete}
             disabled={disabled || deleting}
-            className="rounded p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-red-400 disabled:opacity-30"
+            className="rounded p-1 text-text-subtle transition-colors hover:bg-surface hover:text-destructive disabled:opacity-30"
             title="Delete"
           >
             {deleting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="h-3 w-3 animate-spin" />
             ) : (
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3 w-3" />
             )}
           </button>
         </div>
       </div>
-      <div className="relative z-10 mt-2 flex flex-wrap gap-1">
-        <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500">
+      <div className="relative z-10 mt-1.5 flex flex-wrap gap-1">
+        <span className="rounded-full bg-surface px-1.5 py-0.5 text-[9px] text-text-subtle/60">
           order {item.displayOrder}
         </span>
         {!item.isActive && (
-          <span className="rounded-full bg-red-950/40 px-1.5 py-0.5 text-[10px] text-red-500/70">
+          <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-[9px] text-destructive/70">
             inactive
           </span>
         )}
@@ -284,12 +284,12 @@ function PackageForm({
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-xl border border-zinc-700 bg-zinc-900/60 p-4 space-y-3"
+      className="space-y-3 rounded-md border border-accent/20 bg-surface-raised p-3"
     >
-      <div className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
+      <div className="text-[9px] font-bold uppercase tracking-wider text-text-subtle">
         {mode === "create" ? "New preset" : "Edit preset"}
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
         <Field label="Units" tip="e.g. 10">
           <TextInput
             value={draft.units}
@@ -308,7 +308,7 @@ function PackageForm({
         </Field>
         <Field label="Currency">
           <select
-            className="h-8 rounded border border-zinc-800 bg-zinc-900 px-2 text-sm text-zinc-200 focus:outline-none focus:ring-1 focus:ring-zinc-600"
+            className="h-7 rounded border border-border/70 bg-surface px-2 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
             value={draft.currency}
             onChange={(e) => onPatch({ currency: e.target.value as "RUB" | "USD" })}
           >
@@ -360,22 +360,22 @@ function PackageForm({
         </Field>
       </div>
       <div className="flex items-center gap-2">
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-400">
+        <label className="flex cursor-pointer items-center gap-2 text-[11px] text-text-subtle">
           <input
             type="checkbox"
             checked={draft.isActive}
             onChange={(e) => onPatch({ isActive: e.target.checked })}
-            className="accent-zinc-400"
+            className="h-3 w-3 rounded border-border bg-surface-raised text-accent focus:ring-1 focus:ring-accent/50"
           />
           Active (visible to users)
         </label>
       </div>
-      {error && <p className="text-xs text-red-400">{error}</p>}
-      <div className="flex gap-2 pt-1">
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
+      <div className="flex gap-2 pt-0.5">
         <button
           type="submit"
           disabled={saving}
-          className="flex items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 transition-opacity hover:opacity-80 disabled:opacity-40"
+          className="flex items-center gap-1 rounded border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium text-text transition-colors hover:border-accent/40 hover:text-accent disabled:opacity-40"
         >
           {saving && <Loader2 className="h-3 w-3 animate-spin" />}
           {mode === "create" ? "Create" : "Save"}
@@ -384,7 +384,7 @@ function PackageForm({
           type="button"
           onClick={onCancel}
           disabled={saving}
-          className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-300 disabled:opacity-40"
+          className="rounded border border-border/70 px-2.5 py-1 text-[11px] text-text-subtle transition-colors hover:border-border hover:text-text disabled:opacity-40"
         >
           Cancel
         </button>
@@ -488,11 +488,11 @@ function PackageTypeSection({
   const isDisabled = disabled || saving || !!deletingId;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <h4 className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
+        <span className="text-[9px] font-bold uppercase tracking-wider text-text-subtle">
           {type.label}
-        </h4>
+        </span>
         {!createOpen && editingId === null && (
           <button
             type="button"
@@ -502,17 +502,17 @@ function PackageTypeSection({
               setError(null);
             }}
             disabled={isDisabled}
-            className="flex items-center gap-1 rounded-md border border-zinc-700 px-2 py-1 text-[11px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-300 disabled:opacity-30"
+            className="flex items-center gap-1 rounded border border-border/60 px-2 py-0.5 text-[10px] text-text-subtle transition-colors hover:border-accent/40 hover:text-accent disabled:opacity-30"
           >
-            <Plus className="h-3 w-3" />
+            <Plus className="h-2.5 w-2.5" />
             Add preset
           </button>
         )}
       </div>
 
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
         {items.map((item) =>
           editingId === item.id ? (
             <div key={item.id} className="col-span-2 sm:col-span-3 lg:col-span-4">
@@ -542,7 +542,7 @@ function PackageTypeSection({
           )
         )}
         {items.length === 0 && !createOpen && (
-          <p className="col-span-2 text-xs text-zinc-600 sm:col-span-3 lg:col-span-4">
+          <p className="col-span-2 text-[11px] text-text-subtle/60 italic sm:col-span-3 lg:col-span-4">
             No presets yet.
           </p>
         )}
@@ -580,27 +580,31 @@ export function MediaPackagesSection({
   disabled: boolean;
 }) {
   return (
-    <div className="space-y-6 rounded-2xl border border-zinc-800 bg-zinc-950 p-6">
+    <div className="mt-8 space-y-4 rounded-md border border-border/70 bg-surface-raised p-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-zinc-100">Media packages</h3>
-          <p className="mt-0.5 text-xs text-zinc-500">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text">
+            Media packages
+          </h3>
+          <p className="mt-0.5 text-[10px] text-text-subtle/80">
             One-time purchasable quota boosts. Active during the current subscription period.
           </p>
         </div>
-        {loading && <Loader2 className="h-4 w-4 animate-spin text-zinc-500" />}
+        {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-text-subtle" />}
       </div>
 
-      {PACKAGE_TYPES.map((type) => (
-        <PackageTypeSection
-          key={type.value}
-          type={type}
-          items={packages.filter((p) => p.packageType === type.value)}
-          token={token}
-          onRefresh={onRefresh}
-          disabled={disabled}
-        />
-      ))}
+      <div className="space-y-5">
+        {PACKAGE_TYPES.map((type) => (
+          <PackageTypeSection
+            key={type.value}
+            type={type}
+            items={packages.filter((p) => p.packageType === type.value)}
+            token={token}
+            onRefresh={onRefresh}
+            disabled={disabled}
+          />
+        ))}
+      </div>
     </div>
   );
 }

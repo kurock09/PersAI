@@ -6,7 +6,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useLocale, useTranslations } from "next-intl";
-import { AlertCircle, ChevronLeft, Loader2, ShoppingCart } from "lucide-react";
+import { AlertCircle, Check, ChevronLeft, Loader2, ShoppingCart } from "lucide-react";
 import {
   getPublicMediaPackages,
   postAssistantBillingPackagePaymentIntent,
@@ -111,6 +111,7 @@ function PackageCard({
 }) {
   const meta = PACKAGE_TYPE_META[item.packageType];
   const title = pickText(locale, item.title);
+  const subtitle = pickText(locale, item.subtitle);
   const badge = pickText(locale, item.badge);
 
   return (
@@ -118,53 +119,62 @@ function PackageCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "group relative overflow-hidden rounded-2xl border p-5 text-left transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-zinc-400",
+        "group relative flex h-full min-h-[18rem] flex-col overflow-hidden rounded-[28px] border p-5 text-left shadow-[0_24px_80px_rgba(0,0,0,0.16)] backdrop-blur-sm transition-[transform,box-shadow,border-color,background-color] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_32px_96px_rgba(0,0,0,0.22)] focus:outline-none focus:ring-2 focus:ring-accent/40 sm:p-6",
         selected
-          ? "border-zinc-300/40 bg-zinc-800/80 shadow-lg shadow-zinc-900/60"
-          : "border-zinc-800 bg-zinc-900 hover:border-zinc-700 hover:bg-zinc-850"
+          ? "border-transparent [background:linear-gradient(180deg,rgba(255,238,190,0.16),rgba(255,248,230,0.05))_padding-box,linear-gradient(135deg,rgba(255,226,150,0.82),rgba(214,170,70,0.48),rgba(255,248,230,0.24),rgba(176,132,33,0.58))_border-box] dark:[background:var(--surface)]"
+          : "border-border/80 bg-surface/80 hover:border-accent/35"
       )}
     >
-      {/* Watermark */}
       <span
         className={cn(
-          "pointer-events-none absolute inset-0 text-zinc-400",
-          selected ? "opacity-[0.12]" : "opacity-[0.05] group-hover:opacity-[0.09]"
+          "pointer-events-none absolute inset-0 text-text transition-opacity",
+          selected ? "opacity-[0.11]" : "opacity-[0.045] group-hover:opacity-[0.08]"
         )}
       >
         {meta.watermark}
       </span>
 
-      {/* Selection indicator */}
-      {selected && (
-        <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full border border-zinc-300/30 bg-zinc-300/10">
-          <span className="h-2 w-2 rounded-full bg-zinc-200" />
-        </span>
-      )}
+      <div
+        className={cn(
+          "absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent to-transparent",
+          selected ? "via-[#f0d48a]/80" : "via-accent/40"
+        )}
+      />
 
-      <div className="relative z-10">
-        {/* Units headline */}
-        <div className="text-4xl font-semibold tabular-nums tracking-tight text-zinc-100">
+      <div className="relative z-10 flex h-full flex-col">
+        <div className="flex min-h-8 items-center justify-between gap-2">
+          {badge ? (
+            <span className="rounded-full border border-accent/25 bg-accent/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">
+              {badge}
+            </span>
+          ) : (
+            <span />
+          )}
+          {selected ? (
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-accent/30 bg-accent/12 text-accent">
+              <Check className="h-3.5 w-3.5" />
+            </span>
+          ) : null}
+        </div>
+
+        <div className="mt-5 text-4xl font-semibold tabular-nums tracking-[-0.04em] text-text">
           {item.units}
         </div>
-        <div className="mt-0.5 text-[11px] uppercase tracking-widest text-zinc-500">
+        <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-text-subtle">
           {locale === "ru" ? "единиц" : "units"}
         </div>
 
-        {/* Title */}
-        {title && <div className="mt-3 text-sm font-medium text-zinc-300">{title}</div>}
+        <div className="mt-5">
+          {title ? (
+            <p className="text-lg font-semibold tracking-[-0.02em] text-text">{title}</p>
+          ) : null}
+          {subtitle ? <p className="mt-2 text-sm leading-6 text-text-muted">{subtitle}</p> : null}
+        </div>
 
-        {/* Badge */}
-        {badge && (
-          <div className="mt-1.5">
-            <span className="inline-block rounded-full border border-zinc-600/60 px-2 py-0.5 text-[10px] text-zinc-400">
-              {badge}
-            </span>
-          </div>
-        )}
-
-        {/* Price */}
-        <div className="mt-4 text-lg font-semibold text-zinc-100">
-          {formatPrice(item.amountMinor, item.currency, locale)}
+        <div className="mt-auto border-t border-border/70 pt-5">
+          <p className="text-2xl font-semibold tracking-[-0.03em] text-text">
+            {formatPrice(item.amountMinor, item.currency, locale)}
+          </p>
         </div>
       </div>
     </button>
@@ -188,11 +198,13 @@ function PackageTypeGroup({
   if (items.length === 0) return null;
 
   return (
-    <div className="space-y-3">
-      <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-        {pickText(locale, meta.label)}
+    <section className="rounded-[32px] border border-border/80 bg-surface/55 p-5 backdrop-blur-sm sm:p-6">
+      <div className="mb-5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-subtle">
+          {pickText(locale, meta.label)}
+        </p>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-5">
         {items.map((item) => (
           <PackageCard
             key={item.id}
@@ -203,12 +215,12 @@ function PackageTypeGroup({
           />
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
 export default function PackagesPage() {
-  const { getToken } = useAuth();
+  const { getToken, isLoaded } = useAuth();
   const router = useRouter();
   const locale = useLocale();
   const t = useTranslations("settings");
@@ -218,21 +230,37 @@ export default function PackagesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [purchasing, setPurchasing] = useState(false);
 
+  const resolveBillingToken = useCallback(async (): Promise<string | null> => {
+    if (!isLoaded) {
+      return null;
+    }
+    return (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
+  }, [getToken, isLoaded]);
+
   const load = useCallback(async () => {
-    const token = await getToken();
+    if (!isLoaded) {
+      return;
+    }
+    const token = await resolveBillingToken();
     if (!token) {
+      setError(
+        locale === "ru"
+          ? "Сессия истекла. Обновите страницу."
+          : "Session expired. Refresh the page."
+      );
       setLoading(false);
       return;
     }
     try {
       const data = await getPublicMediaPackages(token);
       setPackages(data);
+      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load packages.");
     } finally {
       setLoading(false);
     }
-  }, [getToken]);
+  }, [isLoaded, locale, resolveBillingToken]);
 
   useEffect(() => {
     void load();
@@ -262,8 +290,15 @@ export default function PackagesPage() {
 
   const handlePurchase = useCallback(async () => {
     if (selectedItems.length === 0 || hasMixedCurrencies) return;
-    const token = await getToken();
-    if (!token) return;
+    const token = await resolveBillingToken();
+    if (!token) {
+      setError(
+        locale === "ru"
+          ? "Сессия истекла. Обновите страницу."
+          : "Session expired. Refresh the page."
+      );
+      return;
+    }
     setPurchasing(true);
     setError(null);
     try {
@@ -281,7 +316,7 @@ export default function PackagesPage() {
     } finally {
       setPurchasing(false);
     }
-  }, [selectedItems, hasMixedCurrencies, getToken, router]);
+  }, [selectedItems, hasMixedCurrencies, locale, resolveBillingToken, router]);
 
   const packagesByType = useMemo(() => {
     const map: Record<PackageType, MediaPackageCatalogItem[]> = {
@@ -298,93 +333,103 @@ export default function PackagesPage() {
   }, [packages]);
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-      {/* Back link */}
-      <div className="mb-6">
-        <Link
-          href={"/app/pricing" as Route}
-          className="inline-flex items-center gap-1.5 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-          {locale === "ru" ? "Тарифы" : "Pricing"}
-        </Link>
+    <div className="min-h-dvh bg-chrome text-text">
+      <div className="mx-auto flex w-full max-w-7xl flex-col px-4 pb-[max(7rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 lg:px-8">
+        <div className="mx-auto w-full max-w-3xl">
+          <Link
+            href={"/app/pricing" as Route}
+            className="inline-flex items-center gap-1.5 text-[11px] text-text-subtle transition-colors hover:text-text"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+            {locale === "ru" ? "Тарифы" : "Pricing"}
+          </Link>
+
+          <header className="mt-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-subtle">
+              {locale === "ru" ? "Дополнительные лимиты" : "Additional limits"}
+            </p>
+            <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-text sm:text-5xl">
+              {locale === "ru" ? "Пакеты медиа" : "Media packages"}
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-text-muted sm:text-base">
+              {locale === "ru"
+                ? "Разовые пакеты дополнительных лимитов. Действуют до конца текущего расчётного периода."
+                : "One-time add-on quota boosts. Active until the end of your current billing period."}
+            </p>
+          </header>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
+          </div>
+        ) : null}
+
+        {!loading && error ? (
+          <div className="mx-auto mt-8 w-full max-w-3xl rounded-2xl border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          </div>
+        ) : null}
+
+        {!loading && !error && packages.length === 0 ? (
+          <div className="mx-auto mt-10 w-full max-w-2xl rounded-3xl border border-border/80 bg-surface/70 p-6 text-center">
+            <p className="text-lg font-medium text-text">
+              {locale === "ru"
+                ? "Пакеты временно недоступны."
+                : "No packages available at this time."}
+            </p>
+          </div>
+        ) : null}
+
+        {!loading && !error && packages.length > 0 ? (
+          <div className="mt-10 space-y-5">
+            {PACKAGE_TYPE_ORDER.map((type) => (
+              <PackageTypeGroup
+                key={type}
+                type={type}
+                items={packagesByType[type]}
+                selectedIds={selectedIds}
+                onToggle={toggleItem}
+                locale={locale}
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
 
-      {/* Heading */}
-      <div className="mb-8">
-        <h1 className="text-xl font-semibold tracking-tight text-zinc-100">
-          {locale === "ru" ? "Пакеты медиа" : "Media packages"}
-        </h1>
-        <p className="mt-1.5 text-sm text-zinc-500">
-          {locale === "ru"
-            ? "Разовые пакеты дополнительных лимитов. Действуют до конца текущего расчётного периода."
-            : "One-time add-on quota boosts. Active until the end of your current billing period."}
-        </p>
-      </div>
-
-      {loading && (
-        <div className="flex justify-center py-12">
-          <Loader2 className="h-5 w-5 animate-spin text-zinc-600" />
-        </div>
-      )}
-
-      {!loading && error && (
-        <div className="flex items-start gap-2 rounded-xl border border-red-900/40 bg-red-950/30 p-4 text-sm text-red-400">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {!loading && !error && packages.length === 0 && (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-8 text-center text-sm text-zinc-500">
-          {locale === "ru" ? "Пакеты временно недоступны." : "No packages available at this time."}
-        </div>
-      )}
-
-      {!loading && packages.length > 0 && (
-        <div className="space-y-8">
-          {PACKAGE_TYPE_ORDER.map((type) => (
-            <PackageTypeGroup
-              key={type}
-              type={type}
-              items={packagesByType[type]}
-              selectedIds={selectedIds}
-              onToggle={toggleItem}
-              locale={locale}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Sticky purchase bar */}
-      {selectedItems.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-sm">
-          <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+      {selectedItems.length > 0 ? (
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/80 bg-chrome/92 backdrop-blur-md">
+          <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
             <div className="min-w-0">
-              <div className="text-sm font-medium text-zinc-200">
+              <div className="text-sm font-medium text-text">
                 {selectedItems.length === 1
                   ? locale === "ru"
-                    ? "1 пакет выбран"
+                    ? "Выбран 1 пакет"
                     : "1 package selected"
                   : locale === "ru"
-                    ? `${selectedItems.length} пакета выбрано`
+                    ? `Выбрано ${selectedItems.length} пакета`
                     : `${selectedItems.length} packages selected`}
               </div>
-              {hasMixedCurrencies ? (
-                <div className="mt-0.5 text-xs text-amber-500/80">
-                  {locale === "ru"
-                    ? "Разные валюты — выберите одну"
-                    : "Mixed currencies — select one"}
-                </div>
-              ) : (
-                <div className="mt-0.5 text-xs text-zinc-500">
-                  {locale === "ru" ? "Итого: " : "Total: "}
-                  <span className="text-zinc-300">
-                    {formatPrice(totalAmountMinor, currency, locale)}
-                  </span>
-                </div>
-              )}
-              <div className="mt-0.5 text-[10px] text-zinc-600">
+              <div className="mt-1 text-xs text-text-muted">
+                {hasMixedCurrencies ? (
+                  locale === "ru" ? (
+                    "Разные валюты: выберите пакеты в одной валюте"
+                  ) : (
+                    "Mixed currencies: select one currency"
+                  )
+                ) : (
+                  <>
+                    {locale === "ru" ? "Итого: " : "Total: "}
+                    <span className="font-medium text-text">
+                      {formatPrice(totalAmountMinor, currency, locale)}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="mt-1 text-[10px] text-text-subtle">
                 {t("monthlyMediaBonusExpiryHint")}
               </div>
             </div>
@@ -393,10 +438,10 @@ export default function PackagesPage() {
               onClick={() => void handlePurchase()}
               disabled={purchasing || hasMixedCurrencies}
               className={cn(
-                "flex shrink-0 items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all",
+                "inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-2xl px-5 text-sm font-semibold transition-all",
                 purchasing || hasMixedCurrencies
-                  ? "cursor-not-allowed bg-zinc-800 text-zinc-500"
-                  : "bg-zinc-100 text-zinc-900 hover:bg-white active:bg-zinc-200"
+                  ? "cursor-not-allowed border border-border/80 bg-surface/60 text-text-subtle"
+                  : "bg-accent px-6 text-white shadow-[0_0_36px_var(--accent-glow)] hover:bg-accent-hover"
               )}
             >
               {purchasing ? (
@@ -408,10 +453,7 @@ export default function PackagesPage() {
             </button>
           </div>
         </div>
-      )}
-
-      {/* Bottom padding for sticky bar */}
-      {selectedItems.length > 0 && <div className="h-24" />}
+      ) : null}
     </div>
   );
 }

@@ -74,6 +74,7 @@ const BILLING_EVENT_CODES = [
 ] as const;
 
 type DraftState = {
+  rawConfig: Record<string, unknown>;
   enabled: boolean;
   cooldownMinutes: string;
   maxPerDay: string;
@@ -81,6 +82,7 @@ type DraftState = {
   escalationChannel: string;
   defaultChannel: string;
   respectQuietHours: boolean;
+  idleHours: string;
   postmarkTemplateId: string;
 };
 
@@ -95,7 +97,14 @@ function policyToDraft(policy: NotificationPolicyView): DraftState {
       : typeof config["postmarkTemplateId"] === "string"
         ? config["postmarkTemplateId"]
         : "";
+  const idleHours =
+    typeof config["idleHours"] === "number"
+      ? String(config["idleHours"])
+      : typeof config["idleHours"] === "string"
+        ? config["idleHours"]
+        : "";
   return {
+    rawConfig: config,
     enabled: policy.enabled,
     cooldownMinutes: policy.cooldownMinutes != null ? String(policy.cooldownMinutes) : "",
     maxPerDay: policy.maxPerDay != null ? String(policy.maxPerDay) : "",
@@ -104,6 +113,7 @@ function policyToDraft(policy: NotificationPolicyView): DraftState {
     escalationChannel: policy.escalationChannel ?? "",
     defaultChannel: policy.channels[0] ?? "",
     respectQuietHours: policy.respectQuietHours,
+    idleHours,
     postmarkTemplateId
   };
 }
@@ -158,6 +168,7 @@ function PolicyRow({
   const [billingEventCode, setBillingEventCode] = useState<string>(BILLING_EVENT_CODES[0]);
 
   const isBilling = policy.source === "billing_lifecycle";
+  const isIdleReengagement = policy.source === "idle_reengagement";
   const defaultChannelOptions = DEFAULT_CHANNEL_OPTIONS[policy.source] ?? REAL_TRANSPORT_CHANNELS;
   const label = SOURCE_LABELS[policy.source] ?? policy.source;
   const effectiveChannel = policy.channels[0] ?? "—";
@@ -170,10 +181,17 @@ function PolicyRow({
     setError(null);
     setSuccess(false);
     try {
-      const config: Record<string, unknown> = {};
+      const config: Record<string, unknown> = { ...draft.rawConfig };
       if (isBilling && draft.postmarkTemplateId.trim().length > 0) {
         const num = Number(draft.postmarkTemplateId.trim());
         config["postmarkTemplateId"] = isNaN(num) ? draft.postmarkTemplateId.trim() : num;
+      } else {
+        delete config["postmarkTemplateId"];
+      }
+      if (isIdleReengagement && draft.idleHours.trim().length > 0) {
+        config["idleHours"] = Number(draft.idleHours.trim());
+      } else if (isIdleReengagement) {
+        delete config["idleHours"];
       }
 
       const input: PatchNotificationPolicyRequest = {
@@ -300,6 +318,31 @@ function PolicyRow({
               />
             </div>
           </div>
+
+          {isIdleReengagement && (
+            <div className="space-y-2 rounded-lg border border-border/50 bg-surface px-3 py-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                Idle Re-Engagement
+              </div>
+              <div className="max-w-xs space-y-1">
+                <label className="text-[10px] font-medium text-text-muted">
+                  Idle after (hours)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={draft.idleHours}
+                  onChange={(e) => setDraft((d) => ({ ...d, idleHours: e.target.value }))}
+                  placeholder="24"
+                  className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                <p className="text-[10px] leading-relaxed text-text-muted">
+                  Runtime starts evaluating idle re-engagement only after this many hours since the
+                  last user message.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Routing */}
           <div className="space-y-2">

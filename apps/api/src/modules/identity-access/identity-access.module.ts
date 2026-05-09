@@ -76,6 +76,11 @@ export class IdentityAccessModule implements NestModule {
         path: "api/v1/assistant/billing/payment-intents/:paymentIntentId",
         method: RequestMethod.GET
       },
+      { path: "api/v1/assistant/billing/packages/catalog", method: RequestMethod.GET },
+      {
+        path: "api/v1/assistant/billing/packages/payment-intents",
+        method: RequestMethod.POST
+      },
       { path: "api/v1/assistant/billing/subscription", method: RequestMethod.GET },
       {
         path: "api/v1/assistant/billing/subscription/disable-auto-renew",

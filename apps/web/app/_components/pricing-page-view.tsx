@@ -601,17 +601,6 @@ export function PricingPageView({
           )}
         </div>
       </div>
-      {/* Quiet link to media packages */}
-      {signedIn && (
-        <div className="mt-6 flex justify-center">
-          <Link
-            href={"/app/packages" as Route}
-            className="text-xs text-text-muted/60 transition-colors hover:text-text-muted"
-          >
-            {locale === "ru" ? "Докупить медиа пакеты →" : "Purchase media add-on packages →"}
-          </Link>
-        </div>
-      )}
       {reviewState ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 backdrop-blur-sm sm:items-center sm:p-6">
           <div className="w-full max-w-lg overflow-hidden rounded-[28px] border border-white/10 bg-[color:var(--surface)] shadow-2xl">

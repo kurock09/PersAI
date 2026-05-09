@@ -2007,7 +2007,7 @@ function PlanForm({
                 tip="Pricing currency for checkout and pricing page display."
               >
                 <select
-                  className="h-9 rounded-lg border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-200 focus:outline-none focus:ring-1 focus:ring-zinc-600"
+                  className="w-full appearance-none rounded border border-border bg-surface px-2 py-1 pr-7 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
                   value={draft.presentationPriceCurrency}
                   onChange={(e) => onPatch({ presentationPriceCurrency: e.target.value })}
                 >

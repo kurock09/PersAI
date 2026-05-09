@@ -1,5 +1,48 @@
 # SESSION-HANDOFF
 
+## 2026-05-09 — ADR-089 media packages UX/auth cleanup (LANDED)
+
+### What changed
+
+1. **Assistant billing package routes now pass Clerk middleware** — `IdentityAccessModule` now registers both `GET /api/v1/assistant/billing/packages/catalog` and `POST /api/v1/assistant/billing/packages/payment-intents` in `ClerkAuthMiddleware.forRoutes(...)`. This closes the real cause of the `/app/packages` red banner `Authenticated user context is missing.`: the token was present in the browser, but `req.resolvedAppUser` was never populated because the new routes were not in the middleware allowlist.
+2. **Middleware regression test updated** — `apps/api/test/identity-access.module.test.ts` now pins both media-package billing routes so the same auth gap cannot reappear silently.
+3. **Pricing-page residue removed** — the low-contrast bottom link to media packages was deleted from `apps/web/app/_components/pricing-page-view.tsx` per founder feedback.
+4. **`/app/packages` redesigned to match tariffs** — `apps/web/app/app/packages/page.tsx` now uses the same full-width premium layout language as pricing: `max-w-7xl`, centered hero block, wide section containers, `rounded-[28px]/[32px]` cards, theme tokens (`bg-chrome`, `bg-surface`, `border-border`, `text-text*`) instead of one-off `zinc-*` styling. The page is no longer a narrow custom panel.
+5. **Quota card copy clarified** — `assistant-settings.tsx` now shows monthly media quota as `used / total`, with two quiet helper lines: included capacity (`включено: X тариф + Y пакет`) and remaining capacity (`осталось: N`). The buy watermark `+` remains in the lower-right area of the card, brightens on hover, and links to `/app/packages`.
+6. **Unused pricing-link i18n key removed** — `mediaPkgPackagesLink` deleted from `apps/web/messages/ru.json` and `apps/web/messages/en.json`.
+
+### Current slice/step
+
+ADR-089 media packages UI/auth cleanup — COMPLETE.
+
+### Files touched
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/test/identity-access.module.test.ts`
+- `apps/web/app/_components/pricing-page-view.tsx`
+- `apps/web/app/app/packages/page.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/messages/ru.json`
+- `apps/web/messages/en.json`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts` → ✅
+- `corepack pnpm --filter @persai/api run typecheck` → ✅
+- `corepack pnpm --filter @persai/web run typecheck` → ✅
+- `corepack pnpm --filter @persai/web run lint` → ✅
+
+### Risks / notes
+
+- The redesigned `/app/packages` page is now layout-aligned with pricing, but it still depends on real package presets existing in Admin > Plans and on live billing credentials for an end-to-end purchase path.
+- The quota card helper copy is intentionally compact; if the founder wants even more explicit split (for example `из тарифа осталось` vs `из пакета осталось`), that would require a second UI pass and likely separate counters rather than the current aggregated remaining value.
+
+### Next recommended step
+
+- Live-check `/app/packages` with a real signed-in user and actual presets: load page, multi-select packages, open checkout, then confirm assistant-settings shows the updated bonus/remaining copy after grant fulfillment.
+
 ## 2026-05-09 — ADR-089 Media packages — post-audit hardening (LANDED)
 
 ### What changed
@@ -52,8 +95,6 @@ ADR-089 Media packages post-audit hardening — COMPLETE. All 7 audit findings c
 - Run `prisma migrate deploy` on dev/staging.
 - Seed test package presets via Admin > Plans > Media packages.
 - End-to-end verify: select packages → checkout → confirm grant written → assistant-settings shows bonus subline → quota tool copy says "buy a package" when limit exhausted.
-
-
 
 ### What changed
 
@@ -119,8 +160,6 @@ ADR-089 Media package add-ons — COMPLETE.
 - Seed a test package preset via Admin > Plans > Media packages block.
 - Verify end-to-end: select a preset on `/app/packages`, complete one-time checkout, confirm `WorkspaceMediaPackageGrant` row created, reload assistant settings and confirm bonus subline appears.
 - If quota tool advisory copy needs updating (`quota-grounded-limit-copy.service.ts`), that is a separate bounded slice (ADR-089 Workstream 7).
-
-
 
 ### What changed
 
@@ -281,11 +320,13 @@ ADR-088 Notifications Admin PROD Cleanup + Hardening — COMPLETE.
 - OpenAPI and generated contracts were refreshed for the new template catalog endpoint and optional test-send body.
 
 ### Files touched
+
 - Modified: `apps/api/src/modules/workspace-management/application/notifications/render/template-renderer.service.ts`, `apps/api/src/modules/workspace-management/application/notifications/manage-notification-platform.service.ts`, `apps/api/src/modules/workspace-management/interface/http/admin-notifications.controller.ts`, `apps/api/test/admin-notifications.controller.authz.test.ts`, `apps/web/app/app/assistant-api-client.ts`, `apps/web/app/admin/notifications/_components/ChannelRegistrySection.tsx`, `packages/contracts/openapi.yaml`
 - Regenerated: `packages/contracts/src/generated/*`
 - Modified docs: `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`
 
 ### Verification gates (all exit 0, run 2026-05-09)
+
 1. `corepack pnpm -r --if-present run lint` — 0
 2. `corepack pnpm run format:check` — 0
 3. `corepack pnpm --filter @persai/api run typecheck` — 0
@@ -293,10 +334,12 @@ ADR-088 Notifications Admin PROD Cleanup + Hardening — COMPLETE.
 5. `corepack pnpm --filter @persai/api exec tsx test/admin-notifications.controller.authz.test.ts` — 0
 
 ### Risks / residuals
+
 - Email test templates currently expose editable JSON facts rather than a bespoke form per template. This is production-safe and flexible, but a future UX pass could replace JSON with typed inputs for billing fields.
 - Only templates registered in `TemplateRendererService` are selectable. This now covers the full current billing catalog, but new template families must still be added to that registry explicitly.
 
 ### Next recommended step
+
 Deploy and verify one admin email test with a billing template and one static-message email test in the Notifications UI.
 
 ---
@@ -314,10 +357,12 @@ Deploy and verify one admin email test with a billing template and one static-me
 - `DeliveryHistorySection.tsx` and `DeadLettersSection.tsx` now expose an explicit `Refresh` button and auto-refresh every 30 seconds while the tab is visible. Operators no longer need to re-run filters manually to see newly delivered reminders or dead-letter state changes.
 
 ### Files touched
+
 - Modified: `build-reminder-context-snapshot.service.ts`, `handle-internal-cron-fire.service.ts`, `grounded-llm-renderer.service.ts`, `email-channel.adapter.ts`, `ChannelRegistrySection.tsx`, `DeliveryHistorySection.tsx`, `DeadLettersSection.tsx`, `manage-notification-platform.service.ts`
 - Modified docs: `SESSION-HANDOFF.md`, `CHANGELOG.md`
 
 ### Verification gates (all exit 0, run 2026-05-09)
+
 1. `corepack pnpm -r --if-present run lint` — 0
 2. `corepack pnpm run format:check` — 0
 3. `corepack pnpm --filter @persai/api run typecheck` — 0
@@ -325,10 +370,12 @@ Deploy and verify one admin email test with a billing template and one static-me
 5. `corepack pnpm --filter @persai/api run test` — 0
 
 ### Risks / residuals
+
 - Postmark delivery still depends on operator-side account configuration. If `fromAddress` is not a verified Sender Signature (or inside a verified domain), Postmark will still reject with HTTP 422. The code path is correct; the remaining step is Postmark account setup.
 - The reminder producer/runtime contract still allows the runtime to echo full prompt text into `summary`; the new strip prevents user leakage, but a future runtime-side cleanup would be cleaner.
 
 ### Next recommended step
+
 Deploy and verify one Telegram reminder and one email test-send in the admin UI using a verified Postmark sender signature.
 
 ---
@@ -340,29 +387,35 @@ Deploy and verify one Telegram reminder and one email test-send in the admin UI 
 **Targeted fixes after live cluster validation revealed remaining issues despite the prior audit pass. Goal: bring the notification platform to PROD-ready state with no temporary workarounds.**
 
 **Fix 1 — Critical: dedupe race condition in `createIntent`**
+
 - `notification-intent.service.ts`: previous dedupe lookup used `findFirst` filtered by `lifecycleStatus IN (pending, claimed, deferred_*)`. When a producer (e.g. `PersaiIdleReengagementSchedulerService`) re-fired with the same `dedupeKey` after the previous intent had already moved to `delivered` / `failed` / `skipped` / `dead_letter`, the lookup missed it and the subsequent `INSERT` collided with the `(workspaceId, dedupeKey)` unique constraint, raising P2002 in cluster logs.
 - Replaced with `findUnique` on `workspaceId_dedupeKey` (covers all statuses) so producers see idempotent behaviour: re-firing with the same key returns the canonical row regardless of status. To re-fire, producers must include a fresh component (period, hour, etc.) in `dedupeKey` — both existing producers (`idle_reengagement` uses `latestUserMessageAt.toISOString()`, `quota_advisory` includes period bounds) already do this.
 - Added a `try/catch` on `create()` that catches Prisma `P2002` and returns the winning row, defending against the inherent race between two concurrent ticks past the lookup.
 - Tests `notification-intent.service.test.ts` and `notification-delivery-worker.service.test.ts` updated: dedupe mocks now expose `findUnique` with the compound key, matching the production query path.
 
 **Fix 2 — Critical: Postmark token resolution (email + webhook)**
+
 - `email-channel.adapter.ts` and `handle-postmark-webhook.service.ts` were calling `secretStore.resolveSecretValueByProviderKey(NOTIFICATION_CREDENTIAL_IDS.email_postmark[_webhook])`. The `NOTIFICATION_CREDENTIAL_IDS` constants are `secretId` values (e.g. `notification/email/postmark/api-key`), not provider keys (e.g. `notification_email_postmark`). The wrong method bypassed the `PROVIDER_KEY_BY_SECRET_ID` mapping and returned `null`, producing `postmark_token_unavailable` in PROD even when the operator had stored the keys correctly via Admin > Tools.
 - Both call sites now call `resolveSecretValueById(NOTIFICATION_CREDENTIAL_IDS.*)`, which performs the secretId → providerKey mapping internally.
 - `handle-postmark-webhook.service.test.ts`: mock secret store now exposes `resolveSecretValueById` (kept `resolveSecretValueByProviderKey` for back-compat in case other callers touch it).
 
 **Fix 3 — `testSendChannel` realism + health update**
+
 - `manage-notification-platform.service.ts`: `testSendChannel()` now resolves the admin's real assistant, first chat (`surface`, `surfaceThreadKey`, `chatId`), and email so adapters that need user-bound context (Telegram thread, web thread, web notification center, email) can actually deliver instead of failing on missing fields. Returns the same `TestSendResult` shape.
 - After a test send, the channel registry row is updated the same way the real delivery worker updates it: on `delivered` → `consecutiveFailures=0`, `lastDeliveryAt`, `healthStatus=healthy`; on failure → `consecutiveFailures` incremented, `lastFailureAt` set. Operators see consistent health state regardless of whether the telemetry came from the worker or a test send.
 - `listPolicies()` now merges DB rows with `NOTIFICATION_POLICY_DEFAULTS` so all 7 sources are always visible/editable in the UI even on a fresh DB. `patchPolicy()` switched from `update` to `upsert` so the operator can edit any source without a prior seed.
 - Filter normalization: `listDeliveries` and `listDeadLetters` accept `source`, `class`, `status`, `channel` query params. Operators filtering with partial input (e.g. `sy`) previously produced a Prisma `Invalid value for argument 'source'. Expected NotificationSource` 500. Added `isValidEnumValue` helper and pass-through only on exact match — invalid values are silently ignored, preventing crashes.
 
 **Fix 4 — UI polish: dropdowns instead of free-text filters**
+
 - `DeliveryHistorySection.tsx`, `DeadLettersSection.tsx`, `PoliciesSection.tsx`: replaced free-text inputs for `source` / `class` / `status` / `channel` / `escalationChannel` with `<select>` dropdowns populated from the canonical enum lists. Added a "Clear" button next to "Filter".
 
 ### Files touched
+
 - Modified: `notification-intent.service.ts`, `manage-notification-platform.service.ts`, `email-channel.adapter.ts`, `handle-postmark-webhook.service.ts`, `notification-intent.service.test.ts`, `notification-delivery-worker.service.test.ts`, `handle-postmark-webhook.service.test.ts`, `DeliveryHistorySection.tsx`, `DeadLettersSection.tsx`, `PoliciesSection.tsx`
 
 ### Verification gates (all exit 0, run 2026-05-09)
+
 1. `corepack pnpm -r --if-present run lint` — 0
 2. `corepack pnpm run format:check` — 0
 3. `corepack pnpm --filter @persai/api run typecheck` — 0
@@ -370,11 +423,13 @@ Deploy and verify one Telegram reminder and one email test-send in the admin UI 
 5. `corepack pnpm --filter @persai/api run test` — 0
 
 ### Risks / residuals
+
 - `GroundedLlmRendererService` still emits a dry-run preview only. A live LLM-grounded conversational notification path requires a follow-up ADR (provider-gateway wiring, model selection per workspace, cost accounting). Not blocking the platform — `idle_reengagement` already produces user-facing text inside the producer (LLM evaluation happens upstream in `internalRuntimeBackgroundTaskClientService`), so the renderer's job is presentational only and the static fallback path is sufficient until the dedicated ADR.
 - Postmark inbound webhook signature header: code uses `X-Postmark-Webhook-Token` model (HMAC-SHA256 of body with shared token). Confirm the Postmark webhook configuration in PROD is set up to send a token-signed request matching this verifier. Otherwise switch to Postmark's standard `X-Postmark-Signature` and update the verifier accordingly.
 - `admin_system` source remains `enabled: true` in defaults. Producer side has been migrated to `system_event` in Slice 4; the `admin_system` row in DB is now unreferenced. Recommend disabling it via the admin UI or a one-line migration in the next slice.
 
 ### Next recommended step
+
 No outstanding high/medium audit findings remain. Proceed to the next bounded ADR-078 backlog item or open the dedicated ADR for grounded-LLM rendering when product priority allows.
 
 ---
@@ -386,39 +441,49 @@ No outstanding high/medium audit findings remain. Proceed to the next bounded AD
 **Audit-driven production fixes applied after multi-agent review of ADR-088 Slices 1–4.**
 
 **Fix 1 — Critical: `webhookUrl` → `endpointUrl` in resolver**
+
 - `resolve-workspace-notification-channels.service.ts`: config key check for `admin_webhook` was `baseConfig["webhookUrl"]`; changed to `baseConfig["endpointUrl"]` to match the adapter and UI. Without this fix, the resolver returned `available: false` even when the webhook was properly configured, and admin webhook delivery was silently broken.
 
 **Fix 2 — Critical: `policy.enabled` guard in `createIntent` + worker**
+
 - `notification-intent.service.ts`: added early-return when `policy.enabled === false`. Returns a `NotificationLifecycleStatus.skipped` sentinel (never persisted) and logs `notification.intent.skipped_policy_disabled`. Imported `NotificationLifecycleStatus` for type safety.
 - `notification-delivery-worker.service.ts`: added guard at start of `deliverIntent` — if `policySnapshot["enabled"] === false`, marks intent as failed with reason `policy_disabled`. Handles any stale rows created before the createIntent fix.
 
 **Fix 3 — Critical: FK RESTRICT on workspace delete**
+
 - `admin-delete-user.service.ts`: before `workspace.delete`, now deletes `notificationDeadLetter` (has `onDelete: Restrict` on both workspaceId and intentId FK) and `notificationIntent` (has `onDelete: Restrict` on workspaceId FK). `notificationDeliveryAttempt` cascades automatically from intents. Without this fix, deleting the last workspace member would fail with a FK violation.
 
 **Fix 4 — Debounce filter inputs**
+
 - `DeliveryHistorySection.tsx`: added `debouncedFilters` state with 450ms `setTimeout`-based debounce. Filters no longer fire an API request on every keystroke.
 - `DeadLettersSection.tsx`: same debounce pattern applied.
 
 **Fix 5 — React Fragment key**
+
 - `DeliveryHistorySection.tsx`: replaced bare `<>...</>` (no key) with `<React.Fragment key={item.id}>` to eliminate React reconciliation warnings in the delivery history table.
 
 **Fix 6 — Defaults consistency**
+
 - `notification-defaults.ts`: `system_event.renderStrategy` corrected from `template` to `static_fallback` (was inconsistent with migration SQL and producer). Removed `exemptClasses` from `NotificationQuietHoursDefault` type and default value — the field was defined but never read at runtime; removing it eliminates dead/misleading code.
 
 ### Files touched
+
 - Modified: `resolve-workspace-notification-channels.service.ts`, `notification-intent.service.ts`, `notification-delivery-worker.service.ts`, `admin-delete-user.service.ts`, `DeliveryHistorySection.tsx`, `DeadLettersSection.tsx`, `notification-defaults.ts`
 
 ### Verification gates (all exit 0, run 2026-05-09)
+
 1. `corepack pnpm -r --if-present run lint` — 0
 2. `corepack pnpm run format:check` — 0
 3. `corepack pnpm --filter @persai/api run typecheck` — 0
 4. `corepack pnpm --filter @persai/web run typecheck` — 0
 
 ### Risks / residuals
+
 - Postmark inbound webhook signature verification: Postmark uses `X-Postmark-Signature` header (HMAC-SHA256) not `X-Postmark-Webhook-Token`. If the platform email adapter checks this — verify before enabling email notifications in PROD.
 - `admin_system` source remains `enabled: true` in defaults. This source predates the platform. Review whether it maps to any live producer; if not, disable.
 
 ### Next recommended step
+
 No outstanding high/medium audit findings. Next bounded work item per ADR-078 backlog.
 
 ---
@@ -428,34 +493,41 @@ No outstanding high/medium audit findings. Next bounded work item per ADR-078 ba
 ### What changed
 
 **A — Producer migration (system_event source)**
+
 - New `SystemEventNotificationProducerService` — maps audit event codes to `class=operational` (`assistant.runtime.apply_*`) or `class=administrative` (`admin.plan_*`), then calls `NotificationIntentService.createIntent()` with `source=system_event`, `priority=immediate`, `renderStrategy=static_fallback`, `allowedChannels=["admin_webhook"]`, `respectQuietHours=false`, `traceId=auditEventId`.
 - `AppendAssistantAuditEventService` updated: injects new producer (same fire-and-forget pattern). Passes `created.id` as `traceId`.
 - Deleted: `deliver-admin-system-notification.service.ts`, `admin-system-notification.types.ts`.
 
 **B — Prisma migration + schema cleanup**
+
 - Migration `20260509100000_adr088_slice4_drop_legacy_admin_notifications`: drops `admin_notification_deliveries` (child), `workspace_admin_notification_channels` (parent), then enums `AdminNotificationChannelType`, `AdminNotificationChannelStatus`, `AdminNotificationDeliveryStatus`. Upserts `system_event` policy row (enabled=false, channel=admin_webhook).
 - `schema.prisma`: removed both models, 3 enums, and relations on `AppUser` / `Workspace`.
 - `admin-delete-user.service.ts`: removed the now-deleted legacy notification cleanup block from user-delete transaction.
 
 **C — Real test-send wired**
+
 - `ManageNotificationPlatformService.testSendChannel()`: injects `NOTIFICATION_CHANNEL_ADAPTERS`, builds a synthetic `NotificationIntentRecord` (no DB write), routes through the matching adapter, returns `{channelType, ok, status, error}`.
 - Controller: `@HttpCode(HttpStatus.OK)` added; returns `TestSendResult` (no more stub message).
 - OpenAPI: path `/admin/notifications/channels/{channelType}/test-send` + `TestSendNotificationChannelResponse` schema added. Contracts regenerated.
 - `assistant-api-client.ts`: `testSendNotificationChannel()` added.
 
 **D — Admin UI completion**
+
 - `DeliveryHistorySection`: `class` filter added (server side was already wired).
 - `ChannelRegistrySection`: "Test" button per channel (calls test-send, shows inline delivered/failed badge). Editable `endpointUrl` config field for `web_push` / `mobile_push` with "Real adapter in future ADR" note.
 
 **E — Test**
+
 - New: `apps/api/test/system-event-notification-producer.service.test.ts` (10 assertions).
 
 ### Files touched
+
 - Created: `system-event-notification-producer.service.ts`, `system-event-notification-producer.service.test.ts`, migration SQL, 3 contract model files
 - Modified: `append-assistant-audit-event.service.ts`, `admin-delete-user.service.ts`, `manage-notification-platform.service.ts`, `admin-notifications.controller.ts`, `workspace-management.module.ts`, `schema.prisma`, `openapi.yaml`, `step2-client.ts`, `model/index.ts`, `ChannelRegistrySection.tsx`, `DeliveryHistorySection.tsx`, `assistant-api-client.ts`
 - Deleted: `deliver-admin-system-notification.service.ts`, `admin-system-notification.types.ts`
 
 ### Verification gates (all exit 0, run 2026-05-09)
+
 1. `corepack pnpm -r --if-present run lint` — 0
 2. `corepack pnpm run format:check` — 0
 3. `corepack pnpm --filter @persai/api run typecheck` — 0
@@ -463,21 +535,23 @@ No outstanding high/medium audit findings. Next bounded work item per ADR-078 ba
 5. `corepack pnpm --filter @persai/api run test` — 0
 
 ### Residue greps (apps/api/src + apps/web/app + packages/contracts — all 0)
+
 `DeliverAdminSystemNotificationService`, `WorkspaceAdminNotificationChannel`, `admin_notification_deliveries`, `AdminNotificationDelivery`, `AdminNotificationChannelType`, `AdminNotificationChannelStatus`, `AdminNotificationDeliveryStatus` — все нулевые.
 
 ### Risks and residuals
+
 - Live verification через persai-dev pending (требует CI-цикл и запуска миграции оператором).
 - Реальная доставка через `admin_webhook` работает при наличии настроенного `endpointUrl` в канале. Оператор включает `system_event` policy и заполняет webhook-URL в `Admin > Notifications`.
 - `web_push` и `mobile_push` — слоты редактируемы (config), реальные адаптеры в будущем ADR.
 
 ### Next recommended step
+
 ADR-088 полностью завершён (Slices 1–4 landed). Следующие задачи:
+
 - Живая валидация в persai-dev: убедиться, что `system_event` интенты создаются после audit-событий, webhook доставляет.
 - Опциональная работа: web push / mobile push реальные адаптеры (отдельный ADR с FCM/APNs).
 
 ---
-
-
 
 ### What changed
 
@@ -488,6 +562,7 @@ The Slice 2.5 audit identified seven NEEDS-FIX items plus one Clerk admin authz 
 **B1 — Defaults extracted:** `apps/api/src/modules/workspace-management/application/notifications/defaults/notification-defaults.ts` is the single source of truth for `NOTIFICATION_POLICY_DEFAULTS`, `NOTIFICATION_QUIET_HOURS_DEFAULT`, and `NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS`. Every value of `NotificationSource` and `NotificationChannelType` is covered. `ResolveWorkspaceNotificationChannelsService`, `NotificationIntentService`, and `NotificationDeliveryWorkerService` import from this file — no inline copies remain.
 
 **B2 — Resolver semantic fixes:**
+
 - Telegram resolution now requires `AssistantChannelSurfaceBinding.bindingState=active` (was missing the active filter).
 - `web_thread` and `web_notification_center` are always available per workspace; the global registry row is advisory and never a gate for them. The early-return short-circuit was removed for these two channel types only.
 - Return type changed from `ResolvedChannel | null` to discriminated `ChannelResolution` union with explicit `reason` (`auto_derive_unavailable` / `channel_disabled_globally` / `channel_unhealthy`). All callers (intent service, worker, admin preview) consume the new shape — no silent nulls.
@@ -573,12 +648,15 @@ Slice 3 delivers real billing email delivery through Postmark, removes the legac
 **S3.9 — Live verification:** Pending — requires persai-dev deployment with Prisma migration run. DNS verification for `notifications.persai.dev` (SPF/DKIM/DMARC) was pre-existing from Slice 1 Postmark integration; Postmark token is wired. Operator must trigger a synthetic billing event and confirm intent + delivery rows. See S3.9 checklist in ADR-088.
 
 ### Files touched: 42 files modified/created/deleted
+
 - Created: 12 template files, 1 producer service, 1 migration SQL, 2 new test files (billing-templates, billing-lifecycle-producer)
 - Modified: 13 source files (schema, module, callers, cockpit, email adapter, web pages/tests, openapi.yaml, contracts index)
 - Deleted: 1 service (schedule-billing-lifecycle-notifications), 1 test (billing-lifecycle-notifications.service.test), 3 contract files (adminBillingLifecycleNotification*), 3 ops cockpit contract files (adminOpsCockpitBillingNotificationJob*)
 
 ### Verification gates
+
 All 5 gates green (run 2026-05-08):
+
 1. `corepack pnpm -r --if-present run lint` — exit 0
 2. `corepack pnpm run format:check` — exit 0
 3. `corepack pnpm --filter @persai/api run typecheck` — exit 0
@@ -586,6 +664,7 @@ All 5 gates green (run 2026-05-08):
 5. `corepack pnpm --filter @persai/api run test` — exit 0
 
 ### Residue proof (zero matches)
+
 - `ScheduleBillingLifecycleNotificationsService` in apps/api/src + apps/web/app + packages/contracts: **0**
 - `billing_lifecycle_notification_jobs` in apps/api/src + apps/web/app + packages/contracts: **0**
 - `BillingLifecycleNotificationJob` in apps/api/src + packages/contracts: **0**
@@ -593,9 +672,11 @@ All 5 gates green (run 2026-05-08):
 - `billingLifecycleNotificationPolicy` in packages/contracts + apps/api/src + apps/web/app: **0**
 
 ### Live verification artifacts
+
 ⚠️ S3.9 live verification requires deployment. Artifacts (intent id, attempt id, Postmark message id, inbox screenshot, Admin > Notifications history screenshot) to be captured after `persai-dev` deployment run.
 
 ### Next recommended step
+
 **Slice 4 — Operational/admin migration and admin surface completion** (ADR-088 §Slice 4). Scope: migrate `system_event` source, complete Admin > Notifications operator surface with sub-rule policy editor for billing_lifecycle (six rule rows), confirm all four ADR-088 slices landed, and retire any remaining Slice 4 residue items.
 
 ---
@@ -619,6 +700,7 @@ All 11 items from the independent three-agent audit of Slice 1 + Slice 2 are clo
 **Fix 6 — Stale comment:** `sync-telegram-chat-target.service.test.ts` line 162 comment updated from `AssistantNotificationDeliveryService` to `TelegramThreadChannelAdapter`.
 
 **Fix 7 — Three adapter tests added:**
+
 - `telegram-thread-channel.adapter.test.ts`: successful delivery, 4xx, network error, missing bot token, missing chatId
 - `web-thread-channel.adapter.test.ts`: successful delivery, missing chatId, createMessage throws
 - `web-notification-center-channel.adapter.test.ts`: system:notifications thread key, providerRef format
@@ -628,6 +710,7 @@ All 11 items from the independent three-agent audit of Slice 1 + Slice 2 are clo
 **Fix 9 — Worker test extended:** Part B added to `notification-delivery-worker.service.test.ts`: future `scheduledAt` not claimed, elapsed `scheduledAt` claimed, dedupe collision (one row), primary failure → escalation success.
 
 **Fix 10 — traceId stamped on all createIntent calls:**
+
 - `QuotaAdvisoryFollowUpService.maybeCreateFollowUp`: accepts `traceId?: string | null`; forwards to `createIntent`
 - `SendWebChatTurnService`, `StreamWebChatTurnService`: pass `traceId: trace.getTraceId()`
 - `HandleInternalTelegramTurnService`: passes `traceId: trace.getTraceId()`
@@ -638,6 +721,7 @@ All 11 items from the independent three-agent audit of Slice 1 + Slice 2 are clo
 **Fix 11 — TEST-PLAN.md Slice 2 table:** New section added documenting all four new test files with run commands and scenario coverage. Worker row expanded. Reference to deleted `manage-admin-notification-channels.service.test.ts` removed.
 
 **Soft observation decisions:**
+
 - Worker poll latency (0–10 s): documented in ADR-088 §Slice 2 acceptance as acceptable; sub-second delivery deferred.
 - Reminder/cron context: operators must configure `reminder` policy to `telegram_thread` only until cron payload carries chat context (deferred to Slice 3 or separate ADR).
 - Reminder quiet hours: per-intent `respectQuietHours: false` override makes runtime behavior correct; schema default vs ADR inconsistency deferred to Slice 3 migration.
@@ -673,6 +757,7 @@ All greps scoped to `apps/api/src`, `apps/web/app`, `packages/contracts/src` (do
 ### Next recommended step
 
 **ADR-088 Slice 3 — Transactional migration:**
+
 - Replace `ScheduleBillingLifecycleNotificationsService` billing email path with a real Postmark email delivery (it was migrated to `NotificationIntentService` in Slice 2 but the email adapter still needs real MJML templates for the 6 billing rules: `trial_ending`, `trial_expired`, `renewal_failed`, `grace_ending`, `grace_expired`, `payment_recovered`)
 - Drop `billing_lifecycle_notification_jobs` table after data migration
 - Move billing lifecycle policy from `BillingLifecycleSettings.metadata` into `notification_policies` rows; delete the notification policy block in `Admin > Billing Settings`
@@ -687,6 +772,7 @@ All greps scoped to `apps/api/src`, `apps/web/app`, `packages/contracts/src` (do
 Every assistant-authored conversational notification now flows through `NotificationIntentService.createIntent({ class: "conversational", ... })` and the unified delivery worker. The legacy assistant-outbox path is deleted.
 
 **Producers migrated:**
+
 - `PersaiIdleReengagementSchedulerService` → `createIntent(source: "idle_reengagement", class: "conversational", priority: "skippable")`, policy from `notification_policies`, cooldown from `notification_intents`
 - `PersaiBackgroundTaskSchedulerService` → `createIntent(source: "background_task_push", class: "conversational", priority: "immediate")`, intent ID stored in `deliveryResultJson`
 - `HandleInternalCronFireService` → `createIntent(source: "reminder", class: "conversational", priority: "immediate", respectQuietHours: false)`, return type is now `{ ok: true; deliveredTo: "none" }` (async)
@@ -694,6 +780,7 @@ Every assistant-authored conversational notification now flows through `Notifica
 - `ScheduleBillingLifecycleNotificationsService` → `createIntent(source: "billing_lifecycle", class: "transactional")` (opportunistically migrated since it depended on the deleted outbox service)
 
 **Channel adapters made real:**
+
 - `TelegramThreadChannelAdapter` — resolves chatId from `intent.surfaceThreadKey`, fetches bot token from secret store, calls Telegram `sendMessage` API
 - `WebThreadChannelAdapter` — writes assistant message to active chat thread via `AssistantChatRepository.createMessage`
 - `WebNotificationCenterChannelAdapter` — finds/creates `system:notifications` chat, writes via `AssistantChatRepository.createMessage`
@@ -701,6 +788,7 @@ Every assistant-authored conversational notification now flows through `Notifica
 **`GroundedLlmRendererService`:** short-circuits on `factPayload.pushText` to use pre-rendered text from `QuotaAdvisoryFollowUpService` without a second LLM call.
 
 **Legacy deleted:**
+
 - Services: `AssistantNotificationOutboxService`, `AssistantNotificationOutboxSchedulerService`, `AssistantNotificationDeliveryService`, `QuotaAdvisoryStateService`
 - Tables: `assistant_notification_outbox`, `assistant_quota_advisory_states`, `workspace_notification_policies` (idle + quota rows data-migrated to `notification_policies`)
 - Enums: `AssistantNotificationOutboxSource`, `AssistantNotificationOutboxStatus`, `WorkspaceNotificationPolicySource`
@@ -724,6 +812,7 @@ corepack pnpm --filter @persai/api run test    ✓  (all pass)
 ### Next recommended step
 
 **ADR-088 Slice 3 — Transactional migration:**
+
 - Replace `ScheduleBillingLifecycleNotificationsService` billing email path with a real Postmark email delivery (it was migrated to `NotificationIntentService` in Slice 2 but the email adapter still needs real MJML templates for the 6 billing rules)
 - Drop `billing_lifecycle_notification_jobs` table after data migration
 - Move billing lifecycle policy from `BillingLifecycleSettings.metadata` into `notification_policies` rows
@@ -738,42 +827,51 @@ corepack pnpm --filter @persai/api run test    ✓  (all pass)
 All Phase A acceptance gaps identified in the independent audit of Slice 1 are now closed. The platform passes all verification gates and has full focused-test coverage.
 
 **A1 — Response shape alignment (OpenAPI ↔ controller):**
+
 - All 6 endpoint shapes now return bare views (no `requestId`/`channel`/`delivery`/`policy`/`quietHours`/`preview` wrappers)
 - `POST /dead-letters/:id/discard` returns HTTP 204 No Content (void)
 - `GET /dead-letters` response key is `deadLetters` (was `items`)
 
 **A1/A2 — Server-side pagination + filtering:**
+
 - `GET /dead-letters`: accepts `source`, `status`, `dateFrom`, `dateTo`, `page`, `pageSize` query params
 - `GET /deliveries`: channel filter applied in SQL (`deliveryAttempts: { some: { channel } }`), not in-memory after paging
 - `GetNotificationDeadLettersResponse` OpenAPI schema updated; contracts regenerated
 
 **A3 — Dead-letter product behavior:**
+
 - Replay sets both `claimedForReplayAt` and `resolvedAt = NOW()`; resets intent `lifecycleStatus` to `pending`
 - Discard sets `resolvedAt = NOW()`
 - Default `GET /dead-letters` returns only `resolvedAt IS NULL` (active)
 
 **A5 — Postmark webhook security:**
+
 - Unsigned requests only accepted when `POSTMARK_WEBHOOK_TOKEN` is unset AND `APP_ENV`/`NODE_ENV` = `development`
 - Production without a token now rejects unsigned requests
 
 **A6 — Structured log fields:**
+
 - `latencyMs` now measures from `intent.createdAt.getTime()`, not worker pickup
 - `userId` and `outcome` added to all delivery log events
 
 **A7 — Admin UI refactor:**
+
 - `page.tsx` reduced to a thin layout shell (< 100 lines)
 - 5 new section components: `PoliciesSection.tsx`, `QuietHoursSection.tsx`, `DeliveryHistorySection.tsx`, `DeadLettersSection.tsx`, `PreviewSection.tsx`
 - All components: explicit loading/empty/error states; accessible markup; copy buttons; server-side pagination; destructive confirmations; generated contract functions only
 
 **A9 — ADR §10 MJML update:**
+
 - §10 clarified: templates are deterministic TypeScript modules returning `{ subject, html, plainText }`; MJML compilation is future improvement
 - §Slice 1 in-scope: telegram/web/web-notification-center adapters documented as wired stubs until Slice 2
 
 **A10 — escalation_of FK:**
+
 - Migration `20260508210000_adr088_escalation_of_fk` adds `FOREIGN KEY (escalation_of) REFERENCES notification_delivery_attempts(id) ON DELETE SET NULL`
 - Prisma schema has self-referential `@relation("EscalationChain")`
 
 **A11 — Focused tests (all pass):**
+
 - `notification-intent.service.test.ts` — basic creation, deduplication, quiet-hours deferral, immediate override, scheduled
 - `notification-routing.service.test.ts` — 7 quiet-hours scenarios
 - `notification-delivery-worker.service.test.ts` — all ADR §11 structured-log fields, latencyMs from createdAt
@@ -782,6 +880,7 @@ All Phase A acceptance gaps identified in the independent audit of Slice 1 are n
 - `admin-notifications.controller.test.ts` — all 8 OpenAPI response shapes
 
 **A12 — Documentation:**
+
 - `DATA-MODEL.md`: enum values corrected to match Prisma schema (e.g. `down` not `disabled`; `workspace_default` not `workspace_tz`; full `NotificationLifecycleStatus` set including `deferred_quiet_hours`, `deferred_rate_limit`)
 - `TEST-PLAN.md`: ADR-088 section rewritten to describe actual test coverage; commands updated to new test file names; added rules 5–7 for log fields and dead-letter semantics
 
@@ -810,6 +909,7 @@ npx tsx apps/api/test/admin-notifications.controller.test.ts      ✓
 ### Next recommended step
 
 **ADR-088 Slice 2 (Conversational Migration)** — Phase B:
+
 - B1: Migrate `PersaiIdleReengagementSchedulerService`, `HandleInternalCronFireService` (reminders), `PersaiBackgroundTaskSchedulerService`, `QuotaAdvisoryFollowUpService` to `NotificationIntentService.createIntent()`
 - B2: Delete `AssistantNotificationOutboxService`, `AssistantNotificationOutboxSchedulerService`, `AssistantNotificationDeliveryService`; drop `assistant_notification_outbox`, `assistant_quota_advisory_states` tables
 - B3: Remove legacy admin routes (idle-reengagement, quota-advisory specific endpoints)
@@ -826,11 +926,13 @@ npx tsx apps/api/test/admin-notifications.controller.test.ts      ✓
 ADR-088 Slice 1 (Foundation) is fully implemented and passes all verification gates.
 
 **A. Prisma migration** (`20260508200000_adr088_unified_notification_platform`):
+
 - 9 new enums: `NotificationSource`, `NotificationClass`, `NotificationPriority`, `NotificationLifecycleStatus`, `NotificationRenderStrategy`, `NotificationDeliveryAttemptStatus`, `NotificationChannelType`, `NotificationChannelHealth`, `NotificationQuietHoursTimezoneMode`
 - 6 new tables: `notification_intents`, `notification_delivery_attempts`, `notification_channel_registry`, `notification_policies`, `notification_quiet_hours`, `notification_dead_letters`
 - All legacy tables left untouched (deleted in Slice 2–4)
 
 **B. Application services** (`apps/api/src/modules/workspace-management/application/notifications/`):
+
 - `notification-intent.service.ts` — single `createIntent()` entry point; quiet-hours deferral; deduplication
 - `notification-routing.service.ts` — pure channel resolution + escalation logic
 - `notification-delivery-worker.service.ts` — claim/deliver/escalate/dead-letter worker
@@ -839,27 +941,33 @@ ADR-088 Slice 1 (Foundation) is fully implemented and passes all verification ga
 - `render/static-fallback-renderer.service.ts` — emergency fallback renderer
 
 **C. Channel adapters** (`apps/api/src/modules/workspace-management/infrastructure/notifications/channel-adapters/`):
+
 - 5 real/partial adapters: `telegram_thread`, `web_thread`, `web_notification_center`, `email` (Postmark), `admin_webhook`
 - 2 stubs: `web_push`, `mobile_push`
 
 **D. Postmark email**:
+
 - `email-channel.adapter.ts` — Postmark HTTP integration, reads `POSTMARK_SERVER_TOKEN` + `POSTMARK_SENDER_DOMAIN`
 - `handle-postmark-webhook.service.ts` + `internal-notifications-postmark-webhook.controller.ts` — HMAC-verified bounce/complaint ingress
 - `infra/helm/values-dev.yaml` — `POSTMARK_SENDER_DOMAIN` env, `POSTMARK_SERVER_TOKEN` optional secret
 
 **E. Admin notification API** (`/api/v1/admin/notifications/`):
+
 - New unified endpoints: `GET/PATCH /channels`, `PATCH /channels/:channelType`, `GET/PATCH /policies`, `GET/PATCH /quiet-hours`, `GET /deliveries` (paginated), `GET /deliveries/:intentId`, `GET /dead-letters`, `POST /dead-letters/:id/replay`, `POST /dead-letters/:id/discard`, `POST /preview`
 - Legacy endpoints kept: `PATCH /channels/webhook`, `GET/PATCH /policies/idle-reengagement`, `GET/PATCH /policies/quota-advisory`
 
 **F. Channel registry seed** (`apps/api/prisma/seed.ts`):
+
 - Seeds `telegram_thread`, `web_thread`, `web_notification_center`, `email`, `admin_webhook` for `persai-dev` workspace
 
 **G. Contracts** (`packages/contracts/`):
+
 - 15+ new OpenAPI schemas, 13 new paths added to `openapi.yaml`
 - Regenerated all generated model files and `step2-client.ts`
 - `apps/web/app/app/assistant-api-client.ts`: replaced hand-rolled `quota-advisory` fetch calls with generated client; added all new ADR-088 wrapper functions; updated `getAdminNotificationChannels` return type to `NotificationChannelView[]`
 
 **H. Admin web page** (`apps/web/app/admin/notifications/`):
+
 - Rewrote `page.tsx` to use `NotificationChannelView[]` (new unified format) + legacy sections kept
 - Created `_components/ChannelRegistrySection.tsx` — channel registry display with enable/disable toggle
 
@@ -881,6 +989,7 @@ corepack pnpm --filter @persai/web run typecheck   ✓
 - `apps/api/.eslintrc.cjs` now has `argsIgnorePattern: "^_"` — standard pattern, low risk
 
 **I. Documentation** (completed in follow-on session segment 2026-05-08):
+
 - `docs/ARCHITECTURE.md` — ADR-088 Slice 1 marked implemented
 - `docs/API-BOUNDARY.md` — all 11 new admin/internal notification endpoints documented; legacy transitional endpoints noted
 - `docs/DATA-MODEL.md` — 6 new tables + 9 new enums documented; legacy tables listed with their retiring slice

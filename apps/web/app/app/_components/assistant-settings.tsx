@@ -664,24 +664,28 @@ export function AssistantSettings({
     if (!isMonthlyMediaQuotaToolAvailable(tool)) {
       return t("limitUnavailable");
     }
-    const effectiveLimit = tool.effectiveLimitUnits ?? null;
-    return effectiveLimit === null ? String(tool.usedUnits) : `${tool.usedUnits}/${effectiveLimit}`;
-  };
-  const toMonthlyMediaQuotaPercent = (tool: MonthlyMediaQuotaToolState): number | null => {
-    if (!isMonthlyMediaQuotaToolAvailable(tool)) {
-      return null;
-    }
-    const effectiveLimit = tool.effectiveLimitUnits ?? null;
-    if (effectiveLimit === null || effectiveLimit <= 0) {
-      return null;
-    }
-    return Math.max(0, Math.min(100, Math.round((tool.usedUnits / effectiveLimit) * 100)));
+    const effectiveLimit = tool.effectiveLimitUnits ?? tool.limitUnits ?? null;
+    return effectiveLimit === null
+      ? String(tool.usedUnits)
+      : `${tool.usedUnits} / ${effectiveLimit}`;
   };
   const formatMonthlyMediaBonusSubline = (tool: MonthlyMediaQuotaToolState): string | null => {
     const bonus = tool.bonusLimitUnits ?? 0;
     if (bonus <= 0) return null;
     const base = tool.limitUnits ?? 0;
     return t("monthlyMediaBonusSubline", { base, bonus });
+  };
+  const formatMonthlyMediaRemainingSubline = (tool: MonthlyMediaQuotaToolState): string | null => {
+    if (!isMonthlyMediaQuotaToolAvailable(tool)) {
+      return null;
+    }
+    const effectiveLimit = tool.effectiveLimitUnits ?? tool.limitUnits ?? null;
+    if (effectiveLimit === null) {
+      return null;
+    }
+    return t("monthlyMediaRemainingSubline", {
+      remaining: Math.max(0, effectiveLimit - tool.usedUnits)
+    });
   };
 
   const version = assistant?.latestPublishedVersion ?? null;
@@ -2805,31 +2809,15 @@ export function AssistantSettings({
                           </>
                         }
                         value={formatMonthlyMediaQuotaValue(tool)}
-                        secondary={
-                          toMonthlyMediaQuotaPercent(tool) === null
-                            ? null
-                            : t("tokenPercentCompact", {
-                                pct: toMonthlyMediaQuotaPercent(tool) ?? 0
-                              })
-                        }
+                        secondary={formatMonthlyMediaRemainingSubline(tool)}
                         bonusSubline={bonusSubline}
                         hasBonus={hasBonus}
+                        onBuyClick={() => router.push("/app/packages" as Route)}
                       />
                     );
                   })}
                 </div>
               ) : null}
-              {featuredMonthlyMediaQuotas.length > 0 && (
-                <div className="mt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => router.push("/app/packages" as Route)}
-                    className="group relative text-[10px] text-text-subtle/40 transition-colors hover:text-text-subtle/80"
-                  >
-                    <span className="tracking-wide">{t("mediaPkgPackagesLink")}</span>
-                  </button>
-                </div>
-              )}
             </div>
             <div className="rounded-lg border border-border/80 bg-surface-raised/40">
               <button
@@ -3202,21 +3190,33 @@ function LimitMetricCard({
   value,
   secondary,
   bonusSubline,
-  hasBonus
+  hasBonus,
+  onBuyClick
 }: {
   label: React.ReactNode;
   value: string;
   secondary?: string | null;
   bonusSubline?: string | null;
   hasBonus?: boolean;
+  onBuyClick?: () => void;
 }) {
   return (
     <div
       className={cn(
-        "flex h-full flex-col rounded-xl border bg-surface/70 p-2.5 transition-colors",
+        "group relative overflow-hidden flex h-full flex-col rounded-xl border bg-surface/70 p-2.5 transition-colors",
         hasBonus ? "border-accent/30 bg-surface/80" : "border-border/80"
       )}
     >
+      {onBuyClick && (
+        <button
+          type="button"
+          onClick={onBuyClick}
+          aria-label="Buy media package"
+          className="pointer-events-auto absolute right-2 top-[70%] -translate-y-1/2 cursor-pointer select-none font-thin leading-none text-[3.75rem] text-text/[0.07] transition-[color] group-hover:text-text/[0.16] hover:text-text/[0.24]"
+        >
+          +
+        </button>
+      )}
       <p className="min-h-[2.4rem] text-[10px] font-medium leading-4 uppercase tracking-[0.12em] text-text-subtle">
         {label}
       </p>
