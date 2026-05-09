@@ -1,6 +1,60 @@
 # SESSION-HANDOFF
 
-## 2026-05-09 — ADR-088 Slice 2.5 closeout: audit follow-through (NEEDS-FIX → DONE)
+## 2026-05-09 — ADR-088 Slice 4: operational migration + admin surface completion (LANDED)
+
+### What changed
+
+**A — Producer migration (system_event source)**
+- New `SystemEventNotificationProducerService` — maps audit event codes to `class=operational` (`assistant.runtime.apply_*`) or `class=administrative` (`admin.plan_*`), then calls `NotificationIntentService.createIntent()` with `source=system_event`, `priority=immediate`, `renderStrategy=static_fallback`, `allowedChannels=["admin_webhook"]`, `respectQuietHours=false`, `traceId=auditEventId`.
+- `AppendAssistantAuditEventService` updated: injects new producer (same fire-and-forget pattern). Passes `created.id` as `traceId`.
+- Deleted: `deliver-admin-system-notification.service.ts`, `admin-system-notification.types.ts`.
+
+**B — Prisma migration + schema cleanup**
+- Migration `20260509100000_adr088_slice4_drop_legacy_admin_notifications`: drops `admin_notification_deliveries` (child), `workspace_admin_notification_channels` (parent), then enums `AdminNotificationChannelType`, `AdminNotificationChannelStatus`, `AdminNotificationDeliveryStatus`. Upserts `system_event` policy row (enabled=false, channel=admin_webhook).
+- `schema.prisma`: removed both models, 3 enums, and relations on `AppUser` / `Workspace`.
+- `admin-delete-user.service.ts`: removed the now-deleted legacy notification cleanup block from user-delete transaction.
+
+**C — Real test-send wired**
+- `ManageNotificationPlatformService.testSendChannel()`: injects `NOTIFICATION_CHANNEL_ADAPTERS`, builds a synthetic `NotificationIntentRecord` (no DB write), routes through the matching adapter, returns `{channelType, ok, status, error}`.
+- Controller: `@HttpCode(HttpStatus.OK)` added; returns `TestSendResult` (no more stub message).
+- OpenAPI: path `/admin/notifications/channels/{channelType}/test-send` + `TestSendNotificationChannelResponse` schema added. Contracts regenerated.
+- `assistant-api-client.ts`: `testSendNotificationChannel()` added.
+
+**D — Admin UI completion**
+- `DeliveryHistorySection`: `class` filter added (server side was already wired).
+- `ChannelRegistrySection`: "Test" button per channel (calls test-send, shows inline delivered/failed badge). Editable `endpointUrl` config field for `web_push` / `mobile_push` with "Real adapter in future ADR" note.
+
+**E — Test**
+- New: `apps/api/test/system-event-notification-producer.service.test.ts` (10 assertions).
+
+### Files touched
+- Created: `system-event-notification-producer.service.ts`, `system-event-notification-producer.service.test.ts`, migration SQL, 3 contract model files
+- Modified: `append-assistant-audit-event.service.ts`, `admin-delete-user.service.ts`, `manage-notification-platform.service.ts`, `admin-notifications.controller.ts`, `workspace-management.module.ts`, `schema.prisma`, `openapi.yaml`, `step2-client.ts`, `model/index.ts`, `ChannelRegistrySection.tsx`, `DeliveryHistorySection.tsx`, `assistant-api-client.ts`
+- Deleted: `deliver-admin-system-notification.service.ts`, `admin-system-notification.types.ts`
+
+### Verification gates (all exit 0, run 2026-05-09)
+1. `corepack pnpm -r --if-present run lint` — 0
+2. `corepack pnpm run format:check` — 0
+3. `corepack pnpm --filter @persai/api run typecheck` — 0
+4. `corepack pnpm --filter @persai/web run typecheck` — 0
+5. `corepack pnpm --filter @persai/api run test` — 0
+
+### Residue greps (apps/api/src + apps/web/app + packages/contracts — all 0)
+`DeliverAdminSystemNotificationService`, `WorkspaceAdminNotificationChannel`, `admin_notification_deliveries`, `AdminNotificationDelivery`, `AdminNotificationChannelType`, `AdminNotificationChannelStatus`, `AdminNotificationDeliveryStatus` — все нулевые.
+
+### Risks and residuals
+- Live verification через persai-dev pending (требует CI-цикл и запуска миграции оператором).
+- Реальная доставка через `admin_webhook` работает при наличии настроенного `endpointUrl` в канале. Оператор включает `system_event` policy и заполняет webhook-URL в `Admin > Notifications`.
+- `web_push` и `mobile_push` — слоты редактируемы (config), реальные адаптеры в будущем ADR.
+
+### Next recommended step
+ADR-088 полностью завершён (Slices 1–4 landed). Следующие задачи:
+- Живая валидация в persai-dev: убедиться, что `system_event` интенты создаются после audit-событий, webhook доставляет.
+- Опциональная работа: web push / mobile push реальные адаптеры (отдельный ADR с FCM/APNs).
+
+---
+
+
 
 ### What changed
 

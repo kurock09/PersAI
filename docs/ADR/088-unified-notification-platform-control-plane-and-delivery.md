@@ -567,6 +567,8 @@ Acceptance: gates green, residue zero. Live verification (fresh workspace throug
 
 ### Slice 4 — Operational/admin migration and admin surface completion
 
+**Status: LANDED 2026-05-09 (commit 3f463b7c)**
+
 Goal: migrate admin webhook deliveries and finish the admin surface.
 
 In scope:
