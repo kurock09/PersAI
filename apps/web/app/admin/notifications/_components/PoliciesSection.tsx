@@ -89,13 +89,13 @@ function PolicyRow({
           draft.escalationAfterMinutes !== "" ? Number(draft.escalationAfterMinutes) : null,
         escalationChannel: draft.escalationChannel !== "" ? draft.escalationChannel : null,
         ...(draft.renderStrategy ? { renderStrategy: draft.renderStrategy } : {}),
-        templateId: draft.renderStrategy === "template" && draft.templateId !== ""
-          ? draft.templateId
-          : null,
+        templateId:
+          draft.renderStrategy === "template" && draft.templateId !== "" ? draft.templateId : null,
         renderInstructionRef: null,
-        config: draft.renderStrategy === "grounded_llm"
-          ? { llmInstruction: draft.llmInstruction !== "" ? draft.llmInstruction : null }
-          : {},
+        config:
+          draft.renderStrategy === "grounded_llm"
+            ? { llmInstruction: draft.llmInstruction !== "" ? draft.llmInstruction : null }
+            : {},
         respectQuietHours: draft.respectQuietHours
       };
       const updated = await patchNotificationPolicy(token, policy.source, input);
