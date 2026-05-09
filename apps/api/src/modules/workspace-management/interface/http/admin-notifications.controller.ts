@@ -209,6 +209,7 @@ export class AdminNotificationsController {
   // ── ADR-088 preview ───────────────────────────────────────────────────────
 
   @Post("preview")
+  @HttpCode(HttpStatus.OK)
   async preview(
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown
