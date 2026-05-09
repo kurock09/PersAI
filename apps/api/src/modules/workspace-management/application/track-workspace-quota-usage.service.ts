@@ -35,7 +35,7 @@ import {
   type RuntimeProviderModelProfile
 } from "./runtime-provider-profile";
 import { resolveRecurringQuotaPeriod, type RecurringQuotaPeriod } from "./recurring-quota-period";
-import type { ManageMediaPackagePurchaseService } from "./manage-media-package-purchase.service";
+import { ManageMediaPackagePurchaseService } from "./manage-media-package-purchase.service";
 
 type PlanQuotaHints = {
   tokenBudgetLimit: bigint | null;
