@@ -35,11 +35,16 @@ type DraftState = {
   escalationAfterMinutes: string;
   escalationChannel: string;
   renderStrategy: string;
-  renderInstructionRef: string;
+  templateId: string;
+  llmInstruction: string;
   respectQuietHours: boolean;
 };
 
 function policyToDraft(policy: NotificationPolicyView): DraftState {
+  const config =
+    policy.config != null && typeof policy.config === "object" && !Array.isArray(policy.config)
+      ? (policy.config as Record<string, unknown>)
+      : {};
   return {
     enabled: policy.enabled,
     cooldownMinutes: policy.cooldownMinutes != null ? String(policy.cooldownMinutes) : "",
@@ -48,7 +53,8 @@ function policyToDraft(policy: NotificationPolicyView): DraftState {
       policy.escalationAfterMinutes != null ? String(policy.escalationAfterMinutes) : "",
     escalationChannel: policy.escalationChannel ?? "",
     renderStrategy: policy.renderStrategy,
-    renderInstructionRef: policy.renderInstructionRef ?? "",
+    templateId: policy.templateId ?? "",
+    llmInstruction: typeof config["llmInstruction"] === "string" ? config["llmInstruction"] : "",
     respectQuietHours: policy.respectQuietHours
   };
 }
@@ -83,7 +89,13 @@ function PolicyRow({
           draft.escalationAfterMinutes !== "" ? Number(draft.escalationAfterMinutes) : null,
         escalationChannel: draft.escalationChannel !== "" ? draft.escalationChannel : null,
         ...(draft.renderStrategy ? { renderStrategy: draft.renderStrategy } : {}),
-        renderInstructionRef: draft.renderInstructionRef !== "" ? draft.renderInstructionRef : null,
+        templateId: draft.renderStrategy === "template" && draft.templateId !== ""
+          ? draft.templateId
+          : null,
+        renderInstructionRef: null,
+        config: draft.renderStrategy === "grounded_llm"
+          ? { llmInstruction: draft.llmInstruction !== "" ? draft.llmInstruction : null }
+          : {},
         respectQuietHours: draft.respectQuietHours
       };
       const updated = await patchNotificationPolicy(token, policy.source, input);
@@ -202,18 +214,37 @@ function PolicyRow({
                 <option value="static_fallback">Static fallback</option>
               </select>
             </div>
-            <div className="flex flex-col gap-1 sm:col-span-2">
-              <label className="text-[10px] font-medium text-text-muted">
-                Render instruction ref (LLM instruction ID)
-              </label>
-              <input
-                type="text"
-                value={draft.renderInstructionRef}
-                onChange={(e) => setDraft((d) => ({ ...d, renderInstructionRef: e.target.value }))}
-                placeholder="none"
-                className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
-              />
-            </div>
+            {draft.renderStrategy === "template" && (
+              <div className="flex flex-col gap-1 sm:col-span-2">
+                <label className="text-[10px] font-medium text-text-muted">
+                  Postmark Template ID
+                </label>
+                <input
+                  type="text"
+                  value={draft.templateId}
+                  onChange={(e) => setDraft((d) => ({ ...d, templateId: e.target.value }))}
+                  placeholder="e.g. 12345678"
+                  className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            )}
+            {draft.renderStrategy === "grounded_llm" && (
+              <div className="flex flex-col gap-1 sm:col-span-2">
+                <label className="text-[10px] font-medium text-text-muted">
+                  LLM instruction
+                  <span className="ml-1 font-normal text-text-muted/70">
+                    (overrides built-in prompt; leave blank to use default)
+                  </span>
+                </label>
+                <textarea
+                  value={draft.llmInstruction}
+                  onChange={(e) => setDraft((d) => ({ ...d, llmInstruction: e.target.value }))}
+                  placeholder="Write one short, calm message when this notification fires. Base it only on the provided facts…"
+                  rows={4}
+                  className="rounded border border-border bg-bg px-2 py-1.5 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent resize-y"
+                />
+              </div>
+            )}
           </div>
 
           {error && <p className="mt-2 text-[10px] text-destructive">{error}</p>}
