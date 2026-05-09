@@ -124,14 +124,21 @@ export class NotificationIntentService {
 
     const escalationChannel = input.escalationChannel ?? policy.escalationChannel;
 
-    // Upsert with deduplication if dedupeKey provided
+    // Deduplication: when a dedupeKey is provided, the (workspaceId, dedupeKey)
+    // pair is unique forever (Prisma `@@unique`). We MUST treat any existing
+    // row with the same key as the canonical intent — including ones that
+    // already finished (delivered / failed / skipped / dead_letter). Otherwise
+    // a recurring producer (e.g. idle reengagement scheduler) that derives
+    // dedupeKey from a slow-changing fact (latest user message timestamp)
+    // would race the unique constraint on every tick after the first delivery.
+    // To re-fire, the producer must include a fresh component (period, hour,
+    // etc.) in its dedupeKey.
     if (input.dedupeKey) {
-      const existing = await this.prisma.notificationIntent.findFirst({
+      const existing = await this.prisma.notificationIntent.findUnique({
         where: {
-          workspaceId: input.workspaceId,
-          dedupeKey: input.dedupeKey,
-          lifecycleStatus: {
-            in: ["pending", "claimed", "deferred_quiet_hours", "deferred_rate_limit"]
+          workspaceId_dedupeKey: {
+            workspaceId: input.workspaceId,
+            dedupeKey: input.dedupeKey
           }
         }
       });
@@ -141,38 +148,68 @@ export class NotificationIntentService {
           intentId: existing.id,
           workspaceId: input.workspaceId,
           source: input.source,
-          dedupeKey: input.dedupeKey
+          dedupeKey: input.dedupeKey,
+          existingStatus: existing.lifecycleStatus
         });
         return this.toRecord(existing);
       }
     }
 
-    const created = await this.prisma.notificationIntent.create({
-      data: {
-        workspaceId: input.workspaceId,
-        assistantId: input.assistantId ?? null,
-        userId: input.userId ?? null,
-        source: input.source,
-        class: input.class,
-        priority: input.priority,
-        lifecycleStatus,
-        renderStrategy: input.renderStrategy,
-        renderInstructionRef: input.renderInstructionRef ?? null,
-        templateId: input.templateId ?? null,
-        factPayload: input.factPayload as Prisma.InputJsonValue,
-        policySnapshot,
-        allowedChannels: resolvedChannels,
-        escalationAfterMinutes,
-        escalationChannel,
-        dedupeKey: input.dedupeKey ?? null,
-        scheduledAt: input.scheduledAt ?? deferUntil ?? null,
-        respectQuietHours,
-        surface: input.surface ?? null,
-        surfaceThreadKey: input.surfaceThreadKey ?? null,
-        chatId: input.chatId ?? null,
-        traceId: input.traceId ?? null
+    let created;
+    try {
+      created = await this.prisma.notificationIntent.create({
+        data: {
+          workspaceId: input.workspaceId,
+          assistantId: input.assistantId ?? null,
+          userId: input.userId ?? null,
+          source: input.source,
+          class: input.class,
+          priority: input.priority,
+          lifecycleStatus,
+          renderStrategy: input.renderStrategy,
+          renderInstructionRef: input.renderInstructionRef ?? null,
+          templateId: input.templateId ?? null,
+          factPayload: input.factPayload as Prisma.InputJsonValue,
+          policySnapshot,
+          allowedChannels: resolvedChannels,
+          escalationAfterMinutes,
+          escalationChannel,
+          dedupeKey: input.dedupeKey ?? null,
+          scheduledAt: input.scheduledAt ?? deferUntil ?? null,
+          respectQuietHours,
+          surface: input.surface ?? null,
+          surfaceThreadKey: input.surfaceThreadKey ?? null,
+          chatId: input.chatId ?? null,
+          traceId: input.traceId ?? null
+        }
+      });
+    } catch (err) {
+      // P2002 = unique constraint violation. Two concurrent producers raced
+      // past the dedupe lookup with the same (workspaceId, dedupeKey). Return
+      // whichever row won the insert so callers see idempotent behaviour.
+      const code = (err as { code?: string } | null)?.code;
+      if (code === "P2002" && input.dedupeKey) {
+        const winner = await this.prisma.notificationIntent.findUnique({
+          where: {
+            workspaceId_dedupeKey: {
+              workspaceId: input.workspaceId,
+              dedupeKey: input.dedupeKey
+            }
+          }
+        });
+        if (winner) {
+          this.logger.log({
+            event: "notification.intent.deduplicated_race_p2002",
+            intentId: winner.id,
+            workspaceId: input.workspaceId,
+            source: input.source,
+            dedupeKey: input.dedupeKey
+          });
+          return this.toRecord(winner);
+        }
       }
-    });
+      throw err;
+    }
 
     const record = this.toRecord(created);
 

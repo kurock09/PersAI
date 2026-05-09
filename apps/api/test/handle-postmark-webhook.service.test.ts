@@ -46,6 +46,9 @@ function makePrisma(initial?: Partial<ChannelState>) {
 /** Mock secret store — returns null when no token configured. */
 function makeSecretStore(storedToken?: string) {
   return {
+    resolveSecretValueById: async (_id: string): Promise<string | null> => {
+      return storedToken ?? null;
+    },
     resolveSecretValueByProviderKey: async (_key: string): Promise<string | null> => {
       return storedToken ?? null;
     }

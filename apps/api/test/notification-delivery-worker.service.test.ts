@@ -576,18 +576,14 @@ async function run(): Promise<void> {
           intentStore.push(row as StoredIntent);
           return row;
         },
-        findFirst: async (q: {
-          where?: {
-            workspaceId?: string;
-            dedupeKey?: string;
-            lifecycleStatus?: { in?: string[] };
-          };
+        findUnique: async (q: {
+          where: { workspaceId_dedupeKey?: { workspaceId: string; dedupeKey: string } };
         }) => {
+          const compound = q.where.workspaceId_dedupeKey;
+          if (!compound) return null;
           return (
             intentStore.find(
-              (r) =>
-                r.dedupeKey === q.where?.dedupeKey &&
-                (q.where?.lifecycleStatus?.in ?? []).includes(r.lifecycleStatus as string)
+              (r) => r.workspaceId === compound.workspaceId && r.dedupeKey === compound.dedupeKey
             ) ?? null
           );
         }

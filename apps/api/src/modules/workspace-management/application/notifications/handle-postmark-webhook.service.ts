@@ -77,7 +77,7 @@ export class HandlePostmarkWebhookService {
 
   private async verifySignature(rawBody: string, signature: string | null): Promise<boolean> {
     const token = await this.secretStore
-      .resolveSecretValueByProviderKey(NOTIFICATION_CREDENTIAL_IDS.email_postmark_webhook)
+      .resolveSecretValueById(NOTIFICATION_CREDENTIAL_IDS.email_postmark_webhook)
       .catch(() => null);
 
     if (!token) {

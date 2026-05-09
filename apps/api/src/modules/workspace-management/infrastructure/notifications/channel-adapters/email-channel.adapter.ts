@@ -32,8 +32,13 @@ export class EmailChannelAdapter implements NotificationChannelAdapter {
   constructor(private readonly secretStore: PlatformRuntimeProviderSecretStoreService) {}
 
   private async resolveServerToken(): Promise<string | undefined> {
+    // resolveSecretValueById(secretId) maps secretId -> providerKey internally
+    // (PROVIDER_KEY_BY_SECRET_ID). Calling resolveSecretValueByProviderKey
+    // here is wrong because NOTIFICATION_CREDENTIAL_IDS.email_postmark is the
+    // secretId ("notification/email/postmark/api-key"), not the providerKey
+    // ("notification_email_postmark") under which the row is stored.
     const fromStore = await this.secretStore
-      .resolveSecretValueByProviderKey(NOTIFICATION_CREDENTIAL_IDS.email_postmark)
+      .resolveSecretValueById(NOTIFICATION_CREDENTIAL_IDS.email_postmark)
       .catch(() => null);
     return fromStore ?? undefined;
   }

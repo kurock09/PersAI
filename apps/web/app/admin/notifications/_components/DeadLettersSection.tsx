@@ -80,6 +80,27 @@ function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
 
 type RowAction = { type: "replay"; id: string; intentId: string } | { type: "discard"; id: string };
 
+const SOURCE_OPTIONS = [
+  "idle_reengagement",
+  "quota_advisory",
+  "reminder",
+  "background_task_push",
+  "billing_lifecycle",
+  "admin_system",
+  "system_event"
+] as const;
+
+const STATUS_OPTIONS = [
+  "pending",
+  "claimed",
+  "delivered",
+  "failed",
+  "dead_letter",
+  "skipped",
+  "deferred_quiet_hours",
+  "deferred_rate_limit"
+] as const;
+
 export function DeadLettersSection({ getToken }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -167,13 +188,39 @@ export function DeadLettersSection({ getToken }: Props) {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
-        <input
-          type="text"
+        <select
           value={filters.source}
-          placeholder="Source filter"
           onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}
+          aria-label="Source"
           className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
-        />
+        >
+          <option value="">All sources</option>
+          {SOURCE_OPTIONS.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filters.status}
+          onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+          aria-label="Status"
+          className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+        >
+          <option value="">All statuses</option>
+          {STATUS_OPTIONS.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setFilters({ source: "", status: "" })}
+          className="rounded-lg border border-border px-3 py-1 text-xs font-medium text-text-muted hover:text-text"
+        >
+          Clear
+        </button>
         <button
           type="button"
           onClick={() => void load(1)}

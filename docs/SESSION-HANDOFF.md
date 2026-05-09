@@ -1,5 +1,51 @@
 # SESSION-HANDOFF
 
+## 2026-05-09 — ADR-088 PROD hardening, round 2 (LANDED)
+
+### What changed
+
+**Targeted fixes after live cluster validation revealed remaining issues despite the prior audit pass. Goal: bring the notification platform to PROD-ready state with no temporary workarounds.**
+
+**Fix 1 — Critical: dedupe race condition in `createIntent`**
+- `notification-intent.service.ts`: previous dedupe lookup used `findFirst` filtered by `lifecycleStatus IN (pending, claimed, deferred_*)`. When a producer (e.g. `PersaiIdleReengagementSchedulerService`) re-fired with the same `dedupeKey` after the previous intent had already moved to `delivered` / `failed` / `skipped` / `dead_letter`, the lookup missed it and the subsequent `INSERT` collided with the `(workspaceId, dedupeKey)` unique constraint, raising P2002 in cluster logs.
+- Replaced with `findUnique` on `workspaceId_dedupeKey` (covers all statuses) so producers see idempotent behaviour: re-firing with the same key returns the canonical row regardless of status. To re-fire, producers must include a fresh component (period, hour, etc.) in `dedupeKey` — both existing producers (`idle_reengagement` uses `latestUserMessageAt.toISOString()`, `quota_advisory` includes period bounds) already do this.
+- Added a `try/catch` on `create()` that catches Prisma `P2002` and returns the winning row, defending against the inherent race between two concurrent ticks past the lookup.
+- Tests `notification-intent.service.test.ts` and `notification-delivery-worker.service.test.ts` updated: dedupe mocks now expose `findUnique` with the compound key, matching the production query path.
+
+**Fix 2 — Critical: Postmark token resolution (email + webhook)**
+- `email-channel.adapter.ts` and `handle-postmark-webhook.service.ts` were calling `secretStore.resolveSecretValueByProviderKey(NOTIFICATION_CREDENTIAL_IDS.email_postmark[_webhook])`. The `NOTIFICATION_CREDENTIAL_IDS` constants are `secretId` values (e.g. `notification/email/postmark/api-key`), not provider keys (e.g. `notification_email_postmark`). The wrong method bypassed the `PROVIDER_KEY_BY_SECRET_ID` mapping and returned `null`, producing `postmark_token_unavailable` in PROD even when the operator had stored the keys correctly via Admin > Tools.
+- Both call sites now call `resolveSecretValueById(NOTIFICATION_CREDENTIAL_IDS.*)`, which performs the secretId → providerKey mapping internally.
+- `handle-postmark-webhook.service.test.ts`: mock secret store now exposes `resolveSecretValueById` (kept `resolveSecretValueByProviderKey` for back-compat in case other callers touch it).
+
+**Fix 3 — `testSendChannel` realism + health update**
+- `manage-notification-platform.service.ts`: `testSendChannel()` now resolves the admin's real assistant, first chat (`surface`, `surfaceThreadKey`, `chatId`), and email so adapters that need user-bound context (Telegram thread, web thread, web notification center, email) can actually deliver instead of failing on missing fields. Returns the same `TestSendResult` shape.
+- After a test send, the channel registry row is updated the same way the real delivery worker updates it: on `delivered` → `consecutiveFailures=0`, `lastDeliveryAt`, `healthStatus=healthy`; on failure → `consecutiveFailures` incremented, `lastFailureAt` set. Operators see consistent health state regardless of whether the telemetry came from the worker or a test send.
+- `listPolicies()` now merges DB rows with `NOTIFICATION_POLICY_DEFAULTS` so all 7 sources are always visible/editable in the UI even on a fresh DB. `patchPolicy()` switched from `update` to `upsert` so the operator can edit any source without a prior seed.
+- Filter normalization: `listDeliveries` and `listDeadLetters` accept `source`, `class`, `status`, `channel` query params. Operators filtering with partial input (e.g. `sy`) previously produced a Prisma `Invalid value for argument 'source'. Expected NotificationSource` 500. Added `isValidEnumValue` helper and pass-through only on exact match — invalid values are silently ignored, preventing crashes.
+
+**Fix 4 — UI polish: dropdowns instead of free-text filters**
+- `DeliveryHistorySection.tsx`, `DeadLettersSection.tsx`, `PoliciesSection.tsx`: replaced free-text inputs for `source` / `class` / `status` / `channel` / `escalationChannel` with `<select>` dropdowns populated from the canonical enum lists. Added a "Clear" button next to "Filter".
+
+### Files touched
+- Modified: `notification-intent.service.ts`, `manage-notification-platform.service.ts`, `email-channel.adapter.ts`, `handle-postmark-webhook.service.ts`, `notification-intent.service.test.ts`, `notification-delivery-worker.service.test.ts`, `handle-postmark-webhook.service.test.ts`, `DeliveryHistorySection.tsx`, `DeadLettersSection.tsx`, `PoliciesSection.tsx`
+
+### Verification gates (all exit 0, run 2026-05-09)
+1. `corepack pnpm -r --if-present run lint` — 0
+2. `corepack pnpm run format:check` — 0
+3. `corepack pnpm --filter @persai/api run typecheck` — 0
+4. `corepack pnpm --filter @persai/web run typecheck` — 0
+5. `corepack pnpm --filter @persai/api run test` — 0
+
+### Risks / residuals
+- `GroundedLlmRendererService` still emits a dry-run preview only. A live LLM-grounded conversational notification path requires a follow-up ADR (provider-gateway wiring, model selection per workspace, cost accounting). Not blocking the platform — `idle_reengagement` already produces user-facing text inside the producer (LLM evaluation happens upstream in `internalRuntimeBackgroundTaskClientService`), so the renderer's job is presentational only and the static fallback path is sufficient until the dedicated ADR.
+- Postmark inbound webhook signature header: code uses `X-Postmark-Webhook-Token` model (HMAC-SHA256 of body with shared token). Confirm the Postmark webhook configuration in PROD is set up to send a token-signed request matching this verifier. Otherwise switch to Postmark's standard `X-Postmark-Signature` and update the verifier accordingly.
+- `admin_system` source remains `enabled: true` in defaults. Producer side has been migrated to `system_event` in Slice 4; the `admin_system` row in DB is now unreferenced. Recommend disabling it via the admin UI or a one-line migration in the next slice.
+
+### Next recommended step
+No outstanding high/medium audit findings remain. Proceed to the next bounded ADR-078 backlog item or open the dedicated ADR for grounded-LLM rendering when product priority allows.
+
+---
+
 ## 2026-05-09 — ADR-088 Post-audit fixes (LANDED)
 
 ### What changed

@@ -195,6 +195,29 @@ const VALID_NOTIFICATION_SOURCES = [
   "admin_system",
   "system_event"
 ] as const;
+const VALID_NOTIFICATION_CLASSES = [
+  "conversational",
+  "transactional",
+  "operational",
+  "administrative"
+] as const;
+const VALID_LIFECYCLE_STATUSES = [
+  "pending",
+  "claimed",
+  "delivered",
+  "failed",
+  "dead_letter",
+  "skipped",
+  "deferred_quiet_hours",
+  "deferred_rate_limit"
+] as const;
+
+function isValidEnumValue<T extends readonly string[]>(
+  raw: string | undefined,
+  allowed: T
+): raw is T[number] {
+  return raw !== undefined && (allowed as readonly string[]).includes(raw);
+}
 
 @Injectable()
 export class ManageNotificationPlatformService {
@@ -262,6 +285,14 @@ export class ManageNotificationPlatformService {
     return this.channelToView(updated);
   }
 
+  /**
+   * Operator test-send. Builds a synthetic intent with REAL admin context
+   * (admin assistant id, first active web chat id, admin email) so
+   * channels that require chat/assistant binding can deliver an actual
+   * message into the operator's surface — not a stub. The intent is never
+   * persisted to notification_intents; channel-side rows (chat messages,
+   * provider sends) reflect the test as a normal delivery.
+   */
   async testSendChannel(userId: string, channelType: string): Promise<TestSendResult> {
     if (!VALID_CHANNEL_TYPES.includes(channelType as never)) {
       throw new BadRequestException(`Unknown channel type: ${channelType}`);
@@ -290,11 +321,40 @@ export class ManageNotificationPlatformService {
       };
     }
 
+    // Resolve admin context. We ALWAYS look up the admin's own assistant +
+    // first active web chat so channels that require binding can deliver
+    // a real message visible to the operator running the test.
+    const adminAssistant = await this.prisma.assistant.findUnique({
+      where: { userId }
+    });
+    let chatId: string | null = null;
+    let surface: string | null = null;
+    let surfaceThreadKey: string | null = null;
+    if (adminAssistant) {
+      const firstChat = await this.prisma.assistantChat.findFirst({
+        where: {
+          assistantId: adminAssistant.id,
+          userId,
+          archivedAt: null,
+          surface: "web" as never
+        },
+        orderBy: { lastMessageAt: "desc" }
+      });
+      if (firstChat) {
+        chatId = firstChat.id;
+        surface = firstChat.surface as unknown as string;
+        surfaceThreadKey = firstChat.surfaceThreadKey;
+      }
+    }
+    const adminEmail = await this.prisma.appUser
+      .findUnique({ where: { id: userId }, select: { email: true } })
+      .then((u) => u?.email ?? null);
+
     const syntheticIntent: NotificationIntentRecord = {
       id: randomUUID(),
       workspaceId,
-      assistantId: null,
-      userId: null,
+      assistantId: adminAssistant?.id ?? null,
+      userId,
       source: NotificationSource.system_event,
       class: NotificationClass.operational,
       priority: NotificationPriority.immediate,
@@ -302,7 +362,10 @@ export class ManageNotificationPlatformService {
       renderStrategy: NotificationRenderStrategy.static_fallback,
       renderInstructionRef: null,
       templateId: null,
-      factPayload: { message: `Test send for channel "${channelType}" — PersAI Notifications` },
+      factPayload: {
+        message: `Test send for channel "${channelType}" — PersAI Notifications`,
+        ...(adminEmail !== null ? { recipientEmail: adminEmail } : {})
+      },
       policySnapshot: {},
       allowedChannels: [channelType],
       escalationAfterMinutes: null,
@@ -310,9 +373,9 @@ export class ManageNotificationPlatformService {
       dedupeKey: null,
       scheduledAt: null,
       respectQuietHours: false,
-      surface: null,
-      surfaceThreadKey: null,
-      chatId: null,
+      surface,
+      surfaceThreadKey,
+      chatId,
       traceId: `test-send:${channelType}:${Date.now()}`,
       failureReason: null,
       createdAt: new Date(),
@@ -336,6 +399,27 @@ export class ManageNotificationPlatformService {
 
     const rendered = await this.staticFallbackRenderer.render(syntheticIntent);
     const result = await adapter.deliver(syntheticIntent, rendered, channelConfig);
+
+    // Update channel health to mirror what the real worker does, so the
+    // operator's UI reflects the test outcome instead of staying stale.
+    if (result.status === "delivered") {
+      await this.prisma.notificationChannelRegistry.update({
+        where: { id: channelRow.id },
+        data: {
+          consecutiveFailures: 0,
+          lastDeliveryAt: new Date(),
+          healthStatus: "healthy"
+        }
+      });
+    } else {
+      await this.prisma.notificationChannelRegistry.update({
+        where: { id: channelRow.id },
+        data: {
+          consecutiveFailures: { increment: 1 },
+          lastFailureAt: new Date()
+        }
+      });
+    }
 
     return {
       channelType,
@@ -471,13 +555,28 @@ export class ManageNotificationPlatformService {
     const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 20));
     const skip = (page - 1) * pageSize;
 
+    // Normalise enum-shaped filters: ignore values that are not exact enum
+    // members so a partial input ("sy" while typing "system_event") never
+    // reaches Prisma and triggers a 500.
+    const sourceFilter = isValidEnumValue(query.source, VALID_NOTIFICATION_SOURCES)
+      ? query.source
+      : undefined;
+    const classFilter = isValidEnumValue(query.class, VALID_NOTIFICATION_CLASSES)
+      ? query.class
+      : undefined;
+    const statusFilter = isValidEnumValue(query.status, VALID_LIFECYCLE_STATUSES)
+      ? query.status
+      : undefined;
+    const channelFilter = isValidEnumValue(query.channel, VALID_CHANNEL_TYPES)
+      ? query.channel
+      : undefined;
+
     const where: Prisma.NotificationIntentWhereInput = {
       workspaceId,
-      ...(query.source ? { source: query.source as never } : {}),
-      ...(query.class ? { class: query.class as never } : {}),
-      ...(query.status ? { lifecycleStatus: query.status as never } : {}),
-      // SQL-side channel filter via subquery on deliveryAttempts
-      ...(query.channel ? { deliveryAttempts: { some: { channel: query.channel } } } : {}),
+      ...(sourceFilter ? { source: sourceFilter as never } : {}),
+      ...(classFilter ? { class: classFilter as never } : {}),
+      ...(statusFilter ? { lifecycleStatus: statusFilter as never } : {}),
+      ...(channelFilter ? { deliveryAttempts: { some: { channel: channelFilter } } } : {}),
       ...(query.dateFrom || query.dateTo
         ? {
             createdAt: {
@@ -530,14 +629,21 @@ export class ManageNotificationPlatformService {
     const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 20));
     const skip = (page - 1) * pageSize;
 
+    const sourceFilter = isValidEnumValue(query.source, VALID_NOTIFICATION_SOURCES)
+      ? query.source
+      : undefined;
+    const statusFilter = isValidEnumValue(query.status, VALID_LIFECYCLE_STATUSES)
+      ? query.status
+      : undefined;
+
     const where: Prisma.NotificationDeadLetterWhereInput = {
       workspaceId,
       resolvedAt: null,
-      ...(query.source || query.status || query.dateFrom || query.dateTo
+      ...(sourceFilter || statusFilter || query.dateFrom || query.dateTo
         ? {
             intent: {
-              ...(query.source ? { source: query.source as never } : {}),
-              ...(query.status ? { lifecycleStatus: query.status as never } : {}),
+              ...(sourceFilter ? { source: sourceFilter as never } : {}),
+              ...(statusFilter ? { lifecycleStatus: statusFilter as never } : {}),
               ...(query.dateFrom || query.dateTo
                 ? {
                     createdAt: {

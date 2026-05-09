@@ -21,6 +21,39 @@ const STATUS_COLORS: Record<string, string> = {
   deferred_rate_limit: "text-text-muted"
 };
 
+const SOURCE_OPTIONS = [
+  "idle_reengagement",
+  "quota_advisory",
+  "reminder",
+  "background_task_push",
+  "billing_lifecycle",
+  "admin_system",
+  "system_event"
+] as const;
+
+const CLASS_OPTIONS = ["conversational", "transactional", "operational", "administrative"] as const;
+
+const STATUS_OPTIONS = [
+  "pending",
+  "claimed",
+  "delivered",
+  "failed",
+  "dead_letter",
+  "skipped",
+  "deferred_quiet_hours",
+  "deferred_rate_limit"
+] as const;
+
+const CHANNEL_OPTIONS = [
+  "telegram_thread",
+  "web_thread",
+  "web_notification_center",
+  "email",
+  "admin_webhook",
+  "web_push",
+  "mobile_push"
+] as const;
+
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   function copy(): void {
@@ -108,27 +141,90 @@ export function DeliveryHistorySection({ getToken }: Props) {
     <div className="space-y-3">
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
-        {(
-          [
-            { key: "source", placeholder: "Source" },
-            { key: "class", placeholder: "Class" },
-            { key: "status", placeholder: "Status" },
-            { key: "channel", placeholder: "Channel" },
-            { key: "dateFrom", placeholder: "Date from (ISO)" },
-            { key: "dateTo", placeholder: "Date to (ISO)" }
-          ] as { key: keyof typeof filters; placeholder: string }[]
-        ).map(({ key, placeholder }) => (
-          <input
-            key={key}
-            type="text"
-            value={filters[key]}
-            placeholder={placeholder}
-            onChange={(e) => {
-              setFilters((f) => ({ ...f, [key]: e.target.value }));
-            }}
-            className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
-          />
-        ))}
+        <select
+          value={filters.source}
+          onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}
+          aria-label="Source"
+          className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+        >
+          <option value="">All sources</option>
+          {SOURCE_OPTIONS.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filters.class}
+          onChange={(e) => setFilters((f) => ({ ...f, class: e.target.value }))}
+          aria-label="Class"
+          className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+        >
+          <option value="">All classes</option>
+          {CLASS_OPTIONS.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filters.status}
+          onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+          aria-label="Status"
+          className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+        >
+          <option value="">All statuses</option>
+          {STATUS_OPTIONS.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filters.channel}
+          onChange={(e) => setFilters((f) => ({ ...f, channel: e.target.value }))}
+          aria-label="Channel"
+          className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+        >
+          <option value="">All channels</option>
+          {CHANNEL_OPTIONS.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <input
+          type="datetime-local"
+          value={filters.dateFrom}
+          onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+          aria-label="Date from"
+          title="Date from"
+          className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+        />
+        <input
+          type="datetime-local"
+          value={filters.dateTo}
+          onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
+          aria-label="Date to"
+          title="Date to"
+          className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+        />
+        <button
+          type="button"
+          onClick={() =>
+            setFilters({
+              source: "",
+              class: "",
+              status: "",
+              channel: "",
+              dateFrom: "",
+              dateTo: ""
+            })
+          }
+          className="rounded-lg border border-border px-3 py-1 text-xs font-medium text-text-muted hover:text-text"
+        >
+          Clear
+        </button>
         <button
           type="button"
           onClick={() => void load(1)}

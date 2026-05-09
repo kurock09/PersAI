@@ -95,20 +95,14 @@ function makePrisma(opts?: {
         store.push(row);
         return row;
       },
-      findFirst: async (q: {
-        where: {
-          workspaceId?: string;
-          dedupeKey?: string;
-          lifecycleStatus?: { in?: string[] };
-        };
+      findUnique: async (q: {
+        where: { workspaceId_dedupeKey?: { workspaceId: string; dedupeKey: string } };
       }) => {
+        const compound = q.where.workspaceId_dedupeKey;
+        if (!compound) return null;
         return (
           store.find(
-            (r) =>
-              r.workspaceId === q.where.workspaceId &&
-              r.dedupeKey === q.where.dedupeKey &&
-              (!q.where.lifecycleStatus?.in ||
-                q.where.lifecycleStatus.in.includes(r.lifecycleStatus))
+            (r) => r.workspaceId === compound.workspaceId && r.dedupeKey === compound.dedupeKey
           ) ?? null
         );
       }

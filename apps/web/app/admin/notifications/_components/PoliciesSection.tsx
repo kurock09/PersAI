@@ -28,6 +28,16 @@ const STRATEGY_LABELS: Record<string, string> = {
   static_fallback: "Static fallback"
 };
 
+const CHANNEL_OPTIONS = [
+  "telegram_thread",
+  "web_thread",
+  "web_notification_center",
+  "email",
+  "admin_webhook",
+  "web_push",
+  "mobile_push"
+] as const;
+
 type DraftState = {
   enabled: boolean;
   cooldownMinutes: string;
@@ -194,13 +204,18 @@ function PolicyRow({
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-medium text-text-muted">Escalation channel</label>
-              <input
-                type="text"
+              <select
                 value={draft.escalationChannel}
                 onChange={(e) => setDraft((d) => ({ ...d, escalationChannel: e.target.value }))}
-                placeholder="e.g. email"
                 className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
-              />
+              >
+                <option value="">None</option>
+                {CHANNEL_OPTIONS.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-medium text-text-muted">Render strategy</label>
