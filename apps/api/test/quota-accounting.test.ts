@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { TrackWorkspaceQuotaUsageService } from "../src/modules/workspace-management/application/track-workspace-quota-usage.service";
+import type { ManageMediaPackagePurchaseService } from "../src/modules/workspace-management/application/manage-media-package-purchase.service";
 import type { ResolveEffectiveSubscriptionStateService } from "../src/modules/workspace-management/application/resolve-effective-subscription-state.service";
 import type { EffectiveSubscriptionState } from "../src/modules/workspace-management/application/effective-subscription.types";
 import type { ResolvePlatformRuntimeProviderSettingsService } from "../src/modules/workspace-management/application/resolve-platform-runtime-provider-settings.service";
@@ -436,7 +437,39 @@ async function run(): Promise<void> {
     quotaRepo as WorkspaceQuotaAccountingRepository,
     toolDailyUsageRepo as WorkspaceToolDailyUsageRepository,
     subscriptionResolver as ResolveEffectiveSubscriptionStateService,
-    runtimeProviderSettingsResolver as ResolvePlatformRuntimeProviderSettingsService
+    runtimeProviderSettingsResolver as ResolvePlatformRuntimeProviderSettingsService,
+    {
+      resolveActiveBonus: async (_workspaceId: string, toolCode: string) => ({
+        toolCode,
+        bonusUnits: 0,
+        latestPeriodEndsAt: null,
+        grantIds: []
+      }),
+      resolveAllActiveBonuses: async (_workspaceId: string) => ({
+        image_generate: {
+          toolCode: "image_generate",
+          bonusUnits: 0,
+          latestPeriodEndsAt: null,
+          grantIds: []
+        },
+        image_edit: {
+          toolCode: "image_edit",
+          bonusUnits: 0,
+          latestPeriodEndsAt: null,
+          grantIds: []
+        },
+        video_generate: {
+          toolCode: "video_generate",
+          bonusUnits: 0,
+          latestPeriodEndsAt: null,
+          grantIds: []
+        }
+      }),
+      createPackagePaymentIntent: async () => {
+        throw new Error("not implemented in test stub");
+      },
+      fulfillPackagePaymentIntent: async () => {}
+    } as unknown as ManageMediaPackagePurchaseService
   );
 
   const assistant = {
