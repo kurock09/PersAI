@@ -4085,6 +4085,12 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationPreviewRequest"
       responses:
         "200":
           description: Test send result
@@ -4098,6 +4104,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/templates:
+    get:
+      operationId: listNotificationTemplates
+      summary: List available notification templates
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Available template ids
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetNotificationTemplatesResponse"
         "401":
           description: Unauthorized
           content:
@@ -11799,6 +11836,19 @@ components:
           type: object
           additionalProperties: true
           nullable: true
+    GetNotificationTemplatesResponse:
+      type: object
+      required:
+        - requestId
+        - templateIds
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        templateIds:
+          type: array
+          items:
+            type: string
     PatchNotificationChannelRequest:
       type: object
       properties:

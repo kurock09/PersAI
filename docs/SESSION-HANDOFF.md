@@ -1,5 +1,145 @@
 # SESSION-HANDOFF
 
+## 2026-05-09 — ADR-088 Notifications PROD Hardening (LANDED)
+
+### What changed
+
+1. **`user_preferred` routing fixed** — `expandSemanticChannel` no longer silently falls back to `web_notification_center` when `preferred=telegram` but no active binding. Returns `null` → worker uses escalation channel or marks intent `failed`. "web" preference still correctly maps to `web_notification_center`.
+2. **`testSendForSource` honest semantics** — semantic channels (`user_preferred`, `current_thread`) are now resolved using the same logic as the real delivery worker instead of silently rerouting to `web_notification_center`. `current_thread` returns a structured `failed` result with `reason: current_thread_requires_live_surface_context`. `user_preferred` resolves the admin's actual preferred channel and falls back to policy escalation or returns an honest error.
+3. **Postmark Template mode fixed** — `deliverWithTemplate` now sends only raw `factPayload` as `TemplateModel` (no pre-rendered content). This removes the double-rendering path and makes Postmark template mode a true clean override. The primary PROD path (no Template ID) was already correct; the `hasTemplate` guard also now correctly excludes `0` and non-numeric strings.
+4. **Billing email branding rebuilt** — `billing-template-helpers.ts` completely rewritten with PersAI light premium design: warm sand background (`#f3ede6`), cream card (`#fefbf7`), thin border, 12px radius, no heavy shadows, system font stack. Footer has ru/en copy with thank-you, `support@persai.dev`, link to `persai.dev/app`, and five footer links (Pricing/Terms/Privacy/Contacts/Legal · Тарифы/Условия/Конфиденциальность/Контакты/Реквизиты). Plain-text version includes all footer fields with clickable URLs.
+5. **UI `TestSendBadge` improved** — maps known error reason codes to human-readable labels; shows `hint` text as tooltip for contextual guidance.
+
+### Current slice/step
+
+ADR-088 Notifications Admin PROD Cleanup + Hardening — COMPLETE.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/notifications/notification-routing.service.ts`
+- `apps/api/src/modules/workspace-management/application/notifications/manage-notification-platform.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/notifications/channel-adapters/email-channel.adapter.ts`
+- `apps/api/src/modules/workspace-management/application/notifications/templates/billing/billing-template-helpers.ts`
+- `apps/web/app/admin/notifications/_components/PoliciesSection.tsx`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck` → ✅
+- `corepack pnpm --filter @persai/web run typecheck` → ✅
+- `corepack pnpm --filter @persai/api run test` → ✅ (all tests including billing-templates suite)
+- `corepack pnpm run format:check` → ✅
+
+### Risks / notes
+
+- `user_preferred` escalation now required for sources that use it (`idle_reengagement`, `reminder`, `background_task_push`). Operators must configure escalation channel or intents will mark `failed` for users with `telegram` preference but no binding. Default policy already has `web_notification_center` as escalation — check that DB rows match.
+- `current_thread` source (`quota_advisory`) cannot be tested via the per-source Test button. This is by design; trigger a live quota advisory to validate delivery.
+- Postmark Template mode now receives raw `factPayload` (not pre-rendered HTML). Operators using Postmark templates need to use variables like `{{rule}}`, `{{planDisplayName}}` etc. in their Postmark template design.
+- Production URL used in billing emails: `https://persai.dev`. Cabinet link: `https://persai.dev/app`. Footer links: `/#pricing`, `/terms`, `/privacy`, `/contacts`, `/requisites` — all relative to `persai.dev`.
+
+### Next recommended step
+
+- Live smoke on `persai-dev`: trigger a `trial_ending` billing notification, verify email arrives with the new premium design (warm beige card, correct footer).
+- Verify that a `idle_reengagement` intent for a user with `telegram` preference but no binding escalates to `web_notification_center` (the configured escalation) rather than failing silently.
+- Add a focused unit test for `NotificationRoutingService.expandSemanticChannel` covering all four branches (web, telegram+binding, telegram+no-binding, current_thread).
+
+---
+
+## 2026-05-09 — ADR-088 Notifications Admin PROD Cleanup (LANDED)
+
+### What changed
+
+1. **Semantic channels added** — `user_preferred` and `current_thread` added to `NotificationChannelType` enum via migration `20260509110000_adr088_semantic_channels`. These are NOT real adapters; they are expanded at delivery time.
+2. **Policy defaults rewritten** — `idle_reengagement`, `reminder`, `background_task_push` now use `["user_preferred"]` with `web_notification_center` escalation; `quota_advisory` uses `["current_thread"]`; `billing_lifecycle` gains `escalationChannel=admin_webhook`.
+3. **Routing expansion** — `NotificationRoutingService.expandSemanticChannel()` pure helper; `NotificationDeliveryWorkerService` expands before adapter selection, fails/escalates on unresolvable semantic channels.
+4. **Postmark TemplatedEmail** — `EmailChannelAdapter` branches on `channelConfig.config.postmarkTemplateId`; delivery worker merges `policySnapshot.config` into channel config.
+5. **Producer cleanup** — `quota-advisory-follow-up.service.ts` no longer hardcodes `allowedChannels`; passes `surface`+`chatId` for `current_thread` expansion.
+6. **Per-source Test endpoint** — `POST /api/v1/admin/notifications/policies/:source/test`.
+7. **Policies UI** — rebuilt with correct semantic channel labels, read-only render strategy info, per-source routing controls, billing extras (Postmark Template ID, event picker, Test).
+8. **Channels UI** — email template picker removed; semantic channels filtered out.
+
+### Current active slice
+
+- `ADR-088 Notifications Admin PROD Cleanup`
+
+### Current active step
+
+- Fully landed. All 5 verification gates passed. Next: OpenAPI contract update + contracts regen for the new `/policies/:source/test` endpoint (not yet in `openapi.yaml`), then live smoke on `persai-dev`.
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260509110000_adr088_semantic_channels/migration.sql`
+- `apps/api/src/modules/workspace-management/application/notifications/defaults/notification-defaults.ts`
+- `apps/api/src/modules/workspace-management/application/notifications/notification-platform.types.ts` (no change needed)
+- `apps/api/src/modules/workspace-management/application/notifications/notification-routing.service.ts`
+- `apps/api/src/modules/workspace-management/application/notifications/notification-delivery-worker.service.ts`
+- `apps/api/src/modules/workspace-management/application/notifications/resolve-workspace-notification-channels.service.ts`
+- `apps/api/src/modules/workspace-management/application/notifications/manage-notification-platform.service.ts`
+- `apps/api/src/modules/workspace-management/application/quota-advisory-follow-up.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/notifications/channel-adapters/email-channel.adapter.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-notifications.controller.ts`
+- `apps/api/test/quota-advisory-follow-up.service.test.ts`
+- `apps/web/app/admin/notifications/_components/PoliciesSection.tsx`
+- `apps/web/app/admin/notifications/_components/ChannelRegistrySection.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `docs/ADR/088-unified-notification-platform-control-plane-and-delivery.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm -r --if-present run lint` ✓
+- `corepack pnpm run format:check` ✓
+- `corepack pnpm --filter @persai/api run typecheck` ✓
+- `corepack pnpm --filter @persai/web run typecheck` ✓
+- `corepack pnpm --filter @persai/api run test` ✓
+
+### Risks / notes
+
+1. The `POST /policies/:source/test` endpoint is NOT yet in `openapi.yaml`. Contracts regen is the natural next step before any live client code tries to call it via the generated client. The `PoliciesSection.tsx` calls it via a hand-rolled fetch in `assistant-api-client.ts` so the UI works without the contract update.
+2. Semantic channels `user_preferred` / `current_thread` are added to the Prisma enum but no `notification_channel_registry` row is created for them — this is by design. The resolver handles them without a registry gate.
+3. The `NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS` now has entries for the two semantic types to satisfy the `Record<NotificationChannelType, ...>` exhaustive type. These entries are never materialised to DB.
+4. Existing intents with old `allowedChannels` values (`["telegram_thread"]`, `["web_thread"]`, etc.) continue to route correctly — the expansion only applies to the two new semantic values.
+
+### Next recommended step
+
+1. Update `packages/contracts/openapi.yaml` to add `POST /admin/notifications/policies/{source}/test` schema, regenerate contracts, and add the generated function to `assistant-api-client.ts` to replace the hand-rolled fetch.
+2. Run a live smoke on `persai-dev`: create a test billing intent via the new Policies → Billing lifecycle → Test event button, verify the Postmark email arrives with the correct template (if `postmarkTemplateId` is configured).
+3. Consider adding a focused unit test for `expandSemanticChannel` covering both paths and both failure modes (the routing service is pure and easy to test in isolation).
+
+## 2026-05-09 — ADR-088 email test template picker + collapsible channel settings (LANDED)
+
+### What changed
+
+**Follow-up operator UX hardening for Admin > Notifications > Channels.**
+
+- `ChannelRegistrySection.tsx` now keeps per-channel settings behind a compact `Details` expander, so the channels list stays readable by default and advanced inputs open downward only when needed.
+- The email channel now exposes a real test-email builder: operators can choose `Static message` or any registered billing template, and provide editable JSON fact payload for the selected template before clicking `Test`.
+- `TemplateRendererService` now registers the full billing template catalog (`trial_ending`, `trial_expired`, `renewal_failed`, `grace_ending`, `grace_expired`, `payment_recovered`, plus `.short` variants) instead of only `billing.payment_recovered`, so template-based preview/test-send is no longer effectively single-template.
+- `ManageNotificationPlatformService.testSendChannel()` now accepts optional render input (`renderStrategy`, `templateId`, `renderInstructionRef`, `factPayload`) and uses the correct renderer for the synthetic test intent. `AdminNotificationsController` exposes a new `GET /admin/notifications/templates` endpoint so the UI can fetch the live template registry.
+- OpenAPI and generated contracts were refreshed for the new template catalog endpoint and optional test-send body.
+
+### Files touched
+- Modified: `apps/api/src/modules/workspace-management/application/notifications/render/template-renderer.service.ts`, `apps/api/src/modules/workspace-management/application/notifications/manage-notification-platform.service.ts`, `apps/api/src/modules/workspace-management/interface/http/admin-notifications.controller.ts`, `apps/api/test/admin-notifications.controller.authz.test.ts`, `apps/web/app/app/assistant-api-client.ts`, `apps/web/app/admin/notifications/_components/ChannelRegistrySection.tsx`, `packages/contracts/openapi.yaml`
+- Regenerated: `packages/contracts/src/generated/*`
+- Modified docs: `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`
+
+### Verification gates (all exit 0, run 2026-05-09)
+1. `corepack pnpm -r --if-present run lint` — 0
+2. `corepack pnpm run format:check` — 0
+3. `corepack pnpm --filter @persai/api run typecheck` — 0
+4. `corepack pnpm --filter @persai/web run typecheck` — 0
+5. `corepack pnpm --filter @persai/api exec tsx test/admin-notifications.controller.authz.test.ts` — 0
+
+### Risks / residuals
+- Email test templates currently expose editable JSON facts rather than a bespoke form per template. This is production-safe and flexible, but a future UX pass could replace JSON with typed inputs for billing fields.
+- Only templates registered in `TemplateRendererService` are selectable. This now covers the full current billing catalog, but new template families must still be added to that registry explicitly.
+
+### Next recommended step
+Deploy and verify one admin email test with a billing template and one static-message email test in the Notifications UI.
+
+---
+
 ## 2026-05-09 — ADR-088 reminder + channel-ops polish (LANDED)
 
 ### What changed

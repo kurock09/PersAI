@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2, Send, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, Loader2, Send, XCircle } from "lucide-react";
 import type { NotificationChannelView, PatchNotificationChannelRequest } from "@persai/contracts";
 import {
   patchUnifiedNotificationChannel,
@@ -15,6 +15,9 @@ type Props = {
   onRefresh: () => void;
   getToken: () => Promise<string | null>;
 };
+
+/** Semantic channels have no real adapter — hide them from the Channels tab. */
+const SEMANTIC_CHANNELS = new Set(["user_preferred", "current_thread"]);
 
 const CHANNEL_LABELS: Record<string, string> = {
   telegram_thread: "Telegram thread",
@@ -31,7 +34,23 @@ const PUSH_PLACEHOLDER: Record<string, string> = {
   mobile_push: "FCM server key (future ADR)"
 };
 
-function HealthBadge({ status, failures }: { status: string; failures: number }) {
+function HealthBadge({
+  status,
+  failures,
+  enabled
+}: {
+  status: string;
+  failures: number;
+  enabled: boolean;
+}) {
+  if (!enabled) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-[10px] font-semibold text-text-muted">
+        Disabled
+      </span>
+    );
+  }
+
   const healthy = status === "healthy";
   return (
     <span
@@ -82,6 +101,7 @@ function ChannelRow({
 }) {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [testResult, setTestResult] = useState<TestSendNotificationChannelResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pushUrl, setPushUrl] = useState<string>(
@@ -101,6 +121,7 @@ function ChannelRow({
   const isPushSlot = channel.channelType === "web_push" || channel.channelType === "mobile_push";
   const isEmail = channel.channelType === "email";
   const isAdminWebhook = channel.channelType === "admin_webhook";
+  const hasAdvancedControls = isPushSlot || isEmail || isAdminWebhook;
 
   async function toggleEnabled(): Promise<void> {
     const token = await getToken();
@@ -144,6 +165,8 @@ function ChannelRow({
     setTestResult(null);
     setError(null);
     try {
+      // Channel-level test is always a raw connectivity ping (static_fallback).
+      // Billing template testing has moved to the Policies tab.
       const result = await testSendNotificationChannel(token, channel.channelType);
       setTestResult(result);
       onUpdated({
@@ -162,116 +185,163 @@ function ChannelRow({
   }
 
   const label = CHANNEL_LABELS[channel.channelType] ?? channel.channelType;
+  const showFailure = channel.enabled && channel.lastFailureAt;
 
   return (
     <div className="rounded-lg border border-border bg-surface-raised px-4 py-3 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-text">{label}</span>
-            <HealthBadge status={channel.healthStatus} failures={channel.consecutiveFailures} />
-            {!channel.enabled && (
-              <span className="rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-muted">
-                disabled
-              </span>
-            )}
+            <HealthBadge
+              status={channel.healthStatus}
+              failures={channel.consecutiveFailures}
+              enabled={channel.enabled}
+            />
             {testResult && <TestSendBadge result={testResult} />}
+            {hasAdvancedControls && (
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] text-text-muted hover:text-text"
+              >
+                {advancedOpen ? (
+                  <ChevronUp className="h-3 w-3" />
+                ) : (
+                  <ChevronDown className="h-3 w-3" />
+                )}
+                Details
+              </button>
+            )}
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-text-muted">
             {channel.lastDeliveryAt && (
               <span>Last delivery: {new Date(channel.lastDeliveryAt).toLocaleString()}</span>
             )}
-            {channel.lastFailureAt && (
+            {showFailure && (
               <span className="text-destructive">
-                Last failure: {new Date(channel.lastFailureAt).toLocaleString()}
+                Last failure: {new Date(channel.lastFailureAt!).toLocaleString()}
               </span>
             )}
             <span>Updated: {new Date(channel.updatedAt).toLocaleString()}</span>
           </div>
-          {isPushSlot && (
-            <div className="mt-1 flex items-center gap-2">
-              <input
-                type="text"
-                value={pushUrl}
-                onChange={(e) => setPushUrl(e.target.value)}
-                placeholder={PUSH_PLACEHOLDER[channel.channelType] ?? "Endpoint URL"}
-                className="w-64 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent"
-              />
-              <button
-                type="button"
-                onClick={() => void saveConfig({ endpointUrl: pushUrl })}
-                disabled={savingConfig}
-                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
-              >
-                {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
-              </button>
-              <span className="text-[10px] text-text-muted italic">Real adapter in future ADR</span>
-            </div>
-          )}
-          {isAdminWebhook && (
-            <div className="mt-1 flex items-center gap-2">
-              <input
-                type="text"
-                value={adminWebhookUrl}
-                onChange={(e) => setAdminWebhookUrl(e.target.value)}
-                placeholder="https://example.com/webhook"
-                className="w-72 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent"
-              />
-              <button
-                type="button"
-                onClick={() => void saveConfig({ endpointUrl: adminWebhookUrl })}
-                disabled={savingConfig}
-                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
-              >
-                {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
-              </button>
-              <span className="text-[10px] text-text-muted italic">Endpoint URL</span>
-            </div>
-          )}
-          {isEmail && (
-            <div className="mt-1 space-y-1.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="w-32 text-[10px] font-medium text-text-muted">From address</label>
-                <input
-                  type="text"
-                  value={emailFromAddress}
-                  onChange={(e) => setEmailFromAddress(e.target.value)}
-                  placeholder="notifications@your-verified-domain.com"
-                  className="w-72 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-                <button
-                  type="button"
-                  onClick={() => void saveConfig({ fromAddress: emailFromAddress })}
-                  disabled={savingConfig}
-                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
-                >
-                  {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
-                </button>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="w-32 text-[10px] font-medium text-text-muted">
-                  Sending domain
-                </label>
-                <input
-                  type="text"
-                  value={emailSendingDomain}
-                  onChange={(e) => setEmailSendingDomain(e.target.value)}
-                  placeholder="notifications.persai.dev"
-                  className="w-72 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-                <button
-                  type="button"
-                  onClick={() => void saveConfig({ sendingDomain: emailSendingDomain })}
-                  disabled={savingConfig}
-                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
-                >
-                  {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
-                </button>
-              </div>
-              <p className="text-[10px] italic text-text-muted">
-                Postmark requires the From to be a verified Sender Signature or an address inside a
-                verified domain. Set From to a value confirmed in your Postmark account.
-              </p>
+          {advancedOpen && (
+            <div className="mt-2 space-y-3 rounded-lg border border-border/70 bg-surface px-3 py-3">
+              {isPushSlot && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                    Channel settings
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      value={pushUrl}
+                      onChange={(e) => setPushUrl(e.target.value)}
+                      placeholder={PUSH_PLACEHOLDER[channel.channelType] ?? "Endpoint URL"}
+                      className="w-64 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void saveConfig({ endpointUrl: pushUrl })}
+                      disabled={savingConfig}
+                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
+                    >
+                      {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                    </button>
+                    <span className="text-[10px] text-text-muted italic">
+                      Real adapter in future ADR
+                    </span>
+                  </div>
+                </div>
+              )}
+              {isAdminWebhook && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                    Channel settings
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      value={adminWebhookUrl}
+                      onChange={(e) => setAdminWebhookUrl(e.target.value)}
+                      placeholder="https://example.com/webhook"
+                      className="w-72 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void saveConfig({ endpointUrl: adminWebhookUrl })}
+                      disabled={savingConfig}
+                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
+                    >
+                      {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                    </button>
+                    <span className="text-[10px] text-text-muted italic">Endpoint URL</span>
+                  </div>
+                </div>
+              )}
+              {isEmail && (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                      Channel settings
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="w-32 text-[10px] font-medium text-text-muted">
+                        From address
+                      </label>
+                      <input
+                        type="text"
+                        value={emailFromAddress}
+                        onChange={(e) => setEmailFromAddress(e.target.value)}
+                        placeholder="notifications@your-verified-domain.com"
+                        className="w-72 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void saveConfig({ fromAddress: emailFromAddress })}
+                        disabled={savingConfig}
+                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
+                      >
+                        {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="w-32 text-[10px] font-medium text-text-muted">
+                        Sending domain
+                      </label>
+                      <input
+                        type="text"
+                        value={emailSendingDomain}
+                        onChange={(e) => setEmailSendingDomain(e.target.value)}
+                        placeholder="notifications.persai.dev"
+                        className="w-72 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void saveConfig({ sendingDomain: emailSendingDomain })}
+                        disabled={savingConfig}
+                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
+                      >
+                        {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                      </button>
+                    </div>
+                    <p className="text-[10px] italic text-text-muted">
+                      Postmark requires the From to be a verified Sender Signature or an address
+                      inside a verified domain. Set From to a value confirmed in your Postmark
+                      account.
+                    </p>
+                  </div>
+                  <p className="text-[10px] text-text-muted">
+                    To test billing email delivery including the Postmark Template ID, use the Test
+                    button in the{" "}
+                    <span className="font-medium text-text">Policies → Billing lifecycle</span>{" "}
+                    section.
+                  </p>
+                </div>
+              )}
+              {!hasAdvancedControls && (
+                <p className="text-[11px] text-text-muted">No additional channel settings yet.</p>
+              )}
             </div>
           )}
           {error && <p className="text-[10px] text-destructive">{error}</p>}
@@ -331,7 +401,11 @@ export function ChannelRegistrySection({ channels, getToken, onRefresh }: Props)
     onRefresh();
   }
 
-  if (localChannels.length === 0) {
+  // Filter out semantic channels — they have no real adapter and are not
+  // operator-configurable at the channel level.
+  const realChannels = localChannels.filter((ch) => !SEMANTIC_CHANNELS.has(ch.channelType));
+
+  if (realChannels.length === 0) {
     return (
       <p className="rounded-lg border border-border bg-surface px-4 py-3 text-xs text-text-muted">
         No channels configured yet. Run seed to populate channel registry.
@@ -341,7 +415,7 @@ export function ChannelRegistrySection({ channels, getToken, onRefresh }: Props)
 
   return (
     <div className="space-y-2">
-      {localChannels.map((ch) => (
+      {realChannels.map((ch) => (
         <ChannelRow
           key={ch.channelType}
           channel={ch}

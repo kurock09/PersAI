@@ -15,12 +15,16 @@ import type { RequestWithPlatformContext } from "../../../platform-core/interfac
 import { ManageNotificationPlatformService } from "../../application/notifications/manage-notification-platform.service";
 import type {
   NotificationChannelView,
+  NotificationTemplateCatalogView,
   NotificationPolicyView,
   QuietHoursView,
   DeliveryIntentView,
   DeadLetterView,
   PreviewResult,
   TestSendResult,
+  TestSendInput,
+  TestSendForSourceInput,
+  TestSendForSourceResult,
   ListDeliveriesQuery,
   ListDeadLettersQuery
 } from "../../application/notifications/manage-notification-platform.service";
@@ -54,14 +58,37 @@ export class AdminNotificationsController {
     return this.manageNotificationPlatformService.patchChannel(userId, channelType, input);
   }
 
+  @Get("templates")
+  async listTemplates(
+    @Req() req: RequestWithPlatformContext
+  ): Promise<{ requestId: string | null } & NotificationTemplateCatalogView> {
+    const userId = this.resolveRequestUserId(req);
+    const result = await this.manageNotificationPlatformService.listTemplates(userId);
+    return { requestId: req.requestId ?? null, ...result };
+  }
+
   @Post("channels/:channelType/test-send")
   @HttpCode(HttpStatus.OK)
   async testSendChannel(
     @Req() req: RequestWithPlatformContext,
-    @Param("channelType") channelType: string
+    @Param("channelType") channelType: string,
+    @Body() body: unknown
   ): Promise<TestSendResult> {
     const userId = this.resolveRequestUserId(req);
-    return this.manageNotificationPlatformService.testSendChannel(userId, channelType);
+    const input = parseTestSendInput(body);
+    return this.manageNotificationPlatformService.testSendChannel(userId, channelType, input);
+  }
+
+  @Post("policies/:source/test")
+  @HttpCode(HttpStatus.OK)
+  async testSendForSource(
+    @Req() req: RequestWithPlatformContext,
+    @Param("source") source: string,
+    @Body() body: unknown
+  ): Promise<TestSendForSourceResult> {
+    const userId = this.resolveRequestUserId(req);
+    const input = parseTestSendForSourceInput(body);
+    return this.manageNotificationPlatformService.testSendForSource(userId, source, input);
   }
 
   // ── ADR-088 unified policies ──────────────────────────────────────────────
@@ -308,5 +335,39 @@ function parsePreviewInput(body: unknown) {
     renderInstructionRef:
       typeof body["renderInstructionRef"] === "string" ? body["renderInstructionRef"] : null,
     factPayload: isRecord(body["factPayload"]) ? body["factPayload"] : {}
+  };
+}
+
+function parseTestSendInput(body: unknown): TestSendInput | undefined {
+  if (!isRecord(body)) {
+    return undefined;
+  }
+  return {
+    ...(typeof body["renderStrategy"] === "string"
+      ? {
+          renderStrategy: body["renderStrategy"] as "grounded_llm" | "template" | "static_fallback"
+        }
+      : {}),
+    ...(typeof body["templateId"] === "string" || body["templateId"] === null
+      ? { templateId: body["templateId"] as string | null }
+      : {}),
+    ...(typeof body["renderInstructionRef"] === "string" || body["renderInstructionRef"] === null
+      ? { renderInstructionRef: body["renderInstructionRef"] as string | null }
+      : {}),
+    ...(isRecord(body["factPayload"]) ? { factPayload: body["factPayload"] } : {})
+  };
+}
+
+function parseTestSendForSourceInput(body: unknown): TestSendForSourceInput {
+  if (!isRecord(body)) {
+    return {};
+  }
+  return {
+    ...(typeof body["eventCode"] === "string" || body["eventCode"] === null
+      ? { eventCode: body["eventCode"] as string | null }
+      : {}),
+    ...(typeof body["channelOverride"] === "string" || body["channelOverride"] === null
+      ? { channelOverride: body["channelOverride"] as string | null }
+      : {})
   };
 }

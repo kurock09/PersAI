@@ -172,7 +172,6 @@ export class QuotaAdvisoryFollowUpService {
         pushText: followUpText,
         candidates: eligibleCandidates
       },
-      allowedChannels: input.surface === "telegram" ? ["telegram_thread"] : ["web_thread"],
       dedupeKey,
       surface: input.surface,
       surfaceThreadKey: input.surfaceThreadKey,

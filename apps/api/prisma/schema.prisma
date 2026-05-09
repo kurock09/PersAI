@@ -2378,6 +2378,8 @@ enum NotificationChannelType {
   admin_webhook
   web_push
   mobile_push
+  user_preferred
+  current_thread
 }
 
 enum NotificationChannelHealth {

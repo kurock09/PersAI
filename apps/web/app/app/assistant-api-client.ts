@@ -121,7 +121,6 @@ import {
   replayNotificationDeadLetter as replayNotificationDeadLetterContract,
   discardNotificationDeadLetter as discardNotificationDeadLetterContract,
   previewNotification as previewNotificationContract,
-  testSendNotificationChannel as testSendNotificationChannelContract,
   type NotificationChannelView,
   type NotificationPolicyView,
   type NotificationQuietHoursView,
@@ -2539,6 +2538,16 @@ export type {
   NotificationPreviewResult
 };
 export type { GetNotificationDeliveriesResponse, ListNotificationDeliveriesParams };
+export type NotificationTemplateCatalogResult = {
+  requestId: string | null;
+  templateIds: string[];
+};
+export type TestSendNotificationChannelInput = {
+  renderStrategy?: "grounded_llm" | "template" | "static_fallback";
+  templateId?: string | null;
+  renderInstructionRef?: string | null;
+  factPayload?: Record<string, unknown>;
+};
 
 export async function patchUnifiedNotificationChannel(
   token: string,
@@ -2567,23 +2576,87 @@ export type TestSendNotificationChannelResult = {
   error: Record<string, unknown> | null;
 };
 
+export type TestSendForSourceInput = {
+  eventCode?: string | null;
+  channelOverride?: string | null;
+};
+
+export type TestSendForSourceResult = {
+  source: string;
+  channelType: string;
+  ok: boolean;
+  status: "delivered" | "failed" | "not_configured" | "adapter_not_found";
+  error: Record<string, unknown> | null;
+};
+
+export async function testSendNotificationForSource(
+  token: string,
+  source: string,
+  input?: TestSendForSourceInput
+): Promise<TestSendForSourceResult> {
+  const response = await fetch(`${getApiBaseUrl()}/admin/notifications/policies/${source}/test`, {
+    method: "POST",
+    headers: {
+      ...getAuthHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input ?? {})
+  });
+  if (!response.ok) {
+    throw new Error(
+      await readJsonErrorMessage(
+        response,
+        `Unexpected non-success response for POST /admin/notifications/policies/${source}/test.`
+      )
+    );
+  }
+  return (await response.json()) as TestSendForSourceResult;
+}
+
+export async function listNotificationTemplates(
+  token: string
+): Promise<NotificationTemplateCatalogResult> {
+  const response = await fetch(`${getApiBaseUrl()}/admin/notifications/templates`, {
+    headers: {
+      ...getAuthHeaders(token)
+    }
+  });
+  if (!response.ok) {
+    throw new Error(
+      await readJsonErrorMessage(
+        response,
+        "Unexpected non-success response for GET /admin/notifications/templates."
+      )
+    );
+  }
+  return (await response.json()) as NotificationTemplateCatalogResult;
+}
+
 export async function testSendNotificationChannel(
   token: string,
-  channelType: string
+  channelType: string,
+  input?: TestSendNotificationChannelInput
 ): Promise<TestSendNotificationChannelResult> {
-  try {
-    const response = await testSendNotificationChannelContract(channelType, {
-      headers: getAuthHeaders(token)
-    });
-    if (response.status !== 200) {
-      throw new Error(
-        `Unexpected non-success response for POST /admin/notifications/channels/${channelType}/test-send.`
-      );
+  const response = await fetch(
+    `${getApiBaseUrl()}/admin/notifications/channels/${channelType}/test-send`,
+    {
+      method: "POST",
+      headers: {
+        ...getAuthHeaders(token),
+        "Content-Type": "application/json"
+      },
+      ...(input !== undefined ? { body: JSON.stringify(input) } : {})
     }
-    return response.data as TestSendNotificationChannelResult;
-  } catch (error) {
-    throw new Error(toErrorMessage(error));
+  );
+  if (!response.ok) {
+    throw new Error(
+      await readJsonErrorMessage(
+        response,
+        `Unexpected non-success response for POST /admin/notifications/channels/${channelType}/test-send.`
+      )
+    );
   }
+  return (await response.json()) as TestSendNotificationChannelResult;
 }
 
 export async function listNotificationPolicies(token: string): Promise<NotificationPolicyView[]> {

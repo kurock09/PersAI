@@ -11,6 +11,7 @@ import { NOTIFICATION_CREDENTIAL_IDS } from "../../../application/tool-credentia
 import type { NotificationChannelAdapter } from "./channel-adapter.interface";
 
 const POSTMARK_SEND_URL = "https://api.postmarkapp.com/email";
+const POSTMARK_TEMPLATE_URL = "https://api.postmarkapp.com/email/withTemplate";
 const POSTMARK_SEND_TIMEOUT_MS = 10_000;
 const DEFAULT_SENDER_DOMAIN = "notifications.persai.dev";
 
@@ -80,7 +81,7 @@ export class EmailChannelAdapter implements NotificationChannelAdapter {
     }
 
     // Recipient: from factPayload.recipientEmail (billing producer sets this)
-    // or from channelConfig.config.toAddress (legacy operator-configured address).
+    // or from channelConfig.config.toAddress (resolver-injected owner email).
     const toAddress =
       (typeof intent.factPayload["recipientEmail"] === "string"
         ? intent.factPayload["recipientEmail"]
@@ -92,6 +93,86 @@ export class EmailChannelAdapter implements NotificationChannelAdapter {
       return { status: "failed", error: { reason: "email_to_address_not_configured" } };
     }
 
+    // Postmark Template ID from merged policy config (billing_lifecycle stores it there).
+    //
+    // Primary PROD path (no Template ID): PersAI renders the full email
+    // (subject, HTML, plainText) via TemplateRendererService and sends the
+    // pre-rendered content through Postmark's standard POST /email API.
+    // No Postmark-side template is required or expected.
+    //
+    // Optional override (Template ID set): skip the pre-rendered content and
+    // send only the raw factPayload to Postmark's POST /email/withTemplate.
+    // The Postmark template is responsible for all formatting; PersAI rendering
+    // is not used in this path.
+    const postmarkTemplateId = channelConfig.config["postmarkTemplateId"];
+    const resolvedTemplateId =
+      typeof postmarkTemplateId === "number" && postmarkTemplateId > 0
+        ? postmarkTemplateId
+        : typeof postmarkTemplateId === "string" && postmarkTemplateId.trim().length > 0
+          ? Number(postmarkTemplateId.trim())
+          : null;
+    // Treat NaN (e.g. non-numeric string) as "not set"
+    const hasTemplate = resolvedTemplateId !== null && !isNaN(resolvedTemplateId);
+
+    if (hasTemplate) {
+      return this.deliverWithTemplate(intent, resolvedTemplateId!, channelConfig, token, toAddress);
+    }
+    return this.deliverRaw(intent, renderedPayload, channelConfig, token, toAddress);
+  }
+
+  /**
+   * Postmark /email/withTemplate — optional operator override.
+   *
+   * Sends raw factPayload as TemplateModel variables so the Postmark-hosted
+   * template is solely responsible for rendering. PersAI's pre-rendered
+   * content is NOT used here — the Postmark template receives the original
+   * billing event data (rule, planDisplayName, periodEndsAt, amount, etc.)
+   * and renders them with its own markup.
+   *
+   * This path is only reached when the operator has explicitly configured a
+   * Postmark Template ID on the billing_lifecycle policy. The primary PROD
+   * path (no Template ID) is deliverRaw.
+   */
+  private async deliverWithTemplate(
+    intent: NotificationIntentRecord,
+    templateId: number,
+    channelConfig: ChannelRegistryRow,
+    token: string,
+    toAddress: string
+  ): Promise<DeliveryResult> {
+    const senderDomain = this.resolveSenderDomain(channelConfig);
+    const fromAddress = this.resolveFromAddress(channelConfig, senderDomain);
+
+    const payload = {
+      TemplateId: templateId,
+      From: fromAddress,
+      To: toAddress,
+      // Raw factPayload only — no PersAI-rendered content passed here.
+      // The Postmark template uses its own markup with the data variables.
+      TemplateModel: { ...intent.factPayload },
+      MessageStream: "outbound",
+      Metadata: {
+        intentId: intent.id,
+        workspaceId: intent.workspaceId,
+        source: intent.source,
+        traceId: intent.traceId ?? ""
+      }
+    };
+
+    return this.postmarkPost(POSTMARK_TEMPLATE_URL, payload, token, intent, "templated");
+  }
+
+  /**
+   * Postmark /email — raw send with pre-rendered subject/body/html.
+   * Used when no Postmark Template ID is configured on the policy.
+   */
+  private async deliverRaw(
+    intent: NotificationIntentRecord,
+    renderedPayload: RenderedPayload,
+    channelConfig: ChannelRegistryRow,
+    token: string,
+    toAddress: string
+  ): Promise<DeliveryResult> {
     const senderDomain = this.resolveSenderDomain(channelConfig);
     const fromAddress = this.resolveFromAddress(channelConfig, senderDomain);
     const subject = renderedPayload.subject ?? `Notification from PersAI`;
@@ -99,96 +180,104 @@ export class EmailChannelAdapter implements NotificationChannelAdapter {
       renderedPayload.html ?? `<pre>${renderedPayload.plainText ?? renderedPayload.body}</pre>`;
     const textBody = renderedPayload.plainText ?? renderedPayload.body;
 
-    try {
-      const payload = {
-        From: fromAddress,
-        To: toAddress,
-        Subject: subject,
-        HtmlBody: htmlBody,
-        TextBody: textBody,
-        MessageStream: "outbound",
-        Headers: [
-          { Name: "List-Unsubscribe", Value: `<mailto:unsubscribe@${senderDomain}>` },
-          { Name: "List-Unsubscribe-Post", Value: "List-Unsubscribe=One-Click" }
-        ],
-        Metadata: {
-          intentId: intent.id,
-          workspaceId: intent.workspaceId,
-          source: intent.source,
-          traceId: intent.traceId ?? ""
-        }
-      };
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => {
-        controller.abort();
-      }, POSTMARK_SEND_TIMEOUT_MS);
-
-      let response: Response;
-      try {
-        response = await fetch(POSTMARK_SEND_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-            "X-Postmark-Server-Token": token
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
-
-      const responseBody = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-
-      if (!response.ok) {
-        const errorCode =
-          typeof responseBody["ErrorCode"] === "number"
-            ? responseBody["ErrorCode"]
-            : response.status;
-        this.logger.warn({
-          event: "email_adapter.send_failed",
-          intentId: intent.id,
-          httpStatus: response.status,
-          errorCode,
-          message: responseBody["Message"]
-        });
-        return {
-          status: "failed",
-          error: {
-            reason: "postmark_error",
-            httpStatus: response.status,
-            errorCode,
-            message: responseBody["Message"]
-          }
-        };
-      }
-
-      const messageId =
-        typeof responseBody["MessageID"] === "string" ? responseBody["MessageID"] : undefined;
-
-      this.logger.log({
-        event: "email_adapter.sent",
+    const payload = {
+      From: fromAddress,
+      To: toAddress,
+      Subject: subject,
+      HtmlBody: htmlBody,
+      TextBody: textBody,
+      MessageStream: "outbound",
+      Headers: [
+        { Name: "List-Unsubscribe", Value: `<mailto:unsubscribe@${senderDomain}>` },
+        { Name: "List-Unsubscribe-Post", Value: "List-Unsubscribe=One-Click" }
+      ],
+      Metadata: {
         intentId: intent.id,
         workspaceId: intent.workspaceId,
         source: intent.source,
-        to: toAddress,
-        messageId
-      });
+        traceId: intent.traceId ?? ""
+      }
+    };
 
-      return {
-        status: "delivered",
-        ...(messageId !== undefined ? { providerRef: messageId } : {})
-      };
+    return this.postmarkPost(POSTMARK_SEND_URL, payload, token, intent, "raw");
+  }
+
+  private async postmarkPost(
+    url: string,
+    payload: Record<string, unknown>,
+    token: string,
+    intent: NotificationIntentRecord,
+    mode: "raw" | "templated"
+  ): Promise<DeliveryResult> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, POSTMARK_SEND_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "X-Postmark-Server-Token": token
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       this.logger.error({
         event: "email_adapter.error",
         intentId: intent.id,
+        mode,
         error: errorMsg
       });
       return { status: "failed", error: { reason: "email_send_error", message: errorMsg } };
+    } finally {
+      clearTimeout(timeout);
     }
+
+    const responseBody = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+    if (!response.ok) {
+      const errorCode =
+        typeof responseBody["ErrorCode"] === "number" ? responseBody["ErrorCode"] : response.status;
+      this.logger.warn({
+        event: "email_adapter.send_failed",
+        intentId: intent.id,
+        mode,
+        httpStatus: response.status,
+        errorCode,
+        message: responseBody["Message"]
+      });
+      return {
+        status: "failed",
+        error: {
+          reason: "postmark_error",
+          httpStatus: response.status,
+          errorCode,
+          message: responseBody["Message"]
+        }
+      };
+    }
+
+    const messageId =
+      typeof responseBody["MessageID"] === "string" ? responseBody["MessageID"] : undefined;
+
+    this.logger.log({
+      event: "email_adapter.sent",
+      intentId: intent.id,
+      workspaceId: intent.workspaceId,
+      source: intent.source,
+      mode,
+      messageId
+    });
+
+    return {
+      status: "delivered",
+      ...(messageId !== undefined ? { providerRef: messageId } : {})
+    };
   }
 }

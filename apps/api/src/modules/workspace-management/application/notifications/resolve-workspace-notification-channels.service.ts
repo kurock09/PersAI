@@ -63,17 +63,26 @@ export class ResolveWorkspaceNotificationChannelsService {
       channelType === NotificationChannelType.web_thread ||
       channelType === NotificationChannelType.web_notification_center;
 
-    const globalRow = await this.prisma.notificationChannelRegistry.findUnique({
-      where: { channelType: channelType as NotificationChannelType }
-    });
+    // Semantic channels have no registry row and no real adapter; they are
+    // expanded at delivery time by the worker before adapter selection.
+    const isSemanticChannel =
+      channelType === NotificationChannelType.user_preferred ||
+      channelType === NotificationChannelType.current_thread;
+
+    const globalRow = isSemanticChannel
+      ? null
+      : await this.prisma.notificationChannelRegistry.findUnique({
+          where: { channelType: channelType as NotificationChannelType }
+        });
 
     const defaults = NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS[channelType as NotificationChannelType];
 
     // Web channels are always derivable per workspace; the registry row is
     // advisory (operator-controlled config such as opt-in metadata) but is
-    // NOT a gate. For every other channel type the registry row remains the
-    // operator gate per ADR-088 §4.
-    if (!isWebChannel) {
+    // NOT a gate. Semantic channels bypass the registry entirely.
+    // For every other channel type the registry row remains the operator gate
+    // per ADR-088 §4.
+    if (!isWebChannel && !isSemanticChannel) {
       if (!globalRow || !globalRow.enabled) {
         return { available: false, reason: "channel_disabled_globally" };
       }
@@ -158,6 +167,20 @@ export class ResolveWorkspaceNotificationChannelsService {
       case NotificationChannelType.web_push:
       case NotificationChannelType.mobile_push:
         return { available: false, reason: "auto_derive_unavailable" };
+
+      // Semantic channels — not real adapters. Return available=true with no
+      // meaningful config so the delivery worker can pick them up and expand
+      // them before adapter selection (expandSemanticChannel in worker).
+      case NotificationChannelType.user_preferred:
+      case NotificationChannelType.current_thread:
+        return {
+          available: true,
+          channel: {
+            channelType,
+            config: {},
+            healthStatus: "healthy"
+          }
+        };
 
       default:
         this.logger.warn({

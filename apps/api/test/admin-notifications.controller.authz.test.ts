@@ -137,7 +137,7 @@ async function run(): Promise<void> {
   );
   // The Slice 2.5 audit gap: dry-run test-send had no admin gate.
   await expectForbidden("POST /channels/:channelType/test-send", () =>
-    controller.testSendChannel(req, "email")
+    controller.testSendChannel(req, "email", undefined)
   );
   await expectForbidden("GET /policies", () => controller.listPolicies(req));
   await expectForbidden("PATCH /policies/:source", () =>
@@ -164,7 +164,7 @@ async function run(): Promise<void> {
   // throw `UnauthorizedException` (not silently 200).
   const noAuthReq = fakeReq(null) as never;
   await assert.rejects(
-    () => controller.testSendChannel(noAuthReq, "email"),
+    () => controller.testSendChannel(noAuthReq, "email", undefined),
     /Authenticated user context is missing/,
     "test-send must surface 401 when no resolved user"
   );

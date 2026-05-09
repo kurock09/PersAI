@@ -80,6 +80,59 @@ export class NotificationRoutingService {
   }
 
   /**
+   * Expand a semantic channel value to a real deliverable channel.
+   *
+   * Semantic channels are `user_preferred` and `current_thread`. They are
+   * policy-level shortcuts that the delivery worker resolves at runtime:
+   *
+   *   user_preferred → read assistantPreferredChannel:
+   *     "telegram" → "telegram_thread" (only when hasActiveTelegramBinding=true)
+   *     anything else → "web_notification_center"
+   *
+   *   current_thread → read intent surface:
+   *     "telegram" → "telegram_thread"
+   *     "web"      → "web_thread"
+   *     else       → null (not resolvable; caller should fail/escalate)
+   *
+   * Returns the expanded real channel string, or null when the semantic
+   * channel cannot be resolved (caller must escalate or mark intent failed).
+   */
+  expandSemanticChannel(input: {
+    channel: string;
+    assistantPreferredChannel?: string | null;
+    hasActiveTelegramBinding?: boolean;
+    intentSurface?: string | null;
+  }): string | null {
+    const { channel } = input;
+
+    if (channel === "user_preferred") {
+      const preferred = input.assistantPreferredChannel ?? "web";
+
+      if (preferred === "telegram") {
+        // Telegram is only usable when there is an active channel binding.
+        // Without a binding the preferred channel is unresolvable — return null
+        // so the caller uses the policy escalation channel or marks the intent
+        // failed. Never silently redirect to web_notification_center.
+        return input.hasActiveTelegramBinding ? "telegram_thread" : null;
+      }
+
+      // "web" preference (or any other / unknown value) maps to the web
+      // notification centre, which has no binding requirement.
+      return "web_notification_center";
+    }
+
+    if (channel === "current_thread") {
+      const surface = input.intentSurface;
+      if (surface === "telegram") return "telegram_thread";
+      if (surface === "web") return "web_thread";
+      return null;
+    }
+
+    // Not a semantic channel — return as-is
+    return channel;
+  }
+
+  /**
    * Compute quiet-hours deferral time for a non-immediate intent.
    * Returns the Date to defer until, or null if no deferral needed.
    */

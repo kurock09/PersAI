@@ -1,4 +1,17 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { BillingLifecycleFactPayload } from "../templates/billing/billing-lifecycle-fact-payload";
+import renderGraceEnding from "../templates/billing/grace-ending.template";
+import renderGraceEndingShort from "../templates/billing/grace-ending.short.template";
+import renderGraceExpired from "../templates/billing/grace-expired.template";
+import renderGraceExpiredShort from "../templates/billing/grace-expired.short.template";
+import renderPaymentRecovered from "../templates/billing/payment-recovered.template";
+import renderPaymentRecoveredShort from "../templates/billing/payment-recovered.short.template";
+import renderRenewalFailed from "../templates/billing/renewal-failed.template";
+import renderRenewalFailedShort from "../templates/billing/renewal-failed.short.template";
+import renderTrialEnding from "../templates/billing/trial-ending.template";
+import renderTrialEndingShort from "../templates/billing/trial-ending.short.template";
+import renderTrialExpired from "../templates/billing/trial-expired.template";
+import renderTrialExpiredShort from "../templates/billing/trial-expired.short.template";
 import type { NotificationIntentRecord, RenderedPayload } from "../notification-platform.types";
 
 /**
@@ -17,11 +30,55 @@ export class TemplateRendererService {
 
   private readonly templates: Map<string, TemplateDefinition> = new Map([
     [
+      "billing.trial_ending",
+      { id: "billing.trial_ending", kind: "billing", render: renderTrialEnding }
+    ],
+    [
+      "billing.trial_ending.short",
+      { id: "billing.trial_ending.short", kind: "billing", render: renderTrialEndingShort }
+    ],
+    [
+      "billing.trial_expired",
+      { id: "billing.trial_expired", kind: "billing", render: renderTrialExpired }
+    ],
+    [
+      "billing.trial_expired.short",
+      { id: "billing.trial_expired.short", kind: "billing", render: renderTrialExpiredShort }
+    ],
+    [
+      "billing.renewal_failed",
+      { id: "billing.renewal_failed", kind: "billing", render: renderRenewalFailed }
+    ],
+    [
+      "billing.renewal_failed.short",
+      { id: "billing.renewal_failed.short", kind: "billing", render: renderRenewalFailedShort }
+    ],
+    [
+      "billing.grace_ending",
+      { id: "billing.grace_ending", kind: "billing", render: renderGraceEnding }
+    ],
+    [
+      "billing.grace_ending.short",
+      { id: "billing.grace_ending.short", kind: "billing", render: renderGraceEndingShort }
+    ],
+    [
+      "billing.grace_expired",
+      { id: "billing.grace_expired", kind: "billing", render: renderGraceExpired }
+    ],
+    [
+      "billing.grace_expired.short",
+      { id: "billing.grace_expired.short", kind: "billing", render: renderGraceExpiredShort }
+    ],
+    [
       "billing.payment_recovered",
+      { id: "billing.payment_recovered", kind: "billing", render: renderPaymentRecovered }
+    ],
+    [
+      "billing.payment_recovered.short",
       {
-        id: "billing.payment_recovered",
-        subjectTemplate: "Your PersAI subscription has been restored",
-        bodyTemplate: billingPaymentRecoveredTemplate
+        id: "billing.payment_recovered.short",
+        kind: "billing",
+        render: renderPaymentRecoveredShort
       }
     ]
   ]);
@@ -47,12 +104,7 @@ export class TemplateRendererService {
       return { body: `Notification: ${intent.source}` };
     }
 
-    const facts = intent.factPayload;
-    const subject = interpolate(template.subjectTemplate, facts);
-    const html = interpolate(template.bodyTemplate, facts);
-    const plainText = htmlToPlainText(html);
-
-    return { subject, body: plainText, html, plainText };
+    return this.renderTemplate(template, intent.factPayload);
   }
 
   /**
@@ -66,61 +118,37 @@ export class TemplateRendererService {
     if (!template) {
       return { body: `[template not found: ${templateId}]` };
     }
-    const subject = interpolate(template.subjectTemplate, factPayload);
-    const html = interpolate(template.bodyTemplate, factPayload);
-    const plainText = htmlToPlainText(html);
-    return { subject, body: plainText, html, plainText };
+    return this.renderTemplate(template, factPayload);
   }
 
   listTemplateIds(): string[] {
     return Array.from(this.templates.keys());
   }
+
+  private renderTemplate(
+    template: TemplateDefinition,
+    factPayload: Record<string, unknown>
+  ): RenderedPayload {
+    const locale =
+      typeof factPayload["locale"] === "string" &&
+      factPayload["locale"].toLowerCase().startsWith("en")
+        ? "en"
+        : "ru";
+    const rendered = template.render(factPayload as BillingLifecycleFactPayload, locale);
+    return {
+      subject: rendered.subject,
+      body: rendered.plainText,
+      html: rendered.html,
+      plainText: rendered.plainText
+    };
+  }
 }
 
 type TemplateDefinition = {
   id: string;
-  subjectTemplate: string;
-  bodyTemplate: string;
+  kind: "billing";
+  render: (
+    facts: BillingLifecycleFactPayload,
+    locale: "ru" | "en"
+  ) => { subject: string; html: string; plainText: string };
 };
-
-/**
- * Compiled billing.payment_recovered template (Slice 1 first template).
- * A future build step will compile MJML → HTML at build time.
- * For Slice 1 this is an inline HTML template compiled from the MJML source.
- */
-const billingPaymentRecoveredTemplate = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Payment Recovered</title></head>
-<body style="font-family:sans-serif;background:#f8f8f8;padding:32px">
-  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:8px;padding:32px">
-    <h2 style="color:#1a1a1a;margin-bottom:8px">Subscription Restored</h2>
-    <p style="color:#555">Hi,</p>
-    <p style="color:#555">
-      Your PersAI subscription payment was successfully processed and your access has been fully restored.
-    </p>
-    <table style="width:100%;border-top:1px solid #eee;margin-top:24px;padding-top:16px">
-      <tr><td style="color:#888;font-size:13px">Plan</td><td style="text-align:right;font-size:13px;color:#1a1a1a">{{planCode}}</td></tr>
-      <tr><td style="color:#888;font-size:13px">Amount</td><td style="text-align:right;font-size:13px;color:#1a1a1a">{{amount}} {{currency}}</td></tr>
-      <tr><td style="color:#888;font-size:13px">Next renewal</td><td style="text-align:right;font-size:13px;color:#1a1a1a">{{periodEndsAt}}</td></tr>
-    </table>
-    <p style="color:#888;font-size:12px;margin-top:32px">
-      You are receiving this email because you have an active PersAI subscription.
-      <br>To manage notifications, visit your account settings.
-    </p>
-  </div>
-</body>
-</html>`;
-
-function interpolate(template: string, facts: Record<string, unknown>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
-    const val = facts[key];
-    return val !== undefined && val !== null ? String(val) : "";
-  });
-}
-
-function htmlToPlainText(html: string): string {
-  return html
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}

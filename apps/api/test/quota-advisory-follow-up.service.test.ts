@@ -127,15 +127,16 @@ async function run(): Promise<void> {
     assert.ok(result?.intentId, "intentId present");
     assert.equal(capturedIntents.length, 1, "createIntent called once");
     const captured = capturedIntents[0]!;
-    assert.deepEqual(
-      captured["allowedChannels"],
-      ["web_thread"],
-      `web turn allowedChannels should be ["web_thread"], got ${JSON.stringify(captured["allowedChannels"])}`
-    );
+    // allowedChannels is no longer hardcoded by the producer — policy decides
+    // (current_thread), so we only check that surface context is forwarded
+    // so the delivery worker can expand current_thread at runtime.
     assert.equal(captured["surface"], "web", "surface=web");
+    assert.equal(captured["chatId"], "chat-1", "chatId forwarded for current_thread expansion");
     assert.equal(captured["traceId"], "trace-web-turn-1", "traceId forwarded");
     assert.ok(captured["dedupeKey"], "dedupeKey populated");
-    console.log("✓ web turn: allowedChannels=[web_thread], traceId forwarded");
+    console.log(
+      "✓ web turn: surface/chatId forwarded for current_thread expansion, traceId forwarded"
+    );
   }
 
   // 2. Telegram turn → allowedChannels=["telegram_thread"], surface="telegram"
@@ -156,14 +157,14 @@ async function run(): Promise<void> {
 
     assert.ok(result !== null, "telegram turn should produce an intent");
     const captured = capturedIntents[0]!;
-    assert.deepEqual(
-      captured["allowedChannels"],
-      ["telegram_thread"],
-      `telegram turn allowedChannels should be ["telegram_thread"], got ${JSON.stringify(captured["allowedChannels"])}`
-    );
+    // allowedChannels is no longer hardcoded — policy decides (current_thread).
+    // We verify surface context is forwarded for delivery worker expansion.
     assert.equal(captured["surface"], "telegram", "surface=telegram");
+    assert.equal(captured["chatId"], "chat-tg-1", "chatId forwarded for current_thread expansion");
     assert.equal(captured["traceId"], "trace-tg-turn-1", "traceId forwarded for telegram");
-    console.log("✓ telegram turn: allowedChannels=[telegram_thread], traceId forwarded");
+    console.log(
+      "✓ telegram turn: surface/chatId forwarded for current_thread expansion, traceId forwarded"
+    );
   }
 
   // 3. LLM decides no_push → returns null, no createIntent call

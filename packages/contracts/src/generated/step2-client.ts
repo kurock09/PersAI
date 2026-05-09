@@ -89,6 +89,7 @@ import type {
   GetNotificationDeliveriesResponse,
   GetNotificationPoliciesResponse,
   GetNotificationQuietHoursResponse,
+  GetNotificationTemplatesResponse,
   GetProductKnowledgeTextEntriesResponse,
   GetPublicPricingPlansResponse,
   GlobalKnowledgeSourceScope,
@@ -6073,15 +6074,69 @@ export const getTestSendNotificationChannelUrl = (channelType: string) => {
 
 export const testSendNotificationChannel = async (
   channelType: string,
+  notificationPreviewRequest?: NotificationPreviewRequest,
   options?: RequestInit
 ): Promise<testSendNotificationChannelResponse> => {
   return customFetch<testSendNotificationChannelResponse>(
     getTestSendNotificationChannelUrl(channelType),
     {
       ...options,
-      method: "POST"
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(notificationPreviewRequest)
     }
   );
+};
+
+/**
+ * @summary List available notification templates
+ */
+export type listNotificationTemplatesResponse200 = {
+  data: GetNotificationTemplatesResponse;
+  status: 200;
+};
+
+export type listNotificationTemplatesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type listNotificationTemplatesResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type listNotificationTemplatesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type listNotificationTemplatesResponseSuccess = listNotificationTemplatesResponse200 & {
+  headers: Headers;
+};
+export type listNotificationTemplatesResponseError = (
+  | listNotificationTemplatesResponse401
+  | listNotificationTemplatesResponse403
+  | listNotificationTemplatesResponse500
+) & {
+  headers: Headers;
+};
+
+export type listNotificationTemplatesResponse =
+  | listNotificationTemplatesResponseSuccess
+  | listNotificationTemplatesResponseError;
+
+export const getListNotificationTemplatesUrl = () => {
+  return `/admin/notifications/templates`;
+};
+
+export const listNotificationTemplates = async (
+  options?: RequestInit
+): Promise<listNotificationTemplatesResponse> => {
+  return customFetch<listNotificationTemplatesResponse>(getListNotificationTemplatesUrl(), {
+    ...options,
+    method: "GET"
+  });
 };
 
 /**

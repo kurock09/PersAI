@@ -1,12 +1,13 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma, AssistantChannelBindingState } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 import { NOTIFICATION_CHANNEL_ADAPTERS } from "../../infrastructure/notifications/channel-adapters/channel-adapter.interface";
 import type { NotificationChannelAdapter } from "../../infrastructure/notifications/channel-adapters/channel-adapter.interface";
 import { StaticFallbackRendererService } from "./render/static-fallback-renderer.service";
 import { TemplateRendererService } from "./render/template-renderer.service";
 import { GroundedLlmRendererService } from "./render/grounded-llm-renderer.service";
+import { NotificationRoutingService } from "./notification-routing.service";
 import {
   ResolveWorkspaceNotificationChannelsService,
   type ChannelResolution,
@@ -38,7 +39,8 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
     private readonly templateRenderer: TemplateRendererService,
     private readonly groundedLlmRenderer: GroundedLlmRendererService,
     private readonly staticFallbackRenderer: StaticFallbackRendererService,
-    private readonly channelResolver: ResolveWorkspaceNotificationChannelsService
+    private readonly channelResolver: ResolveWorkspaceNotificationChannelsService,
+    private readonly routingService: NotificationRoutingService
   ) {}
 
   onModuleInit(): void {
@@ -127,9 +129,38 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
         return;
       }
 
-      const primaryChannel = intent.allowedChannels[0] ?? null;
-      if (!primaryChannel) {
+      const rawChannel = intent.allowedChannels[0] ?? null;
+      if (!rawChannel) {
         await this.markFailed(intent, "no_channel_configured");
+        return;
+      }
+
+      // Expand semantic channels (user_preferred / current_thread) to real
+      // adapter channels before resolution and adapter selection.
+      const primaryChannel = await this.expandSemanticChannelForIntent(intent, rawChannel);
+      if (primaryChannel === null) {
+        // Semantic channel could not be resolved — try escalation or fail.
+        const escalation = intent.escalationChannel;
+        if (escalation && escalation !== rawChannel) {
+          const failureReason =
+            rawChannel === "current_thread"
+              ? "current_thread_context_missing"
+              : "user_preferred_unavailable";
+          this.logger.warn({
+            event: "notification.delivery.semantic_channel_unresolved",
+            intentId: intent.id,
+            rawChannel,
+            failureReason,
+            escalationChannel: escalation
+          });
+          await this.tryEscalation(intent, escalation, null);
+        } else {
+          const failureReason =
+            rawChannel === "current_thread"
+              ? "current_thread_context_missing"
+              : "user_preferred_unavailable";
+          await this.markFailed(intent, failureReason);
+        }
         return;
       }
 
@@ -190,10 +221,17 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
       // Deliver. Build a ChannelRegistryRow shape from the resolver output so
       // adapters keep their typed contract; per-workspace overrides (e.g. the
       // resolved owner email under config.toAddress) flow through resolution.
+      // Merge policy config (e.g. postmarkTemplateId for billing_lifecycle)
+      // so channel adapters can use it without needing a separate policy lookup.
+      const policyConfig =
+        intent.policySnapshot && typeof intent.policySnapshot["config"] === "object"
+          ? (intent.policySnapshot["config"] as Record<string, unknown>)
+          : {};
       const channelRegistryRecord = this.toChannelRegistryRow(
         primaryChannel,
         resolution,
-        channelRow
+        channelRow,
+        policyConfig
       );
 
       const result = await adapter.deliver(intent, rendered, channelRegistryRecord);
@@ -300,6 +338,57 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
     }
   }
 
+  /**
+   * Resolve a semantic channel (user_preferred / current_thread) to a real
+   * adapter channel by reading assistant preferences and intent surface context.
+   * Returns the resolved real channel string, or null when not resolvable.
+   * Non-semantic channels are returned unchanged.
+   */
+  private async expandSemanticChannelForIntent(
+    intent: NotificationIntentRecord,
+    channel: string
+  ): Promise<string | null> {
+    if (channel !== "user_preferred" && channel !== "current_thread") {
+      return channel;
+    }
+
+    if (channel === "current_thread") {
+      return this.routingService.expandSemanticChannel({
+        channel,
+        intentSurface: intent.surface
+      });
+    }
+
+    // user_preferred: need assistant's preferred channel + binding status
+    let assistantPreferredChannel: string | null = null;
+    let hasActiveTelegramBinding = false;
+
+    if (intent.assistantId) {
+      const assistant = await this.prisma.assistant.findUnique({
+        where: { id: intent.assistantId },
+        select: { preferredNotificationChannel: true }
+      });
+      assistantPreferredChannel = assistant?.preferredNotificationChannel ?? null;
+
+      if (assistantPreferredChannel === "telegram") {
+        const binding = await this.prisma.assistantChannelSurfaceBinding.findFirst({
+          where: {
+            assistantId: intent.assistantId,
+            providerKey: "telegram",
+            bindingState: AssistantChannelBindingState.active
+          }
+        });
+        hasActiveTelegramBinding = binding !== null;
+      }
+    }
+
+    return this.routingService.expandSemanticChannel({
+      channel,
+      assistantPreferredChannel,
+      hasActiveTelegramBinding
+    });
+  }
+
   private formatChannelUnavailable(channelType: string, reason: ChannelUnavailableReason): string {
     return `channel_not_configured:${channelType}:${reason}`;
   }
@@ -317,14 +406,17 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
       createdAt: Date;
       updatedAt: Date;
       healthStatus: string;
-    } | null
+    } | null,
+    policyConfig: Record<string, unknown> = {}
   ) {
     const now = new Date();
     return {
       id: row?.id ?? `derived:${channelType}`,
       channelType: (row?.channelType ?? channelType) as never,
       enabled: row?.enabled ?? true,
-      config: resolution.channel.config,
+      // Policy config is merged last so per-source values (e.g. postmarkTemplateId
+      // on billing_lifecycle) reach the adapter without a separate policy lookup.
+      config: { ...resolution.channel.config, ...policyConfig },
       healthStatus: (resolution.channel.healthStatus as never) ?? "healthy",
       consecutiveFailures: row?.consecutiveFailures ?? 0,
       lastDeliveryAt: row?.lastDeliveryAt ?? null,
@@ -337,7 +429,7 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
   private async tryEscalation(
     intent: NotificationIntentRecord,
     escalationChannel: string,
-    primaryAttemptId: string
+    primaryAttemptId: string | null
   ): Promise<void> {
     const resolution = await this.channelResolver.resolveChannel({
       workspaceId: intent.workspaceId,
@@ -370,7 +462,7 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
         attemptNumber: 2,
         channel: escalationChannel,
         status: "pending",
-        escalationOf: primaryAttemptId
+        ...(primaryAttemptId !== null ? { escalationOf: primaryAttemptId } : {})
       }
     });
 
@@ -391,10 +483,15 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
       traceId: intent.traceId
     });
 
+    const policyConfig =
+      intent.policySnapshot && typeof intent.policySnapshot["config"] === "object"
+        ? (intent.policySnapshot["config"] as Record<string, unknown>)
+        : {};
     const channelRegistryRecord = this.toChannelRegistryRow(
       escalationChannel,
       resolution,
-      channelRow
+      channelRow,
+      policyConfig
     );
 
     const result = await adapter.deliver(intent, rendered, channelRegistryRecord);

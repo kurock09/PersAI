@@ -2,7 +2,9 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from "@nes
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import {
+  AssistantChannelBindingState,
   NotificationClass,
+  NotificationChannelType,
   NotificationLifecycleStatus,
   NotificationPriority,
   NotificationRenderStrategy,
@@ -118,6 +120,23 @@ export type TestSendResult = {
   error: Record<string, unknown> | null;
 };
 
+export type TestSendForSourceInput = {
+  eventCode?: string | null;
+  channelOverride?: string | null;
+};
+
+export type TestSendForSourceResult = {
+  source: string;
+  channelType: string;
+  ok: boolean;
+  status: "delivered" | "failed" | "not_configured" | "adapter_not_found";
+  error: Record<string, unknown> | null;
+};
+
+export type NotificationTemplateCatalogView = {
+  templateIds: string[];
+};
+
 // ── Input types ───────────────────────────────────────────────────────────────
 
 export type PatchChannelInput = {
@@ -175,6 +194,22 @@ export type PreviewInput = {
   renderInstructionRef?: string | null;
   factPayload: Record<string, unknown>;
 };
+
+export type TestSendInput = {
+  renderStrategy?: "grounded_llm" | "template" | "static_fallback";
+  templateId?: string | null;
+  renderInstructionRef?: string | null;
+  factPayload?: Record<string, unknown>;
+};
+
+const VALID_BILLING_EVENT_CODES = [
+  "trial_ending",
+  "trial_expired",
+  "renewal_failed",
+  "grace_ending",
+  "grace_expired",
+  "payment_recovered"
+] as const;
 
 const VALID_RENDER_STRATEGIES = ["grounded_llm", "template", "static_fallback"] as const;
 const VALID_CHANNEL_TYPES = [
@@ -278,11 +313,24 @@ export class ManageNotificationPlatformService {
       where: { id: existing.id },
       data: {
         ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+        ...(input.enabled === false
+          ? {
+              consecutiveFailures: 0,
+              lastFailureAt: null
+            }
+          : {}),
         ...(input.config !== undefined ? { config: input.config as Prisma.InputJsonValue } : {}),
         ...(input.healthStatus !== undefined ? { healthStatus: input.healthStatus as never } : {})
       }
     });
     return this.channelToView(updated);
+  }
+
+  async listTemplates(userId: string): Promise<NotificationTemplateCatalogView> {
+    await this.resolveWorkspaceId(userId);
+    return {
+      templateIds: this.templateRenderer.listTemplateIds()
+    };
   }
 
   /**
@@ -293,7 +341,11 @@ export class ManageNotificationPlatformService {
    * persisted to notification_intents; channel-side rows (chat messages,
    * provider sends) reflect the test as a normal delivery.
    */
-  async testSendChannel(userId: string, channelType: string): Promise<TestSendResult> {
+  async testSendChannel(
+    userId: string,
+    channelType: string,
+    input?: TestSendInput
+  ): Promise<TestSendResult> {
     if (!VALID_CHANNEL_TYPES.includes(channelType as never)) {
       throw new BadRequestException(`Unknown channel type: ${channelType}`);
     }
@@ -321,9 +373,11 @@ export class ManageNotificationPlatformService {
       };
     }
 
-    // Resolve admin context. We ALWAYS look up the admin's own assistant +
-    // first active web chat so channels that require binding can deliver
-    // a real message visible to the operator running the test.
+    // Resolve admin context. Different channels need different routing truth:
+    // - telegram_thread: Telegram DM chat id from assistant binding metadata
+    // - web_thread / web_notification_center: first active web chat
+    // - email: recipientEmail only
+    // - admin_webhook / push placeholders: no user chat context required
     const adminAssistant = await this.prisma.assistant.findUnique({
       where: { userId }
     });
@@ -331,24 +385,70 @@ export class ManageNotificationPlatformService {
     let surface: string | null = null;
     let surfaceThreadKey: string | null = null;
     if (adminAssistant) {
-      const firstChat = await this.prisma.assistantChat.findFirst({
-        where: {
-          assistantId: adminAssistant.id,
-          userId,
-          archivedAt: null,
-          surface: "web" as never
-        },
-        orderBy: { lastMessageAt: "desc" }
-      });
-      if (firstChat) {
-        chatId = firstChat.id;
-        surface = firstChat.surface as unknown as string;
-        surfaceThreadKey = firstChat.surfaceThreadKey;
+      if (channelType === NotificationChannelType.telegram_thread) {
+        const tgBinding = await this.prisma.assistantChannelSurfaceBinding.findFirst({
+          where: {
+            assistantId: adminAssistant.id,
+            providerKey: "telegram",
+            bindingState: "active"
+          },
+          select: { metadata: true }
+        });
+        const metadata =
+          tgBinding?.metadata &&
+          typeof tgBinding.metadata === "object" &&
+          !Array.isArray(tgBinding.metadata)
+            ? (tgBinding.metadata as Record<string, unknown>)
+            : null;
+        const telegramDmChatId =
+          typeof metadata?.["telegramDmChatId"] === "string"
+            ? metadata["telegramDmChatId"].trim()
+            : typeof metadata?.["reminderDeliveryChatId"] === "string"
+              ? metadata["reminderDeliveryChatId"].trim()
+              : "";
+        if (telegramDmChatId.length > 0) {
+          surface = "telegram";
+          surfaceThreadKey = telegramDmChatId;
+        }
+      } else if (
+        channelType === NotificationChannelType.web_thread ||
+        channelType === NotificationChannelType.web_notification_center
+      ) {
+        const firstChat = await this.prisma.assistantChat.findFirst({
+          where: {
+            assistantId: adminAssistant.id,
+            userId,
+            archivedAt: null,
+            surface: "web" as never
+          },
+          orderBy: { lastMessageAt: "desc" }
+        });
+        if (firstChat) {
+          chatId = firstChat.id;
+          surface = firstChat.surface as unknown as string;
+          surfaceThreadKey = firstChat.surfaceThreadKey;
+        }
       }
     }
     const adminEmail = await this.prisma.appUser
       .findUnique({ where: { id: userId }, select: { email: true } })
       .then((u) => u?.email ?? null);
+
+    const renderStrategy =
+      (input?.renderStrategy as NotificationRenderStrategy | undefined) ??
+      NotificationRenderStrategy.static_fallback;
+    const factPayload =
+      input?.factPayload !== undefined
+        ? {
+            ...input.factPayload,
+            ...(adminEmail !== null && typeof input.factPayload["recipientEmail"] !== "string"
+              ? { recipientEmail: adminEmail }
+              : {})
+          }
+        : {
+            message: `Test send for channel "${channelType}" — PersAI Notifications`,
+            ...(adminEmail !== null ? { recipientEmail: adminEmail } : {})
+          };
 
     const syntheticIntent: NotificationIntentRecord = {
       id: randomUUID(),
@@ -356,16 +456,16 @@ export class ManageNotificationPlatformService {
       assistantId: adminAssistant?.id ?? null,
       userId,
       source: NotificationSource.system_event,
-      class: NotificationClass.operational,
+      class:
+        renderStrategy === NotificationRenderStrategy.grounded_llm
+          ? NotificationClass.conversational
+          : NotificationClass.operational,
       priority: NotificationPriority.immediate,
       lifecycleStatus: NotificationLifecycleStatus.pending,
-      renderStrategy: NotificationRenderStrategy.static_fallback,
-      renderInstructionRef: null,
-      templateId: null,
-      factPayload: {
-        message: `Test send for channel "${channelType}" — PersAI Notifications`,
-        ...(adminEmail !== null ? { recipientEmail: adminEmail } : {})
-      },
+      renderStrategy,
+      renderInstructionRef: input?.renderInstructionRef ?? null,
+      templateId: input?.templateId ?? null,
+      factPayload,
       policySnapshot: {},
       allowedChannels: [channelType],
       escalationAfterMinutes: null,
@@ -397,7 +497,12 @@ export class ManageNotificationPlatformService {
       updatedAt: channelRow.updatedAt
     };
 
-    const rendered = await this.staticFallbackRenderer.render(syntheticIntent);
+    const rendered =
+      renderStrategy === NotificationRenderStrategy.template
+        ? await this.templateRenderer.render(syntheticIntent)
+        : renderStrategy === NotificationRenderStrategy.grounded_llm
+          ? await this.groundedLlmRenderer.render(syntheticIntent)
+          : await this.staticFallbackRenderer.render(syntheticIntent);
     const result = await adapter.deliver(syntheticIntent, rendered, channelConfig);
 
     // Update channel health to mirror what the real worker does, so the
@@ -423,6 +528,259 @@ export class ManageNotificationPlatformService {
     }
 
     return {
+      channelType,
+      ok: result.status === "delivered",
+      status: result.status === "delivered" ? "delivered" : "failed",
+      error: result.error ?? null
+    };
+  }
+
+  /**
+   * Per-source test send.
+   *
+   * For `billing_lifecycle`: `eventCode` selects the billing rule; demo facts
+   * are built automatically so the operator sees a realistic rendered email.
+   * Routes through the real email pipeline including the Postmark Template ID
+   * stored in the policy config (if set).
+   *
+   * For other sources: builds minimal demo facts and routes through the policy's
+   * default channel (or `channelOverride` when supplied).
+   */
+  async testSendForSource(
+    userId: string,
+    source: string,
+    input: TestSendForSourceInput
+  ): Promise<TestSendForSourceResult> {
+    if (!VALID_NOTIFICATION_SOURCES.includes(source as never)) {
+      throw new BadRequestException(`Unknown notification source: ${source}`);
+    }
+    const workspaceId = await this.resolveWorkspaceId(userId);
+
+    // Resolve policy to get the default channel and config (incl. postmarkTemplateId).
+    const policyRow = await this.prisma.notificationPolicy.findUnique({
+      where: { source: source as never }
+    });
+    const policyConfig =
+      policyRow && typeof policyRow.config === "object"
+        ? (policyRow.config as Record<string, unknown>)
+        : {};
+    const policyChannels: string[] = policyRow?.channels ?? [];
+
+    // Look up the admin's assistant once — used both for semantic-channel
+    // resolution and for building the synthetic intent later.
+    const adminAssistant = await this.prisma.assistant.findUnique({ where: { userId } });
+
+    // Resolve the concrete channel using the same semantics as the real delivery
+    // worker. Semantic channels (user_preferred, current_thread) are expanded
+    // here rather than silently rerouted to web_notification_center so that a
+    // green test actually reflects what live delivery would do.
+    const rawPolicyChannel = policyChannels[0] ?? null;
+    let channelType: string;
+
+    if (input.channelOverride && VALID_CHANNEL_TYPES.includes(input.channelOverride as never)) {
+      channelType = input.channelOverride;
+    } else if (rawPolicyChannel === "current_thread") {
+      // current_thread requires a live surface + chatId from an active user
+      // session. A synthetic admin test cannot fabricate this context. Return
+      // an honest error rather than silently routing to another channel.
+      return {
+        source,
+        channelType: "current_thread",
+        ok: false,
+        status: "failed",
+        error: {
+          reason: "current_thread_requires_live_surface_context",
+          hint: "This source delivers into the active user chat. It cannot be tested in isolation; trigger a real intent from the assistant instead."
+        }
+      };
+    } else if (rawPolicyChannel === "user_preferred") {
+      // Resolve the admin's actual preferred channel exactly as the real worker
+      // would, then fall back to the policy escalation channel if needed.
+      let resolvedChannel: string | null = null;
+
+      if (adminAssistant) {
+        const preferred = adminAssistant.preferredNotificationChannel ?? "web";
+        if (preferred === "telegram") {
+          const binding = await this.prisma.assistantChannelSurfaceBinding.findFirst({
+            where: {
+              assistantId: adminAssistant.id,
+              providerKey: "telegram",
+              bindingState: AssistantChannelBindingState.active
+            }
+          });
+          resolvedChannel = binding ? "telegram_thread" : null;
+        } else {
+          resolvedChannel = "web_notification_center";
+        }
+      }
+
+      if (resolvedChannel !== null && VALID_CHANNEL_TYPES.includes(resolvedChannel as never)) {
+        channelType = resolvedChannel;
+      } else {
+        // Preferred channel unresolvable — try policy escalation channel.
+        const escalation = policyRow?.escalationChannel ?? null;
+        if (escalation && VALID_CHANNEL_TYPES.includes(escalation as never)) {
+          channelType = escalation;
+        } else {
+          return {
+            source,
+            channelType: "user_preferred",
+            ok: false,
+            status: "failed",
+            error: {
+              reason: "user_preferred_unavailable",
+              hint: "No Telegram binding found for your assistant and no escalation channel is configured on this policy."
+            }
+          };
+        }
+      }
+    } else {
+      channelType = rawPolicyChannel ?? "admin_webhook";
+    }
+
+    if (!VALID_CHANNEL_TYPES.includes(channelType as never)) {
+      throw new BadRequestException(`Resolved channel type is not testable: ${channelType}`);
+    }
+
+    // Resolve admin email for recipient
+    const adminEmail = await this.prisma.appUser
+      .findUnique({ where: { id: userId }, select: { email: true } })
+      .then((u) => u?.email ?? null);
+
+    // Build demo facts
+    let factPayload: Record<string, unknown>;
+    let templateId: string | null = null;
+    let renderStrategy: NotificationRenderStrategy = NotificationRenderStrategy.static_fallback;
+
+    if (source === "billing_lifecycle") {
+      const eventCode =
+        input.eventCode && VALID_BILLING_EVENT_CODES.includes(input.eventCode as never)
+          ? input.eventCode
+          : "trial_ending";
+      const now = new Date();
+      const soon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+      factPayload = {
+        rule: eventCode,
+        workspaceId,
+        planCode: "pro",
+        planDisplayName: "PersAI Pro",
+        periodEndsAt: soon.toISOString(),
+        graceEndsAt: null,
+        trialEndsAt: soon.toISOString(),
+        amount: 990,
+        currency: "RUB",
+        locale: "ru",
+        recipientEmail: adminEmail
+      };
+      templateId = `billing.${eventCode}`;
+      renderStrategy = NotificationRenderStrategy.template;
+    } else {
+      factPayload = {
+        message: `Test notification for source "${source}" — PersAI`,
+        ...(adminEmail !== null ? { recipientEmail: adminEmail } : {})
+      };
+    }
+
+    // Find channel registry row and adapter
+    const channelRow = await this.prisma.notificationChannelRegistry.findUnique({
+      where: { channelType: channelType as never }
+    });
+    if (!channelRow) {
+      return {
+        source,
+        channelType,
+        ok: false,
+        status: "not_configured",
+        error: { reason: "channel_registry_row_missing" }
+      };
+    }
+
+    const adapter = this.channelAdapters.find((a) => a.channelType === channelType);
+    if (!adapter) {
+      return {
+        source,
+        channelType,
+        ok: false,
+        status: "adapter_not_found",
+        error: { reason: "no_adapter_registered" }
+      };
+    }
+
+    const syntheticIntent: NotificationIntentRecord = {
+      id: randomUUID(),
+      workspaceId,
+      assistantId: adminAssistant?.id ?? null,
+      userId,
+      source: source as NotificationIntentRecord["source"],
+      class:
+        source === "billing_lifecycle"
+          ? NotificationClass.transactional
+          : NotificationClass.operational,
+      priority: NotificationPriority.immediate,
+      lifecycleStatus: NotificationLifecycleStatus.pending,
+      renderStrategy,
+      renderInstructionRef: null,
+      templateId,
+      factPayload,
+      // Merge policy config so email adapter picks up postmarkTemplateId
+      policySnapshot: { config: policyConfig },
+      allowedChannels: [channelType],
+      escalationAfterMinutes: null,
+      escalationChannel: null,
+      dedupeKey: null,
+      scheduledAt: null,
+      respectQuietHours: false,
+      surface: null,
+      surfaceThreadKey: null,
+      chatId: null,
+      traceId: `test-source:${source}:${Date.now()}`,
+      failureReason: null,
+      createdAt: new Date(),
+      claimedAt: null,
+      deliveredAt: null,
+      deadLetteredAt: null
+    };
+
+    // Merge policy config into channel config so postmarkTemplateId flows to the email adapter
+    const channelConfig = {
+      id: channelRow.id,
+      channelType: channelRow.channelType,
+      enabled: channelRow.enabled,
+      config: { ...(channelRow.config as Record<string, unknown>), ...policyConfig },
+      healthStatus: channelRow.healthStatus,
+      consecutiveFailures: channelRow.consecutiveFailures,
+      lastDeliveryAt: channelRow.lastDeliveryAt,
+      lastFailureAt: channelRow.lastFailureAt,
+      createdAt: channelRow.createdAt,
+      updatedAt: channelRow.updatedAt
+    };
+
+    const rendered =
+      renderStrategy === NotificationRenderStrategy.template
+        ? await this.templateRenderer.render(syntheticIntent)
+        : await this.staticFallbackRenderer.render(syntheticIntent);
+
+    const result = await adapter.deliver(syntheticIntent, rendered, channelConfig);
+
+    if (result.status === "delivered") {
+      await this.prisma.notificationChannelRegistry.update({
+        where: { id: channelRow.id },
+        data: {
+          consecutiveFailures: 0,
+          lastDeliveryAt: new Date(),
+          lastFailureAt: null,
+          healthStatus: "healthy"
+        }
+      });
+    } else {
+      await this.prisma.notificationChannelRegistry.update({
+        where: { id: channelRow.id },
+        data: { consecutiveFailures: { increment: 1 }, lastFailureAt: new Date() }
+      });
+    }
+
+    return {
+      source,
       channelType,
       ok: result.status === "delivered",
       status: result.status === "delivered" ? "delivered" : "failed",
