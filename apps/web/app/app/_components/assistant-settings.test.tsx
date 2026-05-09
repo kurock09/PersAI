@@ -895,8 +895,15 @@ describe("AssistantSettings limits", () => {
                   releasedUnits: 0,
                   reconciliationRequiredUnits: 0,
                   limitUnits: 20,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: 20,
+                  bonusExpiresAt: null,
                   remainingUnits: 18,
+                  percent: 10,
+                  finiteLimit: true,
                   usageAvailable: true,
+                  warningThresholdPercent: 90,
+                  warningThresholdReached: false,
                   status: "ok"
                 },
                 {
@@ -908,8 +915,15 @@ describe("AssistantSettings limits", () => {
                   releasedUnits: 0,
                   reconciliationRequiredUnits: 0,
                   limitUnits: null,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: null,
+                  bonusExpiresAt: null,
                   remainingUnits: null,
+                  percent: null,
+                  finiteLimit: false,
                   usageAvailable: true,
+                  warningThresholdPercent: null,
+                  warningThresholdReached: false,
                   status: "ok"
                 },
                 {
@@ -921,8 +935,15 @@ describe("AssistantSettings limits", () => {
                   releasedUnits: 0,
                   reconciliationRequiredUnits: 0,
                   limitUnits: null,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: null,
+                  bonusExpiresAt: null,
                   remainingUnits: null,
+                  percent: null,
+                  finiteLimit: false,
                   usageAvailable: true,
+                  warningThresholdPercent: null,
+                  warningThresholdReached: false,
                   status: "ok"
                 }
               ]
@@ -1016,8 +1037,15 @@ describe("AssistantSettings limits", () => {
                   releasedUnits: 0,
                   reconciliationRequiredUnits: 0,
                   limitUnits: 20,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: 20,
+                  bonusExpiresAt: null,
                   remainingUnits: 16,
+                  percent: 20,
+                  finiteLimit: true,
                   usageAvailable: true,
+                  warningThresholdPercent: 90,
+                  warningThresholdReached: false,
                   status: "ok"
                 },
                 {
@@ -1029,8 +1057,15 @@ describe("AssistantSettings limits", () => {
                   releasedUnits: 0,
                   reconciliationRequiredUnits: 0,
                   limitUnits: 1,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: 1,
+                  bonusExpiresAt: null,
                   remainingUnits: 1,
+                  percent: 0,
+                  finiteLimit: true,
                   usageAvailable: true,
+                  warningThresholdPercent: 90,
+                  warningThresholdReached: false,
                   status: "ok"
                 }
               ]
