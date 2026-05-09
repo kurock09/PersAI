@@ -7,7 +7,26 @@ import {
 const REMINDER_CONTEXT_MESSAGES_MAX = 10;
 const REMINDER_CONTEXT_PER_MESSAGE_MAX = 220;
 const REMINDER_CONTEXT_TOTAL_MAX = 700;
-const REMINDER_CONTEXT_MARKER = "\n\nRecent context:\n";
+export const REMINDER_CONTEXT_MARKER = "\n\nRecent context:\n";
+
+/**
+ * Strip the `Recent context:\n…` block from a reminder text so the snapshot
+ * (intended only as runtime LLM grounding context, never user-facing copy)
+ * does not leak into the message we deliver to the user. Safe to call on
+ * any text — returns the original trimmed text when no marker is present.
+ *
+ * Used by the cron-fire path before persisting the user-facing pushText into
+ * a notification intent: the runtime sometimes echoes the full
+ * brief-with-context back into `summary` instead of producing a short final
+ * line, and we must not show that echo to the user.
+ */
+export function stripReminderContextSnapshot(value: string): string {
+  const markerIndex = value.indexOf(REMINDER_CONTEXT_MARKER);
+  if (markerIndex === -1) {
+    return value.trim();
+  }
+  return value.slice(0, markerIndex).trim();
+}
 
 export type ReminderConversationContext = {
   channel: string;
@@ -22,11 +41,7 @@ function truncateText(value: string, limit: number): string {
 }
 
 function stripExistingContext(value: string): string {
-  const markerIndex = value.indexOf(REMINDER_CONTEXT_MARKER);
-  if (markerIndex === -1) {
-    return value.trim();
-  }
-  return value.slice(0, markerIndex).trim();
+  return stripReminderContextSnapshot(value);
 }
 
 function toChatSurface(channel: string): "web" | "telegram" | null {

@@ -1,7 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Copy, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Loader2,
+  RefreshCw,
+  RotateCcw,
+  Trash2
+} from "lucide-react";
 import type {
   NotificationDeadLetterView,
   ListNotificationDeadLettersParams
@@ -149,6 +157,41 @@ export function DeadLettersSection({ getToken }: Props) {
     void load(1);
   }, [load]);
 
+  // Auto-refresh every 30s when the tab is visible — see DeliveryHistorySection
+  // for rationale. Operators expect this list to reflect the latest cluster state.
+  useEffect(() => {
+    const POLL_MS = 30_000;
+    let timerId: ReturnType<typeof setInterval> | null = null;
+    const start = (): void => {
+      if (timerId !== null) return;
+      timerId = setInterval(() => {
+        if (document.visibilityState === "visible") {
+          void load(page);
+        }
+      }, POLL_MS);
+    };
+    const stop = (): void => {
+      if (timerId !== null) {
+        clearInterval(timerId);
+        timerId = null;
+      }
+    };
+    if (document.visibilityState === "visible") start();
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState === "visible") {
+        void load(page);
+        start();
+      } else {
+        stop();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [load, page]);
+
   async function executeAction(): Promise<void> {
     if (!pendingAction) return;
     const token = await getToken();
@@ -227,6 +270,16 @@ export function DeadLettersSection({ getToken }: Props) {
           className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-accent-foreground hover:opacity-90"
         >
           Filter
+        </button>
+        <button
+          type="button"
+          onClick={() => void load(page)}
+          title="Refresh"
+          aria-label="Refresh"
+          className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1 text-xs font-medium text-text-muted hover:text-text"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+          Refresh
         </button>
       </div>
 

@@ -6,6 +6,7 @@ import {
 } from "../domain/assistant-channel-surface-binding.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
+import { stripReminderContextSnapshot } from "./build-reminder-context-snapshot.service";
 import { NotificationIntentService } from "./notifications/notification-intent.service";
 
 export interface InternalCronFireRequest {
@@ -134,6 +135,12 @@ export class HandleInternalCronFireService {
           select: { userId: true, workspaceId: true }
         });
         if (assistant !== null) {
+          // The runtime sometimes echoes the full reminder brief (with the
+          // `Recent context:\n…` snapshot the scheduler embedded for LLM
+          // grounding) back to us as `summary`. That snapshot is internal —
+          // never show it to the user. Strip the marker block before it
+          // reaches the notification intent / Telegram adapter.
+          const userFacingPushText = stripReminderContextSnapshot(input.summary);
           await this.notificationIntentService.createIntent({
             workspaceId: assistant.workspaceId,
             assistantId: input.assistantId,
@@ -143,7 +150,7 @@ export class HandleInternalCronFireService {
             priority: "immediate",
             renderStrategy: "grounded_llm",
             factPayload: {
-              pushText: input.summary,
+              pushText: userFacingPushText,
               jobId: input.jobId,
               status: input.status
             },

@@ -1,5 +1,37 @@
 # SESSION-HANDOFF
 
+## 2026-05-09 — ADR-088 reminder + channel-ops polish (LANDED)
+
+### What changed
+
+**Follow-up polish after live operator testing of reminders and admin notifications.**
+
+- `handle-internal-cron-fire.service.ts` now strips the internal `Recent context:` snapshot from reminder `summary` before persisting `factPayload.pushText`. This prevents Telegram reminder deliveries from leaking the runtime grounding brief to the user when the runtime echoes the full reminder prompt back instead of a short final line.
+- `build-reminder-context-snapshot.service.ts` exports `stripReminderContextSnapshot()` and `REMINDER_CONTEXT_MARKER`; `GroundedLlmRendererService` applies the same strip defensively so future producers cannot accidentally deliver internal reminder grounding context verbatim.
+- `email-channel.adapter.ts` now supports explicit `config.fromAddress` override in addition to `sendingDomain`. This lets operators use a verified Postmark Sender Signature instead of being forced into `notifications@<sendingDomain>`.
+- `ChannelRegistrySection.tsx` gains editable admin-webhook `endpointUrl`, email `fromAddress`, and email `sendingDomain` fields. After a successful test-send, the row updates immediately in the UI and the backend clears `lastFailureAt`, resets failures, and stamps `lastDeliveryAt`, so stale red "Last failure" text no longer remains after a healthy test.
+- `DeliveryHistorySection.tsx` and `DeadLettersSection.tsx` now expose an explicit `Refresh` button and auto-refresh every 30 seconds while the tab is visible. Operators no longer need to re-run filters manually to see newly delivered reminders or dead-letter state changes.
+
+### Files touched
+- Modified: `build-reminder-context-snapshot.service.ts`, `handle-internal-cron-fire.service.ts`, `grounded-llm-renderer.service.ts`, `email-channel.adapter.ts`, `ChannelRegistrySection.tsx`, `DeliveryHistorySection.tsx`, `DeadLettersSection.tsx`, `manage-notification-platform.service.ts`
+- Modified docs: `SESSION-HANDOFF.md`, `CHANGELOG.md`
+
+### Verification gates (all exit 0, run 2026-05-09)
+1. `corepack pnpm -r --if-present run lint` — 0
+2. `corepack pnpm run format:check` — 0
+3. `corepack pnpm --filter @persai/api run typecheck` — 0
+4. `corepack pnpm --filter @persai/web run typecheck` — 0
+5. `corepack pnpm --filter @persai/api run test` — 0
+
+### Risks / residuals
+- Postmark delivery still depends on operator-side account configuration. If `fromAddress` is not a verified Sender Signature (or inside a verified domain), Postmark will still reject with HTTP 422. The code path is correct; the remaining step is Postmark account setup.
+- The reminder producer/runtime contract still allows the runtime to echo full prompt text into `summary`; the new strip prevents user leakage, but a future runtime-side cleanup would be cleaner.
+
+### Next recommended step
+Deploy and verify one Telegram reminder and one email test-send in the admin UI using a verified Postmark sender signature.
+
+---
+
 ## 2026-05-09 — ADR-088 PROD hardening, round 2 (LANDED)
 
 ### What changed

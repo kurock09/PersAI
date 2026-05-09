@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, Send, XCircle } from "lucide-react";
 import type { NotificationChannelView, PatchNotificationChannelRequest } from "@persai/contracts";
 import {
@@ -87,9 +87,20 @@ function ChannelRow({
   const [pushUrl, setPushUrl] = useState<string>(
     typeof channel.config["endpointUrl"] === "string" ? channel.config["endpointUrl"] : ""
   );
+  const [emailFromAddress, setEmailFromAddress] = useState<string>(
+    typeof channel.config["fromAddress"] === "string" ? channel.config["fromAddress"] : ""
+  );
+  const [emailSendingDomain, setEmailSendingDomain] = useState<string>(
+    typeof channel.config["sendingDomain"] === "string" ? channel.config["sendingDomain"] : ""
+  );
+  const [adminWebhookUrl, setAdminWebhookUrl] = useState<string>(
+    typeof channel.config["endpointUrl"] === "string" ? channel.config["endpointUrl"] : ""
+  );
   const [savingConfig, setSavingConfig] = useState(false);
 
   const isPushSlot = channel.channelType === "web_push" || channel.channelType === "mobile_push";
+  const isEmail = channel.channelType === "email";
+  const isAdminWebhook = channel.channelType === "admin_webhook";
 
   async function toggleEnabled(): Promise<void> {
     const token = await getToken();
@@ -108,14 +119,14 @@ function ChannelRow({
     }
   }
 
-  async function savePushConfig(): Promise<void> {
+  async function saveConfig(patch: Record<string, unknown>): Promise<void> {
     const token = await getToken();
     if (!token) return;
     setSavingConfig(true);
     setError(null);
     try {
       const input: PatchNotificationChannelRequest = {
-        config: { ...channel.config, endpointUrl: pushUrl }
+        config: { ...channel.config, ...patch }
       };
       const updated = await patchUnifiedNotificationChannel(token, channel.channelType, input);
       onUpdated(updated);
@@ -135,6 +146,14 @@ function ChannelRow({
     try {
       const result = await testSendNotificationChannel(token, channel.channelType);
       setTestResult(result);
+      onUpdated({
+        ...channel,
+        healthStatus: result.ok ? "healthy" : channel.healthStatus,
+        consecutiveFailures: result.ok ? 0 : channel.consecutiveFailures,
+        lastFailureAt: result.ok ? null : (channel.lastFailureAt ?? null),
+        lastDeliveryAt: result.ok ? new Date().toISOString() : (channel.lastDeliveryAt ?? null),
+        updatedAt: new Date().toISOString()
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Test send failed.");
     } finally {
@@ -180,13 +199,79 @@ function ChannelRow({
               />
               <button
                 type="button"
-                onClick={() => void savePushConfig()}
+                onClick={() => void saveConfig({ endpointUrl: pushUrl })}
                 disabled={savingConfig}
                 className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
               >
                 {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
               </button>
               <span className="text-[10px] text-text-muted italic">Real adapter in future ADR</span>
+            </div>
+          )}
+          {isAdminWebhook && (
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                type="text"
+                value={adminWebhookUrl}
+                onChange={(e) => setAdminWebhookUrl(e.target.value)}
+                placeholder="https://example.com/webhook"
+                className="w-72 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+              <button
+                type="button"
+                onClick={() => void saveConfig({ endpointUrl: adminWebhookUrl })}
+                disabled={savingConfig}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
+              >
+                {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+              </button>
+              <span className="text-[10px] text-text-muted italic">Endpoint URL</span>
+            </div>
+          )}
+          {isEmail && (
+            <div className="mt-1 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="w-32 text-[10px] font-medium text-text-muted">From address</label>
+                <input
+                  type="text"
+                  value={emailFromAddress}
+                  onChange={(e) => setEmailFromAddress(e.target.value)}
+                  placeholder="notifications@your-verified-domain.com"
+                  className="w-72 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveConfig({ fromAddress: emailFromAddress })}
+                  disabled={savingConfig}
+                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
+                >
+                  {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="w-32 text-[10px] font-medium text-text-muted">
+                  Sending domain
+                </label>
+                <input
+                  type="text"
+                  value={emailSendingDomain}
+                  onChange={(e) => setEmailSendingDomain(e.target.value)}
+                  placeholder="notifications.persai.dev"
+                  className="w-72 rounded border border-border bg-bg px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveConfig({ sendingDomain: emailSendingDomain })}
+                  disabled={savingConfig}
+                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium border border-border text-text-muted hover:text-text disabled:opacity-60"
+                >
+                  {savingConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                </button>
+              </div>
+              <p className="text-[10px] italic text-text-muted">
+                Postmark requires the From to be a verified Sender Signature or an address inside a
+                verified domain. Set From to a value confirmed in your Postmark account.
+              </p>
             </div>
           )}
           {error && <p className="text-[10px] text-destructive">{error}</p>}
@@ -234,6 +319,10 @@ function ChannelRow({
 
 export function ChannelRegistrySection({ channels, getToken, onRefresh }: Props) {
   const [localChannels, setLocalChannels] = useState(channels);
+
+  useEffect(() => {
+    setLocalChannels(channels);
+  }, [channels]);
 
   function handleUpdated(updated: NotificationChannelView): void {
     setLocalChannels((prev) =>

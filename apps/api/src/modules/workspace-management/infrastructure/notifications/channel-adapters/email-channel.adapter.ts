@@ -49,6 +49,21 @@ export class EmailChannelAdapter implements NotificationChannelAdapter {
     return DEFAULT_SENDER_DOMAIN;
   }
 
+  /**
+   * Resolve the From address. When the operator has stored a full
+   * `fromAddress` (e.g. a verified Postmark Sender Signature like
+   * `support@persai.com`), use it verbatim — Postmark rejects any From that
+   * is not a verified Sender Signature or an address inside a verified
+   * domain. Otherwise fall back to `notifications@<sendingDomain>`.
+   */
+  private resolveFromAddress(channelConfig: ChannelRegistryRow, senderDomain: string): string {
+    const explicit = channelConfig.config["fromAddress"];
+    if (typeof explicit === "string" && explicit.includes("@")) {
+      return explicit;
+    }
+    return `notifications@${senderDomain}`;
+  }
+
   async deliver(
     intent: NotificationIntentRecord,
     renderedPayload: RenderedPayload,
@@ -78,7 +93,7 @@ export class EmailChannelAdapter implements NotificationChannelAdapter {
     }
 
     const senderDomain = this.resolveSenderDomain(channelConfig);
-    const fromAddress = `notifications@${senderDomain}`;
+    const fromAddress = this.resolveFromAddress(channelConfig, senderDomain);
     const subject = renderedPayload.subject ?? `Notification from PersAI`;
     const htmlBody =
       renderedPayload.html ?? `<pre>${renderedPayload.plainText ?? renderedPayload.body}</pre>`;

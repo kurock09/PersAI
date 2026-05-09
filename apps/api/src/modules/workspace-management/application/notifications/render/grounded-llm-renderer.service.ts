@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { stripReminderContextSnapshot } from "../../build-reminder-context-snapshot.service";
 import type { NotificationIntentRecord, RenderedPayload } from "../notification-platform.types";
 
 /**
@@ -31,11 +32,24 @@ export class GroundedLlmRendererService {
 
     const preRendered = intent.factPayload["pushText"];
     if (typeof preRendered === "string" && preRendered.trim().length > 0) {
-      const body = preRendered.trim();
+      // Defence-in-depth: the producer should already strip internal
+      // reminder-context snapshots before persisting the intent (see
+      // handle-internal-cron-fire), but if any future producer forgets to,
+      // we still must not deliver the runtime brief verbatim to the user.
+      const body = stripReminderContextSnapshot(preRendered);
+      if (body.length === 0) {
+        this.logger.warn({
+          event: "grounded_llm_renderer.empty_after_context_strip",
+          intentId: intent.id,
+          source: intent.source
+        });
+        return { body: "Reminder", plainText: "Reminder" };
+      }
       this.logger.log({
         event: "grounded_llm_renderer.used_pre_rendered",
         intentId: intent.id,
-        source: intent.source
+        source: intent.source,
+        contextSnapshotStripped: preRendered.length !== body.length
       });
       return { body, plainText: body };
     }

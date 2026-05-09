@@ -408,6 +408,7 @@ export class ManageNotificationPlatformService {
         data: {
           consecutiveFailures: 0,
           lastDeliveryAt: new Date(),
+          lastFailureAt: null,
           healthStatus: "healthy"
         }
       });
