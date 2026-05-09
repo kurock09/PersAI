@@ -35,7 +35,7 @@ import {
  *   email:                    requires workspace owner AppUser.email; the
  *                             global registry row supplies sender domain
  *                             config.
- *   admin_webhook:            requires global registry row with webhookUrl.
+ *   admin_webhook:            requires global registry row with endpointUrl.
  *   web_push, mobile_push:    not configured yet (return reason).
  *
  * Failure modes return a discriminated `ChannelResolution.available=false`
@@ -141,7 +141,7 @@ export class ResolveWorkspaceNotificationChannelsService {
       }
 
       case NotificationChannelType.admin_webhook: {
-        const url = baseConfig["webhookUrl"];
+        const url = baseConfig["endpointUrl"];
         if (typeof url !== "string" || url.trim().length === 0) {
           return { available: false, reason: "auto_derive_unavailable" };
         }

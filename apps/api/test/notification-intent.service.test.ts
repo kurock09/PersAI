@@ -42,15 +42,39 @@ type StoredIntent = {
 };
 
 let idCounter = 0;
+
+const ENABLED_POLICY_MOCK: Record<string, unknown> = {
+  enabled: true,
+  channels: [],
+  cooldownMinutes: null,
+  maxPerDay: null,
+  escalationAfterMinutes: null,
+  escalationChannel: null,
+  respectQuietHours: false,
+  renderStrategy: "static_fallback",
+  renderInstructionRef: null,
+  templateId: null,
+  config: {}
+};
+
+const DISABLED_POLICY_MOCK: Record<string, unknown> = {
+  ...ENABLED_POLICY_MOCK,
+  enabled: false
+};
+
 function makePrisma(opts?: {
-  policy?: Record<string, unknown>;
+  policy?: Record<string, unknown> | null;
   quietHours?: Record<string, unknown>;
   channels?: unknown[];
 }) {
   const store: StoredIntent[] = [];
+  // Default: return an enabled policy so tests not exercising the disabled-gate
+  // don't accidentally hit the early-return path. Pass policy: DISABLED_POLICY_MOCK
+  // to test the disabled-policy sentinel path.
+  const policyRow = opts && "policy" in opts ? opts.policy : ENABLED_POLICY_MOCK;
   return {
     notificationPolicy: {
-      findUnique: async () => opts?.policy ?? null
+      findUnique: async () => policyRow
     },
     notificationQuietHours: {
       findFirst: async () => opts?.quietHours ?? null
@@ -230,6 +254,23 @@ async function run(): Promise<void> {
     assert.ok(result.scheduledAt !== null, "scheduled intent has scheduledAt");
     assert.equal(result.lifecycleStatus, "pending");
     console.log("✓ scheduled intent");
+  }
+
+  // 6. Policy disabled → sentinel returned, nothing persisted
+  {
+    const svc = makeService({ policy: DISABLED_POLICY_MOCK });
+    const result = await svc.createIntent({
+      workspaceId: "ws-1",
+      source: "idle_reengagement",
+      class: "conversational",
+      priority: "skippable",
+      renderStrategy: "static_fallback",
+      factPayload: {}
+    });
+    assert.equal(result.lifecycleStatus, "skipped", "disabled policy → skipped sentinel");
+    assert.equal(result.id, "skipped", "skipped sentinel has id='skipped'");
+    assert.equal(result.failureReason, "policy_disabled");
+    console.log("✓ policy disabled → skipped sentinel, not persisted");
   }
 
   console.log("\n✅ All notification-intent.service tests passed");

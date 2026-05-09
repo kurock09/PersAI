@@ -45,7 +45,6 @@ export type NotificationQuietHoursDefault = {
   timezoneMode: "workspace_default" | "per_user_resolved";
   defaultTimezone: string | null;
   appliesToSources: string[];
-  exemptClasses: Array<NotificationPolicyDefault["class"]>;
 };
 
 export type NotificationChannelRegistryDefault = {
@@ -171,7 +170,7 @@ export const NOTIFICATION_POLICY_DEFAULTS: Record<NotificationSource, Notificati
     escalationAfterMinutes: null,
     escalationChannel: null,
     respectQuietHours: false,
-    renderStrategy: NotificationRenderStrategy.template,
+    renderStrategy: NotificationRenderStrategy.static_fallback,
     renderInstructionRef: null,
     templateId: null,
     config: {}
@@ -189,8 +188,7 @@ export const NOTIFICATION_QUIET_HOURS_DEFAULT: NotificationQuietHoursDefault = {
   endLocal: "08:00",
   timezoneMode: "workspace_default",
   defaultTimezone: null,
-  appliesToSources: [],
-  exemptClasses: ["transactional", "operational", "administrative"]
+  appliesToSources: []
 };
 
 /**

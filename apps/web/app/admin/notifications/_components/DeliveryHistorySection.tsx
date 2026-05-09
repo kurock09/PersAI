@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Copy, Loader2 } from "lucide-react";
 import type { DeliveryIntentView, ListNotificationDeliveriesParams } from "@persai/contracts";
 import { listNotificationDeliveries } from "@/app/app/assistant-api-client";
@@ -64,6 +64,13 @@ export function DeliveryHistorySection({ getToken }: Props) {
     dateTo: string;
   }>({ source: "", class: "", status: "", channel: "", dateFrom: "", dateTo: "" });
 
+  const [debouncedFilters, setDebouncedFilters] = useState(filters);
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedFilters(filters), 450);
+    return () => clearTimeout(id);
+  }, [filters]);
+
   const load = useCallback(
     async (p: number) => {
       const token = await getToken();
@@ -72,12 +79,12 @@ export function DeliveryHistorySection({ getToken }: Props) {
       setError(null);
       try {
         const params: ListNotificationDeliveriesParams = { page: p, pageSize };
-        if (filters.source) params.source = filters.source;
-        if (filters.class) params.class = filters.class;
-        if (filters.status) params.status = filters.status;
-        if (filters.channel) params.channel = filters.channel;
-        if (filters.dateFrom) params.dateFrom = filters.dateFrom;
-        if (filters.dateTo) params.dateTo = filters.dateTo;
+        if (debouncedFilters.source) params.source = debouncedFilters.source;
+        if (debouncedFilters.class) params.class = debouncedFilters.class;
+        if (debouncedFilters.status) params.status = debouncedFilters.status;
+        if (debouncedFilters.channel) params.channel = debouncedFilters.channel;
+        if (debouncedFilters.dateFrom) params.dateFrom = debouncedFilters.dateFrom;
+        if (debouncedFilters.dateTo) params.dateTo = debouncedFilters.dateTo;
         const result = await listNotificationDeliveries(token, params);
         setItems(result.items);
         setTotal(result.total);
@@ -88,7 +95,7 @@ export function DeliveryHistorySection({ getToken }: Props) {
         setLoading(false);
       }
     },
-    [getToken, filters, pageSize]
+    [getToken, debouncedFilters, pageSize]
   );
 
   useEffect(() => {
@@ -173,9 +180,8 @@ export function DeliveryHistorySection({ getToken }: Props) {
             </thead>
             <tbody className="divide-y divide-border">
               {items.map((item) => (
-                <>
+                <React.Fragment key={item.id}>
                   <tr
-                    key={item.id}
                     className="cursor-pointer hover:bg-surface-raised"
                     onClick={() => setExpanded((v) => (v === item.id ? null : item.id))}
                   >
@@ -236,6 +242,7 @@ export function DeliveryHistorySection({ getToken }: Props) {
                   {expanded === item.id && (
                     <tr key={`${item.id}-detail`}>
                       <td colSpan={9} className="bg-surface px-4 py-3">
+                        {" "}
                         <p className="mb-1 text-[10px] font-semibold text-text-muted">
                           Delivery attempts
                         </p>
@@ -290,7 +297,7 @@ export function DeliveryHistorySection({ getToken }: Props) {
                       </td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               ))}
             </tbody>
           </table>

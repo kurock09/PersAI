@@ -95,6 +95,13 @@ export function DeadLettersSection({ getToken }: Props) {
     status: ""
   });
 
+  const [debouncedFilters, setDebouncedFilters] = useState(filters);
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedFilters(filters), 450);
+    return () => clearTimeout(id);
+  }, [filters]);
+
   const load = useCallback(
     async (p: number) => {
       const token = await getToken();
@@ -103,7 +110,7 @@ export function DeadLettersSection({ getToken }: Props) {
       setError(null);
       try {
         const params: ListNotificationDeadLettersParams = { page: p, pageSize };
-        if (filters.source) params.source = filters.source;
+        if (debouncedFilters.source) params.source = debouncedFilters.source;
         const result = await listNotificationDeadLetters(token, params);
         setItems(result.deadLetters);
         setTotal(result.total);
@@ -114,7 +121,7 @@ export function DeadLettersSection({ getToken }: Props) {
         setLoading(false);
       }
     },
-    [getToken, filters, pageSize]
+    [getToken, debouncedFilters, pageSize]
   );
 
   useEffect(() => {

@@ -119,6 +119,14 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
 
   private async deliverIntent(intent: NotificationIntentRecord, _claimExpiry: Date): Promise<void> {
     try {
+      // Guard: if the policy was disabled when the intent was created (or was
+      // disabled between creation and claim), skip delivery immediately.
+      const snapshot = intent.policySnapshot as Record<string, unknown> | null;
+      if (snapshot && snapshot["enabled"] === false) {
+        await this.markFailed(intent, "policy_disabled");
+        return;
+      }
+
       const primaryChannel = intent.allowedChannels[0] ?? null;
       if (!primaryChannel) {
         await this.markFailed(intent, "no_channel_configured");

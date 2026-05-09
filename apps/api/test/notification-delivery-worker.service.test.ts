@@ -546,7 +546,21 @@ async function run(): Promise<void> {
     intentStore.length = 0;
     const routing = new NotificationRoutingService();
     const intentPrisma = {
-      notificationPolicy: { findUnique: async () => null },
+      notificationPolicy: {
+        findUnique: async () => ({
+          enabled: true,
+          channels: ["web_notification_center"],
+          cooldownMinutes: null,
+          maxPerDay: null,
+          escalationAfterMinutes: null,
+          escalationChannel: null,
+          respectQuietHours: false,
+          renderStrategy: "static_fallback",
+          renderInstructionRef: null,
+          templateId: null,
+          config: {}
+        })
+      },
       notificationQuietHours: { findFirst: async () => null },
       notificationChannelRegistry: { findMany: async () => [] },
       notificationIntent: {

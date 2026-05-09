@@ -127,6 +127,13 @@ export class AdminDeleteUserService {
               await tx.workspaceQuotaUsageEvent.deleteMany({ where: { workspaceId } });
               await tx.workspaceQuotaAccountingState.deleteMany({ where: { workspaceId } });
               await tx.workspaceSubscription.deleteMany({ where: { workspaceId } });
+
+              // notification_dead_letters references both workspace and intent with
+              // onDelete: Restrict — must be removed before notification_intents and workspace.
+              // notification_delivery_attempts cascades from notification_intents automatically.
+              await tx.notificationDeadLetter.deleteMany({ where: { workspaceId } });
+              await tx.notificationIntent.deleteMany({ where: { workspaceId } });
+
               workspaceDeleted = true;
 
               await tx.workspace.delete({ where: { id: workspaceId } });

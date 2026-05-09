@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-05-09 — ADR-088 Post-audit fixes (LANDED)
+
+### What changed
+
+**Audit-driven production fixes applied after multi-agent review of ADR-088 Slices 1–4.**
+
+**Fix 1 — Critical: `webhookUrl` → `endpointUrl` in resolver**
+- `resolve-workspace-notification-channels.service.ts`: config key check for `admin_webhook` was `baseConfig["webhookUrl"]`; changed to `baseConfig["endpointUrl"]` to match the adapter and UI. Without this fix, the resolver returned `available: false` even when the webhook was properly configured, and admin webhook delivery was silently broken.
+
+**Fix 2 — Critical: `policy.enabled` guard in `createIntent` + worker**
+- `notification-intent.service.ts`: added early-return when `policy.enabled === false`. Returns a `NotificationLifecycleStatus.skipped` sentinel (never persisted) and logs `notification.intent.skipped_policy_disabled`. Imported `NotificationLifecycleStatus` for type safety.
+- `notification-delivery-worker.service.ts`: added guard at start of `deliverIntent` — if `policySnapshot["enabled"] === false`, marks intent as failed with reason `policy_disabled`. Handles any stale rows created before the createIntent fix.
+
+**Fix 3 — Critical: FK RESTRICT on workspace delete**
+- `admin-delete-user.service.ts`: before `workspace.delete`, now deletes `notificationDeadLetter` (has `onDelete: Restrict` on both workspaceId and intentId FK) and `notificationIntent` (has `onDelete: Restrict` on workspaceId FK). `notificationDeliveryAttempt` cascades automatically from intents. Without this fix, deleting the last workspace member would fail with a FK violation.
+
+**Fix 4 — Debounce filter inputs**
+- `DeliveryHistorySection.tsx`: added `debouncedFilters` state with 450ms `setTimeout`-based debounce. Filters no longer fire an API request on every keystroke.
+- `DeadLettersSection.tsx`: same debounce pattern applied.
+
+**Fix 5 — React Fragment key**
+- `DeliveryHistorySection.tsx`: replaced bare `<>...</>` (no key) with `<React.Fragment key={item.id}>` to eliminate React reconciliation warnings in the delivery history table.
+
+**Fix 6 — Defaults consistency**
+- `notification-defaults.ts`: `system_event.renderStrategy` corrected from `template` to `static_fallback` (was inconsistent with migration SQL and producer). Removed `exemptClasses` from `NotificationQuietHoursDefault` type and default value — the field was defined but never read at runtime; removing it eliminates dead/misleading code.
+
+### Files touched
+- Modified: `resolve-workspace-notification-channels.service.ts`, `notification-intent.service.ts`, `notification-delivery-worker.service.ts`, `admin-delete-user.service.ts`, `DeliveryHistorySection.tsx`, `DeadLettersSection.tsx`, `notification-defaults.ts`
+
+### Verification gates (all exit 0, run 2026-05-09)
+1. `corepack pnpm -r --if-present run lint` — 0
+2. `corepack pnpm run format:check` — 0
+3. `corepack pnpm --filter @persai/api run typecheck` — 0
+4. `corepack pnpm --filter @persai/web run typecheck` — 0
+
+### Risks / residuals
+- Postmark inbound webhook signature verification: Postmark uses `X-Postmark-Signature` header (HMAC-SHA256) not `X-Postmark-Webhook-Token`. If the platform email adapter checks this — verify before enabling email notifications in PROD.
+- `admin_system` source remains `enabled: true` in defaults. This source predates the platform. Review whether it maps to any live producer; if not, disable.
+
+### Next recommended step
+No outstanding high/medium audit findings. Next bounded work item per ADR-078 backlog.
+
+---
+
 ## 2026-05-09 — ADR-088 Slice 4: operational migration + admin surface completion (LANDED)
 
 ### What changed

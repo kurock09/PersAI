@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
+import { NotificationLifecycleStatus } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 import type {
   CreateNotificationIntentInput,
@@ -34,6 +35,51 @@ export class NotificationIntentService {
     // than silently dropping intents.
     const policy = await this.channelResolver.resolvePolicy(input.source);
     const quietHours = await this.channelResolver.resolveQuietHours();
+
+    // Honour operator "disabled" toggle. Producers that hard-code a source
+    // cannot bypass this gate — they must not call createIntent at all when
+    // the policy is disabled. The only exception is when the caller explicitly
+    // passes `allowedChannels` and the source is not a user-visible source
+    // (e.g. internal operational events bypass nothing — operator controls them).
+    if (!policy.enabled) {
+      this.logger.log({
+        event: "notification.intent.skipped_policy_disabled",
+        workspaceId: input.workspaceId,
+        source: input.source
+      });
+      // Return a no-op sentinel — callers only need the id for deduplication;
+      // a skipped intent is never persisted so there is nothing to claim.
+      return {
+        id: "skipped",
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId ?? null,
+        userId: input.userId ?? null,
+        source: input.source,
+        class: input.class,
+        priority: input.priority,
+        lifecycleStatus: NotificationLifecycleStatus.skipped,
+        renderStrategy: input.renderStrategy,
+        renderInstructionRef: input.renderInstructionRef ?? null,
+        templateId: input.templateId ?? null,
+        factPayload: input.factPayload,
+        policySnapshot: { source: policy.source, enabled: false },
+        allowedChannels: [],
+        escalationAfterMinutes: null,
+        escalationChannel: null,
+        dedupeKey: input.dedupeKey ?? null,
+        scheduledAt: null,
+        respectQuietHours: false,
+        surface: null,
+        surfaceThreadKey: null,
+        chatId: null,
+        traceId: input.traceId ?? null,
+        failureReason: "policy_disabled",
+        createdAt: new Date(),
+        claimedAt: null,
+        deliveredAt: null,
+        deadLetteredAt: null
+      };
+    }
 
     const channelRegistryRows = await this.prisma.notificationChannelRegistry.findMany({
       where: { enabled: true }
