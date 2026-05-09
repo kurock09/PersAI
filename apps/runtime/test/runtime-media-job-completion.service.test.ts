@@ -151,4 +151,225 @@ describe("RuntimeMediaJobCompletionService", () => {
     assert.equal(recordedFinalizedResult.assistantText, "Fresh completion framing.");
     assert.equal(recordedFinalizedResult.artifacts.length, 0);
   });
+
+  test("authors a failure explanation when failure context is supplied instead of workerResult", async () => {
+    let acceptedRequest: RuntimeTurnRequest | null = null;
+    let providerRequest: ProviderGatewayTextGenerateRequest | null = null;
+
+    const service = new RuntimeMediaJobCompletionService(
+      {
+        generateText: async (input: ProviderGatewayTextGenerateRequest) => {
+          providerRequest = input;
+          return {
+            text: JSON.stringify({
+              assistantText:
+                "Не получилось дорисовать ваш закат: провайдер заблокировал запрос по политике."
+            }),
+            usage: null
+          };
+        }
+      } as never,
+      {
+        acceptTurn: async (input: RuntimeTurnRequest) => {
+          acceptedRequest = input;
+          return {
+            outcome: "accepted",
+            conversationKey: "conversation-key",
+            session: {
+              sessionId: "session-failure-1",
+              runtimeTier: "paid_shared_restricted",
+              conversation: input.conversation,
+              publishedVersionId: "version-1",
+              bundleHash: "bundle-hash",
+              currentTokens: null,
+              currentCostMicros: null,
+              totalTurns: 0,
+              lastTurnAt: null,
+              createdAt: "2026-05-05T09:00:00.000Z",
+              updatedAt: "2026-05-05T09:00:00.000Z"
+            },
+            receipt: {
+              requestId: input.requestId,
+              sessionId: "session-failure-1",
+              publishedVersionId: "version-1",
+              status: "accepted",
+              bundleHash: "bundle-hash",
+              resultPayload: null,
+              errorCode: null,
+              errorMessage: null,
+              completedAt: null
+            },
+            lease: {} as never
+          };
+        }
+      } as never,
+      {
+        completeAcceptedTurn: async () => ({
+          receiptStatus: "completed",
+          session: {} as never,
+          leaseReleased: true
+        }),
+        failAcceptedTurn: async () => {
+          throw new Error("should not fail");
+        }
+      } as never
+    );
+
+    const result = await service.complete({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      runtimeTier: "paid_shared_restricted",
+      runtimeBundleDocument: JSON.stringify({
+        metadata: {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          publishedVersionId: "version-1"
+        },
+        runtime: {
+          runtimeProviderRouting: {
+            modelSlots: {
+              premiumReply: {
+                providerKey: "openai",
+                modelKey: "gpt-5.4-medium"
+              }
+            }
+          }
+        },
+        promptConstructor: {
+          ordinary: {
+            systemPrompt: "You are PersAI.",
+            sections: {
+              heartbeat: "Stay calm and helpful."
+            }
+          }
+        },
+        persona: {
+          displayName: "PersAI"
+        },
+        userContext: {
+          locale: "ru",
+          timezone: "Europe/Moscow"
+        }
+      }),
+      job: {
+        id: "job-fail-1",
+        surface: "web",
+        kind: "image",
+        chatId: "chat-1",
+        sourceUserMessageId: "user-message-1",
+        sourceUserMessageText: "нарисуй откровенный закат",
+        sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z"
+      },
+      currentHistory: [
+        {
+          author: "user",
+          content: "Нарисуй откровенный закат.",
+          createdAt: "2026-05-05T09:00:00.000Z"
+        }
+      ],
+      failure: {
+        code: "image_generate_blocked",
+        message: "OpenAI moderation blocked the prompt as explicit content.",
+        attemptCount: 1,
+        maxAttempts: 3,
+        retryable: false,
+        stage: "execution"
+      }
+    } satisfies RuntimeMediaJobCompletionRequest);
+
+    assert.equal(
+      result.assistantText,
+      "Не получилось дорисовать ваш закат: провайдер заблокировал запрос по политике."
+    );
+    assert.ok(acceptedRequest);
+    const recordedAcceptance = acceptedRequest as RuntimeTurnRequest;
+    assert.match(recordedAcceptance.requestId, /^media-job-completion-failure:job-fail-1:/);
+    assert.match(
+      recordedAcceptance.conversation.externalThreadKey,
+      /^system:media-job-failure:job-fail-1$/
+    );
+    assert.ok(providerRequest);
+    const recordedProviderRequest = providerRequest as ProviderGatewayTextGenerateRequest;
+    assert.equal(
+      recordedProviderRequest.requestMetadata?.classification,
+      "media_job_failure_explanation"
+    );
+    const serializedMessages = JSON.stringify(recordedProviderRequest.messages);
+    assert.match(serializedMessages, /failure_explanation/);
+    assert.match(serializedMessages, /OpenAI moderation blocked the prompt/);
+    assert.match(serializedMessages, /image_generate_blocked/);
+    assert.equal(serializedMessages.includes("workerResult"), false);
+    assert.match(
+      String(recordedProviderRequest.developerInstructions ?? ""),
+      /explaining to the user that an async PersAI media job did NOT finish successfully/
+    );
+  });
+
+  test("rejects requests that supply both workerResult and failure", async () => {
+    const service = new RuntimeMediaJobCompletionService(
+      { generateText: async () => ({ text: "{}", usage: null }) } as never,
+      { acceptTurn: async () => ({ outcome: "accepted" }) } as never,
+      {
+        completeAcceptedTurn: async () => ({
+          receiptStatus: "completed",
+          session: {} as never,
+          leaseReleased: true
+        }),
+        failAcceptedTurn: async () => undefined
+      } as never
+    );
+
+    await assert.rejects(
+      service.complete({
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: JSON.stringify({
+          metadata: {
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            publishedVersionId: "version-1"
+          },
+          runtime: {
+            runtimeProviderRouting: {
+              modelSlots: {
+                premiumReply: {
+                  providerKey: "openai",
+                  modelKey: "gpt-5.4-medium"
+                }
+              }
+            }
+          },
+          promptConstructor: {
+            ordinary: {
+              systemPrompt: "You are PersAI.",
+              sections: {}
+            }
+          },
+          persona: { displayName: "PersAI" },
+          userContext: { locale: "en", timezone: "UTC" }
+        }),
+        job: {
+          id: "job-conflict-1",
+          surface: "web",
+          kind: "image",
+          chatId: "chat-1",
+          sourceUserMessageId: "user-message-1",
+          sourceUserMessageText: "skyline",
+          sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z"
+        },
+        currentHistory: [],
+        workerResult: { assistantText: "ready", artifacts: [] },
+        failure: {
+          code: null,
+          message: "blocked",
+          attemptCount: 1,
+          maxAttempts: 3,
+          retryable: false,
+          stage: "execution"
+        }
+      } as RuntimeMediaJobCompletionRequest),
+      /cannot carry both workerResult and failure/
+    );
+  });
 });

@@ -106,8 +106,19 @@ export class InternalRuntimeMediaJobsController {
     }
     const row = body as Record<string, unknown>;
     const job = this.jobObject(row.job);
-    const workerResult = this.objectField(row.workerResult, "workerResult");
-    return {
+    const hasWorkerResult = row.workerResult !== undefined && row.workerResult !== null;
+    const hasFailure = row.failure !== undefined && row.failure !== null;
+    if (!hasWorkerResult && !hasFailure) {
+      throw new BadRequestException(
+        "Media-job completion request must include either workerResult or failure."
+      );
+    }
+    if (hasWorkerResult && hasFailure) {
+      throw new BadRequestException(
+        "Media-job completion request cannot include both workerResult and failure."
+      );
+    }
+    const base: RuntimeMediaJobCompletionRequest = {
       assistantId: this.requiredString(row.assistantId, "assistantId"),
       workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
       runtimeTier: this.runtimeTier(row.runtimeTier),
@@ -133,15 +144,59 @@ export class InternalRuntimeMediaJobsController {
           "job.sourceUserMessageCreatedAt"
         )
       },
-      currentHistory: this.currentHistory(row.currentHistory),
-      workerResult: {
-        assistantText:
-          workerResult.assistantText === null
-            ? null
-            : this.stringValue(workerResult.assistantText, "workerResult.assistantText"),
-        artifacts: this.completionArtifacts(workerResult.artifacts)
-      }
+      currentHistory: this.currentHistory(row.currentHistory)
     };
+    if (hasWorkerResult) {
+      const workerResult = this.objectField(row.workerResult, "workerResult");
+      return {
+        ...base,
+        workerResult: {
+          assistantText:
+            workerResult.assistantText === null
+              ? null
+              : this.stringValue(workerResult.assistantText, "workerResult.assistantText"),
+          artifacts: this.completionArtifacts(workerResult.artifacts)
+        }
+      };
+    }
+    return {
+      ...base,
+      failure: this.failureField(row.failure)
+    };
+  }
+
+  private failureField(value: unknown): NonNullable<RuntimeMediaJobCompletionRequest["failure"]> {
+    const row = this.objectField(value, "failure");
+    const code = row.code === null ? null : this.requiredString(row.code, "failure.code");
+    const message = this.requiredString(row.message, "failure.message");
+    const attemptCount = this.nonNegativeInteger(row.attemptCount, "failure.attemptCount");
+    const maxAttempts = this.nonNegativeInteger(row.maxAttempts, "failure.maxAttempts");
+    if (typeof row.retryable !== "boolean") {
+      throw new BadRequestException("failure.retryable must be a boolean.");
+    }
+    if (row.stage !== "execution" && row.stage !== "delivery") {
+      throw new BadRequestException("failure.stage must be one of execution or delivery.");
+    }
+    return {
+      code,
+      message,
+      attemptCount,
+      maxAttempts,
+      retryable: row.retryable,
+      stage: row.stage
+    };
+  }
+
+  private nonNegativeInteger(value: unknown, fieldName: string): number {
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      !Number.isInteger(value) ||
+      value < 0
+    ) {
+      throw new BadRequestException(`${fieldName} must be a non-negative integer.`);
+    }
+    return value;
   }
 
   private requiredString(value: unknown, fieldName: string): string {
@@ -244,7 +299,7 @@ export class InternalRuntimeMediaJobsController {
 
   private completionArtifacts(
     value: unknown
-  ): RuntimeMediaJobCompletionRequest["workerResult"]["artifacts"] {
+  ): NonNullable<RuntimeMediaJobCompletionRequest["workerResult"]>["artifacts"] {
     if (!Array.isArray(value)) {
       throw new BadRequestException("workerResult.artifacts must be an array.");
     }

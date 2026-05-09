@@ -1769,13 +1769,21 @@ export interface RuntimeMediaJobCompletionRequest {
     content: string;
     createdAt: IsoTimestamp;
   }>;
-  workerResult: {
+  workerResult?: {
     assistantText: string | null;
     artifacts: Array<{
       type: RuntimeOutputArtifact["kind"];
       filename: string | null;
       fileRef: string | null;
     }>;
+  };
+  failure?: {
+    code: string | null;
+    message: string;
+    attemptCount: number;
+    maxAttempts: number;
+    retryable: boolean;
+    stage: "execution" | "delivery";
   };
 }
 
@@ -1931,6 +1939,7 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   "auto_extract_to_memory",
   "background_task_evaluation",
   "media_job_completion",
+  "media_job_failure_explanation",
   "admin_authoring"
 ] as const;
 

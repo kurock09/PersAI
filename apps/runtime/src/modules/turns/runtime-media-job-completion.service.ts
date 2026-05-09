@@ -48,6 +48,16 @@ export class RuntimeMediaJobCompletionService {
     if (bundle.metadata.workspaceId !== input.workspaceId) {
       throw new BadRequestException("runtimeBundleDocument workspaceId does not match request.");
     }
+    if (input.workerResult === undefined && input.failure === undefined) {
+      throw new BadRequestException(
+        "Media-job completion requires either workerResult or failure context."
+      );
+    }
+    if (input.workerResult !== undefined && input.failure !== undefined) {
+      throw new BadRequestException(
+        "Media-job completion request cannot carry both workerResult and failure."
+      );
+    }
 
     const syntheticTurn = this.buildSyntheticTurnRequest(input, bundle);
     const acceptedTurn = await this.turnAcceptanceService.acceptTurn(syntheticTurn);
@@ -108,6 +118,13 @@ export class RuntimeMediaJobCompletionService {
   ): RuntimeTurnRequest {
     const bundleHash = hashAssistantRuntimeBundleDocument(input.runtimeBundleDocument);
     const key = this.buildCompletionKey(input);
+    const isFailure = input.failure !== undefined;
+    const messageText = isFailure
+      ? `Explain failed async media job ${input.job.id}`
+      : `Complete async media job ${input.job.id}`;
+    const externalThreadKeyPrefix = isFailure
+      ? "system:media-job-failure"
+      : "system:media-job-completion";
     return {
       requestId: key,
       idempotencyKey: key,
@@ -124,12 +141,12 @@ export class RuntimeMediaJobCompletionService {
         assistantId: input.assistantId,
         workspaceId: input.workspaceId,
         channel: input.job.surface,
-        externalThreadKey: `system:media-job-completion:${input.job.id}`,
+        externalThreadKey: `${externalThreadKeyPrefix}:${input.job.id}`,
         externalUserKey: null,
         mode: "direct"
       },
       message: {
-        text: `Complete async media job ${input.job.id}`,
+        text: messageText,
         attachments: [],
         locale: bundle.userContext.locale,
         timezone: bundle.userContext.timezone,
@@ -145,22 +162,50 @@ export class RuntimeMediaJobCompletionService {
     bundle: AssistantRuntimeBundle,
     providerSelection: ProviderSelection
   ): ProviderGatewayTextGenerateRequest {
-    const explicitRules = [
-      "You are framing the completion of a finished PersAI async media job.",
-      "Backend state already owns the job, artifacts, delivery idempotency, and quota truth.",
-      "Write only optional user-facing completion text for the finished media job.",
-      "If the stored worker text should be reused unchanged, return assistantText=null.",
-      "If no final text should be sent, return assistantText as an empty string.",
-      "Do not claim that media was already sent, attached, uploaded, or delivered.",
-      "Do not generate more media, do not call tools, and do not reopen the old user turn.",
-      "Keep the text short, calm, and aware of the latest chat context."
-    ].join("\n");
+    const isFailure = input.failure !== undefined;
+    const explicitRules = isFailure
+      ? this.buildFailureExplicitRules()
+      : this.buildSuccessExplicitRules();
     const developerInstructions = [
       this.normalizeOptionalText(bundle.promptConstructor.ordinary.sections.heartbeat),
       explicitRules
     ]
       .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
       .join("\n\n");
+
+    const userPayload: Record<string, unknown> = {
+      currentTimeIso: new Date().toISOString(),
+      mode: isFailure ? "failure_explanation" : "completion_framing",
+      job: {
+        id: input.job.id,
+        surface: input.job.surface,
+        kind: input.job.kind,
+        sourceUserMessageText: input.job.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.job.sourceUserMessageCreatedAt
+      },
+      latestChatHistory: input.currentHistory.slice(-MAX_HISTORY_MESSAGES).map((message) => ({
+        author: message.author,
+        content: message.content.slice(0, MAX_HISTORY_CHARS),
+        createdAt: message.createdAt
+      })),
+      assistant: {
+        name: bundle.persona.displayName,
+        userLocale: bundle.userContext.locale,
+        userTimezone: bundle.userContext.timezone
+      }
+    };
+    if (isFailure && input.failure !== undefined) {
+      userPayload.failure = {
+        code: input.failure.code,
+        message: input.failure.message,
+        attemptCount: input.failure.attemptCount,
+        maxAttempts: input.failure.maxAttempts,
+        retryable: input.failure.retryable,
+        stage: input.failure.stage
+      };
+    } else if (input.workerResult !== undefined) {
+      userPayload.workerResult = input.workerResult;
+    }
 
     return {
       provider: providerSelection.provider,
@@ -173,40 +218,14 @@ export class RuntimeMediaJobCompletionService {
           content: [
             {
               type: "text",
-              text: JSON.stringify(
-                {
-                  currentTimeIso: new Date().toISOString(),
-                  job: {
-                    id: input.job.id,
-                    surface: input.job.surface,
-                    kind: input.job.kind,
-                    sourceUserMessageText: input.job.sourceUserMessageText,
-                    sourceUserMessageCreatedAt: input.job.sourceUserMessageCreatedAt
-                  },
-                  latestChatHistory: input.currentHistory
-                    .slice(-MAX_HISTORY_MESSAGES)
-                    .map((message) => ({
-                      author: message.author,
-                      content: message.content.slice(0, MAX_HISTORY_CHARS),
-                      createdAt: message.createdAt
-                    })),
-                  workerResult: input.workerResult,
-                  assistant: {
-                    name: bundle.persona.displayName,
-                    userLocale: bundle.userContext.locale,
-                    userTimezone: bundle.userContext.timezone
-                  }
-                },
-                null,
-                2
-              )
+              text: JSON.stringify(userPayload, null, 2)
             }
           ]
         }
       ],
       maxOutputTokens: COMPLETION_MAX_OUTPUT_TOKENS,
       outputSchema: {
-        name: "media_job_completion",
+        name: isFailure ? "media_job_failure_explanation" : "media_job_completion",
         strict: true,
         schema: {
           type: "object",
@@ -224,9 +243,37 @@ export class RuntimeMediaJobCompletionService {
         runtimeRequestId: acceptedTurn.receipt.requestId,
         toolLoopIteration: null,
         compactionToolCode: null,
-        classification: "media_job_completion"
+        classification: isFailure ? "media_job_failure_explanation" : "media_job_completion"
       }
     };
+  }
+
+  private buildSuccessExplicitRules(): string {
+    return [
+      "You are framing the completion of a finished PersAI async media job.",
+      "Backend state already owns the job, artifacts, delivery idempotency, and quota truth.",
+      "Write only optional user-facing completion text for the finished media job.",
+      "If the stored worker text should be reused unchanged, return assistantText=null.",
+      "If no final text should be sent, return assistantText as an empty string.",
+      "Do not claim that media was already sent, attached, uploaded, or delivered.",
+      "Do not generate more media, do not call tools, and do not reopen the old user turn.",
+      "Keep the text short, calm, and aware of the latest chat context."
+    ].join("\n");
+  }
+
+  private buildFailureExplicitRules(): string {
+    return [
+      "You are explaining to the user that an async PersAI media job did NOT finish successfully.",
+      "Backend state already owns job status, retries, refunds, and quota truth.",
+      "The provider/runtime error reason is in failure.message and failure.code; treat it as the only authoritative reason.",
+      "Tell the user, in their language, what the job tried to do and why it didn't finish, in honest, calm, brief words.",
+      "If the failure looks like a provider safety/policy/content block, say so plainly and suggest rephrasing without disallowed details.",
+      "If the failure looks like a transient infrastructure issue and failure.retryable=true, suggest trying the same request again shortly.",
+      "Do not invent technical details, retry counts, internal codes, or claim the system did anything it did not do.",
+      "Do not claim media was generated, attached, uploaded, or delivered when it was not.",
+      "Do not generate more media, do not call tools, and do not reopen the original user turn.",
+      "Keep the message short (1\u20133 sentences), human, and aware of the latest chat context."
+    ].join("\n");
   }
 
   private parseCompletionJson(text: string | null): { assistantText: string | null } {
@@ -367,13 +414,16 @@ export class RuntimeMediaJobCompletionService {
   }
 
   private buildCompletionKey(input: RuntimeMediaJobCompletionRequest): string {
+    const isFailure = input.failure !== undefined;
     const digest = createHash("sha256")
       .update(
         JSON.stringify({
           assistantId: input.assistantId,
           workspaceId: input.workspaceId,
           jobId: input.job.id,
-          workerText: input.workerResult.assistantText,
+          mode: isFailure ? "failure" : "success",
+          workerText: input.workerResult?.assistantText ?? null,
+          failure: input.failure ?? null,
           history: input.currentHistory.map((entry) => ({
             author: entry.author,
             content: entry.content,
@@ -383,7 +433,10 @@ export class RuntimeMediaJobCompletionService {
       )
       .digest("hex")
       .slice(0, 16);
-    return `${MEDIA_JOB_COMPLETION_KEY_PREFIX}:${input.job.id}:${digest}`;
+    const prefix = isFailure
+      ? `${MEDIA_JOB_COMPLETION_KEY_PREFIX}-failure`
+      : MEDIA_JOB_COMPLETION_KEY_PREFIX;
+    return `${prefix}:${input.job.id}:${digest}`;
   }
 
   private normalizeOptionalText(value: unknown): string | null {

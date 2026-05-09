@@ -21,10 +21,16 @@ import {
 } from "./internal-runtime-media-job.client.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { AssistantMediaJobCompletionDeliveryService } from "./assistant-media-job-completion-delivery.service";
+import { AssistantMediaJobCompletionTurnService } from "./assistant-media-job-completion-turn.service";
 import {
   buildAssistantMediaJobFailureMessage,
   inferAssistantMediaJobFailureLocale
 } from "./assistant-media-job-failure-copy.service";
+
+type FailJobContext = {
+  sourceUserMessageText: string;
+  sourceUserMessageCreatedAt: string;
+};
 
 const MEDIA_JOB_POLL_INTERVAL_MS = 5_000;
 const MEDIA_JOB_BATCH_SIZE = 4;
@@ -101,7 +107,8 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly internalRuntimeMediaJobClientService: InternalRuntimeMediaJobClientService,
-    private readonly assistantMediaJobCompletionDeliveryService: AssistantMediaJobCompletionDeliveryService
+    private readonly assistantMediaJobCompletionDeliveryService: AssistantMediaJobCompletionDeliveryService,
+    private readonly assistantMediaJobCompletionTurnService: AssistantMediaJobCompletionTurnService
   ) {}
 
   onModuleInit(): void {
@@ -263,6 +270,11 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       return;
     }
 
+    const failContext: FailJobContext = {
+      sourceUserMessageText: requestPayload.sourceUserMessageText,
+      sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt
+    };
+
     const assistant = await this.assistantRepository.findById(job.assistantId);
     if (assistant === null) {
       await this.failJob(
@@ -271,6 +283,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         "assistant_not_found",
         "Assistant not found.",
         inferAssistantMediaJobFailureLocale({ sourceText: requestPayload.sourceUserMessageText })
+        // No LLM framing: the assistant record itself is missing, so bundle hydration would fail.
       );
       return;
     }
@@ -285,6 +298,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         "runtime_bundle_missing",
         "Assistant runtime bundle is not materialized.",
         inferAssistantMediaJobFailureLocale({ sourceText: requestPayload.sourceUserMessageText })
+        // No LLM framing: the runtime bundle isn't available, so the framing call cannot succeed.
       );
       return;
     }
@@ -313,7 +327,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     } satisfies RuntimeMediaJobRunRequest);
 
     if (!outcome.ok) {
-      await this.handleFailedExecution(job, outcome, locale);
+      await this.handleFailedExecution(job, outcome, locale, failContext);
       return;
     }
 
@@ -323,7 +337,8 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         false,
         "media_job_artifacts_missing",
         "Media job worker completed without any deliverable artifacts.",
-        locale
+        locale,
+        failContext
       );
       return;
     }
@@ -348,7 +363,8 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
   private async handleFailedExecution(
     job: ClaimedMediaJob,
     outcome: Extract<InternalRuntimeMediaJobRunOutcome, { ok: false }>,
-    locale: "ru" | "en"
+    locale: "ru" | "en",
+    context: FailJobContext
   ): Promise<void> {
     const canRetry = outcome.retryable && job.attemptCount < job.maxAttempts;
     if (canRetry) {
@@ -368,22 +384,29 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       return;
     }
 
-    await this.failJob(job, false, outcome.code, outcome.message, locale);
+    await this.failJob(job, false, outcome.code, outcome.message, locale, context);
   }
 
   private async failJob(
     job: ClaimedMediaJob,
-    _retryable: boolean,
+    retryable: boolean,
     code: string | null,
     message: string,
-    locale: "ru" | "en"
+    locale: "ru" | "en",
+    context?: FailJobContext
   ): Promise<void> {
-    const failureMessage = buildAssistantMediaJobFailureMessage({
-      kind: job.kind,
-      code,
-      message,
-      locale
-    });
+    const llmAuthored =
+      context === undefined
+        ? null
+        : await this.tryLlmAuthoredFailureCopy(job, retryable, code, message, context);
+    const failureMessage =
+      llmAuthored ??
+      buildAssistantMediaJobFailureMessage({
+        kind: job.kind,
+        code,
+        message,
+        locale
+      });
     let completionAssistantMessageId: string | null = null;
 
     try {
@@ -415,6 +438,43 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         ...(completionAssistantMessageId === null ? {} : { completionAssistantMessageId })
       }
     });
+  }
+
+  private async tryLlmAuthoredFailureCopy(
+    job: ClaimedMediaJob,
+    retryable: boolean,
+    code: string | null,
+    message: string,
+    context: FailJobContext
+  ): Promise<string | null> {
+    try {
+      return await this.assistantMediaJobCompletionTurnService.maybeFrameFailure({
+        id: job.id,
+        assistantId: job.assistantId,
+        workspaceId: job.workspaceId,
+        chatId: job.chatId,
+        surface: job.surface,
+        kind: job.kind,
+        sourceUserMessageId: job.sourceUserMessageId,
+        sourceUserMessageText: context.sourceUserMessageText,
+        sourceUserMessageCreatedAt: context.sourceUserMessageCreatedAt,
+        failure: {
+          code,
+          message,
+          attemptCount: job.attemptCount,
+          maxAttempts: job.maxAttempts,
+          retryable,
+          stage: "execution"
+        }
+      });
+    } catch (error) {
+      this.logger.warn(
+        `LLM failure-framing threw for media job ${job.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    }
   }
 
   private extractPreferredLocale(runtimeBundleDocument: string): string | null {

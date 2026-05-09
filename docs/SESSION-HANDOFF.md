@@ -1,5 +1,53 @@
 # SESSION-HANDOFF
 
+## 2026-05-10 — ADR-089 LLM-authored background media-job failure copy (LANDED)
+
+### What changed
+
+1. **No more hard-coded failure templates in chat** — when a background image/video/audio job fails (including provider safety/policy blocks), the user-visible explanation is now authored by the same LLM seam that frames successful media-job completions, instead of `buildAssistantMediaJobFailureMessage`'s "two canned phrases" template. The hard-coded helper remains only as a defensive fallback for cases where the LLM call itself cannot be attempted (no runtime bundle, missing assistant record, framing call throws, framing returns empty).
+2. **Reused existing seam, no new endpoint** — `RuntimeMediaJobCompletionRequest` was extended (not duplicated) so it carries either `workerResult` (success path, unchanged behaviour) **or** a new optional `failure` object (`code`, `message`, `attemptCount`, `maxAttempts`, `retryable`, `stage`). `RuntimeMediaJobCompletionService` branches prompt rules and payload between success and failure modes; the rest of the runtime turn-acceptance/finalization plumbing is untouched.
+3. **API caller wiring is symmetric** — `AssistantMediaJobCompletionTurnService.maybeFrame()` (success) is now joined by `maybeFrameFailure()` (failure), both use the same `loadFramingContext` helper and call `internalRuntimeMediaJobClient.complete(...)`. `AssistantMediaJobSchedulerService.failJob()` and `AssistantMediaJobCompletionDeliveryService.failDelivery()` now try the LLM-authored copy first whenever they have a valid persisted user-message context, and fall back to the existing localized hardcoded text when LLM framing returns `null` or throws.
+4. **Idempotency keeps success and failure separated** — runtime completion key prefix becomes `media-job-completion-failure:` for failure framing and stays `media-job-completion:` for success. The conversation external thread key gets `system:media-job-failure:<jobId>` for failure mode. This prevents replay collisions between the two modes for the same job id.
+5. **Provider-gateway classification extended** — added `media_job_failure_explanation` to `ProviderGatewayRequestClassification` so logs/observability separate failure framing from successful completion framing.
+
+### Current slice/step
+
+ADR-089 background media-job failure messaging — COMPLETE.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts` — `RuntimeMediaJobCompletionRequest.workerResult?` + `failure?`, new `media_job_failure_explanation` classification
+- `apps/runtime/src/modules/turns/runtime-media-job-completion.service.ts` — success/failure branching: explicit rules, payload, request id prefix, classification, conversation thread key
+- `apps/runtime/src/modules/turns/interface/http/internal-runtime-media-jobs.controller.ts` — parses `workerResult`/`failure` as oneOf, validates `failure.*` shape
+- `apps/runtime/test/runtime-media-job-completion.service.test.ts` — added failure-framing test + invalid-input rejection
+- `apps/api/src/modules/workspace-management/application/assistant-media-job-completion-turn.service.ts` — `maybeFrameFailure()` + shared `loadFramingContext()`; success path refactored to use the shared helper
+- `apps/api/src/modules/workspace-management/application/assistant-media-job-scheduler.service.ts` — `failJob` accepts optional `FailJobContext`, calls `maybeFrameFailure` first, falls back to hardcoded; all call sites pass context where the persisted payload is available
+- `apps/api/src/modules/workspace-management/application/assistant-media-job-completion-delivery.service.ts` — `failDelivery` accepts optional context; payload is parsed first so artifact-missing and main delivery-failure paths both get LLM framing; fallback preserved
+- `apps/api/test/assistant-media-job-completion-delivery.service.test.ts` — added LLM-authored success path test and LLM-null fallback test
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime-contract run typecheck` → ✅
+- `corepack pnpm --filter @persai/runtime run typecheck` → ✅
+- `corepack pnpm --filter @persai/api run typecheck` → ✅
+- `corepack pnpm --filter @persai/web run typecheck` → ✅
+- `corepack pnpm -r --if-present run lint` → ✅
+- `corepack pnpm run format:check` → ✅
+- `corepack pnpm --filter @persai/runtime run test` → ✅
+- `corepack pnpm --filter @persai/api run test` → ✅ (new tests `uses LLM-authored failure copy when delivery fails and the framing call succeeds` and `falls back to hardcoded failure copy when LLM framing returns null` both pass)
+
+### Risks / notes
+
+- Failure framing now adds an LLM call to the failure path. The runtime call has a 10-minute timeout and any error/throw is caught with a `Logger.warn` and a fallback to the existing localized hardcoded copy, so worst case is the user gets the same message they got before. There is no new failure mode that can mask the hard failure.
+- The runtime explicit rules tell the model to honor `failure.message`/`failure.code` as the only authoritative reason, not to invent technical details, not to claim media was generated/delivered, and to keep the message to 1–3 sentences. Output schema enforces JSON `{ assistantText: string|null }`.
+- Idempotency key for failure framing includes `mode: "failure"` plus the failure object in the digest, so retries with different error states do not collide; the same failure replayed returns the cached result.
+- The hardcoded helper `buildAssistantMediaJobFailureMessage` and `inferAssistantMediaJobFailureLocale` are retained in place for the fallback path. Founder-asked "no hardcoded copy" is achieved on the happy path; defensive fallback exists only so the user is never silenced if the LLM framing itself fails.
+
+### Next recommended step
+
+- Live-test by intentionally triggering an explicit prompt that OpenAI moderation rejects on `image_generate`. Confirm the chat now shows an LLM-authored, locale-aware explanation referencing the actual provider reason instead of one of the two old canned templates.
+
 ## 2026-05-10 — ADR-089 monthly media card redesign (LANDED)
 
 ### What changed

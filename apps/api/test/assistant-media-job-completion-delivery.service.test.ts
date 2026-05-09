@@ -336,4 +336,196 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       /blocked the request under its safety policy/i
     );
   });
+
+  test("uses LLM-authored failure copy when delivery fails and the framing call succeeds", async () => {
+    const finalUpdates: Array<Record<string, unknown>> = [];
+    const messageUpdates: Array<Record<string, unknown>> = [];
+    const failureFrameCalls: Array<Record<string, unknown>> = [];
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-llm-fail-1",
+                assistantId: "assistant-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-1",
+                surface: "web",
+                kind: "image",
+                sourceUserMessageId: "user-message-llm-fail-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "make a sunset",
+                  sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "make a sunset",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: "Your image is ready.",
+                artifactsJson: [{ artifactId: "artifact-llm-1", kind: "image" }],
+                completionAssistantMessageId: "assistant-message-llm-1",
+                attemptCount: 5,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: { update: async () => undefined }
+          }),
+        assistantMediaJob: {
+          updateMany: async (input: Record<string, unknown>) => {
+            finalUpdates.push(input);
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          throw new Error("createMessage should not run when completion message already exists");
+        },
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
+          messageUpdates.push({ messageId, assistantId, content });
+          return null;
+        }
+      } as never,
+      {
+        deliver: async () => {
+          throw new Error("Network blip while delivering.");
+        }
+      } as never,
+      {
+        async sendAssistantTurnReply() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return "Fresh current-context framing.";
+        },
+        async maybeFrameFailure(input: Record<string, unknown>) {
+          failureFrameCalls.push(input);
+          return "LLM-authored: this run hit a temporary problem; please try again.";
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.at(-1)?.data?.status, "failed");
+    assert.equal(failureFrameCalls.length, 1);
+    assert.equal(
+      (failureFrameCalls[0]?.failure as Record<string, unknown> | undefined)?.stage,
+      "delivery"
+    );
+    assert.equal(failureFrameCalls[0]?.sourceUserMessageText, "make a sunset");
+    assert.equal(
+      String(messageUpdates.at(-1)?.content),
+      "LLM-authored: this run hit a temporary problem; please try again."
+    );
+  });
+
+  test("falls back to hardcoded failure copy when LLM framing returns null", async () => {
+    const finalUpdates: Array<Record<string, unknown>> = [];
+    const messageUpdates: Array<Record<string, unknown>> = [];
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-llm-fallback-1",
+                assistantId: "assistant-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-1",
+                surface: "web",
+                kind: "image",
+                sourceUserMessageId: "user-message-fallback-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "draw something explicit",
+                  sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "draw something explicit",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: "Your image is ready.",
+                artifactsJson: [{ artifactId: "artifact-fb-1", kind: "image" }],
+                completionAssistantMessageId: "assistant-message-fb-1",
+                attemptCount: 5,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: { update: async () => undefined }
+          }),
+        assistantMediaJob: {
+          updateMany: async (input: Record<string, unknown>) => {
+            finalUpdates.push(input);
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          throw new Error("createMessage should not run when completion message already exists");
+        },
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
+          messageUpdates.push({ messageId, assistantId, content });
+          return null;
+        }
+      } as never,
+      {
+        deliver: async () => {
+          throw new Error("Blocked by provider safety policy.");
+        }
+      } as never,
+      {
+        async sendAssistantTurnReply() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return "Fresh current-context framing.";
+        },
+        async maybeFrameFailure() {
+          return null;
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.at(-1)?.data?.status, "failed");
+    assert.match(
+      String(messageUpdates.at(-1)?.content),
+      /blocked the request under its safety policy/i
+    );
+  });
 });

@@ -75,6 +75,42 @@ export class AssistantMediaJobCompletionDeliveryService {
     private readonly assistantMediaJobCompletionTurnService: AssistantMediaJobCompletionTurnService
   ) {}
 
+  private async tryLlmAuthoredDeliveryFailureCopy(
+    job: ClaimedCompletionPendingMediaJob,
+    code: string,
+    message: string,
+    context: { sourceUserMessageText: string; sourceUserMessageCreatedAt: string }
+  ): Promise<string | null> {
+    try {
+      return await this.assistantMediaJobCompletionTurnService.maybeFrameFailure({
+        id: job.id,
+        assistantId: job.assistantId,
+        workspaceId: job.workspaceId,
+        chatId: job.chatId,
+        surface: job.surface,
+        kind: job.kind,
+        sourceUserMessageId: job.sourceUserMessageId,
+        sourceUserMessageText: context.sourceUserMessageText,
+        sourceUserMessageCreatedAt: context.sourceUserMessageCreatedAt,
+        failure: {
+          code,
+          message,
+          attemptCount: job.attemptCount,
+          maxAttempts: job.maxAttempts,
+          retryable: false,
+          stage: "delivery"
+        }
+      });
+    } catch (error) {
+      this.logger.warn(
+        `LLM failure-framing threw for media-delivery job ${job.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    }
+  }
+
   async processPendingBatch(limit = COMPLETION_DELIVERY_BATCH_SIZE): Promise<number> {
     const claimed = await this.claimPendingDeliveries(limit);
     for (const job of claimed) {
@@ -153,18 +189,6 @@ export class AssistantMediaJobCompletionDeliveryService {
   private async processClaimedCompletionPendingJob(
     job: ClaimedCompletionPendingMediaJob
   ): Promise<void> {
-    const artifacts = this.parseArtifacts(job.artifactsJson);
-    if (artifacts === null || artifacts.length === 0) {
-      await this.failDelivery(
-        job,
-        false,
-        "completion_artifacts_missing",
-        "Media job has no artifacts to deliver.",
-        "en"
-      );
-      return;
-    }
-
     const requestPayload = this.parseRequestPayload(job.requestJson);
     if (requestPayload === null) {
       await this.failDelivery(
@@ -173,6 +197,25 @@ export class AssistantMediaJobCompletionDeliveryService {
         "completion_request_missing",
         "Media job completion request payload is invalid.",
         "en"
+        // No LLM framing: the original user-message context is missing from the persisted payload.
+      );
+      return;
+    }
+
+    const failContext = {
+      sourceUserMessageText: requestPayload.sourceUserMessageText,
+      sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt
+    };
+
+    const artifacts = this.parseArtifacts(job.artifactsJson);
+    if (artifacts === null || artifacts.length === 0) {
+      await this.failDelivery(
+        job,
+        false,
+        "completion_artifacts_missing",
+        "Media job has no artifacts to deliver.",
+        "en",
+        failContext
       );
       return;
     }
@@ -255,7 +298,14 @@ export class AssistantMediaJobCompletionDeliveryService {
       const message = error instanceof Error ? error.message : "Media delivery failed.";
       const canRetry = job.attemptCount < job.maxAttempts;
       if (!canRetry) {
-        await this.failDelivery(job, false, "media_delivery_failed", message, failureLocale);
+        await this.failDelivery(
+          job,
+          false,
+          "media_delivery_failed",
+          message,
+          failureLocale,
+          failContext
+        );
         return;
       }
       await this.prisma.assistantMediaJob.updateMany({
@@ -278,14 +328,21 @@ export class AssistantMediaJobCompletionDeliveryService {
     _retryable: boolean,
     code: string,
     message: string,
-    locale: "ru" | "en"
+    locale: "ru" | "en",
+    context?: { sourceUserMessageText: string; sourceUserMessageCreatedAt: string }
   ): Promise<void> {
-    const failureMessage = buildAssistantMediaJobFailureMessage({
-      kind: job.kind,
-      code,
-      message,
-      locale
-    });
+    const llmAuthored =
+      context === undefined
+        ? null
+        : await this.tryLlmAuthoredDeliveryFailureCopy(job, code, message, context);
+    const failureMessage =
+      llmAuthored ??
+      buildAssistantMediaJobFailureMessage({
+        kind: job.kind,
+        code,
+        message,
+        locale
+      });
     const completionAssistantMessageId =
       (await this.ensureFailureMessage(job, failureMessage)) ?? job.completionAssistantMessageId;
 
