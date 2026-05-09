@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { KnowledgeIndexingJobSourceType } from "./knowledgeIndexingJobSourceType";
-import type { KnowledgeIndexingJobStatus } from "./knowledgeIndexingJobStatus";
+import type { KnowledgeIndexingJobSourceType } from './knowledgeIndexingJobSourceType';
+import type { KnowledgeIndexingJobStatus } from './knowledgeIndexingJobStatus';
 
 export type GetAdminKnowledgeIndexingJobsParams = {
-  sourceType?: KnowledgeIndexingJobSourceType;
-  status?: KnowledgeIndexingJobStatus;
+sourceType?: KnowledgeIndexingJobSourceType;
+status?: KnowledgeIndexingJobStatus;
 };

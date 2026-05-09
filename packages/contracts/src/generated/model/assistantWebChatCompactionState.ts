@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantWebChatCompactionStateSuggestionReason } from "./assistantWebChatCompactionStateSuggestionReason";
+import type { AssistantWebChatCompactionStateSuggestionReason } from './assistantWebChatCompactionStateSuggestionReason';
 
 export interface AssistantWebChatCompactionState {
   available: boolean;

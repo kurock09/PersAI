@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { NotificationDeadLetterViewLastError } from "./notificationDeadLetterViewLastError";
+import type { NotificationDeadLetterViewLastError } from './notificationDeadLetterViewLastError';
 
 export interface NotificationDeadLetterView {
   id: string;

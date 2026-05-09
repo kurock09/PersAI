@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type MonthlyMediaQuotaToolStateStatus =
-  (typeof MonthlyMediaQuotaToolStateStatus)[keyof typeof MonthlyMediaQuotaToolStateStatus];
+export type MonthlyMediaQuotaToolStateStatus = typeof MonthlyMediaQuotaToolStateStatus[keyof typeof MonthlyMediaQuotaToolStateStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const MonthlyMediaQuotaToolStateStatus = {
-  ok: "ok",
-  limit_reached: "limit_reached",
-  usage_unavailable: "usage_unavailable"
+  ok: 'ok',
+  limit_reached: 'limit_reached',
+  usage_unavailable: 'usage_unavailable',
 } as const;

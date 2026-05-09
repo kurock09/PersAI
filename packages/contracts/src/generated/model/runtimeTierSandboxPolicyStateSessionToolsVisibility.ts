@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeTierSandboxPolicyStateSessionToolsVisibility =
-  (typeof RuntimeTierSandboxPolicyStateSessionToolsVisibility)[keyof typeof RuntimeTierSandboxPolicyStateSessionToolsVisibility];
+export type RuntimeTierSandboxPolicyStateSessionToolsVisibility = typeof RuntimeTierSandboxPolicyStateSessionToolsVisibility[keyof typeof RuntimeTierSandboxPolicyStateSessionToolsVisibility];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeTierSandboxPolicyStateSessionToolsVisibility = {
-  spawned: "spawned"
+  spawned: 'spawned',
 } as const;

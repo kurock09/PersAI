@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantTaskRegistryControlStatus =
-  (typeof AssistantTaskRegistryControlStatus)[keyof typeof AssistantTaskRegistryControlStatus];
+export type AssistantTaskRegistryControlStatus = typeof AssistantTaskRegistryControlStatus[keyof typeof AssistantTaskRegistryControlStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantTaskRegistryControlStatus = {
-  active: "active",
-  disabled: "disabled",
-  cancelled: "cancelled"
+  active: 'active',
+  disabled: 'disabled',
+  cancelled: 'cancelled',
 } as const;

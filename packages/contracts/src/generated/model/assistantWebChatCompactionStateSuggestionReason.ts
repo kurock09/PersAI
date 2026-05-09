@@ -8,12 +8,11 @@
 /**
  * @nullable
  */
-export type AssistantWebChatCompactionStateSuggestionReason =
-  | (typeof AssistantWebChatCompactionStateSuggestionReason)[keyof typeof AssistantWebChatCompactionStateSuggestionReason]
-  | null;
+export type AssistantWebChatCompactionStateSuggestionReason = typeof AssistantWebChatCompactionStateSuggestionReason[keyof typeof AssistantWebChatCompactionStateSuggestionReason] | null;
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatCompactionStateSuggestionReason = {
-  token_threshold: "token_threshold",
-  history_threshold: "history_threshold"
+  token_threshold: 'token_threshold',
+  history_threshold: 'history_threshold',
 } as const;

@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantWebChatActiveMediaJobStateKind } from "./assistantWebChatActiveMediaJobStateKind";
-import type { AssistantWebChatActiveMediaJobStateOperation } from "./assistantWebChatActiveMediaJobStateOperation";
-import type { AssistantWebChatActiveMediaJobStateStatus } from "./assistantWebChatActiveMediaJobStateStatus";
+import type { AssistantWebChatActiveMediaJobStateKind } from './assistantWebChatActiveMediaJobStateKind';
+import type { AssistantWebChatActiveMediaJobStateOperation } from './assistantWebChatActiveMediaJobStateOperation';
+import type { AssistantWebChatActiveMediaJobStateStatus } from './assistantWebChatActiveMediaJobStateStatus';
 
 export interface AssistantWebChatActiveMediaJobState {
   id: string;

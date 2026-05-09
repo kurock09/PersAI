@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type KnowledgeIndexingJobProcessorMode =
-  (typeof KnowledgeIndexingJobProcessorMode)[keyof typeof KnowledgeIndexingJobProcessorMode];
+export type KnowledgeIndexingJobProcessorMode = typeof KnowledgeIndexingJobProcessorMode[keyof typeof KnowledgeIndexingJobProcessorMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const KnowledgeIndexingJobProcessorMode = {
-  auto: "auto",
-  local: "local",
-  default_provider: "default_provider",
-  high_quality_fallback: "high_quality_fallback"
+  auto: 'auto',
+  local: 'local',
+  default_provider: 'default_provider',
+  high_quality_fallback: 'high_quality_fallback',
 } as const;

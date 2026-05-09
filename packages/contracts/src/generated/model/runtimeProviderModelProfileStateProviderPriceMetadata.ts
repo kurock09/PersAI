@@ -8,6 +8,4 @@
 /**
  * @nullable
  */
-export type RuntimeProviderModelProfileStateProviderPriceMetadata = {
-  [key: string]: unknown;
-} | null;
+export type RuntimeProviderModelProfileStateProviderPriceMetadata = { [key: string]: unknown } | null;

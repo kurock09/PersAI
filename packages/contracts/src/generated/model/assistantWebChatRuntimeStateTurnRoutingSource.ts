@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatRuntimeStateTurnRoutingSource =
-  (typeof AssistantWebChatRuntimeStateTurnRoutingSource)[keyof typeof AssistantWebChatRuntimeStateTurnRoutingSource];
+export type AssistantWebChatRuntimeStateTurnRoutingSource = typeof AssistantWebChatRuntimeStateTurnRoutingSource[keyof typeof AssistantWebChatRuntimeStateTurnRoutingSource];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatRuntimeStateTurnRoutingSource = {
-  precheck: "precheck",
-  llm: "llm",
-  fallback: "fallback"
+  precheck: 'precheck',
+  llm: 'llm',
+  fallback: 'fallback',
 } as const;

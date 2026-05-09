@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type SkillAuthoringDraftKnowledgeCardProposalProvenanceKind =
-  (typeof SkillAuthoringDraftKnowledgeCardProposalProvenanceKind)[keyof typeof SkillAuthoringDraftKnowledgeCardProposalProvenanceKind];
+export type SkillAuthoringDraftKnowledgeCardProposalProvenanceKind = typeof SkillAuthoringDraftKnowledgeCardProposalProvenanceKind[keyof typeof SkillAuthoringDraftKnowledgeCardProposalProvenanceKind];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SkillAuthoringDraftKnowledgeCardProposalProvenanceKind = {
-  assistant_generated: "assistant_generated"
+  assistant_generated: 'assistant_generated',
 } as const;

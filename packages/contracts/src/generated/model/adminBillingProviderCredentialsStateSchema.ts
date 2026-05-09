@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminBillingProviderCredentialsStateSchema =
-  (typeof AdminBillingProviderCredentialsStateSchema)[keyof typeof AdminBillingProviderCredentialsStateSchema];
+export type AdminBillingProviderCredentialsStateSchema = typeof AdminBillingProviderCredentialsStateSchema[keyof typeof AdminBillingProviderCredentialsStateSchema];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminBillingProviderCredentialsStateSchema = {
-  persaiadminBillingProviderCredentialsv1: "persai.adminBillingProviderCredentials.v1"
+  persaiadminBillingProviderCredentialsv1: 'persai.adminBillingProviderCredentials.v1',
 } as const;

@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminOpsIncidentSignalSeverity } from "./adminOpsIncidentSignalSeverity";
+import type { AdminOpsIncidentSignalSeverity } from './adminOpsIncidentSignalSeverity';
 
 export interface AdminOpsIncidentSignal {
   code: string;

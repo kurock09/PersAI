@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminBillingProviderCredentialsStateSchema } from "./adminBillingProviderCredentialsStateSchema";
-import type { AdminBillingProviderCredentialStatus } from "./adminBillingProviderCredentialStatus";
+import type { AdminBillingProviderCredentialsStateSchema } from './adminBillingProviderCredentialsStateSchema';
+import type { AdminBillingProviderCredentialStatus } from './adminBillingProviderCredentialStatus';
 
 export interface AdminBillingProviderCredentialsState {
   schema: AdminBillingProviderCredentialsStateSchema;

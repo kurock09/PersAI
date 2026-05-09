@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeTierSandboxPolicyStateScope =
-  (typeof RuntimeTierSandboxPolicyStateScope)[keyof typeof RuntimeTierSandboxPolicyStateScope];
+export type RuntimeTierSandboxPolicyStateScope = typeof RuntimeTierSandboxPolicyStateScope[keyof typeof RuntimeTierSandboxPolicyStateScope];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeTierSandboxPolicyStateScope = {
-  session: "session"
+  session: 'session',
 } as const;

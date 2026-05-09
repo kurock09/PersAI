@@ -3398,6 +3398,185 @@ export async function postAdminAbuseUnblock(
   }
 }
 
+export type MediaPackageCatalogItem = {
+  id: string;
+  packageType: "image_generate" | "image_edit" | "video_generate";
+  units: number;
+  amountMinor: number;
+  currency: "RUB" | "USD";
+  isActive: boolean;
+  displayOrder: number;
+  title: { ru: string; en: string };
+  subtitle: { ru: string; en: string };
+  badge: { ru: string; en: string };
+  ctaLabel: { ru: string; en: string };
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function getAdminMediaPackages(token: string): Promise<MediaPackageCatalogItem[]> {
+  try {
+    const base = getApiBaseUrl();
+    const res = await fetch(`${base}/admin/plans/packages`, {
+      method: "GET",
+      headers: getAuthHeaders(token)
+    });
+    if (!res.ok) {
+      throw new Error(await readJsonErrorMessage(res, "Failed to fetch media packages."));
+    }
+    const data = (await res.json()) as { packages: MediaPackageCatalogItem[] };
+    return data.packages;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminMediaPackage(
+  token: string,
+  payload: {
+    packageType: "image_generate" | "image_edit" | "video_generate";
+    units: number;
+    amountMinor: number;
+    currency: "RUB" | "USD";
+    isActive: boolean;
+    displayOrder: number;
+    titleRu: string;
+    titleEn: string;
+    subtitleRu?: string;
+    subtitleEn?: string;
+    badgeRu?: string;
+    badgeEn?: string;
+  }
+): Promise<MediaPackageCatalogItem> {
+  try {
+    const base = getApiBaseUrl();
+    const res = await fetch(`${base}/admin/plans/packages`, {
+      method: "POST",
+      headers: {
+        ...getAuthHeaders(token),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      throw new Error(await readJsonErrorMessage(res, "Failed to create media package."));
+    }
+    const data = (await res.json()) as { package: MediaPackageCatalogItem };
+    return data.package;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function patchAdminMediaPackage(
+  token: string,
+  id: string,
+  patch: Partial<{
+    packageType: "image_generate" | "image_edit" | "video_generate";
+    units: number;
+    amountMinor: number;
+    currency: "RUB" | "USD";
+    isActive: boolean;
+    displayOrder: number;
+    titleRu: string;
+    titleEn: string;
+    subtitleRu: string;
+    subtitleEn: string;
+    badgeRu: string;
+    badgeEn: string;
+  }>
+): Promise<MediaPackageCatalogItem> {
+  try {
+    const base = getApiBaseUrl();
+    const res = await fetch(`${base}/admin/plans/packages/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: {
+        ...getAuthHeaders(token),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(patch)
+    });
+    if (!res.ok) {
+      throw new Error(await readJsonErrorMessage(res, "Failed to update media package."));
+    }
+    const data = (await res.json()) as { package: MediaPackageCatalogItem };
+    return data.package;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function deleteAdminMediaPackage(token: string, id: string): Promise<void> {
+  try {
+    const base = getApiBaseUrl();
+    const res = await fetch(`${base}/admin/plans/packages/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(token)
+    });
+    if (!res.ok) {
+      throw new Error(await readJsonErrorMessage(res, "Failed to delete media package."));
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getPublicMediaPackages(token: string): Promise<MediaPackageCatalogItem[]> {
+  try {
+    const base = getApiBaseUrl();
+    const res = await fetch(`${base}/assistant/billing/packages/catalog`, {
+      method: "GET",
+      headers: getAuthHeaders(token)
+    });
+    if (!res.ok) {
+      throw new Error(await readJsonErrorMessage(res, "Failed to fetch media packages."));
+    }
+    const data = (await res.json()) as { packages: MediaPackageCatalogItem[] };
+    return data.packages;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantBillingPackagePaymentIntent(
+  token: string,
+  payload: {
+    packageItemIds: string[];
+    paymentMethodClass: "card" | "sbp_qr";
+    idempotencyKey: string;
+    returnUrl: string;
+  }
+): Promise<{ id: string; status: string; checkoutPayload: Record<string, unknown> | null }> {
+  try {
+    const base = getApiBaseUrl();
+    const res = await fetch(`${base}/assistant/billing/packages/payment-intents`, {
+      method: "POST",
+      headers: {
+        ...getAuthHeaders(token),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      throw new Error(await readJsonErrorMessage(res, "Failed to create package payment intent."));
+    }
+    const data = (await res.json()) as {
+      paymentIntent: {
+        id: string;
+        status: string;
+        checkout: { payload: Record<string, unknown> | null } | null;
+      };
+    };
+    return {
+      id: data.paymentIntent.id,
+      status: data.paymentIntent.status,
+      checkoutPayload: data.paymentIntent.checkout?.payload ?? null
+    };
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
 export type ForceReapplyAllSummary = {
   totalAssistants: number;
   withPublishedVersion: number;

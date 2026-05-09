@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminRuntimeProviderSettingsRequestRouterPolicyMode =
-  (typeof AdminRuntimeProviderSettingsRequestRouterPolicyMode)[keyof typeof AdminRuntimeProviderSettingsRequestRouterPolicyMode];
+export type AdminRuntimeProviderSettingsRequestRouterPolicyMode = typeof AdminRuntimeProviderSettingsRequestRouterPolicyMode[keyof typeof AdminRuntimeProviderSettingsRequestRouterPolicyMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminRuntimeProviderSettingsRequestRouterPolicyMode = {
-  shadow: "shadow",
-  active: "active"
+  shadow: 'shadow',
+  active: 'active',
 } as const;

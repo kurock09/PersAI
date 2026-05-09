@@ -4,11 +4,11 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { KnowledgeIndexingJobSourceType } from "./knowledgeIndexingJobSourceType";
-import type { KnowledgeIndexingJobStatus } from "./knowledgeIndexingJobStatus";
-import type { KnowledgeIndexingJobProcessorMode } from "./knowledgeIndexingJobProcessorMode";
-import type { KnowledgeIndexingJobStateExtractionQuality } from "./knowledgeIndexingJobStateExtractionQuality";
-import type { KnowledgeIndexingJobStateResultPayload } from "./knowledgeIndexingJobStateResultPayload";
+import type { KnowledgeIndexingJobSourceType } from './knowledgeIndexingJobSourceType';
+import type { KnowledgeIndexingJobStatus } from './knowledgeIndexingJobStatus';
+import type { KnowledgeIndexingJobProcessorMode } from './knowledgeIndexingJobProcessorMode';
+import type { KnowledgeIndexingJobStateExtractionQuality } from './knowledgeIndexingJobStateExtractionQuality';
+import type { KnowledgeIndexingJobStateResultPayload } from './knowledgeIndexingJobStateResultPayload';
 
 export interface KnowledgeIndexingJobState {
   id: string;

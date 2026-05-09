@@ -5,14 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type TelegramSecretLifecycleStatus =
-  (typeof TelegramSecretLifecycleStatus)[keyof typeof TelegramSecretLifecycleStatus];
+export type TelegramSecretLifecycleStatus = typeof TelegramSecretLifecycleStatus[keyof typeof TelegramSecretLifecycleStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TelegramSecretLifecycleStatus = {
-  active: "active",
-  revoked: "revoked",
-  emergency_revoked: "emergency_revoked",
-  expired: "expired",
-  legacy_unmanaged: "legacy_unmanaged"
+  active: 'active',
+  revoked: 'revoked',
+  emergency_revoked: 'emergency_revoked',
+  expired: 'expired',
+  legacy_unmanaged: 'legacy_unmanaged',
 } as const;

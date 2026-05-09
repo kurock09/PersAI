@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingSubscriptionActionCheckoutResultMode =
-  (typeof AssistantBillingSubscriptionActionCheckoutResultMode)[keyof typeof AssistantBillingSubscriptionActionCheckoutResultMode];
+export type AssistantBillingSubscriptionActionCheckoutResultMode = typeof AssistantBillingSubscriptionActionCheckoutResultMode[keyof typeof AssistantBillingSubscriptionActionCheckoutResultMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingSubscriptionActionCheckoutResultMode = {
-  checkout: "checkout"
+  checkout: 'checkout',
 } as const;

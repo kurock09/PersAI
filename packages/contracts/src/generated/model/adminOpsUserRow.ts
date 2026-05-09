@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminOpsUserRowAssistant } from "./adminOpsUserRowAssistant";
-import type { AdminOpsUserRowBilling } from "./adminOpsUserRowBilling";
+import type { AdminOpsUserRowAssistant } from './adminOpsUserRowAssistant';
+import type { AdminOpsUserRowBilling } from './adminOpsUserRowBilling';
 
 export interface AdminOpsUserRow {
   userId: string;

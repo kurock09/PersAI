@@ -5,14 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingCheckoutMode =
-  (typeof AssistantBillingCheckoutMode)[keyof typeof AssistantBillingCheckoutMode];
+export type AssistantBillingCheckoutMode = typeof AssistantBillingCheckoutMode[keyof typeof AssistantBillingCheckoutMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingCheckoutMode = {
-  embedded: "embedded",
-  redirect: "redirect",
-  payment_link: "payment_link",
-  qr_code: "qr_code",
-  manual_test: "manual_test"
+  embedded: 'embedded',
+  redirect: 'redirect',
+  payment_link: 'payment_link',
+  qr_code: 'qr_code',
+  manual_test: 'manual_test',
 } as const;

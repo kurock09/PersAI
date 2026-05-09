@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantKnowledgeSourceNamespace } from "./assistantKnowledgeSourceNamespace";
-import type { AssistantKnowledgeSourceKind } from "./assistantKnowledgeSourceKind";
-import type { AssistantKnowledgeSourceStatus } from "./assistantKnowledgeSourceStatus";
+import type { AssistantKnowledgeSourceNamespace } from './assistantKnowledgeSourceNamespace';
+import type { AssistantKnowledgeSourceKind } from './assistantKnowledgeSourceKind';
+import type { AssistantKnowledgeSourceStatus } from './assistantKnowledgeSourceStatus';
 
 export interface AssistantKnowledgeSourceState {
   id: string;

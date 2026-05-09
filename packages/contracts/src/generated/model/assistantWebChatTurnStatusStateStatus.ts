@@ -5,15 +5,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatTurnStatusStateStatus =
-  (typeof AssistantWebChatTurnStatusStateStatus)[keyof typeof AssistantWebChatTurnStatusStateStatus];
+export type AssistantWebChatTurnStatusStateStatus = typeof AssistantWebChatTurnStatusStateStatus[keyof typeof AssistantWebChatTurnStatusStateStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatTurnStatusStateStatus = {
-  unknown: "unknown",
-  accepted: "accepted",
-  running: "running",
-  completed: "completed",
-  failed: "failed",
-  interrupted: "interrupted"
+  unknown: 'unknown',
+  accepted: 'accepted',
+  running: 'running',
+  completed: 'completed',
+  failed: 'failed',
+  interrupted: 'interrupted',
 } as const;

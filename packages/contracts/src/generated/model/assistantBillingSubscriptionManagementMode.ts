@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingSubscriptionManagementMode =
-  (typeof AssistantBillingSubscriptionManagementMode)[keyof typeof AssistantBillingSubscriptionManagementMode];
+export type AssistantBillingSubscriptionManagementMode = typeof AssistantBillingSubscriptionManagementMode[keyof typeof AssistantBillingSubscriptionManagementMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingSubscriptionManagementMode = {
-  provider_portal: "provider_portal",
-  provider_managed_recovery: "provider_managed_recovery",
-  unavailable: "unavailable"
+  provider_portal: 'provider_portal',
+  provider_managed_recovery: 'provider_managed_recovery',
+  unavailable: 'unavailable',
 } as const;

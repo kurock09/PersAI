@@ -5,22 +5,22 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantVoiceProfileOpenAIVoice =
-  (typeof AssistantVoiceProfileOpenAIVoice)[keyof typeof AssistantVoiceProfileOpenAIVoice];
+export type AssistantVoiceProfileOpenAIVoice = typeof AssistantVoiceProfileOpenAIVoice[keyof typeof AssistantVoiceProfileOpenAIVoice];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantVoiceProfileOpenAIVoice = {
-  alloy: "alloy",
-  ash: "ash",
-  ballad: "ballad",
-  coral: "coral",
-  echo: "echo",
-  fable: "fable",
-  onyx: "onyx",
-  nova: "nova",
-  sage: "sage",
-  shimmer: "shimmer",
-  verse: "verse",
-  marin: "marin",
-  cedar: "cedar"
+  alloy: 'alloy',
+  ash: 'ash',
+  ballad: 'ballad',
+  coral: 'coral',
+  echo: 'echo',
+  fable: 'fable',
+  onyx: 'onyx',
+  nova: 'nova',
+  sage: 'sage',
+  shimmer: 'shimmer',
+  verse: 'verse',
+  marin: 'marin',
+  cedar: 'cedar',
 } as const;

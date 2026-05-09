@@ -11,6 +11,7 @@ import {
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 import type { UserPlanVisibilityState } from "./plan-visibility.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { ManageMediaPackageCatalogService } from "./manage-media-package-catalog.service";
 
 export type QuotaAdvisoryCandidateState = {
   dedupeKey: string;
@@ -128,7 +129,8 @@ export class ReadInternalRuntimeQuotaStatusService {
     private readonly resolveInternalRuntimeToolDailyPolicyService: ResolveInternalRuntimeToolDailyPolicyService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly manageAdminPlansService: ManageAdminPlansService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly manageMediaPackageCatalogService: ManageMediaPackageCatalogService
   ) {}
 
   parseInput(payload: unknown): ReadInternalRuntimeQuotaStatusRequest {
@@ -226,6 +228,7 @@ export class ReadInternalRuntimeQuotaStatusService {
     tools: ToolDailyQuotaStatusRow[];
     buckets: AssistantQuotaBucketSnapshot[];
     monthlyMediaQuotas: AssistantMonthlyMediaQuotaSnapshot;
+    packagesAvailableByTool: Record<string, boolean>;
     advisories: UserPlanVisibilityState["advisories"];
     advisoryCandidates: QuotaAdvisoryCandidateState[];
   }> {
@@ -356,6 +359,12 @@ export class ReadInternalRuntimeQuotaStatusService {
       monthlyMediaQuotas
     });
 
+    const publicPackages = await this.manageMediaPackageCatalogService.listPublic();
+    const packagesAvailableByTool: Record<string, boolean> = {};
+    for (const toolCode of ["image_generate", "image_edit", "video_generate"]) {
+      packagesAvailableByTool[toolCode] = publicPackages.some((p) => p.packageType === toolCode);
+    }
+
     return {
       ok: true,
       planCode: resolved.planCode,
@@ -418,6 +427,7 @@ export class ReadInternalRuntimeQuotaStatusService {
       tools,
       buckets: snapshot.buckets,
       monthlyMediaQuotas,
+      packagesAvailableByTool,
       advisories,
       advisoryCandidates
     };

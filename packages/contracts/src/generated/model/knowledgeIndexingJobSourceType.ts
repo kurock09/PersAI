@@ -5,14 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type KnowledgeIndexingJobSourceType =
-  (typeof KnowledgeIndexingJobSourceType)[keyof typeof KnowledgeIndexingJobSourceType];
+export type KnowledgeIndexingJobSourceType = typeof KnowledgeIndexingJobSourceType[keyof typeof KnowledgeIndexingJobSourceType];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const KnowledgeIndexingJobSourceType = {
-  assistant_knowledge_source: "assistant_knowledge_source",
-  global_knowledge_source: "global_knowledge_source",
-  skill_document: "skill_document",
-  skill_knowledge_card: "skill_knowledge_card",
-  product_knowledge_text_entry: "product_knowledge_text_entry"
+  assistant_knowledge_source: 'assistant_knowledge_source',
+  global_knowledge_source: 'global_knowledge_source',
+  skill_document: 'skill_document',
+  skill_knowledge_card: 'skill_knowledge_card',
+  product_knowledge_text_entry: 'product_knowledge_text_entry',
 } as const;

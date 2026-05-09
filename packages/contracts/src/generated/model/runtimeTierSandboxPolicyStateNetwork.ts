@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeTierSandboxPolicyStateNetwork =
-  (typeof RuntimeTierSandboxPolicyStateNetwork)[keyof typeof RuntimeTierSandboxPolicyStateNetwork];
+export type RuntimeTierSandboxPolicyStateNetwork = typeof RuntimeTierSandboxPolicyStateNetwork[keyof typeof RuntimeTierSandboxPolicyStateNetwork];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeTierSandboxPolicyStateNetwork = {
-  none: "none"
+  none: 'none',
 } as const;

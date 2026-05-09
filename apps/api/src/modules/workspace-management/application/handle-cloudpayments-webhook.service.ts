@@ -11,6 +11,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { ApplyWorkspaceSubscriptionBillingEventService } from "./apply-workspace-subscription-billing-event.service";
 import { CLOUDPAYMENTS_API_SECRET_STORAGE_KEY } from "./billing-provider-credential-settings";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
+import { ManageMediaPackagePurchaseService } from "./manage-media-package-purchase.service";
 
 export type CloudpaymentsNotificationType =
   | "check"
@@ -248,7 +249,8 @@ export class HandleCloudpaymentsWebhookService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
-    private readonly applyWorkspaceSubscriptionBillingEventService: ApplyWorkspaceSubscriptionBillingEventService
+    private readonly applyWorkspaceSubscriptionBillingEventService: ApplyWorkspaceSubscriptionBillingEventService,
+    private readonly manageMediaPackagePurchaseService: ManageMediaPackagePurchaseService
   ) {}
 
   async handle(input: CloudpaymentsWebhookInput): Promise<{
@@ -289,6 +291,32 @@ export class HandleCloudpaymentsWebhookService {
 
     if (paymentIntent !== null) {
       await this.updatePaymentIntent(paymentIntent, input.notificationType, payload);
+    }
+
+    // Media package purchase fulfillment — does NOT touch subscription lifecycle
+    if (
+      paymentIntent !== null &&
+      readPaymentIntentPurpose(paymentIntent.metadata) === "media_package_purchase" &&
+      (input.notificationType === "pay" || input.notificationType === "confirm") &&
+      payload.status !== "Authorized"
+    ) {
+      const alreadyFulfilled = await this.prisma.workspaceMediaPackageGrant.count({
+        where: { paymentIntentId: paymentIntent.id }
+      });
+      if (alreadyFulfilled > 0) {
+        return { status: "duplicate" };
+      }
+      if (paymentIntent.userId === null) {
+        throw new Error(
+          `Cannot fulfill media package intent "${paymentIntent.id}": paymentIntent.userId is null.`
+        );
+      }
+      await this.manageMediaPackagePurchaseService.fulfillPackagePaymentIntent(
+        paymentIntent.id,
+        paymentIntent.workspaceId,
+        paymentIntent.userId
+      );
+      return { status: "processed" };
     }
 
     const lifecycleEvent = await this.deriveLifecycleEvent(

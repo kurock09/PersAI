@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { BootstrapSectionErrorCategory } from "./bootstrapSectionErrorCategory";
+import type { BootstrapSectionErrorCategory } from './bootstrapSectionErrorCategory';
 
 export interface BootstrapSectionError {
   code: string;

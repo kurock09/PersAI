@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingRecurringCheckoutKind =
-  (typeof AssistantBillingRecurringCheckoutKind)[keyof typeof AssistantBillingRecurringCheckoutKind];
+export type AssistantBillingRecurringCheckoutKind = typeof AssistantBillingRecurringCheckoutKind[keyof typeof AssistantBillingRecurringCheckoutKind];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingRecurringCheckoutKind = {
-  one_time: "one_time",
-  recurring_start: "recurring_start"
+  one_time: 'one_time',
+  recurring_start: 'recurring_start',
 } as const;

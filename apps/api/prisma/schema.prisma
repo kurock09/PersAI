@@ -176,6 +176,18 @@ enum WorkspaceSubscriptionBillingEventApplyStatus {
   failed
 }
 
+enum MediaPackageType {
+  image_generate
+  image_edit
+  video_generate
+}
+
+enum MediaPackageGrantStatus {
+  active
+  expired_period
+  reversed
+}
+
 enum WorkspacePaymentIntentAction {
   new_purchase
   upgrade
@@ -520,6 +532,7 @@ model Workspace {
   mediaJobs                         AssistantMediaJob[]
   notificationIntents               NotificationIntent[]            @relation("NotificationIntentWorkspace")
   notificationDeadLetters           NotificationDeadLetter[]        @relation("NotificationDeadLetterWorkspace")
+  mediaPackageGrants                WorkspaceMediaPackageGrant[]
 
   @@map("workspaces")
 }
@@ -1095,12 +1108,62 @@ model WorkspacePaymentIntent {
   updatedAt           DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
   workspace           Workspace                          @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   user                AppUser?                           @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  mediaPackageGrants  WorkspaceMediaPackageGrant[]
 
   @@unique([workspaceId, idempotencyKey])
   @@index([workspaceId, createdAt(sort: Desc)])
   @@index([userId, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
   @@map("workspace_payment_intents")
+}
+
+model MediaPackageCatalogItem {
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  packageType  MediaPackageType @map("package_type")
+  units        Int
+  amountMinor  Int              @map("amount_minor")
+  currency     String           @db.VarChar(3)
+  isActive     Boolean          @default(true) @map("is_active")
+  displayOrder Int              @default(0) @map("display_order")
+  titleRu      String           @map("title_ru") @db.VarChar(120)
+  titleEn      String           @map("title_en") @db.VarChar(120)
+  subtitleRu   String           @default("") @map("subtitle_ru") @db.VarChar(240)
+  subtitleEn   String           @default("") @map("subtitle_en") @db.VarChar(240)
+  badgeRu      String           @default("") @map("badge_ru") @db.VarChar(64)
+  badgeEn      String           @default("") @map("badge_en") @db.VarChar(64)
+  ctaLabelRu   String           @default("") @map("cta_label_ru") @db.VarChar(64)
+  ctaLabelEn   String           @default("") @map("cta_label_en") @db.VarChar(64)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  grants       WorkspaceMediaPackageGrant[]
+
+  @@index([packageType, isActive, displayOrder])
+  @@map("media_package_catalog_items")
+}
+
+model WorkspaceMediaPackageGrant {
+  id                  String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId         String                   @map("workspace_id") @db.Uuid
+  packageCatalogItemId String                  @map("package_catalog_item_id") @db.Uuid
+  toolCode            String                   @map("tool_code") @db.VarChar(64)
+  grantedUnits        Int                      @map("granted_units")
+  amountMinorSnapshot Int                      @map("amount_minor_snapshot")
+  currencySnapshot    String                   @map("currency_snapshot") @db.VarChar(3)
+  paymentIntentId     String                   @map("payment_intent_id") @db.Uuid
+  periodStartedAt     DateTime                 @map("period_started_at") @db.Timestamptz(6)
+  periodEndsAt        DateTime                 @map("period_ends_at") @db.Timestamptz(6)
+  status              MediaPackageGrantStatus  @default(active)
+  createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace           Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  catalogItem         MediaPackageCatalogItem  @relation(fields: [packageCatalogItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  paymentIntent       WorkspacePaymentIntent   @relation(fields: [paymentIntentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([workspaceId, toolCode, status, periodEndsAt])
+  @@index([workspaceId, periodEndsAt])
+  @@index([paymentIntentId])
+  @@unique([paymentIntentId, packageCatalogItemId], name: "uniq_grant_intent_item")
+  @@map("workspace_media_package_grants")
 }
 
 model WorkspaceQuotaAccountingState {

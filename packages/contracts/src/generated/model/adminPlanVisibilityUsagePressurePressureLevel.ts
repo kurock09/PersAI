@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminPlanVisibilityUsagePressurePressureLevel =
-  (typeof AdminPlanVisibilityUsagePressurePressureLevel)[keyof typeof AdminPlanVisibilityUsagePressurePressureLevel];
+export type AdminPlanVisibilityUsagePressurePressureLevel = typeof AdminPlanVisibilityUsagePressurePressureLevel[keyof typeof AdminPlanVisibilityUsagePressurePressureLevel];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminPlanVisibilityUsagePressurePressureLevel = {
-  low: "low",
-  elevated: "elevated",
-  high: "high"
+  low: 'low',
+  elevated: 'elevated',
+  high: 'high',
 } as const;

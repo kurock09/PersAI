@@ -5,19 +5,19 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantVoiceProfileYandexVoice =
-  (typeof AssistantVoiceProfileYandexVoice)[keyof typeof AssistantVoiceProfileYandexVoice];
+export type AssistantVoiceProfileYandexVoice = typeof AssistantVoiceProfileYandexVoice[keyof typeof AssistantVoiceProfileYandexVoice];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantVoiceProfileYandexVoice = {
-  marina: "marina",
-  jane: "jane",
-  ermil: "ermil",
-  zahar: "zahar",
-  lera: "lera",
-  masha: "masha",
-  dasha: "dasha",
-  alexander: "alexander",
-  kirill: "kirill",
-  anton: "anton"
+  marina: 'marina',
+  jane: 'jane',
+  ermil: 'ermil',
+  zahar: 'zahar',
+  lera: 'lera',
+  masha: 'masha',
+  dasha: 'dasha',
+  alexander: 'alexander',
+  kirill: 'kirill',
+  anton: 'anton',
 } as const;

@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminToolPromptMetadataStateCapabilityGroup =
-  (typeof AdminToolPromptMetadataStateCapabilityGroup)[keyof typeof AdminToolPromptMetadataStateCapabilityGroup];
+export type AdminToolPromptMetadataStateCapabilityGroup = typeof AdminToolPromptMetadataStateCapabilityGroup[keyof typeof AdminToolPromptMetadataStateCapabilityGroup];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminToolPromptMetadataStateCapabilityGroup = {
-  knowledge: "knowledge",
-  automation: "automation",
-  communication: "communication",
-  workspace_ops: "workspace_ops"
+  knowledge: 'knowledge',
+  automation: 'automation',
+  communication: 'communication',
+  workspace_ops: 'workspace_ops',
 } as const;

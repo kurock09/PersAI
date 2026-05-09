@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminKnowledgeConnectorStateIndexingTarget =
-  (typeof AdminKnowledgeConnectorStateIndexingTarget)[keyof typeof AdminKnowledgeConnectorStateIndexingTarget];
+export type AdminKnowledgeConnectorStateIndexingTarget = typeof AdminKnowledgeConnectorStateIndexingTarget[keyof typeof AdminKnowledgeConnectorStateIndexingTarget];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminKnowledgeConnectorStateIndexingTarget = {
-  knowledge_indexing_service: "knowledge_indexing_service"
+  knowledge_indexing_service: 'knowledge_indexing_service',
 } as const;

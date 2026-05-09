@@ -1,6 +1,126 @@
 # SESSION-HANDOFF
 
-## 2026-05-09 — ADR-088 Notifications admin auth + chat title cleanup (LANDED)
+## 2026-05-09 — ADR-089 Media packages — post-audit hardening (LANDED)
+
+### What changed
+
+Post-audit follow-up closing all 7 production-grade issues found by independent subagent review:
+
+1. **Workstream 7 (quota advisory)** — `quota-grounded-limit-copy.service.ts`: new `buildMediaUpgradeGuidance` method reads `packagesAvailableByTool` from `quotaStatus` and branches between three copy paths: "buy a package" (packages available, no higher plan), "upgrade plan" (no packages, higher plan available), or both options combined. Monthly media exceeded copy now uses `effectiveLimitUnits` for the `used/limit` display instead of the stale `limitUnits`.
+
+2. **Idempotency guard** — `WorkspaceMediaPackageGrant` gets a `@@unique([paymentIntentId, packageCatalogItemId])` constraint in `schema.prisma`; migration `20260509210000_adr089_grant_idempotency` adds a `CREATE UNIQUE INDEX`. `fulfillPackagePaymentIntent` now uses `upsert` with `update: {}` instead of `create`, so duplicate webhook deliveries are silently no-ops at the DB level rather than creating duplicate grant rows.
+
+3. **Webhook `userId` null guard** — `handle-cloudpayments-webhook.service.ts` now throws an explicit `Error` if `paymentIntent.userId === null` before calling `fulfillPackagePaymentIntent`. Removed the silent `?? ""` fallback.
+
+4. **Admin card locale** — `MediaPackagesSection.tsx` `PackageCard` now renders `ru / en` (or whichever is set) instead of blindly showing only `item.title.ru` and `item.badge.ru`.
+
+5. **Dead `packageType` prop** — removed from `PackageForm` props type and all two call sites that were passing it.
+
+6. **Assistant-settings visibility fix** — `visibleMonthlyMediaQuotas` and `featuredMonthlyMediaQuotas` filters now check `effectiveLimitUnits > 0 || limitUnits > 0`, so a tool with zero base plan quota but active package bonus will still show in the grid.
+
+7. **Expiry i18n** — `packages/page.tsx` now uses `useTranslations("settings")` and `t("monthlyMediaBonusExpiryHint")` instead of hardcoded `locale === "ru" ? ... : ...` inline strings. Key was already in both `en.json` and `ru.json`.
+
+### Current slice/step
+
+ADR-089 Media packages post-audit hardening — COMPLETE. All 7 audit findings closed.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/quota-grounded-limit-copy.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-media-package-purchase.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-cloudpayments-webhook.service.ts`
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260509210000_adr089_grant_idempotency/migration.sql` (new)
+- `apps/web/app/admin/plans/_components/MediaPackagesSection.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/packages/page.tsx`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck` → ✅
+- `corepack pnpm --filter @persai/web run typecheck` → ✅
+- `corepack pnpm -r --if-present run lint` → ✅
+- `corepack pnpm exec prettier --check` (all touched files) → ✅ (unchanged)
+
+### Risks / notes
+
+- Both migrations (`20260509200000_adr089_media_packages` and `20260509210000_adr089_grant_idempotency`) must be run together before deploy: `prisma migrate deploy`.
+- Unlimited-plan users who buy a package will see `effectiveLimitUnits: null` (package units ignored). This is consistent with ADR-089's statement that packages do not create a finite cap on unlimited plans — but worth noting for future product iteration.
+
+### Next recommended step
+
+- Run `prisma migrate deploy` on dev/staging.
+- Seed test package presets via Admin > Plans > Media packages.
+- End-to-end verify: select packages → checkout → confirm grant written → assistant-settings shows bonus subline → quota tool copy says "buy a package" when limit exhausted.
+
+
+
+### What changed
+
+1. **ADR-089 created** — `docs/ADR/089-media-package-add-ons.md` formalises catalog/grant lifecycle, `base+bonus+effective` quota truth, payment intent purpose, currency constraints, and UI/UX rules.
+2. **Prisma schema + migration** — `MediaPackageCatalogItem` and `WorkspaceMediaPackageGrant` models; `MediaPackageType` and `MediaPackageGrantStatus` enums; migration `20260509200000_adr089_media_packages`.
+3. **Backend services** — `ManageMediaPackageCatalogService` (admin CRUD), `ManageMediaPackagePurchaseService` (bonus resolution, one-time payment intent with purpose `media_package_purchase`, grant fulfillment). Webhook handler branches on the new purpose; subscription lifecycle untouched.
+4. **Quota truth overlay** — `TrackWorkspaceQuotaUsageService` computes `baseLimitUnits`/`bonusLimitUnits`/`effectiveLimitUnits`/`bonusExpiresAt`; enforcement uses `effectiveLimitUnits`. `ReadInternalRuntimeQuotaStatusService` adds `packagesAvailableByTool`.
+5. **OpenAPI contract** — `MonthlyMediaQuotaToolState` schema extended with bonus/effective/expiry fields; contracts regenerated.
+6. **Admin UI** — second block on `admin/plans/page.tsx` via `MediaPackagesSection.tsx`; currency for existing plans converted to controlled select (RUB/USD).
+7. **User packages page** — `/app/packages` with multi-select premium cards, per-type watermarks, live total, single Buy → one-time checkout. Quiet link on pricing page.
+8. **Compact quota UI** — `assistant-settings.tsx` now shows `used / effectiveLimit`, bonus subline `X план + Y пакет` in accent color, accent border when bonus > 0, and a quiet "Докупить медиа пакеты →" link.
+9. **Bug fix** — orphaned `ForceReapplyAllSummary` type header restored in `assistant-api-client.ts` (was split by prior session, caused TS1128).
+
+### Current slice/step
+
+ADR-089 Media package add-ons — COMPLETE.
+
+### Files touched
+
+- `docs/ADR/089-media-package-add-ons.md` (new)
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260509200000_adr089_media_packages/migration.sql` (new)
+- `apps/api/src/modules/workspace-management/application/media-package.types.ts` (new)
+- `apps/api/src/modules/workspace-management/application/manage-media-package-catalog.service.ts` (new)
+- `apps/api/src/modules/workspace-management/application/manage-media-package-purchase.service.ts` (new)
+- `apps/api/src/modules/workspace-management/application/manage-assistant-payment-intents.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-cloudpayments-webhook.service.ts`
+- `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts`
+- `apps/api/src/modules/workspace-management/application/read-internal-runtime-quota-status.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-plans.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant-billing.controller.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/` (regenerated)
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/app/admin/plans/_components/MediaPackagesSection.tsx` (new)
+- `apps/web/app/app/packages/page.tsx` (new)
+- `apps/web/app/_components/pricing-page-view.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck` → ✅
+- `corepack pnpm --filter @persai/web run typecheck` → ✅
+- `corepack pnpm -r --if-present run lint` → ✅
+- `corepack pnpm exec prettier --check` (all touched files) → ✅
+
+### Risks / notes
+
+- Database migration has not been run against any environment — run `prisma migrate deploy` before deploy.
+- Package catalog starts empty; admin must seed at least one preset per type before users see the packages page.
+- `bonusExpiresAt` is computed as `MAX(periodEndsAt)` over active grants — if a user buys two packages with different periods the UI shows the later date.
+- The packages page and quota subline are behind no feature flag; they appear immediately after deploy once catalog is populated.
+
+### Next recommended step
+
+- Run `prisma migrate deploy` on dev/staging.
+- Seed a test package preset via Admin > Plans > Media packages block.
+- Verify end-to-end: select a preset on `/app/packages`, complete one-time checkout, confirm `WorkspaceMediaPackageGrant` row created, reload assistant settings and confirm bonus subline appears.
+- If quota tool advisory copy needs updating (`quota-grounded-limit-copy.service.ts`), that is a separate bounded slice (ADR-089 Workstream 7).
+
+
 
 ### What changed
 

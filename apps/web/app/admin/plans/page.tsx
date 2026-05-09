@@ -28,9 +28,12 @@ import {
   patchAdminPlan,
   postAdminPlanCreate,
   postAdminForceReapplyAll,
-  type ForceReapplyAllSummary
+  getAdminMediaPackages,
+  type ForceReapplyAllSummary,
+  type MediaPackageCatalogItem
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
+import { MediaPackagesSection } from "./_components/MediaPackagesSection";
 
 /* ─── Draft types ─── */
 
@@ -1999,11 +2002,18 @@ function PlanForm({
                   inputMode="numeric"
                 />
               </FieldRow>
-              <FieldRow label="Currency" tip="Uppercase ISO-style code, for example RUB or USD.">
-                <Input
+              <FieldRow
+                label="Currency"
+                tip="Pricing currency for checkout and pricing page display."
+              >
+                <select
+                  className="h-9 rounded-lg border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-200 focus:outline-none focus:ring-1 focus:ring-zinc-600"
                   value={draft.presentationPriceCurrency}
-                  onValue={(v) => onPatch({ presentationPriceCurrency: v.toUpperCase() })}
-                />
+                  onChange={(e) => onPatch({ presentationPriceCurrency: e.target.value })}
+                >
+                  <option value="RUB">RUB — Russian Ruble</option>
+                  <option value="USD">USD — US Dollar</option>
+                </select>
               </FieldRow>
               <FieldRow
                 label="Billing period"
@@ -3380,6 +3390,8 @@ export default function AdminPlansPage() {
   >([]);
   const [reapplying, setReapplying] = useState(false);
   const [reapplySummary, setReapplySummary] = useState<ForceReapplyAllSummary | null>(null);
+  const [packages, setPackages] = useState<MediaPackageCatalogItem[]>([]);
+  const [packagesLoading, setPackagesLoading] = useState(false);
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -3396,6 +3408,9 @@ export default function AdminPlansPage() {
         getAdminRuntimeProviderSettings(token).catch(() => null)
       ]);
       setPlans(plansData);
+      getAdminMediaPackages(token)
+        .then(setPackages)
+        .catch(() => null);
       if (runtimeData?.availableModelsByProvider) {
         const keys: { provider: string; model: string }[] = [];
         for (const [provider, models] of Object.entries(
@@ -3445,6 +3460,20 @@ export default function AdminPlansPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadPackages = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    setPackagesLoading(true);
+    try {
+      const data = await getAdminMediaPackages(token);
+      setPackages(data);
+    } catch {
+      /* ignore */
+    } finally {
+      setPackagesLoading(false);
+    }
+  }, [getToken]);
 
   useEffect(() => {
     if (feedback?.kind !== "success") return;
@@ -3868,6 +3897,45 @@ export default function AdminPlansPage() {
           })}
         </div>
       )}
+
+      <div className="mt-8">
+        <MediaPackagesSectionWrapper
+          packages={packages}
+          packagesLoading={packagesLoading}
+          onRefresh={loadPackages}
+          disabled={saving || loading}
+          getToken={getToken}
+        />
+      </div>
     </div>
+  );
+}
+
+function MediaPackagesSectionWrapper({
+  packages,
+  packagesLoading,
+  onRefresh,
+  disabled,
+  getToken
+}: {
+  packages: import("@/app/app/assistant-api-client").MediaPackageCatalogItem[];
+  packagesLoading: boolean;
+  onRefresh: () => void;
+  disabled: boolean;
+  getToken: () => Promise<string | null>;
+}) {
+  const [token, setToken] = useState<string | null>(null);
+  useEffect(() => {
+    void getToken().then(setToken);
+  }, [getToken]);
+  if (!token) return null;
+  return (
+    <MediaPackagesSection
+      packages={packages}
+      token={token}
+      onRefresh={onRefresh}
+      loading={packagesLoading}
+      disabled={disabled}
+    />
   );
 }

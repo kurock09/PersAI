@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantBillingSubscriptionActionResult } from "./assistantBillingSubscriptionActionResult";
+import type { AssistantBillingSubscriptionActionResult } from './assistantBillingSubscriptionActionResult';
 
 export interface PostAssistantBillingChangePlanResponse {
   /** @nullable */

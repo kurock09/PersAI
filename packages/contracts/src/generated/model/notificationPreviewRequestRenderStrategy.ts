@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type NotificationPreviewRequestRenderStrategy =
-  (typeof NotificationPreviewRequestRenderStrategy)[keyof typeof NotificationPreviewRequestRenderStrategy];
+export type NotificationPreviewRequestRenderStrategy = typeof NotificationPreviewRequestRenderStrategy[keyof typeof NotificationPreviewRequestRenderStrategy];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NotificationPreviewRequestRenderStrategy = {
-  grounded_llm: "grounded_llm",
-  template: "template",
-  static_fallback: "static_fallback"
+  grounded_llm: 'grounded_llm',
+  template: 'template',
+  static_fallback: 'static_fallback',
 } as const;

@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type QuotaVisibilityBucketStateStatus =
-  (typeof QuotaVisibilityBucketStateStatus)[keyof typeof QuotaVisibilityBucketStateStatus];
+export type QuotaVisibilityBucketStateStatus = typeof QuotaVisibilityBucketStateStatus[keyof typeof QuotaVisibilityBucketStateStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const QuotaVisibilityBucketStateStatus = {
-  ok: "ok",
-  limit_reached: "limit_reached",
-  usage_unavailable: "usage_unavailable"
+  ok: 'ok',
+  limit_reached: 'limit_reached',
+  usage_unavailable: 'usage_unavailable',
 } as const;

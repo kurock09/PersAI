@@ -4,14 +4,14 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminRuntimeProviderSettingsMode } from "./adminRuntimeProviderSettingsMode";
-import type { AdminRuntimeProviderSettingsStatePrimary } from "./adminRuntimeProviderSettingsStatePrimary";
-import type { AdminRuntimeProviderSettingsStateFallback } from "./adminRuntimeProviderSettingsStateFallback";
-import type { AdminRuntimeProviderSettingsStateRouterPolicy } from "./adminRuntimeProviderSettingsStateRouterPolicy";
-import type { AdminRuntimeProviderSettingsStateSkillRoutingPolicy } from "./adminRuntimeProviderSettingsStateSkillRoutingPolicy";
-import type { RuntimeProviderAvailableModelsByProviderState } from "./runtimeProviderAvailableModelsByProviderState";
-import type { RuntimeProviderModelCatalogByProviderState } from "./runtimeProviderModelCatalogByProviderState";
-import type { AdminRuntimeProviderSettingsStateProviderKeys } from "./adminRuntimeProviderSettingsStateProviderKeys";
+import type { AdminRuntimeProviderSettingsMode } from './adminRuntimeProviderSettingsMode';
+import type { AdminRuntimeProviderSettingsStatePrimary } from './adminRuntimeProviderSettingsStatePrimary';
+import type { AdminRuntimeProviderSettingsStateFallback } from './adminRuntimeProviderSettingsStateFallback';
+import type { AdminRuntimeProviderSettingsStateRouterPolicy } from './adminRuntimeProviderSettingsStateRouterPolicy';
+import type { AdminRuntimeProviderSettingsStateSkillRoutingPolicy } from './adminRuntimeProviderSettingsStateSkillRoutingPolicy';
+import type { RuntimeProviderAvailableModelsByProviderState } from './runtimeProviderAvailableModelsByProviderState';
+import type { RuntimeProviderModelCatalogByProviderState } from './runtimeProviderModelCatalogByProviderState';
+import type { AdminRuntimeProviderSettingsStateProviderKeys } from './adminRuntimeProviderSettingsStateProviderKeys';
 
 export interface AdminRuntimeProviderSettingsState {
   schema: string;

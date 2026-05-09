@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantBillingSubscriptionActionCheckoutResultMode } from "./assistantBillingSubscriptionActionCheckoutResultMode";
-import type { AssistantBillingPaymentIntentState } from "./assistantBillingPaymentIntentState";
+import type { AssistantBillingSubscriptionActionCheckoutResultMode } from './assistantBillingSubscriptionActionCheckoutResultMode';
+import type { AssistantBillingPaymentIntentState } from './assistantBillingPaymentIntentState';
 
 export interface AssistantBillingSubscriptionActionCheckoutResult {
   mode: AssistantBillingSubscriptionActionCheckoutResultMode;

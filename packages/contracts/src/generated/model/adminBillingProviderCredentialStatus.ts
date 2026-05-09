@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminBillingProviderCredentialStatusProviderKey } from "./adminBillingProviderCredentialStatusProviderKey";
-import type { AdminBillingProviderCredentialStatusApiSecret } from "./adminBillingProviderCredentialStatusApiSecret";
-import type { AdminBillingProviderCredentialStatusPublicTerminalId } from "./adminBillingProviderCredentialStatusPublicTerminalId";
+import type { AdminBillingProviderCredentialStatusProviderKey } from './adminBillingProviderCredentialStatusProviderKey';
+import type { AdminBillingProviderCredentialStatusApiSecret } from './adminBillingProviderCredentialStatusApiSecret';
+import type { AdminBillingProviderCredentialStatusPublicTerminalId } from './adminBillingProviderCredentialStatusPublicTerminalId';
 
 export interface AdminBillingProviderCredentialStatus {
   providerKey: AdminBillingProviderCredentialStatusProviderKey;

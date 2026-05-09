@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { NotificationChannelView } from "./notificationChannelView";
+import type { NotificationChannelView } from './notificationChannelView';
 
 export interface GetAdminNotificationChannelsResponse {
   /** @nullable */

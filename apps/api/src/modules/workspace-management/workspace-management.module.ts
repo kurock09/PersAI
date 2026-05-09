@@ -129,6 +129,8 @@ import { ManageAdminBillingLifecycleSettingsService } from "./application/manage
 import { ManageAssistantBillingSubscriptionService } from "./application/manage-assistant-billing-subscription.service";
 import { ManageAssistantPaymentIntentsService } from "./application/manage-assistant-payment-intents.service";
 import { HandleCloudpaymentsWebhookService } from "./application/handle-cloudpayments-webhook.service";
+import { ManageMediaPackageCatalogService } from "./application/manage-media-package-catalog.service";
+import { ManageMediaPackagePurchaseService } from "./application/manage-media-package-purchase.service";
 import { ManageWorkspaceSubscriptionLifecycleService } from "./application/manage-workspace-subscription-lifecycle.service";
 import { MaterializeWorkspacePaidActivationService } from "./application/materialize-workspace-paid-activation.service";
 import { ApplyWorkspaceSubscriptionBillingEventService } from "./application/apply-workspace-subscription-billing-event.service";
@@ -642,7 +644,9 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     {
       provide: KNOWLEDGE_VECTOR_INDEX,
       useExisting: PostgresPgvectorKnowledgeIndex
-    }
+    },
+    ManageMediaPackageCatalogService,
+    ManageMediaPackagePurchaseService
   ],
   exports: [
     GetAssistantByUserIdService,

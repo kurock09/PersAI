@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantKnowledgeSourceKind =
-  (typeof AssistantKnowledgeSourceKind)[keyof typeof AssistantKnowledgeSourceKind];
+export type AssistantKnowledgeSourceKind = typeof AssistantKnowledgeSourceKind[keyof typeof AssistantKnowledgeSourceKind];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantKnowledgeSourceKind = {
-  uploaded_file: "uploaded_file"
+  uploaded_file: 'uploaded_file',
 } as const;

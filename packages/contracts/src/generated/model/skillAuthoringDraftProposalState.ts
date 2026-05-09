@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { SkillAuthoringDraftProposalStateSchema } from "./skillAuthoringDraftProposalStateSchema";
-import type { SkillAuthoringDraftProposalStateProviderKey } from "./skillAuthoringDraftProposalStateProviderKey";
-import type { SkillAuthoringDraftSkillFields } from "./skillAuthoringDraftSkillFields";
-import type { SkillAuthoringDraftKnowledgeCardProposal } from "./skillAuthoringDraftKnowledgeCardProposal";
+import type { SkillAuthoringDraftProposalStateSchema } from './skillAuthoringDraftProposalStateSchema';
+import type { SkillAuthoringDraftProposalStateProviderKey } from './skillAuthoringDraftProposalStateProviderKey';
+import type { SkillAuthoringDraftSkillFields } from './skillAuthoringDraftSkillFields';
+import type { SkillAuthoringDraftKnowledgeCardProposal } from './skillAuthoringDraftKnowledgeCardProposal';
 
 export interface SkillAuthoringDraftProposalState {
   schema: SkillAuthoringDraftProposalStateSchema;

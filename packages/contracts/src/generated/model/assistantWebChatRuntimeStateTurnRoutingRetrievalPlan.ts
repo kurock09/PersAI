@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanOrdinarySourcePriorityMode } from "./assistantWebChatRuntimeStateTurnRoutingRetrievalPlanOrdinarySourcePriorityMode";
-import type { AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence } from "./assistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence";
+import type { AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanOrdinarySourcePriorityMode } from './assistantWebChatRuntimeStateTurnRoutingRetrievalPlanOrdinarySourcePriorityMode';
+import type { AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence } from './assistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence';
 
 /**
  * @nullable

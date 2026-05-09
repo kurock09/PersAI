@@ -12,17 +12,24 @@ import {
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import { ManageAdminPlansService } from "../../application/manage-admin-plans.service";
 import { ResolvePlanVisibilityService } from "../../application/resolve-plan-visibility.service";
+import { ManageMediaPackageCatalogService } from "../../application/manage-media-package-catalog.service";
 import type {
   AdminCreatePlanInput,
   AdminPlanState
 } from "../../application/admin-plan-management.types";
 import type { AdminPlanVisibilityState } from "../../application/plan-visibility.types";
+import type {
+  CreateMediaPackageCatalogItemInput,
+  MediaPackageCatalogItemState,
+  UpdateMediaPackageCatalogItemInput
+} from "../../application/media-package.types";
 
 @Controller("api/v1/admin/plans")
 export class AdminPlansController {
   constructor(
     private readonly manageAdminPlansService: ManageAdminPlansService,
-    private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService
+    private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService,
+    private readonly manageMediaPackageCatalogService: ManageMediaPackageCatalogService
   ) {}
 
   @Get()
@@ -106,6 +113,57 @@ export class AdminPlansController {
       requestId: req.requestId ?? null,
       ok: true
     };
+  }
+
+  // ── Media package catalog endpoints ──────────────────────────────────────
+
+  @Get("packages")
+  async listPackages(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    packages: MediaPackageCatalogItemState[];
+  }> {
+    this.resolveRequestUserId(req);
+    return {
+      requestId: req.requestId ?? null,
+      packages: await this.manageMediaPackageCatalogService.listAll()
+    };
+  }
+
+  @Post("packages")
+  async createPackage(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{ requestId: string | null; package: MediaPackageCatalogItemState }> {
+    this.resolveRequestUserId(req);
+    const input = body as CreateMediaPackageCatalogItemInput;
+    return {
+      requestId: req.requestId ?? null,
+      package: await this.manageMediaPackageCatalogService.create(input)
+    };
+  }
+
+  @Patch("packages/:id")
+  async updatePackage(
+    @Req() req: RequestWithPlatformContext,
+    @Param("id") id: string,
+    @Body() body: unknown
+  ): Promise<{ requestId: string | null; package: MediaPackageCatalogItemState }> {
+    this.resolveRequestUserId(req);
+    const patch = body as UpdateMediaPackageCatalogItemInput;
+    return {
+      requestId: req.requestId ?? null,
+      package: await this.manageMediaPackageCatalogService.update(id, patch)
+    };
+  }
+
+  @Delete("packages/:id")
+  async deletePackage(
+    @Req() req: RequestWithPlatformContext,
+    @Param("id") id: string
+  ): Promise<{ requestId: string | null; ok: true }> {
+    this.resolveRequestUserId(req);
+    await this.manageMediaPackageCatalogService.delete(id);
+    return { requestId: req.requestId ?? null, ok: true };
   }
 
   private resolveRequestUserId(req: RequestWithPlatformContext): string {

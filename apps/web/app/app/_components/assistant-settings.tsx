@@ -623,14 +623,16 @@ export function AssistantSettings({
     mediaToolActiveByCode.get(tool.toolCode) ?? true;
   const visibleMonthlyMediaQuotas =
     data.plan?.limits.monthlyMediaQuotas.tools.filter(
-      (tool) => tool.limitUnits !== null && tool.limitUnits > 0
+      (tool) =>
+        (tool.effectiveLimitUnits !== null && tool.effectiveLimitUnits > 0) ||
+        (tool.limitUnits !== null && tool.limitUnits > 0)
     ) ?? [];
   const featuredMonthlyMediaQuotas = visibleMonthlyMediaQuotas
     .filter(
       (tool) =>
         ["image_generate", "image_edit", "video_generate"].includes(tool.toolCode) &&
-        tool.limitUnits !== null &&
-        tool.limitUnits > 0
+        ((tool.effectiveLimitUnits !== null && tool.effectiveLimitUnits > 0) ||
+          (tool.limitUnits !== null && tool.limitUnits > 0))
     )
     .sort((left, right) => {
       const order = ["image_generate", "image_edit", "video_generate"];
@@ -662,18 +664,24 @@ export function AssistantSettings({
     if (!isMonthlyMediaQuotaToolAvailable(tool)) {
       return t("limitUnavailable");
     }
-    return tool.limitUnits === null
-      ? String(tool.usedUnits)
-      : `${tool.usedUnits}/${tool.limitUnits}`;
+    const effectiveLimit = tool.effectiveLimitUnits ?? null;
+    return effectiveLimit === null ? String(tool.usedUnits) : `${tool.usedUnits}/${effectiveLimit}`;
   };
   const toMonthlyMediaQuotaPercent = (tool: MonthlyMediaQuotaToolState): number | null => {
     if (!isMonthlyMediaQuotaToolAvailable(tool)) {
       return null;
     }
-    if (tool.limitUnits === null || tool.limitUnits <= 0) {
+    const effectiveLimit = tool.effectiveLimitUnits ?? null;
+    if (effectiveLimit === null || effectiveLimit <= 0) {
       return null;
     }
-    return Math.max(0, Math.min(100, Math.round((tool.usedUnits / tool.limitUnits) * 100)));
+    return Math.max(0, Math.min(100, Math.round((tool.usedUnits / effectiveLimit) * 100)));
+  };
+  const formatMonthlyMediaBonusSubline = (tool: MonthlyMediaQuotaToolState): string | null => {
+    const bonus = tool.bonusLimitUnits ?? 0;
+    if (bonus <= 0) return null;
+    const base = tool.limitUnits ?? 0;
+    return t("monthlyMediaBonusSubline", { base, bonus });
   };
 
   const version = assistant?.latestPublishedVersion ?? null;
@@ -2780,29 +2788,48 @@ export function AssistantSettings({
 
               {featuredMonthlyMediaQuotas.length > 0 ? (
                 <div className="mt-4 grid grid-cols-3 gap-2">
-                  {featuredMonthlyMediaQuotas.map((tool) => (
-                    <LimitMetricCard
-                      key={tool.toolCode}
-                      label={
-                        <>
-                          <span className="sm:hidden">
-                            {monthlyMediaQuotaCompactLabels[tool.toolCode] ?? tool.displayName}
-                          </span>
-                          <span className="hidden sm:inline">
-                            {monthlyMediaQuotaLabels[tool.toolCode] ?? tool.displayName}
-                          </span>
-                        </>
-                      }
-                      value={formatMonthlyMediaQuotaValue(tool)}
-                      secondary={
-                        toMonthlyMediaQuotaPercent(tool) === null
-                          ? null
-                          : t("tokenPercentCompact", { pct: toMonthlyMediaQuotaPercent(tool) ?? 0 })
-                      }
-                    />
-                  ))}
+                  {featuredMonthlyMediaQuotas.map((tool) => {
+                    const bonusSubline = formatMonthlyMediaBonusSubline(tool);
+                    const hasBonus = bonusSubline !== null;
+                    return (
+                      <LimitMetricCard
+                        key={tool.toolCode}
+                        label={
+                          <>
+                            <span className="sm:hidden">
+                              {monthlyMediaQuotaCompactLabels[tool.toolCode] ?? tool.displayName}
+                            </span>
+                            <span className="hidden sm:inline">
+                              {monthlyMediaQuotaLabels[tool.toolCode] ?? tool.displayName}
+                            </span>
+                          </>
+                        }
+                        value={formatMonthlyMediaQuotaValue(tool)}
+                        secondary={
+                          toMonthlyMediaQuotaPercent(tool) === null
+                            ? null
+                            : t("tokenPercentCompact", {
+                                pct: toMonthlyMediaQuotaPercent(tool) ?? 0
+                              })
+                        }
+                        bonusSubline={bonusSubline}
+                        hasBonus={hasBonus}
+                      />
+                    );
+                  })}
                 </div>
               ) : null}
+              {featuredMonthlyMediaQuotas.length > 0 && (
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => router.push("/app/packages" as Route)}
+                    className="group relative text-[10px] text-text-subtle/40 transition-colors hover:text-text-subtle/80"
+                  >
+                    <span className="tracking-wide">{t("mediaPkgPackagesLink")}</span>
+                  </button>
+                </div>
+              )}
             </div>
             <div className="rounded-lg border border-border/80 bg-surface-raised/40">
               <button
@@ -3173,20 +3200,32 @@ function LimitBar({
 function LimitMetricCard({
   label,
   value,
-  secondary
+  secondary,
+  bonusSubline,
+  hasBonus
 }: {
   label: React.ReactNode;
   value: string;
   secondary?: string | null;
+  bonusSubline?: string | null;
+  hasBonus?: boolean;
 }) {
   return (
-    <div className="flex h-full flex-col rounded-xl border border-border/80 bg-surface/70 p-2.5">
+    <div
+      className={cn(
+        "flex h-full flex-col rounded-xl border bg-surface/70 p-2.5 transition-colors",
+        hasBonus ? "border-accent/30 bg-surface/80" : "border-border/80"
+      )}
+    >
       <p className="min-h-[2.4rem] text-[10px] font-medium leading-4 uppercase tracking-[0.12em] text-text-subtle">
         {label}
       </p>
       <div className="mt-2">
         <p className="text-xs font-semibold tabular-nums text-text">{value}</p>
         {secondary ? <p className="mt-1 text-[10px] text-text-subtle">{secondary}</p> : null}
+        {bonusSubline ? (
+          <p className="mt-1 text-[10px] text-accent/70 tabular-nums">{bonusSubline}</p>
+        ) : null}
       </div>
     </div>
   );

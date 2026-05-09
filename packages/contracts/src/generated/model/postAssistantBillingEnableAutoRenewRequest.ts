@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { PostAssistantBillingEnableAutoRenewRequestPaymentMethodClass } from "./postAssistantBillingEnableAutoRenewRequestPaymentMethodClass";
+import type { PostAssistantBillingEnableAutoRenewRequestPaymentMethodClass } from './postAssistantBillingEnableAutoRenewRequestPaymentMethodClass';
 
 export interface PostAssistantBillingEnableAutoRenewRequest {
   paymentMethodClass: PostAssistantBillingEnableAutoRenewRequestPaymentMethodClass;

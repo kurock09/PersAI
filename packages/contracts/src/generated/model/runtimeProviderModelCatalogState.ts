@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { RuntimeProviderModelProfileState } from "./runtimeProviderModelProfileState";
+import type { RuntimeProviderModelProfileState } from './runtimeProviderModelProfileState';
 
 export interface RuntimeProviderModelCatalogState {
   models: RuntimeProviderModelProfileState[];

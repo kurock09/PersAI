@@ -67,12 +67,14 @@ export class QuotaGroundedLimitCopyService {
         : typeof tool?.usedUnits === "number"
           ? tool.usedUnits
           : null;
-    const limit =
+    const effectiveLimit =
       typeof details?.limitUnits === "number"
         ? details.limitUnits
-        : typeof tool?.limitUnits === "number"
-          ? tool.limitUnits
-          : null;
+        : typeof tool?.effectiveLimitUnits === "number"
+          ? tool.effectiveLimitUnits
+          : typeof tool?.limitUnits === "number"
+            ? tool.limitUnits
+            : null;
     const resetAt =
       typeof details?.periodEndsAt === "string"
         ? details.periodEndsAt
@@ -80,14 +82,17 @@ export class QuotaGroundedLimitCopyService {
     return {
       message: [
         `${displayName} is exhausted for the current monthly period`,
-        used !== null && limit !== null ? `(${String(used)}/${String(limit)} used)` : null,
+        used !== null && effectiveLimit !== null
+          ? `(${String(used)}/${String(effectiveLimit)} used)`
+          : null,
         resetAt ? `It resets ${this.formatResetAt(resetAt)}.` : null
       ]
         .filter((part): part is string => part !== null)
         .join(". ")
         .replace(/\.\sIt resets/, ". It resets"),
-      guidance: this.buildUpgradeAwareGuidance(
+      guidance: this.buildMediaUpgradeGuidance(
         quotaStatus,
+        toolCode,
         "Use a request that does not need media generation."
       )
     };
@@ -166,6 +171,25 @@ export class QuotaGroundedLimitCopyService {
     return quotaStatus.advisories.higherPaidPlanAvailable
       ? "Upgrade to a higher plan or switch to a request that does not need this capability."
       : "Switch to a request that does not need this capability.";
+  }
+
+  private buildMediaUpgradeGuidance(
+    quotaStatus: Awaited<ReturnType<ReadInternalRuntimeQuotaStatusService["execute"]>>,
+    toolCode: string,
+    baseGuidance: string
+  ): string {
+    const packageAvailable = quotaStatus.packagesAvailableByTool[toolCode] === true;
+    const planUpgradeAvailable = quotaStatus.advisories.higherPaidPlanAvailable;
+    if (packageAvailable && planUpgradeAvailable) {
+      return `${baseGuidance} You can also purchase a media add-on package for more ${toolCode.replace(/_/g, " ")} capacity this period, or upgrade to a higher plan for a larger monthly limit.`;
+    }
+    if (packageAvailable) {
+      return `${baseGuidance} You can purchase a media add-on package to get more ${toolCode.replace(/_/g, " ")} capacity for the current period.`;
+    }
+    if (planUpgradeAvailable) {
+      return `${baseGuidance} You can also upgrade to a higher plan.`;
+    }
+    return baseGuidance;
   }
 
   private buildUpgradeAwareGuidance(

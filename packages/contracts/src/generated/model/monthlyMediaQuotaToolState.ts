@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { MonthlyMediaQuotaToolStateToolCode } from "./monthlyMediaQuotaToolStateToolCode";
-import type { MonthlyMediaQuotaToolStateStatus } from "./monthlyMediaQuotaToolStateStatus";
+import type { MonthlyMediaQuotaToolStateToolCode } from './monthlyMediaQuotaToolStateToolCode';
+import type { MonthlyMediaQuotaToolStateStatus } from './monthlyMediaQuotaToolStateStatus';
 
 export interface MonthlyMediaQuotaToolState {
   toolCode: MonthlyMediaQuotaToolStateToolCode;
@@ -25,6 +25,22 @@ export interface MonthlyMediaQuotaToolState {
    * @nullable
    */
   limitUnits: number | null;
+  /**
+   * Bonus units from active package grants for the current period.
+   * @minimum 0
+   */
+  bonusLimitUnits: number;
+  /**
+   * Base plan limit + bonus, or null when the plan limit is unlimited.
+   * @minimum 0
+   * @nullable
+   */
+  effectiveLimitUnits: number | null;
+  /**
+   * ISO 8601 date of latest active grant periodEndsAt, or null.
+   * @nullable
+   */
+  bonusExpiresAt: string | null;
   /**
    * @minimum 0
    * @nullable

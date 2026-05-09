@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { QuotaVisibilityBucketState } from "./quotaVisibilityBucketState";
-import type { MonthlyMediaQuotaSnapshot } from "./monthlyMediaQuotaSnapshot";
-import type { UserPlanVisibilityLimitsToolDailyLimitsItem } from "./userPlanVisibilityLimitsToolDailyLimitsItem";
+import type { QuotaVisibilityBucketState } from './quotaVisibilityBucketState';
+import type { MonthlyMediaQuotaSnapshot } from './monthlyMediaQuotaSnapshot';
+import type { UserPlanVisibilityLimitsToolDailyLimitsItem } from './userPlanVisibilityLimitsToolDailyLimitsItem';
 
 export interface UserPlanVisibilityLimits {
   quotaBuckets: QuotaVisibilityBucketState[];

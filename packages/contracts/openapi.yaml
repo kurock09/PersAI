@@ -8705,6 +8705,9 @@ components:
         - releasedUnits
         - reconciliationRequiredUnits
         - limitUnits
+        - bonusLimitUnits
+        - effectiveLimitUnits
+        - bonusExpiresAt
         - remainingUnits
         - percent
         - finiteLimit
@@ -8740,6 +8743,19 @@ components:
           type: integer
           minimum: 0
           nullable: true
+        bonusLimitUnits:
+          type: integer
+          minimum: 0
+          description: "Bonus units from active package grants for the current period."
+        effectiveLimitUnits:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: "Base plan limit + bonus, or null when the plan limit is unlimited."
+        bonusExpiresAt:
+          type: string
+          nullable: true
+          description: "ISO 8601 date of latest active grant periodEndsAt, or null."
         remainingUnits:
           type: integer
           minimum: 0

@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminOpsCockpitQuotaUsageTokenBudgetPeriodSource } from "./adminOpsCockpitQuotaUsageTokenBudgetPeriodSource";
-import type { AdminOpsCockpitQuotaUsageMonthlyMediaToolsItem } from "./adminOpsCockpitQuotaUsageMonthlyMediaToolsItem";
+import type { AdminOpsCockpitQuotaUsageTokenBudgetPeriodSource } from './adminOpsCockpitQuotaUsageTokenBudgetPeriodSource';
+import type { AdminOpsCockpitQuotaUsageMonthlyMediaToolsItem } from './adminOpsCockpitQuotaUsageMonthlyMediaToolsItem';
 
 export interface AdminOpsCockpitQuotaUsage {
   tokenBudgetUsed: number;

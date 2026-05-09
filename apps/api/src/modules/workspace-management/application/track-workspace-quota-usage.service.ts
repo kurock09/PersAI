@@ -35,6 +35,7 @@ import {
   type RuntimeProviderModelProfile
 } from "./runtime-provider-profile";
 import { resolveRecurringQuotaPeriod, type RecurringQuotaPeriod } from "./recurring-quota-period";
+import type { ManageMediaPackagePurchaseService } from "./manage-media-package-purchase.service";
 
 type PlanQuotaHints = {
   tokenBudgetLimit: bigint | null;
@@ -118,7 +119,14 @@ export type AssistantMonthlyMediaQuotaToolSnapshot = {
   settledUnits: number;
   releasedUnits: number;
   reconciliationRequiredUnits: number;
+  /** Base limit from the active plan (null = unlimited). */
   limitUnits: number | null;
+  /** Bonus units from active package grants for this period (0 if none purchased). */
+  bonusLimitUnits: number;
+  /** Effective limit = base + bonus, or null when base is null (unlimited). */
+  effectiveLimitUnits: number | null;
+  /** Latest periodEndsAt from active grants, if any. ISO string or null. */
+  bonusExpiresAt: string | null;
   remainingUnits: number | null;
   percent: number | null;
   finiteLimit: boolean;
@@ -357,7 +365,8 @@ export class TrackWorkspaceQuotaUsageService {
     @Inject(WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY)
     private readonly toolDailyUsageRepository: WorkspaceToolDailyUsageRepository,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
-    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
+    private readonly manageMediaPackagePurchaseService: ManageMediaPackagePurchaseService
   ) {}
 
   private static readonly TOKEN_USAGE_ESTIMATOR = "chars_div_4_ceil_v1";
@@ -1035,10 +1044,17 @@ export class TrackWorkspaceQuotaUsageService {
     const governance = await this.resolveGovernance(assistant.id);
     const quotaContext = await this.resolveQuotaContext(assistant, governance);
     const period = resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
+    const bonuses = await this.manageMediaPackagePurchaseService.resolveAllActiveBonuses(
+      assistant.workspaceId,
+      period
+    );
     const tools: AssistantMonthlyMediaQuotaToolSnapshot[] = [];
 
     for (const tool of MONTHLY_MEDIA_QUOTA_TOOLS) {
-      const limitUnits = quotaContext.planQuotaHints[tool.limitKey];
+      const baseLimitUnits = quotaContext.planQuotaHints[tool.limitKey];
+      const bonus = bonuses[tool.toolCode];
+      const bonusUnits = bonus?.bonusUnits ?? 0;
+      const effectiveLimitUnits = baseLimitUnits === null ? null : baseLimitUnits + bonusUnits;
       const counter = await this.workspaceQuotaAccountingRepository.findMonthlyMediaQuotaCounter({
         workspaceId: assistant.workspaceId,
         toolCode: tool.toolCode,
@@ -1050,10 +1066,12 @@ export class TrackWorkspaceQuotaUsageService {
       const releasedUnits = counter?.releasedUnits ?? 0;
       const reconciliationRequiredUnits = counter?.reconciliationRequiredUnits ?? 0;
       const usedUnits = Math.max(0, settledUnits + reservedUnits);
-      const remainingUnits = limitUnits === null ? null : Math.max(0, limitUnits - usedUnits);
-      const percent = toPercent(usedUnits, limitUnits);
-      const finiteLimit = limitUnits !== null && limitUnits > 0;
-      const limitReached = limitUnits !== null && limitUnits > 0 && usedUnits >= limitUnits;
+      const remainingUnits =
+        effectiveLimitUnits === null ? null : Math.max(0, effectiveLimitUnits - usedUnits);
+      const percent = toPercent(usedUnits, effectiveLimitUnits);
+      const finiteLimit = effectiveLimitUnits !== null && effectiveLimitUnits > 0;
+      const limitReached =
+        effectiveLimitUnits !== null && effectiveLimitUnits > 0 && usedUnits >= effectiveLimitUnits;
       const warningThresholdReached =
         finiteLimit && percent !== null && percent >= QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT;
       tools.push({
@@ -1064,7 +1082,10 @@ export class TrackWorkspaceQuotaUsageService {
         settledUnits,
         releasedUnits,
         reconciliationRequiredUnits,
-        limitUnits,
+        limitUnits: baseLimitUnits,
+        bonusLimitUnits: bonusUnits,
+        effectiveLimitUnits,
+        bonusExpiresAt: bonus?.latestPeriodEndsAt ?? null,
         remainingUnits,
         percent,
         finiteLimit,
@@ -1222,9 +1243,19 @@ export class TrackWorkspaceQuotaUsageService {
     if (tool === undefined) {
       throw new Error(`Unsupported monthly media quota tool code "${toolCode}".`);
     }
+    const period = resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
+    const baseLimitUnits = quotaContext.planQuotaHints[tool.limitKey];
+    if (baseLimitUnits === null) {
+      return { period, limitUnits: null };
+    }
+    const bonus = await this.manageMediaPackagePurchaseService.resolveActiveBonus(
+      assistant.workspaceId,
+      toolCode,
+      period
+    );
     return {
-      period: resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription),
-      limitUnits: quotaContext.planQuotaHints[tool.limitKey]
+      period,
+      limitUnits: baseLimitUnits + bonus.bonusUnits
     };
   }
 

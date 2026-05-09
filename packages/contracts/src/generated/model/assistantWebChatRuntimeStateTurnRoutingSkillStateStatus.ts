@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatRuntimeStateTurnRoutingSkillStateStatus =
-  (typeof AssistantWebChatRuntimeStateTurnRoutingSkillStateStatus)[keyof typeof AssistantWebChatRuntimeStateTurnRoutingSkillStateStatus];
+export type AssistantWebChatRuntimeStateTurnRoutingSkillStateStatus = typeof AssistantWebChatRuntimeStateTurnRoutingSkillStateStatus[keyof typeof AssistantWebChatRuntimeStateTurnRoutingSkillStateStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatRuntimeStateTurnRoutingSkillStateStatus = {
-  inactive: "inactive",
-  active: "active"
+  inactive: 'inactive',
+  active: 'active',
 } as const;

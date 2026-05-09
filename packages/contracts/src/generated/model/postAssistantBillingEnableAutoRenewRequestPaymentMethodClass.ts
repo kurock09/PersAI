@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PostAssistantBillingEnableAutoRenewRequestPaymentMethodClass =
-  (typeof PostAssistantBillingEnableAutoRenewRequestPaymentMethodClass)[keyof typeof PostAssistantBillingEnableAutoRenewRequestPaymentMethodClass];
+export type PostAssistantBillingEnableAutoRenewRequestPaymentMethodClass = typeof PostAssistantBillingEnableAutoRenewRequestPaymentMethodClass[keyof typeof PostAssistantBillingEnableAutoRenewRequestPaymentMethodClass];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PostAssistantBillingEnableAutoRenewRequestPaymentMethodClass = {
-  card: "card"
+  card: 'card',
 } as const;

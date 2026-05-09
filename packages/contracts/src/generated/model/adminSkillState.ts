@@ -4,11 +4,11 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { SkillStatus } from "./skillStatus";
-import type { SkillLocalizedText } from "./skillLocalizedText";
-import type { SkillInstructionCardState } from "./skillInstructionCardState";
-import type { SkillDocumentState } from "./skillDocumentState";
-import type { SkillKnowledgeCardState } from "./skillKnowledgeCardState";
+import type { SkillStatus } from './skillStatus';
+import type { SkillLocalizedText } from './skillLocalizedText';
+import type { SkillInstructionCardState } from './skillInstructionCardState';
+import type { SkillDocumentState } from './skillDocumentState';
+import type { SkillKnowledgeCardState } from './skillKnowledgeCardState';
 
 export interface AdminSkillState {
   id: string;

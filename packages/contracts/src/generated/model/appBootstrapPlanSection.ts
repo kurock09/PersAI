@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { UserPlanVisibilityState } from "./userPlanVisibilityState";
-import type { BootstrapSectionError } from "./bootstrapSectionError";
+import type { UserPlanVisibilityState } from './userPlanVisibilityState';
+import type { BootstrapSectionError } from './bootstrapSectionError';
 
 export interface AppBootstrapPlanSection {
   ok: boolean;

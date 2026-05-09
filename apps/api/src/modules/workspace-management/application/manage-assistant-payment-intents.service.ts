@@ -45,7 +45,8 @@ export type AssistantPaymentIntentRecurringState = {
 export type AssistantPaymentIntentPurpose =
   | "plan_purchase"
   | "managed_recurring_upgrade"
-  | "autopay_enable_bind";
+  | "autopay_enable_bind"
+  | "media_package_purchase";
 
 export type CreateAssistantPaymentIntentInput = {
   planCode: string;
@@ -255,7 +256,11 @@ function asRecurringState(value: unknown): AssistantPaymentIntentRecurringState 
 }
 
 function asPaymentIntentPurpose(value: unknown): AssistantPaymentIntentPurpose {
-  if (value === "managed_recurring_upgrade" || value === "autopay_enable_bind") {
+  if (
+    value === "managed_recurring_upgrade" ||
+    value === "autopay_enable_bind" ||
+    value === "media_package_purchase"
+  ) {
     return value;
   }
   return "plan_purchase";

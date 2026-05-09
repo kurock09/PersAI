@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminToolPromptMetadataStatePolicyClass =
-  (typeof AdminToolPromptMetadataStatePolicyClass)[keyof typeof AdminToolPromptMetadataStatePolicyClass];
+export type AdminToolPromptMetadataStatePolicyClass = typeof AdminToolPromptMetadataStatePolicyClass[keyof typeof AdminToolPromptMetadataStatePolicyClass];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminToolPromptMetadataStatePolicyClass = {
-  plan_managed: "plan_managed",
-  platform_managed: "platform_managed",
-  hidden_internal: "hidden_internal"
+  plan_managed: 'plan_managed',
+  platform_managed: 'platform_managed',
+  hidden_internal: 'hidden_internal',
 } as const;

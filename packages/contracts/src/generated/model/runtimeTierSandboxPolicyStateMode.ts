@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeTierSandboxPolicyStateMode =
-  (typeof RuntimeTierSandboxPolicyStateMode)[keyof typeof RuntimeTierSandboxPolicyStateMode];
+export type RuntimeTierSandboxPolicyStateMode = typeof RuntimeTierSandboxPolicyStateMode[keyof typeof RuntimeTierSandboxPolicyStateMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeTierSandboxPolicyStateMode = {
-  all: "all"
+  all: 'all',
 } as const;

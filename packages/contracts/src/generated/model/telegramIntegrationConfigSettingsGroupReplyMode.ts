@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type TelegramIntegrationConfigSettingsGroupReplyMode =
-  (typeof TelegramIntegrationConfigSettingsGroupReplyMode)[keyof typeof TelegramIntegrationConfigSettingsGroupReplyMode];
+export type TelegramIntegrationConfigSettingsGroupReplyMode = typeof TelegramIntegrationConfigSettingsGroupReplyMode[keyof typeof TelegramIntegrationConfigSettingsGroupReplyMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TelegramIntegrationConfigSettingsGroupReplyMode = {
-  mention_reply: "mention_reply",
-  all_messages: "all_messages"
+  mention_reply: 'mention_reply',
+  all_messages: 'all_messages',
 } as const;

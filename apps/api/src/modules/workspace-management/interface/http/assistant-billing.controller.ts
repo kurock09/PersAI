@@ -9,12 +9,17 @@ import {
   type AssistantBillingSubscriptionActionResult,
   type AssistantBillingSubscriptionManagementState
 } from "../../application/manage-assistant-billing-subscription.service";
+import { ManageMediaPackageCatalogService } from "../../application/manage-media-package-catalog.service";
+import { ManageMediaPackagePurchaseService } from "../../application/manage-media-package-purchase.service";
+import type { MediaPackageCatalogItemState } from "../../application/media-package.types";
 
 @Controller("api/v1/assistant/billing")
 export class AssistantBillingController {
   constructor(
     private readonly manageAssistantPaymentIntentsService: ManageAssistantPaymentIntentsService,
-    private readonly manageAssistantBillingSubscriptionService: ManageAssistantBillingSubscriptionService
+    private readonly manageAssistantBillingSubscriptionService: ManageAssistantBillingSubscriptionService,
+    private readonly manageMediaPackageCatalogService: ManageMediaPackageCatalogService,
+    private readonly manageMediaPackagePurchaseService: ManageMediaPackagePurchaseService
   ) {}
 
   @Post("payment-intents")
@@ -107,6 +112,52 @@ export class AssistantBillingController {
     return {
       requestId: req.requestId ?? null,
       result: await this.manageAssistantBillingSubscriptionService.changePlan(userId, input)
+    };
+  }
+
+  // ── Media packages ────────────────────────────────────────────────────────
+
+  @Get("packages/catalog")
+  async listPackageCatalog(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    packages: MediaPackageCatalogItemState[];
+  }> {
+    this.resolveRequestUserId(req);
+    return {
+      requestId: req.requestId ?? null,
+      packages: await this.manageMediaPackageCatalogService.listPublic()
+    };
+  }
+
+  @Post("packages/payment-intents")
+  async createPackagePaymentIntent(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{ requestId: string | null; paymentIntent: AssistantPaymentIntentState }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = body as {
+      packageItemIds: string[];
+      paymentMethodClass: "card" | "sbp_qr";
+      idempotencyKey: string;
+      returnUrl: string;
+    };
+    const paymentIntent = await this.manageMediaPackagePurchaseService.createPackagePaymentIntent(
+      userId,
+      input
+    );
+    return { requestId: req.requestId ?? null, paymentIntent };
+  }
+
+  private resolveUser(req: RequestWithPlatformContext): { userId: string; workspaceId: string } {
+    if (req.resolvedAppUser === undefined) {
+      throw new UnauthorizedException("Authenticated user context is missing.");
+    }
+    const workspaceId = (req as unknown as Record<string, unknown>).resolvedWorkspaceId as
+      | string
+      | undefined;
+    return {
+      userId: req.resolvedAppUser.id,
+      workspaceId: workspaceId ?? req.resolvedAppUser.id
     };
   }
 

@@ -5,14 +5,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ErrorObjectCategory = (typeof ErrorObjectCategory)[keyof typeof ErrorObjectCategory];
+export type ErrorObjectCategory = typeof ErrorObjectCategory[keyof typeof ErrorObjectCategory];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ErrorObjectCategory = {
-  validation: "validation",
-  auth: "auth",
-  forbidden: "forbidden",
-  conflict: "conflict",
-  infra: "infra",
-  unknown: "unknown"
+  validation: 'validation',
+  auth: 'auth',
+  forbidden: 'forbidden',
+  conflict: 'conflict',
+  infra: 'infra',
+  unknown: 'unknown',
 } as const;

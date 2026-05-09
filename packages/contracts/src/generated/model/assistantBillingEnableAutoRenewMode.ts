@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingEnableAutoRenewMode =
-  (typeof AssistantBillingEnableAutoRenewMode)[keyof typeof AssistantBillingEnableAutoRenewMode];
+export type AssistantBillingEnableAutoRenewMode = typeof AssistantBillingEnableAutoRenewMode[keyof typeof AssistantBillingEnableAutoRenewMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingEnableAutoRenewMode = {
-  resume_existing: "resume_existing",
-  bind_checkout: "bind_checkout",
-  unavailable: "unavailable"
+  resume_existing: 'resume_existing',
+  bind_checkout: 'bind_checkout',
+  unavailable: 'unavailable',
 } as const;

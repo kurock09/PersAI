@@ -5,16 +5,16 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminOpsBillingSupportAction =
-  (typeof AdminOpsBillingSupportAction)[keyof typeof AdminOpsBillingSupportAction];
+export type AdminOpsBillingSupportAction = typeof AdminOpsBillingSupportAction[keyof typeof AdminOpsBillingSupportAction];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminOpsBillingSupportAction = {
-  initialize_lifecycle_now: "initialize_lifecycle_now",
-  extend_trial: "extend_trial",
-  grant_grace: "grant_grace",
-  extend_grace: "extend_grace",
-  send_billing_reminder: "send_billing_reminder",
-  apply_fallback_now: "apply_fallback_now",
-  activate_paid_manually: "activate_paid_manually"
+  initialize_lifecycle_now: 'initialize_lifecycle_now',
+  extend_trial: 'extend_trial',
+  grant_grace: 'grant_grace',
+  extend_grace: 'extend_grace',
+  send_billing_reminder: 'send_billing_reminder',
+  apply_fallback_now: 'apply_fallback_now',
+  activate_paid_manually: 'activate_paid_manually',
 } as const;
