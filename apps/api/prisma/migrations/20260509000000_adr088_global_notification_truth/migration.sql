@@ -8,6 +8,10 @@
 --   2. If all per-workspace rows are identical (the expected state from seed loop),
 --      the migration aggregates to one global row per channel/source.
 --   3. Idempotent: re-running on an already-migrated schema is a no-op.
+--
+-- ORDERING NOTE: DELETE + INSERT must happen BEFORE adding UNIQUE constraints.
+--   With workspace_id still present, each channel_type/source has one row per workspace.
+--   Adding UNIQUE(channel_type) before deduplication would fail with 23505.
 -- ──────────────────────────────────────────────────────────────────────────────
 
 DO $$
@@ -87,15 +91,23 @@ BEGIN
     FROM notification_channel_registry
     ORDER BY channel_type, created_at ASC;
 
-    -- Truncate and repopulate without workspace_id.
-    -- First drop all constraints that reference workspace_id.
+    -- Drop all constraints that reference workspace_id.
     ALTER TABLE notification_channel_registry DROP CONSTRAINT IF EXISTS "notification_channel_registry_workspace_id_channel_type_key";
     ALTER TABLE notification_channel_registry DROP CONSTRAINT IF EXISTS "notification_channel_registry_workspace_id_fkey";
 
     -- Drop the workspace_id column.
     ALTER TABLE notification_channel_registry DROP COLUMN IF EXISTS workspace_id;
 
-    -- Add unique constraint on channel_type alone (if not already present).
+    -- Deduplicate FIRST: remove all existing rows and insert one global row per channel_type.
+    -- UNIQUE constraint is added AFTER this step to avoid 23505 on duplicate channel_type values.
+    DELETE FROM notification_channel_registry;
+    INSERT INTO notification_channel_registry (id, channel_type, enabled, config, health_status, consecutive_failures, last_delivery_at, last_failure_at, created_at, updated_at)
+    SELECT new_id, channel_type, enabled, config, health_status, consecutive_failures, last_delivery_at, last_failure_at, created_at, updated_at
+    FROM _ncr_global;
+
+    DROP TABLE _ncr_global;
+
+    -- Add unique constraint on channel_type alone AFTER deduplication.
     DO $inner$
     BEGIN
       IF NOT EXISTS (
@@ -106,14 +118,6 @@ BEGIN
         ALTER TABLE notification_channel_registry ADD CONSTRAINT "notification_channel_registry_channel_type_key" UNIQUE (channel_type);
       END IF;
     END $inner$;
-
-    -- Remove all existing rows and insert deduplicated global rows.
-    DELETE FROM notification_channel_registry;
-    INSERT INTO notification_channel_registry (id, channel_type, enabled, config, health_status, consecutive_failures, last_delivery_at, last_failure_at, created_at, updated_at)
-    SELECT new_id, channel_type, enabled, config, health_status, consecutive_failures, last_delivery_at, last_failure_at, created_at, updated_at
-    FROM _ncr_global;
-
-    DROP TABLE _ncr_global;
   END IF;
 END $$;
 
@@ -153,7 +157,15 @@ BEGIN
     -- Drop the workspace_id column.
     ALTER TABLE notification_policies DROP COLUMN IF EXISTS workspace_id;
 
-    -- Add unique constraint on source alone.
+    -- Deduplicate FIRST: remove all existing rows and insert one global row per source.
+    DELETE FROM notification_policies;
+    INSERT INTO notification_policies (id, source, enabled, channels, cooldown_minutes, max_per_day, escalation_after_minutes, escalation_channel, respect_quiet_hours, render_strategy, render_instruction_ref, template_id, config, created_at, updated_at)
+    SELECT new_id, source, enabled, channels, cooldown_minutes, max_per_day, escalation_after_minutes, escalation_channel, respect_quiet_hours, render_strategy, render_instruction_ref, template_id, config, created_at, updated_at
+    FROM _np_global;
+
+    DROP TABLE _np_global;
+
+    -- Add unique constraint on source alone AFTER deduplication.
     DO $inner$
     BEGIN
       IF NOT EXISTS (
@@ -164,14 +176,6 @@ BEGIN
         ALTER TABLE notification_policies ADD CONSTRAINT "notification_policies_source_key" UNIQUE (source);
       END IF;
     END $inner$;
-
-    -- Repopulate with global rows.
-    DELETE FROM notification_policies;
-    INSERT INTO notification_policies (id, source, enabled, channels, cooldown_minutes, max_per_day, escalation_after_minutes, escalation_channel, respect_quiet_hours, render_strategy, render_instruction_ref, template_id, config, created_at, updated_at)
-    SELECT new_id, source, enabled, channels, cooldown_minutes, max_per_day, escalation_after_minutes, escalation_channel, respect_quiet_hours, render_strategy, render_instruction_ref, template_id, config, created_at, updated_at
-    FROM _np_global;
-
-    DROP TABLE _np_global;
   END IF;
 END $$;
 
@@ -206,10 +210,19 @@ BEGIN
     -- Drop workspace_id column.
     ALTER TABLE notification_quiet_hours DROP COLUMN IF EXISTS workspace_id;
 
-    -- Add singleton boolean column (TRUE enforces single row).
+    -- Add singleton boolean column (TRUE enforces single row via DEFAULT).
     ALTER TABLE notification_quiet_hours ADD COLUMN IF NOT EXISTS singleton BOOLEAN NOT NULL DEFAULT TRUE;
 
-    -- Add unique constraint on singleton.
+    -- Deduplicate FIRST: remove all rows and insert exactly one global row.
+    -- UNIQUE(singleton) is added AFTER this step so we don't hit 23505 from DEFAULT TRUE on many rows.
+    DELETE FROM notification_quiet_hours;
+    INSERT INTO notification_quiet_hours (id, singleton, enabled, start_local, end_local, timezone_mode, default_timezone, applies_to_sources, created_at, updated_at)
+    SELECT new_id, TRUE, enabled, start_local, end_local, timezone_mode, default_timezone, applies_to_sources, created_at, updated_at
+    FROM _nqh_global;
+
+    DROP TABLE _nqh_global;
+
+    -- Add unique constraint on singleton AFTER repopulation (exactly one row exists now).
     DO $inner$
     BEGIN
       IF NOT EXISTS (
@@ -220,14 +233,6 @@ BEGIN
         ALTER TABLE notification_quiet_hours ADD CONSTRAINT "notification_quiet_hours_singleton_key" UNIQUE (singleton);
       END IF;
     END $inner$;
-
-    -- Repopulate.
-    DELETE FROM notification_quiet_hours;
-    INSERT INTO notification_quiet_hours (id, singleton, enabled, start_local, end_local, timezone_mode, default_timezone, applies_to_sources, created_at, updated_at)
-    SELECT new_id, TRUE, enabled, start_local, end_local, timezone_mode, default_timezone, applies_to_sources, created_at, updated_at
-    FROM _nqh_global;
-
-    DROP TABLE _nqh_global;
   END IF;
 END $$;
 
