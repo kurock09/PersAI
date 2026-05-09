@@ -14,7 +14,8 @@ import {
 import { WorkspaceManagementPrismaService } from "../../persistence/workspace-management-prisma.service";
 
 const NOTIFICATION_WEB_CHAT_THREAD_KEY = "system:notifications";
-const NOTIFICATION_WEB_CHAT_TITLE = "Notifications";
+const NOTIFICATION_WEB_CHAT_TITLE = "Notifications | Уведомления";
+const LEGACY_NOTIFICATION_WEB_CHAT_TITLE = "Notifications";
 
 /**
  * Delivers a notification to the in-app system thread system:notifications.
@@ -65,6 +66,13 @@ export class WebNotificationCenterChannelAdapter implements NotificationChannelA
       surfaceThreadKey: NOTIFICATION_WEB_CHAT_THREAD_KEY,
       title: NOTIFICATION_WEB_CHAT_TITLE
     });
+
+    if (chat.title === LEGACY_NOTIFICATION_WEB_CHAT_TITLE) {
+      await this.prisma.assistantChat.update({
+        where: { id: chat.id },
+        data: { title: NOTIFICATION_WEB_CHAT_TITLE }
+      });
+    }
 
     const message = await this.assistantChatRepository.createMessage({
       chatId: chat.id,

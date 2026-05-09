@@ -139,9 +139,13 @@ async function run(): Promise<void> {
   await expectForbidden("POST /channels/:channelType/test-send", () =>
     controller.testSendChannel(req, "email", undefined)
   );
+  await expectForbidden("GET /templates", () => controller.listTemplates(req));
   await expectForbidden("GET /policies", () => controller.listPolicies(req));
   await expectForbidden("PATCH /policies/:source", () =>
     controller.patchPolicy(req, "billing_lifecycle", { enabled: false })
+  );
+  await expectForbidden("POST /policies/:source/test", () =>
+    controller.testSendForSource(req, "billing_lifecycle", { eventCode: "trial_ending" })
   );
   await expectForbidden("GET /quiet-hours", () => controller.getQuietHours(req));
   await expectForbidden("PATCH /quiet-hours", () =>
@@ -167,6 +171,12 @@ async function run(): Promise<void> {
     () => controller.testSendChannel(noAuthReq, "email", undefined),
     /Authenticated user context is missing/,
     "test-send must surface 401 when no resolved user"
+  );
+  await assert.rejects(
+    () =>
+      controller.testSendForSource(noAuthReq, "billing_lifecycle", { eventCode: "trial_ending" }),
+    /Authenticated user context is missing/,
+    "per-source test must surface 401 when no resolved user"
   );
 
   console.log("✅ admin-notifications.controller.authz tests passed");

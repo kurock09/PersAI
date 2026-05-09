@@ -1,5 +1,46 @@
 # SESSION-HANDOFF
 
+## 2026-05-09 — ADR-088 Notifications admin auth + chat title cleanup (LANDED)
+
+### What changed
+
+1. **Clerk route coverage fixed** — `IdentityAccessModule` now guards both `GET /api/v1/admin/notifications/templates` and `POST /api/v1/admin/notifications/policies/:source/test`, so the Notifications admin `Test` buttons no longer reach the controller with `Authenticated user context is missing.` just because the new routes were omitted from `ClerkAuthMiddleware.forRoutes(...)`.
+2. **Regression coverage added** — `identity-access.module.test.ts` now pins both missing routes, and `admin-notifications.controller.authz.test.ts` now asserts `GET /templates` and `POST /policies/:source/test` stay admin-gated and still return 401 when `resolvedAppUser` is absent.
+3. **Preview block removed** — the `Preview / test send` section and `PreviewSection.tsx` were deleted from `Admin > Notifications`, leaving only the real operator controls that map to actual delivery/test paths.
+4. **Notifications chat made bilingual** — the web notification-center system thread title is now `Notifications | Уведомления`; the adapter also upgrades existing legacy chats that still have the old English-only `Notifications` title on the next delivery.
+5. **Admin labels aligned** — `web_notification_center` is now labeled `Notifications / Уведомления` in the notifications admin UI instead of the older English-only `Notification center` / `Web notification center` wording.
+
+### Current slice/step
+
+ADR-088 follow-up PROD hardening — COMPLETE.
+
+### Files touched
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/notifications/channel-adapters/web-notification-center-channel.adapter.ts`
+- `apps/api/test/identity-access.module.test.ts`
+- `apps/api/test/admin-notifications.controller.authz.test.ts`
+- `apps/web/app/admin/notifications/page.tsx`
+- `apps/web/app/admin/notifications/_components/PoliciesSection.tsx`
+- `apps/web/app/admin/notifications/_components/ChannelRegistrySection.tsx`
+- deleted `apps/web/app/admin/notifications/_components/PreviewSection.tsx`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts` → ✅
+- `corepack pnpm --filter @persai/api exec tsx test/admin-notifications.controller.authz.test.ts` → ✅
+- `corepack pnpm --filter @persai/api run typecheck` → ✅
+- `corepack pnpm --filter @persai/web run typecheck` → ✅
+
+### Risks / notes
+
+- Existing notification-center chats get the bilingual title only after the next in-app notification is delivered into that thread; this follow-up intentionally avoids a broad backfill migration for a cosmetic label.
+- The dry-run preview API still exists server-side; only the redundant admin UI block was removed in this slice.
+
+### Next recommended step
+
+- Run the full repo verification gate from `AGENTS.md`, then deploy/push this hotfix and click one policy `Test` button in prod to confirm the auth regression is gone end-to-end.
+
 ## 2026-05-09 — ADR-088 Notifications PROD Hardening (LANDED)
 
 ### What changed

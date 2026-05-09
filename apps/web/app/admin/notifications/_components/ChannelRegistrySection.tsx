@@ -22,7 +22,7 @@ const SEMANTIC_CHANNELS = new Set(["user_preferred", "current_thread"]);
 const CHANNEL_LABELS: Record<string, string> = {
   telegram_thread: "Telegram thread",
   web_thread: "Web thread",
-  web_notification_center: "Web notification center",
+  web_notification_center: "Notifications / Уведомления",
   email: "Email (Postmark)",
   admin_webhook: "Admin webhook",
   web_push: "Web push",

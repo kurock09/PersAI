@@ -248,8 +248,10 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
       path: "api/v1/admin/notifications/channels/:channelType/test-send",
       method: RequestMethod.POST
     },
+    { path: "api/v1/admin/notifications/templates", method: RequestMethod.GET },
     { path: "api/v1/admin/notifications/policies", method: RequestMethod.GET },
     { path: "api/v1/admin/notifications/policies/:source", method: RequestMethod.PATCH },
+    { path: "api/v1/admin/notifications/policies/:source/test", method: RequestMethod.POST },
     { path: "api/v1/admin/notifications/quiet-hours", method: RequestMethod.GET },
     { path: "api/v1/admin/notifications/quiet-hours", method: RequestMethod.PATCH },
     { path: "api/v1/admin/notifications/deliveries", method: RequestMethod.GET },

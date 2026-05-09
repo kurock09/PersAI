@@ -30,7 +30,6 @@ import { PoliciesSection } from "./_components/PoliciesSection";
 import { QuietHoursSection } from "./_components/QuietHoursSection";
 import { DeliveryHistorySection } from "./_components/DeliveryHistorySection";
 import { DeadLettersSection } from "./_components/DeadLettersSection";
-import { PreviewSection } from "./_components/PreviewSection";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -48,7 +47,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   email: "Email",
   telegram_thread: "Telegram",
   web_thread: "Web thread",
-  web_notification_center: "Notification center",
+  web_notification_center: "Notifications / Уведомления",
   admin_webhook: "Admin webhook",
   web_push: "Web push",
   mobile_push: "Mobile push"
@@ -301,12 +300,6 @@ export default function AdminNotificationsPage() {
       >
         <DeadLettersSection getToken={getToken} />
       </CollapsibleSection>
-
-      {/* ── Preview / test send ────────────────────────────────── */}
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold text-text">Preview / test send</h2>
-        <PreviewSection getToken={getToken} />
-      </section>
     </div>
   );
 }

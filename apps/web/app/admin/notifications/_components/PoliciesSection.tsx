@@ -30,7 +30,7 @@ const SOURCE_LABELS: Record<string, string> = {
 const CHANNEL_LABELS: Record<string, string> = {
   telegram_thread: "Telegram thread",
   web_thread: "Web thread",
-  web_notification_center: "Web notification center",
+  web_notification_center: "Notifications / Уведомления",
   email: "Email",
   admin_webhook: "Admin webhook",
   user_preferred: "User preferred (resolved at delivery)",
