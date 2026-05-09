@@ -8,4 +8,6 @@
 /**
  * @nullable
  */
-export type ProductKnowledgeTextEntryStateAllOfProvenanceMetadata = { [key: string]: unknown } | null;
+export type ProductKnowledgeTextEntryStateAllOfProvenanceMetadata = {
+  [key: string]: unknown;
+} | null;

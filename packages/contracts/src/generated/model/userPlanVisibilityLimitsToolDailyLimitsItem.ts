@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { UserPlanVisibilityLimitsToolDailyLimitsItemPeriodSource } from './userPlanVisibilityLimitsToolDailyLimitsItemPeriodSource';
+import type { UserPlanVisibilityLimitsToolDailyLimitsItemPeriodSource } from "./userPlanVisibilityLimitsToolDailyLimitsItemPeriodSource";
 
 export type UserPlanVisibilityLimitsToolDailyLimitsItem = {
   toolCode: string;

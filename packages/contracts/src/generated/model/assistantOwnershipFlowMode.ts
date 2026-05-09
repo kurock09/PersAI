@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantOwnershipFlowMode = typeof AssistantOwnershipFlowMode[keyof typeof AssistantOwnershipFlowMode];
-
+export type AssistantOwnershipFlowMode =
+  (typeof AssistantOwnershipFlowMode)[keyof typeof AssistantOwnershipFlowMode];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantOwnershipFlowMode = {
-  transfer: 'transfer',
-  recovery: 'recovery',
+  transfer: "transfer",
+  recovery: "recovery"
 } as const;

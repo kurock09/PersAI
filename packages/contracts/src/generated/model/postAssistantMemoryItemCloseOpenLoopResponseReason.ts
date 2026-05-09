@@ -8,11 +8,11 @@
 /**
  * ADR-074 Slice M3.1 — `closed` when this request flipped resolved_at; `already_closed` when the item was already resolved (idempotent success). Both responses return HTTP 200; the front-end should treat both as success and refresh the list.
  */
-export type PostAssistantMemoryItemCloseOpenLoopResponseReason = typeof PostAssistantMemoryItemCloseOpenLoopResponseReason[keyof typeof PostAssistantMemoryItemCloseOpenLoopResponseReason];
-
+export type PostAssistantMemoryItemCloseOpenLoopResponseReason =
+  (typeof PostAssistantMemoryItemCloseOpenLoopResponseReason)[keyof typeof PostAssistantMemoryItemCloseOpenLoopResponseReason];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PostAssistantMemoryItemCloseOpenLoopResponseReason = {
-  closed: 'closed',
-  already_closed: 'already_closed',
+  closed: "closed",
+  already_closed: "already_closed"
 } as const;

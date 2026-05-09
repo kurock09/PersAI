@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminSkillState } from './adminSkillState';
-import type { AssistantSkillCatalogItemStateAssignment } from './assistantSkillCatalogItemStateAssignment';
+import type { AdminSkillState } from "./adminSkillState";
+import type { AssistantSkillCatalogItemStateAssignment } from "./assistantSkillCatalogItemStateAssignment";
 
 export interface AssistantSkillCatalogItemState {
   skill: AdminSkillState;

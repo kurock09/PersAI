@@ -8,12 +8,13 @@
 /**
  * @nullable
  */
-export type AssistantWebChatStateSkillCadenceStateBootstrapReason = typeof AssistantWebChatStateSkillCadenceStateBootstrapReason[keyof typeof AssistantWebChatStateSkillCadenceStateBootstrapReason] | null;
-
+export type AssistantWebChatStateSkillCadenceStateBootstrapReason =
+  | (typeof AssistantWebChatStateSkillCadenceStateBootstrapReason)[keyof typeof AssistantWebChatStateSkillCadenceStateBootstrapReason]
+  | null;
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatStateSkillCadenceStateBootstrapReason = {
-  new_chat: 'new_chat',
-  skills_enabled_after_chat_started: 'skills_enabled_after_chat_started',
-  migration_repair: 'migration_repair',
+  new_chat: "new_chat",
+  skills_enabled_after_chat_started: "skills_enabled_after_chat_started",
+  migration_repair: "migration_repair"
 } as const;

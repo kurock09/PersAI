@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { QuotaAdvisoryTokenBudgetStatePeriodSource } from './quotaAdvisoryTokenBudgetStatePeriodSource';
-import type { QuotaAdvisoryTokenBudgetStatePaidLightModeReason } from './quotaAdvisoryTokenBudgetStatePaidLightModeReason';
+import type { QuotaAdvisoryTokenBudgetStatePeriodSource } from "./quotaAdvisoryTokenBudgetStatePeriodSource";
+import type { QuotaAdvisoryTokenBudgetStatePaidLightModeReason } from "./quotaAdvisoryTokenBudgetStatePaidLightModeReason";
 
 export interface QuotaAdvisoryTokenBudgetState {
   /** @nullable */

@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminOpsCockpitQuotaUsageMonthlyMediaToolsItemToolCode } from './adminOpsCockpitQuotaUsageMonthlyMediaToolsItemToolCode';
+import type { AdminOpsCockpitQuotaUsageMonthlyMediaToolsItemToolCode } from "./adminOpsCockpitQuotaUsageMonthlyMediaToolsItemToolCode";
 
 export type AdminOpsCockpitQuotaUsageMonthlyMediaToolsItem = {
   toolCode: AdminOpsCockpitQuotaUsageMonthlyMediaToolsItemToolCode;

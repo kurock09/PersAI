@@ -4,9 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { KnowledgeIndexingJobProcessorMode } from './knowledgeIndexingJobProcessorMode';
+import type { KnowledgeIndexingJobProcessorMode } from "./knowledgeIndexingJobProcessorMode";
 
 /**
  * @nullable
  */
-export type AuthoredKnowledgeProcessingFieldsProcessorMode = KnowledgeIndexingJobProcessorMode | null;
+export type AuthoredKnowledgeProcessingFieldsProcessorMode =
+  KnowledgeIndexingJobProcessorMode | null;

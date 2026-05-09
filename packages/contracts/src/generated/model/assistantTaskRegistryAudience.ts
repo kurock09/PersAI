@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantTaskRegistryAudience = typeof AssistantTaskRegistryAudience[keyof typeof AssistantTaskRegistryAudience];
-
+export type AssistantTaskRegistryAudience =
+  (typeof AssistantTaskRegistryAudience)[keyof typeof AssistantTaskRegistryAudience];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantTaskRegistryAudience = {
-  user: 'user',
-  assistant: 'assistant',
+  user: "user",
+  assistant: "assistant"
 } as const;

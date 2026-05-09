@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { SkillAuthoringDraftKnowledgeCardProposalLifecycleStatus } from './skillAuthoringDraftKnowledgeCardProposalLifecycleStatus';
-import type { SkillAuthoringDraftKnowledgeCardProposalProvenanceKind } from './skillAuthoringDraftKnowledgeCardProposalProvenanceKind';
+import type { SkillAuthoringDraftKnowledgeCardProposalLifecycleStatus } from "./skillAuthoringDraftKnowledgeCardProposalLifecycleStatus";
+import type { SkillAuthoringDraftKnowledgeCardProposalProvenanceKind } from "./skillAuthoringDraftKnowledgeCardProposalProvenanceKind";
 
 export interface SkillAuthoringDraftKnowledgeCardProposal {
   title: string;

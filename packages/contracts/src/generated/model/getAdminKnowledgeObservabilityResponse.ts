@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminKnowledgeObservabilityState } from './adminKnowledgeObservabilityState';
+import type { AdminKnowledgeObservabilityState } from "./adminKnowledgeObservabilityState";
 
 export interface GetAdminKnowledgeObservabilityResponse {
   /** @nullable */

@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantBillingPaymentMethodClass } from './assistantBillingPaymentMethodClass';
+import type { AssistantBillingPaymentMethodClass } from "./assistantBillingPaymentMethodClass";
 
 export interface PostAssistantBillingPaymentIntentRequest {
   planCode: string;

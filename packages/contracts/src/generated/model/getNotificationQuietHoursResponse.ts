@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { NotificationQuietHoursView } from './notificationQuietHoursView';
+import type { NotificationQuietHoursView } from "./notificationQuietHoursView";
 
 export interface GetNotificationQuietHoursResponse {
   /** @nullable */

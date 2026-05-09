@@ -5,12 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeTier = typeof RuntimeTier[keyof typeof RuntimeTier];
-
+export type RuntimeTier = (typeof RuntimeTier)[keyof typeof RuntimeTier];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeTier = {
-  free_shared_restricted: 'free_shared_restricted',
-  paid_shared_restricted: 'paid_shared_restricted',
-  paid_isolated: 'paid_isolated',
+  free_shared_restricted: "free_shared_restricted",
+  paid_shared_restricted: "paid_shared_restricted",
+  paid_isolated: "paid_isolated"
 } as const;

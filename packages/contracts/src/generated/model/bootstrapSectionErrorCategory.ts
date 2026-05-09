@@ -5,14 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type BootstrapSectionErrorCategory = typeof BootstrapSectionErrorCategory[keyof typeof BootstrapSectionErrorCategory];
-
+export type BootstrapSectionErrorCategory =
+  (typeof BootstrapSectionErrorCategory)[keyof typeof BootstrapSectionErrorCategory];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BootstrapSectionErrorCategory = {
-  auth: 'auth',
-  forbidden: 'forbidden',
-  validation: 'validation',
-  infra: 'infra',
-  unknown: 'unknown',
+  auth: "auth",
+  forbidden: "forbidden",
+  validation: "validation",
+  infra: "infra",
+  unknown: "unknown"
 } as const;

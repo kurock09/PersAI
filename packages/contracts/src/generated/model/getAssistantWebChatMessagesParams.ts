@@ -6,10 +6,10 @@
  */
 
 export type GetAssistantWebChatMessagesParams = {
-cursor?: string;
-/**
- * @minimum 1
- * @maximum 100
- */
-limit?: number;
+  cursor?: string;
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  limit?: number;
 };

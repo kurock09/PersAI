@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeProviderModelCapability = typeof RuntimeProviderModelCapability[keyof typeof RuntimeProviderModelCapability];
-
+export type RuntimeProviderModelCapability =
+  (typeof RuntimeProviderModelCapability)[keyof typeof RuntimeProviderModelCapability];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeProviderModelCapability = {
-  chat: 'chat',
-  image: 'image',
-  video: 'video',
+  chat: "chat",
+  image: "image",
+  video: "video"
 } as const;

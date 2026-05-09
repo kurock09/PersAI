@@ -4,12 +4,12 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminBusinessCockpitStateActiveAssistants } from './adminBusinessCockpitStateActiveAssistants';
-import type { AdminBusinessCockpitStateActiveChats } from './adminBusinessCockpitStateActiveChats';
-import type { AdminBusinessCockpitStateChannelSplit } from './adminBusinessCockpitStateChannelSplit';
-import type { AdminBusinessCockpitStatePublishApplySuccess } from './adminBusinessCockpitStatePublishApplySuccess';
-import type { AdminBusinessCockpitStateQuotaPressure } from './adminBusinessCockpitStateQuotaPressure';
-import type { AdminBusinessCockpitStatePlanUsageSnapshot } from './adminBusinessCockpitStatePlanUsageSnapshot';
+import type { AdminBusinessCockpitStateActiveAssistants } from "./adminBusinessCockpitStateActiveAssistants";
+import type { AdminBusinessCockpitStateActiveChats } from "./adminBusinessCockpitStateActiveChats";
+import type { AdminBusinessCockpitStateChannelSplit } from "./adminBusinessCockpitStateChannelSplit";
+import type { AdminBusinessCockpitStatePublishApplySuccess } from "./adminBusinessCockpitStatePublishApplySuccess";
+import type { AdminBusinessCockpitStateQuotaPressure } from "./adminBusinessCockpitStateQuotaPressure";
+import type { AdminBusinessCockpitStatePlanUsageSnapshot } from "./adminBusinessCockpitStatePlanUsageSnapshot";
 
 export interface AdminBusinessCockpitState {
   activeAssistants: AdminBusinessCockpitStateActiveAssistants;

@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantRuntimeAssignmentStateSchema = typeof AssistantRuntimeAssignmentStateSchema[keyof typeof AssistantRuntimeAssignmentStateSchema];
-
+export type AssistantRuntimeAssignmentStateSchema =
+  (typeof AssistantRuntimeAssignmentStateSchema)[keyof typeof AssistantRuntimeAssignmentStateSchema];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantRuntimeAssignmentStateSchema = {
-  persairuntimeAssignmentv1: 'persai.runtimeAssignment.v1',
+  persairuntimeAssignmentv1: "persai.runtimeAssignment.v1"
 } as const;

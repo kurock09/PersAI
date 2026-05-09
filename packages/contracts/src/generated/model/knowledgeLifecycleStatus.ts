@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type KnowledgeLifecycleStatus = typeof KnowledgeLifecycleStatus[keyof typeof KnowledgeLifecycleStatus];
-
+export type KnowledgeLifecycleStatus =
+  (typeof KnowledgeLifecycleStatus)[keyof typeof KnowledgeLifecycleStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const KnowledgeLifecycleStatus = {
-  draft: 'draft',
-  active: 'active',
-  stale: 'stale',
-  archived: 'archived',
+  draft: "draft",
+  active: "active",
+  stale: "stale",
+  archived: "archived"
 } as const;

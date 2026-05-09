@@ -5,14 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanOrdinarySourcePriorityMode = typeof AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanOrdinarySourcePriorityMode[keyof typeof AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanOrdinarySourcePriorityMode];
-
+export type AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanOrdinarySourcePriorityMode =
+  (typeof AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanOrdinarySourcePriorityMode)[keyof typeof AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanOrdinarySourcePriorityMode];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanOrdinarySourcePriorityMode = {
-  personal_first: 'personal_first',
-  product_first: 'product_first',
-  web_first: 'web_first',
-  mixed_ambiguous: 'mixed_ambiguous',
-  not_applicable: 'not_applicable',
+  personal_first: "personal_first",
+  product_first: "product_first",
+  web_first: "web_first",
+  mixed_ambiguous: "mixed_ambiguous",
+  not_applicable: "not_applicable"
 } as const;

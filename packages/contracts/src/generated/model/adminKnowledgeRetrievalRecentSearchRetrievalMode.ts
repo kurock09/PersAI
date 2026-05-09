@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminKnowledgeRetrievalRecentSearchRetrievalMode = typeof AdminKnowledgeRetrievalRecentSearchRetrievalMode[keyof typeof AdminKnowledgeRetrievalRecentSearchRetrievalMode];
-
+export type AdminKnowledgeRetrievalRecentSearchRetrievalMode =
+  (typeof AdminKnowledgeRetrievalRecentSearchRetrievalMode)[keyof typeof AdminKnowledgeRetrievalRecentSearchRetrievalMode];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminKnowledgeRetrievalRecentSearchRetrievalMode = {
-  lexical: 'lexical',
-  hybrid: 'hybrid',
+  lexical: "lexical",
+  hybrid: "hybrid"
 } as const;

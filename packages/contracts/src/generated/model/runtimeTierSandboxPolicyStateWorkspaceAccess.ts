@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeTierSandboxPolicyStateWorkspaceAccess = typeof RuntimeTierSandboxPolicyStateWorkspaceAccess[keyof typeof RuntimeTierSandboxPolicyStateWorkspaceAccess];
-
+export type RuntimeTierSandboxPolicyStateWorkspaceAccess =
+  (typeof RuntimeTierSandboxPolicyStateWorkspaceAccess)[keyof typeof RuntimeTierSandboxPolicyStateWorkspaceAccess];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeTierSandboxPolicyStateWorkspaceAccess = {
-  rw: 'rw',
+  rw: "rw"
 } as const;

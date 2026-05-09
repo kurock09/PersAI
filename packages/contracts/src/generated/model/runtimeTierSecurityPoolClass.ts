@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeTierSecurityPoolClass = typeof RuntimeTierSecurityPoolClass[keyof typeof RuntimeTierSecurityPoolClass];
-
+export type RuntimeTierSecurityPoolClass =
+  (typeof RuntimeTierSecurityPoolClass)[keyof typeof RuntimeTierSecurityPoolClass];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeTierSecurityPoolClass = {
-  shared_restricted: 'shared_restricted',
-  isolated: 'isolated',
+  shared_restricted: "shared_restricted",
+  isolated: "isolated"
 } as const;

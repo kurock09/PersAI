@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type QuotaVisibilityBucketStateUnit = typeof QuotaVisibilityBucketStateUnit[keyof typeof QuotaVisibilityBucketStateUnit];
-
+export type QuotaVisibilityBucketStateUnit =
+  (typeof QuotaVisibilityBucketStateUnit)[keyof typeof QuotaVisibilityBucketStateUnit];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const QuotaVisibilityBucketStateUnit = {
-  tokens: 'tokens',
-  count: 'count',
-  bytes: 'bytes',
+  tokens: "tokens",
+  count: "count",
+  bytes: "bytes"
 } as const;

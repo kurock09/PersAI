@@ -5,15 +5,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type KnowledgeIndexingJobStatus = typeof KnowledgeIndexingJobStatus[keyof typeof KnowledgeIndexingJobStatus];
-
+export type KnowledgeIndexingJobStatus =
+  (typeof KnowledgeIndexingJobStatus)[keyof typeof KnowledgeIndexingJobStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const KnowledgeIndexingJobStatus = {
-  pending: 'pending',
-  in_progress: 'in_progress',
-  completed: 'completed',
-  failed: 'failed',
-  needs_review: 'needs_review',
-  cancelled: 'cancelled',
+  pending: "pending",
+  in_progress: "in_progress",
+  completed: "completed",
+  failed: "failed",
+  needs_review: "needs_review",
+  cancelled: "cancelled"
 } as const;

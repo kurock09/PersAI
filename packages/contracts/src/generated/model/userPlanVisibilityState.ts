@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { UserPlanVisibilityEffectivePlan } from './userPlanVisibilityEffectivePlan';
-import type { UserPlanVisibilityEntitlements } from './userPlanVisibilityEntitlements';
-import type { PlanQuotaAdvisoryState } from './planQuotaAdvisoryState';
-import type { UserPlanVisibilityLimits } from './userPlanVisibilityLimits';
+import type { UserPlanVisibilityEffectivePlan } from "./userPlanVisibilityEffectivePlan";
+import type { UserPlanVisibilityEntitlements } from "./userPlanVisibilityEntitlements";
+import type { PlanQuotaAdvisoryState } from "./planQuotaAdvisoryState";
+import type { UserPlanVisibilityLimits } from "./userPlanVisibilityLimits";
 
 export interface UserPlanVisibilityState {
   effectivePlan: UserPlanVisibilityEffectivePlan;

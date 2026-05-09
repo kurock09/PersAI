@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatTurnStatusStateCurrentActivityPhase = typeof AssistantWebChatTurnStatusStateCurrentActivityPhase[keyof typeof AssistantWebChatTurnStatusStateCurrentActivityPhase];
-
+export type AssistantWebChatTurnStatusStateCurrentActivityPhase =
+  (typeof AssistantWebChatTurnStatusStateCurrentActivityPhase)[keyof typeof AssistantWebChatTurnStatusStateCurrentActivityPhase];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatTurnStatusStateCurrentActivityPhase = {
-  start: 'start',
-  end: 'end',
+  start: "start",
+  end: "end"
 } as const;

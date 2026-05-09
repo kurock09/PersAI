@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminRuntimeProviderSettingsStateRouterPolicyMode } from './adminRuntimeProviderSettingsStateRouterPolicyMode';
-import type { AdminRuntimeProviderSettingsStateRouterPolicyClassifierFailureFallbackMode } from './adminRuntimeProviderSettingsStateRouterPolicyClassifierFailureFallbackMode';
-import type { AdminRuntimeProviderSettingsStateRouterPolicyPrecheckRuleOverrides } from './adminRuntimeProviderSettingsStateRouterPolicyPrecheckRuleOverrides';
+import type { AdminRuntimeProviderSettingsStateRouterPolicyMode } from "./adminRuntimeProviderSettingsStateRouterPolicyMode";
+import type { AdminRuntimeProviderSettingsStateRouterPolicyClassifierFailureFallbackMode } from "./adminRuntimeProviderSettingsStateRouterPolicyClassifierFailureFallbackMode";
+import type { AdminRuntimeProviderSettingsStateRouterPolicyPrecheckRuleOverrides } from "./adminRuntimeProviderSettingsStateRouterPolicyPrecheckRuleOverrides";
 
 export type AdminRuntimeProviderSettingsStateRouterPolicy = {
   enabled: boolean;

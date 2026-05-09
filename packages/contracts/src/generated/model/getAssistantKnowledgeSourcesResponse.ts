@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantKnowledgeQuotaState } from './assistantKnowledgeQuotaState';
-import type { AssistantKnowledgeSourceState } from './assistantKnowledgeSourceState';
+import type { AssistantKnowledgeQuotaState } from "./assistantKnowledgeQuotaState";
+import type { AssistantKnowledgeSourceState } from "./assistantKnowledgeSourceState";
 
 export interface GetAssistantKnowledgeSourcesResponse {
   /** @nullable */

@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence = typeof AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence[keyof typeof AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence];
-
+export type AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence =
+  (typeof AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence)[keyof typeof AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence = {
-  low: 'low',
-  medium: 'medium',
-  high: 'high',
+  low: "low",
+  medium: "medium",
+  high: "high"
 } as const;

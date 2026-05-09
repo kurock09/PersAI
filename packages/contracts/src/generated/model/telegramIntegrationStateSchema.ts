@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type TelegramIntegrationStateSchema = typeof TelegramIntegrationStateSchema[keyof typeof TelegramIntegrationStateSchema];
-
+export type TelegramIntegrationStateSchema =
+  (typeof TelegramIntegrationStateSchema)[keyof typeof TelegramIntegrationStateSchema];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TelegramIntegrationStateSchema = {
-  persaitelegramIntegrationv1: 'persai.telegramIntegration.v1',
+  persaitelegramIntegrationv1: "persai.telegramIntegration.v1"
 } as const;

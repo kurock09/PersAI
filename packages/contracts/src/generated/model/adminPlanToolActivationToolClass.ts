@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminPlanToolActivationToolClass = typeof AdminPlanToolActivationToolClass[keyof typeof AdminPlanToolActivationToolClass];
-
+export type AdminPlanToolActivationToolClass =
+  (typeof AdminPlanToolActivationToolClass)[keyof typeof AdminPlanToolActivationToolClass];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminPlanToolActivationToolClass = {
-  cost_driving: 'cost_driving',
-  utility: 'utility',
+  cost_driving: "cost_driving",
+  utility: "utility"
 } as const;

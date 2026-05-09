@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { NotificationDeliveryAttemptViewError } from './notificationDeliveryAttemptViewError';
+import type { NotificationDeliveryAttemptViewError } from "./notificationDeliveryAttemptViewError";
 
 export interface NotificationDeliveryAttemptView {
   id: string;

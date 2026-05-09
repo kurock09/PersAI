@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type DocumentProcessingProviderKey = typeof DocumentProcessingProviderKey[keyof typeof DocumentProcessingProviderKey];
-
+export type DocumentProcessingProviderKey =
+  (typeof DocumentProcessingProviderKey)[keyof typeof DocumentProcessingProviderKey];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DocumentProcessingProviderKey = {
-  local: 'local',
-  mistral: 'mistral',
-  llamaparse: 'llamaparse',
+  local: "local",
+  mistral: "mistral",
+  llamaparse: "llamaparse"
 } as const;

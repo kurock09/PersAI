@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { MonthlyMediaQuotaToolStateToolCode } from './monthlyMediaQuotaToolStateToolCode';
-import type { MonthlyMediaQuotaToolStateStatus } from './monthlyMediaQuotaToolStateStatus';
+import type { MonthlyMediaQuotaToolStateToolCode } from "./monthlyMediaQuotaToolStateToolCode";
+import type { MonthlyMediaQuotaToolStateStatus } from "./monthlyMediaQuotaToolStateStatus";
 
 export interface MonthlyMediaQuotaToolState {
   toolCode: MonthlyMediaQuotaToolStateToolCode;

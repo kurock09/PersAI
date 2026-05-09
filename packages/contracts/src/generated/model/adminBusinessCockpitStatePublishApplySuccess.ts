@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminBusinessCockpitStatePublishApplySuccessWindow } from './adminBusinessCockpitStatePublishApplySuccessWindow';
+import type { AdminBusinessCockpitStatePublishApplySuccessWindow } from "./adminBusinessCockpitStatePublishApplySuccessWindow";
 
 export type AdminBusinessCockpitStatePublishApplySuccess = {
   window: AdminBusinessCockpitStatePublishApplySuccessWindow;

@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type SkillAuthoringDraftKnowledgeCardProposalLifecycleStatus = typeof SkillAuthoringDraftKnowledgeCardProposalLifecycleStatus[keyof typeof SkillAuthoringDraftKnowledgeCardProposalLifecycleStatus];
-
+export type SkillAuthoringDraftKnowledgeCardProposalLifecycleStatus =
+  (typeof SkillAuthoringDraftKnowledgeCardProposalLifecycleStatus)[keyof typeof SkillAuthoringDraftKnowledgeCardProposalLifecycleStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SkillAuthoringDraftKnowledgeCardProposalLifecycleStatus = {
-  draft: 'draft',
+  draft: "draft"
 } as const;

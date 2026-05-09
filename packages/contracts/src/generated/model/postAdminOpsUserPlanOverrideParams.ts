@@ -6,5 +6,5 @@
  */
 
 export type PostAdminOpsUserPlanOverrideParams = {
-planCode: string;
+  planCode: string;
 };

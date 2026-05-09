@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatActiveMediaJobStateOperation = typeof AssistantWebChatActiveMediaJobStateOperation[keyof typeof AssistantWebChatActiveMediaJobStateOperation];
-
+export type AssistantWebChatActiveMediaJobStateOperation =
+  (typeof AssistantWebChatActiveMediaJobStateOperation)[keyof typeof AssistantWebChatActiveMediaJobStateOperation];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatActiveMediaJobStateOperation = {
-  image_generate: 'image_generate',
-  image_edit: 'image_edit',
-  video_generate: 'video_generate',
-  audio_generate: 'audio_generate',
+  image_generate: "image_generate",
+  image_edit: "image_edit",
+  video_generate: "video_generate",
+  audio_generate: "audio_generate"
 } as const;

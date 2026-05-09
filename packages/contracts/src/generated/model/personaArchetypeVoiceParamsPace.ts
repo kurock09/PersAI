@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PersonaArchetypeVoiceParamsPace = typeof PersonaArchetypeVoiceParamsPace[keyof typeof PersonaArchetypeVoiceParamsPace];
-
+export type PersonaArchetypeVoiceParamsPace =
+  (typeof PersonaArchetypeVoiceParamsPace)[keyof typeof PersonaArchetypeVoiceParamsPace];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonaArchetypeVoiceParamsPace = {
-  slow: 'slow',
-  normal: 'normal',
-  quick: 'quick',
+  slow: "slow",
+  normal: "normal",
+  quick: "quick"
 } as const;

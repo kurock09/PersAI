@@ -4,13 +4,13 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantBillingPaymentIntentAction } from './assistantBillingPaymentIntentAction';
-import type { AssistantBillingPaymentIntentPurpose } from './assistantBillingPaymentIntentPurpose';
-import type { AssistantBillingPaymentIntentStatus } from './assistantBillingPaymentIntentStatus';
-import type { AssistantBillingPaymentMethodClass } from './assistantBillingPaymentMethodClass';
-import type { AssistantBillingPaymentIntentBillingPeriod } from './assistantBillingPaymentIntentBillingPeriod';
-import type { AssistantBillingPaymentIntentRecurringState } from './assistantBillingPaymentIntentRecurringState';
-import type { AssistantBillingCheckoutState } from './assistantBillingCheckoutState';
+import type { AssistantBillingPaymentIntentAction } from "./assistantBillingPaymentIntentAction";
+import type { AssistantBillingPaymentIntentPurpose } from "./assistantBillingPaymentIntentPurpose";
+import type { AssistantBillingPaymentIntentStatus } from "./assistantBillingPaymentIntentStatus";
+import type { AssistantBillingPaymentMethodClass } from "./assistantBillingPaymentMethodClass";
+import type { AssistantBillingPaymentIntentBillingPeriod } from "./assistantBillingPaymentIntentBillingPeriod";
+import type { AssistantBillingPaymentIntentRecurringState } from "./assistantBillingPaymentIntentRecurringState";
+import type { AssistantBillingCheckoutState } from "./assistantBillingCheckoutState";
 
 export interface AssistantBillingPaymentIntentState {
   id: string;

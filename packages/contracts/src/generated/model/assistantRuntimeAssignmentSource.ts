@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantRuntimeAssignmentSource = typeof AssistantRuntimeAssignmentSource[keyof typeof AssistantRuntimeAssignmentSource];
-
+export type AssistantRuntimeAssignmentSource =
+  (typeof AssistantRuntimeAssignmentSource)[keyof typeof AssistantRuntimeAssignmentSource];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantRuntimeAssignmentSource = {
-  platform_fallback: 'platform_fallback',
-  plan_default: 'plan_default',
-  assistant_override: 'assistant_override',
+  platform_fallback: "platform_fallback",
+  plan_default: "plan_default",
+  assistant_override: "assistant_override"
 } as const;

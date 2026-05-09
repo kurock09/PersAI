@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantVoiceProfileDeliveryKind = typeof AssistantVoiceProfileDeliveryKind[keyof typeof AssistantVoiceProfileDeliveryKind];
-
+export type AssistantVoiceProfileDeliveryKind =
+  (typeof AssistantVoiceProfileDeliveryKind)[keyof typeof AssistantVoiceProfileDeliveryKind];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantVoiceProfileDeliveryKind = {
-  voice_note: 'voice_note',
-  audio: 'audio',
+  voice_note: "voice_note",
+  audio: "audio"
 } as const;

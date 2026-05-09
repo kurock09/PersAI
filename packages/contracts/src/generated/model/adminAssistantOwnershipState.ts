@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantOwnershipFlowMode } from './assistantOwnershipFlowMode';
-import type { AssistantOwnershipConsequencesState } from './assistantOwnershipConsequencesState';
+import type { AssistantOwnershipFlowMode } from "./assistantOwnershipFlowMode";
+import type { AssistantOwnershipConsequencesState } from "./assistantOwnershipConsequencesState";
 
 export interface AdminAssistantOwnershipState {
   mode: AssistantOwnershipFlowMode;

@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { DocumentProcessingPolicyState } from './documentProcessingPolicyState';
-import type { DocumentProcessingProviderState } from './documentProcessingProviderState';
+import type { DocumentProcessingPolicyState } from "./documentProcessingPolicyState";
+import type { DocumentProcessingProviderState } from "./documentProcessingProviderState";
 
 export interface AdminDocumentProcessingSettingsState {
   policy: DocumentProcessingPolicyState;

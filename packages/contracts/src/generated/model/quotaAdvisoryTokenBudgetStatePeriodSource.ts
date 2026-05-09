@@ -8,11 +8,12 @@
 /**
  * @nullable
  */
-export type QuotaAdvisoryTokenBudgetStatePeriodSource = typeof QuotaAdvisoryTokenBudgetStatePeriodSource[keyof typeof QuotaAdvisoryTokenBudgetStatePeriodSource] | null;
-
+export type QuotaAdvisoryTokenBudgetStatePeriodSource =
+  | (typeof QuotaAdvisoryTokenBudgetStatePeriodSource)[keyof typeof QuotaAdvisoryTokenBudgetStatePeriodSource]
+  | null;
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const QuotaAdvisoryTokenBudgetStatePeriodSource = {
-  subscription_period: 'subscription_period',
-  calendar_month_fallback: 'calendar_month_fallback',
+  subscription_period: "subscription_period",
+  calendar_month_fallback: "calendar_month_fallback"
 } as const;

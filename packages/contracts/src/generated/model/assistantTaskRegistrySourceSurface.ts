@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantTaskRegistrySourceSurface = typeof AssistantTaskRegistrySourceSurface[keyof typeof AssistantTaskRegistrySourceSurface];
-
+export type AssistantTaskRegistrySourceSurface =
+  (typeof AssistantTaskRegistrySourceSurface)[keyof typeof AssistantTaskRegistrySourceSurface];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantTaskRegistrySourceSurface = {
-  web: 'web',
+  web: "web"
 } as const;

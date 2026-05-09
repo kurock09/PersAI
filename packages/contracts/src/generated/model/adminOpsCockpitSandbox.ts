@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanSandboxPolicy } from './adminPlanSandboxPolicy';
-import type { AdminOpsCockpitSandboxUsage } from './adminOpsCockpitSandboxUsage';
-import type { AdminOpsCockpitSandboxJob } from './adminOpsCockpitSandboxJob';
+import type { AdminPlanSandboxPolicy } from "./adminPlanSandboxPolicy";
+import type { AdminOpsCockpitSandboxUsage } from "./adminOpsCockpitSandboxUsage";
+import type { AdminOpsCockpitSandboxJob } from "./adminOpsCockpitSandboxJob";
 
 export interface AdminOpsCockpitSandbox {
   effectivePolicy: AdminPlanSandboxPolicy;

@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type TelegramIntegrationRuntimeStateHealth = typeof TelegramIntegrationRuntimeStateHealth[keyof typeof TelegramIntegrationRuntimeStateHealth];
-
+export type TelegramIntegrationRuntimeStateHealth =
+  (typeof TelegramIntegrationRuntimeStateHealth)[keyof typeof TelegramIntegrationRuntimeStateHealth];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TelegramIntegrationRuntimeStateHealth = {
-  ok: 'ok',
-  invalid_token: 'invalid_token',
+  ok: "ok",
+  invalid_token: "invalid_token"
 } as const;

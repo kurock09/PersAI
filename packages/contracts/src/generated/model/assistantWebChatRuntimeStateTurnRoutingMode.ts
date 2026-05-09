@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatRuntimeStateTurnRoutingMode = typeof AssistantWebChatRuntimeStateTurnRoutingMode[keyof typeof AssistantWebChatRuntimeStateTurnRoutingMode];
-
+export type AssistantWebChatRuntimeStateTurnRoutingMode =
+  (typeof AssistantWebChatRuntimeStateTurnRoutingMode)[keyof typeof AssistantWebChatRuntimeStateTurnRoutingMode];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatRuntimeStateTurnRoutingMode = {
-  shadow: 'shadow',
-  active: 'active',
+  shadow: "shadow",
+  active: "active"
 } as const;

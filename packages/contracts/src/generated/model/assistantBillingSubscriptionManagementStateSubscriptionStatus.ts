@@ -5,18 +5,18 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingSubscriptionManagementStateSubscriptionStatus = typeof AssistantBillingSubscriptionManagementStateSubscriptionStatus[keyof typeof AssistantBillingSubscriptionManagementStateSubscriptionStatus];
-
+export type AssistantBillingSubscriptionManagementStateSubscriptionStatus =
+  (typeof AssistantBillingSubscriptionManagementStateSubscriptionStatus)[keyof typeof AssistantBillingSubscriptionManagementStateSubscriptionStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingSubscriptionManagementStateSubscriptionStatus = {
-  trialing: 'trialing',
-  active: 'active',
-  grace_period: 'grace_period',
-  past_due: 'past_due',
-  paused: 'paused',
-  canceled: 'canceled',
-  expired: 'expired',
-  expired_fallback: 'expired_fallback',
-  unconfigured: 'unconfigured',
+  trialing: "trialing",
+  active: "active",
+  grace_period: "grace_period",
+  past_due: "past_due",
+  paused: "paused",
+  canceled: "canceled",
+  expired: "expired",
+  expired_fallback: "expired_fallback",
+  unconfigured: "unconfigured"
 } as const;
