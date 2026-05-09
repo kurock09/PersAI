@@ -129,17 +129,6 @@ export class AdminDeleteUserService {
               await tx.workspaceSubscription.deleteMany({ where: { workspaceId } });
               workspaceDeleted = true;
 
-              const channels = await tx.workspaceAdminNotificationChannel.findMany({
-                where: { workspaceId },
-                select: { id: true }
-              });
-              if (channels.length > 0) {
-                await tx.adminNotificationDelivery.deleteMany({
-                  where: { channelId: { in: channels.map((c) => c.id) } }
-                });
-                await tx.workspaceAdminNotificationChannel.deleteMany({ where: { workspaceId } });
-              }
-
               await tx.workspace.delete({ where: { id: workspaceId } });
             }
           }

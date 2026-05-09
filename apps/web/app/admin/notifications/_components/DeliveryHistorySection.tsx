@@ -57,11 +57,12 @@ export function DeliveryHistorySection({ getToken }: Props) {
 
   const [filters, setFilters] = useState<{
     source: string;
+    class: string;
     status: string;
     channel: string;
     dateFrom: string;
     dateTo: string;
-  }>({ source: "", status: "", channel: "", dateFrom: "", dateTo: "" });
+  }>({ source: "", class: "", status: "", channel: "", dateFrom: "", dateTo: "" });
 
   const load = useCallback(
     async (p: number) => {
@@ -72,6 +73,7 @@ export function DeliveryHistorySection({ getToken }: Props) {
       try {
         const params: ListNotificationDeliveriesParams = { page: p, pageSize };
         if (filters.source) params.source = filters.source;
+        if (filters.class) params.class = filters.class;
         if (filters.status) params.status = filters.status;
         if (filters.channel) params.channel = filters.channel;
         if (filters.dateFrom) params.dateFrom = filters.dateFrom;
@@ -102,6 +104,7 @@ export function DeliveryHistorySection({ getToken }: Props) {
         {(
           [
             { key: "source", placeholder: "Source" },
+            { key: "class", placeholder: "Class" },
             { key: "status", placeholder: "Status" },
             { key: "channel", placeholder: "Channel" },
             { key: "dateFrom", placeholder: "Date from (ISO)" },

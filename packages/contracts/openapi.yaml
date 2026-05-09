@@ -4073,6 +4073,49 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/channels/{channelType}/test-send:
+    post:
+      operationId: testSendNotificationChannel
+      summary: Send a test notification through the given channel
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: channelType
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Test send result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestSendNotificationChannelResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/notifications/policies:
     get:
       operationId: listNotificationPolicies
@@ -11737,6 +11780,25 @@ components:
         updatedAt:
           type: string
           format: date-time
+    TestSendNotificationChannelResponse:
+      type: object
+      required:
+        - channelType
+        - ok
+        - status
+        - error
+      properties:
+        channelType:
+          type: string
+        ok:
+          type: boolean
+        status:
+          type: string
+          enum: [delivered, failed, not_configured, adapter_not_found]
+        error:
+          type: object
+          additionalProperties: true
+          nullable: true
     PatchNotificationChannelRequest:
       type: object
       properties:

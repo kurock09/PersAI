@@ -386,21 +386,6 @@ enum AssistantChannelBindingState {
   unconfigured
 }
 
-enum AdminNotificationChannelType {
-  webhook
-}
-
-enum AdminNotificationChannelStatus {
-  active
-  inactive
-}
-
-enum AdminNotificationDeliveryStatus {
-  succeeded
-  failed
-  skipped
-}
-
 enum PlatformRolloutStatus {
   in_progress
   applied
@@ -467,7 +452,6 @@ model AppUser {
   publishedAssistantVersion              AssistantPublishedVersion[]         @relation("AssistantVersionPublisher")
   assistantAuditEvents                   AssistantAuditEvent[]               @relation("AssistantAuditActor")
   adminRoles                             AppUserAdminRole[]
-  createdAdminNotificationChannels       WorkspaceAdminNotificationChannel[]
   createdPlatformRollouts                AssistantPlatformRollout[]
   platformRolloutItems                   AssistantPlatformRolloutItem[]
   abuseGuardStates                       AssistantAbuseGuardState[]
@@ -508,8 +492,6 @@ model Workspace {
   mediaMonthlyQuotaCounters         WorkspaceMediaMonthlyQuotaCounter[]
   assistantAuditEvents              AssistantAuditEvent[]
   adminRoles                        AppUserAdminRole[]
-  adminNotificationChannels         WorkspaceAdminNotificationChannel[]
-  adminNotificationDeliveries       AdminNotificationDelivery[]
   platformRollouts                  AssistantPlatformRollout[]
   abuseGuardStates                  AssistantAbuseGuardState[]
   toolUsageDailyCounters            WorkspaceToolUsageDailyCounter[]
@@ -744,42 +726,6 @@ model AssistantAuditEvent {
   @@index([workspaceId, createdAt(sort: Desc)])
   @@index([eventCategory, createdAt(sort: Desc)])
   @@map("assistant_audit_events")
-}
-
-model WorkspaceAdminNotificationChannel {
-  id              String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId     String                         @map("workspace_id") @db.Uuid
-  channelType     AdminNotificationChannelType   @map("channel_type")
-  status          AdminNotificationChannelStatus @default(inactive) @map("status")
-  endpointUrl     String?                        @map("endpoint_url") @db.VarChar(512)
-  signingSecret   String?                        @map("signing_secret") @db.VarChar(256)
-  createdByUserId String?                        @map("created_by_user_id") @db.Uuid
-  createdAt       DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace       Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  createdByUser   AppUser?                       @relation(fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  deliveries      AdminNotificationDelivery[]
-
-  @@unique([workspaceId, channelType])
-  @@index([workspaceId, status])
-  @@map("workspace_admin_notification_channels")
-}
-
-model AdminNotificationDelivery {
-  id             String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId    String                            @map("workspace_id") @db.Uuid
-  channelId      String                            @map("channel_id") @db.Uuid
-  signalCode     String                            @map("signal_code") @db.VarChar(128)
-  deliveryStatus AdminNotificationDeliveryStatus   @map("delivery_status")
-  payload        Json                              @default("{}") @db.JsonB
-  errorMessage   String?                           @map("error_message") @db.VarChar(512)
-  attemptedAt    DateTime                          @default(now()) @map("attempted_at") @db.Timestamptz(6)
-  workspace      Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  channel        WorkspaceAdminNotificationChannel @relation(fields: [channelId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@index([workspaceId, attemptedAt(sort: Desc)])
-  @@index([channelId, attemptedAt(sort: Desc)])
-  @@map("admin_notification_deliveries")
 }
 
 model PlatformConfigGeneration {

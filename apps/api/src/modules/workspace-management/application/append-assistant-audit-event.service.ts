@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { DeliverAdminSystemNotificationService } from "./deliver-admin-system-notification.service";
+import { SystemEventNotificationProducerService } from "./system-event-notification-producer.service";
 
 export type AssistantAuditOutcome = "succeeded" | "failed" | "degraded" | "denied";
 
@@ -22,7 +22,7 @@ export class AppendAssistantAuditEventService {
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly deliverAdminSystemNotificationService: DeliverAdminSystemNotificationService
+    private readonly systemEventProducer: SystemEventNotificationProducerService
   ) {}
 
   async execute(input: AppendAssistantAuditEventInput): Promise<void> {
@@ -38,8 +38,9 @@ export class AppendAssistantAuditEventService {
         details: (input.details ?? {}) as Prisma.InputJsonValue
       }
     });
-    void this.deliverAdminSystemNotificationService
-      .executeFromAuditEvent({
+    void this.systemEventProducer
+      .emitFromAuditEvent({
+        auditEventId: created.id,
         workspaceId: input.workspaceId,
         assistantId: input.assistantId,
         actorUserId: input.actorUserId,
@@ -50,8 +51,8 @@ export class AppendAssistantAuditEventService {
       })
       .catch((error: unknown) => {
         const message =
-          error instanceof Error ? error.message : "Unknown admin notification delivery failure.";
-        this.logger.warn(`Admin notification delivery failed after audit append: ${message}`);
+          error instanceof Error ? error.message : "Unknown system event notification failure.";
+        this.logger.warn(`System event notification failed after audit append: ${message}`);
       });
   }
 }

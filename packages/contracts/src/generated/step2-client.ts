@@ -151,7 +151,8 @@ import type {
   ReplayNotificationDeadLetter200,
   SkillAuthoringDraftRequest,
   SkillKnowledgeCardInput,
-  SuccessResponse
+  SuccessResponse,
+  TestSendNotificationChannelResponse
 } from "./model";
 
 import { customFetch } from "../mutator/custom-fetch";
@@ -6018,6 +6019,67 @@ export const patchUnifiedNotificationChannel = async (
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...options?.headers },
       body: JSON.stringify(patchNotificationChannelRequest)
+    }
+  );
+};
+
+/**
+ * @summary Send a test notification through the given channel
+ */
+export type testSendNotificationChannelResponse200 = {
+  data: TestSendNotificationChannelResponse;
+  status: 200;
+};
+
+export type testSendNotificationChannelResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type testSendNotificationChannelResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type testSendNotificationChannelResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type testSendNotificationChannelResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type testSendNotificationChannelResponseSuccess = testSendNotificationChannelResponse200 & {
+  headers: Headers;
+};
+export type testSendNotificationChannelResponseError = (
+  | testSendNotificationChannelResponse400
+  | testSendNotificationChannelResponse401
+  | testSendNotificationChannelResponse403
+  | testSendNotificationChannelResponse500
+) & {
+  headers: Headers;
+};
+
+export type testSendNotificationChannelResponse =
+  | testSendNotificationChannelResponseSuccess
+  | testSendNotificationChannelResponseError;
+
+export const getTestSendNotificationChannelUrl = (channelType: string) => {
+  return `/admin/notifications/channels/${channelType}/test-send`;
+};
+
+export const testSendNotificationChannel = async (
+  channelType: string,
+  options?: RequestInit
+): Promise<testSendNotificationChannelResponse> => {
+  return customFetch<testSendNotificationChannelResponse>(
+    getTestSendNotificationChannelUrl(channelType),
+    {
+      ...options,
+      method: "POST"
     }
   );
 };

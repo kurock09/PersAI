@@ -121,6 +121,7 @@ import {
   replayNotificationDeadLetter as replayNotificationDeadLetterContract,
   discardNotificationDeadLetter as discardNotificationDeadLetterContract,
   previewNotification as previewNotificationContract,
+  testSendNotificationChannel as testSendNotificationChannelContract,
   type NotificationChannelView,
   type NotificationPolicyView,
   type NotificationQuietHoursView,
@@ -2554,6 +2555,32 @@ export async function patchUnifiedNotificationChannel(
       );
     }
     return response.data as NotificationChannelView;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export type TestSendNotificationChannelResult = {
+  channelType: string;
+  ok: boolean;
+  status: "delivered" | "failed" | "not_configured" | "adapter_not_found";
+  error: Record<string, unknown> | null;
+};
+
+export async function testSendNotificationChannel(
+  token: string,
+  channelType: string
+): Promise<TestSendNotificationChannelResult> {
+  try {
+    const response = await testSendNotificationChannelContract(channelType, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        `Unexpected non-success response for POST /admin/notifications/channels/${channelType}/test-send.`
+      );
+    }
+    return response.data as TestSendNotificationChannelResult;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

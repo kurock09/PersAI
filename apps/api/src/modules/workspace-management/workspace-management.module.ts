@@ -76,7 +76,7 @@ import { ResolveAdminKnowledgeObservabilityService } from "./application/resolve
 import { ResolveAdminKnowledgeConnectorsService } from "./application/resolve-admin-knowledge-connectors.service";
 import { OverviewLatencyTraceService } from "./application/overview-latency-trace.service";
 import { ManageAdminOverviewLatencyTraceService } from "./application/manage-admin-overview-latency-trace.service";
-import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
+import { SystemEventNotificationProducerService } from "./application/system-event-notification-producer.service";
 import { NotificationIntentService } from "./application/notifications/notification-intent.service";
 import { NotificationRoutingService } from "./application/notifications/notification-routing.service";
 import { NotificationDeliveryWorkerService } from "./application/notifications/notification-delivery-worker.service";
@@ -359,7 +359,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ResolveAdminKnowledgeConnectorsService,
     OverviewLatencyTraceService,
     ManageAdminOverviewLatencyTraceService,
-    DeliverAdminSystemNotificationService,
+    SystemEventNotificationProducerService,
     // ADR-088: Unified notification platform – Slice 1
     NotificationRoutingService,
     StaticFallbackRendererService,

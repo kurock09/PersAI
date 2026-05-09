@@ -20,6 +20,7 @@ import type {
   DeliveryIntentView,
   DeadLetterView,
   PreviewResult,
+  TestSendResult,
   ListDeliveriesQuery,
   ListDeadLettersQuery
 } from "../../application/notifications/manage-notification-platform.service";
@@ -54,24 +55,13 @@ export class AdminNotificationsController {
   }
 
   @Post("channels/:channelType/test-send")
+  @HttpCode(HttpStatus.OK)
   async testSendChannel(
     @Req() req: RequestWithPlatformContext,
     @Param("channelType") channelType: string
-  ): Promise<{
-    requestId: string | null;
-    ok: boolean;
-    message: string;
-  }> {
+  ): Promise<TestSendResult> {
     const userId = this.resolveRequestUserId(req);
-    // The dry-run path still has no DB or delivery side-effects, but it MUST
-    // run the same admin gate as every other endpoint on this surface
-    // (ADR-088 Slice 2.5 closeout — authz audit fix).
-    await this.manageNotificationPlatformService.assertAdminAccess(userId);
-    return {
-      requestId: req.requestId ?? null,
-      ok: true,
-      message: `test-send dry-run for channel ${channelType} (Slice 4 will wire real delivery)`
-    };
+    return this.manageNotificationPlatformService.testSendChannel(userId, channelType);
   }
 
   // ── ADR-088 unified policies ──────────────────────────────────────────────

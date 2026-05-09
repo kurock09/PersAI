@@ -1,9 +1,21 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
+import {
+  NotificationClass,
+  NotificationLifecycleStatus,
+  NotificationPriority,
+  NotificationRenderStrategy,
+  NotificationSource
+} from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 import { AdminAuthorizationService } from "../admin-authorization.service";
 import { TemplateRendererService } from "./render/template-renderer.service";
 import { GroundedLlmRendererService } from "./render/grounded-llm-renderer.service";
+import { StaticFallbackRendererService } from "./render/static-fallback-renderer.service";
+import { NOTIFICATION_CHANNEL_ADAPTERS } from "../../infrastructure/notifications/channel-adapters/channel-adapter.interface";
+import type { NotificationChannelAdapter } from "../../infrastructure/notifications/channel-adapters/channel-adapter.interface";
+import type { NotificationIntentRecord } from "./notification-platform.types";
 
 // ── Response types ────────────────────────────────────────────────────────────
 
@@ -95,6 +107,13 @@ export type PreviewResult = {
   dryRun: true;
 };
 
+export type TestSendResult = {
+  channelType: string;
+  ok: boolean;
+  status: "delivered" | "failed" | "not_configured" | "adapter_not_found";
+  error: Record<string, unknown> | null;
+};
+
 // ── Input types ───────────────────────────────────────────────────────────────
 
 export type PatchChannelInput = {
@@ -179,7 +198,10 @@ export class ManageNotificationPlatformService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly adminAuth: AdminAuthorizationService,
     private readonly templateRenderer: TemplateRendererService,
-    private readonly groundedLlmRenderer: GroundedLlmRendererService
+    private readonly groundedLlmRenderer: GroundedLlmRendererService,
+    private readonly staticFallbackRenderer: StaticFallbackRendererService,
+    @Inject(NOTIFICATION_CHANNEL_ADAPTERS)
+    private readonly channelAdapters: NotificationChannelAdapter[]
   ) {}
 
   // ── Authorization helpers ─────────────────────────────────────────────────
@@ -234,6 +256,89 @@ export class ManageNotificationPlatformService {
       }
     });
     return this.channelToView(updated);
+  }
+
+  async testSendChannel(userId: string, channelType: string): Promise<TestSendResult> {
+    if (!VALID_CHANNEL_TYPES.includes(channelType as never)) {
+      throw new BadRequestException(`Unknown channel type: ${channelType}`);
+    }
+    const workspaceId = await this.resolveWorkspaceId(userId);
+
+    const channelRow = await this.prisma.notificationChannelRegistry.findUnique({
+      where: { channelType: channelType as never }
+    });
+    if (!channelRow) {
+      return {
+        channelType,
+        ok: false,
+        status: "not_configured",
+        error: { reason: "channel_registry_row_missing" }
+      };
+    }
+
+    const adapter = this.channelAdapters.find((a) => a.channelType === channelType);
+    if (!adapter) {
+      return {
+        channelType,
+        ok: false,
+        status: "adapter_not_found",
+        error: { reason: "no_adapter_registered" }
+      };
+    }
+
+    const syntheticIntent: NotificationIntentRecord = {
+      id: randomUUID(),
+      workspaceId,
+      assistantId: null,
+      userId: null,
+      source: NotificationSource.system_event,
+      class: NotificationClass.operational,
+      priority: NotificationPriority.immediate,
+      lifecycleStatus: NotificationLifecycleStatus.pending,
+      renderStrategy: NotificationRenderStrategy.static_fallback,
+      renderInstructionRef: null,
+      templateId: null,
+      factPayload: { message: `Test send for channel "${channelType}" — PersAI Notifications` },
+      policySnapshot: {},
+      allowedChannels: [channelType],
+      escalationAfterMinutes: null,
+      escalationChannel: null,
+      dedupeKey: null,
+      scheduledAt: null,
+      respectQuietHours: false,
+      surface: null,
+      surfaceThreadKey: null,
+      chatId: null,
+      traceId: `test-send:${channelType}:${Date.now()}`,
+      failureReason: null,
+      createdAt: new Date(),
+      claimedAt: null,
+      deliveredAt: null,
+      deadLetteredAt: null
+    };
+
+    const channelConfig = {
+      id: channelRow.id,
+      channelType: channelRow.channelType,
+      enabled: channelRow.enabled,
+      config: (channelRow.config ?? {}) as Record<string, unknown>,
+      healthStatus: channelRow.healthStatus,
+      consecutiveFailures: channelRow.consecutiveFailures,
+      lastDeliveryAt: channelRow.lastDeliveryAt,
+      lastFailureAt: channelRow.lastFailureAt,
+      createdAt: channelRow.createdAt,
+      updatedAt: channelRow.updatedAt
+    };
+
+    const rendered = await this.staticFallbackRenderer.render(syntheticIntent);
+    const result = await adapter.deliver(syntheticIntent, rendered, channelConfig);
+
+    return {
+      channelType,
+      ok: result.status === "delivered",
+      status: result.status === "delivered" ? "delivered" : "failed",
+      error: result.error ?? null
+    };
   }
 
   // ── Policies ──────────────────────────────────────────────────────────────
