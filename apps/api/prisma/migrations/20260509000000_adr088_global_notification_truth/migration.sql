@@ -52,16 +52,72 @@ BEGIN
     SELECT COUNT(*) INTO divergence_count
     FROM (
       SELECT source,
-             COUNT(DISTINCT (channels::text || enabled::text || COALESCE(config::text, ''))) AS distinct_configs
+             COUNT(
+               DISTINCT (
+                 channels::text || '|' ||
+                 enabled::text || '|' ||
+                 COALESCE(cooldown_minutes::text, 'null') || '|' ||
+                 COALESCE(max_per_day::text, 'null') || '|' ||
+                 COALESCE(escalation_after_minutes::text, 'null') || '|' ||
+                 COALESCE(escalation_channel, 'null') || '|' ||
+                 respect_quiet_hours::text || '|' ||
+                 render_strategy::text || '|' ||
+                 COALESCE(render_instruction_ref, 'null') || '|' ||
+                 COALESCE(template_id, 'null') || '|' ||
+                 COALESCE(config::text, '{}')
+               )
+             ) AS distinct_configs
       FROM notification_policies
       GROUP BY source
-      HAVING COUNT(DISTINCT (channels::text || enabled::text || COALESCE(config::text, ''))) > 1
+      HAVING COUNT(
+        DISTINCT (
+          channels::text || '|' ||
+          enabled::text || '|' ||
+          COALESCE(cooldown_minutes::text, 'null') || '|' ||
+          COALESCE(max_per_day::text, 'null') || '|' ||
+          COALESCE(escalation_after_minutes::text, 'null') || '|' ||
+          COALESCE(escalation_channel, 'null') || '|' ||
+          respect_quiet_hours::text || '|' ||
+          render_strategy::text || '|' ||
+          COALESCE(render_instruction_ref, 'null') || '|' ||
+          COALESCE(template_id, 'null') || '|' ||
+          COALESCE(config::text, '{}')
+        )
+      ) > 1
     ) sub;
 
     IF divergence_count > 0 THEN
       RAISE EXCEPTION
         'ADR-088 migration aborted: notification_policies has diverging per-workspace configs for % source(s). Reconcile manually before running this migration.',
         divergence_count;
+    END IF;
+  END IF;
+
+  -- ── Step 2b: Check for divergence in notification_quiet_hours ───────────────
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'notification_quiet_hours'
+      AND column_name = 'workspace_id'
+  ) THEN
+    SELECT COUNT(*) INTO divergence_count
+    FROM (
+      SELECT 1
+      FROM notification_quiet_hours
+      HAVING COUNT(
+        DISTINCT (
+          enabled::text || '|' ||
+          start_local || '|' ||
+          end_local || '|' ||
+          timezone_mode::text || '|' ||
+          COALESCE(default_timezone, 'null') || '|' ||
+          applies_to_sources::text
+        )
+      ) > 1
+    ) sub;
+
+    IF divergence_count > 0 THEN
+      RAISE EXCEPTION
+        'ADR-088 migration aborted: notification_quiet_hours has diverging per-workspace configs. Reconcile manually before running this migration.';
     END IF;
   END IF;
 END $$;

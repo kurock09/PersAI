@@ -226,7 +226,7 @@ export const NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS: Record<
   email: {
     channelType: NotificationChannelType.email,
     enabled: true,
-    healthy: true,
+    healthy: false,
     config: { sendingDomain: "notifications.persai.dev" },
     escalationOf: null
   },

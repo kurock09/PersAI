@@ -140,6 +140,26 @@ void (async function run(): Promise<void> {
     console.log("✓ email available when owner has AppUser.email");
   }
 
+  // 1b. email also falls back to code defaults when registry row is missing
+  {
+    const resolver = makeResolver({
+      channels: [],
+      workspaceMember: { user: { email: "owner@example.com" } }
+    });
+    const result = await resolver.resolveChannel({
+      workspaceId: "ws-1",
+      channelType: "email"
+    });
+    assert.equal(result.available, true, "email available from defaults when row missing");
+    assert.ok(result.available);
+    assert.equal(
+      (result.channel.config as Record<string, unknown>)["sendingDomain"],
+      "notifications.persai.dev"
+    );
+    assert.equal(result.channel.healthStatus, "unconfigured");
+    console.log("✓ email falls back to global defaults when registry row is missing");
+  }
+
   // 2. email unavailable when owner email empty → reason auto_derive_unavailable
   {
     const resolver = makeResolver({

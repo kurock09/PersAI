@@ -19,7 +19,11 @@ import { NOTIFICATION_CHANNEL_ADAPTERS } from "../../infrastructure/notification
 import type { NotificationChannelAdapter } from "../../infrastructure/notifications/channel-adapters/channel-adapter.interface";
 import type { NotificationIntentRecord } from "./notification-platform.types";
 import {
+  NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS,
   NOTIFICATION_POLICY_DEFAULTS,
+  NOTIFICATION_QUIET_HOURS_DEFAULT,
+  type NotificationChannelRegistryDefault,
+  type NotificationQuietHoursDefault,
   type NotificationPolicyDefault
 } from "./defaults/notification-defaults";
 
@@ -309,7 +313,15 @@ export class ManageNotificationPlatformService {
     const rows = await this.prisma.notificationChannelRegistry.findMany({
       orderBy: { channelType: "asc" }
     });
-    return rows.map((r) => this.channelToView(r));
+    const rowsByType = new Map(rows.map((r) => [r.channelType as string, r]));
+    return VALID_CHANNEL_TYPES.map((channelType) => {
+      const row = rowsByType.get(channelType);
+      return row
+        ? this.channelToView(row)
+        : this.channelDefaultToView(
+            NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS[channelType as NotificationChannelType]
+          );
+    });
   }
 
   async patchChannel(
@@ -321,12 +333,7 @@ export class ManageNotificationPlatformService {
       throw new BadRequestException(`Unknown channel type: ${channelType}`);
     }
     await this.resolveWorkspaceId(userId);
-    const existing = await this.prisma.notificationChannelRegistry.findUnique({
-      where: { channelType: channelType as never }
-    });
-    if (!existing) {
-      throw new NotFoundException(`Channel not found: ${channelType}`);
-    }
+    const existing = await this.getOrCreateChannelRow(channelType);
 
     const updated = await this.prisma.notificationChannelRegistry.update({
       where: { id: existing.id },
@@ -370,17 +377,7 @@ export class ManageNotificationPlatformService {
     }
     const workspaceId = await this.resolveWorkspaceId(userId);
 
-    const channelRow = await this.prisma.notificationChannelRegistry.findUnique({
-      where: { channelType: channelType as never }
-    });
-    if (!channelRow) {
-      return {
-        channelType,
-        ok: false,
-        status: "not_configured",
-        error: { reason: "channel_registry_row_missing" }
-      };
-    }
+    const channelRow = await this.getOrCreateChannelRow(channelType);
 
     const adapter = this.channelAdapters.find((a) => a.channelType === channelType);
     if (!adapter) {
@@ -701,18 +698,7 @@ export class ManageNotificationPlatformService {
     }
 
     // Find channel registry row and adapter
-    const channelRow = await this.prisma.notificationChannelRegistry.findUnique({
-      where: { channelType: channelType as never }
-    });
-    if (!channelRow) {
-      return {
-        source,
-        channelType,
-        ok: false,
-        status: "not_configured",
-        error: { reason: "channel_registry_row_missing" }
-      };
-    }
+    const channelRow = await this.getOrCreateChannelRow(channelType);
 
     const adapter = this.channelAdapters.find((a) => a.channelType === channelType);
     if (!adapter) {
@@ -923,7 +909,7 @@ export class ManageNotificationPlatformService {
   async getQuietHours(userId: string): Promise<QuietHoursView | null> {
     await this.resolveWorkspaceId(userId);
     const row = await this.prisma.notificationQuietHours.findFirst({});
-    return row ? this.quietHoursToView(row) : null;
+    return row ? this.quietHoursToView(row) : this.quietHoursDefaultToView();
   }
 
   async patchQuietHours(userId: string, input: PatchQuietHoursInput): Promise<QuietHoursView> {
@@ -933,12 +919,14 @@ export class ManageNotificationPlatformService {
       where: { singleton: true },
       create: {
         singleton: true,
-        enabled: input.enabled ?? false,
-        startLocal: input.startLocal ?? "22:00",
-        endLocal: input.endLocal ?? "08:00",
-        timezoneMode: (input.timezoneMode as never) ?? "workspace_default",
-        defaultTimezone: input.defaultTimezone ?? null,
-        appliesToSources: input.appliesToSources ?? []
+        enabled: input.enabled ?? NOTIFICATION_QUIET_HOURS_DEFAULT.enabled,
+        startLocal: input.startLocal ?? NOTIFICATION_QUIET_HOURS_DEFAULT.startLocal,
+        endLocal: input.endLocal ?? NOTIFICATION_QUIET_HOURS_DEFAULT.endLocal,
+        timezoneMode:
+          (input.timezoneMode as never) ?? NOTIFICATION_QUIET_HOURS_DEFAULT.timezoneMode,
+        defaultTimezone: input.defaultTimezone ?? NOTIFICATION_QUIET_HOURS_DEFAULT.defaultTimezone,
+        appliesToSources:
+          input.appliesToSources ?? NOTIFICATION_QUIET_HOURS_DEFAULT.appliesToSources
       },
       update: {
         ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
@@ -1208,6 +1196,20 @@ export class ManageNotificationPlatformService {
     };
   }
 
+  private channelDefaultToView(d: NotificationChannelRegistryDefault): NotificationChannelView {
+    return {
+      id: `default:${d.channelType}`,
+      channelType: d.channelType,
+      enabled: d.enabled,
+      config: d.config,
+      healthStatus: d.healthy ? "healthy" : "unconfigured",
+      consecutiveFailures: 0,
+      lastDeliveryAt: null,
+      lastFailureAt: null,
+      updatedAt: new Date(0).toISOString()
+    };
+  }
+
   private policyToView(r: {
     id: string;
     source: string;
@@ -1281,6 +1283,38 @@ export class ManageNotificationPlatformService {
       appliesToSources: r.appliesToSources,
       updatedAt: r.updatedAt.toISOString()
     };
+  }
+
+  private quietHoursDefaultToView(
+    d: NotificationQuietHoursDefault = NOTIFICATION_QUIET_HOURS_DEFAULT
+  ): QuietHoursView {
+    return {
+      id: "default:quiet-hours",
+      enabled: d.enabled,
+      startLocal: d.startLocal,
+      endLocal: d.endLocal,
+      timezoneMode: d.timezoneMode,
+      defaultTimezone: d.defaultTimezone,
+      appliesToSources: d.appliesToSources,
+      updatedAt: new Date(0).toISOString()
+    };
+  }
+
+  private async getOrCreateChannelRow(channelType: string) {
+    const defaults = NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS[channelType as NotificationChannelType];
+    if (!defaults) {
+      throw new NotFoundException(`Channel not found: ${channelType}`);
+    }
+    return this.prisma.notificationChannelRegistry.upsert({
+      where: { channelType: channelType as never },
+      update: {},
+      create: {
+        channelType: defaults.channelType,
+        enabled: defaults.enabled,
+        config: defaults.config as Prisma.InputJsonValue,
+        healthStatus: (defaults.healthy ? "healthy" : "unconfigured") as never
+      }
+    });
   }
 
   private intentToView(r: {

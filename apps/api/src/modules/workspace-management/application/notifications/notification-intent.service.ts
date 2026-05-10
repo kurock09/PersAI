@@ -81,10 +81,6 @@ export class NotificationIntentService {
       };
     }
 
-    const channelRegistryRows = await this.prisma.notificationChannelRegistry.findMany({
-      where: { enabled: true }
-    });
-
     const resolvedChannels =
       input.allowedChannels && input.allowedChannels.length > 0
         ? input.allowedChannels
@@ -226,11 +222,7 @@ export class NotificationIntentService {
       lifecycleStatus: record.lifecycleStatus,
       traceId: record.traceId,
       dedupeKey: record.dedupeKey,
-      channelCount: resolvedChannels.length,
-      channelHealth: channelRegistryRows.map((r) => ({
-        type: r.channelType,
-        health: r.healthStatus
-      }))
+      channelCount: resolvedChannels.length
     });
 
     return record;

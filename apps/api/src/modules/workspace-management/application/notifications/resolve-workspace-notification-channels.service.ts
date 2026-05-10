@@ -82,19 +82,22 @@ export class ResolveWorkspaceNotificationChannelsService {
     // NOT a gate. Semantic channels bypass the registry entirely.
     // For every other channel type the registry row remains the operator gate
     // per ADR-088 §4.
+    const isEnabledByConfig = globalRow?.enabled ?? defaults?.enabled ?? false;
+    const resolvedHealthStatus = (
+      globalRow?.healthStatus ?? (defaults?.healthy ? "healthy" : "unconfigured")
+    ).toString();
+
     if (!isWebChannel && !isSemanticChannel) {
-      if (!globalRow || !globalRow.enabled) {
+      if (!isEnabledByConfig) {
         return { available: false, reason: "channel_disabled_globally" };
       }
-      if (globalRow.healthStatus === "down") {
+      if (resolvedHealthStatus === "down") {
         return { available: false, reason: "channel_unhealthy" };
       }
     }
 
     const baseConfig = mergeConfig(defaults, globalRow);
-    const baseHealth = (
-      globalRow?.healthStatus ?? (defaults?.healthy ? "healthy" : "unconfigured")
-    ).toString();
+    const baseHealth = resolvedHealthStatus;
 
     switch (channelType) {
       case NotificationChannelType.web_thread:

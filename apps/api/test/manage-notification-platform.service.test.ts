@@ -108,7 +108,7 @@ async function run(): Promise<void> {
           }
         },
         notificationChannelRegistry: {
-          async findUnique() {
+          async upsert() {
             return {
               id: "channel-email",
               channelType: "email",
@@ -175,6 +175,144 @@ async function run(): Promise<void> {
       "billing.renewal_succeeded"
     ]);
     console.log("✓ billing lifecycle admin test-send supports payment success templates");
+  }
+
+  {
+    const service = new ManageNotificationPlatformService(
+      {
+        notificationChannelRegistry: {
+          async findMany() {
+            return [];
+          }
+        }
+      } as never,
+      {
+        async assertCanManageAdminSystemNotifications() {
+          return {
+            userId: "admin-1",
+            workspaceId: "ws-admin",
+            roles: ["ops_admin"],
+            hasLegacyOwnerFallback: false,
+            hasGlobalPlatformAdminScope: true
+          };
+        }
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      []
+    );
+
+    const channels = await service.listChannels("admin-1");
+    assert.equal(channels.length, 7);
+    assert.equal(channels[0]?.channelType, "telegram_thread");
+    assert.equal(channels[3]?.channelType, "email");
+    assert.equal(channels[3]?.enabled, true);
+    assert.equal(channels[3]?.healthStatus, "unconfigured");
+    assert.equal(channels[4]?.channelType, "admin_webhook");
+    assert.equal(channels[4]?.enabled, false);
+    console.log("✓ listChannels exposes global defaults when registry rows are missing");
+  }
+
+  {
+    const upsertCalls: Array<Record<string, unknown>> = [];
+    const updatedRows: Array<Record<string, unknown>> = [];
+    const service = new ManageNotificationPlatformService(
+      {
+        notificationChannelRegistry: {
+          async upsert(args: { create: Record<string, unknown> }) {
+            upsertCalls.push(args.create);
+            return {
+              id: "channel-email",
+              channelType: "email" as const,
+              enabled: args.create.enabled,
+              config: args.create.config,
+              healthStatus: args.create.healthStatus,
+              consecutiveFailures: 0,
+              lastDeliveryAt: null,
+              lastFailureAt: null,
+              createdAt: new Date("2026-05-01T00:00:00.000Z"),
+              updatedAt: new Date("2026-05-01T00:00:00.000Z")
+            };
+          },
+          async update(args: { data: Record<string, unknown> }) {
+            updatedRows.push(args.data);
+            return {
+              id: "channel-email",
+              channelType: "email",
+              enabled: args.data.enabled ?? true,
+              config: args.data.config ?? { sendingDomain: "notifications.persai.dev" },
+              healthStatus: args.data.healthStatus ?? "healthy",
+              consecutiveFailures: 0,
+              lastDeliveryAt: null,
+              lastFailureAt: null,
+              createdAt: new Date("2026-05-01T00:00:00.000Z"),
+              updatedAt: new Date("2026-05-01T00:00:00.000Z")
+            };
+          }
+        }
+      } as never,
+      {
+        async assertCanManageAdminSystemNotifications() {
+          return {
+            userId: "admin-1",
+            workspaceId: "ws-admin",
+            roles: ["ops_admin"],
+            hasLegacyOwnerFallback: false,
+            hasGlobalPlatformAdminScope: true
+          };
+        }
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      []
+    );
+
+    const result = await service.patchChannel("admin-1", "email", {
+      enabled: false
+    });
+    assert.equal(upsertCalls[0]?.channelType, "email");
+    assert.deepEqual(upsertCalls[0]?.config, { sendingDomain: "notifications.persai.dev" });
+    assert.equal(upsertCalls[0]?.healthStatus, "unconfigured");
+    assert.equal(updatedRows[0]?.enabled, false);
+    assert.equal(result.enabled, false);
+    console.log(
+      "✓ patchChannel materializes a missing global row from defaults with race-safe upsert"
+    );
+  }
+
+  {
+    const service = new ManageNotificationPlatformService(
+      {
+        notificationQuietHours: {
+          async findFirst() {
+            return null;
+          }
+        }
+      } as never,
+      {
+        async assertCanManageAdminSystemNotifications() {
+          return {
+            userId: "admin-1",
+            workspaceId: "ws-admin",
+            roles: ["ops_admin"],
+            hasLegacyOwnerFallback: false,
+            hasGlobalPlatformAdminScope: true
+          };
+        }
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      []
+    );
+
+    const quietHours = await service.getQuietHours("admin-1");
+    assert.equal(quietHours?.enabled, false);
+    assert.equal(quietHours?.startLocal, "22:00");
+    assert.equal(quietHours?.endLocal, "08:00");
+    console.log("✓ getQuietHours falls back to global defaults when DB row is missing");
   }
 }
 
