@@ -170,7 +170,8 @@ export class QuotaAdvisoryFollowUpService {
       renderStrategy: "grounded_llm",
       factPayload: {
         pushText: followUpText,
-        candidates: eligibleCandidates
+        candidates: eligibleCandidates,
+        candidateDedupeKeys: eligibleCandidates.map((candidate) => candidate.dedupeKey)
       },
       dedupeKey,
       surface: input.surface,
@@ -221,9 +222,9 @@ export class QuotaAdvisoryFollowUpService {
         displayName: assistant?.draftDisplayName ?? null
       },
       user: {
-        displayName: assistant?.user.displayName ?? null,
-        locale: assistant?.workspace.locale ?? null,
-        timezone: assistant?.workspace.timezone ?? null
+        displayName: assistant?.user?.displayName ?? null,
+        locale: assistant?.workspace?.locale ?? null,
+        timezone: assistant?.workspace?.timezone ?? null
       },
       targetThread: {
         chatId: input.chatId,
@@ -238,6 +239,7 @@ export class QuotaAdvisoryFollowUpService {
         advisories: input.quotaStatus.advisories,
         advisoryCandidates: input.quotaStatus.advisoryCandidates,
         visiblePlans: input.quotaStatus.visiblePlans,
+        packageOffers: input.quotaStatus.packageOffers,
         monthlyMediaQuotas: input.quotaStatus.monthlyMediaQuotas,
         tools: input.quotaStatus.tools,
         buckets: input.quotaStatus.buckets

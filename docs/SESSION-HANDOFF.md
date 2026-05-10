@@ -1,5 +1,72 @@
 # SESSION-HANDOFF
 
+## 2026-05-10 — ADR-087 quota/package truth hardening: dedupe, runtime validation, tool-specific guidance, packages UI gating (LANDED)
+
+### What landed in this session
+
+1. **`quota_advisory` durable dedupe fixed** — `QuotaAdvisoryFollowUpService` now persists `candidateDedupeKeys` inside the created intent fact payload, and `ReadInternalRuntimeQuotaStatusService` now marks candidates as `already_sent` by checking period-relevant `quota_advisory` intents against those stored per-candidate keys instead of only the aggregate follow-up intent key or an arbitrary 24-hour window. This closes both real mismatches: multi-candidate follow-ups no longer leave the individual candidate keys looking unsent, and a warning already sent earlier in the same quota period no longer reopens just because more than 24 hours passed.
+
+2. **Current-plan free/paid truth no longer depends only on public pricing visibility** — `ReadInternalRuntimeQuotaStatusService` now falls back to the actual plan catalog row and reads the real nested `billingProviderHints.presentation.price` shape when the active plan is hidden from `listPublicPricingPlans()`, so `advisories.isFreePlan`, paid-light-mode eligibility, and `higherPaidPlanAvailable` do not silently misclassify hidden zero-price plans.
+
+3. **Hard-limit upgrade hints are now tool-specific** — `QuotaGroundedLimitCopyService` now resolves inactive-tool and daily-limit upgrade guidance from the blocked tool's own `packageOffers` entry instead of falling back to a global highest-paid-plan heuristic. This keeps inline hard-limit guidance aligned with the canonical quota/package truth for that exact capability.
+
+4. **Runtime contract/validator cleanup** — `packages/runtime-contract` now matches the warning-only advisory candidate truth (`deliveryState` = `eligible | already_sent`), and the runtime API client now rejects malformed `packagesPurchase` payloads instead of accepting non-object garbage that could crash downstream hint builders.
+
+5. **`/app/packages` now respects offer-reason truth and clears stale selection** — the page now distinguishes `tool_not_enabled_on_current_plan` from `no_public_packages`, disables purchase when the shared `packagesPurchase` truth says checkout is unavailable, and automatically drops stale selected package ids after plan-visibility/package-offer refresh so the UI cannot keep an invalid selection alive across refetches.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/quota-advisory-follow-up.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- `corepack pnpm run format:check` still reports unrelated repository drift outside this slice, including many generated contract files and previously dirty files not touched for this hardening pass. The files changed in this slice were formatted, but the repo-wide gate is not globally green yet.
+
+### Next recommended step
+
+Deploy this hardening slice, then run live smoke checks for: repeated `90%` warnings in the same thread (must not recreate the same advisory), hidden/ops-only plan truth for paid-light-mode classification, and `/app/packages` after a plan change/refetch to confirm stale package selection is cleared.
+
+---
+
+## 2026-05-10 — ADR-087 quota/package truth unification: concrete package offers + warning-only advisories (LANDED)
+
+### What landed in this session
+
+1. **Shared package-offer truth** — new `quota-offers.ts` now computes one canonical package/upgrade decision layer (per-tool concrete package rows, `offerableNow`, `preferredOfferKind`, preferred package ids, preferred upgrade plan, and canonical packages-page purchase link/methods). Both `ReadInternalRuntimeQuotaStatusService` and `ResolvePlanVisibilityService` now use that same helper instead of separate package-vs-plan heuristics.
+
+2. **`quota_status` got the full package offer payload** — runtime-facing quota reads now return `packageOffers` in addition to the old `packagesAvailableByTool`, and the runtime bridge/tool result carry that richer structure end to end. `packagesAvailableByTool` now reflects "buyable now in this assistant context" rather than merely "catalog rows exist somewhere".
+
+3. **Warning-only `quota_advisory`** — advisory candidates are now generated only for `warning_90_percent`. Hard-limit (`100%`) cases no longer enter the follow-up advisory candidate path and remain on the inline grounded-copy path, matching the founder rule that second-message `quota_advisory` is for soft warnings only.
+
+4. **Grounded hard-limit copy now uses concrete offers** — `QuotaGroundedLimitCopyService` now reads the shared package/upgrade truth and can mention the preferred concrete package plus the recommended upgrade plan instead of only generic "buy package / upgrade" wording.
+
+5. **Web packages page now reads shared truth** — `/app/packages` no longer combines its own package-catalog fetch with separate plan/tool-availability checks to decide what is buyable. It now reads `planVisibility.packageOffers`, while the existing payment-intent purchase path stays unchanged for checkout creation.
+
+6. **Contracts/docs synced** — OpenAPI `UserPlanVisibilityState` now includes `packageOffers`, `AssistantBillingPaymentIntentPurpose` formally includes `media_package_purchase`, contracts were regenerated, and `API-BOUNDARY.md`/`CHANGELOG.md` were updated to describe the new unified quota/package truth.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/quota-advisory-follow-up.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Deploy this slice, then run live smoke checks for three product cases: `90%` soft warning creates only a second `quota_advisory`, `100%` monthly media exhaustion stays inline but now mentions the real package/upgrade option, and `/app/packages` shows the same offerability truth that chat/runtime sees for the same assistant.
+
+---
+
 ## 2026-05-10 — ADR-092 implementation slices 2+3: payment-success mail, admin notification visibility, and recurring migration UX (LANDED)
 
 ### What landed in this session

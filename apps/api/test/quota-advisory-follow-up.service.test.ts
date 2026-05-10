@@ -134,6 +134,10 @@ async function run(): Promise<void> {
     assert.equal(captured["chatId"], "chat-1", "chatId forwarded for current_thread expansion");
     assert.equal(captured["traceId"], "trace-web-turn-1", "traceId forwarded");
     assert.ok(captured["dedupeKey"], "dedupeKey populated");
+    assert.deepEqual(
+      (captured["factPayload"] as { candidateDedupeKeys?: string[] }).candidateDedupeKeys,
+      ["quota:token_budget:user-1"]
+    );
     console.log(
       "✓ web turn: surface/chatId forwarded for current_thread expansion, traceId forwarded"
     );

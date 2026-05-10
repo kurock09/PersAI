@@ -7732,6 +7732,7 @@ components:
       type: string
       enum:
         - plan_purchase
+        - media_package_purchase
         - managed_recurring_upgrade
         - autopay_enable_bind
     AssistantBillingPaymentIntentStatus:
@@ -8989,6 +8990,131 @@ components:
           nullable: true
         tokenBudget:
           $ref: "#/components/schemas/QuotaAdvisoryTokenBudgetState"
+    UserPlanVisibilityPackageOffer:
+      type: object
+      required:
+        - id
+        - toolCode
+        - units
+        - amountMinor
+        - currency
+        - displayOrder
+        - highlighted
+        - title
+        - subtitle
+        - ctaLabel
+      properties:
+        id:
+          type: string
+        toolCode:
+          type: string
+          enum:
+            - image_generate
+            - image_edit
+            - video_generate
+        units:
+          type: integer
+          minimum: 0
+        amountMinor:
+          type: integer
+          minimum: 0
+        currency:
+          type: string
+        displayOrder:
+          type: integer
+          minimum: 0
+        highlighted:
+          type: boolean
+        title:
+          $ref: "#/components/schemas/AdminPlanLocalizedText"
+        subtitle:
+          $ref: "#/components/schemas/AdminPlanLocalizedText"
+        ctaLabel:
+          $ref: "#/components/schemas/AdminPlanLocalizedText"
+    UserPlanVisibilityPackageToolOffers:
+      type: object
+      required:
+        - toolCode
+        - available
+        - offerableNow
+        - offerReason
+        - preferredOfferKind
+        - preferredPackageIds
+        - preferredUpgradePlanCode
+        - upgradePlanCodes
+        - offers
+      properties:
+        toolCode:
+          type: string
+          enum:
+            - image_generate
+            - image_edit
+            - video_generate
+        available:
+          type: boolean
+        offerableNow:
+          type: boolean
+        offerReason:
+          type: string
+          enum:
+            - available
+            - no_public_packages
+            - tool_not_enabled_on_current_plan
+        preferredOfferKind:
+          type: string
+          enum:
+            - none
+            - package_only
+            - plan_upgrade_only
+            - plan_upgrade_or_package
+        preferredPackageIds:
+          type: array
+          items:
+            type: string
+        preferredUpgradePlanCode:
+          type: string
+          nullable: true
+        upgradePlanCodes:
+          type: array
+          items:
+            type: string
+        offers:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserPlanVisibilityPackageOffer"
+    UserPlanVisibilityPackagesPurchase:
+      type: object
+      required:
+        - path
+        - url
+        - paymentMethodClasses
+      properties:
+        path:
+          type: string
+        url:
+          type: string
+          nullable: true
+        paymentMethodClasses:
+          type: array
+          items:
+            type: string
+            enum:
+              - card
+              - sbp_qr
+    UserPlanVisibilityPackageOffers:
+      type: object
+      required:
+        - packagesPurchase
+        - tools
+      properties:
+        packagesPurchase:
+          allOf:
+            - $ref: "#/components/schemas/UserPlanVisibilityPackagesPurchase"
+          nullable: true
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserPlanVisibilityPackageToolOffers"
     UserPlanVisibilityState:
       type: object
       required:
@@ -8996,6 +9122,7 @@ components:
         - entitlements
         - advisories
         - limits
+        - packageOffers
         - updatedAt
       properties:
         effectivePlan:
@@ -9006,6 +9133,8 @@ components:
           $ref: "#/components/schemas/PlanQuotaAdvisoryState"
         limits:
           $ref: "#/components/schemas/UserPlanVisibilityLimits"
+        packageOffers:
+          $ref: "#/components/schemas/UserPlanVisibilityPackageOffers"
         updatedAt:
           type: string
           format: date-time

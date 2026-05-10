@@ -22,6 +22,8 @@ import type {
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { ManageAdminPlansService } from "./manage-admin-plans.service";
 import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
+import { buildQuotaOfferState } from "./quota-offers";
+import { ManageMediaPackageCatalogService } from "./manage-media-package-catalog.service";
 
 function indexQuotaBuckets(
   buckets: QuotaVisibilityBucketState[]
@@ -158,7 +160,8 @@ export class ResolvePlanVisibilityService {
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    private readonly manageAdminPlansService: ManageAdminPlansService
+    private readonly manageAdminPlansService: ManageAdminPlansService,
+    private readonly manageMediaPackageCatalogService: ManageMediaPackageCatalogService
   ) {}
 
   async getUserVisibility(userId: string): Promise<UserPlanVisibilityState> {
@@ -197,6 +200,7 @@ export class ResolvePlanVisibilityService {
         assistant
       );
     const publicPricingPlans = await this.manageAdminPlansService.listPublicPricingPlans();
+    const publicPackages = await this.manageMediaPackageCatalogService.listPublic();
     const lifecyclePolicy = resolveStoredPlanLifecyclePolicy(plan?.billingProviderHints ?? null);
     const bucketsByCode = indexQuotaBuckets(quotaSnapshot.buckets);
     return {
@@ -237,6 +241,29 @@ export class ResolvePlanVisibilityService {
           plan?.toolActivations ?? []
         )
       },
+      packageOffers: buildQuotaOfferState({
+        currentPlanCode: plan?.code ?? subscription.planCode,
+        visiblePlans: publicPricingPlans.map((visiblePlan) => ({
+          code: visiblePlan.code,
+          displayName: visiblePlan.displayName,
+          enabledToolCodes: visiblePlan.enabledToolCodes,
+          amountMinor:
+            typeof visiblePlan.presentation.price.amount === "number"
+              ? Math.round(visiblePlan.presentation.price.amount * 100)
+              : null,
+          limits: {
+            imageGenerateMonthlyUnitsLimit: visiblePlan.quotaLimits.imageGenerateMonthlyUnitsLimit,
+            imageEditMonthlyUnitsLimit: visiblePlan.quotaLimits.imageEditMonthlyUnitsLimit,
+            videoGenerateMonthlyUnitsLimit: visiblePlan.quotaLimits.videoGenerateMonthlyUnitsLimit
+          }
+        })),
+        currentActiveToolCodes: new Set(
+          (plan?.toolActivations ?? [])
+            .filter((tool) => tool.activationStatus === "active")
+            .map((tool) => tool.toolCode)
+        ),
+        publicPackages
+      }),
       updatedAt: new Date().toISOString()
     };
   }

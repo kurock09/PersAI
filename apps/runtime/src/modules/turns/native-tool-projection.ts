@@ -369,7 +369,8 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
       [
         "Read live PersAI quota status for the current assistant, compare public plans from the same source of truth, report monthly media/package availability, and create a checkout link when the user wants to open it now.",
         "When the user asks about media generation/edit/video limits, monthly media usage, or media packages, call this tool first instead of guessing from history.",
-        "If the result has packagesPurchase != null, then media packages CAN be bought right now for the listed availableTools. In that case, when the user asks 'can I buy a package' / 'how do I add more' / 'show me packages' (in any phrasing), say plainly that yes — media packages are available for those tools, and tell the user to open the in-product packages page (path from packagesPurchase.url, default '/app/packages'). Do not say packages are unavailable just because no checkout link was returned: package purchase happens on that page, not via this tool."
+        "Use packageOffers.tools to ground package guidance: it contains exact offers (ids, units, prices, CTA labels), whether each tool is offerable now, and whether the better answer is package only, plan upgrade only, or both.",
+        "If the result has packagesPurchase != null, then media packages CAN be bought right now for the listed availableTools. In that case, when the user asks 'can I buy a package' / 'how do I add more' / 'show me packages' (in any phrasing), say plainly that yes — media packages are available for those tools, and tell the user to open the in-product packages page (path from packagesPurchase.path/url, default '/app/packages'). Do not say packages are unavailable just because no per-package checkout link was returned here: package purchase happens on that page, not via this tool."
       ].join(" ")
     ),
     inputSchema: {

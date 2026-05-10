@@ -9,13 +9,13 @@ import { useLocale, useTranslations } from "next-intl";
 import { AlertCircle, Check, Info, Loader2, ShoppingCart } from "lucide-react";
 import {
   getAssistantPlanVisibility,
-  getPublicMediaPackages,
-  postAssistantBillingPackagePaymentIntent,
-  type MediaPackageCatalogItem
+  postAssistantBillingPackagePaymentIntent
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
 type PackageType = "image_generate" | "image_edit" | "video_generate";
+type PackageOfferItem = UserPlanVisibilityState["packageOffers"]["tools"][number]["offers"][number];
+type PackageToolState = UserPlanVisibilityState["packageOffers"]["tools"][number];
 
 type SelectedByType = Record<PackageType, string | null>;
 
@@ -85,9 +85,12 @@ const PACKAGE_TYPE_META: Record<
   }
 };
 
-function pickText(locale: string, value: { ru: string; en: string } | null | undefined): string {
+function pickText(
+  locale: string,
+  value: { ru: string | null; en: string | null } | null | undefined
+): string {
   if (!value) return "";
-  return locale === "ru" ? value.ru || value.en : value.en || value.ru;
+  return locale === "ru" ? value.ru || value.en || "" : value.en || value.ru || "";
 }
 
 function pickMetaText(locale: string, value: { ru: string; en: string }): string {
@@ -106,7 +109,7 @@ function formatPrice(amountMinor: number, currency: string, locale: string): str
   }
 }
 
-function formatPackageLabel(locale: string, item: MediaPackageCatalogItem): string {
+function formatPackageLabel(locale: string, item: PackageOfferItem): string {
   const title = pickText(locale, item.title).trim();
   if (title.length > 0) {
     return title;
@@ -121,24 +124,50 @@ function resolveToolAvailability(
   visibility: UserPlanVisibilityState | null
 ): Record<PackageType, boolean> {
   const fallback: Record<PackageType, boolean> = {
-    image_generate: true,
-    image_edit: true,
-    video_generate: true
+    image_generate: false,
+    image_edit: false,
+    video_generate: false
   };
   if (!visibility) {
     return fallback;
   }
-  const toolLimits = visibility.limits.toolDailyLimits;
+  const packageTools = visibility.packageOffers.tools;
   return {
     image_generate:
-      toolLimits.find((tool) => tool.toolCode === "image_generate")?.active ??
+      packageTools.find((tool) => tool.toolCode === "image_generate")?.offerableNow ??
       fallback.image_generate,
     image_edit:
-      toolLimits.find((tool) => tool.toolCode === "image_edit")?.active ?? fallback.image_edit,
+      packageTools.find((tool) => tool.toolCode === "image_edit")?.offerableNow ??
+      fallback.image_edit,
     video_generate:
-      toolLimits.find((tool) => tool.toolCode === "video_generate")?.active ??
+      packageTools.find((tool) => tool.toolCode === "video_generate")?.offerableNow ??
       fallback.video_generate
   };
+}
+
+function resolvePackageToolStates(
+  visibility: UserPlanVisibilityState | null
+): Record<PackageType, PackageToolState | null> {
+  const tools = visibility?.packageOffers.tools ?? [];
+  return {
+    image_generate: tools.find((tool) => tool.toolCode === "image_generate") ?? null,
+    image_edit: tools.find((tool) => tool.toolCode === "image_edit") ?? null,
+    video_generate: tools.find((tool) => tool.toolCode === "video_generate") ?? null
+  };
+}
+
+function resolveDisabledHint(
+  locale: string,
+  type: PackageType,
+  toolState: PackageToolState | null
+): string {
+  const meta = PACKAGE_TYPE_META[type];
+  if (toolState?.offerReason === "no_public_packages") {
+    return locale === "ru"
+      ? "Для этого типа сейчас нет публичных пакетов."
+      : "There are no public packages for this type right now.";
+  }
+  return pickMetaText(locale, meta.disabledHint);
 }
 
 function PackageChoiceRow({
@@ -148,7 +177,7 @@ function PackageChoiceRow({
   locale,
   onSelect
 }: {
-  item: MediaPackageCatalogItem;
+  item: PackageOfferItem;
   selected: boolean;
   disabled: boolean;
   locale: string;
@@ -216,18 +245,19 @@ function PackageTypeCard({
   type,
   items,
   selectedId,
-  toolEnabled,
+  toolState,
   locale,
   onSelect
 }: {
   type: PackageType;
-  items: MediaPackageCatalogItem[];
+  items: PackageOfferItem[];
   selectedId: string | null;
-  toolEnabled: boolean;
+  toolState: PackageToolState | null;
   locale: string;
   onSelect: (id: string) => void;
 }) {
   const meta = PACKAGE_TYPE_META[type];
+  const toolEnabled = toolState?.offerableNow === true;
 
   return (
     <section className="relative flex h-full flex-col overflow-hidden rounded-[32px] border border-border/80 bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-6">
@@ -268,7 +298,7 @@ function PackageTypeCard({
       </div>
       {!toolEnabled ? (
         <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-text-muted">
-          {pickMetaText(locale, meta.disabledHint)}
+          {resolveDisabledHint(locale, type, toolState)}
         </div>
       ) : null}
       <div
@@ -286,18 +316,20 @@ function SummaryBlock({
   selectedItems,
   purchasing,
   hasMixedCurrencies,
+  canPurchase,
   locale,
   expiryHint,
   onPurchase
 }: {
-  selectedItems: Array<MediaPackageCatalogItem | null>;
+  selectedItems: Array<PackageOfferItem | null>;
   purchasing: boolean;
   hasMixedCurrencies: boolean;
+  canPurchase: boolean;
   locale: string;
   expiryHint: string;
   onPurchase: () => void;
 }) {
-  const chosenWithType: Array<{ type: PackageType; item: MediaPackageCatalogItem }> = [];
+  const chosenWithType: Array<{ type: PackageType; item: PackageOfferItem }> = [];
   PACKAGE_TYPE_ORDER.forEach((type, index) => {
     const item = selectedItems[index];
     if (item) {
@@ -308,7 +340,7 @@ function SummaryBlock({
   const totalAmountMinor = chosenWithType.reduce((sum, { item }) => sum + item.amountMinor, 0);
   const currency = chosenWithType[0]?.item.currency ?? "RUB";
   const hasSelection = chosenWithType.length > 0;
-  const buyDisabled = purchasing || !hasSelection || hasMixedCurrencies;
+  const buyDisabled = purchasing || !hasSelection || hasMixedCurrencies || !canPurchase;
 
   const totalLabel = !hasSelection
     ? "—"
@@ -406,7 +438,6 @@ export default function PackagesPage() {
   const router = useRouter();
   const locale = useLocale();
   const t = useTranslations("settings");
-  const [packages, setPackages] = useState<MediaPackageCatalogItem[]>([]);
   const [planVisibility, setPlanVisibility] = useState<UserPlanVisibilityState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -439,11 +470,7 @@ export default function PackagesPage() {
       return;
     }
     try {
-      const [catalog, visibility] = await Promise.all([
-        getPublicMediaPackages(token),
-        getAssistantPlanVisibility(token)
-      ]);
-      setPackages(catalog);
+      const visibility = await getAssistantPlanVisibility(token);
       setPlanVisibility(visibility);
       setError(null);
     } catch (err) {
@@ -458,44 +485,67 @@ export default function PackagesPage() {
   }, [load]);
 
   const packagesByType = useMemo(() => {
-    const map: Record<PackageType, MediaPackageCatalogItem[]> = {
+    const map: Record<PackageType, PackageOfferItem[]> = {
       image_generate: [],
       image_edit: [],
       video_generate: []
     };
-    for (const pkg of packages) {
-      if (pkg.packageType in map) {
-        map[pkg.packageType].push(pkg);
+    for (const tool of planVisibility?.packageOffers.tools ?? []) {
+      if (tool.toolCode in map) {
+        map[tool.toolCode as PackageType] = [...tool.offers];
       }
     }
-    for (const type of PACKAGE_TYPE_ORDER) {
-      map[type].sort((a, b) => {
-        if (a.displayOrder !== b.displayOrder) {
-          return a.displayOrder - b.displayOrder;
-        }
-        return a.units - b.units;
-      });
-    }
     return map;
-  }, [packages]);
+  }, [planVisibility]);
 
   const toolAvailability = useMemo(() => resolveToolAvailability(planVisibility), [planVisibility]);
+  const packageToolStates = useMemo(
+    () => resolvePackageToolStates(planVisibility),
+    [planVisibility]
+  );
+  const offersById = useMemo(
+    () =>
+      new Map(
+        Object.values(packagesByType)
+          .flat()
+          .map((offer) => [offer.id, offer])
+      ),
+    [packagesByType]
+  );
 
   const selectedItems = useMemo(
     () =>
       PACKAGE_TYPE_ORDER.map((type) => {
         const selectedId = selectedByType[type];
-        return selectedId ? (packages.find((item) => item.id === selectedId) ?? null) : null;
+        return selectedId ? (offersById.get(selectedId) ?? null) : null;
       }),
-    [packages, selectedByType]
+    [offersById, selectedByType]
   );
 
-  const chosenItems = selectedItems.filter(
-    (item): item is MediaPackageCatalogItem => item !== null
-  );
+  const chosenItems = selectedItems.filter((item): item is PackageOfferItem => item !== null);
   const currency = chosenItems[0]?.currency ?? "RUB";
   const hasMixedCurrencies =
     chosenItems.length > 0 && chosenItems.some((item) => item.currency !== currency);
+  const canPurchasePackages =
+    (planVisibility?.packageOffers.packagesPurchase?.paymentMethodClasses.length ?? 0) > 0;
+
+  useEffect(() => {
+    setSelectedByType((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const type of PACKAGE_TYPE_ORDER) {
+        const selectedId = prev[type];
+        const toolState = packageToolStates[type];
+        const offerStillPresent =
+          selectedId !== null && packagesByType[type].some((offer) => offer.id === selectedId);
+        if (selectedId !== null && (!offerStillPresent || toolState?.offerableNow !== true)) {
+          next[type] = null;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [packageToolStates, packagesByType]);
 
   const handleSelect = useCallback(
     (type: PackageType, id: string) => {
@@ -511,7 +561,7 @@ export default function PackagesPage() {
   );
 
   const handlePurchase = useCallback(async () => {
-    if (chosenItems.length === 0 || hasMixedCurrencies) return;
+    if (chosenItems.length === 0 || hasMixedCurrencies || !canPurchasePackages) return;
     const token = await resolveBillingToken();
     if (!token) {
       setError(
@@ -526,9 +576,17 @@ export default function PackagesPage() {
     try {
       const idempotencyKey = `pkg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       const returnUrl = `${window.location.origin}/app/packages`;
+      const paymentMethodClass =
+        planVisibility?.packageOffers.packagesPurchase?.paymentMethodClasses[0];
+      if (!paymentMethodClass) {
+        setError(
+          locale === "ru" ? "Покупка сейчас недоступна." : "Purchase is unavailable right now."
+        );
+        return;
+      }
       const result = await postAssistantBillingPackagePaymentIntent(token, {
         packageItemIds: chosenItems.map((item) => item.id),
-        paymentMethodClass: "card",
+        paymentMethodClass,
         idempotencyKey,
         returnUrl
       });
@@ -538,7 +596,15 @@ export default function PackagesPage() {
     } finally {
       setPurchasing(false);
     }
-  }, [chosenItems, hasMixedCurrencies, locale, resolveBillingToken, router]);
+  }, [
+    canPurchasePackages,
+    chosenItems,
+    hasMixedCurrencies,
+    locale,
+    planVisibility,
+    resolveBillingToken,
+    router
+  ]);
 
   return (
     <div className="min-h-dvh bg-chrome text-text">
@@ -569,7 +635,9 @@ export default function PackagesPage() {
           </div>
         ) : null}
 
-        {!loading && !error && packages.length === 0 ? (
+        {!loading &&
+        !error &&
+        Object.values(packagesByType).every((items) => items.length === 0) ? (
           <div className="mx-auto mt-10 w-full max-w-2xl rounded-3xl border border-border/80 bg-surface/70 p-6 text-center">
             <p className="text-lg font-medium text-text">
               {locale === "ru"
@@ -579,7 +647,7 @@ export default function PackagesPage() {
           </div>
         ) : null}
 
-        {!loading && !error && packages.length > 0 ? (
+        {!loading && !error && Object.values(packagesByType).some((items) => items.length > 0) ? (
           <div className="mt-10 space-y-5">
             <div className="grid items-stretch gap-5 lg:grid-cols-3">
               {PACKAGE_TYPE_ORDER.map((type) => (
@@ -588,7 +656,7 @@ export default function PackagesPage() {
                   type={type}
                   items={packagesByType[type]}
                   selectedId={selectedByType[type]}
-                  toolEnabled={toolAvailability[type]}
+                  toolState={packageToolStates[type]}
                   locale={locale}
                   onSelect={(id) => handleSelect(type, id)}
                 />
@@ -598,6 +666,7 @@ export default function PackagesPage() {
               selectedItems={selectedItems}
               purchasing={purchasing}
               hasMixedCurrencies={hasMixedCurrencies}
+              canPurchase={canPurchasePackages}
               locale={locale}
               expiryHint={t("monthlyMediaBonusExpiryHint")}
               onPurchase={() => void handlePurchase()}

@@ -2,6 +2,7 @@ import type {
   AssistantMonthlyMediaQuotaSnapshot,
   AssistantQuotaBucketSnapshot
 } from "./track-workspace-quota-usage.service";
+import type { QuotaOfferState } from "./quota-offers";
 
 export type QuotaVisibilityBucketState = AssistantQuotaBucketSnapshot;
 
@@ -83,6 +84,7 @@ export type UserPlanVisibilityState = {
       active: boolean;
     }>;
   };
+  packageOffers: QuotaOfferState;
   updatedAt: string;
 };
 

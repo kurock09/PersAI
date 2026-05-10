@@ -213,10 +213,16 @@ async function run(): Promise<void> {
             highlighted: false,
             title: { ru: "10 генераций", en: "10 generations" },
             subtitle: { ru: "", en: "" },
+            ctaLabel: { ru: "Купить", en: "Buy" },
             createdAt: "2026-05-01T00:00:00.000Z",
             updatedAt: "2026-05-01T00:00:00.000Z"
           }
         ];
+      }
+    } as never,
+    {
+      async findByCode() {
+        return null;
       }
     } as never
   );
@@ -267,7 +273,232 @@ async function run(): Promise<void> {
   assert.equal(result.monthlyMediaQuotas.tools[0]?.usedUnits, 3);
   assert.equal(result.monthlyMediaQuotas.tools[0]?.limitUnits, 30);
   assert.equal(result.monthlyMediaQuotas.tools[1], undefined);
+  assert.equal(result.packagesAvailableByTool.image_generate, true);
+  assert.equal(result.packagesAvailableByTool.image_edit, false);
+  assert.equal(result.packageOffers.packagesPurchase?.path, "/app/packages");
+  assert.equal(result.packageOffers.tools[0]?.offerableNow, true);
+  assert.equal(result.packageOffers.tools[0]?.offers[0]?.id, "pkg-image-1");
   assert.equal(result.advisoryCandidates.length, 0);
+
+  const hiddenFreePlanService = new ReadInternalRuntimeQuotaStatusService(
+    {
+      async execute() {
+        return {
+          assistant,
+          planCode: "hidden_free",
+          tools: []
+        };
+      }
+    } as never,
+    {
+      async resolveAssistantQuotaSnapshot() {
+        return {
+          planCode: "hidden_free",
+          buckets: [
+            {
+              bucketCode: "token_budget",
+              displayName: "Credits",
+              unit: "tokens",
+              used: 100,
+              limit: 100,
+              percent: 100,
+              finiteLimit: true,
+              usageAvailable: true,
+              warningThresholdPercent: 90,
+              warningThresholdReached: true,
+              status: "limit_reached"
+            }
+          ]
+        };
+      },
+      async resolveAssistantTokenBudgetQuotaSnapshot() {
+        return {
+          usedCredits: BigInt(100),
+          limitCredits: BigInt(100),
+          periodStartedAt: "2026-05-01T00:00:00.000Z",
+          periodEndsAt: "2026-06-01T00:00:00.000Z",
+          periodSource: "subscription_period" as const
+        };
+      },
+      async resolveAssistantMonthlyMediaQuotaSnapshot() {
+        return {
+          planCode: "hidden_free",
+          periodStartedAt: "2026-05-01T00:00:00.000Z",
+          periodEndsAt: "2026-06-01T00:00:00.000Z",
+          periodSource: "subscription_period",
+          tools: []
+        };
+      }
+    } as never,
+    {
+      async listPublicPricingPlans() {
+        return [
+          {
+            code: "pro",
+            displayName: "Pro",
+            description: "Pro plan",
+            enabledToolCodes: ["web_search"],
+            presentation: {
+              highlighted: true,
+              title: { ru: "Про", en: "Pro" },
+              subtitle: { ru: "Для работы", en: "For work" },
+              notes: { ru: "Популярный план", en: "Popular plan" },
+              badge: { ru: "Хит", en: "Popular" },
+              ctaLabel: { ru: "Открыть", en: "Open" },
+              price: {
+                amount: 1990,
+                currency: "RUB",
+                billingPeriod: "month" as const
+              },
+              highlightItems: {
+                ru: ["Больше лимитов"],
+                en: ["Higher limits"]
+              }
+            },
+            quotaLimits: {
+              tokenBudgetLimit: 500,
+              activeWebChatsLimit: 10,
+              imageGenerateMonthlyUnitsLimit: 30,
+              imageEditMonthlyUnitsLimit: 10,
+              videoGenerateMonthlyUnitsLimit: 5
+            }
+          }
+        ];
+      }
+    } as never,
+    {
+      notificationIntent: {
+        async findMany() {
+          return [];
+        }
+      }
+    } as never,
+    {
+      async listPublic() {
+        return [];
+      }
+    } as never,
+    {
+      async findByCode() {
+        return {
+          billingProviderHints: {
+            presentation: {
+              price: {
+                amount: 0,
+                currency: "RUB",
+                billingPeriod: "month"
+              }
+            }
+          }
+        };
+      }
+    } as never
+  );
+
+  const hiddenFreePlanResult = await hiddenFreePlanService.execute({
+    assistantId: "assistant-1",
+    channel: "web",
+    externalThreadKey: "chat-thread-1"
+  });
+
+  assert.equal(hiddenFreePlanResult.advisories.isFreePlan, true);
+  assert.equal(hiddenFreePlanResult.advisories.tokenBudget.paidLightModeEligible, false);
+  assert.equal(hiddenFreePlanResult.advisories.tokenBudget.paidLightModeActive, false);
+  assert.equal(hiddenFreePlanResult.advisories.higherPaidPlanAvailable, true);
+
+  const alreadySentService = new ReadInternalRuntimeQuotaStatusService(
+    {
+      async execute() {
+        return {
+          assistant,
+          planCode: "pro",
+          tools: []
+        };
+      }
+    } as never,
+    {
+      async resolveAssistantQuotaSnapshot() {
+        return {
+          planCode: "pro",
+          buckets: [
+            {
+              bucketCode: "token_budget",
+              displayName: "Credits",
+              unit: "tokens",
+              used: 95,
+              limit: 100,
+              percent: 95,
+              finiteLimit: true,
+              usageAvailable: true,
+              warningThresholdPercent: 90,
+              warningThresholdReached: true,
+              status: "ok"
+            }
+          ]
+        };
+      },
+      async resolveAssistantTokenBudgetQuotaSnapshot() {
+        return {
+          usedCredits: BigInt(95),
+          limitCredits: BigInt(100),
+          periodStartedAt: "2026-05-01T00:00:00.000Z",
+          periodEndsAt: "2026-06-01T00:00:00.000Z",
+          periodSource: "subscription_period" as const
+        };
+      },
+      async resolveAssistantMonthlyMediaQuotaSnapshot() {
+        return {
+          planCode: "pro",
+          periodStartedAt: "2026-05-01T00:00:00.000Z",
+          periodEndsAt: "2026-06-01T00:00:00.000Z",
+          periodSource: "subscription_period",
+          tools: []
+        };
+      }
+    } as never,
+    {
+      async listPublicPricingPlans() {
+        return [];
+      }
+    } as never,
+    {
+      notificationIntent: {
+        async findMany() {
+          return [
+            {
+              dedupeKey: "quota_advisory:assistant-1:web:chat-thread-1:legacy-aggregate-key",
+              createdAt: new Date("2026-05-03T12:00:00.000Z"),
+              factPayload: {
+                candidateDedupeKeys: [
+                  "quota_advisory:assistant-1:web:chat-thread-1:quota_bucket:token_budget:warning_90_percent:2026-05-01T00:00:00.000Z:2026-06-01T00:00:00.000Z"
+                ]
+              }
+            }
+          ];
+        }
+      }
+    } as never,
+    {
+      async listPublic() {
+        return [];
+      }
+    } as never,
+    {
+      async findByCode() {
+        return null;
+      }
+    } as never
+  );
+
+  const alreadySentResult = await alreadySentService.execute({
+    assistantId: "assistant-1",
+    channel: "web",
+    externalThreadKey: "chat-thread-1"
+  });
+
+  assert.equal(alreadySentResult.advisoryCandidates.length, 1);
+  assert.equal(alreadySentResult.advisoryCandidates[0]?.deliveryState, "already_sent");
+  assert.equal(alreadySentResult.advisoryCandidates[0]?.deliveredAt, "2026-05-03T12:00:00.000Z");
 }
 
 void run();

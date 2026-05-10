@@ -11,6 +11,7 @@ export type AssistantBillingPaymentIntentPurpose =
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingPaymentIntentPurpose = {
   plan_purchase: "plan_purchase",
+  media_package_purchase: "media_package_purchase",
   managed_recurring_upgrade: "managed_recurring_upgrade",
   autopay_enable_bind: "autopay_enable_bind"
 } as const;

@@ -1322,6 +1322,48 @@ class FakePersaiInternalApiClientService {
       image_generate: true,
       image_edit: true,
       video_generate: false
+    },
+    packageOffers: {
+      packagesPurchase: {
+        path: "/app/packages",
+        url: "https://persai.dev/app/packages",
+        paymentMethodClasses: ["card", "sbp_qr"]
+      },
+      tools: [
+        {
+          toolCode: "image_generate",
+          available: true,
+          offerableNow: true,
+          offerReason: "available",
+          preferredOfferKind: "package_only",
+          preferredPackageIds: ["pkg-image-1"],
+          preferredUpgradePlanCode: null,
+          upgradePlanCodes: [],
+          offers: []
+        },
+        {
+          toolCode: "image_edit",
+          available: true,
+          offerableNow: true,
+          offerReason: "available",
+          preferredOfferKind: "package_only",
+          preferredPackageIds: ["pkg-edit-1"],
+          preferredUpgradePlanCode: null,
+          upgradePlanCodes: [],
+          offers: []
+        },
+        {
+          toolCode: "video_generate",
+          available: false,
+          offerableNow: false,
+          offerReason: "no_public_packages",
+          preferredOfferKind: "none",
+          preferredPackageIds: [],
+          preferredUpgradePlanCode: null,
+          upgradePlanCodes: [],
+          offers: []
+        }
+      ]
     }
   };
   quotaStatusError: Error | null = null;

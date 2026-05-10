@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { ManageAdminPlansService } from "./manage-admin-plans.service";
 import type {
   AssistantMonthlyMediaQuotaSnapshot,
@@ -12,19 +12,24 @@ import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal
 import type { UserPlanVisibilityState } from "./plan-visibility.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ManageMediaPackageCatalogService } from "./manage-media-package-catalog.service";
+import { buildQuotaOfferState, type QuotaOfferState } from "./quota-offers";
+import {
+  ASSISTANT_PLAN_CATALOG_REPOSITORY,
+  type AssistantPlanCatalogRepository
+} from "../domain/assistant-plan-catalog.repository";
 
 export type QuotaAdvisoryCandidateState = {
   dedupeKey: string;
   limitCode: string;
   displayName: string;
-  thresholdCode: "warning_90_percent" | "limit_100_percent";
+  thresholdCode: "warning_90_percent";
   warningThresholdPercent: number;
   currentPercent: number | null;
   finiteLimit: boolean;
   periodStartedAt: string | null;
   periodEndsAt: string | null;
   periodSource: string | null;
-  deliveryState: "eligible" | "recently_delivered" | "not_needed";
+  deliveryState: "eligible" | "already_sent";
   deliveredAt: string | null;
 };
 
@@ -130,7 +135,9 @@ export class ReadInternalRuntimeQuotaStatusService {
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly manageAdminPlansService: ManageAdminPlansService,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly manageMediaPackageCatalogService: ManageMediaPackageCatalogService
+    private readonly manageMediaPackageCatalogService: ManageMediaPackageCatalogService,
+    @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
+    private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository
   ) {}
 
   parseInput(payload: unknown): ReadInternalRuntimeQuotaStatusRequest {
@@ -229,6 +236,7 @@ export class ReadInternalRuntimeQuotaStatusService {
     buckets: AssistantQuotaBucketSnapshot[];
     monthlyMediaQuotas: AssistantMonthlyMediaQuotaSnapshot;
     packagesAvailableByTool: Record<string, boolean>;
+    packageOffers: QuotaOfferState;
     advisories: UserPlanVisibilityState["advisories"];
     advisoryCandidates: QuotaAdvisoryCandidateState[];
   }> {
@@ -321,7 +329,7 @@ export class ReadInternalRuntimeQuotaStatusService {
     const currentPlanAmountMinor =
       typeof currentVisiblePlan?.presentation.price.amount === "number"
         ? Math.round(currentVisiblePlan.presentation.price.amount * 100)
-        : null;
+        : await this.resolveCurrentPlanAmountMinor(resolved.planCode);
     const highestVisiblePaidPlan = resolveHighestVisiblePaidPlan(visiblePlans);
     const tokenBucket =
       snapshot.buckets.find((bucket) => bucket.bucketCode === "token_budget") ?? null;
@@ -346,6 +354,29 @@ export class ReadInternalRuntimeQuotaStatusService {
         paidLightModeReason: paidLightModeActive ? "token_budget_limit_reached" : null
       }
     };
+    const publicPackages = await this.manageMediaPackageCatalogService.listPublic();
+    const packageOffers = buildQuotaOfferState({
+      currentPlanCode: resolved.planCode,
+      visiblePlans: visiblePlans.map((plan) => ({
+        code: plan.code,
+        displayName: plan.displayName,
+        enabledToolCodes: plan.enabledToolCodes,
+        amountMinor:
+          typeof plan.presentation.price.amount === "number"
+            ? Math.round(plan.presentation.price.amount * 100)
+            : null,
+        limits: {
+          imageGenerateMonthlyUnitsLimit: plan.quotaLimits.imageGenerateMonthlyUnitsLimit,
+          imageEditMonthlyUnitsLimit: plan.quotaLimits.imageEditMonthlyUnitsLimit,
+          videoGenerateMonthlyUnitsLimit: plan.quotaLimits.videoGenerateMonthlyUnitsLimit
+        }
+      })),
+      currentActiveToolCodes: activeToolCodes,
+      publicPackages
+    });
+    const packagesAvailableByTool = Object.fromEntries(
+      packageOffers.tools.map((tool) => [tool.toolCode, tool.offerableNow])
+    );
     const advisoryCandidates = await this.computeAdvisoryCandidates({
       assistantId: resolved.assistant.id,
       channel: input.channel,
@@ -358,12 +389,6 @@ export class ReadInternalRuntimeQuotaStatusService {
       },
       monthlyMediaQuotas
     });
-
-    const publicPackages = await this.manageMediaPackageCatalogService.listPublic();
-    const packagesAvailableByTool: Record<string, boolean> = {};
-    for (const toolCode of ["image_generate", "image_edit", "video_generate"]) {
-      packagesAvailableByTool[toolCode] = publicPackages.some((p) => p.packageType === toolCode);
-    }
 
     return {
       ok: true,
@@ -428,6 +453,7 @@ export class ReadInternalRuntimeQuotaStatusService {
       buckets: snapshot.buckets,
       monthlyMediaQuotas,
       packagesAvailableByTool,
+      packageOffers,
       advisories,
       advisoryCandidates
     };
@@ -454,15 +480,12 @@ export class ReadInternalRuntimeQuotaStatusService {
 
     for (const bucket of input.quotaBuckets) {
       if (!bucket.finiteLimit) continue;
-      const isLimitReached = bucket.status === "limit_reached";
-      const isWarning = bucket.warningThresholdReached && !isLimitReached;
-      if (!isLimitReached && !isWarning) continue;
-      const thresholdCode = isLimitReached ? "limit_100_percent" : "warning_90_percent";
+      if (!bucket.warningThresholdReached || bucket.status === "limit_reached") continue;
       rawCandidates.push({
-        dedupeKey: `quota_advisory:${threadPrefix}:quota_bucket:${bucket.bucketCode}:${thresholdCode}:${input.tokenBudgetPeriod.periodStartedAt}:${input.tokenBudgetPeriod.periodEndsAt}`,
+        dedupeKey: `quota_advisory:${threadPrefix}:quota_bucket:${bucket.bucketCode}:warning_90_percent:${input.tokenBudgetPeriod.periodStartedAt}:${input.tokenBudgetPeriod.periodEndsAt}`,
         limitCode: `quota_bucket:${bucket.bucketCode}`,
         displayName: bucket.displayName,
-        thresholdCode,
+        thresholdCode: "warning_90_percent",
         warningThresholdPercent:
           bucket.warningThresholdPercent ?? QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT,
         currentPercent: bucket.percent,
@@ -475,15 +498,12 @@ export class ReadInternalRuntimeQuotaStatusService {
 
     for (const tool of input.monthlyMediaQuotas.tools) {
       if (!tool.finiteLimit) continue;
-      const isLimitReached = tool.status === "limit_reached";
-      const isWarning = tool.warningThresholdReached && !isLimitReached;
-      if (!isLimitReached && !isWarning) continue;
-      const thresholdCode = isLimitReached ? "limit_100_percent" : "warning_90_percent";
+      if (!tool.warningThresholdReached || tool.status === "limit_reached") continue;
       rawCandidates.push({
-        dedupeKey: `quota_advisory:${threadPrefix}:monthly_media:${tool.toolCode}:${thresholdCode}:${input.monthlyMediaQuotas.periodStartedAt}:${input.monthlyMediaQuotas.periodEndsAt}`,
+        dedupeKey: `quota_advisory:${threadPrefix}:monthly_media:${tool.toolCode}:warning_90_percent:${input.monthlyMediaQuotas.periodStartedAt}:${input.monthlyMediaQuotas.periodEndsAt}`,
         limitCode: `monthly_media:${tool.toolCode}`,
         displayName: tool.displayName,
-        thresholdCode,
+        thresholdCode: "warning_90_percent",
         warningThresholdPercent:
           tool.warningThresholdPercent ?? QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT,
         currentPercent: tool.percent,
@@ -496,30 +516,91 @@ export class ReadInternalRuntimeQuotaStatusService {
 
     if (rawCandidates.length === 0) return [];
 
-    const cooldownCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const earliestRelevantCreatedAt = this.resolveEarliestRelevantCreatedAt(rawCandidates);
     const recentIntents = await this.prisma.notificationIntent.findMany({
       where: {
         assistantId: input.assistantId,
         source: "quota_advisory",
-        dedupeKey: { in: rawCandidates.map((c) => c.dedupeKey) },
-        createdAt: { gte: cooldownCutoff }
+        ...(earliestRelevantCreatedAt !== null
+          ? { createdAt: { gte: earliestRelevantCreatedAt } }
+          : {})
       },
-      select: { dedupeKey: true, createdAt: true }
+      select: { dedupeKey: true, createdAt: true, factPayload: true }
     });
 
     const recentByKey = new Map(
-      recentIntents
-        .filter((i): i is typeof i & { dedupeKey: string } => i.dedupeKey !== null)
-        .map((i) => [i.dedupeKey, i.createdAt.toISOString()])
+      recentIntents.flatMap((intent) => {
+        const keys = this.extractQuotaAdvisoryCandidateKeys(intent.factPayload);
+        if (intent.dedupeKey) {
+          keys.push(intent.dedupeKey);
+        }
+        return keys.map((key) => [key, intent.createdAt.toISOString()] as const);
+      })
     );
 
     return rawCandidates.map((c) => {
       const deliveredAt = recentByKey.get(c.dedupeKey) ?? null;
       return {
         ...c,
-        deliveryState: deliveredAt !== null ? "recently_delivered" : "eligible",
+        deliveryState: deliveredAt !== null ? "already_sent" : "eligible",
         deliveredAt
       };
     });
+  }
+
+  private async resolveCurrentPlanAmountMinor(planCode: string | null): Promise<number | null> {
+    if (typeof planCode !== "string" || planCode.length === 0) {
+      return null;
+    }
+    const plan = await this.assistantPlanCatalogRepository.findByCode(planCode);
+    const billingProviderHints =
+      plan?.billingProviderHints !== null &&
+      typeof plan?.billingProviderHints === "object" &&
+      !Array.isArray(plan?.billingProviderHints)
+        ? (plan.billingProviderHints as Record<string, unknown>)
+        : null;
+    const presentation =
+      billingProviderHints?.presentation !== null &&
+      typeof billingProviderHints?.presentation === "object" &&
+      !Array.isArray(billingProviderHints?.presentation)
+        ? (billingProviderHints.presentation as Record<string, unknown>)
+        : null;
+    const price =
+      presentation?.price !== null &&
+      typeof presentation?.price === "object" &&
+      !Array.isArray(presentation?.price)
+        ? (presentation.price as Record<string, unknown>)
+        : null;
+    const amount =
+      typeof price?.amount === "number" && Number.isFinite(price.amount)
+        ? Math.round(price.amount * 100)
+        : null;
+    return amount;
+  }
+
+  private resolveEarliestRelevantCreatedAt(
+    candidates: Array<Pick<QuotaAdvisoryCandidateState, "periodStartedAt">>
+  ): Date | null {
+    const timestamps = candidates
+      .map((candidate) => candidate.periodStartedAt)
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
+      .map((value) => new Date(value))
+      .filter((value) => !Number.isNaN(value.getTime()))
+      .map((value) => value.getTime());
+    if (timestamps.length === 0) {
+      return null;
+    }
+    return new Date(Math.min(...timestamps));
+  }
+
+  private extractQuotaAdvisoryCandidateKeys(factPayload: unknown): string[] {
+    if (typeof factPayload !== "object" || factPayload === null || Array.isArray(factPayload)) {
+      return [];
+    }
+    const candidateKeys = (factPayload as { candidateDedupeKeys?: unknown }).candidateDedupeKeys;
+    if (!Array.isArray(candidateKeys)) {
+      return [];
+    }
+    return candidateKeys.filter((value): value is string => typeof value === "string");
   }
 }

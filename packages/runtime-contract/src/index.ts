@@ -874,7 +874,7 @@ export interface RuntimeQuotaAdvisoryCandidate {
   periodStartedAt: IsoTimestamp | null;
   periodEndsAt: IsoTimestamp | null;
   periodSource: "subscription_period" | "calendar_month_fallback" | "utc_day" | null;
-  deliveryState: "eligible" | "already_sent" | "thread_context_required";
+  deliveryState: "eligible" | "already_sent";
   deliveredAt: IsoTimestamp | null;
 }
 
@@ -886,6 +886,40 @@ export interface RuntimeQuotaStatusLocalizedText {
 export interface RuntimeQuotaStatusLocalizedTextList {
   ru: string[];
   en: string[];
+}
+
+export interface RuntimeQuotaStatusPackageOffer {
+  id: string;
+  toolCode: "image_generate" | "image_edit" | "video_generate";
+  units: number;
+  amountMinor: number;
+  currency: string;
+  displayOrder: number;
+  highlighted: boolean;
+  title: RuntimeQuotaStatusLocalizedText;
+  subtitle: RuntimeQuotaStatusLocalizedText;
+  ctaLabel: RuntimeQuotaStatusLocalizedText;
+}
+
+export interface RuntimeQuotaStatusPackageToolOffers {
+  toolCode: "image_generate" | "image_edit" | "video_generate";
+  available: boolean;
+  offerableNow: boolean;
+  offerReason: "available" | "no_public_packages" | "tool_not_enabled_on_current_plan";
+  preferredOfferKind: "none" | "package_only" | "plan_upgrade_only" | "plan_upgrade_or_package";
+  preferredPackageIds: string[];
+  preferredUpgradePlanCode: string | null;
+  upgradePlanCodes: string[];
+  offers: RuntimeQuotaStatusPackageOffer[];
+}
+
+export interface RuntimeQuotaStatusPackageOffers {
+  packagesPurchase: {
+    path: string;
+    url: string | null;
+    paymentMethodClasses: Array<"card" | "sbp_qr">;
+  } | null;
+  tools: RuntimeQuotaStatusPackageToolOffers[];
 }
 
 export interface RuntimeQuotaStatusVisiblePlanLimits {
@@ -952,16 +986,19 @@ export interface RuntimeQuotaStatusToolResult {
   buckets: RuntimeQuotaStatusBucket[];
   monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
   packagesAvailableByTool: Record<string, boolean>;
+  packageOffers: RuntimeQuotaStatusPackageOffers;
   /**
    * Convenience CTA hint for the model. When at least one tool key in
-   * `packagesAvailableByTool` is `true`, this carries the in-product URL
+   * `packagesAvailableByTool` is `true`, this carries the in-product path/url
    * the user should be sent to in order to buy media packages, plus the
    * list of tool codes the user can buy a package for right now. When no
    * tool currently allows package purchase, this is `null`.
    */
   packagesPurchase: {
+    path: string;
     url: string;
     availableTools: string[];
+    paymentMethodClasses: Array<"card" | "sbp_qr">;
   } | null;
   checkout: RuntimeQuotaStatusCheckout | null;
   subscriptionUpdate: RuntimeQuotaStatusSubscriptionUpdate | null;

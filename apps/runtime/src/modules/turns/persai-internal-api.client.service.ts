@@ -24,6 +24,9 @@ import type {
   RuntimeQuotaStatusCheckout,
   RuntimeQuotaStatusBucket,
   RuntimeQuotaStatusCurrentPlan,
+  RuntimeQuotaStatusPackageOffer,
+  RuntimeQuotaStatusPackageOffers,
+  RuntimeQuotaStatusPackageToolOffers,
   RuntimeQuotaStatusToolRow,
   RuntimeAttachmentRef,
   RuntimeImageEditRequest,
@@ -132,6 +135,7 @@ export type InternalQuotaStatusOutcome = {
   buckets: RuntimeQuotaStatusBucket[];
   monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
   packagesAvailableByTool: Record<string, boolean>;
+  packageOffers: RuntimeQuotaStatusPackageOffers;
 };
 
 export type InternalQuotaCheckoutOutcome =
@@ -767,6 +771,7 @@ export class PersaiInternalApiClientService {
       const buckets = payload?.buckets;
       const monthlyMediaQuotas = payload?.monthlyMediaQuotas;
       const packagesAvailableByTool = payload?.packagesAvailableByTool;
+      const packageOffers = payload?.packageOffers;
       const visiblePlans = payload?.visiblePlans;
       const advisories = payload?.advisories;
       const advisoryCandidates = payload?.advisoryCandidates;
@@ -784,7 +789,8 @@ export class PersaiInternalApiClientService {
         Array.isArray(buckets) &&
         buckets.every((bucket) => this.isQuotaStatusBucket(bucket)) &&
         (monthlyMediaQuotas === null || this.isMonthlyMediaQuotaStatus(monthlyMediaQuotas)) &&
-        this.isPackagesAvailableByTool(packagesAvailableByTool)
+        this.isPackagesAvailableByTool(packagesAvailableByTool) &&
+        this.isQuotaStatusPackageOffers(packageOffers)
       ) {
         return {
           planCode: (payload.planCode as string | null) ?? null,
@@ -795,7 +801,8 @@ export class PersaiInternalApiClientService {
           tools: tools as RuntimeQuotaStatusToolRow[],
           buckets: buckets as RuntimeQuotaStatusBucket[],
           monthlyMediaQuotas: (monthlyMediaQuotas as RuntimeMonthlyMediaQuotaStatus | null) ?? null,
-          packagesAvailableByTool: packagesAvailableByTool as Record<string, boolean>
+          packagesAvailableByTool: packagesAvailableByTool as Record<string, boolean>,
+          packageOffers: packageOffers as RuntimeQuotaStatusPackageOffers
         };
       }
       throw new BadGatewayException(
@@ -1832,9 +1839,7 @@ export class PersaiInternalApiClientService {
         row.periodSource === "subscription_period" ||
         row.periodSource === "calendar_month_fallback" ||
         row.periodSource === "utc_day") &&
-      (row.deliveryState === "eligible" ||
-        row.deliveryState === "already_sent" ||
-        row.deliveryState === "thread_context_required") &&
+      (row.deliveryState === "eligible" || row.deliveryState === "already_sent") &&
       (row.deliveredAt === null || typeof row.deliveredAt === "string")
     );
   }
@@ -1845,6 +1850,78 @@ export class PersaiInternalApiClientService {
       row !== null &&
       (row.code === null || typeof row.code === "string") &&
       (row.displayName === null || typeof row.displayName === "string")
+    );
+  }
+
+  private isQuotaStatusPackageOffers(value: unknown): value is RuntimeQuotaStatusPackageOffers {
+    const row = this.asObject(value);
+    const purchase = this.asObject(row?.packagesPurchase);
+    return (
+      row !== null &&
+      (row.packagesPurchase === null ||
+        (purchase !== null &&
+          typeof purchase.path === "string" &&
+          (purchase.url === null || typeof purchase.url === "string") &&
+          Array.isArray(purchase.paymentMethodClasses) &&
+          purchase.paymentMethodClasses.every((item) => item === "card" || item === "sbp_qr"))) &&
+      Array.isArray(row.tools) &&
+      row.tools.every((tool) => this.isQuotaStatusPackageToolOffers(tool))
+    );
+  }
+
+  private isQuotaStatusPackageToolOffers(
+    value: unknown
+  ): value is RuntimeQuotaStatusPackageToolOffers {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      (row.toolCode === "image_generate" ||
+        row.toolCode === "image_edit" ||
+        row.toolCode === "video_generate") &&
+      typeof row.available === "boolean" &&
+      typeof row.offerableNow === "boolean" &&
+      (row.offerReason === "available" ||
+        row.offerReason === "no_public_packages" ||
+        row.offerReason === "tool_not_enabled_on_current_plan") &&
+      (row.preferredOfferKind === "none" ||
+        row.preferredOfferKind === "package_only" ||
+        row.preferredOfferKind === "plan_upgrade_only" ||
+        row.preferredOfferKind === "plan_upgrade_or_package") &&
+      Array.isArray(row.preferredPackageIds) &&
+      row.preferredPackageIds.every((item) => typeof item === "string") &&
+      (row.preferredUpgradePlanCode === null || typeof row.preferredUpgradePlanCode === "string") &&
+      Array.isArray(row.upgradePlanCodes) &&
+      row.upgradePlanCodes.every((item) => typeof item === "string") &&
+      Array.isArray(row.offers) &&
+      row.offers.every((offer) => this.isQuotaStatusPackageOffer(offer))
+    );
+  }
+
+  private isQuotaStatusPackageOffer(value: unknown): value is RuntimeQuotaStatusPackageOffer {
+    const row = this.asObject(value);
+    const title = this.asObject(row?.title);
+    const subtitle = this.asObject(row?.subtitle);
+    const ctaLabel = this.asObject(row?.ctaLabel);
+    return (
+      row !== null &&
+      typeof row.id === "string" &&
+      (row.toolCode === "image_generate" ||
+        row.toolCode === "image_edit" ||
+        row.toolCode === "video_generate") &&
+      this.isNonNegativeInteger(row.units) &&
+      this.isNonNegativeInteger(row.amountMinor) &&
+      typeof row.currency === "string" &&
+      this.isNonNegativeInteger(row.displayOrder) &&
+      typeof row.highlighted === "boolean" &&
+      title !== null &&
+      (title.ru === null || typeof title.ru === "string") &&
+      (title.en === null || typeof title.en === "string") &&
+      subtitle !== null &&
+      (subtitle.ru === null || typeof subtitle.ru === "string") &&
+      (subtitle.en === null || typeof subtitle.en === "string") &&
+      ctaLabel !== null &&
+      (ctaLabel.ru === null || typeof ctaLabel.ru === "string") &&
+      (ctaLabel.en === null || typeof ctaLabel.en === "string")
     );
   }
 

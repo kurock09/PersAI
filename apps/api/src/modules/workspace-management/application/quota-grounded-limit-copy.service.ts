@@ -58,7 +58,7 @@ export class QuotaGroundedLimitCopyService {
     if (code === "monthly_media_quota_rejected") {
       return {
         message: `${displayName} is not active on the current plan.`,
-        guidance: this.buildInactiveToolGuidance(quotaStatus)
+        guidance: this.buildInactiveToolGuidance(quotaStatus, toolCode)
       };
     }
     const used =
@@ -112,7 +112,7 @@ export class QuotaGroundedLimitCopyService {
     if (isInactiveOnPlan) {
       return {
         message: `${displayName} is not active on the current plan.`,
-        guidance: this.buildInactiveToolGuidance(quotaStatus)
+        guidance: this.buildInactiveToolGuidance(quotaStatus, toolCode)
       };
     }
     const used =
@@ -142,6 +142,7 @@ export class QuotaGroundedLimitCopyService {
         .replace(/\.\sIt resets/, ". It resets"),
       guidance: this.buildUpgradeAwareGuidance(
         quotaStatus,
+        toolCode,
         "Try a request that does not need this tool until the daily limit resets."
       )
     };
@@ -166,11 +167,19 @@ export class QuotaGroundedLimitCopyService {
   }
 
   private buildInactiveToolGuidance(
-    quotaStatus: Awaited<ReturnType<ReadInternalRuntimeQuotaStatusService["execute"]>>
+    quotaStatus: Awaited<ReturnType<ReadInternalRuntimeQuotaStatusService["execute"]>>,
+    toolCode: string
   ): string {
-    return quotaStatus.advisories.higherPaidPlanAvailable
-      ? "Upgrade to a higher plan or switch to a request that does not need this capability."
-      : "Switch to a request that does not need this capability.";
+    const toolOffers =
+      quotaStatus.packageOffers.tools.find((tool) => tool.toolCode === toolCode) ?? null;
+    const firstUpgradePlan = this.resolveUpgradePlanDisplayName(
+      quotaStatus,
+      toolOffers?.preferredUpgradePlanCode ?? null
+    );
+    if (firstUpgradePlan !== null) {
+      return `Upgrade to ${firstUpgradePlan} or switch to a request that does not need this capability.`;
+    }
+    return "Switch to a request that does not need this capability.";
   }
 
   private buildMediaUpgradeGuidance(
@@ -178,27 +187,72 @@ export class QuotaGroundedLimitCopyService {
     toolCode: string,
     baseGuidance: string
   ): string {
-    const packageAvailable = quotaStatus.packagesAvailableByTool[toolCode] === true;
-    const planUpgradeAvailable = quotaStatus.advisories.higherPaidPlanAvailable;
-    if (packageAvailable && planUpgradeAvailable) {
-      return `${baseGuidance} You can also purchase a media add-on package for more ${toolCode.replace(/_/g, " ")} capacity this period, or upgrade to a higher plan for a larger monthly limit.`;
+    const toolOffers =
+      quotaStatus.packageOffers.tools.find((tool) => tool.toolCode === toolCode) ?? null;
+    const preferredPackage =
+      toolOffers === null
+        ? null
+        : (toolOffers.offers.find((offer) => toolOffers.preferredPackageIds.includes(offer.id)) ??
+          toolOffers.offers[0] ??
+          null);
+    const packageHint =
+      toolOffers?.offerableNow === true && preferredPackage !== null
+        ? `buy ${this.formatPackageOffer(preferredPackage)} on ${quotaStatus.packageOffers.packagesPurchase?.path ?? "/app/packages"}`
+        : null;
+    const upgradeHint = this.resolveUpgradePlanDisplayName(
+      quotaStatus,
+      toolOffers?.preferredUpgradePlanCode ?? null
+    );
+    if (packageHint !== null && upgradeHint !== null) {
+      return `${baseGuidance} You can also ${packageHint}, or upgrade to ${upgradeHint} for a larger monthly limit.`;
     }
-    if (packageAvailable) {
-      return `${baseGuidance} You can purchase a media add-on package to get more ${toolCode.replace(/_/g, " ")} capacity for the current period.`;
+    if (packageHint !== null) {
+      return `${baseGuidance} You can also ${packageHint}.`;
     }
-    if (planUpgradeAvailable) {
-      return `${baseGuidance} You can also upgrade to a higher plan.`;
+    if (upgradeHint !== null) {
+      return `${baseGuidance} You can also upgrade to ${upgradeHint}.`;
     }
     return baseGuidance;
   }
 
   private buildUpgradeAwareGuidance(
     quotaStatus: Awaited<ReturnType<ReadInternalRuntimeQuotaStatusService["execute"]>>,
+    toolCode: string,
     baseGuidance: string
   ): string {
-    return quotaStatus.advisories.higherPaidPlanAvailable
-      ? `${baseGuidance} You can also upgrade to a higher plan.`
+    const toolOffers =
+      quotaStatus.packageOffers.tools.find((tool) => tool.toolCode === toolCode) ?? null;
+    const highestPlan = this.resolveUpgradePlanDisplayName(
+      quotaStatus,
+      toolOffers?.preferredUpgradePlanCode ?? null
+    );
+    return highestPlan !== null
+      ? `${baseGuidance} You can also upgrade to ${highestPlan}.`
       : baseGuidance;
+  }
+
+  private resolveUpgradePlanDisplayName(
+    quotaStatus: Awaited<ReturnType<ReadInternalRuntimeQuotaStatusService["execute"]>>,
+    planCode: string | null
+  ): string | null {
+    if (planCode === null) {
+      return null;
+    }
+    return quotaStatus.visiblePlans.find((plan) => plan.code === planCode)?.displayName ?? null;
+  }
+
+  private formatPackageOffer(
+    offer: Awaited<
+      ReturnType<ReadInternalRuntimeQuotaStatusService["execute"]>
+    >["packageOffers"]["tools"][number]["offers"][number]
+  ): string {
+    const title = offer.title.en ?? offer.title.ru ?? `${offer.units} units`;
+    const price = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: offer.currency,
+      maximumFractionDigits: offer.amountMinor % 100 === 0 ? 0 : 2
+    }).format(offer.amountMinor / 100);
+    return `"${title}" for ${price}`;
   }
 
   private formatResetAt(value: string): string {

@@ -383,6 +383,74 @@ class FakePersaiInternalApiClientService {
       image_generate: true,
       image_edit: true,
       video_generate: false
+    },
+    packageOffers: {
+      packagesPurchase: {
+        path: "/app/packages",
+        url: "https://persai.dev/app/packages",
+        paymentMethodClasses: ["card", "sbp_qr"]
+      },
+      tools: [
+        {
+          toolCode: "image_generate",
+          available: true,
+          offerableNow: true,
+          offerReason: "available",
+          preferredOfferKind: "package_only",
+          preferredPackageIds: ["pkg-image-1"],
+          preferredUpgradePlanCode: null,
+          upgradePlanCodes: [],
+          offers: [
+            {
+              id: "pkg-image-1",
+              toolCode: "image_generate",
+              units: 10,
+              amountMinor: 9900,
+              currency: "RUB",
+              displayOrder: 0,
+              highlighted: true,
+              title: { ru: "10 генераций", en: "10 generations" },
+              subtitle: { ru: null, en: null },
+              ctaLabel: { ru: "Купить", en: "Buy" }
+            }
+          ]
+        },
+        {
+          toolCode: "image_edit",
+          available: true,
+          offerableNow: true,
+          offerReason: "available",
+          preferredOfferKind: "package_only",
+          preferredPackageIds: ["pkg-edit-1"],
+          preferredUpgradePlanCode: null,
+          upgradePlanCodes: [],
+          offers: [
+            {
+              id: "pkg-edit-1",
+              toolCode: "image_edit",
+              units: 10,
+              amountMinor: 7900,
+              currency: "RUB",
+              displayOrder: 0,
+              highlighted: false,
+              title: { ru: "10 правок", en: "10 edits" },
+              subtitle: { ru: null, en: null },
+              ctaLabel: { ru: "Купить", en: "Buy" }
+            }
+          ]
+        },
+        {
+          toolCode: "video_generate",
+          available: false,
+          offerableNow: false,
+          offerReason: "no_public_packages",
+          preferredOfferKind: "none",
+          preferredPackageIds: [],
+          preferredUpgradePlanCode: null,
+          upgradePlanCodes: [],
+          offers: []
+        }
+      ]
     }
   };
   error: Error | null = null;
@@ -450,11 +518,14 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.limitUnits, 30);
   assert.equal(success.payload.packagesAvailableByTool.image_generate, true);
   assert.equal(success.payload.packagesAvailableByTool.video_generate, false);
-  assert.equal(success.payload.packagesPurchase?.url, "/app/packages");
+  assert.equal(success.payload.packageOffers.tools[0]?.offers[0]?.id, "pkg-image-1");
+  assert.equal(success.payload.packagesPurchase?.path, "/app/packages");
+  assert.equal(success.payload.packagesPurchase?.url, "https://persai.dev/app/packages");
   assert.deepEqual([...(success.payload.packagesPurchase?.availableTools ?? [])].sort(), [
     "image_edit",
     "image_generate"
   ]);
+  assert.deepEqual(success.payload.packagesPurchase?.paymentMethodClasses, ["card", "sbp_qr"]);
   assert.deepEqual(internalApi.readCalls.at(-1), {
     assistantId: "assistant-1",
     toolCode: "web_search",
@@ -508,6 +579,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.deepEqual(failed.payload.buckets, []);
   assert.equal(failed.payload.monthlyMediaQuotas, null);
   assert.deepEqual(failed.payload.packagesAvailableByTool, {});
+  assert.deepEqual(failed.payload.packageOffers, { packagesPurchase: null, tools: [] });
   assert.equal(failed.payload.packagesPurchase, null);
   assert.equal(failed.isError, true);
 

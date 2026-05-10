@@ -414,6 +414,14 @@ async function run(): Promise<void> {
                 billingPeriod: "month" as const
               },
               highlightItems: { ru: [], en: [] }
+            },
+            quotaLimits: {
+              tokenBudgetLimit: 0,
+              activeWebChatsLimit: 1,
+              messagesPerChat: 20,
+              imageGenerateMonthlyUnitsLimit: 0,
+              imageEditMonthlyUnitsLimit: 0,
+              videoGenerateMonthlyUnitsLimit: 0
             }
           },
           {
@@ -434,6 +442,14 @@ async function run(): Promise<void> {
                 billingPeriod: "month" as const
               },
               highlightItems: { ru: ["Больше лимитов"], en: ["Higher limits"] }
+            },
+            quotaLimits: {
+              tokenBudgetLimit: 5000,
+              activeWebChatsLimit: 5,
+              messagesPerChat: 100,
+              imageGenerateMonthlyUnitsLimit: 0,
+              imageEditMonthlyUnitsLimit: 0,
+              videoGenerateMonthlyUnitsLimit: 0
             }
           },
           {
@@ -454,7 +470,36 @@ async function run(): Promise<void> {
                 billingPeriod: "month" as const
               },
               highlightItems: { ru: ["Максимум"], en: ["Maximum"] }
+            },
+            quotaLimits: {
+              tokenBudgetLimit: 10000,
+              activeWebChatsLimit: 10,
+              messagesPerChat: 200,
+              imageGenerateMonthlyUnitsLimit: 100,
+              imageEditMonthlyUnitsLimit: 100,
+              videoGenerateMonthlyUnitsLimit: 20
             }
+          }
+        ];
+      }
+    } as never,
+    {
+      async listPublic() {
+        return [
+          {
+            id: "pkg-image-1",
+            packageType: "image_generate",
+            units: 10,
+            amountMinor: 9900,
+            currency: "RUB",
+            isActive: true,
+            displayOrder: 0,
+            highlighted: true,
+            title: { ru: "10 генераций", en: "10 generations" },
+            subtitle: { ru: "", en: "" },
+            ctaLabel: { ru: "Купить", en: "Buy" },
+            createdAt: "2026-05-01T00:00:00.000Z",
+            updatedAt: "2026-05-01T00:00:00.000Z"
           }
         ];
       }
@@ -491,6 +536,10 @@ async function run(): Promise<void> {
   assert.equal(visibility.advisories.higherPaidPlanAvailable, true);
   assert.equal(visibility.advisories.highestVisiblePaidPlanCode, "max");
   assert.equal(visibility.advisories.tokenBudget.periodEndsAt, "2026-06-01T00:00:00.000Z");
+  assert.equal(visibility.packageOffers.packagesPurchase, null);
+  assert.equal(visibility.packageOffers.tools[0]?.offerableNow, false);
+  assert.equal(visibility.packageOffers.tools[0]?.preferredUpgradePlanCode, "max");
+  assert.equal(visibility.packageOffers.tools[0]?.offers[0]?.id, "pkg-image-1");
   assert.equal(visibility.limits.toolDailyLimits.length, 2);
   assert.equal(visibility.limits.monthlyMediaQuotas.tools[0]?.toolCode, "image_generate");
   assert.deepEqual(visibility.limits.toolDailyLimits[0], {
