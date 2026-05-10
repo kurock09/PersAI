@@ -1228,6 +1228,7 @@ export interface RuntimeImageGenerateToolResult {
   action: "generated" | "skipped" | "deferred";
   reason: string | null;
   warning: string | null;
+  guidance?: string | null;
   jobId?: string | null;
 }
 
@@ -1263,6 +1264,7 @@ export interface RuntimeImageEditToolResult {
   action: "generated" | "skipped" | "deferred";
   reason: string | null;
   warning: string | null;
+  guidance?: string | null;
   jobId?: string | null;
 }
 
@@ -1320,6 +1322,7 @@ export interface RuntimeVideoGenerateToolResult {
   action: "generated" | "skipped" | "deferred";
   reason: string | null;
   warning: string | null;
+  guidance?: string | null;
   jobId?: string | null;
 }
 

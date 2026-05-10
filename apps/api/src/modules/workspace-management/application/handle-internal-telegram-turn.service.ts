@@ -31,6 +31,7 @@ export interface InternalTelegramTurnResult {
   chatId: string;
   workspaceId: string;
   autoCompaction?: RuntimeTurnAutoCompactionState;
+  quotaAdvisoryFollowUpIntentId?: string | null;
   deduplicated?: boolean;
 }
 
@@ -306,7 +307,8 @@ export class HandleInternalTelegramTurnService {
           media: deliveredMedia,
           assistantMessageId,
           chatId: chat.id,
-          workspaceId: resolved.workspaceId
+          workspaceId: resolved.workspaceId,
+          quotaAdvisoryFollowUpIntentId: null
         };
       }
 
@@ -363,7 +365,8 @@ export class HandleInternalTelegramTurnService {
         media: deliveredMedia,
         assistantMessageId,
         chatId: chat.id,
-        workspaceId: resolved.workspaceId
+        workspaceId: resolved.workspaceId,
+        quotaAdvisoryFollowUpIntentId: quotaAdvisoryFollowUp?.intentId ?? null
       };
     } catch (error) {
       if (claimedUpdateId !== null) {
@@ -406,6 +409,7 @@ export class HandleInternalTelegramTurnService {
       assistantMessageId: "",
       chatId: "",
       workspaceId: "",
+      quotaAdvisoryFollowUpIntentId: null,
       deduplicated: true
     };
   }

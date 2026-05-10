@@ -37,6 +37,7 @@ import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
+import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 
@@ -120,6 +121,14 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function parseWebThreadProviderMessageId(providerRef: string | null): string | null {
+  if (typeof providerRef !== "string") {
+    return null;
+  }
+  const match = providerRef.match(/^web_thread:[^:]+:(.+)$/);
+  return match?.[1] ?? null;
+}
+
 function resolveWelcomeUserMessage(
   welcomeFirstTurnPrompt: string | null,
   welcomeLocale?: string
@@ -148,6 +157,7 @@ export class SendWebChatTurnService {
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly autoSkillRoutingStateService: AutoSkillRoutingStateService,
+    private readonly notificationDeliveryWorkerService: NotificationDeliveryWorkerService,
     @Optional()
     private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
     private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
@@ -391,8 +401,42 @@ export class SendWebChatTurnService {
           mainAssistantMessage: finalAssistantContent,
           traceId: trace.getTraceId()
         })) ?? null;
+      let followUpAssistantMessageId: string | null = null;
+      let followUpAssistantMessage: {
+        id: string;
+        chatId: string;
+        assistantId: string;
+        author: "assistant";
+        content: string;
+        attachments: ReturnType<typeof toAttachmentState>[];
+        createdAt: string;
+      } | null = null;
       if (quotaAdvisoryFollowUp !== null) {
         trace.stage("quota_advisory_follow_up_intent_created");
+        const delivery = await this.notificationDeliveryWorkerService.deliverIntentNow(
+          quotaAdvisoryFollowUp.intentId
+        );
+        followUpAssistantMessageId = parseWebThreadProviderMessageId(delivery.providerRef);
+        if (followUpAssistantMessageId !== null) {
+          const deliveredFollowUp = await this.assistantChatRepository.findMessageByIdForAssistant(
+            followUpAssistantMessageId,
+            prepared.assistantId
+          );
+          if (deliveredFollowUp !== null) {
+            const followUpAttachments = await this.attachmentRepository.listByMessageId(
+              deliveredFollowUp.id
+            );
+            followUpAssistantMessage = {
+              id: deliveredFollowUp.id,
+              chatId: deliveredFollowUp.chatId,
+              assistantId: deliveredFollowUp.assistantId,
+              author: "assistant",
+              content: deliveredFollowUp.content,
+              attachments: followUpAttachments.map((attachment) => toAttachmentState(attachment)),
+              createdAt: deliveredFollowUp.createdAt.toISOString()
+            };
+          }
+        }
       }
 
       if (request.clientTurnId !== undefined) {
@@ -405,7 +449,7 @@ export class SendWebChatTurnService {
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
           quotaFallbackReason: prepared.quotaDegradeReason,
           quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
-          followUpAssistantMessageId: null,
+          followUpAssistantMessageId,
           ...(runtimeResponse.turnRouting === undefined
             ? {}
             : { turnRouting: runtimeResponse.turnRouting }),
@@ -482,6 +526,7 @@ export class SendWebChatTurnService {
           attachments: delivered.attachments,
           createdAt: assistantMessage.createdAt.toISOString()
         },
+        ...(followUpAssistantMessage === null ? {} : { followUpAssistantMessage }),
         activeMediaJobs,
         runtime: {
           respondedAt: runtimeResponse.respondedAt,

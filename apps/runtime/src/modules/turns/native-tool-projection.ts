@@ -662,11 +662,14 @@ function createImageGenerateToolDefinition(
     name: "image_generate",
     description: resolveToolDefinitionDescription(
       policy,
-      appendPerTurnCapHint(
-        "Generate brand-new images from a text prompt. Each requested image counts against the per-turn cap and the daily quota.",
-        "image_generate",
-        policy
-      )
+      [
+        appendPerTurnCapHint(
+          "Generate brand-new images from a text prompt. Each requested image counts against the per-turn cap and the daily quota.",
+          "image_generate",
+          policy
+        ),
+        "If the tool returns action='skipped' because of a quota or plan limit, use the returned guidance in the user-facing reply when present. If the user needs concrete upgrade or package options, call quota_status for image_generate before writing the final answer."
+      ].join(" ")
     ),
     inputSchema: {
       type: "object",
@@ -709,11 +712,14 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
     name: "image_edit",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
-      appendPerTurnCapHint(
-        "Edit an existing user-referenced image according to the requested changes.",
-        "image_edit",
-        policy
-      ),
+      [
+        appendPerTurnCapHint(
+          "Edit an existing user-referenced image according to the requested changes.",
+          "image_edit",
+          policy
+        ),
+        "If the tool returns action='skipped' because of a quota or plan limit, use the returned guidance in the user-facing reply when present. If the user needs concrete upgrade or package options, call quota_status for image_edit before writing the final answer."
+      ].join(" "),
       "Do not claim the edit is done, ready, visible, attached, or sent unless this same turn actually called image_edit and got a successful result or explicit delivered artifact/result."
     ),
     inputSchema: {
@@ -763,11 +769,14 @@ function createVideoGenerateToolDefinition(
     name: "video_generate",
     description: resolveToolDefinitionDescription(
       policy,
-      appendPerTurnCapHint(
-        "Generate a short brand-new video clip from a text prompt.",
-        "video_generate",
-        policy
-      )
+      [
+        appendPerTurnCapHint(
+          "Generate a short brand-new video clip from a text prompt.",
+          "video_generate",
+          policy
+        ),
+        "If the tool returns action='skipped' because of a quota or plan limit, use the returned guidance in the user-facing reply when present. If the user needs concrete upgrade or package options, call quota_status for video_generate before writing the final answer."
+      ].join(" ")
     ),
     inputSchema: {
       type: "object",

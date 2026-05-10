@@ -76,6 +76,7 @@ export type ReserveMonthlyMediaQuotaOutcome =
       allowed: false;
       code: string;
       message: string;
+      guidance: string | null;
     };
 
 export type InternalQuotaStatusOutcome = {
@@ -659,7 +660,8 @@ export class PersaiInternalApiClientService {
         code: error.code ?? "monthly_media_quota_rejected",
         message:
           error.message ??
-          `PersAI internal API rejected monthly media quota reserve for "${input.toolCode}".`
+          `PersAI internal API rejected monthly media quota reserve for "${input.toolCode}".`,
+        guidance: error.guidance
       };
     }
 
@@ -2096,24 +2098,33 @@ export class PersaiInternalApiClientService {
     return typeof value === "number" && Number.isInteger(value) && value >= 0;
   }
 
-  private extractError(body: unknown): { code: string | null; message: string | null } {
+  private extractError(body: unknown): {
+    code: string | null;
+    message: string | null;
+    guidance: string | null;
+  } {
     if (typeof body === "string" && body.trim().length > 0) {
       return {
         code: null,
-        message: body.trim()
+        message: body.trim(),
+        guidance: null
       };
     }
     const row = this.asObject(body);
     const error = this.asObject(row?.error);
+    const details = this.asObject(error?.details);
     if (error) {
       return {
         code: typeof error.code === "string" ? error.code : null,
-        message: typeof error.message === "string" ? error.message : null
+        message: typeof error.message === "string" ? error.message : null,
+        guidance:
+          typeof details?.userFacingGuidance === "string" ? details.userFacingGuidance : null
       };
     }
     return {
       code: null,
-      message: null
+      message: null,
+      guidance: null
     };
   }
 

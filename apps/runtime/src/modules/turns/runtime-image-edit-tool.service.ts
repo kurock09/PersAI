@@ -404,7 +404,8 @@ export class RuntimeImageEditToolService {
             usage: null,
             action: "skipped",
             reason: quotaOutcome.code,
-            warning: quotaOutcome.message
+            warning: quotaOutcome.message,
+            ...(quotaOutcome.guidance === null ? {} : { guidance: quotaOutcome.guidance })
           },
           artifacts: [],
           isError: false

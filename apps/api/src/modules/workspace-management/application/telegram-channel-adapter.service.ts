@@ -28,6 +28,7 @@ import { RenderAssistantInboundSurfaceMessageService } from "./render-assistant-
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
+import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 
 const TELEGRAM_OWNER_CLAIM_CODE_LENGTH = 6;
 
@@ -402,6 +403,7 @@ export class TelegramChannelAdapterService {
     private readonly syncTelegramChatTargetService: SyncTelegramChatTargetService,
     private readonly syncTelegramGroupMembershipService: SyncTelegramGroupMembershipService,
     private readonly renderAssistantInboundSurfaceMessageService: RenderAssistantInboundSurfaceMessageService,
+    private readonly notificationDeliveryWorkerService: NotificationDeliveryWorkerService,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
@@ -697,6 +699,14 @@ export class TelegramChannelAdapterService {
           chatActionState.current?.setAction(resolveTelegramOutboundChatAction(media));
         }
       });
+      if (
+        typeof outboundTurnResult.quotaAdvisoryFollowUpIntentId === "string" &&
+        outboundTurnResult.quotaAdvisoryFollowUpIntentId.length > 0
+      ) {
+        await this.notificationDeliveryWorkerService.deliverIntentNow(
+          outboundTurnResult.quotaAdvisoryFollowUpIntentId
+        );
+      }
     } catch (error) {
       chatActionState.current?.stop();
       if (

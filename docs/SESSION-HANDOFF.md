@@ -1,5 +1,41 @@
 # SESSION-HANDOFF
 
+## 2026-05-11 — ADR-087 quota follow-up immediate current-thread delivery + grounded media-limit guidance passthrough (LANDED)
+
+### What landed in this session
+
+1. **`quota_advisory` now reaches the active thread immediately instead of waiting for worker polling** — the existing notification path was kept (`source=quota_advisory`, policy channel=`current_thread`, runtime expansion to `web_thread` / `telegram_thread`), but `NotificationDeliveryWorkerService` now exposes `deliverIntentNow(intentId)` so the producing turn can trigger the same delivery pipeline right away. This preserves the single notification architecture while removing the 10s poll delay that made the second message feel absent in live use.
+
+2. **Web follow-up is now visible in the same turn transport** — `SendWebChatTurnService` and `StreamWebChatTurnService` immediately deliver the created advisory intent through the notification worker, parse the delivered `web_thread:{chatId}:{messageId}` provider ref, load the created assistant chat message, and populate both `followUpAssistantMessageId` and `followUpAssistantMessage` in the returned transport. Before this, the advisory could be created and even delivered to the database chat thread, but the active web turn response still hard-coded `followUpAssistantMessageId: null`, so the current chat UI had no direct way to show the second message immediately.
+
+3. **Telegram keeps the same `current_thread` notification path but delivers right after the main reply** — `HandleInternalTelegramTurnService` now carries the created advisory intent id forward, and `TelegramChannelAdapterService` calls `deliverIntentNow()` only after `sendAssistantTurnReply(...)` completes. This keeps the exact same notification/channel resolution architecture while guaranteeing the follow-up lands in the same Telegram thread and in the correct order: main reply first, advisory second.
+
+4. **Hard-limit media guidance no longer gets lost between API and runtime tool results** — `PersaiInternalApiClientService.reserveMonthlyMediaQuota()` now preserves `error.details.userFacingGuidance` from the internal API response and returns it as `guidance` on quota-rejected monthly media outcomes. `RuntimeImageGenerateToolResult`, `RuntimeImageEditToolResult`, and `RuntimeVideoGenerateToolResult` gained optional `guidance`, and the three runtime media-tool services now include that field in skipped quota-limit payloads. This means the model finally sees the grounded "buy package / upgrade plan / use another request" guidance already computed by `QuotaGroundedLimitCopyService`, instead of receiving only a bare limit message.
+
+5. **Media tool instructions now explicitly require grounded quota follow-through** — `native-tool-projection.ts` now tells the model that when `image_generate`, `image_edit`, or `video_generate` returns `action="skipped"` due to quota/plan limits, it must use returned guidance in the user-facing answer and call `quota_status` for the same tool when concrete package/upgrade options are needed. This closes the gap where package truth existed in `quota_status` but the media-failure path had no strong prompt-level instruction to fetch and mention it.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/quota-advisory-follow-up.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/notification-delivery-worker.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This session fixes the transport and grounded-guidance loss points that made live `90%` and media-limit flows appear absent, but it does not yet add a deterministic regression test that exercises the full end-to-end web or Telegram follow-up timing path with real `deliverIntentNow()` invocation from the turn services.
+- The soft-warning path still lets runtime evaluation decide `push` vs `no_push`; this session guarantees immediate same-thread delivery when a follow-up is created, but it does not replace the LLM decision policy itself.
+
+### Next recommended step
+
+Run two live production-style smoke checks on one assistant: (1) a `90%` warning case in web and Telegram to confirm the second message appears immediately in the same active thread, and (2) a monthly media exhaustion case to confirm the main assistant answer now mentions the grounded package/upgrade guidance rather than only the raw limit message.
+
+---
+
 ## 2026-05-10 — ADR-087 quota/package truth hardening: dedupe, runtime validation, tool-specific guidance, packages UI gating (LANDED)
 
 ### What landed in this session

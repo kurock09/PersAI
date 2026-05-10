@@ -19,6 +19,12 @@ const WORKER_POLL_INTERVAL_MS = 10_000;
 const WORKER_BATCH_SIZE = 10;
 const WORKER_CLAIM_TTL_MS = 120_000;
 
+export type ImmediateNotificationDeliveryResult = {
+  status: string;
+  providerRef: string | null;
+  channel: string | null;
+};
+
 /**
  * Single durable worker for notification delivery.
  * Claims pending/scheduled intents, renders, delivers via channel adapters,
@@ -117,6 +123,51 @@ export class NotificationDeliveryWorkerService implements OnModuleInit, OnModule
       const intent = this.rowToRecord(row);
       await this.deliverIntent(intent, claimExpiresAt);
     }
+  }
+
+  async deliverIntentNow(intentId: string): Promise<ImmediateNotificationDeliveryResult> {
+    const now = new Date();
+    const claimExpiresAt = new Date(now.getTime() + WORKER_CLAIM_TTL_MS);
+    await this.prisma.notificationIntent.updateMany({
+      where: {
+        id: intentId,
+        lifecycleStatus: { in: ["pending", "deferred_quiet_hours", "deferred_rate_limit"] },
+        claimedAt: null
+      },
+      data: {
+        lifecycleStatus: "claimed",
+        claimedAt: now
+      }
+    });
+
+    const row = await this.prisma.notificationIntent.findUnique({
+      where: { id: intentId }
+    });
+    if (row === null) {
+      return {
+        status: "missing",
+        providerRef: null,
+        channel: null
+      };
+    }
+
+    if (row.lifecycleStatus === "claimed") {
+      await this.deliverIntent(this.rowToRecord(row), claimExpiresAt);
+    }
+
+    const latestAttempt = await this.prisma.notificationDeliveryAttempt.findFirst({
+      where: { intentId },
+      orderBy: [{ attemptNumber: "desc" }, { startedAt: "desc" }]
+    });
+    const refreshed = await this.prisma.notificationIntent.findUnique({
+      where: { id: intentId }
+    });
+
+    return {
+      status: refreshed?.lifecycleStatus ?? row.lifecycleStatus,
+      providerRef: latestAttempt?.providerRef ?? null,
+      channel: latestAttempt?.channel ?? null
+    };
   }
 
   private async deliverIntent(intent: NotificationIntentRecord, _claimExpiry: Date): Promise<void> {
