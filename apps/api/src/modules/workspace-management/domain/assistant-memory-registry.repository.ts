@@ -101,6 +101,18 @@ export interface AssistantMemoryRegistryRepository {
     limit: number
   ): Promise<AssistantMemoryRegistryItem[]>;
   /**
+   * Narrow runtime resolver fetch for active open-loop refs without a carry-over
+   * TTL filter. Used by the runtime developer block so the model can close a
+   * recently-mentioned loop on the next turn even when the visible carry-over
+   * block is no longer present.
+   */
+  findLatestActiveOpenLoopsByAssistantUser(
+    assistantId: string,
+    userId: string,
+    limit: number
+  ): Promise<AssistantMemoryRegistryItem[]>;
+  countActiveOpenLoopsByAssistantUser(assistantId: string, userId: string): Promise<number>;
+  /**
    * ADR-074 Slice M3 — stamp `resolved_at = now()` on an `open_loop` row.
    * Returns true if a row was updated, false if the row was already
    * resolved/forgotten or did not match the assistant. Safe to call when no

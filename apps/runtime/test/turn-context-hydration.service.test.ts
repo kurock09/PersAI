@@ -8,6 +8,8 @@ import {
   type InternalFindCrossSessionCarryOverOutcome,
   type InternalHydrateMemoryForTurnInput,
   type InternalHydrateMemoryForTurnOutcome,
+  type InternalListActiveOpenLoopRefsInput,
+  type InternalListActiveOpenLoopRefsOutcome,
   type InternalMarkCrossSessionCarryOverFiredInput,
   type InternalMarkCrossSessionCarryOverFiredOutcome
 } from "../src/modules/turns/persai-internal-api.client.service";
@@ -30,6 +32,12 @@ class FakePersaiInternalApiClientService {
     unresolvedOpenLoops: []
   };
   carryOverFailure: Error | null = null;
+  openLoopRefsInputs: InternalListActiveOpenLoopRefsInput[] = [];
+  openLoopRefsOutcome: InternalListActiveOpenLoopRefsOutcome = {
+    unresolvedOpenLoops: [],
+    totalUnresolvedOpenLoops: 0
+  };
+  openLoopRefsFailure: Error | null = null;
   // ADR-074 Slice M3.2 — capture every fire-and-forget bookkeeping call so
   // tests can assert idle-trigger + cooldown semantics. Failures here are
   // intentionally swallowed by the runtime, so we expose a knob to inject
@@ -82,6 +90,16 @@ class FakePersaiInternalApiClientService {
       throw this.carryOverFailure;
     }
     return this.carryOverOutcome;
+  }
+
+  async listActiveOpenLoopRefs(
+    input: InternalListActiveOpenLoopRefsInput
+  ): Promise<InternalListActiveOpenLoopRefsOutcome> {
+    this.openLoopRefsInputs.push(input);
+    if (this.openLoopRefsFailure !== null) {
+      throw this.openLoopRefsFailure;
+    }
+    return this.openLoopRefsOutcome;
   }
 
   async markCrossSessionCarryOverFired(
@@ -1005,7 +1023,94 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     content: "message-18"
   });
 
+  await runOpenLoopRefsDeveloperBlockAcceptance();
   await runCrossSessionCarryOverM3Acceptance();
+}
+
+async function runOpenLoopRefsDeveloperBlockAcceptance(): Promise<void> {
+  const prisma = new FakeRuntimeStatePrismaService();
+  const runtimeStatePostgres = new FakeRuntimeStatePostgresService();
+  const runtimeStateKeyspace = new FakeRuntimeStateKeyspaceService();
+  const mediaObjectStorage = {
+    async downloadObject() {
+      return null;
+    }
+  };
+  const persaiInternalApiClient = new FakePersaiInternalApiClientService();
+  const service = new TurnContextHydrationService(
+    prisma as unknown as RuntimeStatePrismaService,
+    runtimeStatePostgres as never,
+    runtimeStateKeyspace as never,
+    mediaObjectStorage as never,
+    new RuntimeAssistantFileRegistryService(
+      prisma as unknown as RuntimeStatePrismaService,
+      mediaObjectStorage as never
+    ),
+    persaiInternalApiClient as unknown as PersaiInternalApiClientService
+  );
+  const request = createRuntimeTurnRequest();
+  request.message.text = "please close the yearly billing migration checklist loop";
+  persaiInternalApiClient.openLoopRefsOutcome = {
+    unresolvedOpenLoops: [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        summary: "Recent infra follow-up",
+        createdAt: "2026-05-11T00:10:00.000Z"
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        summary: "Another recent infra follow-up",
+        createdAt: "2026-05-11T00:09:00.000Z"
+      },
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        summary: "Sandbox warmup issue",
+        createdAt: "2026-05-11T00:08:00.000Z"
+      },
+      {
+        id: "44444444-4444-4444-8444-444444444444",
+        summary: "Team sync notes",
+        createdAt: "2026-05-11T00:07:00.000Z"
+      },
+      {
+        id: "55555555-5555-4555-8555-555555555555",
+        summary: "Provider retry tuning",
+        createdAt: "2026-05-11T00:06:00.000Z"
+      },
+      {
+        id: "66666666-6666-4666-8666-666666666666",
+        summary: "Debug upload timeout",
+        createdAt: "2026-05-11T00:05:00.000Z"
+      },
+      {
+        id: "77777777-7777-4777-8777-777777777777",
+        summary: "Quarterly roadmap cleanup",
+        createdAt: "2026-05-11T00:04:00.000Z"
+      },
+      {
+        id: "88888888-8888-4888-8888-888888888888",
+        summary: "Yearly billing migration checklist",
+        createdAt: "2025-01-01T00:00:00.000Z"
+      }
+    ],
+    totalUnresolvedOpenLoops: 42
+  };
+
+  const block = await service.computeOpenLoopRefsDeveloperBlock(request);
+  assert.ok(block !== null);
+  assert.match(
+    block ?? "",
+    /88888888-8888-4888-8888-888888888888 \| Yearly billing migration checklist/
+  );
+  assert.match(block ?? "", /\.\.\. 37 more unresolved loops omitted\./);
+
+  const pruned = service.pruneClosedOpenLoopRefsDeveloperBlock(block, [
+    "88888888-8888-4888-8888-888888888888"
+  ]);
+  assert.ok(
+    !(pruned ?? "").includes("88888888-8888-4888-8888-888888888888"),
+    "closed refs must be removed from the same-turn developer block"
+  );
 }
 
 // ADR-074 Slice M3 — turn-0-only invariant + render order + graceful failure.

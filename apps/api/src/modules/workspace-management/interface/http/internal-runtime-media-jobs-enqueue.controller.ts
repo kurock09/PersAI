@@ -29,6 +29,7 @@ export class InternalRuntimeMediaJobsEnqueueController {
         accepted: false;
         code: string;
         message: string;
+        guidance?: string | null;
       }
   > {
     this.assertAuthorized(req);

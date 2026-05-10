@@ -17,6 +17,7 @@ import { RuntimeStateKeyspaceService } from "../runtime-state/runtime-state-keys
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import {
   PersaiInternalApiClientService,
+  type InternalCrossSessionCarryOverOpenLoop,
   type InternalHydratedDurableMemoryItem
 } from "./persai-internal-api.client.service";
 import {
@@ -46,6 +47,35 @@ const MIN_HYDRATED_MEMORY_TOTAL_CHARS = 400;
 const MAX_HYDRATED_MEMORY_TOTAL_CHARS = 1800;
 const MAX_RECENT_IMAGE_TOOL_MESSAGES = 8;
 const MAX_RECENT_IMAGE_TOOL_ATTACHMENTS = 6;
+const MAX_OPEN_LOOP_REFS_DEVELOPER_ITEMS = 5;
+const MAX_OPEN_LOOP_REF_SUMMARY_CHARS = 72;
+const MAX_OPEN_LOOP_REF_SELECTION_TOKENS = 12;
+const OPEN_LOOP_REF_TOKEN_MIN_LENGTH = 2;
+const OPEN_LOOP_REF_STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "plan",
+  "loop",
+  "open",
+  "closed",
+  "close",
+  "user",
+  "need",
+  "нужно",
+  "надо",
+  "петлю",
+  "петля",
+  "закрой",
+  "закрыть",
+  "план",
+  "история",
+  "there",
+  "from"
+]);
 // ADR-074 F1: Postgres uuid columns reject any non-UUID literal in `WHERE`
 // clauses with `Inconsistent column data: Error creating UUID, …`. We use this
 // guard before passing `RuntimeTurnRequest.idempotencyKey` (free-form string)
@@ -64,6 +94,124 @@ function toHydratedCanonicalSurface(
   channel: RuntimeTurnRequest["conversation"]["channel"]
 ): HydratedCanonicalSurface | null {
   return channel === "web" || channel === "telegram" ? channel : null;
+}
+
+function renderOpenLoopRefsDeveloperBlock(
+  openLoops: InternalCrossSessionCarryOverOpenLoop[],
+  totalUnresolvedOpenLoops: number
+): string | null {
+  const rows = openLoops
+    .map((row) => {
+      const summary = normalizeOpenLoopRefSummary(row.summary);
+      return summary === null ? null : `${row.id} | ${summary}`;
+    })
+    .filter((row): row is string => row !== null);
+  if (rows.length === 0) {
+    return null;
+  }
+  const lines = [
+    "## Open Loop Refs",
+    "Server-owned refs for unresolved open loops. Use an exact `ref` only when the user clearly confirms that specific loop is resolved.",
+    'Do not invent refs and do not say a loop is closed unless `memory_write({ action: "close", ref })` returns `action: "closed"`.'
+  ];
+  for (const row of rows) {
+    lines.push(`- ${row}`);
+  }
+  if (totalUnresolvedOpenLoops > rows.length) {
+    lines.push(`- ... ${totalUnresolvedOpenLoops - rows.length} more unresolved loops omitted.`);
+  }
+  return lines.join("\n");
+}
+
+function selectRelevantOpenLoopRefsForDeveloperBlock(input: {
+  openLoops: InternalCrossSessionCarryOverOpenLoop[];
+  currentUserMessage: string;
+}): InternalCrossSessionCarryOverOpenLoop[] {
+  const queryTokens = tokenizeOpenLoopRefText(input.currentUserMessage);
+  const scored = input.openLoops.map((row, index) => ({
+    row,
+    index,
+    overlapScore: scoreOpenLoopRefCandidate(queryTokens, row.summary),
+    createdAtMs: parseOpenLoopCreatedAt(row.createdAt)
+  }));
+  scored.sort((left, right) => {
+    if (right.overlapScore !== left.overlapScore) {
+      return right.overlapScore - left.overlapScore;
+    }
+    if (right.createdAtMs !== left.createdAtMs) {
+      return right.createdAtMs - left.createdAtMs;
+    }
+    return left.index - right.index;
+  });
+  return scored.slice(0, MAX_OPEN_LOOP_REFS_DEVELOPER_ITEMS).map((entry) => entry.row);
+}
+
+function scoreOpenLoopRefCandidate(queryTokens: Set<string>, summary: string): number {
+  if (queryTokens.size === 0) {
+    return 0;
+  }
+  const summaryTokens = tokenizeOpenLoopRefText(summary);
+  let overlap = 0;
+  for (const token of queryTokens) {
+    if (summaryTokens.has(token)) {
+      overlap += 1;
+    }
+  }
+  return overlap;
+}
+
+function tokenizeOpenLoopRefText(text: string): Set<string> {
+  const tokens = text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}_-]+/u)
+    .map((token) => token.trim())
+    .filter(
+      (token) =>
+        token.length >= OPEN_LOOP_REF_TOKEN_MIN_LENGTH && !OPEN_LOOP_REF_STOPWORDS.has(token)
+    )
+    .slice(0, MAX_OPEN_LOOP_REF_SELECTION_TOKENS);
+  return new Set(tokens);
+}
+
+function parseOpenLoopCreatedAt(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function pruneClosedOpenLoopRefsDeveloperBlock(
+  block: string | null,
+  closedRefs: readonly string[]
+): string | null {
+  if (block === null || closedRefs.length === 0) {
+    return block;
+  }
+  const closedRefSet = new Set(closedRefs);
+  const lines = block.split("\n");
+  const nextLines = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("- ")) {
+      return true;
+    }
+    const pipeIndex = trimmed.indexOf(" | ");
+    if (pipeIndex < 0) {
+      return true;
+    }
+    const ref = trimmed.slice(2, pipeIndex).trim();
+    return !closedRefSet.has(ref);
+  });
+  const hasRefRows = nextLines.some((line) => line.trim().startsWith("- ") && line.includes(" | "));
+  return hasRefRows ? nextLines.join("\n") : null;
+}
+
+function normalizeOpenLoopRefSummary(summary: string): string | null {
+  const trimmed = summary.trim().replace(/\s+/g, " ");
+  if (trimmed.length === 0) {
+    return null;
+  }
+  if (trimmed.length <= MAX_OPEN_LOOP_REF_SUMMARY_CHARS) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, MAX_OPEN_LOOP_REF_SUMMARY_CHARS - 1).trimEnd()}...`;
 }
 
 type CanonicalChatMessageRow = {
@@ -824,6 +972,37 @@ export class TurnContextHydrationService {
       lastUserMessageInThreadAt,
       lastUserMessageAnywhereAt
     });
+  }
+
+  async computeOpenLoopRefsDeveloperBlock(input: RuntimeTurnRequest): Promise<string | null> {
+    if (!this.persaiInternalApiClient.isConfigured()) {
+      return null;
+    }
+    try {
+      const outcome = await this.persaiInternalApiClient.listActiveOpenLoopRefs({
+        assistantId: input.conversation.assistantId,
+        requestId: input.requestId
+      });
+      return renderOpenLoopRefsDeveloperBlock(
+        selectRelevantOpenLoopRefsForDeveloperBlock({
+          openLoops: outcome.unresolvedOpenLoops,
+          currentUserMessage: input.message.text
+        }),
+        outcome.totalUnresolvedOpenLoops
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Open-loop refs lookup failed; continuing without resolver block. error=${this.describeError(error)}`
+      );
+      return null;
+    }
+  }
+
+  pruneClosedOpenLoopRefsDeveloperBlock(
+    block: string | null,
+    closedRefs: readonly string[]
+  ): string | null {
+    return pruneClosedOpenLoopRefsDeveloperBlock(block, closedRefs);
   }
 
   // ADR-074 Slice M3.2 — fetch the per-thread cooldown bookkeeping row.

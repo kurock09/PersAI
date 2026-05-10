@@ -206,6 +206,7 @@ export class RuntimeImageGenerateToolService {
               action: "skipped",
               reason: enqueueOutcome.code,
               warning: enqueueOutcome.message,
+              ...(enqueueOutcome.guidance === null ? {} : { guidance: enqueueOutcome.guidance }),
               jobId: null
             },
             artifacts: [],

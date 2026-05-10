@@ -169,6 +169,7 @@ type TurnExecutionState = {
   usageEntries: RuntimeUsageAccountingEntry[];
   toolInvocations: RuntimeTurnToolInvocation[];
   deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
+  closedOpenLoopRefs: string[];
 };
 
 type ToolExecutionOutcome = {
@@ -278,6 +279,7 @@ const LEGACY_TECHNICAL_ATTACHMENT_SUMMARY_PATTERNS = [
 
 type DeveloperInstructionSectionKey =
   | "routing_hints"
+  | "open_loop_refs"
   | "working_files"
   | "retrieved_knowledge"
   | "open_media_jobs"
@@ -545,6 +547,9 @@ export class TurnExecutionService {
       bundleEntry.parsedBundle
     );
     options?.trace?.stage("prepare.presence_computed");
+    const openLoopRefsBlock =
+      await this.turnContextHydrationService.computeOpenLoopRefsDeveloperBlock(input);
+    options?.trace?.stage("prepare.open_loop_refs_computed");
     const baselineProjectedTools = this.applyExcludedToolNames(
       projectRuntimeNativeTools(bundleEntry.parsedBundle, {
         allowModelToolExposure: options?.allowModelToolExposure ?? true
@@ -601,6 +606,7 @@ export class TurnExecutionService {
       deepModeEnabled: input.deepMode === true,
       routeDecision: executionPlan.routeDecision,
       retrievedKnowledgeContext: plannedRetrievedKnowledgeContext,
+      openLoopRefsBlock,
       presenceBlock,
       openMediaJobs: input.openMediaJobs
     });
@@ -908,6 +914,7 @@ export class TurnExecutionService {
           baseDeveloperInstructionSections: execution.developerInstructionSections,
           toolHistory,
           availableWorkingFileRefs: execution.availableWorkingFileRefs,
+          closedOpenLoopRefs: turnState.closedOpenLoopRefs,
           forceFinalTextOnly,
           deferredMediaJobs: turnState.deferredMediaJobs,
           requestMetadata: this.createTurnProviderRequestMetadata({
@@ -1579,6 +1586,7 @@ export class TurnExecutionService {
     deepModeEnabled: boolean;
     routeDecision: TurnRouteDecision | undefined;
     retrievedKnowledgeContext: RuntimeRetrievedKnowledgeContext | null;
+    openLoopRefsBlock: string | null;
     presenceBlock: string | null;
     openMediaJobs: RuntimeTurnRequest["openMediaJobs"];
   }): DeveloperInstructionSection[] {
@@ -1593,6 +1601,7 @@ export class TurnExecutionService {
     const retrievedKnowledgeSection = this.buildRetrievedKnowledgeContextDeveloperSection(
       input.retrievedKnowledgeContext
     );
+    const openLoopRefsSection = this.normalizeOptionalText(input.openLoopRefsBlock);
     const openMediaJobsSection = this.buildOpenMediaJobsDeveloperSection(input.openMediaJobs);
     // ADR-077 follow-up: `promptDocuments.heartbeat` is now the dedicated
     // Background Task Evaluation prompt. It must never be appended to a normal
@@ -1602,6 +1611,7 @@ export class TurnExecutionService {
     const presenceSection = this.normalizeOptionalText(input.presenceBlock);
     return this.createDeveloperInstructionSections([
       { key: "routing_hints", content: routingGuidance },
+      { key: "open_loop_refs", content: openLoopRefsSection },
       { key: "working_files", content: workingFilesSection },
       { key: "retrieved_knowledge", content: retrievedKnowledgeSection },
       { key: "open_media_jobs", content: openMediaJobsSection },
@@ -2100,6 +2110,7 @@ export class TurnExecutionService {
             baseDeveloperInstructionSections: execution.developerInstructionSections,
             toolHistory,
             availableWorkingFileRefs,
+            closedOpenLoopRefs: turnState.closedOpenLoopRefs,
             forceFinalTextOnly,
             deferredMediaJobs: turnState.deferredMediaJobs,
             requestMetadata: this.createTurnProviderRequestMetadata({
@@ -2965,6 +2976,7 @@ export class TurnExecutionService {
       baseDeveloperInstructionSections: DeveloperInstructionSection[];
       toolHistory: ProviderGatewayToolExchange[];
       availableWorkingFileRefs: RuntimeFileRef[];
+      closedOpenLoopRefs: string[];
       forceFinalTextOnly?: boolean;
       deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
       requestMetadata: ProviderGatewayRequestMetadata;
@@ -2974,6 +2986,7 @@ export class TurnExecutionService {
     const developerInstructions = this.buildToolLoopDeveloperInstructions(
       input.baseDeveloperInstructionSections,
       input.availableWorkingFileRefs,
+      input.closedOpenLoopRefs,
       input.toolHistory.length > 0,
       input.forceFinalTextOnly === true,
       input.deferredMediaJobs ?? []
@@ -3018,6 +3031,7 @@ export class TurnExecutionService {
   private buildToolLoopDeveloperInstructions(
     baseSections: DeveloperInstructionSection[],
     availableWorkingFileRefs: RuntimeFileRef[],
+    closedOpenLoopRefs: string[],
     hasToolHistory: boolean,
     forceFinalTextOnly: boolean,
     deferredMediaJobs: RuntimeDeferredMediaJobSummary[]
@@ -3026,6 +3040,14 @@ export class TurnExecutionService {
       baseSections,
       "working_files",
       this.buildWorkingFilesDeveloperSection(availableWorkingFileRefs)
+    );
+    sections = this.replaceDeveloperInstructionSection(
+      sections,
+      "open_loop_refs",
+      this.turnContextHydrationService.pruneClosedOpenLoopRefsDeveloperBlock(
+        this.resolveDeveloperInstructionSectionContent(baseSections, "open_loop_refs"),
+        closedOpenLoopRefs
+      )
     );
     if (!hasToolHistory) {
       return this.renderDeveloperInstructionSections(sections);
@@ -3088,6 +3110,14 @@ export class TurnExecutionService {
       next.push({ key, content: normalized });
     }
     return next;
+  }
+
+  private resolveDeveloperInstructionSectionContent(
+    sections: DeveloperInstructionSection[],
+    key: DeveloperInstructionSectionKey
+  ): string | null {
+    const match = sections.find((section) => section.key === key);
+    return match?.content ?? null;
   }
 
   private limitModelVisibleWorkingFiles(
@@ -3609,7 +3639,8 @@ export class TurnExecutionService {
       fileRefs: [],
       usageEntries: [],
       toolInvocations: [],
-      deferredMediaJobs: []
+      deferredMediaJobs: [],
+      closedOpenLoopRefs: []
     };
   }
 
@@ -3635,6 +3666,10 @@ export class TurnExecutionService {
         ? {}
         : { executionMode: this.resolveToolInvocationExecutionMode(outcome.payload)! })
     });
+    const closedOpenLoopRef = this.extractClosedOpenLoopRef(outcome.payload);
+    if (closedOpenLoopRef !== null && !turnState.closedOpenLoopRefs.includes(closedOpenLoopRef)) {
+      turnState.closedOpenLoopRefs.push(closedOpenLoopRef);
+    }
     if (outcome.artifacts !== undefined && outcome.artifacts.length > 0) {
       for (const artifact of outcome.artifacts) {
         const existingIndex = turnState.artifacts.findIndex(
@@ -3705,6 +3740,23 @@ export class TurnExecutionService {
       return value;
     }
     return undefined;
+  }
+
+  private extractClosedOpenLoopRef(payload: ToolExecutionOutcome["payload"]): string | null {
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "toolCode" in payload &&
+      payload.toolCode === MEMORY_WRITE_TOOL_CODE &&
+      "action" in payload &&
+      payload.action === "closed" &&
+      "closedItemRef" in payload &&
+      typeof payload.closedItemRef === "string" &&
+      payload.closedItemRef.trim().length > 0
+    ) {
+      return payload.closedItemRef;
+    }
+    return null;
   }
 
   private shouldDeferMediaToolExecution(input: RuntimeTurnRequest): boolean {
@@ -3810,12 +3862,15 @@ export class TurnExecutionService {
       input,
       execution.bundle
     );
+    const openLoopRefsBlock =
+      await this.turnContextHydrationService.computeOpenLoopRefsDeveloperBlock(input);
     const developerInstructionSections = this.buildBaseDeveloperInstructionSections({
       projectedTools: execution.projectedTools,
       availableWorkingFileRefs: execution.availableWorkingFileRefs,
       deepModeEnabled: execution.deepModeEnabled,
       routeDecision: execution.routeDecision,
       retrievedKnowledgeContext: execution.retrievedKnowledgeContext,
+      openLoopRefsBlock,
       presenceBlock,
       openMediaJobs: input.openMediaJobs
     });

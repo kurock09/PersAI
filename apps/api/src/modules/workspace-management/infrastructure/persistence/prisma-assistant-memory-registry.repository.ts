@@ -249,6 +249,40 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     return rows.map((row) => this.mapToDomain(row));
   }
 
+  async findLatestActiveOpenLoopsByAssistantUser(
+    assistantId: string,
+    userId: string,
+    limit: number
+  ): Promise<AssistantMemoryRegistryItem[]> {
+    if (limit <= 0) {
+      return [];
+    }
+    const rows = await this.prisma.assistantMemoryRegistryItem.findMany({
+      where: {
+        assistantId,
+        userId,
+        kind: "open_loop",
+        forgottenAt: null,
+        resolvedAt: null
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit
+    });
+    return rows.map((row) => this.mapToDomain(row));
+  }
+
+  async countActiveOpenLoopsByAssistantUser(assistantId: string, userId: string): Promise<number> {
+    return this.prisma.assistantMemoryRegistryItem.count({
+      where: {
+        assistantId,
+        userId,
+        kind: "open_loop",
+        forgottenAt: null,
+        resolvedAt: null
+      }
+    });
+  }
+
   async setResolvedAtById(id: string, assistantId: string): Promise<boolean> {
     const result = await this.prisma.assistantMemoryRegistryItem.updateMany({
       where: {

@@ -1077,6 +1077,7 @@ class FakeTurnContextHydrationService {
   // here. Default is `null` which
   // mirrors a bundle without a presence template (the legacy path).
   presenceBlock: string | null = null;
+  openLoopRefsDeveloperBlock: string | null = null;
   availableImageToolAttachmentsOverride: RuntimeAttachmentRef[] | null = null;
   availableWorkingFileRefsOverride: RuntimeFileRef[] = [];
   availableImageToolAttachmentInputs: Array<{
@@ -1094,6 +1095,11 @@ class FakeTurnContextHydrationService {
   async computePresenceBlock(..._args: unknown[]): Promise<string | null> {
     void _args.length;
     return this.presenceBlock;
+  }
+
+  async computeOpenLoopRefsDeveloperBlock(..._args: unknown[]): Promise<string | null> {
+    void _args.length;
+    return this.openLoopRefsDeveloperBlock;
   }
 
   async listAvailableImageToolAttachments(input: {
@@ -2638,6 +2644,24 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[openMediaJobsOffset]?.developerInstructions ?? "",
     /1\. image_generate job is running; created 2026-04-11T11:55:00.000Z, started 2026-04-11T11:56:00.000Z\./
   );
+  turnContextHydrationService.openLoopRefsDeveloperBlock = [
+    "## Open Loop Refs",
+    "Server-owned refs for unresolved open loops.",
+    "Do not invent refs.",
+    "- 11111111-2222-4333-8444-555555555555 | Plan for 7 days"
+  ].join("\n");
+  const openLoopRefsOffset = providerGatewayClient.calls.length;
+  const openLoopRefsCompleted = await service.createTurn(createRuntimeTurnRequest());
+  assert.equal(openLoopRefsCompleted.assistantText, "runtime reply");
+  assert.match(
+    providerGatewayClient.calls[openLoopRefsOffset]?.developerInstructions ?? "",
+    /## Open Loop Refs/
+  );
+  assert.match(
+    providerGatewayClient.calls[openLoopRefsOffset]?.developerInstructions ?? "",
+    /11111111-2222-4333-8444-555555555555 \| Plan for 7 days/
+  );
+  turnContextHydrationService.openLoopRefsDeveloperBlock = null;
   turnContextHydrationService.availableWorkingFileRefsOverride = [
     {
       fileRef: "file-ref-alias-1",

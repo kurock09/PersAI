@@ -13,6 +13,7 @@ import {
   AssistantMediaJobService,
   type AssistantMediaJobRequestPayload
 } from "./assistant-media-job.service";
+import { QuotaGroundedLimitCopyService } from "./quota-grounded-limit-copy.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./read-internal-runtime-quota-status.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 
@@ -46,6 +47,7 @@ export class EnqueueRuntimeDeferredMediaJobService {
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
     private readonly assistantMediaJobService: AssistantMediaJobService,
+    private readonly quotaGroundedLimitCopyService: QuotaGroundedLimitCopyService,
     private readonly readInternalRuntimeQuotaStatusService: ReadInternalRuntimeQuotaStatusService,
     private readonly resolveInternalRuntimeToolDailyPolicyService: ResolveInternalRuntimeToolDailyPolicyService
   ) {}
@@ -74,6 +76,7 @@ export class EnqueueRuntimeDeferredMediaJobService {
         accepted: false;
         code: string;
         message: string;
+        guidance?: string | null;
       }
   > {
     const sourceMessage = await this.assistantChatRepository.findMessageByIdForAssistant(
@@ -96,7 +99,8 @@ export class EnqueueRuntimeDeferredMediaJobService {
       return {
         accepted: false,
         code: "media_job_queue_full",
-        message: "There are already active background media jobs for this chat."
+        message: "There are already active background media jobs for this chat.",
+        guidance: null
       };
     }
 
@@ -108,7 +112,8 @@ export class EnqueueRuntimeDeferredMediaJobService {
       return {
         accepted: false,
         code: admission.code,
-        message: admission.message
+        message: admission.message,
+        guidance: admission.guidance
       };
     }
 
@@ -147,6 +152,7 @@ export class EnqueueRuntimeDeferredMediaJobService {
         allowed: false;
         code: string;
         message: string;
+        guidance: string | null;
       }
   > {
     try {
@@ -159,14 +165,16 @@ export class EnqueueRuntimeDeferredMediaJobService {
         return {
           allowed: false,
           code: "plan_feature_unavailable",
-          message: "This media tool is not active for the current plan or configuration."
+          message: "This media tool is not active for the current plan or configuration.",
+          guidance: null
         };
       }
     } catch {
       return {
         allowed: false,
         code: "plan_feature_unavailable",
-        message: "This media tool is not active for the current plan or configuration."
+        message: "This media tool is not active for the current plan or configuration.",
+        guidance: null
       };
     }
 
@@ -176,17 +184,35 @@ export class EnqueueRuntimeDeferredMediaJobService {
         ? null
         : (status.monthlyMediaQuotas.tools.find((entry) => entry.toolCode === toolCode) ?? null);
     if (quotaRow?.status === "limit_reached" || quotaRow?.remainingUnits === 0) {
+      const copy = await this.quotaGroundedLimitCopyService.build({
+        assistantId,
+        code: "monthly_media_quota_exceeded",
+        details: {
+          toolCode,
+          currentUsedUnits: quotaRow.usedUnits,
+          limitUnits:
+            typeof quotaRow.effectiveLimitUnits === "number"
+              ? quotaRow.effectiveLimitUnits
+              : quotaRow.limitUnits,
+          requestedUnits: 1,
+          periodStartedAt: status.monthlyMediaQuotas?.periodStartedAt ?? null,
+          periodEndsAt: status.monthlyMediaQuotas?.periodEndsAt ?? null,
+          periodSource: status.monthlyMediaQuotas?.periodSource ?? null
+        }
+      });
       return {
         allowed: false,
         code: "monthly_media_quota_exceeded",
-        message: "The monthly media quota for this tool has been exhausted."
+        message: copy?.message ?? "The monthly media quota for this tool has been exhausted.",
+        guidance: copy?.guidance ?? null
       };
     }
     if (quotaRow?.status === "usage_unavailable" || quotaRow === null) {
       return {
         allowed: false,
         code: "runtime_degraded",
-        message: "Media quota status is temporarily unavailable."
+        message: "Media quota status is temporarily unavailable.",
+        guidance: null
       };
     }
     return { allowed: true };

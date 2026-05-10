@@ -1,5 +1,39 @@
 # SESSION-HANDOFF
 
+## 2026-05-11 — ADR-087 deferred media enqueue guidance completion (LANDED)
+
+### What landed in this session
+
+1. **Deferred media hard-limit rejections now use the same grounded guidance source as the direct reserve path** — the real remaining bug was not in `quota_status` or in the direct `reserveMonthlyMediaQuota()` seam, but in `EnqueueRuntimeDeferredMediaJobService`: when async media jobs were prechecked before enqueue, the service returned only `code` + `message` for `monthly_media_quota_exceeded`. That meant the live tool payload could still be `action="skipped"` with a bare warning and no package/upgrade guidance even though `QuotaGroundedLimitCopyService` already knew the correct grounded answer. The service now calls that same copy builder for monthly media exhaustion and returns the resulting `message` + `guidance`.
+
+2. **The internal deferred-enqueue API boundary now preserves `guidance` on `accepted=false`** — `InternalRuntimeMediaJobsEnqueueController` and `PersaiInternalApiClientService.enqueueDeferredMediaJob()` now carry optional `guidance` through the existing `accepted=false` shape instead of collapsing it to `{ code, message }`.
+
+3. **Runtime media tool payloads now surface grounded guidance for deferred enqueue rejects too** — `RuntimeImageGenerateToolService`, `RuntimeImageEditToolService`, and `RuntimeVideoGenerateToolService` now include `guidance` when the async/deferred enqueue path rejects the request, matching the direct reserve path. This closes the specific live failure where the model saw `monthly_media_quota_exceeded` from `image_edit` / other media tools but had no grounded purchase/upgrade text to reuse in the main answer.
+
+4. **Focused regression coverage now pins the exact broken seam** — new API test `test/enqueue-runtime-deferred-media-job.service.test.ts` proves that a quota-blocked deferred enqueue returns grounded `guidance` and does not create a job; new runtime test `apps/runtime/test/runtime-image-generate-tool.service.test.ts` proves the deferred media tool result keeps that `guidance` in the skipped payload.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/enqueue-runtime-deferred-media-job.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-image-generate-tool.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-tool-quota.controller.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check` -> fails on unrelated pre-existing drift in `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-memory-registry.repository.ts`
+
+### Risks / residuals
+
+- The deferred media hard-limit seam is now covered, but a live smoke check is still needed to confirm the model actually uses the newly restored `guidance` well in production-style prompts for `image_generate`, `image_edit`, and `video_generate`.
+- The working tree still contains unrelated user changes in memory/open-loop/runtime files; they were left untouched in this slice.
+
+### Next recommended step
+
+Run one live assistant smoke for each media tool (`image_generate`, `image_edit`, `video_generate`) with exhausted monthly quota and confirm the main assistant reply now includes grounded package/upgrade guidance instead of only the raw quota warning.
+
+---
+
 ## 2026-05-11 — ADR-087 quota follow-up immediate current-thread delivery + grounded media-limit guidance passthrough (LANDED)
 
 ### What landed in this session

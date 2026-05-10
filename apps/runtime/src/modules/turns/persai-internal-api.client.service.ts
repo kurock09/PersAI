@@ -402,6 +402,16 @@ export type InternalCrossSessionCarryOverOpenLoop = {
   createdAt: string;
 };
 
+export type InternalListActiveOpenLoopRefsInput = {
+  assistantId: string;
+  requestId: string | null;
+};
+
+export type InternalListActiveOpenLoopRefsOutcome = {
+  unresolvedOpenLoops: InternalCrossSessionCarryOverOpenLoop[];
+  totalUnresolvedOpenLoops: number;
+};
+
 export type InternalFindCrossSessionCarryOverOutcome = {
   recentSynopses: InternalCrossSessionCarryOverSynopsis[];
   unresolvedOpenLoops: InternalCrossSessionCarryOverOpenLoop[];
@@ -480,6 +490,7 @@ export class PersaiInternalApiClientService {
         accepted: false;
         code: string;
         message: string;
+        guidance: string | null;
       }
   > {
     if (!this.isConfigured()) {
@@ -511,7 +522,8 @@ export class PersaiInternalApiClientService {
         return {
           accepted: false,
           code: payload.code,
-          message: payload.message
+          message: payload.message,
+          guidance: typeof payload.guidance === "string" ? payload.guidance : null
         };
       }
       throw new BadGatewayException(
@@ -1362,6 +1374,53 @@ export class PersaiInternalApiClientService {
 
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected the close-by-ref request."
+    );
+  }
+
+  async listActiveOpenLoopRefs(
+    input: InternalListActiveOpenLoopRefsInput
+  ): Promise<InternalListActiveOpenLoopRefsOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/memory/open-loop-refs", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const openLoops = payload?.unresolvedOpenLoops;
+      if (
+        payload?.ok === true &&
+        Array.isArray(openLoops) &&
+        typeof payload.totalUnresolvedOpenLoops === "number" &&
+        openLoops.every((row) => this.isCrossSessionOpenLoop(row))
+      ) {
+        return {
+          unresolvedOpenLoops: openLoops as InternalCrossSessionCarryOverOpenLoop[],
+          totalUnresolvedOpenLoops: payload.totalUnresolvedOpenLoops
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid open-loop-refs response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API open-loop-refs request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the open-loop-refs request."
     );
   }
 

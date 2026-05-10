@@ -198,6 +198,7 @@ ADR-079 follow-up (2026-05-04): the `retrievalPlan` carried over this internal b
 Current active internal `runtime → api` endpoints (served by `apps/api` on the dedicated `API_INTERNAL_PORT=3002` listener, gated by `PERSAI_INTERNAL_API_TOKEN`):
 
 - `POST /api/v1/internal/runtime/memory/hydrate-for-turn` — returns the always-on `core` durable memory plus a relevance-retrieved `contextual` tail for the current turn and bumps `last_used_at` on every hydrated entry.
+- `POST /api/v1/internal/runtime/memory/open-loop-refs` — returns a small latest-active unresolved open-loop ref set for the runtime-only resolver developer block, so `memory_write({ action: "close", ref })` can still target the correct row on follow-up turns even when the visible cross-session carry-over block is absent. This path is bounded and compact by design; it is not a user-visible memory listing surface.
 - `GET /api/v1/internal/smoke/turn-receipts` — read-only smoke harness receipt query.
 
 Other internal `runtime ↔ api` boundaries (bundle resolution, attachment hydration, etc.) are separate runtime-bundle endpoints and are not part of this back-channel.
