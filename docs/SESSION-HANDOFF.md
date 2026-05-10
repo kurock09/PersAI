@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-05-10 — Billing Settings save step-up allowlist fix + quieter cancel-subscription billing copy (LANDED)
+
+### What landed in this session
+
+1. **Cluster logs confirmed the real failing seam** — in `persai-dev`, `GET /api/v1/admin/billing/lifecycle-settings` was returning `200`, while the subsequent `POST /api/v1/admin/step-up/challenge` for the same operator request was returning `400`. The billing settings page was therefore failing before the PUT save call even started.
+
+2. **`AdminSecurityController` now accepts the billing lifecycle step-up action** — `apps/api/src/modules/workspace-management/interface/http/admin-security.controller.ts` was missing `admin.billing_lifecycle_settings.update` in `parseStepUpAction(...)`, even though `AdminAuthorizationService`, the web client, and the OpenAPI contract already treated it as a valid dangerous admin action. The controller allowlist and its validation error text now include the billing lifecycle action.
+
+3. **Recurring billing copy in `Assistant Settings` is now calmer and more product-shaped** — the recurring-subscriber CTA now says `Cancel subscription`, the inline confirmation block uses a quieter visual treatment, the secondary action keeps the subscription instead of talking about auto-renew directly, and the success state now tells the user the subscription will end after the current paid period.
+
+4. **Focused regression coverage was extended** — `apps/api/test/admin-security.controller.test.ts` now explicitly issues a step-up challenge for `admin.billing_lifecycle_settings.update`, and `apps/web/app/app/_components/assistant-settings.test.tsx` now pins the quieter recurring-subscriber cancellation wording/flow.
+
+### Verification
+
+- Cluster log evidence: `persai-dev` API pod log showed `GET /api/v1/admin/billing/lifecycle-settings -> 200` followed by `POST /api/v1/admin/step-up/challenge -> 400` for the same save attempt
+- `corepack pnpm --filter @persai/api exec tsx test/admin-security.controller.test.ts` — green
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts` — green
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/billing-settings/page.test.tsx` — green
+- `corepack pnpm -r --if-present run lint` — green
+- `corepack pnpm run format:check` — green
+- `corepack pnpm --filter @persai/api run typecheck` — green
+- `corepack pnpm --filter @persai/web run typecheck` — green
+
+### Risks / residuals
+
+- This fix removes the immediate save blocker for `Admin > Billing Settings`, but it does not auto-deploy by itself; the currently running cluster pods still need the normal commit/push/deploy path before the live page stops returning the raw validation string.
+
+### Next recommended step
+
+Push/deploy this allowlist fix, then re-test `Admin > Billing Settings` save in `persai-dev` to confirm the request now reaches the `PUT /api/v1/admin/billing/lifecycle-settings` handler.
+
+---
+
 ## 2026-05-10 — Billing seed hardcode rollback + admin billing settings nav (LANDED)
 
 ### What landed in this session

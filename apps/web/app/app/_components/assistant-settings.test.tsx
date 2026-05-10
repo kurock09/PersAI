@@ -1103,7 +1103,7 @@ describe("AssistantSettings limits", () => {
     expect(screen.queryByText("0/1")).toBeNull();
   });
 
-  it("opens payment settings for recurring subscribers and disables auto-renew", async () => {
+  it("opens payment settings for recurring subscribers and shows a quiet cancel-subscription action", async () => {
     const openPricingPage = vi.fn();
     assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
       planCode: "pro",
@@ -1178,12 +1178,14 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Bank card")).toBeInTheDocument();
     expect(screen.getByText("On")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Disable auto-renew" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel subscription" }));
     expect(
-      await screen.findByText("Turn off auto-renew after the current paid period ends?")
+      await screen.findByText("Cancel the subscription after the current paid period ends?")
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Turn off auto-renew" }));
+    expect(screen.getByRole("button", { name: "Keep subscription" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel subscription" })[1]!);
 
     await waitFor(() => {
       expect(assistantApiMocks.postAssistantBillingDisableAutoRenew).toHaveBeenCalledWith(
@@ -1191,7 +1193,7 @@ describe("AssistantSettings limits", () => {
       );
     });
     expect(
-      await screen.findByText("Auto-renew was turned off for the current paid period.")
+      await screen.findByText("The subscription will end after the current paid period.")
     ).toBeInTheDocument();
     expect(openPricingPage).not.toHaveBeenCalled();
   }, 15000);
@@ -1274,7 +1276,7 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Off")).toBeInTheDocument();
     expect(screen.getByText("Payment method unknown")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Update payment method" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Disable auto-renew" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel subscription" })).not.toBeInTheDocument();
   }, 15000);
 
   it("shows restore subscription CTA for scheduled FREE and updates billing state", async () => {

@@ -50,11 +50,21 @@ async function run(): Promise<void> {
     "admin.document_processing_settings.update"
   );
 
+  const billingLifecycleSettingsResponse = await controller.createStepUpChallenge(req, {
+    action: "admin.billing_lifecycle_settings.update"
+  });
+
+  assert.equal(issuedActions[2], "admin.billing_lifecycle_settings.update");
+  assert.equal(
+    billingLifecycleSettingsResponse.challenge.action,
+    "admin.billing_lifecycle_settings.update"
+  );
+
   const billingCredentialsResponse = await controller.createStepUpChallenge(req, {
     action: "admin.billing_provider_credentials.update"
   });
 
-  assert.equal(issuedActions[2], "admin.billing_provider_credentials.update");
+  assert.equal(issuedActions[3], "admin.billing_provider_credentials.update");
   assert.equal(
     billingCredentialsResponse.challenge.action,
     "admin.billing_provider_credentials.update"

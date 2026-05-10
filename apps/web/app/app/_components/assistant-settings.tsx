@@ -3043,7 +3043,7 @@ export function AssistantSettings({
                           setBillingSubscriptionFb(null);
                         }}
                         disabled={disableAutoRenewPending || !billingSubscription.autoRenewEnabled}
-                        className="inline-flex min-h-11 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 px-4 text-sm font-medium text-text transition-colors hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex min-h-8 items-center justify-center self-center px-2 text-sm font-medium text-text-subtle transition-colors hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {disableAutoRenewPending ? (
                           <span className="inline-flex items-center gap-2">
@@ -3057,7 +3057,7 @@ export function AssistantSettings({
                     ) : null}
                   </div>
                   {disableAutoRenewConfirmOpen ? (
-                    <div className="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                    <div className="space-y-3 rounded-2xl border border-border/80 bg-surface-raised/40 p-4">
                       <p className="text-sm font-medium text-text">
                         {t("billingDisableAutoRenewConfirm")}
                       </p>
@@ -3068,7 +3068,7 @@ export function AssistantSettings({
                         <button
                           type="button"
                           onClick={() => setDisableAutoRenewConfirmOpen(false)}
-                          className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                          className="inline-flex min-h-11 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-4 text-sm font-medium text-text transition-colors hover:bg-accent/15"
                         >
                           {t("billingConfirmCancel")}
                         </button>
@@ -3076,7 +3076,7 @@ export function AssistantSettings({
                           type="button"
                           onClick={() => void confirmDisableAutoRenew()}
                           disabled={disableAutoRenewPending}
-                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/15 px-4 text-sm font-medium text-text transition-colors hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-subtle transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {disableAutoRenewPending ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -3234,7 +3234,7 @@ function LimitMetricCard({
         <p className="text-xs font-semibold tabular-nums text-text">{value}</p>
         {secondary ? <p className="mt-0.5 text-[10px] text-text-subtle">{secondary}</p> : null}
       </div>
-      <div className="mt-auto flex h-[1.25rem] items-end justify-end pt-3">
+      <div className="mt-auto flex h-[1.5rem] items-end justify-center pt-3.5 sm:h-[1.25rem] sm:justify-end sm:pt-3">
         {showChip ? (
           <span
             aria-hidden="true"
