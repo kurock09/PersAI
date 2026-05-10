@@ -6,7 +6,7 @@ import type { UserPlanVisibilityState } from "@persai/contracts";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useLocale, useTranslations } from "next-intl";
-import { AlertCircle, Check, Loader2, ShoppingCart } from "lucide-react";
+import { AlertCircle, Loader2, ShoppingCart } from "lucide-react";
 import {
   getAssistantPlanVisibility,
   getPublicMediaPackages,
@@ -138,33 +138,34 @@ function PackageChoiceRow({
       type="button"
       onClick={onSelect}
       disabled={disabled}
+      aria-pressed={selected}
       className={cn(
         "flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition-all",
         selected
-          ? "border-accent/40 bg-accent/10 text-text shadow-[0_0_0_1px_rgba(0,0,0,0.02)]"
+          ? // Premium gold highlight: warm gradient padding-box + gold gradient border on light;
+            // tinted gold border on dark with surface-raised fill so the row reads as selected on both themes.
+            "border-transparent text-text [background:linear-gradient(180deg,rgba(255,238,190,0.22),rgba(255,248,230,0.06))_padding-box,linear-gradient(135deg,rgba(255,226,150,0.85),rgba(214,170,70,0.55),rgba(255,248,230,0.28),rgba(176,132,33,0.65))_border-box] dark:border-[rgba(212,168,66,0.55)] dark:[background:var(--surface-raised)] dark:hover:border-[rgba(224,183,86,0.72)]"
           : "border-border/80 bg-bg/55 text-text hover:border-border hover:bg-surface-hover/70",
         disabled && "cursor-not-allowed opacity-45 hover:border-border/80 hover:bg-bg/55"
       )}
     >
       <div className="min-w-0">
         <p className="text-sm font-semibold text-text">{formatPackageLabel(locale, item)}</p>
-        <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-text-subtle">
-          {item.units} {locale === "ru" ? "единиц" : "units"}
-        </p>
       </div>
       <div className="flex items-center gap-3">
         <span className="text-sm font-semibold text-text">
           {formatPrice(item.amountMinor, item.currency, locale)}
         </span>
         <span
+          aria-hidden="true"
           className={cn(
-            "inline-flex h-5 w-5 items-center justify-center rounded-full border transition-colors",
+            "inline-flex h-5 min-w-9 items-center justify-center rounded-full border px-2 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors",
             selected
-              ? "border-accent/40 bg-accent text-white"
-              : "border-border/80 bg-surface text-transparent"
+              ? "border-[rgba(176,132,33,0.55)] bg-[rgba(255,226,150,0.32)] text-[rgba(120,86,15,0.9)] dark:border-[rgba(224,183,86,0.7)] dark:bg-[rgba(176,132,33,0.18)] dark:text-[rgba(244,214,140,0.95)]"
+              : "border-border/80 bg-surface text-text-subtle"
           )}
         >
-          <Check className="h-3 w-3" />
+          {selected ? "ON" : "OFF"}
         </span>
       </div>
     </button>

@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-05-10 — ADR-089 quota_status purchase CTA + media UI polish (LANDED)
+
+### What changed
+
+1. **Settings monthly media cards: `used / base +bonus`** — `LimitMetricCard` now shows the value as `4 / 50 +10` instead of `4 / 60` plus a separate `включено: 50 тариф + 10 пакет` subline. The bonus amount lives on the same row as the limit; the subline (`bonusSubline` prop, `formatMonthlyMediaBonusSubline` helper, and the `monthlyMediaBonusSubline` i18n key in ru/en) is removed entirely. The `осталось: 56` secondary line and the corner `Докупить` chip are kept.
+2. **Packages page (`/app/packages`): selected row uses gold premium highlight + ON/OFF chip** — `PackageChoiceRow` no longer shows the duplicate uppercase `10 ЕДИНИЦ` subtitle (it just repeated the title). The selected state now uses the same gold gradient padding-box + gold gradient border on light theme, and a thin gold border on dark theme — matching the `isPremiumHighlighted` pattern from `pricing-page-view.tsx`. The previous tiny circle indicator is replaced by an explicit `ON` / `OFF` pill so it is unambiguous which row is selected.
+3. **`quota_status` tool gets an explicit purchase CTA** — `RuntimeQuotaStatusToolResult` now carries `packagesPurchase: { url, availableTools } | null`, populated by `RuntimeQuotaStatusToolService` whenever at least one entry in `packagesAvailableByTool` is `true`. The tool definition description in `native-tool-projection.ts` was extended to instruct the model: when the user asks anything about media limits/packages, call this tool first and, if `packagesPurchase != null`, plainly tell the user packages can be bought now and point them at `packagesPurchase.url` (default `/app/packages`) — explicitly forbidding the previous behaviour of saying "no checkout link was returned, packages may not be available". This is the bridge that fixes the founder-reported chat where the assistant kept giving piecemeal answers and never clearly said "you can buy a package on /app/packages".
+
+### Current slice/step
+
+ADR-089 quota_status purchase CTA + media UI polish — COMPLETE.
+
+### Files touched
+
+- `apps/web/app/app/_components/assistant-settings.tsx` — `formatMonthlyMediaQuotaValue` returns `used / base +bonus` shape; `formatMonthlyMediaBonusSubline` and `bonusSubline` prop removed; `LimitMetricCard` no longer renders the bonus subline at all
+- `apps/web/messages/ru.json`, `apps/web/messages/en.json` — removed the now-unused `monthlyMediaBonusSubline` key
+- `apps/web/app/app/packages/page.tsx` — `PackageChoiceRow` redesign: removed the `Check` icon import + circle indicator + duplicate `units` subtitle; selected row now uses gold premium gradient/border (light) + thin gold border (dark) and an `ON`/`OFF` pill
+- `packages/runtime-contract/src/index.ts` — added `packagesPurchase` to `RuntimeQuotaStatusToolResult`
+- `apps/runtime/src/modules/turns/runtime-quota-status-tool.service.ts` — populates `packagesPurchase` in success / checkout / skipped payloads via `resolvePackagesPurchaseHint(...)`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` — extended `quota_status` tool description with explicit CTA-on-`packagesPurchase` rule
+- `apps/runtime/test/runtime-quota-status-tool.service.test.ts` — pinned that success path returns `packagesPurchase.url = "/app/packages"` with sorted `availableTools`, and that the failure/skipped path returns `packagesPurchase = null`
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime-contract run typecheck` → ✅
+- `corepack pnpm --filter @persai/runtime run typecheck` → ✅
+- `corepack pnpm --filter @persai/api run typecheck` → ✅
+- `corepack pnpm --filter @persai/web run typecheck` → ✅
+- `corepack pnpm -r --if-present run lint` → ✅
+- `corepack pnpm run format:check` → ✅
+- `corepack pnpm --filter @persai/runtime run test` → ✅
+- `corepack pnpm --filter @persai/web exec vitest run "app/app/_components/assistant-settings.test.tsx"` → ✅ (30 tests)
+
+### Risks / notes
+
+- The monthly media value is now slightly denser visually (`4 / 50 +10` instead of `4 / 60`). This trade-off is intentional per founder request — the previous setup had two competing copies of the same fact (the `60` total + the `включено: 50 тариф + 10 пакет` subline).
+- The packages page selected row now uses the same gold treatment as the highlighted plan card on `/app/pricing`. This couples the two surfaces visually; if the pricing card highlight changes, the packages selected row should be reviewed alongside.
+- `packagesPurchase` is a soft hint to the model; the existing `packagesAvailableByTool` map is unchanged, so any older runtime/code paths that already consumed that map still work. Tool description changes target only the `quota_status` tool and don't widen its allowed actions (it still cannot open the packages page itself; it just tells the user where to go).
+
+### Next recommended step
+
+- Live-test by asking the assistant the same sequence the founder used (`Давай докупим генерацию картинок`, `я могу докупить пакеты?`, etc.). Confirm the assistant now plainly says yes and points to `/app/packages` without needing several follow-ups.
+
 ## 2026-05-10 — ADR-089 LLM-authored background media-job failure copy (LANDED)
 
 ### What changed

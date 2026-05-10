@@ -952,6 +952,17 @@ export interface RuntimeQuotaStatusToolResult {
   buckets: RuntimeQuotaStatusBucket[];
   monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
   packagesAvailableByTool: Record<string, boolean>;
+  /**
+   * Convenience CTA hint for the model. When at least one tool key in
+   * `packagesAvailableByTool` is `true`, this carries the in-product URL
+   * the user should be sent to in order to buy media packages, plus the
+   * list of tool codes the user can buy a package for right now. When no
+   * tool currently allows package purchase, this is `null`.
+   */
+  packagesPurchase: {
+    url: string;
+    availableTools: string[];
+  } | null;
   checkout: RuntimeQuotaStatusCheckout | null;
   subscriptionUpdate: RuntimeQuotaStatusSubscriptionUpdate | null;
   action: "reported" | "checkout_created" | "subscription_updated" | "skipped";

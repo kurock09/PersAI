@@ -666,18 +666,16 @@ export function AssistantSettings({
     if (!isMonthlyMediaQuotaToolAvailable(tool)) {
       return t("limitUnavailable");
     }
-    const effectiveLimit = tool.effectiveLimitUnits ?? tool.limitUnits ?? null;
-    return effectiveLimit === null
-      ? String(tool.usedUnits)
-      : `${tool.usedUnits} / ${effectiveLimit}`;
-  };
-  const formatMonthlyMediaBonusSubline = (tool: MonthlyMediaQuotaToolState): string | null => {
+    const base = tool.limitUnits;
     const bonus = tool.bonusLimitUnits ?? 0;
-    if (bonus <= 0) {
-      return null;
+    const effectiveLimit = tool.effectiveLimitUnits ?? base ?? null;
+    if (effectiveLimit === null) {
+      return String(tool.usedUnits);
     }
-    const base = tool.limitUnits ?? 0;
-    return t("monthlyMediaBonusSubline", { base, bonus });
+    if (base !== null && bonus > 0) {
+      return `${tool.usedUnits} / ${base} +${bonus}`;
+    }
+    return `${tool.usedUnits} / ${effectiveLimit}`;
   };
   const formatMonthlyMediaRemainingSubline = (tool: MonthlyMediaQuotaToolState): string | null => {
     if (!isMonthlyMediaQuotaToolAvailable(tool)) {
@@ -2797,7 +2795,6 @@ export function AssistantSettings({
               {featuredMonthlyMediaQuotas.length > 0 ? (
                 <div className="mt-4 grid grid-cols-3 gap-2">
                   {featuredMonthlyMediaQuotas.map((tool) => {
-                    const bonusSubline = formatMonthlyMediaBonusSubline(tool);
                     const hasBonus = (tool.bonusLimitUnits ?? 0) > 0;
                     return (
                       <LimitMetricCard
@@ -2814,7 +2811,6 @@ export function AssistantSettings({
                         }
                         value={formatMonthlyMediaQuotaValue(tool)}
                         secondary={formatMonthlyMediaRemainingSubline(tool)}
-                        bonusSubline={bonusSubline}
                         hasBonus={hasBonus}
                         buyChipLabel={t("monthlyMediaBuyChip")}
                         onBuyClick={() => {
@@ -3200,7 +3196,6 @@ function LimitMetricCard({
   label,
   value,
   secondary,
-  bonusSubline,
   hasBonus,
   buyChipLabel,
   onBuyClick
@@ -3208,7 +3203,6 @@ function LimitMetricCard({
   label: React.ReactNode;
   value: string;
   secondary?: string | null;
-  bonusSubline?: string | null;
   hasBonus?: boolean;
   buyChipLabel?: string | null;
   onBuyClick?: () => void;
@@ -3234,16 +3228,6 @@ function LimitMetricCard({
       <div className="mt-2">
         <p className="text-xs font-semibold tabular-nums text-text">{value}</p>
         {secondary ? <p className="mt-1 text-[10px] text-text-subtle">{secondary}</p> : null}
-        {bonusSubline ? (
-          <p
-            className={cn(
-              "mt-1 text-[10px] tabular-nums",
-              hasBonus ? "text-accent/70" : "text-text-subtle/80"
-            )}
-          >
-            {bonusSubline}
-          </p>
-        ) : null}
       </div>
       {showChip ? (
         <span

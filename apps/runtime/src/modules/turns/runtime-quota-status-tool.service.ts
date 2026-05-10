@@ -8,6 +8,22 @@ import type {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 
 const QUOTA_STATUS_TOOL_CODE = "quota_status" as const;
+const QUOTA_STATUS_PACKAGES_PURCHASE_URL = "/app/packages" as const;
+
+function resolvePackagesPurchaseHint(
+  packagesAvailableByTool: Record<string, boolean>
+): { url: string; availableTools: string[] } | null {
+  const availableTools = Object.entries(packagesAvailableByTool)
+    .filter(([, available]) => available === true)
+    .map(([toolCode]) => toolCode);
+  if (availableTools.length === 0) {
+    return null;
+  }
+  return {
+    url: QUOTA_STATUS_PACKAGES_PURCHASE_URL,
+    availableTools
+  };
+}
 
 export interface RuntimeQuotaStatusToolExecutionResult {
   payload: RuntimeQuotaStatusToolResult;
@@ -76,6 +92,7 @@ export class RuntimeQuotaStatusToolService {
             buckets: quotaStatus.buckets,
             monthlyMediaQuotas: quotaStatus.monthlyMediaQuotas,
             packagesAvailableByTool: quotaStatus.packagesAvailableByTool,
+            packagesPurchase: resolvePackagesPurchaseHint(quotaStatus.packagesAvailableByTool),
             checkout: outcome.checkout,
             subscriptionUpdate: outcome.subscriptionUpdate,
             action: outcome.action,
@@ -105,6 +122,7 @@ export class RuntimeQuotaStatusToolService {
           buckets: outcome.buckets,
           monthlyMediaQuotas: outcome.monthlyMediaQuotas,
           packagesAvailableByTool: outcome.packagesAvailableByTool,
+          packagesPurchase: resolvePackagesPurchaseHint(outcome.packagesAvailableByTool),
           checkout: null,
           subscriptionUpdate: null,
           action: "reported",
@@ -227,6 +245,7 @@ export class RuntimeQuotaStatusToolService {
       buckets: [],
       monthlyMediaQuotas: null,
       packagesAvailableByTool: {},
+      packagesPurchase: null,
       checkout: null,
       subscriptionUpdate: null,
       action: "skipped",

@@ -665,7 +665,6 @@
     "monthlyMediaVideoGenerate": "Генерации видео",
     "monthlyMediaVideoGenerateCompact": "Генерация видео",
     "monthlyMediaQuotaSettlementHint": "Медиа-лимит резервируется перед генерацией и списывается только после успешной доставки.",
-    "monthlyMediaBonusSubline": "включено: {base} тариф + {bonus} пакет",
     "monthlyMediaRemainingSubline": "осталось: {remaining}",
     "monthlyMediaBonusExpiryHint": "Пакет сгорит с периодом",
     "monthlyMediaBuyChip": "Докупить",

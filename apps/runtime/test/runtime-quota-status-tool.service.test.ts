@@ -450,6 +450,11 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.limitUnits, 30);
   assert.equal(success.payload.packagesAvailableByTool.image_generate, true);
   assert.equal(success.payload.packagesAvailableByTool.video_generate, false);
+  assert.equal(success.payload.packagesPurchase?.url, "/app/packages");
+  assert.deepEqual([...(success.payload.packagesPurchase?.availableTools ?? [])].sort(), [
+    "image_edit",
+    "image_generate"
+  ]);
   assert.deepEqual(internalApi.readCalls.at(-1), {
     assistantId: "assistant-1",
     toolCode: "web_search",
@@ -503,6 +508,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.deepEqual(failed.payload.buckets, []);
   assert.equal(failed.payload.monthlyMediaQuotas, null);
   assert.deepEqual(failed.payload.packagesAvailableByTool, {});
+  assert.equal(failed.payload.packagesPurchase, null);
   assert.equal(failed.isError, true);
 
   internalApi.error = null;
