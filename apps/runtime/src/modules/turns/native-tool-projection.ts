@@ -668,7 +668,7 @@ function createImageGenerateToolDefinition(
           "image_generate",
           policy
         ),
-        "If the tool returns action='skipped' because of a quota or plan limit, use the returned guidance in the user-facing reply when present. If the user needs concrete upgrade or package options, call quota_status for image_generate before writing the final answer."
+        "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for image_generate before the final answer."
       ].join(" ")
     ),
     inputSchema: {
@@ -718,7 +718,7 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           "image_edit",
           policy
         ),
-        "If the tool returns action='skipped' because of a quota or plan limit, use the returned guidance in the user-facing reply when present. If the user needs concrete upgrade or package options, call quota_status for image_edit before writing the final answer."
+        "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for image_edit before the final answer."
       ].join(" "),
       "Do not claim the edit is done, ready, visible, attached, or sent unless this same turn actually called image_edit and got a successful result or explicit delivered artifact/result."
     ),
@@ -775,7 +775,7 @@ function createVideoGenerateToolDefinition(
           "video_generate",
           policy
         ),
-        "If the tool returns action='skipped' because of a quota or plan limit, use the returned guidance in the user-facing reply when present. If the user needs concrete upgrade or package options, call quota_status for video_generate before writing the final answer."
+        "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer."
       ].join(" ")
     ),
     inputSchema: {
