@@ -14,6 +14,14 @@ export type InternalRuntimeBackgroundTaskEvaluationOutcome =
     }
   | {
       ok: false;
+      deferred: true;
+      status: 409;
+      code: "runtime_session_busy";
+      message: string;
+    }
+  | {
+      ok: false;
+      deferred?: false;
       retryable: boolean;
       status: number | null;
       code: string | null;
@@ -80,6 +88,17 @@ export class InternalRuntimeBackgroundTaskClientService {
           status: response.status,
           code: "invalid_response",
           message: "Background-task runtime returned an unexpected response shape."
+        };
+      }
+      if (response.status === 409) {
+        const error409 = this.extractError(body);
+        return {
+          ok: false,
+          deferred: true,
+          status: 409,
+          code: "runtime_session_busy",
+          message:
+            error409.message ?? "Background-task runtime session is busy; evaluation deferred."
         };
       }
       const error = this.extractError(body);

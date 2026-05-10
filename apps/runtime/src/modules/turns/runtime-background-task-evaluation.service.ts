@@ -99,7 +99,7 @@ export class RuntimeBackgroundTaskEvaluationService {
         assistantId: input.assistantId,
         workspaceId: input.workspaceId,
         channel: "web",
-        externalThreadKey: `system:background-task:${input.task.id}`,
+        externalThreadKey: this.buildExternalThreadKey(input.task),
         externalUserKey: null,
         mode: "direct"
       },
@@ -324,6 +324,21 @@ export class RuntimeBackgroundTaskEvaluationService {
 
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  // ADR-090: Per-evaluation unique synthetic-runtime-session key. When the
+  // scheduler provides a non-empty evaluationAttemptId, the synthetic session
+  // gets its own externalThreadKey so parallel evaluations can never clash on
+  // the same runtime session lease. Empty / whitespace-only strings are not
+  // accepted (defensive: caller bug or buggy/malicious input must not silently
+  // collapse to the legacy stable key).
+  private buildExternalThreadKey(task: RuntimeBackgroundTaskEvaluationRequest["task"]): string {
+    const attemptId =
+      typeof task.evaluationAttemptId === "string" ? task.evaluationAttemptId.trim() : "";
+    if (attemptId.length > 0) {
+      return `system:background-task:${task.id}:${attemptId}`;
+    }
+    return `system:background-task:${task.id}`;
   }
 
   private buildBackgroundTaskRunKey(input: RuntimeBackgroundTaskEvaluationRequest): string {

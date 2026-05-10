@@ -42,6 +42,18 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runRuntimeBackgroundTaskEvaluationServiceTest"
   },
   {
+    modulePath: "./runtime-background-task-evaluation.service.test.ts",
+    exportName: "runUniqueExternalThreadKeyTest"
+  },
+  {
+    modulePath: "./runtime-background-task-evaluation.service.test.ts",
+    exportName: "runLegacyThreadKeyFallbackTest"
+  },
+  {
+    modulePath: "./runtime-background-task-evaluation.service.test.ts",
+    exportName: "runEmptyAttemptIdFallsBackToLegacyKeyTest"
+  },
+  {
     modulePath: "./runtime-quota-status-tool.service.test.ts",
     exportName: "runRuntimeQuotaStatusToolServiceTest"
   },

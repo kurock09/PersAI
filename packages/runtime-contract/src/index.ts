@@ -1709,6 +1709,10 @@ export interface RuntimeBackgroundTaskEvaluationRequest {
     runCount: number;
     lastRunStatus: PersaiRuntimeBackgroundTaskRunStatus | null;
     lastRunAt: string | null;
+    /** Per-evaluation unique id. When present, the runtime uses it as a suffix
+     *  for `externalThreadKey` so each attempt runs in its own synthetic session
+     *  and never conflicts with a parallel evaluation of the same task. */
+    evaluationAttemptId?: string;
   };
 }
 

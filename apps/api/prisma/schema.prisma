@@ -2355,6 +2355,31 @@ enum AssistantBackgroundCompactionJobStatus {
   failed
 }
 
+// ADR-090: Durable per-(assistant, chat) state for idle re-engagement evaluation.
+// Primary cooldown and attempt-budget source of truth; replaces the fragile
+// notificationIntent lifecycle filter that missed failed/dead_letter states.
+model AssistantIdleEvaluationMarker {
+  id                            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId                   String    @map("workspace_id") @db.Uuid
+  assistantId                   String    @map("assistant_id") @db.Uuid
+  chatId                        String    @map("chat_id") @db.Uuid
+  /// ISO timestamp of the user message that opened the current evaluation window.
+  latestUserMessageAtSnapshot   DateTime  @map("latest_user_message_at_snapshot") @db.Timestamptz(6)
+  /// Last LLM decision: push | no_push | complete | error
+  lastDecision                  String    @map("last_decision") @db.VarChar(32)
+  /// Number of evaluate() calls made for the current user-message snapshot.
+  attemptsForCurrentUserMessage Int       @default(0) @map("attempts_for_current_user_message")
+  /// When set, scheduler must not evaluate this marker before this time.
+  nextEligibleEvaluationAt      DateTime? @map("next_eligible_evaluation_at") @db.Timestamptz(6)
+  createdAt                     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([assistantId, chatId])
+  @@index([assistantId])
+  @@index([workspaceId])
+  @@map("assistant_idle_evaluation_markers")
+}
+
 enum AssistantBackgroundCompactionJobTrigger {
   post_turn
   manual

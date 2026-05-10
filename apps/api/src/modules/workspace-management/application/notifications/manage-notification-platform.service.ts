@@ -212,6 +212,18 @@ const VALID_BILLING_EVENT_CODES = [
 ] as const;
 
 const VALID_RENDER_STRATEGIES = ["grounded_llm", "template", "static_fallback"] as const;
+
+// ADR-090: idle_reengagement may only route to these channels.
+// telegram_thread is excluded because a misconfigured/unhealthy telegram_thread
+// causes silent delivery failures → intents land in failed/dead_letter →
+// the scheduler re-evaluates indefinitely (no LLM budget guard in that loop).
+const IDLE_REENGAGEMENT_ALLOWED_CHANNELS = new Set([
+  "user_preferred",
+  "web_notification_center",
+  "current_thread",
+  "email"
+]);
+
 const VALID_CHANNEL_TYPES = [
   "telegram_thread",
   "web_thread",
@@ -820,6 +832,30 @@ export class ManageNotificationPlatformService {
     if (input.renderStrategy && !VALID_RENDER_STRATEGIES.includes(input.renderStrategy as never)) {
       throw new BadRequestException(`Unknown render strategy: ${input.renderStrategy}`);
     }
+
+    // ADR-090: Prevent misconfigured channels for idle_reengagement.
+    if (source === "idle_reengagement") {
+      const badChannels = (input.channels ?? []).filter(
+        (ch) => !IDLE_REENGAGEMENT_ALLOWED_CHANNELS.has(ch)
+      );
+      if (badChannels.length > 0) {
+        throw new BadRequestException(
+          `idle_reengagement policy does not support channel(s): ${badChannels.join(", ")}. ` +
+            `Allowed: ${[...IDLE_REENGAGEMENT_ALLOWED_CHANNELS].join(", ")}.`
+        );
+      }
+      if (
+        input.escalationChannel !== undefined &&
+        input.escalationChannel !== null &&
+        !IDLE_REENGAGEMENT_ALLOWED_CHANNELS.has(input.escalationChannel)
+      ) {
+        throw new BadRequestException(
+          `idle_reengagement policy does not support escalationChannel: ${input.escalationChannel}. ` +
+            `Allowed: ${[...IDLE_REENGAGEMENT_ALLOWED_CHANNELS].join(", ")}.`
+        );
+      }
+    }
+
     await this.resolveWorkspaceId(userId);
 
     // Use the code-level default as the base for upsert create so that
@@ -830,7 +866,8 @@ export class ManageNotificationPlatformService {
       create: {
         source: source as never,
         enabled: input.enabled ?? def?.enabled ?? false,
-        channels: def?.channels ?? [],
+        // ADR-090: persist input.channels when supplied; fall back to defaults.
+        channels: input.channels ?? def?.channels ?? [],
         cooldownMinutes: input.cooldownMinutes ?? def?.cooldownMinutes ?? null,
         maxPerDay: input.maxPerDay ?? def?.maxPerDay ?? null,
         escalationAfterMinutes: input.escalationAfterMinutes ?? def?.escalationAfterMinutes ?? null,
@@ -839,10 +876,17 @@ export class ManageNotificationPlatformService {
         renderStrategy: (input.renderStrategy as never) ?? (def?.renderStrategy as never),
         renderInstructionRef: input.renderInstructionRef ?? def?.renderInstructionRef ?? null,
         templateId: input.templateId ?? def?.templateId ?? null,
-        config: (input.config as Prisma.InputJsonValue) ?? {}
+        // ADR-090: preserve the code-level default config on first create
+        // when the operator did not pass an explicit config object.
+        config:
+          (input.config as Prisma.InputJsonValue | undefined) ??
+          (def?.config as Prisma.InputJsonValue | undefined) ??
+          ({} as Prisma.InputJsonValue)
       },
       update: {
         ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+        // ADR-090: persist input.channels on update too (was previously dropped).
+        ...(input.channels !== undefined ? { channels: input.channels } : {}),
         ...(input.cooldownMinutes !== undefined ? { cooldownMinutes: input.cooldownMinutes } : {}),
         ...(input.maxPerDay !== undefined ? { maxPerDay: input.maxPerDay } : {}),
         ...(input.escalationAfterMinutes !== undefined

@@ -9,12 +9,23 @@ import {
 } from "./internal-runtime-compaction.client.service";
 
 const POLL_INTERVAL_MS = 5_000;
+// ADR-090: stable scheduler-unique advisory-lock id; must not collide with other
+// pg_advisory locks in this service. Cross-reference: idle = 5_203_916_748_291_034n,
+// background-task = 7_341_822_019_465_127n.
+const COMPACTION_SCHEDULER_LOCK_ID = 3_891_047_162_837_456n;
+// ADR-090: tick transaction timeout. Must comfortably cover one drain pass
+// including upstream runtime call timeouts.
+const SCHEDULER_TICK_TRANSACTION_TIMEOUT_MS = 10 * 60_000;
+// ADR-090: defer interval after HTTP 409 from runtime (session busy).
+const RUNTIME_SESSION_BUSY_DEFER_MS = 60_000;
 const BATCH_SIZE = 8;
 // ADR-074 Slice M2 — keep slightly above the runtime call timeout so a stuck
 // runtime cannot starve the queue. Other replicas reclaim the row after this
 // TTL expires even if the worker that claimed it crashed mid-flight.
 const CLAIM_TTL_MS = 60_000;
 const RETRY_BASE_DELAY_MS = 30_000;
+// ADR-090: cap exponential backoff so a stuck job doesn't park forever.
+const RETRY_MAX_DELAY_MS = 5 * 60_000;
 const MAX_ATTEMPTS = 5;
 
 type ClaimedJob = {
@@ -84,20 +95,40 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
     }
     this.running = true;
     try {
-      let processed = 0;
-      while (!this.stopped) {
-        const count = await this.processDueJobsBatch();
-        processed += count;
-        if (count < BATCH_SIZE) {
-          break;
-        }
-      }
-      if (processed > 0) {
-        this.logger.log(`Processed ${processed} background compaction job(s).`);
-      }
+      // ADR-090: pool-vs-HTTP trade-off. The advisory lock is held for the
+      // full drain pass — including outbound runtime LLM calls — pinning one
+      // Prisma pool connection per leader. The per-tick early-break
+      // (count < BATCH_SIZE) bounds that interval. If pool pressure grows,
+      // the right move is to split lock acquisition (short tx) from job
+      // processing (no tx) using a dedicated lease row, NOT to weaken the
+      // lock itself.
+      await this.prisma.$transaction(
+        async (tx) => {
+          const lockResult = await tx.$queryRaw<{ locked: boolean }[]>`
+            SELECT pg_try_advisory_xact_lock(${COMPACTION_SCHEDULER_LOCK_ID}::bigint) AS locked
+          `;
+          if (!lockResult[0]?.locked) {
+            return;
+          }
+          let processed = 0;
+          while (!this.stopped) {
+            const count = await this.processDueJobsBatch();
+            processed += count;
+            if (count < BATCH_SIZE) {
+              break;
+            }
+          }
+          if (processed > 0) {
+            this.logger.log(`Processed ${processed} background compaction job(s).`);
+          }
+        },
+        { timeout: SCHEDULER_TICK_TRANSACTION_TIMEOUT_MS }
+      );
     } catch (error) {
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Background compaction scheduler tick failed: ${error instanceof Error ? error.message : String(error)}`
+        `Background compaction scheduler tick failed: ${error instanceof Error ? error.message : String(error)}`,
+        stack
       );
     } finally {
       this.running = false;
@@ -220,6 +251,11 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
       return;
     }
 
+    if (outcome.status === 409) {
+      await this.deferJobAfterBusy(job);
+      return;
+    }
+
     await this.handleFailure(
       job,
       outcome.retryable,
@@ -291,7 +327,7 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
     }
 
     const delayMs = Math.min(
-      5 * 60_000,
+      RETRY_MAX_DELAY_MS,
       RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, job.attemptCount - 1))
     );
     await this.prisma.assistantBackgroundCompactionJob.updateMany({
@@ -316,6 +352,33 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
     );
   }
 
+  private async deferJobAfterBusy(job: ClaimedJob): Promise<void> {
+    // ADR-090: 409 from runtime is a "session busy, try later" signal — not a
+    // failure. Decrement attemptCount because the claim consumed one attempt
+    // for what turned out to be no real evaluation.
+    await this.prisma.assistantBackgroundCompactionJob.updateMany({
+      where: {
+        id: job.id,
+        schedulerClaimToken: job.claimToken,
+        schedulerClaimEpoch: job.claimEpoch
+      },
+      data: {
+        status: "pending",
+        retryAfterAt: new Date(Date.now() + RUNTIME_SESSION_BUSY_DEFER_MS),
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null,
+        attemptCount: Math.max(0, job.attemptCount - 1),
+        lastErrorCode: "runtime_session_busy",
+        lastErrorMessage: "Deferred: runtime session busy."
+      }
+    });
+    this.logger.debug(
+      `Background compaction job ${job.id} deferred for ${RUNTIME_SESSION_BUSY_DEFER_MS}ms (runtime session busy).`
+    );
+  }
+
   private async releaseToPending(job: ClaimedJob, reason: string): Promise<void> {
     await this.prisma.assistantBackgroundCompactionJob.updateMany({
       where: {
@@ -331,7 +394,11 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
         schedulerClaimExpiresAt: null,
         // Decrement so we don't double-charge attempt budget on epoch flips.
         attemptCount: Math.max(0, job.attemptCount - 1),
-        lastErrorCode: reason.slice(0, 128)
+        lastErrorCode: reason.slice(0, 128),
+        // ADR-090 audit: keep parity with deferJobAfterBusy / failJob so
+        // operators always see *why* a row went back to pending, not just
+        // a bare error code.
+        lastErrorMessage: `Released to pending: ${reason}`
       }
     });
   }

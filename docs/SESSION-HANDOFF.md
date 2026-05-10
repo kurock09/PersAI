@@ -1,5 +1,132 @@
 # SESSION-HANDOFF
 
+## 2026-05-10 — ADR-091 Production-Grade Background Scheduler Architecture (PROPOSED) + pre-ADR-090 inherited bug fix (LANDED)
+
+### What landed in this session
+
+1. **`docs/ADR/091-production-grade-background-scheduler-architecture.md`** — single comprehensive ADR for all four background schedulers. Status: **Proposed** until execution Session 3 (mandatory final audit) passes. Key decisions:
+   - Universal lease-based single-leader pattern via new `SchedulerLease` Prisma model + `SchedulerLeaseService` (acquire / heartbeat / release).
+   - All four schedulers (idle, background-task, background-compaction, media jobs) migrate to the unified pattern. Media jobs gains single-leader semantics (was `FOR UPDATE SKIP LOCKED` only).
+   - ADR-090's `pg_try_advisory_xact_lock`-held-across-HTTP pattern is fully removed — no transitional / legacy modes. Pool connections are no longer pinned during outbound LLM calls.
+   - Idle scheduler also gets drain-loop, batch=24, poll-interval=5min (raises theoretical throughput from ~1152/day to ~14000/day).
+   - Three execution sessions explicitly defined for sonnet 4.6 agents: (1) lease foundation, (2) apply to all four, (3) mandatory final audit.
+   - Final audit (Session 3) is **mandatory** and explicitly tasked with hunting for inherited bugs: `findMany({ where: {} })`, N+1 patterns, in-JS filtering that should have been SQL, non-deterministic ordering columns, implicit cross-pod assumptions.
+   - Pool sizing constant (`CONNECTIONS_PER_POD = max(10, cpu_count × 4)`) documented; `PRISMA_CONNECTION_LIMIT` env var to be added to deploy manifest.
+   - Failure model (5 scenarios) explicit and testable.
+
+2. **Surgical fix for the pre-ADR-090 inherited bug in `persai-idle-reengagement-scheduler.service.ts::findDueCandidates`** — `assistant.findMany({ where: {}, orderBy: updatedAt asc, take: 12 })` was loading the 12 globally-oldest-updatedAt assistants without any idle filter. If those 12 had closed markers, every fresh idle candidate behind them was starved tick after tick. Surgical replacement: `where: { chats: { some: { archivedAt: null, messages: { some: { author: "user", createdAt: { lte: idleCutoff } } } } } }` — narrows to assistants that have at least one non-archived chat with a user message older than the policy's `idleHours` threshold. JS-loop fine-grained qualification stays. The holistic SQL rewrite (one query that returns only-qualifying candidates and eliminates the N+1) is intentionally scoped under ADR-091 Session 2, not duplicated here.
+
+### Verification
+
+- API typecheck: green.
+- Workspace lint (all 14 projects): green.
+- format:check: green.
+- `apps/api/test/persai-idle-reengagement-scheduler.service.test.ts` (8 tests): green.
+- Test fakes were not modified — the fake `assistant.findMany` returns one assistant regardless of `where`, and the new filter is well-formed Prisma input.
+
+### Risks / residuals
+
+- ADR-091 is **Proposed**, not yet executed. Until Session 1–3 land, the ADR-090 pool-vs-HTTP trade-off remains active. At current load (≪ 1000 users) this is fine; the operational risk is bounded by user growth.
+- The N+1 inside `findDueCandidates` (latestUserMessage + marker per assistant) is unchanged. Bounded by `limit=12` so worst-case 24 extra queries per tick — acceptable as surgical patch. Holistic rewrite tracked under ADR-091 Session 2.
+- The `for (const policy of policies)` outer loop is preserved exactly. Per schema (`NotificationPolicy.source @unique`), at most one row exists for `idle_reengagement` so the loop iterates 0 or 1 times — but the loop shape is unchanged for review safety.
+
+### Next recommended step
+
+User decides: kick off ADR-091 Session 1 (`lease-foundation`) immediately, or first deploy the surgical fix to GKE-dev and observe idle qualification behavior over 24h before starting the larger refactor.
+
+---
+
+## 2026-05-10 — ADR-090 Idle Re-Engagement Prod Hardening + post-audit fixes + final-audit pass (LANDED)
+
+### Final-audit pass (after a third round of independent agent review)
+
+A third pass of three parallel readonly audit agents reviewed the diff one more time. Their findings:
+
+1. **PROD-CRITICAL: `task.attemptCount` was stale post-claim** — `claimDueTasks` writes `attemptCount = claimEpoch` to the DB but the in-memory `ClaimedBackgroundTask` was getting `row.attemptCount` (the pre-claim value) via `claimed.push({ ...row, ... })`. Every downstream check that reads `task.attemptCount` was off-by-one: `failTask` exhaustion, retry backoff schedule, and `deferTask` rewind. **Fix:** explicitly assign `attemptCount: claimEpoch` after the spread, with an invariant comment.
+2. **ADR-090 doc accuracy** — root-cause #2 narrative wrong (`externalThreadKey` is `system:background-task:{task.id}`, NOT `task.id + scheduledRunAt`); migration filename in the doc was `20260510120000_` (actual on-disk: `20260510130000_`); files-changed list missed `apps/runtime/test/run-suite-isolated.ts`. All three corrected.
+3. **Misleading test name** — `runEmptyAttemptIdRejectedTest` actually asserted *fallback* (not rejection) to the legacy `externalThreadKey`. Renamed to `runEmptyAttemptIdFallsBackToLegacyKeyTest` in test file + isolated suite registry; comment block rewritten.
+4. **Optional-chain hardening in `buildContextPacket`** — `assistant?.user.displayName` → `assistant?.user?.displayName`; same for `workspace.locale` / `workspace.timezone`. Defensive against future `select` shape changes.
+5. **Magic numbers extracted** — idle scheduler now defines `RUNTIME_SESSION_BUSY_DEFER_MS`, `SCHEDULER_TICK_TRANSACTION_TIMEOUT_MS`, `ERROR_BACKOFF_FALLBACK_MS`, `OPEN_LOOPS_CONTEXT_LIMIT`. Compaction scheduler defines `RETRY_MAX_DELAY_MS`. All three schedulers share the same constant naming.
+6. **Compaction `releaseToPending` sets `lastErrorMessage`** — `"Released to pending: ${reason}"` so operators see the rewind cause alongside `lastErrorCode`. Parity with `deferJobAfterBusy` / `failJob`.
+7. **Pool-vs-HTTP trade-off documented in code** — explicit comment block above each scheduler's `$transaction(...)` call explains the pool-pinning consequence and the right future move (split lock into a short tx + lease row, NOT weaken the lock itself).
+8. **Redundant `(result.pushText as string).trim()` cast removed** — replaced with a single `usablePushText: string | null` narrowed once at the decision branch.
+
+All verification gates green: workspace lint, format:check, API typecheck, runtime typecheck, full API test suite, full runtime test suite (with the renamed empty-attempt-id test passing).
+
+### Post-audit hardening (after independent agent review)
+
+Three independent audit agents reviewed the diff. Their findings drove a second pass:
+
+1. **`deferTask` orphan run row fixed** — `persai-background-task-scheduler.service.ts` `deferTask` previously left `assistant_background_task_run` rows in `status="running"` forever. Now wraps run-close + task-rewind in one `$transaction`: run is set to `status="skipped"`, `attemptCount` is decremented (claim already incremented it), `retryAfterAt` set.
+2. **Stale marker attempts on new-message reset** — `findDueCandidates` now treats `attemptsForCurrentUserMessage` as **0** when `marker.latestUserMessageAtSnapshot < latestUserMessageAt` (new user message opened a fresh window). Previously the stale prior-window count was carried into `runCount` and into `recordEvaluation`'s increment math.
+3. **`push` without `pushText` no longer closes the window silently** — A malformed model response (`decision="push"`, blank `pushText`) is now treated as `no_push` (increments attempts, logs warn). Previously it closed the marker as success and the user got no notification for the entire idle window.
+4. **`patchPolicy` channels persistence fixed** — `input.channels` is now persisted on **both** create and update branches (was previously dropped silently). The new `IDLE_REENGAGEMENT_ALLOWED_CHANNELS` allow-list validation runs against the value that actually gets written.
+5. **`patchPolicy` config defaults preserved on create** — when the operator does not pass `input.config`, the upsert-create branch now falls back to `def.config` (was `{}`). First-touch upsert no longer wipes per-source defaults like `idle_reengagement.config.idleHours: 24`.
+6. **Empty-string `evaluationAttemptId` no longer collapses to legacy key** — runtime `buildExternalThreadKey` helper extracted; `string` checked for non-empty after `.trim()`. Defensive against caller bugs that would re-introduce the busy-conflict class.
+7. **`outputSchema` includes `complete`** — context packet schema now lists `push | no_push | complete` (matches `pushPolicyJson`).
+8. **Magic constants extracted** — `RUNTIME_SESSION_BUSY_DEFER_MS`, `SCHEDULER_TICK_TRANSACTION_TIMEOUT_MS` named in both task and compaction schedulers; advisory-lock id comments now cross-reference each other instead of describing `hashtext()` ancestry.
+9. **Error logs now include stack trace** — both schedulers' `tick()` `catch` block passes the error stack as the second arg to `logger.error`.
+10. **Compaction `deferJobAfterBusy` now sets `lastErrorMessage`** — parity with the task scheduler; dashboards/alerts get a non-null reason field.
+11. **3 new tests** added: `runPushWithoutTextDoesNotCloseMarkerTest`, `runStaleAttemptsResetOnNewMessageTest`, `runEmptyAttemptIdFallsBackToLegacyKeyTest` (originally `runEmptyAttemptIdRejectedTest`; renamed in the final-audit pass to match actual fallback behavior).
+
+### What changed
+
+1. **`pg_try_advisory_xact_lock` in all three scheduler `tick()` methods** — `persai-idle-reengagement-scheduler.service.ts`, `persai-background-task-scheduler.service.ts`, `persai-background-compaction-scheduler.service.ts` now each hold a Postgres advisory lock for the duration of their tick. Only one API pod runs the tick at a time; the other silently exits. Lock IDs are stable `bigint` constants. Locks are released automatically when the implicit transaction commits.
+
+2. **`AssistantIdleEvaluationMarker` — durable per-(assistant, chat) evaluation state** — new Prisma model + migration `20260510130000_adr090_idle_eval_marker`. Stores `latestUserMessageAtSnapshot`, `attemptsForCurrentUserMessage`, `nextEligibleEvaluationAt`. `findDueCandidates` uses this as the primary cooldown/budget gate (not the fragile `notificationIntent.lifecycleStatus` filter that missed `failed`/`dead_letter` states). `MAX_ATTEMPTS = 2`.
+
+3. **Marker-driven state transitions** — `push`/`complete` closes marker (attempts=MAX); `no_push` increments attempts; 409 deferred does NOT increment attempts (reschedules +60s); errors increment attempts with backoff (30s/2min/10min).
+
+4. **`evaluationAttemptId` in `RuntimeBackgroundTaskEvaluationRequest.task`** — optional `evaluationAttemptId?: string` added to the contract. When provided, the runtime uses it as a suffix for `externalThreadKey` (`system:background-task:{id}:{attemptId}`), giving each evaluation attempt its own ephemeral synthetic session. The idle scheduler generates a fresh `uuid` per call.
+
+5. **HTTP 409 = `deferred` outcome** — `InternalRuntimeBackgroundTaskClientService` now returns `{ ok: false, deferred: true, status: 409, code: 'runtime_session_busy' }` instead of mapping 409 to the generic retryable error path. All three schedulers handle `outcome.deferred === true` without burning attempt budget.
+
+6. **Channel allow-list for `idle_reengagement`** — `ManageNotificationPlatformService.patchPolicy()` rejects `telegram_thread`, `web_thread`, `admin_webhook`, `web_push`, `mobile_push` with a descriptive 400 for idle policy. Prevents the channel-misconfiguration loop that caused the original spam.
+
+7. **ADR-090 created** at `docs/ADR/090-idle-reengagement-prod-hardening.md`.
+
+### Current slice/step
+
+ADR-090 Idle Re-Engagement Prod Hardening — COMPLETE. All 10 to-dos done.
+
+### Files touched
+
+- `docs/ADR/090-idle-reengagement-prod-hardening.md` (new)
+- `packages/runtime-contract/src/index.ts` — `evaluationAttemptId?: string` in `RuntimeBackgroundTaskEvaluationRequest.task`
+- `apps/api/prisma/schema.prisma` — `AssistantIdleEvaluationMarker` model added
+- `apps/api/prisma/migrations/20260510130000_adr090_idle_eval_marker/migration.sql` (new)
+- `apps/api/src/modules/workspace-management/application/internal-runtime-background-task.client.service.ts` — `deferred` outcome type + 409 branch
+- `apps/api/src/modules/workspace-management/application/persai-idle-reengagement-scheduler.service.ts` — full rewrite: advisory lock, marker-based candidates, MAX_ATTEMPTS=2, unique evaluationAttemptId, 409 defer
+- `apps/api/src/modules/workspace-management/application/persai-background-task-scheduler.service.ts` — advisory lock + 409=defer (`deferTask`)
+- `apps/api/src/modules/workspace-management/application/persai-background-compaction-scheduler.service.ts` — advisory lock + 409=defer (`deferJobAfterBusy`)
+- `apps/api/src/modules/workspace-management/application/notifications/manage-notification-platform.service.ts` — `IDLE_REENGAGEMENT_ALLOWED_CHANNELS` allow-list + `patchPolicy` validation
+- `apps/runtime/src/modules/turns/runtime-background-task-evaluation.service.ts` — `evaluationAttemptId`-based `externalThreadKey`
+- `apps/api/test/persai-idle-reengagement-scheduler.service.test.ts` — rewritten with 6 tests covering new marker logic
+- `apps/runtime/test/runtime-background-task-evaluation.service.test.ts` — 2 new tests for unique/legacy `externalThreadKey`
+- `apps/runtime/test/run-suite-isolated.ts` — 2 new test registrations
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec prisma generate` → ✅
+- `corepack pnpm --filter @persai/api run typecheck` → ✅
+- `corepack pnpm --filter @persai/web run typecheck` → ✅
+- `corepack pnpm --filter @persai/runtime-contract run typecheck` → ✅
+- `corepack pnpm -r --if-present run lint` → ✅
+- `corepack pnpm run format:check` → ✅
+- `corepack pnpm --filter @persai/api run test` → ✅ (full API suite, idle scheduler 6 tests pass)
+- `corepack pnpm --filter @persai/runtime run test` → ✅ (full runtime suite, 2 new externalThreadKey tests pass)
+
+### Risks / notes
+
+- On first deploy, no markers exist → all current idle candidates get a fresh 2-attempt window. This is expected and safe (MAX_ATTEMPTS=2 bounds spend immediately).
+- Each unique `externalThreadKey` creates an ephemeral synthetic runtime session per evaluation attempt. These are short-lived; cleanup happens via existing Redis TTL housekeeping.
+- `pg_try_advisory_xact_lock` is a transaction-scoped lock; it releases automatically when the outer `$transaction` commits or rolls back. The lock covers the full tick work, including inner transactions used by `claimDueTasks`/`processDueJobsBatch`. These inner transactions are separate connections, which is fine — only the advisory lock needs to be on the outer transaction's connection.
+
+### Next recommended step
+
+Enable `idle_reengagement` in production (Admin > Notifications → set `enabled=true`, `idleHours=24`, verify `escalationChannel=web_notification_center`), watch Cloud Logging for `runtime_turn_busy` with `background-task-tool-run:` requestIds. Expected: ≤2 LLM calls per user-idle-window, no parallel busy conflicts.
+
 ## 2026-05-10 — ADR-089 highlighted flag + admin compact rows + user info hints (LANDED)
 
 ### What changed

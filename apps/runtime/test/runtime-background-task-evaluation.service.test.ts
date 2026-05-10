@@ -140,3 +140,101 @@ export async function runRuntimeBackgroundTaskEvaluationServiceTest(): Promise<v
   assert.ok(providerRequest.requestMetadata !== undefined);
   assert.equal(providerRequest.requestMetadata.runtimeRequestId, toolRunRequest.requestId);
 }
+
+// ADR-090: unique externalThreadKey when evaluationAttemptId is provided
+export async function runUniqueExternalThreadKeyTest(): Promise<void> {
+  const turnExecution = new FakeTurnExecutionService();
+  const providerGateway = new FakeProviderGatewayClientService();
+  const service = new RuntimeBackgroundTaskEvaluationService(
+    providerGateway as unknown as ProviderGatewayClientService,
+    turnExecution as unknown as TurnExecutionService
+  );
+
+  const attemptId = "aabbccdd-0000-4000-8000-112233445566";
+  const input: RuntimeBackgroundTaskEvaluationRequest = {
+    ...createEvaluationRequest(),
+    task: {
+      ...createEvaluationRequest().task,
+      evaluationAttemptId: attemptId
+    }
+  };
+
+  await service.evaluate(input);
+
+  assert.equal(turnExecution.requests.length, 1);
+  const req = turnExecution.requests[0]!;
+
+  assert.ok(
+    req.conversation.externalThreadKey.endsWith(`:${attemptId}`),
+    `externalThreadKey must end with evaluationAttemptId. Got: ${req.conversation.externalThreadKey}`
+  );
+  assert.ok(
+    !req.conversation.externalThreadKey.includes(input.task.scheduledRunAt),
+    "externalThreadKey must NOT include scheduledRunAt when evaluationAttemptId is provided"
+  );
+}
+
+// Legacy fallback: without evaluationAttemptId the key uses task.id only
+export async function runLegacyThreadKeyFallbackTest(): Promise<void> {
+  const turnExecution = new FakeTurnExecutionService();
+  const providerGateway = new FakeProviderGatewayClientService();
+  const service = new RuntimeBackgroundTaskEvaluationService(
+    providerGateway as unknown as ProviderGatewayClientService,
+    turnExecution as unknown as TurnExecutionService
+  );
+
+  const input = createEvaluationRequest();
+
+  await service.evaluate(input);
+
+  assert.equal(turnExecution.requests.length, 1);
+  const req = turnExecution.requests[0]!;
+
+  assert.ok(
+    req.conversation.externalThreadKey.startsWith("system:background-task:"),
+    `externalThreadKey must start with 'system:background-task:'. Got: ${req.conversation.externalThreadKey}`
+  );
+  // Without evaluationAttemptId the key ends with the task id alone
+  assert.ok(
+    req.conversation.externalThreadKey.endsWith(input.task.id),
+    `legacy externalThreadKey must end with task.id. Got: ${req.conversation.externalThreadKey}`
+  );
+}
+
+// ADR-090: empty / whitespace-only evaluationAttemptId falls back to the legacy
+// key (no `::` suffix is ever produced). This is the defensive behaviour:
+// callers passing blank attempt ids should never appear to "succeed" with a
+// degenerate per-attempt key that collides on the empty suffix; instead they
+// behave indistinguishably from "no attempt id provided at all".
+export async function runEmptyAttemptIdFallsBackToLegacyKeyTest(): Promise<void> {
+  const turnExecution = new FakeTurnExecutionService();
+  const providerGateway = new FakeProviderGatewayClientService();
+  const service = new RuntimeBackgroundTaskEvaluationService(
+    providerGateway as unknown as ProviderGatewayClientService,
+    turnExecution as unknown as TurnExecutionService
+  );
+
+  for (const blank of ["", "   ", "\n\t"]) {
+    turnExecution.requests.length = 0;
+    const input: RuntimeBackgroundTaskEvaluationRequest = {
+      ...createEvaluationRequest(),
+      task: {
+        ...createEvaluationRequest().task,
+        evaluationAttemptId: blank
+      }
+    };
+
+    await service.evaluate(input);
+
+    assert.equal(turnExecution.requests.length, 1);
+    const req = turnExecution.requests[0]!;
+    assert.ok(
+      !req.conversation.externalThreadKey.includes(blank.trim() === "" ? "::" : blank),
+      `blank evaluationAttemptId must not produce '::' suffix. Got: ${req.conversation.externalThreadKey}`
+    );
+    assert.ok(
+      req.conversation.externalThreadKey.endsWith(input.task.id),
+      `blank evaluationAttemptId must collapse to legacy key. Got: ${req.conversation.externalThreadKey}`
+    );
+  }
+}

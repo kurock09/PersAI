@@ -24,14 +24,18 @@ const PACKAGE_TYPE_ORDER: PackageType[] = ["image_generate", "image_edit", "vide
 const PACKAGE_TYPE_META: Record<
   PackageType,
   {
-    title: { ru: string; en: string };
+    eyebrow: { ru: string; en: string };
+    headline: { ru: string; en: string };
+    summaryLabel: { ru: string; en: string };
     disabledHint: { ru: string; en: string };
     emptyHint: { ru: string; en: string };
     info: { ru: string; en: string };
   }
 > = {
   image_generate: {
-    title: { ru: "Генерация изображений", en: "Image generation" },
+    eyebrow: { ru: "Изображения", en: "Images" },
+    headline: { ru: "Создание", en: "Generation" },
+    summaryLabel: { ru: "Изображения · Создание", en: "Images · Generation" },
     disabledHint: {
       ru: "Перейдите на тариф, где включена генерация изображений, чтобы купить пакет.",
       en: "Switch to a plan with image generation enabled to buy this package."
@@ -46,7 +50,9 @@ const PACKAGE_TYPE_META: Record<
     }
   },
   image_edit: {
-    title: { ru: "Редактирование изображений", en: "Image editing" },
+    eyebrow: { ru: "Изображения", en: "Images" },
+    headline: { ru: "Редактирование", en: "Editing" },
+    summaryLabel: { ru: "Изображения · Редактирование", en: "Images · Editing" },
     disabledHint: {
       ru: "Перейдите на тариф, где включено редактирование изображений, чтобы купить пакет.",
       en: "Switch to a plan with image editing enabled to buy this package."
@@ -61,7 +67,9 @@ const PACKAGE_TYPE_META: Record<
     }
   },
   video_generate: {
-    title: { ru: "Генерация видео", en: "Video generation" },
+    eyebrow: { ru: "Видео", en: "Video" },
+    headline: { ru: "Генерация", en: "Generation" },
+    summaryLabel: { ru: "Видео · Генерация", en: "Video · Generation" },
     disabledHint: {
       ru: "Перейдите на тариф, где включена генерация видео, чтобы купить пакет.",
       en: "Switch to a plan with video generation enabled to buy this package."
@@ -222,10 +230,13 @@ function PackageTypeCard({
         className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-full bg-white/10 blur-3xl"
       />
       <div className="relative z-10">
-        <p className="min-h-[2.7rem] text-[11px] font-semibold uppercase leading-5 tracking-[0.2em] text-text-subtle">
-          {pickMetaText(locale, meta.title)}
+        <p className="text-[10px] font-semibold uppercase leading-4 tracking-[0.22em] text-text-subtle">
+          {pickMetaText(locale, meta.eyebrow)}
         </p>
-        <div className="mt-3 h-px w-full bg-gradient-to-r from-border/80 via-border/40 to-transparent" />
+        <h2 className="mt-1.5 text-xl font-semibold tracking-[-0.01em] text-text">
+          {pickMetaText(locale, meta.headline)}
+        </h2>
+        <div className="mt-4 h-px w-full bg-gradient-to-r from-border/80 via-border/40 to-transparent" />
       </div>
       <div className="mt-6 flex-1 space-y-3">
         {items.length === 0 ? (
@@ -261,7 +272,7 @@ function PackageTypeCard({
   );
 }
 
-function SummaryCard({
+function SummaryBlock({
   selectedItems,
   purchasing,
   hasMixedCurrencies,
@@ -276,79 +287,106 @@ function SummaryCard({
   expiryHint: string;
   onPurchase: () => void;
 }) {
-  const chosenItems = selectedItems.filter(
-    (item): item is MediaPackageCatalogItem => item !== null
-  );
-  const totalAmountMinor = chosenItems.reduce((sum, item) => sum + item.amountMinor, 0);
-  const currency = chosenItems[0]?.currency ?? "RUB";
+  const chosenWithType: Array<{ type: PackageType; item: MediaPackageCatalogItem }> = [];
+  PACKAGE_TYPE_ORDER.forEach((type, index) => {
+    const item = selectedItems[index];
+    if (item) {
+      chosenWithType.push({ type, item });
+    }
+  });
+
+  const totalAmountMinor = chosenWithType.reduce((sum, { item }) => sum + item.amountMinor, 0);
+  const currency = chosenWithType[0]?.item.currency ?? "RUB";
+  const hasSelection = chosenWithType.length > 0;
+  const buyDisabled = purchasing || !hasSelection || hasMixedCurrencies;
+
+  const totalLabel = !hasSelection
+    ? "—"
+    : hasMixedCurrencies
+      ? locale === "ru"
+        ? "Разные валюты"
+        : "Mixed currencies"
+      : formatPrice(totalAmountMinor, currency, locale);
 
   return (
-    <section className="relative flex h-full flex-col overflow-hidden rounded-[32px] border border-border/80 bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-6">
+    <section className="relative overflow-hidden rounded-[32px] border border-border/80 bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-6">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-text/10 to-transparent"
       />
       <div className="relative z-10">
-        <p className="min-h-[2.7rem] text-[11px] font-semibold uppercase leading-5 tracking-[0.2em] text-text-subtle">
-          {locale === "ru" ? "Итог" : "Summary"}
+        <p className="text-[10px] font-semibold uppercase leading-4 tracking-[0.22em] text-text-subtle">
+          {locale === "ru" ? "Ваш выбор" : "Your selection"}
         </p>
-        <div className="mt-3 h-px w-full bg-gradient-to-r from-border/80 via-border/40 to-transparent" />
+        <div className="mt-4 h-px w-full bg-gradient-to-r from-border/80 via-border/40 to-transparent" />
       </div>
-      <div className="mt-6 flex-1 space-y-3">
-        {PACKAGE_TYPE_ORDER.map((type, index) => {
-          const item = selectedItems[index] ?? null;
-          return (
-            <div key={type} className="rounded-2xl border border-border/80 bg-bg/55 px-4 py-3">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-text-subtle">
-                {pickMetaText(locale, PACKAGE_TYPE_META[type].title)}
-              </p>
-              <p className="mt-2 text-sm font-semibold text-text">
-                {item
-                  ? formatPackageLabel(locale, item)
-                  : locale === "ru"
-                    ? "Не выбрано"
-                    : "Not selected"}
-              </p>
-              <p className="mt-1 text-sm text-text-muted">
-                {item ? formatPrice(item.amountMinor, item.currency, locale) : "—"}
-              </p>
-            </div>
-          );
-        })}
+
+      <div className="mt-6 flex flex-col gap-6 lg:flex-row lg:items-stretch">
+        <div className="flex-1">
+          {!hasSelection ? (
+            <p className="text-sm text-text-muted">
+              {locale === "ru"
+                ? "Выберите хотя бы один пакет в категориях выше."
+                : "Pick at least one package from the categories above."}
+            </p>
+          ) : (
+            <ul className="divide-y divide-border/40">
+              {chosenWithType.map(({ type, item }) => (
+                <li
+                  key={type}
+                  className="flex items-baseline justify-between gap-4 py-2.5 first:pt-0 last:pb-0"
+                >
+                  <span className="text-sm text-text">
+                    <span className="text-text-subtle">
+                      {pickMetaText(locale, PACKAGE_TYPE_META[type].summaryLabel)}
+                    </span>{" "}
+                    <span className="font-semibold text-text">·</span>{" "}
+                    <span className="font-semibold text-text">
+                      {formatPackageLabel(locale, item)}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums text-text">
+                    {formatPrice(item.amountMinor, item.currency, locale)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="flex flex-col items-stretch gap-4 lg:w-[300px] lg:shrink-0 lg:border-l lg:border-border/40 lg:pl-6">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-subtle">
+              {locale === "ru" ? "Сумма" : "Total"}
+            </p>
+            <p className="mt-1.5 text-2xl font-semibold tracking-[-0.03em] text-text">
+              {totalLabel}
+            </p>
+            <p className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-relaxed text-text-subtle">
+              <Info className="mt-px h-3 w-3 shrink-0 opacity-60" aria-hidden="true" />
+              <span>{expiryHint}</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onPurchase}
+            disabled={buyDisabled}
+            className={cn(
+              "inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl px-5 text-sm font-semibold transition-all",
+              buyDisabled
+                ? "cursor-not-allowed border border-border/80 bg-surface/60 text-text-subtle"
+                : "bg-accent text-white shadow-[0_0_36px_var(--accent-glow)] hover:bg-accent-hover"
+            )}
+          >
+            {purchasing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ShoppingCart className="h-4 w-4" />
+            )}
+            {locale === "ru" ? "Купить" : "Buy"}
+          </button>
+        </div>
       </div>
-      <div className="mt-6 rounded-2xl border border-border/80 bg-bg/55 px-4 py-4">
-        <p className="text-[10px] uppercase tracking-[0.16em] text-text-subtle">
-          {locale === "ru" ? "Сумма" : "Total"}
-        </p>
-        <p className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-text">
-          {chosenItems.length === 0
-            ? "—"
-            : hasMixedCurrencies
-              ? locale === "ru"
-                ? "Разные валюты"
-                : "Mixed currencies"
-              : formatPrice(totalAmountMinor, currency, locale)}
-        </p>
-        <p className="mt-2 text-xs text-text-subtle">{expiryHint}</p>
-      </div>
-      <button
-        type="button"
-        onClick={onPurchase}
-        disabled={purchasing || chosenItems.length === 0 || hasMixedCurrencies}
-        className={cn(
-          "mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl px-5 text-sm font-semibold transition-all",
-          purchasing || chosenItems.length === 0 || hasMixedCurrencies
-            ? "cursor-not-allowed border border-border/80 bg-surface/60 text-text-subtle"
-            : "bg-accent text-white shadow-[0_0_36px_var(--accent-glow)] hover:bg-accent-hover"
-        )}
-      >
-        {purchasing ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <ShoppingCart className="h-4 w-4" />
-        )}
-        {locale === "ru" ? "Купить" : "Buy"}
-      </button>
     </section>
   );
 }
@@ -532,19 +570,21 @@ export default function PackagesPage() {
         ) : null}
 
         {!loading && !error && packages.length > 0 ? (
-          <div className="mt-10 grid items-stretch gap-5 lg:grid-cols-4">
-            {PACKAGE_TYPE_ORDER.map((type) => (
-              <PackageTypeCard
-                key={type}
-                type={type}
-                items={packagesByType[type]}
-                selectedId={selectedByType[type]}
-                toolEnabled={toolAvailability[type]}
-                locale={locale}
-                onSelect={(id) => handleSelect(type, id)}
-              />
-            ))}
-            <SummaryCard
+          <div className="mt-10 space-y-5">
+            <div className="grid items-stretch gap-5 lg:grid-cols-3">
+              {PACKAGE_TYPE_ORDER.map((type) => (
+                <PackageTypeCard
+                  key={type}
+                  type={type}
+                  items={packagesByType[type]}
+                  selectedId={selectedByType[type]}
+                  toolEnabled={toolAvailability[type]}
+                  locale={locale}
+                  onSelect={(id) => handleSelect(type, id)}
+                />
+              ))}
+            </div>
+            <SummaryBlock
               selectedItems={selectedItems}
               purchasing={purchasing}
               hasMixedCurrencies={hasMixedCurrencies}

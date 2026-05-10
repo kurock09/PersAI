@@ -13,6 +13,15 @@ import { computeReminderNextRunAtMs, parseReminderSchedule } from "./reminder-sc
 import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
 
 const BACKGROUND_TASK_POLL_INTERVAL_MS = 5_000;
+// ADR-090: stable scheduler-unique advisory-lock id; must not collide with other
+// pg_advisory locks in this service. Cross-reference: idle = 5_203_916_748_291_034n,
+// compaction = 3_891_047_162_837_456n.
+const BACKGROUND_TASK_SCHEDULER_LOCK_ID = 7_341_822_019_465_127n;
+// ADR-090: tick transaction timeout. Must comfortably cover one drain pass
+// (claim → evaluate → finalize) including upstream runtime call timeouts.
+const SCHEDULER_TICK_TRANSACTION_TIMEOUT_MS = 10 * 60_000;
+// ADR-090: defer interval after HTTP 409 from runtime (session busy).
+const RUNTIME_SESSION_BUSY_DEFER_MS = 60_000;
 const BACKGROUND_TASK_BATCH_SIZE = 8;
 const BACKGROUND_TASK_CLAIM_TTL_MS = 90_000;
 const BACKGROUND_TASK_RETRY_BASE_DELAY_MS = 30_000;
@@ -109,20 +118,40 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
     }
     this.running = true;
     try {
-      let processed = 0;
-      while (!this.stopped) {
-        const count = await this.processDueTasksBatch();
-        processed += count;
-        if (count < BACKGROUND_TASK_BATCH_SIZE) {
-          break;
-        }
-      }
-      if (processed > 0) {
-        this.logger.log(`Processed ${processed} assistant background task(s).`);
-      }
+      // ADR-090: pool-vs-HTTP trade-off. The advisory lock is held for the
+      // full drain pass — including outbound runtime LLM calls — which pins
+      // exactly one Prisma pool connection per leader. Batch size and the
+      // per-tick early-break (count < BATCH_SIZE) keep that pinned interval
+      // bounded. If pool pressure grows, the right move is to split lock
+      // acquisition (short tx) from candidate processing (no tx) using a
+      // dedicated lease row, NOT to weaken the lock itself.
+      await this.prisma.$transaction(
+        async (tx) => {
+          const lockResult = await tx.$queryRaw<{ locked: boolean }[]>`
+            SELECT pg_try_advisory_xact_lock(${BACKGROUND_TASK_SCHEDULER_LOCK_ID}::bigint) AS locked
+          `;
+          if (!lockResult[0]?.locked) {
+            return;
+          }
+          let processed = 0;
+          while (!this.stopped) {
+            const count = await this.processDueTasksBatch();
+            processed += count;
+            if (count < BACKGROUND_TASK_BATCH_SIZE) {
+              break;
+            }
+          }
+          if (processed > 0) {
+            this.logger.log(`Processed ${processed} assistant background task(s).`);
+          }
+        },
+        { timeout: SCHEDULER_TICK_TRANSACTION_TIMEOUT_MS }
+      );
     } catch (error) {
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Assistant background-task scheduler tick failed: ${error instanceof Error ? error.message : String(error)}`
+        `Assistant background-task scheduler tick failed: ${error instanceof Error ? error.message : String(error)}`,
+        stack
       );
     } finally {
       this.running = false;
@@ -216,6 +245,11 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
         });
         claimed.push({
           ...row,
+          // ADR-090: post-claim attempt count is what the DB now holds and what
+          // every downstream check (failTask exhaustion, backoff, deferTask
+          // rewind) must compare against. Spreading `row` would leak the
+          // pre-claim value and produce off-by-one budget arithmetic.
+          attemptCount: claimEpoch,
           runId: run.id,
           scheduledRunAt: row.nextRunAt,
           claimToken,
@@ -270,6 +304,10 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
     });
 
     if (!outcome.ok) {
+      if (outcome.deferred) {
+        await this.deferTask(task, RUNTIME_SESSION_BUSY_DEFER_MS, "runtime_session_busy");
+        return;
+      }
       await this.failTask(
         task,
         outcome.retryable,
@@ -382,6 +420,48 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
         }
       });
     });
+  }
+
+  private async deferTask(
+    task: ClaimedBackgroundTask,
+    delayMs: number,
+    code: string
+  ): Promise<void> {
+    // ADR-090: A defer is "rewind to pending" — not a failure and not a success.
+    // Close the run row that claimDueTasks created so we never leave orphan
+    // `running` rows, and decrement attemptCount because claimDueTasks already
+    // incremented it for what turned out to be an unconsumed attempt.
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.assistantBackgroundTaskRun.updateMany({
+        where: { id: task.runId, taskId: task.id },
+        data: {
+          status: "skipped",
+          finishedAt: now,
+          errorCode: code,
+          errorMessage: "Deferred: runtime session busy."
+        }
+      });
+      await tx.assistantBackgroundTask.updateMany({
+        where: {
+          id: task.id,
+          schedulerClaimToken: task.claimToken,
+          schedulerClaimEpoch: task.claimEpoch
+        },
+        data: {
+          status: "active",
+          retryAfterAt: new Date(now.getTime() + delayMs),
+          attemptCount: Math.max(0, task.attemptCount - 1),
+          schedulerClaimToken: null,
+          schedulerClaimEpoch: null,
+          schedulerClaimedAt: null,
+          schedulerClaimExpiresAt: null,
+          lastErrorCode: code,
+          lastErrorMessage: "Deferred: runtime session busy."
+        }
+      });
+    });
+    this.logger.debug(`Background task ${task.id} deferred for ${delayMs}ms (${code}).`);
   }
 
   private async failTask(
