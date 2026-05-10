@@ -91,6 +91,11 @@ async function run(): Promise<void> {
     } as never,
     new RenderAssistantInboundSurfaceMessageService() as never,
     {
+      async deliverIntentNow() {
+        return { status: "delivered", providerRef: null, channel: "telegram_thread" };
+      }
+    } as never,
+    {
       async updateMessageContent(messageId: string, _assistantId: string, content: string) {
         persistedCorrections.push({ messageId, content });
         return { id: messageId, content };
@@ -239,6 +244,11 @@ async function run(): Promise<void> {
     } as never,
     new RenderAssistantInboundSurfaceMessageService() as never,
     {
+      async deliverIntentNow() {
+        return { status: "delivered", providerRef: null, channel: "telegram_thread" };
+      }
+    } as never,
+    {
       async updateMessageContent(messageId: string, _assistantId: string, content: string) {
         noMediaCorrections.push({ messageId, content });
         return { id: messageId, content };
@@ -337,6 +347,11 @@ async function run(): Promise<void> {
       }
     } as never,
     new RenderAssistantInboundSurfaceMessageService() as never,
+    {
+      async deliverIntentNow() {
+        return { status: "delivered", providerRef: null, channel: "telegram_thread" };
+      }
+    } as never,
     {
       async updateMessageContent() {
         return null;
@@ -442,6 +457,11 @@ async function run(): Promise<void> {
       }
     } as never,
     new RenderAssistantInboundSurfaceMessageService() as never,
+    {
+      async deliverIntentNow() {
+        return { status: "delivered", providerRef: null, channel: "telegram_thread" };
+      }
+    } as never,
     {
       async updateMessageContent() {
         return null;
