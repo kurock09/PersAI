@@ -233,7 +233,9 @@ function isPaidRecurringSubscription(
   ) {
     return false;
   }
-  return ["active", "grace_period", "past_due"].includes(subscription.subscriptionStatus);
+  return ["active", "grace_period", "past_due", "paused", "canceled"].includes(
+    subscription.subscriptionStatus
+  );
 }
 
 function resolveBillingManagementErrorMessage(
@@ -306,7 +308,9 @@ function hasPaidBillingSettings(
   return (
     subscription !== null &&
     subscription.currentPeriodEndsAt !== null &&
-    ["active", "grace_period", "past_due", "canceled"].includes(subscription.subscriptionStatus)
+    ["active", "grace_period", "past_due", "paused", "canceled"].includes(
+      subscription.subscriptionStatus
+    )
   );
 }
 
@@ -954,7 +958,7 @@ export function AssistantSettings({
   const isEffectivePlanZeroPrice = isZeroPriceEffectivePlan(data.plan?.effectivePlan ?? null);
   const effectivePlanCanHaveBillingSettings =
     !isEffectivePlanZeroPrice &&
-    ["active", "grace_period", "past_due", "canceled"].includes(
+    ["active", "grace_period", "past_due", "paused", "canceled"].includes(
       data.plan?.effectivePlan.subscriptionStatus ?? "unconfigured"
     ) &&
     data.plan?.effectivePlan.currentPeriodEndsAt !== null;
@@ -988,13 +992,17 @@ export function AssistantSettings({
       : t("billingUnknownValue");
   const billingDateHeadingLabel =
     billingSubscription !== null
-      ? billingSubscription.autoRenewEnabled
+      ? billingSubscription.autoRenewEnabled &&
+        ["active"].includes(billingSubscription.subscriptionStatus)
         ? t("billingNextCharge")
         : t("billingAccessUntil")
       : t("billingDateLabel");
   const billingDateValueLabel =
     billingSubscription !== null
-      ? (nextChargeLabel ?? currentPeriodEndsLabel ?? t("billingDateUnavailable"))
+      ? billingSubscription.autoRenewEnabled &&
+        ["active"].includes(billingSubscription.subscriptionStatus)
+        ? (nextChargeLabel ?? currentPeriodEndsLabel ?? t("billingDateUnavailable"))
+        : (currentPeriodEndsLabel ?? nextChargeLabel ?? t("billingDateUnavailable"))
       : t("billingUnknownValue");
   const billingLastPaymentMethodValue =
     billingSubscription !== null
@@ -2977,53 +2985,55 @@ export function AssistantSettings({
                 </div>
               ) : (
                 <>
-                  <div className="rounded-2xl border border-border/80 bg-surface-raised/40 p-4">
+                  <div className="rounded-[24px] border border-border/70 bg-gradient-to-b from-surface-raised/70 to-surface-raised/30 p-4 sm:p-5">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
                           {t("currentPlan")}
                         </p>
-                        <p className="mt-2 text-lg font-semibold text-text">{billingPlanLabel}</p>
+                        <p className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text">
+                          {billingPlanLabel}
+                        </p>
                       </div>
-                      <span className="rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-[11px] font-medium text-text">
+                      <span className="rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-[11px] font-medium text-text shadow-sm">
                         {billingStatusChipLabel}
                       </span>
                     </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-xl border border-border/70 bg-background/40 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <div className="rounded-full border border-border/70 bg-background/50 px-3 py-1.5">
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-text-subtle">
                           {t("billingAutoRenew")}
                         </p>
-                        <p className="mt-2 text-sm font-medium text-text">
+                        <p className="mt-1 text-sm font-medium text-text">
                           {billingAutoRenewLabel}
                         </p>
                       </div>
-                      <div className="rounded-xl border border-border/70 bg-background/40 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
+                      <div className="rounded-full border border-border/70 bg-background/50 px-3 py-1.5">
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-text-subtle">
                           {billingDateHeadingLabel}
                         </p>
-                        <p className="mt-2 text-sm font-medium text-text">
+                        <p className="mt-1 text-sm font-medium text-text">
                           {billingDateValueLabel}
                         </p>
                       </div>
                     </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-xl border border-border/70 bg-background/40 p-3">
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-border/70 bg-background/45">
+                      <div className="px-4 py-3">
                         <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
                           {t("billingLastPaymentMethod")}
                         </p>
-                        <div className="mt-2 flex items-center gap-2 text-text">
+                        <div className="mt-1 flex items-center gap-2 text-text">
                           <CreditCard className="h-4 w-4 shrink-0 text-text-muted" />
                           <span className="text-sm font-medium">
                             {billingLastPaymentMethodValue}
                           </span>
                         </div>
                       </div>
-                      <div className="rounded-xl border border-border/70 bg-background/40 p-3">
+                      <div className="border-t border-border/70 px-4 py-3">
                         <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
                           {t("billingAutoRenewPaymentMethod")}
                         </p>
-                        <div className="mt-2 flex items-center gap-2 text-text">
+                        <div className="mt-1 flex items-center gap-2 text-text">
                           <CreditCard className="h-4 w-4 shrink-0 text-text-muted" />
                           <span className="text-sm font-medium">
                             {billingAutoRenewPaymentMethodValue}
@@ -3031,9 +3041,18 @@ export function AssistantSettings({
                         </div>
                       </div>
                     </div>
-                    <p className="mt-2 text-xs text-text-subtle">{billingPaymentMethodHint}</p>
+                    <p className="mt-3 rounded-2xl border border-border/60 bg-background/35 px-3 py-2 text-xs text-text-subtle">
+                      {billingPaymentMethodHint}
+                    </p>
                   </div>
                   <div className="grid gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onOpenPricingPage?.()}
+                      className="inline-flex min-h-11 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-4 text-sm font-medium text-text transition-colors hover:bg-accent/15"
+                    >
+                      {t("changePlan")}
+                    </button>
                     {billingSubscription?.managePaymentMethodUrl ? (
                       <button
                         type="button"
@@ -3044,13 +3063,6 @@ export function AssistantSettings({
                         <ExternalLink className="h-4 w-4" />
                       </button>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => onOpenPricingPage?.()}
-                      className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                    >
-                      {t("changePlan")}
-                    </button>
                     {billingSubscription?.canEnableAutoRenew ? (
                       <button
                         type="button"

@@ -4,8 +4,23 @@ import { ManageAssistantBillingSubscriptionService } from "../src/modules/worksp
 async function run(): Promise<void> {
   const appliedEvents: Array<Record<string, unknown>> = [];
   const scheduledPlanChanges: Array<Record<string, unknown>> = [];
-  const providerCalls: Array<{ kind: string; providerSubscriptionRef: string }> = [];
+  const providerCalls: Array<{
+    kind: string;
+    providerSubscriptionRef: string;
+    description?: string | null;
+  }> = [];
   let failProviderUpdate = false;
+  let latestPaymentIntent: Record<string, unknown> | null = {
+    paymentMethodClass: "card",
+    metadata: {
+      cloudpayments: {
+        lastSubscriptionId: "sub-provider-1",
+        lastPaymentMethod: "Card"
+      },
+      checkoutKind: "recurring_start",
+      recurringReady: true
+    }
+  };
   let subscription: Record<string, unknown> = {
     planCode: "pro",
     status: "active",
@@ -76,7 +91,7 @@ async function run(): Promise<void> {
       },
       workspacePaymentIntent: {
         async findFirst() {
-          return { paymentMethodClass: "card" };
+          return latestPaymentIntent;
         }
       },
       workspaceSubscriptionBillingEvent: {
@@ -190,7 +205,8 @@ async function run(): Promise<void> {
       async updateManagedSubscription(input: { providerSubscriptionRef: string }) {
         providerCalls.push({
           kind: "update",
-          providerSubscriptionRef: input.providerSubscriptionRef
+          providerSubscriptionRef: input.providerSubscriptionRef,
+          description: (input as { description?: string | null }).description ?? null
         });
         if (failProviderUpdate) {
           throw new Error("provider update failed");
@@ -244,6 +260,7 @@ async function run(): Promise<void> {
   });
   assert.equal(scheduledPaidDowngrade.mode, "subscription_updated");
   assert.equal(providerCalls[2]?.kind, "update");
+  assert.equal(providerCalls[2]?.description, "PersAI Starter");
   assert.equal(scheduledPlanChanges[0]?.pendingPlanChange?.targetPlanCode, "starter");
   assert.equal(scheduledPlanChanges[0]?.pendingPlanChange?.changeKind, "downgrade");
   assert.equal(scheduledPaidDowngrade.subscription.autoRenewEnabled, true);
@@ -285,6 +302,41 @@ async function run(): Promise<void> {
   assert.equal(providerCalls[4]?.kind, "cancel");
   assert.equal(scheduledPlanChanges[2]?.pendingPlanChange?.targetPlanCode, "free");
   assert.equal(scheduledPlanChanges[2]?.pendingPlanChange?.changeKind, "free");
+
+  subscription = {
+    ...subscription,
+    status: "paused",
+    cancelAtPeriodEnd: false,
+    providerSubscriptionRef: "sub-provider-1",
+    currentPeriodEndsAt: new Date("2026-06-05T00:00:00.000Z")
+  };
+  const pausedState = await service.getState("user-1");
+  assert.equal(pausedState.subscriptionStatus, "paused");
+  assert.equal(pausedState.autoRenewEnabled, true);
+  assert.equal(pausedState.autoRenewMethodLabel, "Bank card");
+
+  subscription = {
+    ...subscription,
+    status: "active",
+    providerSubscriptionRef: null,
+    billingProvider: "cloudpayments"
+  };
+  latestPaymentIntent = {
+    paymentMethodClass: "card",
+    metadata: {
+      cloudpayments: {
+        lastSubscriptionId: null,
+        lastPaymentMethod: "Sbp"
+      },
+      checkoutKind: "recurring_start",
+      recurringReady: true
+    }
+  };
+  const missingRecurringState = await service.getState("user-1");
+  assert.equal(
+    missingRecurringState.warning,
+    "The last payment succeeded via SBP, but CloudPayments did not start auto-renew for this flow. Enable auto-renew with a bank card."
+  );
 }
 
 void run();

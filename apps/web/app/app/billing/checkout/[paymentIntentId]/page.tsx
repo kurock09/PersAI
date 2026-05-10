@@ -24,6 +24,16 @@ type CloudpaymentsConstructorPayload = {
     emailBehavior: "Required" | "Hidden" | "Optional";
     culture?: "ru-RU";
     tokenize?: boolean;
+    restrictedPaymentMethods?: Array<
+      | "Card"
+      | "TcsInstallment"
+      | "Sbp"
+      | "TinkoffPay"
+      | "MirPay"
+      | "Dolyame"
+      | "ForeignCard"
+      | "SberPay"
+    >;
     recurrent?: {
       interval: "Day" | "Week" | "Month";
       period: number;

@@ -33,6 +33,16 @@ type CloudpaymentsConstructorPayload = {
     emailBehavior: "Required" | "Hidden" | "Optional";
     culture?: "ru-RU";
     tokenize?: boolean;
+    restrictedPaymentMethods?: Array<
+      | "Card"
+      | "TcsInstallment"
+      | "Sbp"
+      | "TinkoffPay"
+      | "MirPay"
+      | "Dolyame"
+      | "ForeignCard"
+      | "SberPay"
+    >;
     recurrent?: CloudpaymentsRecurrentParams;
     userInfo?: {
       accountId: string;
@@ -192,39 +202,43 @@ export class CloudpaymentsConstructorBillingProviderAdapter implements BillingPr
     const userInfoParams:
       | Pick<CloudpaymentsConstructorPayload["initializationParams"], "userInfo">
       | Record<string, never> = accountId !== null ? { userInfo: { accountId } } : {};
+    const initializationParams: CloudpaymentsConstructorPayload["initializationParams"] = {
+      publicTerminalId: publicTerminalId.trim(),
+      paymentSchema: "Single",
+      description: buildCheckoutDescription(input.metadata, input.planCode),
+      amount,
+      currency: input.currency,
+      externalId: input.paymentIntentId,
+      emailBehavior: "Optional",
+      culture: "ru-RU",
+      tokenize: input.paymentMethodClass === "card",
+      ...recurrentParams,
+      ...(accountId !== null ? { accountId } : {}),
+      ...userInfoParams,
+      metadata: {
+        paymentIntentId: input.paymentIntentId,
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        planCode: input.planCode,
+        action: input.action,
+        billingPeriod: input.billingPeriod,
+        paymentMethodClass: input.paymentMethodClass,
+        checkoutKind: input.checkoutKind,
+        recurringReady: input.checkoutKind === "recurring_start",
+        recurringPolicy:
+          input.checkoutKind === "recurring_start"
+            ? "provider_recurrent_start"
+            : "one_time_only_for_selected_method",
+        providerCustomerRef: input.providerCustomerRef,
+        ...input.metadata
+      }
+    };
+    if (input.paymentMethodClass === "card" && input.checkoutKind === "recurring_start") {
+      initializationParams.restrictedPaymentMethods = ["Sbp"];
+    }
     const payload: CloudpaymentsConstructorPayload = {
       schema: "persai.billing.cloudpaymentsConstructorCheckout.v1",
-      initializationParams: {
-        publicTerminalId: publicTerminalId.trim(),
-        paymentSchema: "Single",
-        description: buildCheckoutDescription(input.metadata, input.planCode),
-        amount,
-        currency: input.currency,
-        externalId: input.paymentIntentId,
-        emailBehavior: "Optional",
-        culture: "ru-RU",
-        tokenize: input.paymentMethodClass === "card",
-        ...recurrentParams,
-        ...(accountId !== null ? { accountId } : {}),
-        ...userInfoParams,
-        metadata: {
-          paymentIntentId: input.paymentIntentId,
-          workspaceId: input.workspaceId,
-          userId: input.userId,
-          planCode: input.planCode,
-          action: input.action,
-          billingPeriod: input.billingPeriod,
-          paymentMethodClass: input.paymentMethodClass,
-          checkoutKind: input.checkoutKind,
-          recurringReady: input.checkoutKind === "recurring_start",
-          recurringPolicy:
-            input.checkoutKind === "recurring_start"
-              ? "provider_recurrent_start"
-              : "one_time_only_for_selected_method",
-          providerCustomerRef: input.providerCustomerRef,
-          ...input.metadata
-        }
-      },
+      initializationParams,
       customizationParams: {
         appearance: {
           borders: {

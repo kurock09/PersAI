@@ -205,6 +205,8 @@ export type TestSendInput = {
 const VALID_BILLING_EVENT_CODES = [
   "trial_ending",
   "trial_expired",
+  "payment_activated",
+  "renewal_succeeded",
   "renewal_failed",
   "grace_ending",
   "grace_expired",

@@ -238,6 +238,7 @@ describe("BillingCheckoutPage", () => {
             accountId: "cust-1",
             emailBehavior: "Optional",
             culture: "ru-RU",
+            restrictedPaymentMethods: ["Sbp"],
             metadata: {}
           },
           customizationParams: {
@@ -267,6 +268,12 @@ describe("BillingCheckoutPage", () => {
     await waitFor(() => {
       expect(cloudpaymentsMocks.instance.mount).toHaveBeenCalled();
     });
+    expect(PaymentBlocksCtor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        restrictedPaymentMethods: ["Sbp"]
+      }),
+      expect.anything()
+    );
     successCallback?.();
     expect(routerMocks.replace).toHaveBeenCalledWith(
       "/app/chat?billingReturn=pending&billingPlan=pro_plus&billingPaymentIntentId=pi-2"

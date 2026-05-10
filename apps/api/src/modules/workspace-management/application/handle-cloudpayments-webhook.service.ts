@@ -589,6 +589,7 @@ export class HandleCloudpaymentsWebhookService {
     if (nextStatus === null) {
       return;
     }
+    const inferredProviderMethodClass = this.inferPaymentMethodClassFromProviderPayload(payload);
 
     await this.prisma.workspacePaymentIntent.update({
       where: { id: paymentIntent.id },
@@ -602,6 +603,9 @@ export class HandleCloudpaymentsWebhookService {
               payload.originalTransactionId ??
               payload.transactionId)
             : (paymentIntent.providerPaymentRef ?? payload.transactionId),
+        ...(inferredProviderMethodClass !== null
+          ? { paymentMethodClass: inferredProviderMethodClass }
+          : {}),
         lastErrorCode: notificationType === "fail" ? payload.reasonCode : null,
         lastErrorMessage: notificationType === "fail" ? payload.reason : null,
         metadata: mergeMetadata(paymentIntent.metadata, {
@@ -983,12 +987,21 @@ export class HandleCloudpaymentsWebhookService {
     return null;
   }
 
-  private inferAutoRenewClassFromProviderPayload(payload: CloudpaymentsPayload): "card" | "sbp_qr" {
+  private inferPaymentMethodClassFromProviderPayload(
+    payload: CloudpaymentsPayload
+  ): "card" | "sbp_qr" | null {
     const pm = (payload.paymentMethod ?? "").trim().toLowerCase();
     if (pm.includes("sbp") || pm.includes("fastpayment") || pm === "fps" || pm.includes("сбп")) {
       return "sbp_qr";
     }
-    return "card";
+    if (
+      pm.length > 0 ||
+      (payload.cardType ?? "").trim().length > 0 ||
+      (payload.cardLastFour ?? "").trim().length > 0
+    ) {
+      return "card";
+    }
+    return null;
   }
 
   private async syncSubscriptionBillingInstrumentsAfterLifecycleApply(input: {
@@ -1020,6 +1033,9 @@ export class HandleCloudpaymentsWebhookService {
       const autoRenewExpected = isManagedRecurring && !sub.cancelAtPeriodEnd;
 
       const data: Prisma.WorkspaceSubscriptionUpdateInput = {};
+      const inferredProviderMethodClass = this.inferPaymentMethodClassFromProviderPayload(
+        input.payload
+      );
 
       if (input.paymentIntent !== null) {
         const appliesToLastPayment =
@@ -1029,26 +1045,37 @@ export class HandleCloudpaymentsWebhookService {
           input.eventCode === "auto_renew_enabled" ||
           input.eventCode === "subscription_resumed";
         if (appliesToLastPayment) {
-          data.lastPaymentMethodClass = input.paymentIntent.paymentMethodClass;
+          data.lastPaymentMethodClass =
+            inferredProviderMethodClass ?? input.paymentIntent.paymentMethodClass;
         }
+      } else if (
+        inferredProviderMethodClass !== null &&
+        (input.eventCode === "renewal_succeeded" || input.eventCode === "payment_recovered")
+      ) {
+        data.lastPaymentMethodClass = inferredProviderMethodClass;
       }
 
-      if (input.eventCode === "subscription_resumed" && autoRenewExpected) {
-        data.autoRenewMethodClass = "card";
-      } else if (autoRenewExpected) {
+      if (autoRenewExpected) {
         if (input.notificationType === "recurrent") {
-          data.autoRenewMethodClass = this.inferAutoRenewClassFromProviderPayload(input.payload);
+          if (inferredProviderMethodClass !== null) {
+            data.autoRenewMethodClass = inferredProviderMethodClass;
+          }
         } else if (input.paymentIntent !== null) {
           const purpose = readPaymentIntentPurpose(input.paymentIntent.metadata);
           if (
             purpose === "managed_recurring_upgrade" &&
             input.paymentIntent.paymentMethodClass === "sbp_qr"
           ) {
-            data.autoRenewMethodClass = "card";
-            data.recurringMigrationStatus = "failed";
             data.recurringMigrationUpdatedAt = new Date();
             data.recurringMigrationTargetMethodClass = "sbp_qr";
-            data.recurringMigrationFailureReason = "provider_sbp_recurring_not_confirmed";
+            if (input.payload.subscriptionId !== null && inferredProviderMethodClass === "sbp_qr") {
+              data.autoRenewMethodClass = "sbp_qr";
+              data.recurringMigrationStatus = "succeeded";
+              data.recurringMigrationFailureReason = null;
+            } else {
+              data.recurringMigrationStatus = "failed";
+              data.recurringMigrationFailureReason = "provider_sbp_recurring_not_confirmed";
+            }
           } else if (
             input.eventCode === "auto_renew_enabled" ||
             input.paymentIntent.paymentMethodClass === "card"
@@ -1059,7 +1086,9 @@ export class HandleCloudpaymentsWebhookService {
           input.eventCode === "renewal_succeeded" ||
           input.eventCode === "payment_recovered"
         ) {
-          data.autoRenewMethodClass = this.inferAutoRenewClassFromProviderPayload(input.payload);
+          if (inferredProviderMethodClass !== null) {
+            data.autoRenewMethodClass = inferredProviderMethodClass;
+          }
         }
       }
 

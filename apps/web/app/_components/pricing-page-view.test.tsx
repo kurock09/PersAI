@@ -240,6 +240,141 @@ describe("PricingPageView", () => {
     expect(billingMocks.postAssistantBillingChangePlan).not.toHaveBeenCalled();
   });
 
+  it("shows scheduled FREE copy instead of settings hint when free fallback is already planned", async () => {
+    billingMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "canceled",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-1",
+      autoRenewEnabled: false,
+      canDisableAutoRenew: false,
+      canScheduleDowngrade: true,
+      canSwitchToFree: true,
+      nextChargeAt: null,
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      lastPaymentMethodLabel: "Bank card",
+      autoRenewMethodLabel: "Bank card",
+      recurringMigration: billingRecurringMigrationIdle,
+      managePaymentMethodUrl: null,
+      managePaymentMethodMode: "unavailable",
+      cancelUrl: null,
+      scheduledPlanChange: {
+        changeKind: "free",
+        targetPlanCode: "free",
+        targetPlanDisplayName: "Free",
+        effectiveAt: "2026-05-12T00:00:00.000Z"
+      },
+      warning: null
+    });
+
+    renderView(
+      <PricingPageView
+        plans={[
+          makePlan(),
+          makePlan({
+            code: "free",
+            displayName: "Free",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Бесплатно", en: "Free" },
+              badge: { ru: null, en: null },
+              price: { amount: 0, currency: "RUB", billingPeriod: "month" }
+            }
+          })
+        ]}
+        currentPlanCode={null}
+        signedIn
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("FREE is scheduled for the next billing date.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Switch to FREE is available in")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+  });
+
+  it("does not flash the generic FREE settings hint before scheduled FREE state loads", async () => {
+    let resolveBillingState: ((value: Record<string, unknown>) => void) | undefined;
+    billingMocks.getAssistantBillingSubscription.mockReturnValue(
+      new Promise((resolve) => {
+        resolveBillingState = resolve;
+      })
+    );
+
+    renderView(
+      <PricingPageView
+        plans={[
+          makePlan({
+            code: "pro",
+            displayName: "Pro",
+            presentation: {
+              ...makePlan().presentation,
+              title: { ru: "Про", en: "Pro" },
+              price: { amount: 49, currency: "RUB", billingPeriod: "month" }
+            }
+          }),
+          makePlan({
+            code: "free",
+            displayName: "Free",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Бесплатно", en: "Free" },
+              badge: { ru: null, en: null },
+              price: { amount: 0, currency: "RUB", billingPeriod: "month" }
+            }
+          })
+        ]}
+        currentPlanCode="pro"
+        signedIn
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Checking whether FREE is available or already scheduled for your current billing state..."
+        )
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Switch to FREE is available in")).toBeNull();
+
+    resolveBillingState?.({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "canceled",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-1",
+      autoRenewEnabled: false,
+      canDisableAutoRenew: false,
+      canScheduleDowngrade: true,
+      canSwitchToFree: true,
+      nextChargeAt: null,
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      lastPaymentMethodLabel: "Bank card",
+      autoRenewMethodLabel: "Bank card",
+      recurringMigration: billingRecurringMigrationIdle,
+      managePaymentMethodUrl: null,
+      managePaymentMethodMode: "unavailable",
+      cancelUrl: null,
+      scheduledPlanChange: {
+        changeKind: "free",
+        targetPlanCode: "free",
+        targetPlanDisplayName: "Free",
+        effectiveAt: "2026-05-12T00:00:00.000Z"
+      },
+      warning: null
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("FREE is scheduled for the next billing date.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Switch to FREE is available in")).toBeNull();
+  });
+
   it("reviews a cheaper paid downgrade before scheduling it", async () => {
     billingMocks.getAssistantBillingSubscription.mockResolvedValue({
       planCode: "pro",

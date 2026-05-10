@@ -165,6 +165,9 @@ export function PricingPageView({
     type: "ok" | "err";
     text: string;
   } | null>(null);
+  const [billingSubscriptionLoadState, setBillingSubscriptionLoadState] = useState<
+    "idle" | "loading" | "ready" | "failed"
+  >(signedIn ? "idle" : "ready");
   const [billingSubscription, setBillingSubscription] =
     useState<AssistantBillingSubscriptionManagementState | null>(null);
   const [reviewState, setReviewState] = useState<PricingReviewState | null>(null);
@@ -192,21 +195,32 @@ export function PricingPageView({
   );
 
   useEffect(() => {
-    if (!signedIn || !isLoaded || billingSubscription !== null) {
+    if (
+      !signedIn ||
+      !isLoaded ||
+      billingSubscription !== null ||
+      billingSubscriptionLoadState !== "idle"
+    ) {
       return;
     }
-    let cancelled = false;
+    setBillingSubscriptionLoadState("loading");
     void (async () => {
       const token = await resolveBillingToken();
-      if (!token || cancelled) {
+      if (!token) {
+        setBillingSubscriptionLoadState("failed");
         return;
       }
-      await loadBillingSubscription(token);
+      const nextState = await loadBillingSubscription(token);
+      setBillingSubscriptionLoadState(nextState === null ? "failed" : "ready");
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [billingSubscription, isLoaded, loadBillingSubscription, resolveBillingToken, signedIn]);
+  }, [
+    billingSubscription,
+    billingSubscriptionLoadState,
+    isLoaded,
+    loadBillingSubscription,
+    resolveBillingToken,
+    signedIn
+  ]);
 
   const submitPlanChange = useCallback(
     async (plan: PublicPricingPlanState, token: string): Promise<void> => {
@@ -451,13 +465,37 @@ export function PricingPageView({
                   const targetPrice = readPaidPlanPrice(plan);
                   const isTrialingSubscription =
                     billingSubscription?.subscriptionStatus === "trialing";
+                  const hasScheduledFreeChange =
+                    billingSubscription?.scheduledPlanChange?.changeKind === "free";
+                  const isZeroPriceTarget = targetPrice === null;
                   const showFreeSettingsHint =
                     signedIn &&
+                    isZeroPriceTarget &&
+                    billingSubscriptionLoadState === "ready" &&
+                    billingSubscription !== null &&
                     currentPrice !== null &&
-                    targetPrice === null &&
-                    !isTrialingSubscription;
+                    !isTrialingSubscription &&
+                    !hasScheduledFreeChange;
+                  const showScheduledFreeHint =
+                    signedIn &&
+                    isZeroPriceTarget &&
+                    billingSubscriptionLoadState === "ready" &&
+                    billingSubscription !== null &&
+                    currentPrice !== null &&
+                    hasScheduledFreeChange;
                   const showTrialFreeHint =
-                    signedIn && targetPrice === null && isTrialingSubscription === true;
+                    signedIn &&
+                    isZeroPriceTarget &&
+                    billingSubscriptionLoadState === "ready" &&
+                    billingSubscription !== null &&
+                    isTrialingSubscription === true;
+                  const showFreePlanBillingLoadingHint =
+                    signedIn &&
+                    isZeroPriceTarget &&
+                    (billingSubscriptionLoadState === "idle" ||
+                      billingSubscriptionLoadState === "loading");
+                  const showFreePlanBillingUnavailableHint =
+                    signedIn && isZeroPriceTarget && billingSubscriptionLoadState === "failed";
                   const ctaLabel = localizedPlanCtaLabel;
 
                   return (
@@ -565,9 +603,21 @@ export function PricingPageView({
                               {t("freePlanSettingsLink")}
                             </Link>
                           </p>
+                        ) : showScheduledFreeHint ? (
+                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-sm leading-6 text-text-muted">
+                            {t("switchToFreeScheduled")}
+                          </p>
                         ) : showTrialFreeHint ? (
                           <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-sm leading-6 text-text-muted">
                             {t("trialFreePlanHint")}
+                          </p>
+                        ) : showFreePlanBillingLoadingHint ? (
+                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-sm leading-6 text-text-muted">
+                            {t("freePlanBillingLoadingHint")}
+                          </p>
+                        ) : showFreePlanBillingUnavailableHint ? (
+                          <p className="rounded-2xl border border-danger/20 bg-danger/10 px-4 py-3 text-sm leading-6 text-danger">
+                            {t("billingStateUnavailable")}
                           </p>
                         ) : signedIn ? (
                           <div className="space-y-2.5">

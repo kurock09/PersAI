@@ -23,6 +23,12 @@ function isZeroPricePlan(plan: EffectivePlanState): boolean {
   return plan.price.amount === 0;
 }
 
+function isSubscriptionFallbackPlan(plan: EffectivePlanState): boolean {
+  return (
+    plan.source === "subscription_paid_fallback" || plan.source === "subscription_trial_fallback"
+  );
+}
+
 export function resolveBillingSummaryCopy(
   plan: EffectivePlanState | null | undefined,
   locale: string
@@ -35,19 +41,28 @@ export function resolveBillingSummaryCopy(
     };
   }
 
-  if (isZeroPricePlan(plan)) {
+  const resolveDate = (dateKey: string, value: string | null): BillingSummaryCopy => ({
+    statusKey: resolveBillingStatusKey(plan),
+    dateKey: value ? dateKey : null,
+    dateLabel: value ? formatBillingDate(value, locale) : null
+  });
+
+  if (
+    isZeroPricePlan(plan) &&
+    !isSubscriptionFallbackPlan(plan) &&
+    plan.subscriptionStatus !== "grace_period" &&
+    plan.subscriptionStatus !== "past_due" &&
+    plan.subscriptionStatus !== "paused" &&
+    plan.subscriptionStatus !== "canceled" &&
+    plan.subscriptionStatus !== "expired" &&
+    plan.subscriptionStatus !== "expired_fallback"
+  ) {
     return {
       statusKey: "billingStatusFree",
       dateKey: "billingDateIndefinite",
       dateLabel: null
     };
   }
-
-  const resolveDate = (dateKey: string, value: string | null): BillingSummaryCopy => ({
-    statusKey: resolveBillingStatusKey(plan),
-    dateKey: value ? dateKey : null,
-    dateLabel: value ? formatBillingDate(value, locale) : null
-  });
 
   switch (plan.subscriptionStatus) {
     case "trialing":
@@ -56,8 +71,9 @@ export function resolveBillingSummaryCopy(
     case "past_due":
       return resolveDate("billingDateGraceEnds", plan.graceEndsAt);
     case "active":
-    case "paused":
       return resolveDate("billingDateNextBilling", plan.currentPeriodEndsAt);
+    case "paused":
+      return resolveDate("billingDateAccessUntil", plan.currentPeriodEndsAt);
     case "canceled":
       return resolveDate("billingDateAccessUntil", plan.currentPeriodEndsAt);
     case "expired":

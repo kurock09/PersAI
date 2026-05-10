@@ -58,7 +58,15 @@ async function run(): Promise<void> {
             ];
           }
           return candidates.some((candidate) =>
-            [paymentIntentId, "123456", "123457", "123458", "123459"].includes(candidate)
+            [
+              paymentIntentId,
+              "123456",
+              "123457",
+              "1234571",
+              "1234572",
+              "123458",
+              "123459"
+            ].includes(candidate)
           )
             ? [paymentIntent]
             : [];
@@ -144,6 +152,7 @@ async function run(): Promise<void> {
     Currency: "RUB",
     InvoiceId: paymentIntentId,
     Status: "Completed",
+    PaymentMethod: "Card",
     ReceiptUrl: "https://checkout.cloudpayments.example/receipt/123",
     CardType: "Visa",
     CardLastFour: "4242",
@@ -189,6 +198,8 @@ async function run(): Promise<void> {
     body: {
       ...completedPayBody,
       TransactionId: 123457,
+      SubscriptionId: "sub-sbp-1",
+      PaymentMethod: "SBP",
       DateTime: "2026-05-04 20:05:00"
     },
     rawBody: Buffer.from("{}"),
@@ -197,13 +208,56 @@ async function run(): Promise<void> {
     }
   });
   assert.deepEqual(managedUpgradeResult, { status: "processed" });
+  assert.equal(subscriptionUpdates.at(-1)?.recurringMigrationStatus, "succeeded");
+  assert.equal(subscriptionUpdates.at(-1)?.autoRenewMethodClass, "sbp_qr");
+  assert.equal(subscriptionUpdates.at(-1)?.recurringMigrationFailureReason, null);
+
+  const managedUpgradeFailureResult = await service.handle({
+    notificationType: "pay",
+    body: {
+      ...completedPayBody,
+      TransactionId: 1234571,
+      PaymentMethod: "SBP",
+      DateTime: "2026-05-04 20:06:00"
+    },
+    rawBody: Buffer.from("{}"),
+    headers: {
+      "content-hmac": createHmac("sha256", "cloudpayments-api-secret").update("{}").digest("base64")
+    }
+  });
+  assert.deepEqual(managedUpgradeFailureResult, { status: "processed" });
   assert.equal(subscriptionUpdates.at(-1)?.recurringMigrationStatus, "failed");
   assert.equal(
     subscriptionUpdates.at(-1)?.recurringMigrationFailureReason,
     "provider_sbp_recurring_not_confirmed"
   );
-  assert.equal(subscriptionUpdates.at(-1)?.autoRenewMethodClass, "card");
+  assert.equal(subscriptionUpdates.at(-1)?.autoRenewMethodClass, undefined);
 
+  paymentIntent.paymentMethodClass = "card";
+  paymentIntent.metadata = { checkoutKind: "recurring_start", purpose: "plan_purchase" };
+  subscriptionStatus = "active";
+  subscriptionProviderSubscriptionRef = null;
+  const escapedSbpResult = await service.handle({
+    notificationType: "pay",
+    body: {
+      ...completedPayBody,
+      TransactionId: 1234572,
+      PaymentMethod: "Sbp",
+      DateTime: "2026-05-04 20:06:30"
+    },
+    rawBody: Buffer.from("{}"),
+    headers: {
+      "content-hmac": createHmac("sha256", "cloudpayments-api-secret").update("{}").digest("base64")
+    }
+  });
+  assert.deepEqual(escapedSbpResult, { status: "processed" });
+  assert.equal(paymentIntentUpdates.at(-1)?.paymentMethodClass, "sbp_qr");
+  assert.equal(subscriptionUpdates.at(-1)?.lastPaymentMethodClass, "sbp_qr");
+  assert.equal(subscriptionUpdates.at(-1)?.autoRenewMethodClass, undefined);
+  subscriptionProviderSubscriptionRef = "sub-provider-1";
+
+  paymentIntent.paymentMethodClass = "card";
+  paymentIntent.metadata = {};
   const authorizedPayBody = {
     TransactionId: 123457,
     Amount: 99,
@@ -227,7 +281,7 @@ async function run(): Promise<void> {
   });
 
   assert.deepEqual(authorizedResult, { status: "ignored" });
-  assert.equal(paymentIntentUpdates[2]?.status, "pending_confirmation");
+  assert.equal(paymentIntentUpdates[4]?.status, "pending_confirmation");
 
   const metadataPayBody = {
     TransactionId: 123458,
@@ -255,7 +309,7 @@ async function run(): Promise<void> {
   });
 
   assert.deepEqual(metadataResult, { status: "processed" });
-  assert.equal(paymentIntentUpdates[3]?.providerPaymentRef, "123458");
+  assert.equal(paymentIntentUpdates[5]?.providerPaymentRef, "123458");
 
   paymentIntent.metadata = { purpose: "autopay_enable_bind" };
   subscriptionStatus = "active";

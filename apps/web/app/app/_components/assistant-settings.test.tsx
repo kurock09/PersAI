@@ -1194,7 +1194,7 @@ describe("AssistantSettings limits", () => {
     fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
 
     expect(
-      await screen.findByText("Manage auto-renew and payment method here.")
+      await screen.findByText("Change plan, manage auto-renew, and review payment details.")
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
     expect(screen.getAllByText("Bank card").length).toBe(2);
@@ -1292,7 +1292,7 @@ describe("AssistantSettings limits", () => {
     fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
 
     expect(
-      await screen.findByText("View payment details and access period here.")
+      await screen.findByText("Change plan and review payment details and access period.")
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
     expect(screen.getByText("Access until")).toBeInTheDocument();
@@ -1301,6 +1301,81 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Payment method unknown")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Update payment method" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel subscription" })).not.toBeInTheDocument();
+  }, 15000);
+
+  it("keeps payment settings available for paused provider-managed subscriptions", async () => {
+    assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "paused",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-provider-1",
+      autoRenewEnabled: true,
+      canEnableAutoRenew: false,
+      canDisableAutoRenew: false,
+      nextChargeAt: "2026-06-12T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      lastPaymentMethodLabel: "Bank card",
+      autoRenewMethodLabel: "Bank card",
+      recurringMigration: billingRecurringMigrationIdle,
+      managePaymentMethodUrl: "https://my.cloudpayments.ru/",
+      managePaymentMethodMode: "provider_portal",
+      cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
+      scheduledPlanChange: null,
+      warning: null
+    });
+
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "paused",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null,
+            price: { amount: 980, currency: "RUB", billingPeriod: "month" }
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "pro",
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: "subscription_period",
+              tools: []
+            },
+            toolDailyLimits: []
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Payment settings" }));
+
+    expect(
+      await screen.findByText("Change plan, manage auto-renew, and review payment details.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.getByText("Access until")).toBeInTheDocument();
+    expect(screen.queryByText("Next charge")).toBeNull();
   }, 15000);
 
   it("shows restore subscription CTA for scheduled FREE and updates billing state", async () => {
@@ -1742,6 +1817,78 @@ describe("AssistantSettings limits", () => {
       )
     ).toBeInTheDocument();
   });
+
+  it("shows access-deadline copy instead of next-charge copy during grace period", async () => {
+    assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "grace_period",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-provider-1",
+      autoRenewEnabled: true,
+      canEnableAutoRenew: false,
+      canDisableAutoRenew: true,
+      nextChargeAt: "2026-06-12T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      lastPaymentMethodLabel: "Bank card",
+      autoRenewMethodLabel: "Bank card",
+      recurringMigration: billingRecurringMigrationIdle,
+      managePaymentMethodUrl: "https://my.cloudpayments.ru/",
+      managePaymentMethodMode: "provider_managed_recovery",
+      cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
+      scheduledPlanChange: null,
+      warning: null
+    });
+
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "grace_period",
+            trialEndsAt: null,
+            graceStartedAt: "2026-05-01T00:00:00.000Z",
+            graceEndsAt: "2026-05-12T00:00:00.000Z",
+            currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null,
+            price: { amount: 980, currency: "RUB", billingPeriod: "month" }
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "pro",
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: "subscription_period",
+              tools: []
+            },
+            toolDailyLimits: []
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Payment settings" }));
+
+    expect(await screen.findByText("Access until")).toBeInTheDocument();
+    expect(screen.queryByText("Next charge")).toBeNull();
+    expect(screen.getByText(/May 12, 2026/i)).toBeInTheDocument();
+  }, 15000);
 
   it("shows access-until copy for canceled subscription state in the limits summary", () => {
     renderSettings(
