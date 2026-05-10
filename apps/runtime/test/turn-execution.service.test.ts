@@ -1102,6 +1102,33 @@ class FakeTurnContextHydrationService {
     return this.openLoopRefsDeveloperBlock;
   }
 
+  pruneClosedOpenLoopRefsDeveloperBlock(
+    block: string | null,
+    closedRefs: readonly string[]
+  ): string | null {
+    if (block === null || closedRefs.length === 0) {
+      return block;
+    }
+    const closedRefSet = new Set(closedRefs);
+    const lines = block.split("\n");
+    const nextLines = lines.filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("- ")) {
+        return true;
+      }
+      const pipeIndex = trimmed.indexOf(" | ");
+      if (pipeIndex < 0) {
+        return true;
+      }
+      const ref = trimmed.slice(2, pipeIndex).trim();
+      return !closedRefSet.has(ref);
+    });
+    const hasRefRows = nextLines.some(
+      (line) => line.trim().startsWith("- ") && line.includes(" | ")
+    );
+    return hasRefRows ? nextLines.join("\n") : null;
+  }
+
   async listAvailableImageToolAttachments(input: {
     conversation: RuntimeTurnRequest["conversation"];
     currentAttachments: RuntimeAttachmentRef[];
