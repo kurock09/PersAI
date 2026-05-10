@@ -11,12 +11,16 @@ import renderRenewalFailed from "../src/modules/workspace-management/application
 import renderGraceEnding from "../src/modules/workspace-management/application/notifications/templates/billing/grace-ending.template";
 import renderGraceExpired from "../src/modules/workspace-management/application/notifications/templates/billing/grace-expired.template";
 import renderPaymentRecovered from "../src/modules/workspace-management/application/notifications/templates/billing/payment-recovered.template";
+import renderPaymentActivated from "../src/modules/workspace-management/application/notifications/templates/billing/payment-activated.template";
+import renderRenewalSucceeded from "../src/modules/workspace-management/application/notifications/templates/billing/renewal-succeeded.template";
 import renderTrialEndingShort from "../src/modules/workspace-management/application/notifications/templates/billing/trial-ending.short.template";
 import renderTrialExpiredShort from "../src/modules/workspace-management/application/notifications/templates/billing/trial-expired.short.template";
 import renderRenewalFailedShort from "../src/modules/workspace-management/application/notifications/templates/billing/renewal-failed.short.template";
 import renderGraceEndingShort from "../src/modules/workspace-management/application/notifications/templates/billing/grace-ending.short.template";
 import renderGraceExpiredShort from "../src/modules/workspace-management/application/notifications/templates/billing/grace-expired.short.template";
 import renderPaymentRecoveredShort from "../src/modules/workspace-management/application/notifications/templates/billing/payment-recovered.short.template";
+import renderPaymentActivatedShort from "../src/modules/workspace-management/application/notifications/templates/billing/payment-activated.short.template";
+import renderRenewalSucceededShort from "../src/modules/workspace-management/application/notifications/templates/billing/renewal-succeeded.short.template";
 import type { BillingLifecycleFactPayload } from "../src/modules/workspace-management/application/notifications/templates/billing/billing-lifecycle-fact-payload";
 
 // ── Canonical fact payloads ────────────────────────────────────────────────
@@ -31,6 +35,7 @@ const BASE_FACTS: BillingLifecycleFactPayload = {
   trialEndsAt: "2026-05-25T00:00:00.000Z",
   amount: 990,
   currency: "RUB",
+  officialReceiptUrl: "https://checkout.cloudpayments.example/receipt/123",
   locale: "ru",
   recipientEmail: "user@example.com"
 };
@@ -239,7 +244,9 @@ async function run(): Promise<void> {
       ["renewal_failed.short", renderRenewalFailedShort],
       ["grace_ending.short", renderGraceEndingShort],
       ["grace_expired.short", renderGraceExpiredShort],
-      ["payment_recovered.short", renderPaymentRecoveredShort]
+      ["payment_recovered.short", renderPaymentRecoveredShort],
+      ["payment_activated.short", renderPaymentActivatedShort],
+      ["renewal_succeeded.short", renderRenewalSucceededShort]
     ];
 
     for (const [name, render] of shortTemplates) {
@@ -270,6 +277,32 @@ async function run(): Promise<void> {
 
   // 9. Locale fallback: unknown locale treated as ru
   {
+    const f = facts({ rule: "payment_activated", locale: "en" });
+    const r = renderPaymentActivated(f, "en");
+    assertValidOutput(r, {
+      subjectContains: "payment",
+      htmlContains: ["Official receipt", "Pro"],
+      textContains: ["Official receipt", "Pro"]
+    });
+    assertDeterministic(renderPaymentActivated, f, "en");
+    console.log("✓ payment-activated en: branded confirmation + receipt footer");
+  }
+
+  // 10. renewal-succeeded includes official receipt footer
+  {
+    const f = facts({ rule: "renewal_succeeded", locale: "ru" });
+    const r = renderRenewalSucceeded(f, "ru");
+    assertValidOutput(r, {
+      subjectContains: "PersAI",
+      htmlContains: ["Официальный чек", "Pro"],
+      textContains: ["Официальный чек", "Pro"]
+    });
+    assertDeterministic(renderRenewalSucceeded, f, "ru");
+    console.log("✓ renewal-succeeded ru: branded confirmation + receipt footer");
+  }
+
+  // 11. Locale fallback: unknown locale treated as ru
+  {
     const f = facts({ rule: "payment_recovered", locale: "fr" });
     const r = renderPaymentRecovered(f, "fr" as "ru" | "en");
     assert.ok(
@@ -279,7 +312,7 @@ async function run(): Promise<void> {
     console.log("✓ unknown locale falls back to ru");
   }
 
-  // 10. Null dates → show fallback "—" or similar
+  // 12. Null dates → show fallback "—" or similar
   {
     const f = facts({
       rule: "trial_ending",

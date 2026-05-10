@@ -6,6 +6,7 @@ async function run(): Promise<void> {
   const paymentIntentId = "11111111-1111-4111-8111-111111111111";
   const appliedBillingEvents: Array<Record<string, unknown>> = [];
   const paymentIntentUpdates: Array<Record<string, unknown>> = [];
+  const subscriptionUpdates: Array<Record<string, unknown>> = [];
   const paymentIntentFindManyCalls: Array<Record<string, unknown>> = [];
   const subscriptionFindFirstCalls: Array<Record<string, unknown>> = [];
   let subscriptionStatus: "trialing" | "active" | "grace_period" = "trialing";
@@ -73,10 +74,16 @@ async function run(): Promise<void> {
           workspaceId: "ws-1",
           planCode: subscriptionPlanCode,
           status: subscriptionStatus,
+          billingProvider: "cloudpayments",
+          cancelAtPeriodEnd: false,
           providerCustomerRef: null,
           providerSubscriptionRef: subscriptionProviderSubscriptionRef,
           metadata: subscriptionMetadata
         }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          subscriptionUpdates.push(args.data);
+          return args.data;
+        },
         findFirst: async (args: { where: Record<string, unknown> }) => {
           subscriptionFindFirstCalls.push(args);
           const providerSubscriptionRef = args.where.providerSubscriptionRef;
@@ -137,6 +144,7 @@ async function run(): Promise<void> {
     Currency: "RUB",
     InvoiceId: paymentIntentId,
     Status: "Completed",
+    ReceiptUrl: "https://checkout.cloudpayments.example/receipt/123",
     CardType: "Visa",
     CardLastFour: "4242",
     DateTime: "2026-05-04 19:05:00"
@@ -164,6 +172,37 @@ async function run(): Promise<void> {
   assert.equal(appliedBillingEvents[0]?.currentPeriodEndsAt, "2026-06-04T19:05:00.000Z");
   assert.equal(appliedBillingEvents[0]?.metadata?.providerCardType, "Visa");
   assert.equal(appliedBillingEvents[0]?.metadata?.providerCardLastFour, "4242");
+  assert.equal(
+    paymentIntentUpdates[0]?.metadata?.cloudpayments?.lastReceiptUrl,
+    "https://checkout.cloudpayments.example/receipt/123"
+  );
+  assert.equal(
+    appliedBillingEvents[0]?.metadata?.providerReceiptUrl,
+    "https://checkout.cloudpayments.example/receipt/123"
+  );
+
+  subscriptionStatus = "active";
+  paymentIntent.paymentMethodClass = "sbp_qr";
+  paymentIntent.metadata = { purpose: "managed_recurring_upgrade" };
+  const managedUpgradeResult = await service.handle({
+    notificationType: "pay",
+    body: {
+      ...completedPayBody,
+      TransactionId: 123457,
+      DateTime: "2026-05-04 20:05:00"
+    },
+    rawBody: Buffer.from("{}"),
+    headers: {
+      "content-hmac": createHmac("sha256", "cloudpayments-api-secret").update("{}").digest("base64")
+    }
+  });
+  assert.deepEqual(managedUpgradeResult, { status: "processed" });
+  assert.equal(subscriptionUpdates.at(-1)?.recurringMigrationStatus, "failed");
+  assert.equal(
+    subscriptionUpdates.at(-1)?.recurringMigrationFailureReason,
+    "provider_sbp_recurring_not_confirmed"
+  );
+  assert.equal(subscriptionUpdates.at(-1)?.autoRenewMethodClass, "card");
 
   const authorizedPayBody = {
     TransactionId: 123457,
@@ -188,7 +227,7 @@ async function run(): Promise<void> {
   });
 
   assert.deepEqual(authorizedResult, { status: "ignored" });
-  assert.equal(paymentIntentUpdates[1]?.status, "pending_confirmation");
+  assert.equal(paymentIntentUpdates[2]?.status, "pending_confirmation");
 
   const metadataPayBody = {
     TransactionId: 123458,
@@ -216,7 +255,7 @@ async function run(): Promise<void> {
   });
 
   assert.deepEqual(metadataResult, { status: "processed" });
-  assert.equal(paymentIntentUpdates[2]?.providerPaymentRef, "123458");
+  assert.equal(paymentIntentUpdates[3]?.providerPaymentRef, "123458");
 
   paymentIntent.metadata = { purpose: "autopay_enable_bind" };
   subscriptionStatus = "active";

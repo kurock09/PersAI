@@ -6,8 +6,12 @@ import renderGraceExpired from "../templates/billing/grace-expired.template";
 import renderGraceExpiredShort from "../templates/billing/grace-expired.short.template";
 import renderPaymentRecovered from "../templates/billing/payment-recovered.template";
 import renderPaymentRecoveredShort from "../templates/billing/payment-recovered.short.template";
+import renderPaymentActivated from "../templates/billing/payment-activated.template";
+import renderPaymentActivatedShort from "../templates/billing/payment-activated.short.template";
 import renderRenewalFailed from "../templates/billing/renewal-failed.template";
 import renderRenewalFailedShort from "../templates/billing/renewal-failed.short.template";
+import renderRenewalSucceeded from "../templates/billing/renewal-succeeded.template";
+import renderRenewalSucceededShort from "../templates/billing/renewal-succeeded.short.template";
 import renderTrialEnding from "../templates/billing/trial-ending.template";
 import renderTrialEndingShort from "../templates/billing/trial-ending.short.template";
 import renderTrialExpired from "../templates/billing/trial-expired.template";
@@ -79,6 +83,30 @@ export class TemplateRendererService {
         id: "billing.payment_recovered.short",
         kind: "billing",
         render: renderPaymentRecoveredShort
+      }
+    ],
+    [
+      "billing.payment_activated",
+      { id: "billing.payment_activated", kind: "billing", render: renderPaymentActivated }
+    ],
+    [
+      "billing.payment_activated.short",
+      {
+        id: "billing.payment_activated.short",
+        kind: "billing",
+        render: renderPaymentActivatedShort
+      }
+    ],
+    [
+      "billing.renewal_succeeded",
+      { id: "billing.renewal_succeeded", kind: "billing", render: renderRenewalSucceeded }
+    ],
+    [
+      "billing.renewal_succeeded.short",
+      {
+        id: "billing.renewal_succeeded.short",
+        kind: "billing",
+        render: renderRenewalSucceededShort
       }
     ]
   ]);

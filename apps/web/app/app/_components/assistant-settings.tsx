@@ -996,13 +996,30 @@ export function AssistantSettings({
     billingSubscription !== null
       ? (nextChargeLabel ?? currentPeriodEndsLabel ?? t("billingDateUnavailable"))
       : t("billingUnknownValue");
-  const billingPaymentMethodValue =
+  const billingLastPaymentMethodValue =
     billingSubscription !== null
-      ? (billingSubscription.paymentMethodLabel ?? t("billingPaymentMethodUnknown"))
+      ? (billingSubscription.lastPaymentMethodLabel ?? t("billingPaymentMethodUnknown"))
       : t("billingUnknownValue");
+  const billingAutoRenewPaymentMethodValue =
+    billingSubscription !== null
+      ? billingSubscription.autoRenewEnabled
+        ? (billingSubscription.autoRenewMethodLabel ?? t("billingPaymentMethodUnknown"))
+        : t("billingRecurringMethodNotActive")
+      : t("billingUnknownValue");
+  const billingRecurringMigrationHint =
+    billingSubscription?.recurringMigration.status === "in_progress"
+      ? t("billingRecurringMigrationInProgress")
+      : billingSubscription?.recurringMigration.status === "failed"
+        ? billingSubscription.recurringMigration.failureReason ===
+          "provider_sbp_recurring_not_confirmed"
+          ? t("billingRecurringMigrationFailedSbpFallback")
+          : t("billingRecurringMigrationFailedGeneric")
+        : null;
   const billingPaymentMethodHint =
     billingSubscription !== null
-      ? (billingSubscription.warning ?? t("billingSettingsQuietHint"))
+      ? (billingRecurringMigrationHint ??
+        billingSubscription.warning ??
+        t("billingSettingsQuietHint"))
       : t("billingSettingsUnknownHint");
   const billingSettingsDescription = shouldShowRecurringBillingControls
     ? t("paymentSettingsDescription")
@@ -2990,13 +3007,31 @@ export function AssistantSettings({
                         </p>
                       </div>
                     </div>
-                    <div className="mt-3 rounded-xl border border-border/70 bg-background/40 p-3">
-                      <div className="flex items-center gap-2 text-text">
-                        <CreditCard className="h-4 w-4 text-text-muted" />
-                        <span className="text-sm font-medium">{billingPaymentMethodValue}</span>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-border/70 bg-background/40 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
+                          {t("billingLastPaymentMethod")}
+                        </p>
+                        <div className="mt-2 flex items-center gap-2 text-text">
+                          <CreditCard className="h-4 w-4 shrink-0 text-text-muted" />
+                          <span className="text-sm font-medium">
+                            {billingLastPaymentMethodValue}
+                          </span>
+                        </div>
                       </div>
-                      <p className="mt-1 text-xs text-text-subtle">{billingPaymentMethodHint}</p>
+                      <div className="rounded-xl border border-border/70 bg-background/40 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
+                          {t("billingAutoRenewPaymentMethod")}
+                        </p>
+                        <div className="mt-2 flex items-center gap-2 text-text">
+                          <CreditCard className="h-4 w-4 shrink-0 text-text-muted" />
+                          <span className="text-sm font-medium">
+                            {billingAutoRenewPaymentMethodValue}
+                          </span>
+                        </div>
+                      </div>
                     </div>
+                    <p className="mt-2 text-xs text-text-subtle">{billingPaymentMethodHint}</p>
                   </div>
                   <div className="grid gap-2">
                     {billingSubscription?.managePaymentMethodUrl ? (

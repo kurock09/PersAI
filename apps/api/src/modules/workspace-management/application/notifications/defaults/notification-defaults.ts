@@ -138,6 +138,8 @@ export const NOTIFICATION_POLICY_DEFAULTS: Record<NotificationSource, Notificati
       rules: {
         trial_ending: { enabled: true, offsetDays: 3 },
         trial_expired: { enabled: true, offsetDays: null },
+        payment_activated: { enabled: true, offsetDays: null },
+        renewal_succeeded: { enabled: true, offsetDays: null },
         renewal_failed: { enabled: true, offsetDays: null },
         grace_ending: { enabled: true, offsetDays: 1 },
         grace_expired: { enabled: true, offsetDays: null },

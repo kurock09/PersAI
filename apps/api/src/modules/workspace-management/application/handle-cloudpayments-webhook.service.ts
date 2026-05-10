@@ -8,7 +8,10 @@ import {
 } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { ApplyWorkspaceSubscriptionBillingEventService } from "./apply-workspace-subscription-billing-event.service";
+import {
+  ApplyWorkspaceSubscriptionBillingEventService,
+  type WorkspaceSubscriptionBillingEventCode
+} from "./apply-workspace-subscription-billing-event.service";
 import { CLOUDPAYMENTS_API_SECRET_STORAGE_KEY } from "./billing-provider-credential-settings";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { ManageMediaPackagePurchaseService } from "./manage-media-package-purchase.service";
@@ -144,6 +147,36 @@ function asMinorAmount(value: unknown): number | null {
   if (typeof value === "string" && value.trim().length > 0) {
     const parsed = Number(value.trim().replace(",", "."));
     return Number.isFinite(parsed) ? Math.round(parsed * 100) : null;
+  }
+  return null;
+}
+
+function readReceiptUrlCandidate(value: unknown): string | null {
+  if (!isObject(value)) {
+    return null;
+  }
+  const directCandidates = [
+    value.ReceiptUrl,
+    value.receiptUrl,
+    value.receipt_url,
+    value.ReceiptLink,
+    value.receiptLink,
+    value.receipt_link
+  ];
+  for (const candidate of directCandidates) {
+    const parsed = asTrimmedString(candidate);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+  const nestedReceipt = value.Receipt ?? value.receipt ?? null;
+  if (isObject(nestedReceipt)) {
+    const nestedUrl = asTrimmedString(
+      nestedReceipt.Url ?? nestedReceipt.url ?? nestedReceipt.Link ?? nestedReceipt.link
+    );
+    if (nestedUrl !== null) {
+      return nestedUrl;
+    }
   }
   return null;
 }
@@ -331,6 +364,15 @@ export class HandleCloudpaymentsWebhookService {
     }
 
     const result = await this.applyWorkspaceSubscriptionBillingEventService.apply(lifecycleEvent);
+    if (result.status === "applied") {
+      await this.syncSubscriptionBillingInstrumentsAfterLifecycleApply({
+        workspaceId: lifecycleEvent.workspaceId,
+        notificationType: input.notificationType,
+        paymentIntent,
+        payload,
+        eventCode: lifecycleEvent.eventCode
+      });
+    }
     return {
       status:
         result.status === "applied"
@@ -537,6 +579,8 @@ export class HandleCloudpaymentsWebhookService {
     notificationType: CloudpaymentsNotificationType,
     payload: CloudpaymentsPayload
   ): Promise<void> {
+    const providerReceiptUrl =
+      readReceiptUrlCandidate(payload.raw) ?? readReceiptUrlCandidate(payload.data);
     const nextStatus = this.resolveNextPaymentIntentStatus(
       paymentIntent,
       notificationType,
@@ -569,6 +613,7 @@ export class HandleCloudpaymentsWebhookService {
             lastReason: payload.reason,
             lastReasonCode: payload.reasonCode,
             lastPaymentMethod: payload.paymentMethod,
+            lastReceiptUrl: providerReceiptUrl,
             lastSubscriptionId: payload.subscriptionId,
             lastEventTimeIso: payload.eventTimeIso
           }
@@ -938,10 +983,109 @@ export class HandleCloudpaymentsWebhookService {
     return null;
   }
 
+  private inferAutoRenewClassFromProviderPayload(payload: CloudpaymentsPayload): "card" | "sbp_qr" {
+    const pm = (payload.paymentMethod ?? "").trim().toLowerCase();
+    if (pm.includes("sbp") || pm.includes("fastpayment") || pm === "fps" || pm.includes("сбп")) {
+      return "sbp_qr";
+    }
+    return "card";
+  }
+
+  private async syncSubscriptionBillingInstrumentsAfterLifecycleApply(input: {
+    workspaceId: string;
+    notificationType: CloudpaymentsNotificationType;
+    paymentIntent: PaymentIntentRecord | null;
+    payload: CloudpaymentsPayload;
+    eventCode: WorkspaceSubscriptionBillingEventCode;
+  }): Promise<void> {
+    try {
+      const sub = await this.prisma.workspaceSubscription.findUnique({
+        where: { workspaceId: input.workspaceId },
+        select: {
+          billingProvider: true,
+          providerSubscriptionRef: true,
+          status: true,
+          cancelAtPeriodEnd: true
+        }
+      });
+      if (sub === null) {
+        return;
+      }
+
+      const isManagedRecurring =
+        sub.billingProvider === "cloudpayments" &&
+        sub.providerSubscriptionRef !== null &&
+        ["active", "grace_period", "past_due"].includes(sub.status);
+
+      const autoRenewExpected = isManagedRecurring && !sub.cancelAtPeriodEnd;
+
+      const data: Prisma.WorkspaceSubscriptionUpdateInput = {};
+
+      if (input.paymentIntent !== null) {
+        const appliesToLastPayment =
+          input.eventCode === "payment_activated" ||
+          input.eventCode === "renewal_succeeded" ||
+          input.eventCode === "payment_recovered" ||
+          input.eventCode === "auto_renew_enabled" ||
+          input.eventCode === "subscription_resumed";
+        if (appliesToLastPayment) {
+          data.lastPaymentMethodClass = input.paymentIntent.paymentMethodClass;
+        }
+      }
+
+      if (input.eventCode === "subscription_resumed" && autoRenewExpected) {
+        data.autoRenewMethodClass = "card";
+      } else if (autoRenewExpected) {
+        if (input.notificationType === "recurrent") {
+          data.autoRenewMethodClass = this.inferAutoRenewClassFromProviderPayload(input.payload);
+        } else if (input.paymentIntent !== null) {
+          const purpose = readPaymentIntentPurpose(input.paymentIntent.metadata);
+          if (
+            purpose === "managed_recurring_upgrade" &&
+            input.paymentIntent.paymentMethodClass === "sbp_qr"
+          ) {
+            data.autoRenewMethodClass = "card";
+            data.recurringMigrationStatus = "failed";
+            data.recurringMigrationUpdatedAt = new Date();
+            data.recurringMigrationTargetMethodClass = "sbp_qr";
+            data.recurringMigrationFailureReason = "provider_sbp_recurring_not_confirmed";
+          } else if (
+            input.eventCode === "auto_renew_enabled" ||
+            input.paymentIntent.paymentMethodClass === "card"
+          ) {
+            data.autoRenewMethodClass = "card";
+          }
+        } else if (
+          input.eventCode === "renewal_succeeded" ||
+          input.eventCode === "payment_recovered"
+        ) {
+          data.autoRenewMethodClass = this.inferAutoRenewClassFromProviderPayload(input.payload);
+        }
+      }
+
+      if (Object.keys(data).length === 0) {
+        return;
+      }
+
+      await this.prisma.workspaceSubscription.update({
+        where: { workspaceId: input.workspaceId },
+        data
+      });
+    } catch (error) {
+      this.logger.warn({
+        event: "adr092_subscription_billing_instrument_sync_failed",
+        workspaceId: input.workspaceId,
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
   private buildLifecycleMetadata(
     notificationType: CloudpaymentsNotificationType,
     payload: CloudpaymentsPayload
   ): Record<string, unknown> {
+    const providerReceiptUrl =
+      readReceiptUrlCandidate(payload.raw) ?? readReceiptUrlCandidate(payload.data);
     return {
       providerEventType: notificationType,
       providerTransactionId: payload.transactionId,
@@ -955,6 +1099,7 @@ export class HandleCloudpaymentsWebhookService {
       providerCardLastFour: payload.cardLastFour,
       providerReason: payload.reason,
       providerReasonCode: payload.reasonCode,
+      providerReceiptUrl,
       eventTimeIso: payload.eventTimeIso
     };
   }

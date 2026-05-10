@@ -7953,6 +7953,32 @@ components:
           enum:
             - free
             - downgrade
+    AssistantBillingRecurringMigrationState:
+      type: object
+      required:
+        - status
+        - targetMethodClass
+        - failureReason
+        - updatedAt
+      properties:
+        status:
+          type: string
+          enum:
+            - idle
+            - in_progress
+            - succeeded
+            - failed
+        targetMethodClass:
+          allOf:
+            - $ref: "#/components/schemas/AssistantBillingPaymentMethodClass"
+          nullable: true
+        failureReason:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
     AssistantBillingSubscriptionManagementState:
       type: object
       required:
@@ -7970,7 +7996,9 @@ components:
         - nextChargeAt
         - currentPeriodEndsAt
         - scheduledPlanChange
-        - paymentMethodLabel
+        - lastPaymentMethodLabel
+        - autoRenewMethodLabel
+        - recurringMigration
         - managePaymentMethodUrl
         - managePaymentMethodMode
         - cancelUrl
@@ -8024,9 +8052,14 @@ components:
           allOf:
             - $ref: "#/components/schemas/AssistantBillingScheduledPlanChangePreview"
           nullable: true
-        paymentMethodLabel:
+        lastPaymentMethodLabel:
           type: string
           nullable: true
+        autoRenewMethodLabel:
+          type: string
+          nullable: true
+        recurringMigration:
+          $ref: "#/components/schemas/AssistantBillingRecurringMigrationState"
         managePaymentMethodUrl:
           type: string
           nullable: true

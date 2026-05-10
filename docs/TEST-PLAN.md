@@ -307,6 +307,33 @@ Interpretation rules:
 6. Product recurring controls must read server-truth recurring state from PersAI API, not from checkout completion heuristics or direct provider status reads in the browser.
 7. `quota_status` checkout output must carry enough recurring metadata for the assistant to explain whether the selected method opens a recurring checkout or only a one-time fallback.
 
+## ADR-092 SBP recurring migration and split billing payment-method truth
+
+When a change touches managed SBP upgrades, provider recurring migration, `AssistantBillingSubscriptionManagementState` / `paymentMethodLabel`, CloudPayments `subscriptions/update` description fields, billing payment-success email, provider receipt payload, or `Admin > Notifications` visibility for billing sources, read `docs/ADR/092-sbp-recurring-migration-and-billing-truth-split.md` first and add focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/contracts run generate
+corepack pnpm --filter @persai/api exec tsx test/cloudpayments-constructor-billing-provider.adapter.test.ts
+corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-assistant-billing-subscription.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/apply-workspace-subscription-billing-event.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-producer.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/contracts run typecheck
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. **Split truth:** API and UI must distinguish **last payment method** from **auto-renew method**; a single ambiguous label must not be long-term source of truth.
+2. **SBP migration:** one-time SBP success without provider-confirmed recurring migration must not surface SBP as the auto-renew instrument.
+3. **Provider parity:** recurring amount/date updates must ship with provider description/name sync aligned to PersAI plan display naming.
+4. **Idempotency:** webhook replay and duplicate provider events must not corrupt recurring migration state.
+5. **Notifications:** billing and payment-success communications must flow through `NotificationIntentService` / unified platform paths; delivery history must remain visible under `GET /api/v1/admin/notifications/deliveries` for billing sources after ADR-092 implementation closes the audit items in the ADR.
+6. **Receipt policy:** branded PersAI payment email must link to the official provider/cash-register receipt when available, without pretending the marketing email is the fiscal document.
+
 ## ADR-084 immediate activation/materialization focused checks
 
 When a change touches post-payment activation speed, assistant rematerialization after trusted success, or the billing-return truth refresh path, add focused checks before broad verification:

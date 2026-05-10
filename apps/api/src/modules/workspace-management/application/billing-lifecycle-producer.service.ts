@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { NotificationIntentService } from "./notifications/notification-intent.service";
 import type { BillingLifecycleFactPayload } from "./notifications/templates/billing/billing-lifecycle-fact-payload";
@@ -22,6 +23,8 @@ import type { BillingLifecycleFactPayload } from "./notifications/templates/bill
 const BILLING_RULE_CODES = [
   "trial_ending",
   "trial_expired",
+  "payment_activated",
+  "renewal_succeeded",
   "renewal_failed",
   "grace_ending",
   "grace_expired",
@@ -45,6 +48,8 @@ const DEFAULT_POLICY_CONFIG: PolicyConfig = {
   rules: {
     trial_ending: { enabled: true, offsetDays: 3 },
     trial_expired: { enabled: true, offsetDays: null },
+    payment_activated: { enabled: true, offsetDays: null },
+    renewal_succeeded: { enabled: true, offsetDays: null },
     renewal_failed: { enabled: true, offsetDays: null },
     grace_ending: { enabled: true, offsetDays: 1 },
     grace_expired: { enabled: true, offsetDays: null },
@@ -61,9 +66,17 @@ type LifecycleEventRow = {
   nextStatus: string | null;
   nextPlanCode: string | null;
   nextPeriodEndsAt: Date | null;
+  relatedPaymentIntentRef: string | null;
+  metadata: Prisma.JsonValue | null;
   createdAt: Date;
   user: { email: string } | null;
   subscription: { graceEndsAt: Date | null; trialEndsAt: Date | null } | null;
+};
+
+type LifecycleFactSupplement = {
+  amount: number | null;
+  currency: string | null;
+  officialReceiptUrl: string | null;
 };
 
 type ApplicableRule = {
@@ -101,6 +114,8 @@ export class BillingLifecycleProducerService {
         nextStatus: true,
         nextPlanCode: true,
         nextPeriodEndsAt: true,
+        relatedPaymentIntentRef: true,
+        metadata: true,
         createdAt: true,
         user: { select: { email: true } },
         subscription: { select: { graceEndsAt: true, trialEndsAt: true } }
@@ -127,6 +142,7 @@ export class BillingLifecycleProducerService {
 
     const planDisplayName = await this.resolvePlanDisplayName(event.nextPlanCode);
     const assistant = await this.resolveAssistant(event.workspaceId, event.userId);
+    const supplement = await this.resolveFactSupplement(event);
 
     for (const ruleInfo of applicableRules) {
       const facts: BillingLifecycleFactPayload = {
@@ -137,8 +153,9 @@ export class BillingLifecycleProducerService {
         periodEndsAt: ruleInfo.periodEndsAt?.toISOString() ?? null,
         graceEndsAt: ruleInfo.graceEndsAt?.toISOString() ?? null,
         trialEndsAt: ruleInfo.trialEndsAt?.toISOString() ?? null,
-        amount: null,
-        currency: null,
+        amount: supplement.amount,
+        currency: supplement.currency,
+        officialReceiptUrl: supplement.officialReceiptUrl,
         locale: "ru",
         recipientEmail: event.user?.email ?? null
       };
@@ -254,6 +271,12 @@ export class BillingLifecycleProducerService {
       case "trial_expired":
         candidates.push(candidate("trial_expired", null));
         break;
+      case "payment_activated":
+        candidates.push(candidate("payment_activated", null));
+        break;
+      case "renewal_succeeded":
+        candidates.push(candidate("renewal_succeeded", null));
+        break;
       case "renewal_failed":
         candidates.push(candidate("renewal_failed", null));
         break;
@@ -290,10 +313,67 @@ export class BillingLifecycleProducerService {
     });
     return plan?.displayName ?? planCode;
   }
+
+  private async resolveFactSupplement(event: LifecycleEventRow): Promise<LifecycleFactSupplement> {
+    const supplement: LifecycleFactSupplement = {
+      amount: null,
+      currency: null,
+      officialReceiptUrl: readOfficialReceiptUrl(event.metadata)
+    };
+
+    if (event.relatedPaymentIntentRef !== null) {
+      const paymentIntent = await this.prisma.workspacePaymentIntent.findUnique({
+        where: { id: event.relatedPaymentIntentRef },
+        select: { amountMinor: true, currency: true, metadata: true }
+      });
+      if (paymentIntent !== null) {
+        supplement.amount = paymentIntent.amountMinor / 100;
+        supplement.currency = paymentIntent.currency;
+        supplement.officialReceiptUrl =
+          readOfficialReceiptUrl(paymentIntent.metadata) ?? supplement.officialReceiptUrl;
+      }
+    }
+
+    const billingEventId = readWorkspaceSubscriptionBillingEventId(event.metadata);
+    if (billingEventId !== null) {
+      const billingEvent = await this.prisma.workspaceSubscriptionBillingEvent.findUnique({
+        where: { id: billingEventId },
+        select: { metadata: true }
+      });
+      supplement.officialReceiptUrl =
+        readOfficialReceiptUrl(billingEvent?.metadata ?? null) ?? supplement.officialReceiptUrl;
+    }
+
+    return supplement;
+  }
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function readWorkspaceSubscriptionBillingEventId(metadata: unknown): string | null {
+  if (!isRecord(metadata)) {
+    return null;
+  }
+  const candidate = metadata["workspaceSubscriptionBillingEventId"];
+  return typeof candidate === "string" && candidate.trim().length > 0 ? candidate.trim() : null;
+}
+
+function readOfficialReceiptUrl(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const direct = value["providerReceiptUrl"];
+  if (typeof direct === "string" && direct.trim().length > 0) {
+    return direct.trim();
+  }
+  const cloudpayments = value["cloudpayments"];
+  if (!isRecord(cloudpayments)) {
+    return null;
+  }
+  const nested = cloudpayments["lastReceiptUrl"];
+  return typeof nested === "string" && nested.trim().length > 0 ? nested.trim() : null;
 }
 
 function parseRuleConfig(v: unknown): RuleConfig {

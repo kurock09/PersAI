@@ -9,6 +9,20 @@ import { AssistantSettings, mergeMemoryViews } from "./assistant-settings";
 import type { AppData } from "./use-app-data";
 import type { WorkspaceMemoryItem } from "../assistant-api-client";
 
+const billingRecurringMigrationIdle = {
+  status: "idle" as const,
+  targetMethodClass: null,
+  failureReason: null,
+  updatedAt: null
+};
+
+const billingRecurringMigrationFailed = {
+  status: "failed" as const,
+  targetMethodClass: "sbp_qr" as const,
+  failureReason: "provider_sbp_recurring_not_confirmed",
+  updatedAt: "2026-05-10T17:00:00.000Z"
+};
+
 const clerkMocks = vi.hoisted(() => ({
   isLoaded: true,
   getToken: vi.fn()
@@ -269,7 +283,9 @@ beforeEach(() => {
     canDisableAutoRenew: false,
     nextChargeAt: null,
     currentPeriodEndsAt: null,
-    paymentMethodLabel: null,
+    lastPaymentMethodLabel: null,
+    autoRenewMethodLabel: null,
+    recurringMigration: billingRecurringMigrationIdle,
     managePaymentMethodUrl: null,
     managePaymentMethodMode: "unavailable",
     cancelUrl: null,
@@ -288,7 +304,9 @@ beforeEach(() => {
       canDisableAutoRenew: true,
       nextChargeAt: "2026-06-12T00:00:00.000Z",
       currentPeriodEndsAt: "2026-06-12T00:00:00.000Z",
-      paymentMethodLabel: "Bank card",
+      lastPaymentMethodLabel: "Bank card",
+      autoRenewMethodLabel: "Bank card",
+      recurringMigration: billingRecurringMigrationIdle,
       managePaymentMethodUrl: "https://my.cloudpayments.ru/",
       managePaymentMethodMode: "provider_portal",
       cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
@@ -306,7 +324,9 @@ beforeEach(() => {
     canDisableAutoRenew: false,
     nextChargeAt: null,
     currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
-    paymentMethodLabel: "Bank card",
+    lastPaymentMethodLabel: "Bank card",
+    autoRenewMethodLabel: null,
+    recurringMigration: billingRecurringMigrationIdle,
     managePaymentMethodUrl: "https://my.cloudpayments.ru/",
     managePaymentMethodMode: "provider_portal",
     cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
@@ -1115,7 +1135,9 @@ describe("AssistantSettings limits", () => {
       canDisableAutoRenew: true,
       nextChargeAt: "2026-05-12T00:00:00.000Z",
       currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
-      paymentMethodLabel: "Bank card",
+      lastPaymentMethodLabel: "Bank card",
+      autoRenewMethodLabel: "Bank card",
+      recurringMigration: billingRecurringMigrationIdle,
       managePaymentMethodUrl: "https://my.cloudpayments.ru/",
       managePaymentMethodMode: "provider_portal",
       cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
@@ -1175,7 +1197,7 @@ describe("AssistantSettings limits", () => {
       await screen.findByText("Manage auto-renew and payment method here.")
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
-    expect(screen.getByText("Bank card")).toBeInTheDocument();
+    expect(screen.getAllByText("Bank card").length).toBe(2);
     expect(screen.getByText("On")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel subscription" }));
@@ -1210,7 +1232,9 @@ describe("AssistantSettings limits", () => {
       canDisableAutoRenew: false,
       nextChargeAt: null,
       currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
-      paymentMethodLabel: null,
+      lastPaymentMethodLabel: null,
+      autoRenewMethodLabel: null,
+      recurringMigration: billingRecurringMigrationIdle,
       managePaymentMethodUrl: null,
       managePaymentMethodMode: "unavailable",
       cancelUrl: null,
@@ -1291,7 +1315,9 @@ describe("AssistantSettings limits", () => {
       canDisableAutoRenew: false,
       nextChargeAt: null,
       currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
-      paymentMethodLabel: "Bank card",
+      lastPaymentMethodLabel: "Bank card",
+      autoRenewMethodLabel: "Bank card",
+      recurringMigration: billingRecurringMigrationIdle,
       managePaymentMethodUrl: "https://my.cloudpayments.ru/",
       managePaymentMethodMode: "provider_portal",
       cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
@@ -1377,7 +1403,9 @@ describe("AssistantSettings limits", () => {
       canDisableAutoRenew: false,
       nextChargeAt: null,
       currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
-      paymentMethodLabel: null,
+      lastPaymentMethodLabel: null,
+      autoRenewMethodLabel: null,
+      recurringMigration: billingRecurringMigrationIdle,
       managePaymentMethodUrl: null,
       managePaymentMethodMode: "unavailable",
       cancelUrl: null,
@@ -1463,7 +1491,9 @@ describe("AssistantSettings limits", () => {
       canSwitchToFree: true,
       nextChargeAt: "2026-05-12T00:00:00.000Z",
       currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
-      paymentMethodLabel: "Bank card",
+      lastPaymentMethodLabel: "Bank card",
+      autoRenewMethodLabel: "Bank card",
+      recurringMigration: billingRecurringMigrationIdle,
       managePaymentMethodUrl: "https://my.cloudpayments.ru/",
       managePaymentMethodMode: "provider_portal",
       cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
@@ -1639,6 +1669,78 @@ describe("AssistantSettings limits", () => {
     expect(screen.queryByText("Off")).toBeNull();
     expect(screen.queryByText("Provider-managed payment method")).toBeNull();
     expect(openPricingPage).not.toHaveBeenCalled();
+  });
+
+  it("shows an explicit recurring migration warning when SBP payment did not switch auto-renew", async () => {
+    assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "active",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-provider-1",
+      autoRenewEnabled: true,
+      canDisableAutoRenew: true,
+      nextChargeAt: "2026-05-12T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      lastPaymentMethodLabel: "SBP",
+      autoRenewMethodLabel: "Bank card",
+      recurringMigration: billingRecurringMigrationFailed,
+      managePaymentMethodUrl: "https://my.cloudpayments.ru/",
+      managePaymentMethodMode: "provider_portal",
+      cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
+      warning: null
+    });
+
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "active",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null,
+            price: { amount: 980, currency: "RUB", billingPeriod: "month" }
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "pro",
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: "subscription_period",
+              tools: []
+            },
+            toolDailyLimits: []
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Payment settings" }));
+
+    expect(
+      await screen.findByText(
+        "The SBP payment succeeded, but recurring charges are still linked to the previous bank card until the provider confirms the transfer."
+      )
+    ).toBeInTheDocument();
   });
 
   it("shows access-until copy for canceled subscription state in the limits summary", () => {

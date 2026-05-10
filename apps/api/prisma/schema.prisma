@@ -211,6 +211,13 @@ enum WorkspacePaymentMethodClass {
   sbp_qr
 }
 
+enum WorkspaceSubscriptionRecurringMigrationStatus {
+  idle
+  in_progress
+  succeeded
+  failed
+}
+
 enum WorkspacePaymentIntentBillingPeriod {
   month
   year
@@ -1006,6 +1013,13 @@ model WorkspaceSubscription {
   providerCustomerRef     String?                     @map("provider_customer_ref") @db.VarChar(128)
   providerSubscriptionRef String?                     @map("provider_subscription_ref") @db.VarChar(128)
   metadata                Json?                       @db.JsonB
+  lastPaymentMethodClass  WorkspacePaymentMethodClass? @map("last_payment_method_class")
+  autoRenewMethodClass    WorkspacePaymentMethodClass? @map("auto_renew_method_class")
+  recurringMigrationStatus WorkspaceSubscriptionRecurringMigrationStatus @default(idle) @map("recurring_migration_status")
+  recurringMigrationUpdatedAt DateTime?               @map("recurring_migration_updated_at") @db.Timestamptz(6)
+  recurringMigrationTargetMethodClass WorkspacePaymentMethodClass? @map("recurring_migration_target_method_class")
+  recurringMigrationFailureReason String?             @map("recurring_migration_failure_reason") @db.Text
+  providerRecurringDescriptor String?               @map("provider_recurring_descriptor") @db.VarChar(512)
   createdAt               DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
   workspace               Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)

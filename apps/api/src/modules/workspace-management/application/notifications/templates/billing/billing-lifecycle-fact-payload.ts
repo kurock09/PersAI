@@ -19,6 +19,8 @@ export type BillingLifecycleFactPayload = {
   /** Payment amount in major currency units (e.g. 990 for ₽990), null if not available */
   amount: number | null;
   currency: string | null;
+  /** Optional official provider/cash-register receipt URL for the completed payment. */
+  officialReceiptUrl: string | null;
   /** Resolved locale for this notification. Defaults to "ru" when absent. */
   locale: string;
   /** Recipient email address — read by EmailChannelAdapter for the To field */

@@ -7,6 +7,7 @@
 import type { AssistantBillingSubscriptionManagementStateSubscriptionStatus } from "./assistantBillingSubscriptionManagementStateSubscriptionStatus";
 import type { AssistantBillingEnableAutoRenewMode } from "./assistantBillingEnableAutoRenewMode";
 import type { AssistantBillingSubscriptionManagementStateScheduledPlanChange } from "./assistantBillingSubscriptionManagementStateScheduledPlanChange";
+import type { AssistantBillingRecurringMigrationState } from "./assistantBillingRecurringMigrationState";
 import type { AssistantBillingSubscriptionManagementMode } from "./assistantBillingSubscriptionManagementMode";
 
 export interface AssistantBillingSubscriptionManagementState {
@@ -32,7 +33,10 @@ export interface AssistantBillingSubscriptionManagementState {
   /** @nullable */
   scheduledPlanChange: AssistantBillingSubscriptionManagementStateScheduledPlanChange;
   /** @nullable */
-  paymentMethodLabel: string | null;
+  lastPaymentMethodLabel: string | null;
+  /** @nullable */
+  autoRenewMethodLabel: string | null;
+  recurringMigration: AssistantBillingRecurringMigrationState;
   /** @nullable */
   managePaymentMethodUrl: string | null;
   managePaymentMethodMode: AssistantBillingSubscriptionManagementMode;

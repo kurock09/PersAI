@@ -525,6 +525,8 @@ export class ManageAssistantPaymentIntentsService {
     recurring: ResolvedRecurringCheckout;
     metadata: Record<string, unknown>;
   }): Promise<AssistantPaymentIntentState> {
+    const shouldTrackRecurringMigration =
+      input.purpose === "managed_recurring_upgrade" && input.paymentMethodClass === "sbp_qr";
     const existing = await this.prisma.workspacePaymentIntent.findUnique({
       where: {
         workspaceId_idempotencyKey: {
@@ -545,6 +547,21 @@ export class ManageAssistantPaymentIntentsService {
         },
         input.targetPlanCode
       );
+      if (
+        shouldTrackRecurringMigration &&
+        ((existing as PaymentIntentRecord).status === "checkout_ready" ||
+          (existing as PaymentIntentRecord).status === "pending_confirmation")
+      ) {
+        await this.prisma.workspaceSubscription.update({
+          where: { workspaceId: input.context.assistant.workspaceId },
+          data: {
+            recurringMigrationStatus: "in_progress",
+            recurringMigrationUpdatedAt: new Date(),
+            recurringMigrationTargetMethodClass: "sbp_qr",
+            recurringMigrationFailureReason: null
+          }
+        });
+      }
       return this.toState(existing as PaymentIntentRecord);
     }
 
@@ -612,6 +629,17 @@ export class ManageAssistantPaymentIntentsService {
         },
         select: paymentIntentSelect
       })) as PaymentIntentRecord;
+      if (shouldTrackRecurringMigration) {
+        await this.prisma.workspaceSubscription.update({
+          where: { workspaceId: input.context.assistant.workspaceId },
+          data: {
+            recurringMigrationStatus: "in_progress",
+            recurringMigrationUpdatedAt: new Date(),
+            recurringMigrationTargetMethodClass: "sbp_qr",
+            recurringMigrationFailureReason: null
+          }
+        });
+      }
       return this.toState(updated);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown checkout session failure.";
@@ -624,6 +652,17 @@ export class ManageAssistantPaymentIntentsService {
         },
         select: paymentIntentSelect
       })) as PaymentIntentRecord;
+      if (shouldTrackRecurringMigration) {
+        await this.prisma.workspaceSubscription.update({
+          where: { workspaceId: input.context.assistant.workspaceId },
+          data: {
+            recurringMigrationStatus: "failed",
+            recurringMigrationUpdatedAt: new Date(),
+            recurringMigrationTargetMethodClass: "sbp_qr",
+            recurringMigrationFailureReason: "checkout_session_create_failed"
+          }
+        });
+      }
       return this.toState(failed);
     }
   }

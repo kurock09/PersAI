@@ -45,6 +45,7 @@ type StoredIntent = {
 
 async function run(): Promise<void> {
   const intents: StoredIntent[] = [];
+  const subscriptionUpdates: Array<Record<string, unknown>> = [];
   let providerCallCount = 0;
   let lastProviderCheckoutInput: Record<string, unknown> | null = null;
   let nextIntentId = 1;
@@ -656,6 +657,212 @@ async function run(): Promise<void> {
       }),
     /Changing an existing recurring subscription in place is not supported yet/
   );
+
+  const directManagedRecurringUpgradeService = new ManageAssistantPaymentIntentsService(
+    {
+      async findByUserId(userId: string) {
+        return {
+          id: "assistant-1",
+          userId,
+          workspaceId: "ws-1",
+          draftDisplayName: null,
+          draftInstructions: null,
+          draftTraits: null,
+          draftAvatarEmoji: null,
+          draftAvatarUrl: null,
+          draftAssistantGender: null,
+          draftVoiceProfile: null,
+          draftArchetypeKey: null,
+          draftUpdatedAt: null,
+          applyStatus: "succeeded",
+          applyTargetVersionId: null,
+          applyAppliedVersionId: null,
+          applyRequestedAt: null,
+          applyStartedAt: null,
+          applyFinishedAt: null,
+          applyErrorCode: null,
+          applyErrorMessage: null,
+          configDirtyAt: null,
+          createdAt: now,
+          updatedAt: now
+        };
+      }
+    } as Pick<AssistantRepository, "findByUserId"> as AssistantRepository,
+    {
+      async findByAssistantId() {
+        return {
+          id: "gov-1",
+          assistantId: "assistant-1",
+          assistantPlanOverrideCode: null,
+          quotaPlanCode: null,
+          channelCredentialRefs: null,
+          memoryControl: null,
+          createdAt: now,
+          updatedAt: now
+        };
+      }
+    } as Pick<AssistantGovernanceRepository, "findByAssistantId"> as AssistantGovernanceRepository,
+    {
+      async findByCode(code: string) {
+        if (code === "starter") {
+          return {
+            code,
+            billingProviderHints: {
+              presentation: { price: { amount: 990, currency: "RUB", billingPeriod: "month" } }
+            }
+          };
+        }
+        return {
+          code,
+          billingProviderHints: {
+            presentation: { price: { amount: 2000, currency: "RUB", billingPeriod: "month" } }
+          }
+        };
+      }
+    } as Pick<AssistantPlanCatalogRepository, "findByCode"> as AssistantPlanCatalogRepository,
+    {
+      async execute() {
+        throw new Error("payment-intent flow must not initialize lifecycle truth");
+      },
+      async executeReadOnly() {
+        return {
+          source: "workspace_subscription",
+          status: "active",
+          planCode: "starter",
+          trialEndsAt: null,
+          graceStartedAt: null,
+          graceEndsAt: null,
+          currentPeriodEndsAt: "2026-06-01T00:00:00.000Z",
+          cancelAtPeriodEnd: false
+        };
+      }
+    } as Pick<
+      ResolveEffectiveSubscriptionStateService,
+      "execute" | "executeReadOnly"
+    > as ResolveEffectiveSubscriptionStateService,
+    {
+      async listPublicPricingPlans() {
+        return [
+          {
+            code: "pro_plus",
+            displayName: "Pro Plus",
+            presentation: { price: { amount: 2000, currency: "RUB", billingPeriod: "month" } }
+          },
+          {
+            code: "starter",
+            displayName: "Starter",
+            presentation: { price: { amount: 990, currency: "RUB", billingPeriod: "month" } }
+          }
+        ];
+      }
+    } as unknown as ManageAdminPlansService,
+    {
+      workspaceSubscription: {
+        async findUnique() {
+          return {
+            providerCustomerRef: "cust-1",
+            billingProvider: "cloudpayments",
+            providerSubscriptionRef: "sub-provider-1"
+          };
+        },
+        async update(args: { data: Record<string, unknown> }) {
+          subscriptionUpdates.push(args.data);
+          return args.data;
+        }
+      },
+      workspacePaymentIntent: {
+        async findUnique() {
+          return null;
+        },
+        async create(args: { data: Record<string, unknown> }) {
+          return {
+            id: "22222222-2222-4222-8222-222222222222",
+            workspaceId: "ws-1",
+            userId: "user-1",
+            targetPlanCode: args.data.targetPlanCode,
+            action: args.data.action,
+            status: "created",
+            paymentMethodClass: args.data.paymentMethodClass,
+            amountMinor: args.data.amountMinor,
+            currency: args.data.currency,
+            billingPeriod: args.data.billingPeriod,
+            returnUrl: args.data.returnUrl,
+            billingProvider: null,
+            providerCustomerRef: "cust-1",
+            providerSessionRef: null,
+            providerPaymentRef: null,
+            checkoutMode: null,
+            checkoutPayload: null,
+            expiresAt: null,
+            idempotencyKey: args.data.idempotencyKey,
+            lastErrorCode: null,
+            lastErrorMessage: null,
+            metadata: args.data.metadata,
+            createdAt: now,
+            updatedAt: now
+          };
+        },
+        async update(args: { data: Record<string, unknown> }) {
+          return {
+            id: "22222222-2222-4222-8222-222222222222",
+            workspaceId: "ws-1",
+            userId: "user-1",
+            targetPlanCode: "pro_plus",
+            action: "upgrade",
+            status: (args.data.status as string) ?? "checkout_ready",
+            paymentMethodClass: "sbp_qr",
+            amountMinor: 200000,
+            currency: "RUB",
+            billingPeriod: "month",
+            returnUrl: "/app/chat?billing=upgrade",
+            billingProvider: "manual_test",
+            providerCustomerRef: "cust-1",
+            providerSessionRef: "provider-session-upgrade",
+            providerPaymentRef: "payment-ref-upgrade",
+            checkoutMode: "manual_test",
+            checkoutPayload: { checkoutUrl: "https://pay.example/upgrade" },
+            expiresAt: null,
+            idempotencyKey: "upgrade-sbp-direct-1",
+            lastErrorCode: null,
+            lastErrorMessage: null,
+            metadata: {},
+            createdAt: now,
+            updatedAt: now
+          };
+        },
+        async findFirst() {
+          return null;
+        }
+      }
+    } as unknown as WorkspaceManagementPrismaService,
+    {
+      async createCheckoutSession() {
+        return {
+          providerKey: "manual_test",
+          providerSessionRef: "provider-session-upgrade",
+          providerPaymentRef: "payment-ref-upgrade",
+          mode: "manual_test",
+          payload: { checkoutUrl: "https://pay.example/upgrade" },
+          expiresAt: null
+        };
+      }
+    } as BillingProviderPort
+  );
+
+  const recurringUpgradeIntent =
+    await directManagedRecurringUpgradeService.createManagedRecurringUpgradePaymentIntent(
+      "user-1",
+      {
+        planCode: "pro_plus",
+        paymentMethodClass: "sbp_qr",
+        idempotencyKey: "upgrade-sbp-direct-1",
+        returnUrl: "/app/chat?billing=upgrade"
+      }
+    );
+  assert.equal(recurringUpgradeIntent.status, "checkout_ready");
+  assert.equal(recurringUpgradeIntent.paymentMethodClass, "sbp_qr");
+  assert.equal(subscriptionUpdates.at(-1)?.recurringMigrationStatus, "in_progress");
+  assert.equal(subscriptionUpdates.at(-1)?.recurringMigrationTargetMethodClass, "sbp_qr");
 
   await assert.rejects(
     () =>

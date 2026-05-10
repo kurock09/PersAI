@@ -9,7 +9,8 @@ Current continuation state:
 - **Purpose:** keep the PersAI-owned billing/provider boundary embedded, subscription-oriented, and lifecycle-owned by PersAI.
 - **Completed through:** Slice 9 — concrete CloudPayments embedded checkout contour on top of PersAI payment intents, plus provider-backed recurring start, trusted recurring lifecycle projection, and first user-visible payment settings.
 - **Latest landed follow-through:** current supported recurring-start contour is CloudPayments constructor + `card`; user-visible payment settings now read server-truth recurring state and can disable auto-renew through PersAI API/provider cancellation.
-- **Next active item:** live end-to-end recurring validation in `persai-dev` and any evidence-driven hardening, not another billing-truth architecture rewrite.
+- **Architecture follow-through:** ADR-092 is the normative PROD program for SBP recurring migration, split last-payment vs auto-renew truth, provider description sync, payment-success + receipt email policy, and Admin > Notifications billing-history completeness. The bounded implementation slices landed on 2026-05-10.
+- **Next active item:** live end-to-end recurring validation in `persai-dev` and evidence-driven hardening of the landed ADR-092 behavior — not ad hoc partial relabeling of payment method fields.
 - **Do not implement before:** ADR-082 delivery-confirmed quota accounting and ADR-083 subscription lifecycle foundations are far enough that payment success can safely activate real plan/subscription state.
 - **Production posture:** no fake long-term billing mode. Test/manual adapters are for development and admin recovery only.
 
@@ -19,7 +20,7 @@ Current continuation state:
 
 ## Relates to
 
-ADR-024, ADR-025, ADR-026, ADR-027, ADR-028, ADR-029, ADR-030, ADR-039, ADR-040, ADR-050, ADR-051, ADR-082, ADR-083
+ADR-024, ADR-025, ADR-026, ADR-027, ADR-028, ADR-029, ADR-030, ADR-039, ADR-040, ADR-050, ADR-051, ADR-082, ADR-083, ADR-092
 
 ## Context
 

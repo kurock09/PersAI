@@ -1,5 +1,92 @@
 # SESSION-HANDOFF
 
+## 2026-05-10 — ADR-092 implementation slices 2+3: payment-success mail, admin notification visibility, and recurring migration UX (LANDED)
+
+### What landed in this session
+
+1. **Payment-success communications** — `BillingLifecycleProducerService` now emits transactional intents for `payment_activated` and `renewal_succeeded`, and the billing template catalog gained branded success templates plus an optional footer link to the official provider receipt when webhook metadata includes it.
+
+2. **Receipt-link persistence** — CloudPayments webhook ingestion now persists receipt URLs into payment-intent / billing-event metadata, and notification facts read those canonical receipt fields instead of inventing receipt links.
+
+3. **Admin > Notifications visibility** — `ManageNotificationPlatformService` now removes the legacy `workspaceId` filter for platform-scoped admins, so `Delivery history` and active `Dead letters` are visible across workspaces for global `ops_admin` / `security_admin` / `super_admin`.
+
+4. **Recurring migration UX/state** — managed SBP upgrade checkout moves `workspace_subscriptions.recurringMigrationStatus` to `in_progress` once checkout is really ready, and the webhook path marks migration `failed` with explicit failure reason when the one-time SBP payment succeeds but auto-renew remains on the prior card because provider-confirmed SBP recurring was not established.
+
+5. **Web/UI** — assistant billing settings now surface explicit recurring-migration hints for `in_progress` / `failed` instead of silently collapsing back to the generic quiet hint.
+
+6. **Tests / verification** — focused API/web tests added for payment-success templates, billing producer success intents, webhook receipt persistence + migration failure, payment-intent migration start, notification-platform global visibility scope, and assistant settings recurring-migration warning; repo lint, format, API/web/contracts typecheck all green.
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/billing-templates.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-producer.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-notification-platform.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx`
+
+### Next recommended step
+
+Deploy the landed ADR-092 slices, then run live smoke checks for payment-success email, provider receipt footer, cross-workspace Admin > Notifications visibility, and the SBP-upgrade/card-auto-renew warning path.
+
+---
+
+## 2026-05-10 — ADR-092 implementation slice 1: split payment-method DB + API + UI (LANDED)
+
+### What landed in this session
+
+1. **Schema** — `workspace_subscriptions` gains ADR-092 instrument + migration columns (`apps/api/prisma/migrations/20260510220000_adr092_split_billing_payment_truth`).
+
+2. **Contracts** — `AssistantBillingSubscriptionManagementState` now has `lastPaymentMethodLabel`, `autoRenewMethodLabel`, `recurringMigration` (`packages/contracts/openapi.yaml`, regenerated clients).
+
+3. **API** — Subscription read model + webhook sync + managed-upgrade provider `Description` + `provider_recurring_descriptor` persistence.
+
+4. **Web** — Payment settings: two tiles (last payment vs recurring charge) + i18n.
+
+5. **Tests** — Focused API + web suites updated green.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `tsx test/manage-assistant-billing-subscription.service.test.ts`, `apply-workspace-subscription-billing-event.service.test.ts`, `handle-cloudpayments-webhook.service.test.ts`
+- `vitest run assistant-settings.test.tsx`, `pricing-page-view.test.tsx`
+
+### Next recommended step
+
+Deploy the now-complete ADR-092 slices and run live validation in `persai-dev`.
+
+---
+
+## 2026-05-10 — ADR-092 SBP recurring migration + billing truth split (LANDED — docs only)
+
+### What landed in this session
+
+1. **New ADR** — `docs/ADR/092-sbp-recurring-migration-and-billing-truth-split.md` (**Proposed**): PROD-only rules for separate **last payment** vs **auto-renew** truth, **provider-confirmed** SBP recurring migration (no one-time-success heuristic), **recurring migration state**, provider **description/name** sync with PersAI plan naming, **payment-success** email + **official receipt link** policy (branded PersAI email, not a fake fiscal document), mandatory **Admin > Notifications** billing-history audit acceptance, agent execution rules, and focused test obligations for future implementation slices.
+
+2. **Doc cross-links** — `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/API-BOUNDARY.md`, `docs/TEST-PLAN.md` (new ADR-092 test subsection), and `docs/ADR/084-billing-provider-readiness-pricing-checkout-and-payment-tools.md` (continuation + **Relates to**) updated so agents treat ADR-092 as the billing/SBP continuation architecture.
+
+### Verification
+
+- Doc-only slice; no OpenAPI or code changes in this session.
+
+### Risks / residuals
+
+- Future product work for true provider-confirmed SBP auto-renew beyond the currently explicit failed-migration/card-fallback path remains a separate follow-up if the business wants real SBP recurring at the provider.
+
+### Next recommended step
+
+Deploy and run live billing smoke validation for the landed ADR-092 behavior.
+
+---
+
 ## 2026-05-10 — Billing Settings save step-up allowlist fix + quieter cancel-subscription billing copy (LANDED)
 
 ### What landed in this session

@@ -285,6 +285,11 @@ export class ManageNotificationPlatformService {
     return context.workspaceId;
   }
 
+  private async resolveDeliveryWorkspaceScope(userId: string): Promise<string | null> {
+    const context = await this.adminAuth.assertCanManageAdminSystemNotifications(userId);
+    return context.hasGlobalPlatformAdminScope ? null : context.workspaceId;
+  }
+
   /**
    * Public thin admin gate. Endpoints that do not need a workspaceId or
    * other state (e.g. dry-run test-send) call this so they pass through the
@@ -953,7 +958,7 @@ export class ManageNotificationPlatformService {
     userId: string,
     query: ListDeliveriesQuery
   ): Promise<{ items: DeliveryIntentView[]; total: number; page: number; pageSize: number }> {
-    const workspaceId = await this.resolveWorkspaceId(userId);
+    const workspaceId = await this.resolveDeliveryWorkspaceScope(userId);
     const page = Math.max(1, query.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 20));
     const skip = (page - 1) * pageSize;
@@ -975,7 +980,7 @@ export class ManageNotificationPlatformService {
       : undefined;
 
     const where: Prisma.NotificationIntentWhereInput = {
-      workspaceId,
+      ...(workspaceId !== null ? { workspaceId } : {}),
       ...(sourceFilter ? { source: sourceFilter as never } : {}),
       ...(classFilter ? { class: classFilter as never } : {}),
       ...(statusFilter ? { lifecycleStatus: statusFilter as never } : {}),
@@ -1010,9 +1015,9 @@ export class ManageNotificationPlatformService {
   }
 
   async getDelivery(userId: string, intentId: string): Promise<DeliveryIntentView> {
-    const workspaceId = await this.resolveWorkspaceId(userId);
+    const workspaceId = await this.resolveDeliveryWorkspaceScope(userId);
     const row = await this.prisma.notificationIntent.findFirst({
-      where: { id: intentId, workspaceId },
+      where: { id: intentId, ...(workspaceId !== null ? { workspaceId } : {}) },
       include: { deliveryAttempts: { orderBy: { attemptNumber: "asc" } } }
     });
     if (!row) {
@@ -1027,7 +1032,7 @@ export class ManageNotificationPlatformService {
     userId: string,
     query: ListDeadLettersQuery = {}
   ): Promise<{ deadLetters: DeadLetterView[]; total: number; page: number; pageSize: number }> {
-    const workspaceId = await this.resolveWorkspaceId(userId);
+    const workspaceId = await this.resolveDeliveryWorkspaceScope(userId);
     const page = Math.max(1, query.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 20));
     const skip = (page - 1) * pageSize;
@@ -1040,7 +1045,7 @@ export class ManageNotificationPlatformService {
       : undefined;
 
     const where: Prisma.NotificationDeadLetterWhereInput = {
-      workspaceId,
+      ...(workspaceId !== null ? { workspaceId } : {}),
       resolvedAt: null,
       ...(sourceFilter || statusFilter || query.dateFrom || query.dateTo
         ? {
@@ -1080,9 +1085,13 @@ export class ManageNotificationPlatformService {
   }
 
   async replayDeadLetter(userId: string, deadLetterId: string): Promise<{ intentId: string }> {
-    const workspaceId = await this.resolveWorkspaceId(userId);
+    const workspaceId = await this.resolveDeliveryWorkspaceScope(userId);
     const row = await this.prisma.notificationDeadLetter.findFirst({
-      where: { id: deadLetterId, workspaceId, resolvedAt: null }
+      where: {
+        id: deadLetterId,
+        ...(workspaceId !== null ? { workspaceId } : {}),
+        resolvedAt: null
+      }
     });
     if (!row) {
       throw new NotFoundException(`Dead letter not found: ${deadLetterId}`);
@@ -1111,9 +1120,13 @@ export class ManageNotificationPlatformService {
   }
 
   async discardDeadLetter(userId: string, deadLetterId: string): Promise<void> {
-    const workspaceId = await this.resolveWorkspaceId(userId);
+    const workspaceId = await this.resolveDeliveryWorkspaceScope(userId);
     const row = await this.prisma.notificationDeadLetter.findFirst({
-      where: { id: deadLetterId, workspaceId, resolvedAt: null }
+      where: {
+        id: deadLetterId,
+        ...(workspaceId !== null ? { workspaceId } : {}),
+        resolvedAt: null
+      }
     });
     if (!row) {
       throw new NotFoundException(`Dead letter not found: ${deadLetterId}`);

@@ -22,6 +22,8 @@ function makeEvent(
     nextStatus: string | null;
     nextPlanCode: string | null;
     nextPeriodEndsAt: Date | null;
+    relatedPaymentIntentRef: string | null;
+    metadata: Record<string, unknown>;
     createdAt: Date;
     userEmail: string | null;
     trialEndsAt: Date | null;
@@ -37,6 +39,8 @@ function makeEvent(
     nextStatus: overrides.nextStatus ?? "active",
     nextPlanCode: overrides.nextPlanCode ?? "pro",
     nextPeriodEndsAt: overrides.nextPeriodEndsAt ?? null,
+    relatedPaymentIntentRef: overrides.relatedPaymentIntentRef ?? null,
+    metadata: overrides.metadata ?? {},
     createdAt: overrides.createdAt ?? new Date("2026-05-08T12:00:00.000Z"),
     user: { email: overrides.userEmail ?? "user@example.com" },
     subscription: {
@@ -62,6 +66,16 @@ function makeService(opts: {
         return event;
       }
     },
+    workspacePaymentIntent: {
+      async findUnique() {
+        return null;
+      }
+    },
+    workspaceSubscriptionBillingEvent: {
+      async findUnique() {
+        return null;
+      }
+    },
     notificationPolicy: {
       async findUnique(_args: { where: { source: string } }) {
         if (!policyEnabled) {
@@ -74,6 +88,8 @@ function makeService(opts: {
             rules: opts.rulesOverride ?? {
               trial_ending: { enabled: true, offsetDays: 3 },
               trial_expired: { enabled: true, offsetDays: null },
+              payment_activated: { enabled: true, offsetDays: null },
+              renewal_succeeded: { enabled: true, offsetDays: null },
               renewal_failed: { enabled: true, offsetDays: null },
               grace_ending: { enabled: true, offsetDays: 1 },
               grace_expired: { enabled: true, offsetDays: null },
@@ -166,6 +182,44 @@ async function run(): Promise<void> {
     assert.equal(intents[0]!["templateId"], "billing.renewal_failed");
     assert.equal(intents[0]!["dedupeKey"], "renewal_failed:ws-2:ev-rf-1");
     console.log("✓ renewal_failed → correct email intent");
+  }
+
+  // 2.5 payment_activated produces payment-success template
+  {
+    const intents: IntentInput[] = [];
+    const svc = makeService({
+      event: makeEvent({
+        eventCode: "payment_activated",
+        id: "ev-pa-1",
+        workspaceId: "ws-pa"
+      }),
+      createdIntents: intents
+    });
+    await svc.emitForLifecycleEventId("ev-pa-1");
+
+    assert.equal(intents.length, 1);
+    assert.equal(intents[0]!["templateId"], "billing.payment_activated");
+    assert.equal(intents[0]!["dedupeKey"], "payment_activated:ws-pa:ev-pa-1");
+    console.log("✓ payment_activated → payment_activated intent");
+  }
+
+  // 2.6 renewal_succeeded produces payment-success template
+  {
+    const intents: IntentInput[] = [];
+    const svc = makeService({
+      event: makeEvent({
+        eventCode: "renewal_succeeded",
+        id: "ev-rs-1",
+        workspaceId: "ws-rs"
+      }),
+      createdIntents: intents
+    });
+    await svc.emitForLifecycleEventId("ev-rs-1");
+
+    assert.equal(intents.length, 1);
+    assert.equal(intents[0]!["templateId"], "billing.renewal_succeeded");
+    assert.equal(intents[0]!["dedupeKey"], "renewal_succeeded:ws-rs:ev-rs-1");
+    console.log("✓ renewal_succeeded → renewal_succeeded intent");
   }
 
   // 3. grace_started produces grace_ending intent

@@ -28,6 +28,13 @@ export type AssistantBillingScheduledPlanChangePreview = {
   changeKind: AssistantBillingPlanChangeKind;
 };
 
+export type AssistantBillingRecurringMigrationView = {
+  status: "idle" | "in_progress" | "succeeded" | "failed";
+  targetMethodClass: "card" | "sbp_qr" | null;
+  failureReason: string | null;
+  updatedAt: string | null;
+};
+
 export type AssistantBillingSubscriptionManagementState = {
   planCode: string | null;
   planDisplayName: string | null;
@@ -52,7 +59,9 @@ export type AssistantBillingSubscriptionManagementState = {
   nextChargeAt: string | null;
   currentPeriodEndsAt: string | null;
   scheduledPlanChange: AssistantBillingScheduledPlanChangePreview | null;
-  paymentMethodLabel: string | null;
+  lastPaymentMethodLabel: string | null;
+  autoRenewMethodLabel: string | null;
+  recurringMigration: AssistantBillingRecurringMigrationView;
   managePaymentMethodUrl: string | null;
   managePaymentMethodMode: "provider_portal" | "provider_managed_recovery" | "unavailable";
   cancelUrl: string | null;
@@ -274,10 +283,6 @@ export class ManageAssistantBillingSubscriptionService {
             })
             .catch(() => null)
         : null;
-    const paymentMethodLabel = await this.readLatestPaymentMethodLabel(
-      context.assistant.workspaceId,
-      context.subscription
-    );
     const hasPendingCancelSyncFailure = await this.hasPendingCancelSyncFailure(
       context.assistant.workspaceId,
       context.subscription
@@ -286,6 +291,21 @@ export class ManageAssistantBillingSubscriptionService {
       providerManaged &&
       context.subscription !== null &&
       (context.subscription.cancelAtPeriodEnd || hasPendingCancelSyncFailure);
+    const lastPaymentMethodLabel = await this.resolveLastPaymentMethodLabel(
+      context.assistant.workspaceId,
+      context.subscription
+    );
+    const autoRenewMethodClass = await this.ensureCanonicalAutoRenewMethodClass(
+      context.assistant.workspaceId,
+      context.subscription,
+      providerManaged,
+      autoRenewDisabled
+    );
+    const autoRenewMethodLabel =
+      providerManaged && !autoRenewDisabled
+        ? formatPaymentMethodClassLabel(autoRenewMethodClass)
+        : null;
+    const recurringMigration = this.buildRecurringMigrationView(context.subscription);
     const canEnableAutoRenew =
       context.subscription !== null &&
       ["active", "grace_period", "past_due", "canceled"].includes(context.subscription.status) &&
@@ -336,7 +356,9 @@ export class ManageAssistantBillingSubscriptionService {
           null),
       currentPeriodEndsAt: context.subscription?.currentPeriodEndsAt?.toISOString() ?? null,
       scheduledPlanChange,
-      paymentMethodLabel,
+      lastPaymentMethodLabel,
+      autoRenewMethodLabel,
+      recurringMigration,
       managePaymentMethodUrl:
         managePaymentMethodMode === "unavailable"
           ? null
@@ -705,6 +727,12 @@ export class ManageAssistantBillingSubscriptionService {
       providerSubscriptionRef: string | null;
       currentPeriodEndsAt: Date | null;
       metadata: Prisma.JsonValue | null;
+      lastPaymentMethodClass: "card" | "sbp_qr" | null;
+      autoRenewMethodClass: "card" | "sbp_qr" | null;
+      recurringMigrationStatus: "idle" | "in_progress" | "succeeded" | "failed";
+      recurringMigrationUpdatedAt: Date | null;
+      recurringMigrationTargetMethodClass: "card" | "sbp_qr" | null;
+      recurringMigrationFailureReason: string | null;
     } | null;
     planDisplayName: string | null;
   }> {
@@ -722,7 +750,13 @@ export class ManageAssistantBillingSubscriptionService {
         providerCustomerRef: true,
         providerSubscriptionRef: true,
         currentPeriodEndsAt: true,
-        metadata: true
+        metadata: true,
+        lastPaymentMethodClass: true,
+        autoRenewMethodClass: true,
+        recurringMigrationStatus: true,
+        recurringMigrationUpdatedAt: true,
+        recurringMigrationTargetMethodClass: true,
+        recurringMigrationFailureReason: true
       }
     });
     const plan =
@@ -736,6 +770,92 @@ export class ManageAssistantBillingSubscriptionService {
       subscription,
       planDisplayName: plan?.displayName ?? null
     };
+  }
+
+  private buildRecurringMigrationView(
+    subscription: {
+      recurringMigrationStatus: "idle" | "in_progress" | "succeeded" | "failed";
+      recurringMigrationTargetMethodClass: "card" | "sbp_qr" | null;
+      recurringMigrationFailureReason: string | null;
+      recurringMigrationUpdatedAt: Date | null;
+    } | null
+  ): AssistantBillingRecurringMigrationView {
+    if (subscription === null) {
+      return {
+        status: "idle",
+        targetMethodClass: null,
+        failureReason: null,
+        updatedAt: null
+      };
+    }
+    return {
+      status: subscription.recurringMigrationStatus,
+      targetMethodClass: subscription.recurringMigrationTargetMethodClass,
+      failureReason: subscription.recurringMigrationFailureReason,
+      updatedAt: subscription.recurringMigrationUpdatedAt?.toISOString() ?? null
+    };
+  }
+
+  private async ensureCanonicalAutoRenewMethodClass(
+    workspaceId: string,
+    subscription: {
+      billingProvider: string | null;
+      providerSubscriptionRef: string | null;
+      status:
+        | "trialing"
+        | "active"
+        | "grace_period"
+        | "past_due"
+        | "paused"
+        | "canceled"
+        | "expired"
+        | "expired_fallback";
+      autoRenewMethodClass: "card" | "sbp_qr" | null;
+    } | null,
+    providerManaged: boolean,
+    autoRenewDisabled: boolean
+  ): Promise<"card" | "sbp_qr" | null> {
+    if (
+      subscription === null ||
+      !providerManaged ||
+      autoRenewDisabled ||
+      subscription.billingProvider !== "cloudpayments"
+    ) {
+      return subscription?.autoRenewMethodClass ?? null;
+    }
+    if (subscription.autoRenewMethodClass !== null) {
+      return subscription.autoRenewMethodClass;
+    }
+    await this.prisma.workspaceSubscription.update({
+      where: { workspaceId },
+      data: { autoRenewMethodClass: "card" }
+    });
+    return "card";
+  }
+
+  private async resolveLastPaymentMethodLabel(
+    workspaceId: string,
+    subscription: {
+      planCode: string;
+      billingProvider: string | null;
+      providerCustomerRef: string | null;
+      providerSubscriptionRef: string | null;
+      status:
+        | "trialing"
+        | "active"
+        | "grace_period"
+        | "past_due"
+        | "paused"
+        | "canceled"
+        | "expired"
+        | "expired_fallback";
+      lastPaymentMethodClass: "card" | "sbp_qr" | null;
+    } | null
+  ): Promise<string | null> {
+    if (subscription !== null && subscription.lastPaymentMethodClass !== null) {
+      return formatPaymentMethodClassLabel(subscription.lastPaymentMethodClass);
+    }
+    return this.readLatestPaymentMethodLabel(workspaceId, subscription);
   }
 
   private async readLatestPaymentMethodLabel(
@@ -754,6 +874,7 @@ export class ManageAssistantBillingSubscriptionService {
         | "canceled"
         | "expired"
         | "expired_fallback";
+      lastPaymentMethodClass?: "card" | "sbp_qr" | null;
     } | null
   ): Promise<string | null> {
     if (!isProviderManagedRecurringSubscription(subscription)) {

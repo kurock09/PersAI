@@ -21,6 +21,9 @@ const COPY = {
     footerThanks: "Thank you for choosing PersAI.",
     footerSupportText: "For any questions, reach us at",
     footerCabinet: "Manage your subscription",
+    footerReceiptLabel: "Official receipt",
+    footerReceiptHelp:
+      "This email is a PersAI payment confirmation. The official fiscal receipt is issued by the payment provider or cash-register service.",
     footerUnsubscribe:
       "You receive this because you have an active PersAI account. To unsubscribe from billing notifications, use the Unsubscribe option in your email client.",
     linkPricing: "Pricing",
@@ -40,6 +43,9 @@ const COPY = {
     footerThanks: "Спасибо, что выбрали PersAI.",
     footerSupportText: "По любым вопросам:",
     footerCabinet: "Управление подпиской",
+    footerReceiptLabel: "Официальный чек",
+    footerReceiptHelp:
+      "Это письмо — подтверждение оплаты от PersAI. Официальный фискальный чек формирует платёжный провайдер или кассовый контур.",
     footerUnsubscribe:
       "Вы получаете это письмо, потому что у вас есть активный аккаунт PersAI. Чтобы отписаться от уведомлений, воспользуйтесь кнопкой «Отписаться» в вашем почтовом клиенте.",
     linkPricing: "Тарифы",
@@ -85,8 +91,9 @@ export function buildHtml(params: {
   heading: string;
   bodyLines: string[];
   rows: Array<{ label: string; value: string }>;
+  officialReceiptUrl?: string | null;
 }): string {
-  const { locale, title, heading, bodyLines, rows } = params;
+  const { locale, title, heading, bodyLines, rows, officialReceiptUrl = null } = params;
   const lang = resolvedLocale(locale);
   const c = copy(lang);
 
@@ -130,6 +137,11 @@ export function buildHtml(params: {
         `<a href="${lnk.href}" style="color:#8a837c;text-decoration:none;font-size:12px">${lnk.label}</a>`
     )
     .join("&ensp;&middot;&ensp;");
+
+  const receiptBlock =
+    officialReceiptUrl !== null
+      ? `<p style="margin:0 0 12px;font-size:12px;line-height:1.7;color:#6d665f">${c.footerReceiptHelp} <a href="${officialReceiptUrl}" style="color:#4a6fa5;text-decoration:none">${c.footerReceiptLabel}</a></p>`
+      : `<p style="margin:0 0 12px;font-size:12px;line-height:1.7;color:#6d665f">${c.footerReceiptHelp}</p>`;
 
   return `<!DOCTYPE html>
 <html lang="${lang}">
@@ -180,6 +192,7 @@ export function buildHtml(params: {
               <p style="margin:0 0 12px;font-size:13px">
                 <a href="${SITE}/app" style="color:#4a6fa5;text-decoration:none">${c.footerCabinet}&nbsp;&rarr;&nbsp;persai.dev/app</a>
               </p>
+              ${receiptBlock}
               <p style="margin:0 0 12px;font-size:12px;line-height:1.9">
                 ${footerLinks}
               </p>
@@ -202,8 +215,9 @@ export function buildPlainText(params: {
   heading: string;
   bodyLines: string[];
   rows: Array<{ label: string; value: string }>;
+  officialReceiptUrl?: string | null;
 }): string {
-  const { locale, heading, bodyLines, rows } = params;
+  const { locale, heading, bodyLines, rows, officialReceiptUrl = null } = params;
   const lang = resolvedLocale(locale);
   const c = copy(lang);
   const divider = "─".repeat(44);
@@ -229,6 +243,10 @@ export function buildPlainText(params: {
   lines.push("");
   lines.push(`${c.footerSupportText} support@persai.dev`);
   lines.push(`${c.footerCabinet}: ${SITE}/app`);
+  lines.push(c.footerReceiptHelp);
+  if (officialReceiptUrl !== null) {
+    lines.push(`${c.footerReceiptLabel}: ${officialReceiptUrl}`);
+  }
   lines.push("");
   lines.push(
     [

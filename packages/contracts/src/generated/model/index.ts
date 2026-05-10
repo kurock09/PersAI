@@ -603,3 +603,6 @@ export * from "./userPlanVisibilityState";
 export * from "./workspaceSummary";
 export * from "./workspaceSummaryRole";
 export * from "./workspaceSummaryStatus";
+export * from "./assistantBillingRecurringMigrationState";
+export * from "./assistantBillingRecurringMigrationStateStatus";
+export * from "./assistantBillingRecurringMigrationStateTargetMethodClass";

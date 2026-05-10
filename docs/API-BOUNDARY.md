@@ -4,7 +4,7 @@ This document describes the current active PersAI request boundaries.
 
 For exact request and response schemas, use `packages/contracts/openapi.yaml` and the generated client/types in `packages/contracts/src/generated`.
 
-ADR-072 is closed as the historical native migration ADR. ADR-078 is completed as the consolidated follow-through program. ADR-080 defines admin-controlled Knowledge authoring and Skill curation. ADR-081 defines unified user Files. ADR-087 defines unified quota advisories and paid light mode. ADR-088 defines the unified notification platform, control plane, and delivery architecture.
+ADR-072 is closed as the historical native migration ADR. ADR-078 is completed as the consolidated follow-through program. ADR-080 defines admin-controlled Knowledge authoring and Skill curation. ADR-081 defines unified user Files. ADR-087 defines unified quota advisories and paid light mode. ADR-088 defines the unified notification platform, control plane, and delivery architecture. ADR-092 defines the active billing contract for split payment-method truth on `GET /api/v1/assistant/billing/subscription` (last payment vs auto-renew), explicit provider-confirmed SBP recurring migration semantics, synchronized provider recurring descriptions, payment-success notification + receipt-link policy, and acceptance that billing notification intents remain queryable via `Admin > Notifications` delivery history APIs.
 
 ## Public product APIs
 

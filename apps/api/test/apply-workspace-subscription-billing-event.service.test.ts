@@ -32,8 +32,19 @@ async function run(): Promise<void> {
   };
 
   const prisma = {
+    planCatalogPlan: {
+      async findUnique(args: { where: { code: string } }) {
+        if (args.where.code === "pro") {
+          return { displayName: "Pro" };
+        }
+        return null;
+      }
+    },
     workspaceSubscription: {
       async findUnique() {
+        return currentSubscription;
+      },
+      async update() {
         return currentSubscription;
       }
     },
@@ -408,6 +419,7 @@ async function run(): Promise<void> {
   assert.deepEqual(managedUpgrade, { status: "applied", billingEventId: "billing-event-9" });
   assert.equal(providerUpdateCalls.length, 1);
   assert.equal(providerUpdateCalls[0]?.providerSubscriptionRef, "sub-existing-1");
+  assert.equal(providerUpdateCalls[0]?.description, "PersAI Pro");
   assert.equal(currentSubscription.providerSubscriptionRef, "sub-updated-1");
 
   billingEvents[8] = {

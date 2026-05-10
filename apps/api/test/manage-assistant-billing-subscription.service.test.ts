@@ -6,15 +6,21 @@ async function run(): Promise<void> {
   const scheduledPlanChanges: Array<Record<string, unknown>> = [];
   const providerCalls: Array<{ kind: string; providerSubscriptionRef: string }> = [];
   let failProviderUpdate = false;
-  let subscription = {
+  let subscription: Record<string, unknown> = {
     planCode: "pro",
-    status: "active" as const,
+    status: "active",
     cancelAtPeriodEnd: false,
     billingProvider: "cloudpayments",
     providerCustomerRef: "cust-1",
     providerSubscriptionRef: "sub-provider-1",
     currentPeriodEndsAt: new Date("2026-06-05T00:00:00.000Z"),
-    metadata: null
+    metadata: null,
+    lastPaymentMethodClass: null,
+    autoRenewMethodClass: null,
+    recurringMigrationStatus: "idle",
+    recurringMigrationUpdatedAt: null,
+    recurringMigrationTargetMethodClass: null,
+    recurringMigrationFailureReason: null
   };
 
   const service = new ManageAssistantBillingSubscriptionService(
@@ -61,6 +67,10 @@ async function run(): Promise<void> {
     {
       workspaceSubscription: {
         async findUnique() {
+          return subscription;
+        },
+        async update(args: { data: Record<string, unknown> }) {
+          subscription = { ...subscription, ...args.data };
           return subscription;
         }
       },
@@ -208,7 +218,9 @@ async function run(): Promise<void> {
   assert.equal(state.autoRenewEnabled, true);
   assert.equal(state.canEnableAutoRenew, false);
   assert.equal(state.canDisableAutoRenew, true);
-  assert.equal(state.paymentMethodLabel, "Bank card");
+  assert.equal(state.lastPaymentMethodLabel, "Bank card");
+  assert.equal(state.autoRenewMethodLabel, "Bank card");
+  assert.equal(state.recurringMigration.status, "idle");
 
   const disabled = await service.disableAutoRenew("user-1");
   assert.equal(disabled.autoRenewEnabled, false);

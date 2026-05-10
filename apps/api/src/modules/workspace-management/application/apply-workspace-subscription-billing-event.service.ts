@@ -399,7 +399,22 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
       };
     }
 
-    const managedSubscription = await this.billingProviderPort.updateManagedSubscription(update);
+    const planCode = this.normalizeOptionalString(input.paidPlanCode);
+    let description: string | null = null;
+    if (planCode !== null) {
+      const planRow = await this.prisma.planCatalogPlan.findUnique({
+        where: { code: planCode },
+        select: { displayName: true }
+      });
+      if (planRow?.displayName !== undefined && planRow.displayName.trim().length > 0) {
+        description = `PersAI ${planRow.displayName.trim()}`;
+      }
+    }
+
+    const managedSubscription = await this.billingProviderPort.updateManagedSubscription({
+      ...update,
+      ...(description !== null ? { description } : {})
+    });
     const appliedAtIso = new Date().toISOString();
     await this.prisma.workspaceSubscriptionBillingEvent.update({
       where: { id: billingEvent.id },
@@ -410,6 +425,13 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
         })
       }
     });
+
+    if (description !== null) {
+      await this.prisma.workspaceSubscription.update({
+        where: { workspaceId: input.workspaceId },
+        data: { providerRecurringDescriptor: description }
+      });
+    }
 
     return {
       ...input,
