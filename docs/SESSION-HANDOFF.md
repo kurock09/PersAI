@@ -1,5 +1,52 @@
 # SESSION-HANDOFF
 
+## 2026-05-10 — ADR-089 highlighted flag + admin compact rows + user info hints (LANDED)
+
+### What changed
+
+1. **`badge_ru` / `badge_en` → `highlighted: boolean`** — `MediaPackageCatalogItem` schema, types, and admin/user surfaces drop the per-locale `badgeRu` / `badgeEn` text fields and add a single admin-controlled `highlighted` flag. Prisma migration `20260510120000_adr089_media_package_highlighted` adds the new column and removes the two badge columns. The flag drives the gold gradient padding-box / gold gradient border on `/app/packages` (light) and a tinted gold border (dark), mirroring the highlighted-plan card on `/app/pricing`.
+2. **User selection is back to a clear round checkmark** — `PackageChoiceRow` now uses a circular `Check` icon (filled accent on selected) as the selection indicator instead of the previous `ON / OFF` pill, and never co-opts the gold premium look for selection. Selected + highlighted compose cleanly via a thin accent ring, so an admin-highlighted preset still reads as premium even when the user has selected another row. The duplicate `10 единиц` subtitle is gone; the row now renders the optional admin-supplied subtitle from `item.subtitle.ru/.en` and hides the line entirely when both locales are empty.
+3. **Admin block compressed to readable inventory rows** — `MediaPackagesSection.tsx` was rebuilt: per-type presets render as compact horizontal rows (`[10 u · 100 ₽ ★ … Edit Delete]`) packed up to 4 per row (`grid-cols-1 sm:2 lg:3 xl:4`), with `Edit` / `Delete` icon-only buttons (no oversized labels), and an `off` chip only for inactive presets. The form replaces the `Badge RU` / `Badge EN` text inputs with a single `Highlighted (gold premium border)` toggle and an `Active` toggle on the same row, both rendered as native premium toggles instead of native checkboxes.
+4. **User packages page micro-hints** — each of the three media-type cards now ends with a single quiet `i` line: "Создаём изображение по описанию (промту)." / "Меняем готовое изображение по описанию." / "Создаём и редактируем видео по описанию." (en counterparts wired), so the user understands what a package is for without any extra noise.
+
+### Current slice/step
+
+ADR-089 highlighted flag + admin compact rows + user info hints — COMPLETE.
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma` — `MediaPackageCatalogItem.highlighted Boolean @default(false) @map("highlighted")`; `badgeRu` / `badgeEn` columns removed
+- `apps/api/prisma/migrations/20260510120000_adr089_media_package_highlighted/migration.sql` — new migration adds `highlighted` and drops `badge_ru` / `badge_en`
+- `apps/api/src/modules/workspace-management/application/media-package.types.ts` — `MediaPackageCatalogItemState.highlighted: boolean`; `CreateMediaPackageCatalogItemInput.highlighted?: boolean`; badge fields removed from both
+- `apps/api/src/modules/workspace-management/application/manage-media-package-catalog.service.ts` — row mapping reads `highlighted`; create/update propagate `highlighted`; badge fields removed from mapping/inputs
+- `apps/web/app/app/assistant-api-client.ts` — `MediaPackageCatalogItem.highlighted: boolean`; admin POST/PATCH client signatures replace `badgeRu` / `badgeEn` with `highlighted`
+- `apps/web/app/admin/plans/_components/MediaPackagesSection.tsx` — full rewrite: compact `PackageRow` (replaces large `PackageCard`), responsive 4-up grid, native-style toggles for `Active` and `Highlighted` in the form
+- `apps/web/app/app/packages/page.tsx` — `PackageChoiceRow` rewrite: round `Check` selection indicator, `item.highlighted` drives gold gradient border, optional admin `subtitle` rendering; `PACKAGE_TYPE_META` extended with `info` copy (ru/en) and `PackageTypeCard` ends each card with a quiet `i` micro-line
+- `apps/api/test/read-internal-runtime-quota-status.service.test.ts` — updated `listPublic()` mock to the new shape (`highlighted: false`, no `badge`)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec prisma generate` → ✅
+- `corepack pnpm --filter @persai/api run typecheck` → ✅
+- `corepack pnpm --filter @persai/web run typecheck` → ✅
+- `corepack pnpm -r --if-present run lint` → ✅
+- `corepack pnpm run format:check` → ✅
+- `corepack pnpm --filter @persai/api run test` → ✅ (full api suite)
+- `corepack pnpm --filter @persai/web run test -- --run` → ✅ (341 web tests)
+- `corepack pnpm --filter @persai/runtime run test` → ✅ (full runtime suite)
+
+### Risks / notes
+
+- **Migration drops two columns.** `badge_ru` / `badge_en` are dropped from `media_package_catalog_items`. They were operator-only (rendered nowhere on the user surface) and have been replaced by the `highlighted` boolean. If any operator still wants per-locale promotional text on a preset, it can be carried in `subtitle_ru` / `subtitle_en` (now actually rendered on `/app/packages`).
+- **Admin form toggle is a custom `<button role="switch">`.** Both toggles (`Active`, `Highlighted`) are styled controls, not native `<input type="checkbox">`. Keyboard activation is via `Enter` / `Space` on the focused button, which matches the rest of the admin UI's switch pattern.
+- **Selected vs Highlighted are now orthogonal.** Selected is user state (round check, accent border). Highlighted is admin state (gold gradient/border). Both can be true at once on the same row; in that case we keep the gold premium look and add a thin accent ring so the user can still see their selection without diluting the premium signal.
+- **Info micro-line is purely informational.** The `i` line at the bottom of each `/app/packages` category card has no behaviour and uses `text-text-subtle` so it never competes with the preset rows. If we later add provider/limit details, this is the natural slot to expand.
+
+### Next recommended step
+
+- Live-test on staging: in `Admin > Plans > Media packages`, mark one preset per type as `Highlighted`, then open `/app/packages` as a regular user and confirm the gold premium border lines up with the highlighted preset (light + dark) and that the round `Check` indicator still moves on click. Confirm the `i` micro-line is present at the bottom of each category card. Confirm the admin grid still fits 4 rows on desktop and stays readable on mobile.
+
 ## 2026-05-10 — ADR-089 quota_status purchase CTA + media UI polish (LANDED)
 
 ### What changed

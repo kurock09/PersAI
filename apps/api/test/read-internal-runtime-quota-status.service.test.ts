@@ -210,9 +210,9 @@ async function run(): Promise<void> {
             currency: "RUB",
             isActive: true,
             displayOrder: 0,
+            highlighted: false,
             title: { ru: "10 генераций", en: "10 generations" },
             subtitle: { ru: "", en: "" },
-            badge: { ru: "", en: "" },
             createdAt: "2026-05-01T00:00:00.000Z",
             updatedAt: "2026-05-01T00:00:00.000Z"
           }

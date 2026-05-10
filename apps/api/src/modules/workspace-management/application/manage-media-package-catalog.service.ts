@@ -25,12 +25,11 @@ function toItemState(row: {
   currency: string;
   isActive: boolean;
   displayOrder: number;
+  highlighted: boolean;
   titleRu: string;
   titleEn: string;
   subtitleRu: string;
   subtitleEn: string;
-  badgeRu: string;
-  badgeEn: string;
   ctaLabelRu: string;
   ctaLabelEn: string;
   createdAt: Date;
@@ -44,9 +43,9 @@ function toItemState(row: {
     currency: row.currency as PackageCurrency,
     isActive: row.isActive,
     displayOrder: row.displayOrder,
+    highlighted: row.highlighted,
     title: { ru: row.titleRu, en: row.titleEn },
     subtitle: { ru: row.subtitleRu, en: row.subtitleEn },
-    badge: { ru: row.badgeRu, en: row.badgeEn },
     ctaLabel: { ru: row.ctaLabelRu, en: row.ctaLabelEn },
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString()
@@ -90,12 +89,11 @@ export class ManageMediaPackageCatalogService {
         currency: input.currency,
         isActive: input.isActive,
         displayOrder: input.displayOrder,
+        highlighted: input.highlighted ?? false,
         titleRu: input.titleRu,
         titleEn: input.titleEn,
         subtitleRu: input.subtitleRu ?? "",
         subtitleEn: input.subtitleEn ?? "",
-        badgeRu: input.badgeRu ?? "",
-        badgeEn: input.badgeEn ?? "",
         ctaLabelRu: input.ctaLabelRu ?? "",
         ctaLabelEn: input.ctaLabelEn ?? ""
       }
@@ -132,12 +130,11 @@ export class ManageMediaPackageCatalogService {
         ...(input.currency !== undefined && { currency: input.currency }),
         ...(input.isActive !== undefined && { isActive: input.isActive }),
         ...(input.displayOrder !== undefined && { displayOrder: input.displayOrder }),
+        ...(input.highlighted !== undefined && { highlighted: input.highlighted }),
         ...(input.titleRu !== undefined && { titleRu: input.titleRu }),
         ...(input.titleEn !== undefined && { titleEn: input.titleEn }),
         ...(input.subtitleRu !== undefined && { subtitleRu: input.subtitleRu }),
         ...(input.subtitleEn !== undefined && { subtitleEn: input.subtitleEn }),
-        ...(input.badgeRu !== undefined && { badgeRu: input.badgeRu }),
-        ...(input.badgeEn !== undefined && { badgeEn: input.badgeEn }),
         ...(input.ctaLabelRu !== undefined && { ctaLabelRu: input.ctaLabelRu }),
         ...(input.ctaLabelEn !== undefined && { ctaLabelEn: input.ctaLabelEn })
       }

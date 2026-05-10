@@ -12,9 +12,9 @@ export type MediaPackageCatalogItemState = {
   currency: PackageCurrency;
   isActive: boolean;
   displayOrder: number;
+  highlighted: boolean;
   title: { ru: string; en: string };
   subtitle: { ru: string; en: string };
-  badge: { ru: string; en: string };
   ctaLabel: { ru: string; en: string };
   createdAt: string;
   updatedAt: string;
@@ -27,12 +27,11 @@ export type CreateMediaPackageCatalogItemInput = {
   currency: PackageCurrency;
   isActive: boolean;
   displayOrder: number;
+  highlighted?: boolean;
   titleRu: string;
   titleEn: string;
   subtitleRu?: string;
   subtitleEn?: string;
-  badgeRu?: string;
-  badgeEn?: string;
   ctaLabelRu?: string;
   ctaLabelEn?: string;
 };

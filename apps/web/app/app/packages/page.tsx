@@ -6,7 +6,7 @@ import type { UserPlanVisibilityState } from "@persai/contracts";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useLocale, useTranslations } from "next-intl";
-import { AlertCircle, Loader2, ShoppingCart } from "lucide-react";
+import { AlertCircle, Check, Info, Loader2, ShoppingCart } from "lucide-react";
 import {
   getAssistantPlanVisibility,
   getPublicMediaPackages,
@@ -27,6 +27,7 @@ const PACKAGE_TYPE_META: Record<
     title: { ru: string; en: string };
     disabledHint: { ru: string; en: string };
     emptyHint: { ru: string; en: string };
+    info: { ru: string; en: string };
   }
 > = {
   image_generate: {
@@ -38,6 +39,10 @@ const PACKAGE_TYPE_META: Record<
     emptyHint: {
       ru: "Для этого типа пока нет доступных пакетов.",
       en: "No packages available for this type yet."
+    },
+    info: {
+      ru: "Создаём изображение по описанию (промту).",
+      en: "We create an image from your prompt."
     }
   },
   image_edit: {
@@ -49,6 +54,10 @@ const PACKAGE_TYPE_META: Record<
     emptyHint: {
       ru: "Для этого типа пока нет доступных пакетов.",
       en: "No packages available for this type yet."
+    },
+    info: {
+      ru: "Меняем готовое изображение по описанию.",
+      en: "We edit an existing image based on your description."
     }
   },
   video_generate: {
@@ -60,6 +69,10 @@ const PACKAGE_TYPE_META: Record<
     emptyHint: {
       ru: "Для этого типа пока нет доступных пакетов.",
       en: "No packages available for this type yet."
+    },
+    info: {
+      ru: "Создаём и редактируем видео по описанию.",
+      en: "We create and edit videos based on your description."
     }
   }
 };
@@ -133,6 +146,9 @@ function PackageChoiceRow({
   locale: string;
   onSelect: () => void;
 }) {
+  const subtitle = pickText(locale, item.subtitle).trim();
+  const highlighted = item.highlighted;
+
   return (
     <button
       type="button"
@@ -140,34 +156,40 @@ function PackageChoiceRow({
       disabled={disabled}
       aria-pressed={selected}
       className={cn(
-        "flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition-all",
-        selected
-          ? // Premium gold highlight: warm gradient padding-box + gold gradient border on light;
-            // tinted gold border on dark with surface-raised fill so the row reads as selected on both themes.
-            "border-transparent text-text [background:linear-gradient(180deg,rgba(255,238,190,0.22),rgba(255,248,230,0.06))_padding-box,linear-gradient(135deg,rgba(255,226,150,0.85),rgba(214,170,70,0.55),rgba(255,248,230,0.28),rgba(176,132,33,0.65))_border-box] dark:border-[rgba(212,168,66,0.55)] dark:[background:var(--surface-raised)] dark:hover:border-[rgba(224,183,86,0.72)]"
+        "group flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition-all",
+        // Admin-controlled premium highlight (gold). Independent of user selection.
+        // Light: warm gold padding-box + gold gradient border. Dark: thin gold border on surface.
+        highlighted
+          ? "border-transparent text-text [background:linear-gradient(180deg,rgba(255,238,190,0.22),rgba(255,248,230,0.06))_padding-box,linear-gradient(135deg,rgba(255,226,150,0.85),rgba(214,170,70,0.55),rgba(255,248,230,0.28),rgba(176,132,33,0.65))_border-box] dark:border-[rgba(212,168,66,0.55)] dark:[background:var(--surface-raised)] dark:hover:border-[rgba(224,183,86,0.72)]"
           : "border-border/80 bg-bg/55 text-text hover:border-border hover:bg-surface-hover/70",
+        // User selection: subtle accent border on top, never breaks gold visual.
+        selected && !highlighted && "border-accent/60 bg-accent/5 hover:border-accent/70",
+        selected && highlighted && "ring-2 ring-accent/30",
         disabled && "cursor-not-allowed opacity-45 hover:border-border/80 hover:bg-bg/55"
       )}
     >
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-text">{formatPackageLabel(locale, item)}</p>
-      </div>
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-semibold text-text">
-          {formatPrice(item.amountMinor, item.currency, locale)}
-        </span>
+      <div className="flex min-w-0 items-start gap-3">
         <span
           aria-hidden="true"
           className={cn(
-            "inline-flex h-5 min-w-9 items-center justify-center rounded-full border px-2 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors",
+            "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors",
             selected
-              ? "border-[rgba(176,132,33,0.55)] bg-[rgba(255,226,150,0.32)] text-[rgba(120,86,15,0.9)] dark:border-[rgba(224,183,86,0.7)] dark:bg-[rgba(176,132,33,0.18)] dark:text-[rgba(244,214,140,0.95)]"
-              : "border-border/80 bg-surface text-text-subtle"
+              ? "border-accent bg-accent text-white"
+              : "border-border/80 bg-surface text-transparent group-hover:border-border"
           )}
         >
-          {selected ? "ON" : "OFF"}
+          <Check className="h-3 w-3" strokeWidth={3} />
         </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-text">{formatPackageLabel(locale, item)}</p>
+          {subtitle.length > 0 ? (
+            <p className="mt-0.5 text-xs text-text-subtle">{subtitle}</p>
+          ) : null}
+        </div>
       </div>
+      <span className="shrink-0 text-sm font-semibold text-text">
+        {formatPrice(item.amountMinor, item.currency, locale)}
+      </span>
     </button>
   );
 }
@@ -228,6 +250,13 @@ function PackageTypeCard({
           {pickMetaText(locale, meta.disabledHint)}
         </div>
       ) : null}
+      <div
+        className="mt-5 flex items-start gap-2 border-t border-border/40 pt-4 text-xs leading-relaxed text-text-subtle"
+        title={pickMetaText(locale, meta.info)}
+      >
+        <Info className="mt-0.5 h-3 w-3 shrink-0 opacity-60" aria-hidden="true" />
+        <span>{pickMetaText(locale, meta.info)}</span>
+      </div>
     </section>
   );
 }
