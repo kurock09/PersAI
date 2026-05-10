@@ -10511,6 +10511,9 @@ components:
         reasoningModelKey:
           type: string
           nullable: true
+        systemToolModelKey:
+          type: string
+          nullable: true
         retrievalModelKey:
           type: string
           nullable: true
@@ -10756,6 +10759,9 @@ components:
           type: string
           nullable: true
         reasoningModelKey:
+          type: string
+          nullable: true
+        systemToolModelKey:
           type: string
           nullable: true
         retrievalModelKey:

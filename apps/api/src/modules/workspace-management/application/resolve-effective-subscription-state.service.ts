@@ -1,4 +1,4 @@
-import { BadRequestException, forwardRef, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import type { EffectiveSubscriptionState } from "./effective-subscription.types";
 import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
@@ -31,6 +31,8 @@ export type InitializeLifecycleNowInput = {
 
 @Injectable()
 export class ResolveEffectiveSubscriptionStateService {
+  private readonly logger = new Logger(ResolveEffectiveSubscriptionStateService.name);
+
   constructor(
     @Inject(WORKSPACE_SUBSCRIPTION_REPOSITORY)
     private readonly workspaceSubscriptionRepository: WorkspaceSubscriptionRepository,
@@ -180,7 +182,29 @@ export class ResolveEffectiveSubscriptionStateService {
       workspaceSubscription.trialEndsAt !== null &&
       workspaceSubscription.trialEndsAt.getTime() <= Date.now()
     ) {
-      return this.applyExpiredTrialFallback(input.workspaceId, input.userId, workspaceSubscription);
+      try {
+        return await this.applyExpiredTrialFallback(
+          input.workspaceId,
+          input.userId,
+          workspaceSubscription
+        );
+      } catch (err) {
+        // Trial-end fallback is a lazy migration triggered from read paths
+        // (admin cockpit, materialization, etc). It MUST NOT propagate as a
+        // user-facing 4xx — that surfaces as a red 400 banner in the operator
+        // UI and prevents the operator from fixing the underlying config.
+        // Log the operator-actionable cause and return the workspace as-is
+        // (still trialing past expiry); the consuming surface can surface an
+        // incident signal and the operator can run "Apply fallback now".
+        this.logger.warn({
+          event: "expired_trial_fallback_skipped",
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          planCode: workspaceSubscription.planCode,
+          reason: err instanceof Error ? err.message : String(err)
+        });
+        return this.toEffectiveWorkspaceSubscription(workspaceSubscription);
+      }
     }
 
     return this.toEffectiveWorkspaceSubscription(workspaceSubscription);
@@ -300,9 +324,10 @@ export class ResolveEffectiveSubscriptionStateService {
     if (trialPlan === null) {
       throw new BadRequestException("Expired trial plan no longer exists.");
     }
-    const fallbackPlanCode = resolveStoredPlanLifecyclePolicy(
-      trialPlan.billingProviderHints
-    ).trialFallbackPlanCode;
+    const fallbackPlanCode = await this.resolveExpiredTrialFallbackPlanCode(
+      workspaceSubscription,
+      trialPlan
+    );
     if (fallbackPlanCode === null) {
       throw new BadRequestException("Expired trial plan does not have a fallback plan.");
     }
@@ -361,6 +386,40 @@ export class ResolveEffectiveSubscriptionStateService {
       ...this.toEffectiveWorkspaceSubscription(updated),
       source: "subscription_trial_fallback"
     };
+  }
+
+  /**
+   * Resolves the trial-end fallback plan in priority order:
+   *   1. snapshot in `WorkspaceSubscription.metadata.trialFallbackPlanCode` —
+   *      captured at trial start, immune to later admin edits to the plan;
+   *   2. current `PlanCatalogPlan.billingProviderHints.lifecyclePolicy.trialFallbackPlanCode` —
+   *      set via Admin → Plans for the trial plan;
+   *   3. `BillingLifecycleSettings.globalFallbackPlanCode` — set via Admin →
+   *      Billing lifecycle settings as a workspace-wide hard floor.
+   *
+   * Returns the first non-empty code; falls through to `null` if no source is
+   * configured. Does not assert the resolved plan is active — the caller does
+   * that explicitly so that the chain itself is purely a configuration read.
+   */
+  private async resolveExpiredTrialFallbackPlanCode(
+    workspaceSubscription: WorkspaceSubscription,
+    trialPlan: AssistantPlanCatalog
+  ): Promise<string | null> {
+    const snapshotCode = readMetadataTrialFallbackPlanCode(workspaceSubscription.metadata);
+    if (snapshotCode !== null) {
+      return snapshotCode;
+    }
+    const planLevelCode = resolveStoredPlanLifecyclePolicy(
+      trialPlan.billingProviderHints
+    ).trialFallbackPlanCode;
+    if (planLevelCode !== null) {
+      return planLevelCode;
+    }
+    const settings = await this.prisma.billingLifecycleSettings.findUnique({
+      where: { id: "global" },
+      select: { globalFallbackPlanCode: true }
+    });
+    return settings?.globalFallbackPlanCode ?? null;
   }
 
   private async assertFallbackPlanIsActive(planCode: string): Promise<void> {
@@ -439,4 +498,16 @@ export class ResolveEffectiveSubscriptionStateService {
     });
     return event.id;
   }
+}
+
+function readMetadataTrialFallbackPlanCode(metadata: unknown): string | null {
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+  const candidate = (metadata as Record<string, unknown>)["trialFallbackPlanCode"];
+  if (typeof candidate !== "string") {
+    return null;
+  }
+  const trimmed = candidate.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }

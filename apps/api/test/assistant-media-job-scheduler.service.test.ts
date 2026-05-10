@@ -2,6 +2,55 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { AssistantMediaJobSchedulerService } from "../src/modules/workspace-management/application/assistant-media-job-scheduler.service";
 
+class FakeSchedulerLeaseService {
+  acquireResult: { token: string } | null = { token: "lease-media-1" };
+  heartbeatResults: boolean[] = [];
+  releaseCalls: Array<{ key: string; token: string }> = [];
+  leaseState: { holderId: string; expiresAt: Date } | null = {
+    holderId: "",
+    expiresAt: new Date(Date.now() - 1)
+  };
+
+  async getLeaseState() {
+    return this.leaseState;
+  }
+
+  async acquire() {
+    return this.acquireResult;
+  }
+
+  async heartbeat() {
+    return this.heartbeatResults.shift() ?? true;
+  }
+
+  async release(key: string, token: string) {
+    this.releaseCalls.push({ key, token });
+  }
+}
+
+class FakeBackgroundSchedulerMetricsService {
+  tickAcquired: Array<{ key: string; durationMs: number; candidatesProcessed: number }> = [];
+  tickSkipped: string[] = [];
+  leaseLost: string[] = [];
+  leaseExpiredRecovered: string[] = [];
+
+  recordTickAcquired(key: string, durationMs: number, candidatesProcessed: number): void {
+    this.tickAcquired.push({ key, durationMs, candidatesProcessed });
+  }
+
+  recordTickSkipped(key: string): void {
+    this.tickSkipped.push(key);
+  }
+
+  recordLeaseLost(key: string): void {
+    this.leaseLost.push(key);
+  }
+
+  recordLeaseExpiredRecovered(key: string): void {
+    this.leaseExpiredRecovered.push(key);
+  }
+}
+
 function createService(overrides?: {
   queryRows?: Array<Record<string, unknown>>;
   runResult?: Awaited<
@@ -25,6 +74,8 @@ function createService(overrides?: {
         code: string | null;
         message: string;
       };
+  schedulerLeaseService?: FakeSchedulerLeaseService;
+  backgroundSchedulerMetricsService?: FakeBackgroundSchedulerMetricsService;
 }) {
   const txUpdates: Array<Record<string, unknown>> = [];
   const finalUpdates: Array<Record<string, unknown>> = [];
@@ -127,7 +178,13 @@ function createService(overrides?: {
     } as never,
     {
       processPendingBatch: async () => 0
-    } as never
+    } as never,
+    {
+      maybeFrameFailure: async () => null
+    } as never,
+    (overrides?.schedulerLeaseService ?? new FakeSchedulerLeaseService()) as never,
+    (overrides?.backgroundSchedulerMetricsService ??
+      new FakeBackgroundSchedulerMetricsService()) as never
   );
 
   return { service, txUpdates, finalUpdates, createdMessages };
@@ -290,5 +347,67 @@ describe("AssistantMediaJobSchedulerService", () => {
         (capturedRunInput.directToolExecution as { toolCode?: string }).toolCode,
       "image_generate"
     );
+  });
+
+  test("tick exits silently when another leader owns the lease", async () => {
+    const leaseService = new FakeSchedulerLeaseService();
+    leaseService.acquireResult = null;
+    const metricsService = new FakeBackgroundSchedulerMetricsService();
+    const { service } = createService({
+      schedulerLeaseService: leaseService,
+      backgroundSchedulerMetricsService: metricsService
+    });
+
+    (service as unknown as { scheduleNext: (delayMs: number) => void }).scheduleNext = () =>
+      undefined;
+    (service as unknown as { processDueJobsBatch: () => Promise<number> }).processDueJobsBatch =
+      async () => {
+        throw new Error("tick should not process jobs when another leader owns the lease");
+      };
+
+    await (service as unknown as { tick: () => Promise<void> }).tick();
+
+    assert.deepEqual(metricsService.tickSkipped, ["media_job"]);
+    assert.equal(leaseService.releaseCalls.length, 0);
+  });
+
+  test("tick aborts further drain after lease loss", async () => {
+    const leaseService = new FakeSchedulerLeaseService();
+    leaseService.acquireResult = { token: "lease-media-1" };
+    leaseService.heartbeatResults = [false];
+    const metricsService = new FakeBackgroundSchedulerMetricsService();
+    const { service } = createService({
+      schedulerLeaseService: leaseService,
+      backgroundSchedulerMetricsService: metricsService
+    });
+    let batchCalls = 0;
+
+    (service as unknown as { scheduleNext: (delayMs: number) => void }).scheduleNext = () =>
+      undefined;
+    (service as unknown as { processDueJobsBatch: () => Promise<number> }).processDueJobsBatch =
+      async () => {
+        batchCalls += 1;
+        if (batchCalls === 1) {
+          (
+            service as unknown as {
+              leaseLost: boolean;
+            }
+          ).leaseLost = true;
+          metricsService.recordLeaseLost("media_job");
+        }
+        return 4;
+      };
+    (
+      service as unknown as {
+        assistantMediaJobCompletionDeliveryService: { processPendingBatch: () => Promise<number> };
+      }
+    ).assistantMediaJobCompletionDeliveryService.processPendingBatch = async () => 0;
+
+    await (service as unknown as { tick: () => Promise<void> }).tick();
+
+    assert.equal(batchCalls, 1);
+    assert.deepEqual(metricsService.leaseLost, ["media_job"]);
+    assert.equal(metricsService.tickAcquired[0]?.candidatesProcessed, 4);
+    assert.deepEqual(leaseService.releaseCalls, [{ key: "media_job", token: "lease-media-1" }]);
   });
 });

@@ -18,6 +18,7 @@ import {
   FileText,
   Library,
   GraduationCap,
+  Settings,
   Menu,
   X,
   Loader2
@@ -33,6 +34,7 @@ const NAV_ITEMS = [
   { href: "/admin/knowledge", label: "Knowledge", icon: Library },
   { href: "/admin/skills", label: "Skills", icon: GraduationCap },
   { href: "/admin/plans", label: "Plans", icon: CreditCard },
+  { href: "/admin/billing-settings", label: "Billing Settings", icon: Settings },
   { href: "/admin/ops", label: "Ops Cockpit", icon: Activity },
   { href: "/admin/business", label: "Business", icon: TrendingUp },
   { href: "/admin/rollouts", label: "Rollouts", icon: Layers },

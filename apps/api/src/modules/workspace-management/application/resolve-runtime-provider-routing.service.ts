@@ -47,6 +47,7 @@ export class ResolveRuntimeProviderRoutingService {
     planPrimaryModelKey?: string | null;
     planPremiumModelKey?: string | null;
     planReasoningModelKey?: string | null;
+    planSystemToolModelKey?: string | null;
     planRetrievalModelKey?: string | null;
   }): RuntimeProviderRoutingState {
     const { effectiveCapabilities, policyEnvelope } = params;
@@ -77,6 +78,7 @@ export class ResolveRuntimeProviderRoutingService {
     const planModelKey = toNormalizedNonEmptyModelKey(params.planPrimaryModelKey);
     const planPremiumModelKey = toNormalizedNonEmptyModelKey(params.planPremiumModelKey);
     const planReasoningModelKey = toNormalizedNonEmptyModelKey(params.planReasoningModelKey);
+    const planSystemToolModelKey = toNormalizedNonEmptyModelKey(params.planSystemToolModelKey);
     const planRetrievalModelKey = toNormalizedNonEmptyModelKey(params.planRetrievalModelKey);
     const primaryModelKey =
       planModelKey ??
@@ -88,8 +90,16 @@ export class ResolveRuntimeProviderRoutingService {
       primaryModelKey ??
       (managedPrimary?.model ? normalizeModelKey(managedPrimary.model) : null);
     const reasoningModelKey = planReasoningModelKey ?? premiumModelKey ?? primaryModelKey ?? null;
+    // The systemTool slot powers cheap, latency-insensitive background work
+    // (idle re-engagement evaluation, reminder LLM calls, retrieval-helper
+    // framing, etc.). The plan-level `systemToolModelKey` is the authoritative
+    // override; if the operator leaves it blank we fall back to the runtime
+    // provider profile's primary model and finally to the plan's normal-reply
+    // slot, mirroring how the other slots cascade.
     const systemToolModelKey =
-      (managedPrimary?.model ? normalizeModelKey(managedPrimary.model) : null) ?? primaryModelKey;
+      planSystemToolModelKey ??
+      (managedPrimary?.model ? normalizeModelKey(managedPrimary.model) : null) ??
+      primaryModelKey;
     const retrievalModelKey =
       planRetrievalModelKey ?? systemToolModelKey ?? primaryModelKey ?? null;
     const fallbackProviderKey = managedFallback?.provider ?? primaryProviderKey;

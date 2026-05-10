@@ -3216,32 +3216,39 @@ function LimitMetricCard({
       type={interactive ? "button" : undefined}
       onClick={onBuyClick}
       className={cn(
-        "group relative flex h-full flex-col overflow-hidden rounded-xl border bg-surface/70 p-2.5 pb-7 text-left transition-colors",
+        // Deterministic 3-slot layout (header / value+secondary / chip-slot)
+        // so every card has the same height regardless of whether secondary
+        // text or buy chip is present. The chip-slot always renders — when
+        // no chip is needed, a placeholder of the same height keeps the
+        // footer baseline aligned across siblings.
+        "group relative flex h-full min-h-[6.25rem] flex-col overflow-hidden rounded-xl border bg-surface/70 p-2.5 text-left transition-colors",
         hasBonus ? "border-accent/30 bg-surface/80" : "border-border/80",
         interactive &&
           "cursor-pointer hover:border-accent/30 hover:bg-surface/85 focus:outline-none focus:ring-2 focus:ring-accent/30"
       )}
     >
-      <p className="min-h-[2.4rem] text-[10px] font-medium leading-4 uppercase tracking-[0.12em] text-text-subtle">
+      <p className="min-h-[2rem] text-[10px] font-medium uppercase leading-4 tracking-[0.12em] text-text-subtle">
         {label}
       </p>
-      <div className="mt-2">
+      <div className="mt-3">
         <p className="text-xs font-semibold tabular-nums text-text">{value}</p>
-        {secondary ? <p className="mt-1 text-[10px] text-text-subtle">{secondary}</p> : null}
+        {secondary ? <p className="mt-0.5 text-[10px] text-text-subtle">{secondary}</p> : null}
       </div>
-      {showChip ? (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "pointer-events-none absolute bottom-1.5 right-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] transition-colors",
-            hasBonus
-              ? "border-accent/30 bg-accent/[0.06] text-accent/80 group-hover:bg-accent/10 group-hover:text-accent"
-              : "border-border/70 bg-bg/50 text-text-subtle group-hover:border-accent/30 group-hover:bg-accent/[0.06] group-hover:text-accent"
-          )}
-        >
-          {buyChipLabel}
-        </span>
-      ) : null}
+      <div className="mt-auto flex h-[1.25rem] items-end justify-end pt-3">
+        {showChip ? (
+          <span
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] transition-colors",
+              hasBonus
+                ? "border-accent/30 bg-accent/[0.06] text-accent/80 group-hover:bg-accent/10 group-hover:text-accent"
+                : "border-border/70 bg-bg/50 text-text-subtle group-hover:border-accent/30 group-hover:bg-accent/[0.06] group-hover:text-accent"
+            )}
+          >
+            {buyChipLabel}
+          </span>
+        ) : null}
+      </div>
     </Comp>
   );
 }

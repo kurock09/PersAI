@@ -149,6 +149,7 @@ export type AdminPlanInput = {
   primaryModelKey: string | null;
   premiumModelKey: string | null;
   reasoningModelKey: string | null;
+  systemToolModelKey: string | null;
   retrievalModelKey: string | null;
   embeddingModelKey: string | null;
   imageGenerateModelKey: string | null;
@@ -209,6 +210,7 @@ export type AdminPlanState = {
   primaryModelKey: string | null;
   premiumModelKey: string | null;
   reasoningModelKey: string | null;
+  systemToolModelKey: string | null;
   retrievalModelKey: string | null;
   embeddingModelKey: string | null;
   imageGenerateModelKey: string | null;

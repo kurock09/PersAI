@@ -56,6 +56,8 @@ api:
     PORT: "3001"
     API_INTERNAL_PORT: "3002"
     LOG_LEVEL: info
+    # ADR-091 audit: dev api limit is 2 vCPU => max(10, 2 × 4) = 10.
+    PRISMA_CONNECTION_LIMIT: "10"
     GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
     GCP_REGION: europe-west1
     PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE: "native"

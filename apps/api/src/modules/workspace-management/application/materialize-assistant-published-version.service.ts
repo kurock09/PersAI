@@ -301,6 +301,13 @@ export class MaterializeAssistantPublishedVersionService {
       runtimeProviderProfile,
       planModelKey: rawPlanReasoningModelKey
     });
+    const rawPlanSystemToolModelKey = await this.resolvePlanSystemToolModelKey(
+      effectiveCapabilities.derivedFrom.planCode
+    );
+    const planSystemToolModelKey = resolveAllowedPlanModelKey({
+      runtimeProviderProfile,
+      planModelKey: rawPlanSystemToolModelKey
+    });
     const rawPlanRetrievalModelKey = await this.resolvePlanRetrievalModelKey(
       effectiveCapabilities.derivedFrom.planCode
     );
@@ -373,6 +380,11 @@ export class MaterializeAssistantPublishedVersionService {
         `Skipping stale plan reasoning model "${rawPlanReasoningModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
       );
     }
+    if (rawPlanSystemToolModelKey !== null && planSystemToolModelKey === null) {
+      this.logger.warn(
+        `Skipping stale plan system-tool model "${rawPlanSystemToolModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
+      );
+    }
     if (rawPlanRetrievalModelKey !== null && planRetrievalModelKey === null) {
       this.logger.warn(
         `Skipping stale plan retrieval model "${rawPlanRetrievalModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
@@ -434,6 +446,7 @@ export class MaterializeAssistantPublishedVersionService {
       planPrimaryModelKey,
       planPremiumModelKey,
       planReasoningModelKey,
+      planSystemToolModelKey,
       planRetrievalModelKey
     });
     const assistantCapabilityEnvelope = this.resolveAssistantCapabilityEnvelopeService.execute({
@@ -915,6 +928,10 @@ export class MaterializeAssistantPublishedVersionService {
     return this.resolvePlanBillingHintString(planCode, "reasoningModelKey");
   }
 
+  private async resolvePlanSystemToolModelKey(planCode: string | null): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "systemToolModelKey");
+  }
+
   private async resolvePlanRetrievalModelKey(planCode: string | null): Promise<string | null> {
     return this.resolvePlanBillingHintString(planCode, "retrievalModelKey");
   }
@@ -925,6 +942,7 @@ export class MaterializeAssistantPublishedVersionService {
       | "primaryModelKey"
       | "premiumModelKey"
       | "reasoningModelKey"
+      | "systemToolModelKey"
       | "retrievalModelKey"
       | "imageGenerateModelKey"
       | "imageGenerateFallbackModelKey"

@@ -9,10 +9,20 @@ import {
 } from "./internal-runtime-background-task.client.service";
 import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
 import { NotificationIntentService } from "./notifications/notification-intent.service";
+import { BackgroundSchedulerMetricsService } from "./background-scheduler-metrics.service";
+import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 
-const IDLE_REENGAGEMENT_POLL_INTERVAL_MS = 15 * 60_000;
-const IDLE_REENGAGEMENT_BATCH_SIZE = 12;
+// ADR-091 audit: scheduler cadence / batch / idle-bucket knobs stay centralized
+// in this constants block until we have enough production evidence to justify env tuning.
+const IDLE_REENGAGEMENT_POLL_INTERVAL_MS = 5 * 60_000;
+const IDLE_REENGAGEMENT_BATCH_SIZE = 24;
 const RECENT_MESSAGE_LIMIT = 10;
+const IDLE_REENGAGEMENT_SCHEDULER_KEY = "idle_reengagement";
+const HOUR_IN_MS = 60 * 60 * 1000;
+const RECENT_MESSAGE_CONTENT_MAX_CHARS = 1_000;
+const IDLE_BUCKET_48H_THRESHOLD_HOURS = 48;
+const IDLE_BUCKET_7D_THRESHOLD_HOURS = 168;
 
 // ADR-090: Maximum LLM evaluation attempts per user-message snapshot.
 // After MAX_ATTEMPTS the marker is closed until the user sends a new message.
@@ -29,19 +39,9 @@ const DEFAULT_LLM_INSTRUCTION = [
   "The message must be one brief user-facing sentence, non-pushy, no guilt, no exact idle duration."
 ].join("\n");
 
-// ADR-090: pg_try_advisory_xact_lock id — unique across all scheduler locks.
-// Derived from: SELECT hashtext('persai-idle-reengagement-scheduler').
-const IDLE_REENGAGEMENT_SCHEDULER_LOCK_ID = 5_203_916_748_291_034n;
-
 // ADR-090: When the runtime returns 409 (session busy), defer the next
 // evaluation by this many ms without burning a MAX_ATTEMPTS attempt.
 const RUNTIME_SESSION_BUSY_DEFER_MS = 60_000;
-
-// ADR-090: Outer transaction wrapping {advisory-lock, claim batch, evaluate
-// candidates}. Sized to comfortably cover the longest expected runtime LLM
-// call. NOTE: this transaction holds a Prisma pool connection for its entire
-// duration; see "pool-vs-HTTP trade-off" comment near tick().
-const SCHEDULER_TICK_TRANSACTION_TIMEOUT_MS = 10 * 60_000;
 
 // ADR-090: Fallback used when the failed-attempt counter runs past the end of
 // the explicit ERROR_BACKOFF_MS schedule (defensive — should not normally fire
@@ -72,6 +72,7 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
   private stopped = false;
   private running = false;
   private timer: NodeJS.Timeout | null = null;
+  private leaseLost = false;
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
@@ -79,7 +80,9 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
     private readonly assistantRepository: AssistantRepository,
     private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly internalRuntimeBackgroundTaskClientService: InternalRuntimeBackgroundTaskClientService,
-    private readonly notificationIntentService: NotificationIntentService
+    private readonly notificationIntentService: NotificationIntentService,
+    private readonly schedulerLeaseService: SchedulerLeaseService,
+    private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService
   ) {}
 
   onModuleInit(): void {
@@ -97,10 +100,15 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
   async processDueIdleReengagementBatch(limit = IDLE_REENGAGEMENT_BATCH_SIZE): Promise<number> {
     const batchTraceId = randomUUID();
     const candidates = await this.findDueCandidates(limit);
+    let processed = 0;
     for (const candidate of candidates) {
+      if (this.leaseLost) {
+        break;
+      }
       await this.processCandidate(candidate, batchTraceId);
+      processed += 1;
     }
-    return candidates.length;
+    return processed;
   }
 
   private scheduleNext(delayMs: number): void {
@@ -120,43 +128,88 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
       return;
     }
     this.running = true;
+    this.leaseLost = false;
+    const startedAt = Date.now();
+    let processed = 0;
+    let heartbeatTimer: NodeJS.Timeout | null = null;
+    let leaseToken: string | null = null;
+    let leaseLostReported = false;
+    const markLeaseLost = (reason: string): void => {
+      if (leaseLostReported) {
+        return;
+      }
+      leaseLostReported = true;
+      this.leaseLost = true;
+      this.backgroundSchedulerMetricsService.recordLeaseLost(IDLE_REENGAGEMENT_SCHEDULER_KEY);
+      this.logger.warn(`Idle reengagement scheduler lease lost: ${reason}`);
+    };
     try {
-      // ADR-090: Single-leader guard. Only one API pod processes idle candidates
-      // at a time. pg_try_advisory_xact_lock is released automatically when the
-      // transaction commits or rolls back, guaranteeing no stale locks.
-      //
-      // Pool-vs-HTTP trade-off: this transaction stays open for the entire
-      // batch — including outbound runtime LLM calls inside
-      // processDueIdleReengagementBatch. That keeps the leader semantics
-      // simple and lock release safe, but it pins one Prisma pool connection
-      // per leader for up to SCHEDULER_TICK_TRANSACTION_TIMEOUT_MS. Batch size
-      // (IDLE_REENGAGEMENT_BATCH_SIZE) is intentionally small so the pinned
-      // connection count stays bounded across all three schedulers. If we
-      // ever need more parallelism, the right move is to split lock
-      // acquisition (short tx) from candidate processing (no tx) using a
-      // dedicated lease row instead of relaxing the lock here.
-      await this.prisma.$transaction(
-        async (tx) => {
-          const lockResult = await tx.$queryRaw<{ locked: boolean }[]>`
-            SELECT pg_try_advisory_xact_lock(${IDLE_REENGAGEMENT_SCHEDULER_LOCK_ID}::bigint) AS locked
-          `;
-          if (!lockResult[0]?.locked) {
-            return;
-          }
-          const processed = await this.processDueIdleReengagementBatch();
-          if (processed > 0) {
-            this.logger.log(`Processed ${processed} idle reengagement candidate(s).`);
-          }
-        },
-        { timeout: SCHEDULER_TICK_TRANSACTION_TIMEOUT_MS }
+      const previousLease = await this.schedulerLeaseService.getLeaseState(
+        IDLE_REENGAGEMENT_SCHEDULER_KEY
+      );
+      const lease = await this.schedulerLeaseService.acquire(IDLE_REENGAGEMENT_SCHEDULER_KEY);
+      if (lease === null) {
+        this.backgroundSchedulerMetricsService.recordTickSkipped(IDLE_REENGAGEMENT_SCHEDULER_KEY);
+        return;
+      }
+      leaseToken = lease.token;
+
+      if (
+        previousLease !== null &&
+        previousLease.holderId !== "" &&
+        previousLease.expiresAt.getTime() <= startedAt
+      ) {
+        this.backgroundSchedulerMetricsService.recordLeaseExpiredRecovered(
+          IDLE_REENGAGEMENT_SCHEDULER_KEY
+        );
+      }
+
+      heartbeatTimer = setInterval(() => {
+        void this.schedulerLeaseService
+          .heartbeat(IDLE_REENGAGEMENT_SCHEDULER_KEY, lease.token)
+          .then((stillLeader) => {
+            if (!stillLeader) {
+              markLeaseLost("heartbeat token no longer matched active leader");
+            }
+          })
+          .catch((error) => {
+            markLeaseLost(error instanceof Error ? error.message : String(error));
+          });
+      }, LEASE_HEARTBEAT_INTERVAL_MS);
+      heartbeatTimer.unref?.();
+
+      while (!this.stopped && !this.leaseLost) {
+        const count = await this.processDueIdleReengagementBatch();
+        processed += count;
+        if (count < IDLE_REENGAGEMENT_BATCH_SIZE) {
+          break;
+        }
+      }
+
+      if (processed > 0) {
+        this.logger.log(`Processed ${processed} idle reengagement candidate(s).`);
+      }
+      this.backgroundSchedulerMetricsService.recordTickAcquired(
+        IDLE_REENGAGEMENT_SCHEDULER_KEY,
+        Date.now() - startedAt,
+        processed
       );
     } catch (error) {
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
         `Idle reengagement scheduler tick failed: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
+        stack
       );
     } finally {
+      if (heartbeatTimer !== null) {
+        clearInterval(heartbeatTimer);
+      }
+      if (leaseToken !== null) {
+        await this.schedulerLeaseService.release(IDLE_REENGAGEMENT_SCHEDULER_KEY, leaseToken);
+      }
+      this.leaseLost = false;
       this.running = false;
       this.scheduleNext(IDLE_REENGAGEMENT_POLL_INTERVAL_MS);
     }
@@ -210,7 +263,8 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
       // idleHours threshold. The fine-grained qualification (latest user
       // message exactly, marker state, cooldown intent) continues in the
       // loop below — the holistic rewrite is scoped under ADR-091 Session 2.
-      const idleCutoff = new Date(now - idleHours * 60 * 60 * 1000);
+      // ADR-091 audit: name time-unit math so scheduler tuning stays reviewable.
+      const idleCutoff = new Date(now - idleHours * HOUR_IN_MS);
       const assistants = await this.prisma.assistant.findMany({
         where: {
           chats: {
@@ -254,7 +308,7 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
 
         // Condition 2: idle long enough
         const idleMs = now - latestUserMessage.createdAt.getTime();
-        if (idleMs < idleHours * 60 * 60 * 1000) {
+        if (idleMs < idleHours * HOUR_IN_MS) {
           continue;
         }
 
@@ -299,7 +353,7 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
         }
 
         // Secondary guard: existing active/delivered intent within cooldown window
-        const cooldownSince = new Date(now - cooldownHours * 60 * 60 * 1000);
+        const cooldownSince = new Date(now - cooldownHours * HOUR_IN_MS);
         const recentIdleIntent = await this.prisma.notificationIntent.findFirst({
           where: {
             assistantId: assistant.id,
@@ -439,7 +493,7 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
       },
       recentMessages: recentMessages.reverse().map((message) => ({
         author: message.author,
-        content: message.content.slice(0, 1_000),
+        content: message.content.slice(0, RECENT_MESSAGE_CONTENT_MAX_CHARS),
         createdAt: message.createdAt.toISOString()
       })),
       activeOpenLoops: openLoops.map((item) => ({
@@ -615,12 +669,12 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
   private toIdleBucket(latestUserMessageAt: Date): string {
     const idleHours = Math.max(
       1,
-      Math.floor((Date.now() - latestUserMessageAt.getTime()) / 3_600_000)
+      Math.floor((Date.now() - latestUserMessageAt.getTime()) / HOUR_IN_MS)
     );
-    if (idleHours < 48) {
+    if (idleHours < IDLE_BUCKET_48H_THRESHOLD_HOURS) {
       return "24h_plus";
     }
-    if (idleHours < 168) {
+    if (idleHours < IDLE_BUCKET_7D_THRESHOLD_HOURS) {
       return "48h_plus";
     }
     return "7d_plus";

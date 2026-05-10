@@ -165,6 +165,7 @@ async function run(): Promise<void> {
     },
     planPremiumModelKey: "gpt-5.4",
     planReasoningModelKey: "gpt-5.4-mini",
+    planSystemToolModelKey: "gpt-5.4-cheap",
     planRetrievalModelKey: "gpt-5.4-nano"
   });
 
@@ -173,7 +174,11 @@ async function run(): Promise<void> {
   assert.equal(adminManaged.modelSlots.normalReply.modelKey, "gpt-5.4");
   assert.equal(adminManaged.modelSlots.premiumReply.modelKey, "gpt-5.4");
   assert.equal(adminManaged.modelSlots.reasoning.modelKey, "gpt-5.4-mini");
-  assert.equal(adminManaged.modelSlots.systemTool.modelKey, "gpt-5.4");
+  assert.equal(
+    adminManaged.modelSlots.systemTool.modelKey,
+    "gpt-5.4-cheap",
+    "plan-level systemToolModelKey must override the provider profile primary model"
+  );
   assert.equal(adminManaged.modelSlots.retrieval.modelKey, "gpt-5.4-nano");
   assert.equal(
     adminManaged.fallbackMatrix.find((item) => item.trigger === "provider_failure_or_timeout")

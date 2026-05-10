@@ -1,6 +1,6 @@
 # ADR-091: Production-Grade Background Scheduler Architecture
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-05-10  
 **Relates to:** ADR-074 (Slice M2 background compaction), ADR-088 (Unified Notification Platform), ADR-090 (Idle Re-Engagement Prod Hardening)  
 **Supersedes (operationally, not by deletion):** ADR-090 §1 (`pg_try_advisory_xact_lock` held across runtime HTTP) — keep ADR-090 as the historical fix; this ADR replaces the locking pattern with a lease-based model.
@@ -181,7 +181,7 @@ Rationale (post §A there is **no scheduler-pinned connection budget** to subtra
 - 4 schedulers × ≤ 1 short-lived UPDATE per heartbeat (every 20 s) ≈ negligible
 - User-facing API traffic + read-heavy admin traffic dominates the pool
 
-Documented in `docs/ARCHITECTURE.md` under "Database connection pool sizing" (new subsection). Deploy manifest (`infra/dev/gke/`) gets an explicit `PRISMA_CONNECTION_LIMIT` env var so ops can tune without code changes.
+Documented in `docs/ARCHITECTURE.md` under "Database connection pool sizing" (new subsection). Deploy values (`infra/helm/values*.yaml`) get an explicit `PRISMA_CONNECTION_LIMIT` env var so ops can tune without code changes.
 
 ### G. Failure model — explicit and testable
 
@@ -258,6 +258,16 @@ Three independent readonly subagents run in parallel, each focused on a differen
 Findings are tracked as ADR-091 follow-ups. **Critical findings (correctness bugs, leftover legacy references, missing tests for §G scenarios) block release.** Quality findings are addressed in the same session unless explicitly deferred with a noted reason.
 
 **Deliverable:** production sign-off. Update `docs/CHANGELOG.md` with audit findings summary, `docs/SESSION-HANDOFF.md` with completion record, this ADR's status moves `Proposed → Accepted`.
+
+## Audit log
+
+### 2026-05-10 — Session 3 final audit
+
+- **Code-cleanliness audit:** passed after the final cleanup removed the last scheduler magic-number drift and verified there are no surviving `pg_try_advisory_xact_lock`, `BACKGROUND_*_SCHEDULER_LOCK_ID`, or outer tick transaction remnants in the four active schedulers.
+- **Failure-model audit:** passed after `PRISMA_CONNECTION_LIMIT` became real runtime/deploy truth, scheduler metrics were exposed on `/metrics`, and compaction coverage added an explicit "provider timeout / hang defers one candidate, drain continues, lease stays healthy" regression test for §G.
+- **Operator-tunable audit:** passed after scheduler cadence / batch / retry knobs were documented in the per-scheduler constants blocks instead of being scattered as unexplained literals.
+- **Inherited-bug sweep:** one known item remains intentionally deferred: the idle scheduler still uses the narrower pre-qualified `findDueCandidates()` pattern that can starve eligible assistants behind JS-side filtering. This is pre-existing debt, explicitly out of scope for ADR-091 execution, and must be handled as a follow-up rewrite instead of being folded into the lease-architecture diff. The medium compaction epoch invalidation footgun and low public-batch-helper API footgun were also logged for follow-up rather than changed in this ADR.
+- **Verification gate:** `lint`, `format:check`, full-workspace `typecheck`, full-workspace `test`, `test:step2`, and `build` all passed on the final Session 3 run. The repo also needed a Windows-specific sandbox test harness hardening (`fs.rm` retry + tolerant process-guard assertions) so the gate reflects product regressions instead of local process-cleanup flake.
 
 ## Consequences
 

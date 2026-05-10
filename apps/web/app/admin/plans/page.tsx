@@ -145,6 +145,7 @@ export type PlanDraft = {
   primaryModelKey: string;
   premiumModelKey: string;
   reasoningModelKey: string;
+  systemToolModelKey: string;
   retrievalModelKey: string;
   embeddingModelKey: string;
   imageGenerateModelKey: string;
@@ -696,6 +697,7 @@ function emptyDraft(): PlanDraft {
     primaryModelKey: "",
     premiumModelKey: "",
     reasoningModelKey: "",
+    systemToolModelKey: "",
     retrievalModelKey: "",
     embeddingModelKey: "",
     imageGenerateModelKey: "",
@@ -820,6 +822,7 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     primaryModelKey: plan.primaryModelKey ?? "",
     premiumModelKey: plan.premiumModelKey ?? "",
     reasoningModelKey: plan.reasoningModelKey ?? "",
+    systemToolModelKey: plan.systemToolModelKey ?? "",
     retrievalModelKey: plan.retrievalModelKey ?? "",
     embeddingModelKey: plan.embeddingModelKey ?? "",
     imageGenerateModelKey: plan.imageGenerateModelKey ?? "",
@@ -1190,6 +1193,7 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     primaryModelKey: toNullable(draft.primaryModelKey),
     premiumModelKey: toNullable(draft.premiumModelKey),
     reasoningModelKey: toNullable(draft.reasoningModelKey),
+    systemToolModelKey: toNullable(draft.systemToolModelKey),
     retrievalModelKey: toNullable(draft.retrievalModelKey),
     embeddingModelKey: toNullable(draft.embeddingModelKey),
     imageGenerateModelKey: toNullable(draft.imageGenerateModelKey),
@@ -2223,6 +2227,12 @@ function PlanForm({
                     value: draft.reasoningModelKey,
                     patch: (value: string) => onPatch({ reasoningModelKey: value }),
                     placeholder: "premium reply"
+                  },
+                  {
+                    label: "System tool",
+                    value: draft.systemToolModelKey,
+                    patch: (value: string) => onPatch({ systemToolModelKey: value }),
+                    placeholder: "normal reply"
                   },
                   {
                     label: "Retrieval helper",
@@ -3267,6 +3277,7 @@ function PlanCardReadOnly({
                   <div>Normal: {plan.primaryModelKey ?? "platform default"}</div>
                   <div>Premium: {plan.premiumModelKey ?? "normal reply"}</div>
                   <div>Reasoning: {plan.reasoningModelKey ?? "premium reply"}</div>
+                  <div>System tool: {plan.systemToolModelKey ?? "normal reply"}</div>
                   <div>Retrieval: {plan.retrievalModelKey ?? "system/runtime default"}</div>
                   <div>
                     Embedding: {plan.embeddingModelKey ?? "retrieval helper / runtime default"}

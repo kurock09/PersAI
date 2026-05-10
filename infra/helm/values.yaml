@@ -47,6 +47,8 @@ api:
     PORT: "3001"
     API_INTERNAL_PORT: "3002"
     LOG_LEVEL: info
+    # ADR-091 audit: default pool size for 1 vCPU pods => max(10, 1 × 4) = 10.
+    PRISMA_CONNECTION_LIMIT: "10"
     GCP_PROJECT_ID: ""
     GCP_REGION: ""
     PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE: "native"

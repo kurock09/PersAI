@@ -1,9 +1,62 @@
 import { Controller, Get, Res } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../../application/platform-http-metrics.service";
 import { PlatformReadinessService } from "../../application/platform-readiness.service";
+import { getBackgroundSchedulerMetricsSnapshot } from "../../../workspace-management/application/background-scheduler-metrics.service";
 
 interface MetricsResponseHeaders {
   setHeader(name: string, value: string): void;
+}
+
+function escapeMetricLabel(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
+function buildBackgroundSchedulerMetricLines(): string[] {
+  const snapshot = getBackgroundSchedulerMetricsSnapshot();
+  const lines: string[] = [];
+
+  const counterHelp: Record<keyof typeof snapshot.counters, string> = {
+    scheduler_tick_total: "Total scheduler ticks attempted",
+    scheduler_tick_acquired_total: "Scheduler ticks that acquired leadership",
+    scheduler_tick_skipped_total: "Scheduler ticks skipped because another leader was active",
+    scheduler_drain_candidates_total: "Scheduler candidates or jobs processed during leader ticks",
+    scheduler_lease_lost_total: "Scheduler drains aborted after lease loss",
+    scheduler_lease_expired_recovered_total: "Scheduler ticks that recovered an expired lease"
+  };
+
+  for (const [metric, values] of Object.entries(snapshot.counters)) {
+    lines.push(`# HELP ${metric} ${counterHelp[metric as keyof typeof snapshot.counters]}`);
+    lines.push(`# TYPE ${metric} counter`);
+    for (const [schedulerKey, value] of Object.entries(values)) {
+      lines.push(`${metric}{scheduler="${escapeMetricLabel(schedulerKey)}"} ${value ?? 0}`);
+    }
+  }
+
+  lines.push("# HELP scheduler_tick_duration_ms Scheduler leader tick duration in milliseconds");
+  lines.push("# TYPE scheduler_tick_duration_ms histogram");
+  for (const [schedulerKey, values] of Object.entries(
+    snapshot.histograms.scheduler_tick_duration_ms
+  )) {
+    const samples = values ?? [];
+    const sum = samples.reduce((total, value) => total + value, 0);
+    const sortedSamples = [...samples].sort((left, right) => left - right);
+    sortedSamples.forEach((value, index) => {
+      lines.push(
+        `scheduler_tick_duration_ms_bucket{scheduler="${escapeMetricLabel(schedulerKey)}",le="${value}"} ${index + 1}`
+      );
+    });
+    lines.push(
+      `scheduler_tick_duration_ms_bucket{scheduler="${escapeMetricLabel(schedulerKey)}",le="+Inf"} ${samples.length}`
+    );
+    lines.push(
+      `scheduler_tick_duration_ms_sum{scheduler="${escapeMetricLabel(schedulerKey)}"} ${sum}`
+    );
+    lines.push(
+      `scheduler_tick_duration_ms_count{scheduler="${escapeMetricLabel(schedulerKey)}"} ${samples.length}`
+    );
+  }
+
+  return lines;
 }
 
 @Controller()
@@ -109,7 +162,9 @@ export class MetricsController {
       `nodejs_heap_total_bytes ${memoryUsage.heapTotal}`,
       "# HELP nodejs_external_memory_bytes External memory in bytes",
       "# TYPE nodejs_external_memory_bytes gauge",
-      `nodejs_external_memory_bytes ${memoryUsage.external}`
+      `nodejs_external_memory_bytes ${memoryUsage.external}`,
+      // ADR-091 audit: expose scheduler lease and drain health on the shared metrics surface.
+      ...buildBackgroundSchedulerMetricLines()
     ];
 
     return `${lines.join("\n")}\n`;

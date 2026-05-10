@@ -26,18 +26,24 @@ import {
   buildAssistantMediaJobFailureMessage,
   inferAssistantMediaJobFailureLocale
 } from "./assistant-media-job-failure-copy.service";
+import { BackgroundSchedulerMetricsService } from "./background-scheduler-metrics.service";
+import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 
 type FailJobContext = {
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
 };
 
+// ADR-091 audit: scheduler cadence / batch / retry knobs stay centralized in this
+// constants block until we have enough production evidence to justify env tuning.
 const MEDIA_JOB_POLL_INTERVAL_MS = 5_000;
 const MEDIA_JOB_BATCH_SIZE = 4;
 const MEDIA_JOB_CLAIM_TTL_MS = 10 * 60 * 1000;
 const MEDIA_JOB_RETRY_BASE_DELAY_MS = 30_000;
 const MEDIA_JOB_RETRY_MAX_DELAY_MS = 60 * 60 * 1000;
 const MEDIA_JOB_LAST_ERROR_MAX_CHARS = 1_000;
+const MEDIA_JOB_SCHEDULER_KEY = "media_job";
 
 type MediaJobKind = "image" | "audio" | "video";
 
@@ -97,6 +103,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
   private stopped = false;
   private running = false;
   private timer: NodeJS.Timeout | null = null;
+  private leaseLost = false;
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
@@ -108,7 +115,9 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly internalRuntimeMediaJobClientService: InternalRuntimeMediaJobClientService,
     private readonly assistantMediaJobCompletionDeliveryService: AssistantMediaJobCompletionDeliveryService,
-    private readonly assistantMediaJobCompletionTurnService: AssistantMediaJobCompletionTurnService
+    private readonly assistantMediaJobCompletionTurnService: AssistantMediaJobCompletionTurnService,
+    private readonly schedulerLeaseService: SchedulerLeaseService,
+    private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService
   ) {}
 
   onModuleInit(): void {
@@ -125,10 +134,15 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
 
   async processDueJobsBatch(limit = MEDIA_JOB_BATCH_SIZE): Promise<number> {
     const claimed = await this.claimDueJobs(limit);
+    let processed = 0;
     for (const job of claimed) {
+      if (this.leaseLost) {
+        break;
+      }
       await this.processClaimedJob(job);
+      processed += 1;
     }
-    return claimed.length;
+    return processed;
   }
 
   private scheduleNext(delayMs: number): void {
@@ -148,9 +162,53 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       return;
     }
     this.running = true;
+    this.leaseLost = false;
+    const startedAt = Date.now();
+    let processed = 0;
+    let heartbeatTimer: NodeJS.Timeout | null = null;
+    let leaseToken: string | null = null;
+    let leaseLostReported = false;
+    const markLeaseLost = (reason: string): void => {
+      if (leaseLostReported) {
+        return;
+      }
+      leaseLostReported = true;
+      this.leaseLost = true;
+      this.backgroundSchedulerMetricsService.recordLeaseLost(MEDIA_JOB_SCHEDULER_KEY);
+      this.logger.warn(`Assistant media-job scheduler lease lost: ${reason}`);
+    };
     try {
-      let processed = 0;
-      while (!this.stopped) {
+      const previousLease = await this.schedulerLeaseService.getLeaseState(MEDIA_JOB_SCHEDULER_KEY);
+      const lease = await this.schedulerLeaseService.acquire(MEDIA_JOB_SCHEDULER_KEY);
+      if (lease === null) {
+        this.backgroundSchedulerMetricsService.recordTickSkipped(MEDIA_JOB_SCHEDULER_KEY);
+        return;
+      }
+      leaseToken = lease.token;
+
+      if (
+        previousLease !== null &&
+        previousLease.holderId !== "" &&
+        previousLease.expiresAt.getTime() <= startedAt
+      ) {
+        this.backgroundSchedulerMetricsService.recordLeaseExpiredRecovered(MEDIA_JOB_SCHEDULER_KEY);
+      }
+
+      heartbeatTimer = setInterval(() => {
+        void this.schedulerLeaseService
+          .heartbeat(MEDIA_JOB_SCHEDULER_KEY, lease.token)
+          .then((stillLeader) => {
+            if (!stillLeader) {
+              markLeaseLost("heartbeat token no longer matched active leader");
+            }
+          })
+          .catch((error) => {
+            markLeaseLost(error instanceof Error ? error.message : String(error));
+          });
+      }, LEASE_HEARTBEAT_INTERVAL_MS);
+      heartbeatTimer.unref?.();
+
+      while (!this.stopped && !this.leaseLost) {
         const [runCount, deliveryCount] = await Promise.all([
           this.processDueJobsBatch(),
           this.assistantMediaJobCompletionDeliveryService.processPendingBatch()
@@ -163,11 +221,25 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       if (processed > 0) {
         this.logger.log(`Processed ${processed} assistant media job(s).`);
       }
+      this.backgroundSchedulerMetricsService.recordTickAcquired(
+        MEDIA_JOB_SCHEDULER_KEY,
+        Date.now() - startedAt,
+        processed
+      );
     } catch (error) {
+      const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Assistant media-job scheduler tick failed: ${error instanceof Error ? error.message : String(error)}`
+        `Assistant media-job scheduler tick failed: ${error instanceof Error ? error.message : String(error)}`,
+        stack
       );
     } finally {
+      if (heartbeatTimer !== null) {
+        clearInterval(heartbeatTimer);
+      }
+      if (leaseToken !== null) {
+        await this.schedulerLeaseService.release(MEDIA_JOB_SCHEDULER_KEY, leaseToken);
+      }
+      this.leaseLost = false;
       this.running = false;
       this.scheduleNext(MEDIA_JOB_POLL_INTERVAL_MS);
     }

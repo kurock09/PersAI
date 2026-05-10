@@ -43,6 +43,8 @@ export interface AdminPlanInputBase {
   /** @nullable */
   reasoningModelKey?: string | null;
   /** @nullable */
+  systemToolModelKey?: string | null;
+  /** @nullable */
   retrievalModelKey?: string | null;
   /** @nullable */
   embeddingModelKey?: string | null;

@@ -178,6 +178,30 @@ async function main(): Promise<void> {
     data: { isDefaultFirstRegistrationPlan: false }
   });
 
+  // The manual `prisma:seed` script is operator-runnable. Historically the
+  // upsert overwrote `billingProviderHints` with only `{ schema, providerAgnostic }`
+  // on every run, silently wiping operator-configured fields like lifecycle
+  // policy, runtime tier, presentation, etc. Read the existing row first and
+  // merge so a re-seed only fills missing keys rather than truncating the document.
+  const existingDefaultPlan = await prisma.planCatalogPlan.findUnique({
+    where: { code: SEED_DEFAULT_PLAN_CODE },
+    select: { billingProviderHints: true }
+  });
+  const existingBillingHints =
+    existingDefaultPlan?.billingProviderHints &&
+    typeof existingDefaultPlan.billingProviderHints === "object" &&
+    !Array.isArray(existingDefaultPlan.billingProviderHints)
+      ? (existingDefaultPlan.billingProviderHints as Record<string, unknown>)
+      : {};
+  const seededBillingHints: Record<string, unknown> = {
+    ...existingBillingHints,
+    schema:
+      typeof existingBillingHints.schema === "string"
+        ? existingBillingHints.schema
+        : "persai.billingHints.v1",
+    providerAgnostic: existingBillingHints.providerAgnostic !== false
+  };
+
   await prisma.planCatalogPlan.upsert({
     where: { code: SEED_DEFAULT_PLAN_CODE },
     update: {
@@ -188,10 +212,7 @@ async function main(): Promise<void> {
       isDefaultFirstRegistrationPlan: true,
       isTrialPlan: true,
       trialDurationDays: 14,
-      billingProviderHints: {
-        schema: "persai.billingHints.v1",
-        providerAgnostic: true
-      }
+      billingProviderHints: seededBillingHints
     },
     create: {
       id: SEED_DEFAULT_PLAN_ID,
@@ -203,10 +224,7 @@ async function main(): Promise<void> {
       isDefaultFirstRegistrationPlan: true,
       isTrialPlan: true,
       trialDurationDays: 14,
-      billingProviderHints: {
-        schema: "persai.billingHints.v1",
-        providerAgnostic: true
-      }
+      billingProviderHints: seededBillingHints
     }
   });
 

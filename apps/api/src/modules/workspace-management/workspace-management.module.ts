@@ -205,8 +205,10 @@ import { ProactivePushPolicyService } from "./application/proactive-push-policy.
 import { EnqueueBackgroundCompactionJobService } from "./application/enqueue-background-compaction-job.service";
 import { InternalRuntimeCompactionClientService } from "./application/internal-runtime-compaction.client.service";
 import { InternalRuntimeBackgroundTaskClientService } from "./application/internal-runtime-background-task.client.service";
+import { BackgroundSchedulerMetricsService } from "./application/background-scheduler-metrics.service";
 import { PersaiBackgroundTaskSchedulerService } from "./application/persai-background-task-scheduler.service";
 import { PersaiIdleReengagementSchedulerService } from "./application/persai-idle-reengagement-scheduler.service";
+import { SchedulerLeaseService } from "./application/scheduler-lease.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
 import { MutateInternalRuntimeMonthlyMediaQuotaService } from "./application/mutate-internal-runtime-monthly-media-quota.service";
@@ -435,6 +437,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     BillingLifecycleProducerService,
     HandleInternalCronFireService,
     BuildReminderContextSnapshotService,
+    BackgroundSchedulerMetricsService,
     PersaiScheduledActionSchedulerService,
     PersaiBackgroundCompactionSchedulerService,
     PersaiBackgroundTaskSchedulerService,
@@ -444,6 +447,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     InternalRuntimeCompactionClientService,
     InternalRuntimeBackgroundTaskClientService,
     PersaiIdleReengagementSchedulerService,
+    SchedulerLeaseService,
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,
     ConsumeInternalRuntimeToolDailyLimitService,
@@ -661,11 +665,13 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     SendWebChatTurnService,
     StreamWebChatTurnService,
     UpdateAssistantDraftService,
+    BackgroundSchedulerMetricsService,
     ASSISTANT_REPOSITORY,
     ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
     ASSISTANT_GOVERNANCE_REPOSITORY,
     ASSISTANT_CHAT_REPOSITORY,
-    ASSISTANT_MATERIALIZED_SPEC_REPOSITORY
+    ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
+    SchedulerLeaseService
   ]
 })
 export class WorkspaceManagementModule {}

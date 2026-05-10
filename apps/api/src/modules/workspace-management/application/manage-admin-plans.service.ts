@@ -519,6 +519,7 @@ export class ManageAdminPlansService {
       input.primaryModelKey,
       input.premiumModelKey,
       input.reasoningModelKey,
+      input.systemToolModelKey,
       input.retrievalModelKey,
       input.embeddingModelKey
     ]);
@@ -578,6 +579,7 @@ export class ManageAdminPlansService {
       mergedInput.primaryModelKey,
       mergedInput.premiumModelKey,
       mergedInput.reasoningModelKey,
+      mergedInput.systemToolModelKey,
       mergedInput.retrievalModelKey,
       mergedInput.embeddingModelKey
     ]);
@@ -780,6 +782,7 @@ export class ManageAdminPlansService {
       primaryModelKey: toNormalizedNonEmptyModelKey(parsed.primaryModelKey),
       premiumModelKey: toNormalizedNonEmptyModelKey(parsed.premiumModelKey),
       reasoningModelKey: toNormalizedNonEmptyModelKey(parsed.reasoningModelKey),
+      systemToolModelKey: toNormalizedNonEmptyModelKey(parsed.systemToolModelKey),
       retrievalModelKey: toNormalizedNonEmptyModelKey(parsed.retrievalModelKey),
       embeddingModelKey: toNormalizedNonEmptyModelKey(parsed.embeddingModelKey),
       imageGenerateModelKey: parseOptionalPlanModelKey(
@@ -942,6 +945,9 @@ export class ManageAdminPlansService {
         ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {}),
         ...(input.premiumModelKey !== null ? { premiumModelKey: input.premiumModelKey } : {}),
         ...(input.reasoningModelKey !== null ? { reasoningModelKey: input.reasoningModelKey } : {}),
+        ...(input.systemToolModelKey !== null
+          ? { systemToolModelKey: input.systemToolModelKey }
+          : {}),
         ...(input.retrievalModelKey !== null ? { retrievalModelKey: input.retrievalModelKey } : {}),
         ...(input.embeddingModelKey !== null ? { embeddingModelKey: input.embeddingModelKey } : {}),
         ...(input.imageGenerateModelKey !== null
@@ -1245,6 +1251,7 @@ export class ManageAdminPlansService {
       primaryModelKey: toNormalizedNonEmptyModelKey(billingHints.primaryModelKey),
       premiumModelKey: toNormalizedNonEmptyModelKey(billingHints.premiumModelKey),
       reasoningModelKey: toNormalizedNonEmptyModelKey(billingHints.reasoningModelKey),
+      systemToolModelKey: toNormalizedNonEmptyModelKey(billingHints.systemToolModelKey),
       retrievalModelKey: toNormalizedNonEmptyModelKey(billingHints.retrievalModelKey),
       embeddingModelKey: toNormalizedNonEmptyModelKey(billingHints.embeddingModelKey),
       imageGenerateModelKey: toNormalizedNonEmptyModelKey(billingHints.imageGenerateModelKey),

@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
   isPlatformManagedTool,
@@ -65,19 +66,27 @@ export class SeedToolCatalogService implements OnModuleInit {
         !Array.isArray(existingDefaultPlan.billingProviderHints)
           ? (existingDefaultPlan.billingProviderHints as Record<string, unknown>)
           : {};
-      if (!Object.prototype.hasOwnProperty.call(billingHints, "runtimeTierDefault")) {
+      const needsRuntimeTierBackfill = !Object.prototype.hasOwnProperty.call(
+        billingHints,
+        "runtimeTierDefault"
+      );
+      if (needsRuntimeTierBackfill) {
+        const nextBillingHints: Record<string, unknown> = {
+          ...billingHints,
+          schema:
+            typeof billingHints.schema === "string"
+              ? billingHints.schema
+              : "persai.billingHints.v1",
+          providerAgnostic: billingHints.providerAgnostic === true,
+          runtimeTierDefault:
+            typeof billingHints.runtimeTierDefault === "string"
+              ? billingHints.runtimeTierDefault
+              : "free_shared_restricted"
+        };
         await this.prisma.planCatalogPlan.update({
           where: { id: existingDefaultPlan.id },
           data: {
-            billingProviderHints: {
-              ...billingHints,
-              schema:
-                typeof billingHints.schema === "string"
-                  ? billingHints.schema
-                  : "persai.billingHints.v1",
-              providerAgnostic: billingHints.providerAgnostic === true,
-              runtimeTierDefault: "free_shared_restricted"
-            }
+            billingProviderHints: nextBillingHints as Prisma.InputJsonValue
           }
         });
       }

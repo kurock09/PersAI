@@ -174,6 +174,74 @@ class FakeInternalRuntimeCompactionClientService {
   }
 }
 
+class FakeSchedulerLeaseService {
+  acquireResult: { token: string } | null = { token: "lease-compaction-1" };
+  heartbeatResults: boolean[] = [];
+  releaseCalls: Array<{ key: string; token: string }> = [];
+  leaseState: { holderId: string; expiresAt: Date } | null = {
+    holderId: "",
+    expiresAt: new Date(Date.now() - 1)
+  };
+
+  async getLeaseState() {
+    return this.leaseState;
+  }
+
+  async acquire() {
+    return this.acquireResult;
+  }
+
+  async heartbeat() {
+    return this.heartbeatResults.shift() ?? true;
+  }
+
+  async release(key: string, token: string) {
+    this.releaseCalls.push({ key, token });
+  }
+}
+
+class FakeBackgroundSchedulerMetricsService {
+  tickAcquired: Array<{ key: string; durationMs: number; candidatesProcessed: number }> = [];
+  tickSkipped: string[] = [];
+  leaseLost: string[] = [];
+  leaseExpiredRecovered: string[] = [];
+
+  recordTickAcquired(key: string, durationMs: number, candidatesProcessed: number): void {
+    this.tickAcquired.push({ key, durationMs, candidatesProcessed });
+  }
+
+  recordTickSkipped(key: string): void {
+    this.tickSkipped.push(key);
+  }
+
+  recordLeaseLost(key: string): void {
+    this.leaseLost.push(key);
+  }
+
+  recordLeaseExpiredRecovered(key: string): void {
+    this.leaseExpiredRecovered.push(key);
+  }
+}
+
+function createScheduler(
+  prisma: FakeWorkspaceManagementPrismaService,
+  epochs: FakeBumpConfigGenerationService,
+  client: FakeInternalRuntimeCompactionClientService,
+  overrides?: {
+    schedulerLeaseService?: FakeSchedulerLeaseService;
+    backgroundSchedulerMetricsService?: FakeBackgroundSchedulerMetricsService;
+  }
+): PersaiBackgroundCompactionSchedulerService {
+  return new PersaiBackgroundCompactionSchedulerService(
+    prisma as never,
+    epochs as never,
+    client as never,
+    (overrides?.schedulerLeaseService ?? new FakeSchedulerLeaseService()) as never,
+    (overrides?.backgroundSchedulerMetricsService ??
+      new FakeBackgroundSchedulerMetricsService()) as never
+  );
+}
+
 function makeRow(overrides: Partial<Row> = {}): Row {
   const baseCreated = new Date(Date.now() - 60_000);
   return {
@@ -213,11 +281,7 @@ async function runSuccessClaimsAndCompletes(): Promise<void> {
       toolResult: { ok: true, value: { compacted: true } }
     } as never
   });
-  const service = new PersaiBackgroundCompactionSchedulerService(
-    prisma as never,
-    epochs as never,
-    client as never
-  );
+  const service = createScheduler(prisma, epochs, client);
 
   const processed = await service.processDueJobsBatch();
 
@@ -245,11 +309,7 @@ async function runRetryableFailureSchedulesRetry(): Promise<void> {
     code: "http_503",
     message: "runtime is down"
   });
-  const service = new PersaiBackgroundCompactionSchedulerService(
-    prisma as never,
-    epochs as never,
-    client as never
-  );
+  const service = createScheduler(prisma, epochs, client);
 
   const processed = await service.processDueJobsBatch();
 
@@ -276,11 +336,7 @@ async function runNonRetryableFailureMarksFailed(): Promise<void> {
     code: "invalid_payload",
     message: "no synopsis"
   });
-  const service = new PersaiBackgroundCompactionSchedulerService(
-    prisma as never,
-    epochs as never,
-    client as never
-  );
+  const service = createScheduler(prisma, epochs, client);
 
   const processed = await service.processDueJobsBatch();
 
@@ -306,11 +362,7 @@ async function runRetryableFailureExhaustionMarksFailed(): Promise<void> {
     code: "http_500",
     message: "still down"
   });
-  const service = new PersaiBackgroundCompactionSchedulerService(
-    prisma as never,
-    epochs as never,
-    client as never
-  );
+  const service = createScheduler(prisma, epochs, client);
 
   const processed = await service.processDueJobsBatch();
 
@@ -332,11 +384,7 @@ async function runEpochChangedReleasesClaim(): Promise<void> {
     ok: true,
     result: { compacted: false, reason: "skip", toolResult: { ok: true, value: {} } } as never
   });
-  const service = new PersaiBackgroundCompactionSchedulerService(
-    prisma as never,
-    epochs as never,
-    client as never
-  );
+  const service = createScheduler(prisma, epochs, client);
 
   // Patch the bump service so the second `current...` call returns a higher
   // epoch than the one used during claim.
@@ -383,11 +431,7 @@ async function runStaleClaimReclaimedAfterTtl(): Promise<void> {
       toolResult: { ok: true, value: { compacted: true } }
     } as never
   });
-  const service = new PersaiBackgroundCompactionSchedulerService(
-    prisma as never,
-    epochs as never,
-    client as never
-  );
+  const service = createScheduler(prisma, epochs, client);
 
   const processed = await service.processDueJobsBatch();
 
@@ -403,11 +447,7 @@ async function runUnexpectedThrowMarksRetryable(): Promise<void> {
   const prisma = new FakeWorkspaceManagementPrismaService([makeRow()], () => epochs.currentEpoch);
   const client = new FakeInternalRuntimeCompactionClientService();
   client.throwNext = true;
-  const service = new PersaiBackgroundCompactionSchedulerService(
-    prisma as never,
-    epochs as never,
-    client as never
-  );
+  const service = createScheduler(prisma, epochs, client);
 
   const processed = await service.processDueJobsBatch();
 
@@ -418,6 +458,122 @@ async function runUnexpectedThrowMarksRetryable(): Promise<void> {
   assert.ok(row.retryAfterAt instanceof Date);
 }
 
+async function runTickSkipsWhenAnotherLeaderOwnsLease(): Promise<void> {
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService([makeRow()], () => epochs.currentEpoch);
+  const client = new FakeInternalRuntimeCompactionClientService();
+  const leaseService = new FakeSchedulerLeaseService();
+  leaseService.acquireResult = null;
+  const metricsService = new FakeBackgroundSchedulerMetricsService();
+  const service = createScheduler(prisma, epochs, client, {
+    schedulerLeaseService: leaseService,
+    backgroundSchedulerMetricsService: metricsService
+  });
+
+  (service as unknown as { scheduleNext: (delayMs: number) => void }).scheduleNext = () =>
+    undefined;
+  (service as unknown as { processDueJobsBatch: () => Promise<number> }).processDueJobsBatch =
+    async () => {
+      throw new Error("tick should not process jobs when another leader holds the lease");
+    };
+
+  await (service as unknown as { tick: () => Promise<void> }).tick();
+
+  assert.deepEqual(metricsService.tickSkipped, ["background_compaction"]);
+  assert.equal(leaseService.releaseCalls.length, 0);
+}
+
+async function runTickAbortsDrainWhenLeaseLost(): Promise<void> {
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService([makeRow()], () => epochs.currentEpoch);
+  const client = new FakeInternalRuntimeCompactionClientService();
+  const leaseService = new FakeSchedulerLeaseService();
+  leaseService.acquireResult = { token: "lease-compaction-1" };
+  leaseService.heartbeatResults = [false];
+  const metricsService = new FakeBackgroundSchedulerMetricsService();
+  const service = createScheduler(prisma, epochs, client, {
+    schedulerLeaseService: leaseService,
+    backgroundSchedulerMetricsService: metricsService
+  });
+  let batchCalls = 0;
+
+  (service as unknown as { scheduleNext: (delayMs: number) => void }).scheduleNext = () =>
+    undefined;
+  (service as unknown as { processDueJobsBatch: () => Promise<number> }).processDueJobsBatch =
+    async () => {
+      batchCalls += 1;
+      if (batchCalls === 1) {
+        (
+          service as unknown as {
+            leaseLost: boolean;
+          }
+        ).leaseLost = true;
+        metricsService.recordLeaseLost("background_compaction");
+      }
+      return 8;
+    };
+
+  await (service as unknown as { tick: () => Promise<void> }).tick();
+
+  assert.equal(batchCalls, 1);
+  assert.deepEqual(metricsService.leaseLost, ["background_compaction"]);
+  assert.equal(metricsService.tickAcquired[0]?.candidatesProcessed, 8);
+  assert.deepEqual(leaseService.releaseCalls, [
+    { key: "background_compaction", token: "lease-compaction-1" }
+  ]);
+}
+
+async function runRuntimeTimeoutDefersJobAndDrainContinuesWithoutLeaseLoss(): Promise<void> {
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [makeRow({ id: "job-timeout" }), makeRow({ id: "job-success" })],
+    () => epochs.currentEpoch
+  );
+  const client = new FakeInternalRuntimeCompactionClientService();
+  client.outcomes.push(
+    {
+      ok: false,
+      retryable: true,
+      status: 408,
+      code: "runtime_timeout",
+      message: "provider timeout"
+    },
+    {
+      ok: true,
+      result: {
+        compacted: true,
+        reason: null,
+        toolResult: { ok: true, value: { compacted: true } }
+      } as never
+    }
+  );
+  const leaseService = new FakeSchedulerLeaseService();
+  const metricsService = new FakeBackgroundSchedulerMetricsService();
+  const service = createScheduler(prisma, epochs, client, {
+    schedulerLeaseService: leaseService,
+    backgroundSchedulerMetricsService: metricsService
+  });
+
+  (service as unknown as { scheduleNext: (delayMs: number) => void }).scheduleNext = () =>
+    undefined;
+
+  // ADR-091 audit: explicit timeout/hang coverage should prove the timed-out
+  // candidate is deferred, the next candidate still drains, and the lease stays healthy.
+  await (service as unknown as { tick: () => Promise<void> }).tick();
+
+  const timeoutRow = prisma.rows.find((row) => row.id === "job-timeout");
+  const successRow = prisma.rows.find((row) => row.id === "job-success");
+  assert.equal(timeoutRow?.status, "pending");
+  assert.equal(timeoutRow?.lastErrorCode, "runtime_timeout");
+  assert.ok(timeoutRow?.retryAfterAt instanceof Date);
+  assert.equal(successRow?.status, "completed");
+  assert.deepEqual(metricsService.leaseLost, []);
+  assert.equal(metricsService.tickAcquired[0]?.candidatesProcessed, 2);
+  assert.deepEqual(leaseService.releaseCalls, [
+    { key: "background_compaction", token: "lease-compaction-1" }
+  ]);
+}
+
 async function run(): Promise<void> {
   await runSuccessClaimsAndCompletes();
   await runRetryableFailureSchedulesRetry();
@@ -426,6 +582,9 @@ async function run(): Promise<void> {
   await runEpochChangedReleasesClaim();
   await runStaleClaimReclaimedAfterTtl();
   await runUnexpectedThrowMarksRetryable();
+  await runTickSkipsWhenAnotherLeaderOwnsLease();
+  await runTickAbortsDrainWhenLeaseLost();
+  await runRuntimeTimeoutDefersJobAndDrainContinuesWithoutLeaseLoss();
 }
 
 void run();

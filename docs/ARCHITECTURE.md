@@ -95,6 +95,22 @@ Ingress truth:
 - `api.persai.dev` -> `api`
 - `bot.persai.dev` `/telegram-webhook` -> `api`
 
+ADR-091 defines the active background-scheduler control-plane pattern for `apps/api`: each scheduler kind owns one durable row in `scheduler_leases`, and leadership is coordinated through short lease acquire / heartbeat / release writes instead of long-lived advisory-lock transactions. This keeps the scheduler shape uniform across idle re-engagement, background tasks, background compaction, and media jobs while avoiding pinned Prisma connections during outbound work.
+
+### Database connection pool sizing
+
+`apps/api` should set the Prisma datasource `connection_limit` explicitly through the `PRISMA_CONNECTION_LIMIT` environment variable.
+
+Documented sizing rule:
+
+`CONNECTIONS_PER_POD = max(10, cpu_count × 4)`
+
+Rationale:
+
+- ADR-091's lease-based scheduler pattern removes the old "hold one DB connection for the full scheduler tick" budget.
+- The four background schedulers now consume only short-lived lease and per-candidate transactions.
+- User-facing API traffic and read-heavy admin traffic remain the dominant pool consumers, so the pool should be sized for request concurrency rather than for pinned scheduler leaders.
+
 ## Runtime truth
 
 Current active config expectations:

@@ -2355,6 +2355,28 @@ enum AssistantBackgroundCompactionJobStatus {
   failed
 }
 
+model SchedulerLease {
+  /// Stable scheduler identifier — one row per scheduler kind. Examples:
+  /// "idle_reengagement", "background_task", "background_compaction", "media_job".
+  schedulerKey  String   @id @map("scheduler_key") @db.VarChar(64)
+  /// Pod-unique holder id (e.g. process uuid + pod name). Used to validate
+  /// heartbeat updates so a stale leader cannot extend an expired lease.
+  holderId      String   @map("holder_id") @db.VarChar(255)
+  /// Random per-acquisition token. The leader checks this token on every
+  /// heartbeat / release; another pod that took over after expiry uses a new
+  /// token and the previous leader's heartbeat will silently fail.
+  leaseToken    String   @map("lease_token") @db.VarChar(128)
+  /// Hard deadline. After this point any pod may acquire the lease.
+  expiresAt     DateTime @map("expires_at") @db.Timestamptz(6)
+  /// Last time the leader confirmed it is still alive.
+  lastHeartbeat DateTime @map("last_heartbeat") @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("scheduler_leases")
+}
+
 // ADR-090: Durable per-(assistant, chat) state for idle re-engagement evaluation.
 // Primary cooldown and attempt-budget source of truth; replaces the fragile
 // notificationIntent lifecycle filter that missed failed/dead_letter states.

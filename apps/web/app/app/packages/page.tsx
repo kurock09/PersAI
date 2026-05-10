@@ -164,18 +164,23 @@ function PackageChoiceRow({
       disabled={disabled}
       aria-pressed={selected}
       className={cn(
-        "group flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition-all",
-        // Admin-controlled premium highlight (gold). Independent of user selection.
-        // Light: warm gold padding-box + gold gradient border. Dark: thin gold border on surface.
-        highlighted
-          ? "border-transparent text-text [background:linear-gradient(180deg,rgba(255,238,190,0.22),rgba(255,248,230,0.06))_padding-box,linear-gradient(135deg,rgba(255,226,150,0.85),rgba(214,170,70,0.55),rgba(255,248,230,0.28),rgba(176,132,33,0.65))_border-box] dark:border-[rgba(212,168,66,0.55)] dark:[background:var(--surface-raised)] dark:hover:border-[rgba(224,183,86,0.72)]"
-          : "border-border/80 bg-bg/55 text-text hover:border-border hover:bg-surface-hover/70",
-        // User selection: subtle accent border on top, never breaks gold visual.
-        selected && !highlighted && "border-accent/60 bg-accent/5 hover:border-accent/70",
-        selected && highlighted && "ring-2 ring-accent/30",
+        "group relative flex w-full items-center justify-between gap-3 overflow-hidden rounded-2xl border px-4 py-3 text-left transition-all",
+        "border-border/80 bg-bg/55 text-text hover:border-border hover:bg-surface-hover/70",
+        // User selection: quiet accent border on top of the default surface.
+        selected && "border-accent/60 bg-accent/5 hover:border-accent/70",
         disabled && "cursor-not-allowed opacity-45 hover:border-border/80 hover:bg-bg/55"
       )}
     >
+      {/* Admin-controlled premium hint: a thin gold rail on the left edge.
+          Quiet by default, independent of user selection — the row stays the
+          same surface as its neighbors so the rail reads as an "indicator"
+          rather than a highlighted block. */}
+      {highlighted ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-gradient-to-b from-[rgba(214,170,70,0.95)] via-[rgba(255,226,150,0.95)] to-[rgba(176,132,33,0.95)]"
+        />
+      ) : null}
       <div className="flex min-w-0 items-start gap-3">
         <span
           aria-hidden="true"
@@ -195,7 +200,12 @@ function PackageChoiceRow({
           ) : null}
         </div>
       </div>
-      <span className="shrink-0 text-sm font-semibold text-text">
+      <span
+        className={cn(
+          "shrink-0 text-sm font-semibold tabular-nums",
+          highlighted ? "text-[rgba(140,98,18,1)] dark:text-[rgba(232,196,118,1)]" : "text-text"
+        )}
+      >
         {formatPrice(item.amountMinor, item.currency, locale)}
       </span>
     </button>

@@ -7,15 +7,14 @@ import {
   InternalRuntimeCompactionClientService,
   type InternalRuntimeCompactAndExtractOutcome
 } from "./internal-runtime-compaction.client.service";
+import { BackgroundSchedulerMetricsService } from "./background-scheduler-metrics.service";
+import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
+import { SchedulerLeaseService } from "./scheduler-lease.service";
 
+// ADR-091 audit: scheduler cadence / batch / retry knobs stay centralized in this
+// constants block until we have enough production evidence to justify env tuning.
 const POLL_INTERVAL_MS = 5_000;
-// ADR-090: stable scheduler-unique advisory-lock id; must not collide with other
-// pg_advisory locks in this service. Cross-reference: idle = 5_203_916_748_291_034n,
-// background-task = 7_341_822_019_465_127n.
-const COMPACTION_SCHEDULER_LOCK_ID = 3_891_047_162_837_456n;
-// ADR-090: tick transaction timeout. Must comfortably cover one drain pass
-// including upstream runtime call timeouts.
-const SCHEDULER_TICK_TRANSACTION_TIMEOUT_MS = 10 * 60_000;
+const BACKGROUND_COMPACTION_SCHEDULER_KEY = "background_compaction";
 // ADR-090: defer interval after HTTP 409 from runtime (session busy).
 const RUNTIME_SESSION_BUSY_DEFER_MS = 60_000;
 const BATCH_SIZE = 8;
@@ -27,6 +26,7 @@ const RETRY_BASE_DELAY_MS = 30_000;
 // ADR-090: cap exponential backoff so a stuck job doesn't park forever.
 const RETRY_MAX_DELAY_MS = 5 * 60_000;
 const MAX_ATTEMPTS = 5;
+const LAST_ERROR_CODE_MAX_CHARS = 128;
 
 type ClaimedJob = {
   id: string;
@@ -48,11 +48,14 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
   private stopped = false;
   private running = false;
   private timer: NodeJS.Timeout | null = null;
+  private leaseLost = false;
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
-    private readonly internalRuntimeCompactionClientService: InternalRuntimeCompactionClientService
+    private readonly internalRuntimeCompactionClientService: InternalRuntimeCompactionClientService,
+    private readonly schedulerLeaseService: SchedulerLeaseService,
+    private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -71,10 +74,15 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
 
   async processDueJobsBatch(limit = BATCH_SIZE): Promise<number> {
     const claimed = await this.claimDueJobs(limit);
+    let processed = 0;
     for (const job of claimed) {
+      if (this.leaseLost) {
+        break;
+      }
       await this.processClaimedJob(job);
+      processed += 1;
     }
-    return claimed.length;
+    return processed;
   }
 
   private scheduleNext(delayMs: number): void {
@@ -94,35 +102,72 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
       return;
     }
     this.running = true;
+    this.leaseLost = false;
+    const startedAt = Date.now();
+    let processed = 0;
+    let heartbeatTimer: NodeJS.Timeout | null = null;
+    let leaseToken: string | null = null;
+    let leaseLostReported = false;
+    const markLeaseLost = (reason: string): void => {
+      if (leaseLostReported) {
+        return;
+      }
+      leaseLostReported = true;
+      this.leaseLost = true;
+      this.backgroundSchedulerMetricsService.recordLeaseLost(BACKGROUND_COMPACTION_SCHEDULER_KEY);
+      this.logger.warn(`Background compaction scheduler lease lost: ${reason}`);
+    };
     try {
-      // ADR-090: pool-vs-HTTP trade-off. The advisory lock is held for the
-      // full drain pass — including outbound runtime LLM calls — pinning one
-      // Prisma pool connection per leader. The per-tick early-break
-      // (count < BATCH_SIZE) bounds that interval. If pool pressure grows,
-      // the right move is to split lock acquisition (short tx) from job
-      // processing (no tx) using a dedicated lease row, NOT to weaken the
-      // lock itself.
-      await this.prisma.$transaction(
-        async (tx) => {
-          const lockResult = await tx.$queryRaw<{ locked: boolean }[]>`
-            SELECT pg_try_advisory_xact_lock(${COMPACTION_SCHEDULER_LOCK_ID}::bigint) AS locked
-          `;
-          if (!lockResult[0]?.locked) {
-            return;
-          }
-          let processed = 0;
-          while (!this.stopped) {
-            const count = await this.processDueJobsBatch();
-            processed += count;
-            if (count < BATCH_SIZE) {
-              break;
+      const previousLease = await this.schedulerLeaseService.getLeaseState(
+        BACKGROUND_COMPACTION_SCHEDULER_KEY
+      );
+      const lease = await this.schedulerLeaseService.acquire(BACKGROUND_COMPACTION_SCHEDULER_KEY);
+      if (lease === null) {
+        this.backgroundSchedulerMetricsService.recordTickSkipped(
+          BACKGROUND_COMPACTION_SCHEDULER_KEY
+        );
+        return;
+      }
+      leaseToken = lease.token;
+
+      if (
+        previousLease !== null &&
+        previousLease.holderId !== "" &&
+        previousLease.expiresAt.getTime() <= startedAt
+      ) {
+        this.backgroundSchedulerMetricsService.recordLeaseExpiredRecovered(
+          BACKGROUND_COMPACTION_SCHEDULER_KEY
+        );
+      }
+
+      heartbeatTimer = setInterval(() => {
+        void this.schedulerLeaseService
+          .heartbeat(BACKGROUND_COMPACTION_SCHEDULER_KEY, lease.token)
+          .then((stillLeader) => {
+            if (!stillLeader) {
+              markLeaseLost("heartbeat token no longer matched active leader");
             }
-          }
-          if (processed > 0) {
-            this.logger.log(`Processed ${processed} background compaction job(s).`);
-          }
-        },
-        { timeout: SCHEDULER_TICK_TRANSACTION_TIMEOUT_MS }
+          })
+          .catch((error) => {
+            markLeaseLost(error instanceof Error ? error.message : String(error));
+          });
+      }, LEASE_HEARTBEAT_INTERVAL_MS);
+      heartbeatTimer.unref?.();
+
+      while (!this.stopped && !this.leaseLost) {
+        const count = await this.processDueJobsBatch();
+        processed += count;
+        if (count < BATCH_SIZE) {
+          break;
+        }
+      }
+      if (processed > 0) {
+        this.logger.log(`Processed ${processed} background compaction job(s).`);
+      }
+      this.backgroundSchedulerMetricsService.recordTickAcquired(
+        BACKGROUND_COMPACTION_SCHEDULER_KEY,
+        Date.now() - startedAt,
+        processed
       );
     } catch (error) {
       const stack = error instanceof Error ? error.stack : undefined;
@@ -131,6 +176,13 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
         stack
       );
     } finally {
+      if (heartbeatTimer !== null) {
+        clearInterval(heartbeatTimer);
+      }
+      if (leaseToken !== null) {
+        await this.schedulerLeaseService.release(BACKGROUND_COMPACTION_SCHEDULER_KEY, leaseToken);
+      }
+      this.leaseLost = false;
       this.running = false;
       this.scheduleNext(POLL_INTERVAL_MS);
     }
@@ -316,7 +368,8 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
           schedulerClaimedAt: null,
           schedulerClaimExpiresAt: null,
           retryAfterAt: null,
-          lastErrorCode: code.slice(0, 128),
+          // ADR-091 audit: keep operator-visible truncation policy named and shared.
+          lastErrorCode: code.slice(0, LAST_ERROR_CODE_MAX_CHARS),
           lastErrorMessage: message
         }
       });
@@ -343,7 +396,7 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
         schedulerClaimEpoch: null,
         schedulerClaimedAt: null,
         schedulerClaimExpiresAt: null,
-        lastErrorCode: code.slice(0, 128),
+        lastErrorCode: code.slice(0, LAST_ERROR_CODE_MAX_CHARS),
         lastErrorMessage: message
       }
     });
@@ -394,7 +447,7 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
         schedulerClaimExpiresAt: null,
         // Decrement so we don't double-charge attempt budget on epoch flips.
         attemptCount: Math.max(0, job.attemptCount - 1),
-        lastErrorCode: reason.slice(0, 128),
+        lastErrorCode: reason.slice(0, LAST_ERROR_CODE_MAX_CHARS),
         // ADR-090 audit: keep parity with deferJobAfterBusy / failJob so
         // operators always see *why* a row went back to pending, not just
         // a bare error code.

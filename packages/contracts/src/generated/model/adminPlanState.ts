@@ -44,6 +44,8 @@ export interface AdminPlanState {
   /** @nullable */
   reasoningModelKey?: string | null;
   /** @nullable */
+  systemToolModelKey?: string | null;
+  /** @nullable */
   retrievalModelKey?: string | null;
   /** @nullable */
   embeddingModelKey?: string | null;

@@ -10,6 +10,57 @@ type IntentCreate = {
   factPayload: Record<string, unknown>;
 };
 
+class FakeSchedulerLeaseService {
+  acquireResult: { token: string } | null = { token: "lease-idle-1" };
+  heartbeatResults: boolean[] = [];
+  acquireCalls: string[] = [];
+  releaseCalls: Array<{ key: string; token: string }> = [];
+  leaseState: { holderId: string; expiresAt: Date } | null = {
+    holderId: "",
+    expiresAt: new Date(Date.now() - 1)
+  };
+
+  async getLeaseState() {
+    return this.leaseState;
+  }
+
+  async acquire(key: string) {
+    this.acquireCalls.push(key);
+    return this.acquireResult;
+  }
+
+  async heartbeat() {
+    return this.heartbeatResults.shift() ?? true;
+  }
+
+  async release(key: string, token: string) {
+    this.releaseCalls.push({ key, token });
+  }
+}
+
+class FakeBackgroundSchedulerMetricsService {
+  tickAcquired: Array<{ key: string; durationMs: number; candidatesProcessed: number }> = [];
+  tickSkipped: string[] = [];
+  leaseLost: string[] = [];
+  leaseExpiredRecovered: string[] = [];
+
+  recordTickAcquired(key: string, durationMs: number, candidatesProcessed: number): void {
+    this.tickAcquired.push({ key, durationMs, candidatesProcessed });
+  }
+
+  recordTickSkipped(key: string): void {
+    this.tickSkipped.push(key);
+  }
+
+  recordLeaseLost(key: string): void {
+    this.leaseLost.push(key);
+  }
+
+  recordLeaseExpiredRecovered(key: string): void {
+    this.leaseExpiredRecovered.push(key);
+  }
+}
+
 class FakeIdleMarker {
   data: {
     latestUserMessageAtSnapshot: Date;
@@ -97,7 +148,11 @@ class FakeIdlePrisma {
 
 function createScheduler(
   prisma: FakeIdlePrisma,
-  outcomeFactory?: () => InternalRuntimeBackgroundTaskEvaluationOutcome
+  outcomeFactory?: () => InternalRuntimeBackgroundTaskEvaluationOutcome,
+  overrides?: {
+    schedulerLeaseService?: FakeSchedulerLeaseService;
+    backgroundSchedulerMetricsService?: FakeBackgroundSchedulerMetricsService;
+  }
 ): PersaiIdleReengagementSchedulerService {
   const notificationIntentService = {
     createIntent: async (input: IntentCreate) => {
@@ -143,7 +198,10 @@ function createScheduler(
         return (outcomeFactory ?? defaultOutcomeFactory)();
       }
     } as never,
-    notificationIntentService
+    notificationIntentService,
+    (overrides?.schedulerLeaseService ?? new FakeSchedulerLeaseService()) as never,
+    (overrides?.backgroundSchedulerMetricsService ??
+      new FakeBackgroundSchedulerMetricsService()) as never
   );
 }
 
@@ -376,6 +434,70 @@ async function runStaleAttemptsResetOnNewMessageTest(): Promise<void> {
   );
 }
 
+async function runTickSkipsWhenAnotherLeaderOwnsLeaseTest(): Promise<void> {
+  const prisma = new FakeIdlePrisma();
+  const leaseService = new FakeSchedulerLeaseService();
+  leaseService.acquireResult = null;
+  const metricsService = new FakeBackgroundSchedulerMetricsService();
+  const scheduler = createScheduler(prisma, undefined, {
+    schedulerLeaseService: leaseService,
+    backgroundSchedulerMetricsService: metricsService
+  });
+
+  (scheduler as unknown as { scheduleNext: (delayMs: number) => void }).scheduleNext = () =>
+    undefined;
+  (
+    scheduler as unknown as { processDueIdleReengagementBatch: () => Promise<number> }
+  ).processDueIdleReengagementBatch = async () => {
+    throw new Error("tick should not process candidates when lease acquisition fails");
+  };
+
+  await (scheduler as unknown as { tick: () => Promise<void> }).tick();
+
+  assert.deepEqual(metricsService.tickSkipped, ["idle_reengagement"]);
+  assert.equal(leaseService.releaseCalls.length, 0);
+}
+
+async function runTickAbortsDrainAfterLeaseLostTest(): Promise<void> {
+  const prisma = new FakeIdlePrisma();
+  const leaseService = new FakeSchedulerLeaseService();
+  leaseService.acquireResult = { token: "lease-idle-1" };
+  leaseService.heartbeatResults = [false];
+  const metricsService = new FakeBackgroundSchedulerMetricsService();
+  const scheduler = createScheduler(prisma, undefined, {
+    schedulerLeaseService: leaseService,
+    backgroundSchedulerMetricsService: metricsService
+  });
+  let batchCalls = 0;
+
+  (scheduler as unknown as { scheduleNext: (delayMs: number) => void }).scheduleNext = () =>
+    undefined;
+  (
+    scheduler as unknown as { processDueIdleReengagementBatch: () => Promise<number> }
+  ).processDueIdleReengagementBatch = async () => {
+    batchCalls += 1;
+    if (batchCalls === 1) {
+      (
+        scheduler as unknown as {
+          leaseLost: boolean;
+        }
+      ).leaseLost = true;
+      metricsService.recordLeaseLost("idle_reengagement");
+    }
+    return 24;
+  };
+
+  await (scheduler as unknown as { tick: () => Promise<void> }).tick();
+
+  assert.equal(batchCalls, 1, "drain loop should stop after lease loss");
+  assert.deepEqual(metricsService.leaseLost, ["idle_reengagement"]);
+  assert.equal(metricsService.tickAcquired.length, 1);
+  assert.equal(metricsService.tickAcquired[0]?.candidatesProcessed, 24);
+  assert.deepEqual(leaseService.releaseCalls, [
+    { key: "idle_reengagement", token: "lease-idle-1" }
+  ]);
+}
+
 async function run(): Promise<void> {
   await runPushCreatesIntentTest();
   await runCooldownSkipsTest();
@@ -385,7 +507,9 @@ async function run(): Promise<void> {
   await runPushWithoutTextDoesNotCloseMarkerTest();
   await run409DeferNoBurnTest();
   await runStaleAttemptsResetOnNewMessageTest();
-  console.log("idle reengagement scheduler tests passed (ADR-090)");
+  await runTickSkipsWhenAnotherLeaderOwnsLeaseTest();
+  await runTickAbortsDrainAfterLeaseLostTest();
+  console.log("idle reengagement scheduler tests passed (ADR-091 Session 2)");
 }
 
 void run();
