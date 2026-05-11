@@ -306,6 +306,12 @@ function classifyFile(file) {
   }
 
   if (isWorkflow || isCiScript) {
+    if (
+      file === ".github/workflows/dev-image-publish.yml" ||
+      file === "scripts/ci/detect-affected.mjs"
+    ) {
+      deployTargets.add("web");
+    }
     return {
       projects,
       testTargets,
@@ -316,7 +322,7 @@ function classifyFile(file) {
       runHelmValidation: false,
       ciConfigChanged: true,
       migrationChanged: false,
-      deployReason: ""
+      deployReason: deployTargets.size > 0 ? "deploy-pipeline-change" : ""
     };
   }
 
