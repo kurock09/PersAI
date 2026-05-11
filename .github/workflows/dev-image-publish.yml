@@ -115,8 +115,34 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  migration-rollout-hold:
+    if: ${{ github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed == 'true' }}
+    needs:
+      - detect-affected
+      - build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize controlled migration rollout handoff
+        env:
+          DEPLOY_SERVICES: ${{ needs.detect-affected.outputs.deploy_service_names_csv }}
+        run: |
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ## Controlled migration rollout required
+
+          Schema or migration changes were detected for this push, so dev image publish built the affected images but intentionally did **not** update \`infra/helm/values-dev.yaml\` automatically.
+
+          Built images are ready for a controlled rollout of:
+          - \`${DEPLOY_SERVICES}\`
+
+          After review, run:
+
+          \`\`\`bash
+          gh workflow run dev-migration-rollout.yml --ref main -f sha=${GITHUB_SHA} -f services="${DEPLOY_SERVICES}"
+          \`\`\`
+          EOF
+
   pin-dev-values-tag:
-    if: ${{ github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' }}
+    if: ${{ github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed != 'true' }}
     needs:
       - detect-affected
       - build-and-push

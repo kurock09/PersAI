@@ -13,6 +13,7 @@ const filePath = args.file
   ? path.resolve(repoRoot, args.file)
   : path.join(repoRoot, "infra", "helm", "values-dev.yaml");
 const sha = args.sha;
+const dryRun = args["dry-run"] === "true";
 const services = (args.services ?? "")
   .split(",")
   .map((value) => value.trim())
@@ -85,8 +86,12 @@ for (const section of targetSections) {
   }
 }
 
-writeFileSync(filePath, `${lines.join("\n")}\n`);
-process.stdout.write(`Pinned ${Array.from(updatedSections).sort().join(", ")} to ${sha}.\n`);
+if (!dryRun) {
+  writeFileSync(filePath, `${lines.join("\n")}\n`);
+}
+process.stdout.write(
+  `${dryRun ? "Validated" : "Pinned"} ${Array.from(updatedSections).sort().join(", ")} to ${sha}.\n`
+);
 
 function parseArgs(argv) {
   const parsed = {};

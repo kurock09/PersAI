@@ -139,6 +139,28 @@ Expected workloads:
 
 No `openclaw*` deployment, service, configmap, or ingress should exist in the active namespace.
 
+## Controlled migration rollout
+
+When a change includes Prisma schema or migration files, the regular `Dev Image Publish` workflow still builds/pushes the affected images, but it intentionally does **not** auto-update `infra/helm/values-dev.yaml`.
+
+Approve that rollout explicitly with:
+
+```bash
+gh workflow run dev-migration-rollout.yml --ref main -f sha=<commit-sha> -f services="api,runtime,sandbox"
+```
+
+Add `web` or `provider-gateway` to `services` only if that migration-bearing slice also changed and you want those workloads to roll with the same approved SHA.
+
+After the manual rollout workflow finishes, run:
+
+```bash
+kubectl get applications.argoproj.io -n argocd
+kubectl -n persai-dev get deploy,svc,ingress,networkpolicy
+kubectl -n persai-dev get pods -o wide
+kubectl -n persai-dev get jobs -l app.kubernetes.io/name=api-migrate
+kubectl -n persai-dev logs job/api-migrate --tail=120
+```
+
 ## Pod env verification
 
 Check the active API deployment wiring:

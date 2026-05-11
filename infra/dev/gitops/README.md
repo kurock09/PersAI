@@ -38,6 +38,8 @@ Current image composition:
 
 This keeps unchanged services on their previously pinned SHA instead of forcing a whole-environment image tag advance on every app/package change.
 
+When Prisma/schema/migration changes are detected, image publish still builds the affected service images, but GitOps pinning stops and waits for the manual `.github/workflows/dev-migration-rollout.yml` approval path.
+
 There is no active OpenClaw image tag, fork SHA pin, or fork-clone build stage in the current GitOps path.
 
 ## Runtime and secret wiring
@@ -80,7 +82,7 @@ Current secret split:
 - shared `packages/*` -> build/push/pin only dependent services, not every workload
 - `infra/helm` / `infra/dev/gitops` -> validation only, no image publish
 - docs-only and test-only changes -> no image publish
-- Prisma schema / migrations -> migration-sensitive path; affected checks and deploy scope must stay explicit, never broad by default
+- Prisma schema / migrations -> migration-sensitive path; affected checks and deploy scope must stay explicit, never broad by default, and GitOps pinning moves to the manual `dev-migration-rollout.yml` workflow
 - the GitOps tag-pin follow-up commit touches only `infra/helm/values-dev.yaml`; main `CI` ignores that bot-only commit so Argo sync bookkeeping does not retrigger repo-wide checks by itself
 
 ## Verification checklist

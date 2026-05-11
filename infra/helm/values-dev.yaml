@@ -236,6 +236,10 @@ providerGateway:
     rollingUpdate:
       maxUnavailable: 0
       maxSurge: 1
+  image:
+    name: provider-gateway
+    tag: ""
+    pullPolicy: IfNotPresent
   env:
     APP_ENV: dev
     PORT: "3011"
@@ -304,6 +308,10 @@ runtime:
   serviceAccount:
     create: false
     name: api-sa
+  image:
+    name: runtime
+    tag: ""
+    pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
     image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.18.3
@@ -373,6 +381,10 @@ sandbox:
   serviceAccount:
     create: false
     name: api-sa
+  image:
+    name: sandbox
+    tag: ""
+    pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
     image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.18.3

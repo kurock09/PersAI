@@ -108,6 +108,7 @@ Dev image publish is selective:
 - only affected services build/push
 - only affected service tags are pinned in `infra/helm/values-dev.yaml`
 - `global.images.tag` stays as the fallback for unchanged services
+- Prisma/schema/migration changes stop before GitOps pinning and require a manual `.github/workflows/dev-migration-rollout.yml` approval step
 
 Main `CI` intentionally ignores bot-only commits that update only `infra/helm/values-dev.yaml`, so the GitOps tag-pin follow-up commit does not re-run the full repository checks by itself.
 
