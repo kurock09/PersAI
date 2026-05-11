@@ -153,11 +153,8 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
   async registerDistributedAttempt(
     input: RegisterDistributedAbuseAttemptInput
   ): Promise<RegisterDistributedAbuseAttemptResult> {
-    await this.ensureDistributedRowsExist(input);
-    return this.withSerializableRetry("register distributed abuse attempt", async () =>
-      this.prisma.$transaction(async (tx) => this.registerDistributedAttemptTx(tx, input), {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable
-      })
+    return this.withTransactionRetry("register distributed abuse attempt", async () =>
+      this.prisma.$transaction(async (tx) => this.registerDistributedAttemptTx(tx, input))
     );
   }
 
@@ -318,30 +315,8 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
     tx: Prisma.TransactionClient,
     input: RegisterDistributedAbuseAttemptInput
   ): Promise<RegisterDistributedAbuseAttemptResult> {
-    const userRow = await tx.assistantAbuseGuardState.findUnique({
-      where: {
-        assistantId_userId_surface: {
-          assistantId: input.assistantId,
-          userId: input.userId,
-          surface: input.surface
-        }
-      }
-    });
-    const assistantRow = await tx.assistantAbuseAssistantState.findUnique({
-      where: {
-        assistantId_surface: {
-          assistantId: input.assistantId,
-          surface: input.surface
-        }
-      }
-    });
-
-    if (userRow === null || assistantRow === null) {
-      throw new Error("Distributed abuse guard rows must exist before registration.");
-    }
-
-    const userState = this.toUserDomain(userRow);
-    const assistantState = this.toAssistantDomain(assistantRow);
+    const userState = await this.lockOrCreateUserStateRow(tx, input);
+    const assistantState = await this.lockOrCreateAssistantStateRow(tx, input);
     const userAfterQuota = abuseDecisionAfterQuotaReconciled(userState, input.quotaDecision);
     const assistantAfterQuota = abuseDecisionAfterQuotaReconciled(
       assistantState,
@@ -472,13 +447,24 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
     };
   }
 
-  private async ensureDistributedRowsExist(
+  private async lockOrCreateUserStateRow(
+    tx: Prisma.TransactionClient,
     input: RegisterDistributedAbuseAttemptInput
-  ): Promise<void> {
+  ): Promise<AssistantAbuseGuardState> {
+    const existing = await this.lockUserStateRow(
+      tx,
+      input.assistantId,
+      input.userId,
+      input.surface
+    );
+    if (existing !== null) {
+      return existing;
+    }
+
     const bootstrapWindowStartedAt = new Date(input.attemptedAt.getTime() - input.windowMs - 1);
-    await this.prisma.assistantAbuseGuardState.createMany({
-      data: [
-        {
+    try {
+      const created = await tx.assistantAbuseGuardState.create({
+        data: {
           assistantId: input.assistantId,
           userId: input.userId,
           workspaceId: input.workspaceId,
@@ -491,12 +477,37 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
           adminOverrideUntil: null,
           lastSeenAt: input.attemptedAt
         }
-      ],
-      skipDuplicates: true
-    });
-    await this.prisma.assistantAbuseAssistantState.createMany({
-      data: [
-        {
+      });
+      return this.toUserDomain(created);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const raced = await this.lockUserStateRow(
+          tx,
+          input.assistantId,
+          input.userId,
+          input.surface
+        );
+        if (raced !== null) {
+          return raced;
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async lockOrCreateAssistantStateRow(
+    tx: Prisma.TransactionClient,
+    input: RegisterDistributedAbuseAttemptInput
+  ): Promise<AssistantAbuseAssistantState> {
+    const existing = await this.lockAssistantStateRow(tx, input.assistantId, input.surface);
+    if (existing !== null) {
+      return existing;
+    }
+
+    const bootstrapWindowStartedAt = new Date(input.attemptedAt.getTime() - input.windowMs - 1);
+    try {
+      const created = await tx.assistantAbuseAssistantState.create({
+        data: {
           assistantId: input.assistantId,
           surface: input.surface,
           windowStartedAt: bootstrapWindowStartedAt,
@@ -507,12 +518,54 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
           adminOverrideUntil: null,
           lastSeenAt: input.attemptedAt
         }
-      ],
-      skipDuplicates: true
-    });
+      });
+      return this.toAssistantDomain(created);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const raced = await this.lockAssistantStateRow(tx, input.assistantId, input.surface);
+        if (raced !== null) {
+          return raced;
+        }
+      }
+      throw error;
+    }
   }
 
-  private async withSerializableRetry<T>(label: string, execute: () => Promise<T>): Promise<T> {
+  private async lockUserStateRow(
+    tx: Prisma.TransactionClient,
+    assistantId: string,
+    userId: string,
+    surface: AbuseSurface
+  ): Promise<AssistantAbuseGuardState | null> {
+    const rows = await tx.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      SELECT *
+      FROM "assistant_abuse_guard_states"
+      WHERE "assistant_id" = CAST(${assistantId} AS uuid)
+        AND "user_id" = CAST(${userId} AS uuid)
+        AND "surface" = CAST(${surface} AS "abuse_surface")
+      FOR UPDATE
+    `);
+    const row = rows[0];
+    return row ? this.toUserDomainFromRaw(row) : null;
+  }
+
+  private async lockAssistantStateRow(
+    tx: Prisma.TransactionClient,
+    assistantId: string,
+    surface: AbuseSurface
+  ): Promise<AssistantAbuseAssistantState | null> {
+    const rows = await tx.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      SELECT *
+      FROM "assistant_abuse_assistant_states"
+      WHERE "assistant_id" = CAST(${assistantId} AS uuid)
+        AND "surface" = CAST(${surface} AS "abuse_surface")
+      FOR UPDATE
+    `);
+    const row = rows[0];
+    return row ? this.toAssistantDomainFromRaw(row) : null;
+  }
+
+  private async withTransactionRetry<T>(label: string, execute: () => Promise<T>): Promise<T> {
     const maxRetries = 5;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       try {
@@ -527,7 +580,7 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
         throw error;
       }
     }
-    throw new Error(`Failed to ${label} after serialization retries.`);
+    throw new Error(`Failed to ${label} after transaction retries.`);
   }
 
   private toUserDomain(row: PrismaAssistantAbuseGuardState): AssistantAbuseGuardState {
@@ -563,6 +616,48 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       lastSeenAt: row.lastSeenAt,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
+    };
+  }
+
+  private toUserDomainFromRaw(row: Record<string, unknown>): AssistantAbuseGuardState {
+    const get = <T>(camel: string, snake: string): T =>
+      ((row as Record<string, unknown>)[camel] ?? (row as Record<string, unknown>)[snake]) as T;
+
+    return {
+      id: get<string>("id", "id"),
+      assistantId: get<string>("assistantId", "assistant_id"),
+      userId: get<string>("userId", "user_id"),
+      workspaceId: get<string>("workspaceId", "workspace_id"),
+      surface: get<AbuseSurface>("surface", "surface"),
+      windowStartedAt: get<Date>("windowStartedAt", "window_started_at"),
+      requestCount: get<number>("requestCount", "request_count"),
+      slowedUntil: get<Date | null>("slowedUntil", "slowed_until") ?? null,
+      blockedUntil: get<Date | null>("blockedUntil", "blocked_until") ?? null,
+      blockReason: get<string | null>("blockReason", "block_reason") ?? null,
+      adminOverrideUntil: get<Date | null>("adminOverrideUntil", "admin_override_until") ?? null,
+      lastSeenAt: get<Date>("lastSeenAt", "last_seen_at"),
+      createdAt: get<Date>("createdAt", "created_at"),
+      updatedAt: get<Date>("updatedAt", "updated_at")
+    };
+  }
+
+  private toAssistantDomainFromRaw(row: Record<string, unknown>): AssistantAbuseAssistantState {
+    const get = <T>(camel: string, snake: string): T =>
+      ((row as Record<string, unknown>)[camel] ?? (row as Record<string, unknown>)[snake]) as T;
+
+    return {
+      id: get<string>("id", "id"),
+      assistantId: get<string>("assistantId", "assistant_id"),
+      surface: get<AbuseSurface>("surface", "surface"),
+      windowStartedAt: get<Date>("windowStartedAt", "window_started_at"),
+      requestCount: get<number>("requestCount", "request_count"),
+      slowedUntil: get<Date | null>("slowedUntil", "slowed_until") ?? null,
+      blockedUntil: get<Date | null>("blockedUntil", "blocked_until") ?? null,
+      blockReason: get<string | null>("blockReason", "block_reason") ?? null,
+      adminOverrideUntil: get<Date | null>("adminOverrideUntil", "admin_override_until") ?? null,
+      lastSeenAt: get<Date>("lastSeenAt", "last_seen_at"),
+      createdAt: get<Date>("createdAt", "created_at"),
+      updatedAt: get<Date>("updatedAt", "updated_at")
     };
   }
 
