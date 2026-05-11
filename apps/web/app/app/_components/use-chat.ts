@@ -921,6 +921,11 @@ export function useChat(threadKey: string): UseChatReturn {
   const softDetachReconcileTimersByThreadRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map()
   );
+  const historyRefreshInFlightByKeyRef = useRef<Map<string, Promise<boolean>>>(new Map());
+  const turnReattachInFlightByKeyRef = useRef<
+    Map<string, Promise<"running" | "terminal" | "unknown">>
+  >(new Map());
+  const resumeRefreshInFlightRef = useRef(false);
   const historyLoadedRef = useRef<Set<string>>(new Set());
   const olderCursorRef = useRef<string | null>(null);
   const activeChatIdRef = useRef<string | null>(null);
@@ -1350,162 +1355,179 @@ export function useChat(threadKey: string): UseChatReturn {
       targetChatId: string,
       options?: { clearIssueOnReconcile?: boolean; targetThreadKey?: string | undefined }
     ): Promise<boolean> => {
-      const token = await getToken({ skipCache: true });
-      if (!token) return false;
       const targetThreadKey = options?.targetThreadKey ?? currentThreadKeyRef.current;
-      let reconciledOptimisticTurn = false;
-      try {
-        const page = await getChatMessages(token, targetChatId, undefined, 20);
-        const nextActiveMediaJobs = page.activeMediaJobs ?? [];
-        const loaded = page.messages
-          .map(toCommittedChatMessage)
-          .filter((message): message is ChatMessage => message !== null);
-        if (loaded.length === 0) {
-          return false;
-        }
-        const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-        const cachedSnapshot = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
-        // SCOPE all live-turn id checks here to the snapshot's `liveUserMessageId` /
-        // `liveAssistantMessageId` rather than to every id present in
-        // `activeSnapshot.messages`. After a thread switch / loadHistory the
-        // snapshot.messages set may legitimately contain older committed user
-        // and assistant ids that are NOT part of the current live turn; using
-        // the full id set caused stale committed history to look like "the
-        // active turn already landed", which then tore down the live stream.
-        const liveUserId = activeSnapshot?.liveUserMessageId ?? null;
-        const liveAssistantId = activeSnapshot?.liveAssistantMessageId ?? null;
-        const liveTurnIds = new Set<string>(
-          [liveUserId, liveAssistantId].filter(
-            (value): value is string => typeof value === "string"
-          )
-        );
-        const liveUserIsOptimistic = liveUserId !== null && liveUserId.startsWith("local-user-");
-        const liveAssistantIsOptimistic =
-          liveAssistantId !== null && isLocalScopedAssistantId(liveAssistantId);
-        const currentBaseMessages = cachedSnapshot?.messages ?? activeSnapshot?.messages ?? [];
-        const currentBaseMessageIds = new Set(currentBaseMessages.map((message) => message.id));
-        let loadedHasActiveUserMessage = false;
-        let loadedHasAssistantMessageAfterActiveUser = false;
-        let loadedIntroducedCommittedTurnTail = false;
-        if (activeSnapshot !== undefined) {
-          loadedHasActiveUserMessage =
-            liveUserId !== null &&
-            !liveUserIsOptimistic &&
-            loaded.some((message) => message.id === liveUserId);
-          const activeUserIndexInLoaded =
-            liveUserId === null || liveUserIsOptimistic
-              ? -1
-              : loaded.findIndex((message) => message.id === liveUserId);
-          loadedHasAssistantMessageAfterActiveUser =
-            activeUserIndexInLoaded >= 0 &&
-            loaded
-              .slice(activeUserIndexInLoaded + 1)
-              .some(
-                (message) =>
-                  message.role === "assistant" &&
-                  !isLocalScopedAssistantId(message.id) &&
-                  message.id !== liveAssistantId
-              );
-          const newLoadedUserMessages = loaded.filter(
-            (message) => message.role === "user" && !currentBaseMessageIds.has(message.id)
-          );
-          const newLoadedAssistantMessages = loaded.filter(
-            (message) => message.role === "assistant" && !currentBaseMessageIds.has(message.id)
-          );
-          loadedIntroducedCommittedTurnTail =
-            liveUserIsOptimistic &&
-            liveAssistantIsOptimistic &&
-            loaded.length > 0 &&
-            loaded[loaded.length - 1]?.role === "assistant" &&
-            newLoadedUserMessages.length === 1 &&
-            newLoadedAssistantMessages.length === 1;
-          if (loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) {
-            reconciledOptimisticTurn = true;
+      const refreshKey = `${targetThreadKey}:${targetChatId}:${
+        options?.clearIssueOnReconcile === true ? "clear" : "keep"
+      }`;
+      const existingRefresh = historyRefreshInFlightByKeyRef.current.get(refreshKey);
+      if (existingRefresh !== undefined) {
+        return existingRefresh;
+      }
+      const refreshPromise = (async (): Promise<boolean> => {
+        const token = await getToken({ skipCache: true });
+        if (!token) return false;
+        let reconciledOptimisticTurn = false;
+        try {
+          const page = await getChatMessages(token, targetChatId, undefined, 20);
+          const nextActiveMediaJobs = page.activeMediaJobs ?? [];
+          const loaded = page.messages
+            .map(toCommittedChatMessage)
+            .filter((message): message is ChatMessage => message !== null);
+          if (loaded.length === 0) {
+            return false;
           }
-          if (loadedIntroducedCommittedTurnTail) {
-            reconciledOptimisticTurn = true;
-          }
-        }
-        applyThreadMessages(targetThreadKey, (prev) => {
-          const loadedById = new Map(loaded.map((message) => [message.id, message]));
-          const prevIds = new Set(prev.map((message) => message.id));
-          const newServerAssistantMessages = loaded.filter(
-            (message) => message.role === "assistant" && !prevIds.has(message.id)
+          const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+          const cachedSnapshot = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
+          // SCOPE all live-turn id checks here to the snapshot's `liveUserMessageId` /
+          // `liveAssistantMessageId` rather than to every id present in
+          // `activeSnapshot.messages`. After a thread switch / loadHistory the
+          // snapshot.messages set may legitimately contain older committed user
+          // and assistant ids that are NOT part of the current live turn; using
+          // the full id set caused stale committed history to look like "the
+          // active turn already landed", which then tore down the live stream.
+          const liveUserId = activeSnapshot?.liveUserMessageId ?? null;
+          const liveAssistantId = activeSnapshot?.liveAssistantMessageId ?? null;
+          const liveTurnIds = new Set<string>(
+            [liveUserId, liveAssistantId].filter(
+              (value): value is string => typeof value === "string"
+            )
           );
-          const newServerUserMessages = loaded.filter(
-            (message) => message.role === "user" && !prevIds.has(message.id)
-          );
-          const loadedIntroducedCommittedTurnTailFromPrev =
-            liveUserIsOptimistic &&
-            liveAssistantIsOptimistic &&
-            loaded.length > 0 &&
-            loaded[loaded.length - 1]?.role === "assistant" &&
-            newServerUserMessages.length === 1 &&
-            newServerAssistantMessages.length === 1;
-          const shouldReplaceActiveTurn =
-            (loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) ||
-            loadedIntroducedCommittedTurnTail ||
-            loadedIntroducedCommittedTurnTailFromPrev;
-          if (shouldReplaceActiveTurn) {
-            reconciledOptimisticTurn = true;
-          }
-          const next = prev.flatMap((message) => {
-            const replacement = loadedById.get(message.id);
-            if (replacement !== undefined) {
-              return [replacement];
+          const liveUserIsOptimistic = liveUserId !== null && liveUserId.startsWith("local-user-");
+          const liveAssistantIsOptimistic =
+            liveAssistantId !== null && isLocalScopedAssistantId(liveAssistantId);
+          const currentBaseMessages = cachedSnapshot?.messages ?? activeSnapshot?.messages ?? [];
+          const currentBaseMessageIds = new Set(currentBaseMessages.map((message) => message.id));
+          let loadedHasActiveUserMessage = false;
+          let loadedHasAssistantMessageAfterActiveUser = false;
+          let loadedIntroducedCommittedTurnTail = false;
+          if (activeSnapshot !== undefined) {
+            loadedHasActiveUserMessage =
+              liveUserId !== null &&
+              !liveUserIsOptimistic &&
+              loaded.some((message) => message.id === liveUserId);
+            const activeUserIndexInLoaded =
+              liveUserId === null || liveUserIsOptimistic
+                ? -1
+                : loaded.findIndex((message) => message.id === liveUserId);
+            loadedHasAssistantMessageAfterActiveUser =
+              activeUserIndexInLoaded >= 0 &&
+              loaded
+                .slice(activeUserIndexInLoaded + 1)
+                .some(
+                  (message) =>
+                    message.role === "assistant" &&
+                    !isLocalScopedAssistantId(message.id) &&
+                    message.id !== liveAssistantId
+                );
+            const newLoadedUserMessages = loaded.filter(
+              (message) => message.role === "user" && !currentBaseMessageIds.has(message.id)
+            );
+            const newLoadedAssistantMessages = loaded.filter(
+              (message) => message.role === "assistant" && !currentBaseMessageIds.has(message.id)
+            );
+            loadedIntroducedCommittedTurnTail =
+              liveUserIsOptimistic &&
+              liveAssistantIsOptimistic &&
+              loaded.length > 0 &&
+              loaded[loaded.length - 1]?.role === "assistant" &&
+              newLoadedUserMessages.length === 1 &&
+              newLoadedAssistantMessages.length === 1;
+            if (loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) {
+              reconciledOptimisticTurn = true;
             }
-            if (
-              shouldReplaceActiveTurn &&
-              (liveTurnIds.has(message.id) ||
-                isOptimisticLocalMessage(message) ||
-                isTransientActiveAssistantMessage(message))
-            ) {
-              for (const attachment of message.attachments ?? []) {
-                if (attachment.localPreviewUrl !== undefined) {
-                  URL.revokeObjectURL(attachment.localPreviewUrl);
-                }
+            if (loadedIntroducedCommittedTurnTail) {
+              reconciledOptimisticTurn = true;
+            }
+          }
+          applyThreadMessages(targetThreadKey, (prev) => {
+            const loadedById = new Map(loaded.map((message) => [message.id, message]));
+            const prevIds = new Set(prev.map((message) => message.id));
+            const newServerAssistantMessages = loaded.filter(
+              (message) => message.role === "assistant" && !prevIds.has(message.id)
+            );
+            const newServerUserMessages = loaded.filter(
+              (message) => message.role === "user" && !prevIds.has(message.id)
+            );
+            const loadedIntroducedCommittedTurnTailFromPrev =
+              liveUserIsOptimistic &&
+              liveAssistantIsOptimistic &&
+              loaded.length > 0 &&
+              loaded[loaded.length - 1]?.role === "assistant" &&
+              newServerUserMessages.length === 1 &&
+              newServerAssistantMessages.length === 1;
+            const shouldReplaceActiveTurn =
+              (loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) ||
+              loadedIntroducedCommittedTurnTail ||
+              loadedIntroducedCommittedTurnTailFromPrev;
+            if (shouldReplaceActiveTurn) {
+              reconciledOptimisticTurn = true;
+            }
+            const next = prev.flatMap((message) => {
+              const replacement = loadedById.get(message.id);
+              if (replacement !== undefined) {
+                return [replacement];
               }
-              return [];
-            }
-            return [message];
+              if (
+                shouldReplaceActiveTurn &&
+                (liveTurnIds.has(message.id) ||
+                  isOptimisticLocalMessage(message) ||
+                  isTransientActiveAssistantMessage(message))
+              ) {
+                for (const attachment of message.attachments ?? []) {
+                  if (attachment.localPreviewUrl !== undefined) {
+                    URL.revokeObjectURL(attachment.localPreviewUrl);
+                  }
+                }
+                return [];
+              }
+              return [message];
+            });
+            const nextIds = new Set(next.map((message) => message.id));
+            const missing =
+              activeSnapshot !== undefined && !shouldReplaceActiveTurn
+                ? []
+                : loaded.filter((message) => !nextIds.has(message.id));
+            return [...next, ...missing];
           });
-          const nextIds = new Set(next.map((message) => message.id));
-          const missing =
-            activeSnapshot !== undefined && !shouldReplaceActiveTurn
-              ? []
-              : loaded.filter((message) => !nextIds.has(message.id));
-          return [...next, ...missing];
-        });
-        olderCursorRef.current = page.nextCursor;
-        if (currentThreadKeyRef.current === targetThreadKey) {
-          activeChatIdRef.current = targetChatId;
-          setHasOlderMessages(page.nextCursor !== null);
-          replaceActiveMediaJobs(nextActiveMediaJobs);
-          setChatId(targetChatId);
+          olderCursorRef.current = page.nextCursor;
+          if (currentThreadKeyRef.current === targetThreadKey) {
+            activeChatIdRef.current = targetChatId;
+            setHasOlderMessages(page.nextCursor !== null);
+            replaceActiveMediaJobs(nextActiveMediaJobs);
+            setChatId(targetChatId);
+          }
+          const cachedThreadKey =
+            cachedThreadKeyByChatIdRef.current.get(targetChatId) ?? targetThreadKey;
+          const cachedHistorySnapshotForMediaJobs =
+            cachedThreadHistorySnapshotsRef.current.get(cachedThreadKey);
+          if (cachedHistorySnapshotForMediaJobs !== undefined) {
+            cachedThreadHistorySnapshotsRef.current.set(cachedThreadKey, {
+              ...cachedHistorySnapshotForMediaJobs,
+              activeMediaJobs: nextActiveMediaJobs
+            });
+          }
+          markMediaActive(cachedThreadKey, nextActiveMediaJobs.length > 0);
+          historyLoadedRef.current.add(targetChatId);
+          void refreshCompactionState(targetChatId);
+          if (
+            options?.clearIssueOnReconcile === true &&
+            currentThreadKeyRef.current === targetThreadKey
+          ) {
+            setIssue(null);
+            setThreadPendingSend(targetThreadKey, null);
+          }
+          return reconciledOptimisticTurn;
+        } catch {
+          /* non-critical resume refresh */ return false;
         }
-        const cachedThreadKey =
-          cachedThreadKeyByChatIdRef.current.get(targetChatId) ?? targetThreadKey;
-        const cachedHistorySnapshotForMediaJobs =
-          cachedThreadHistorySnapshotsRef.current.get(cachedThreadKey);
-        if (cachedHistorySnapshotForMediaJobs !== undefined) {
-          cachedThreadHistorySnapshotsRef.current.set(cachedThreadKey, {
-            ...cachedHistorySnapshotForMediaJobs,
-            activeMediaJobs: nextActiveMediaJobs
-          });
+      })();
+      historyRefreshInFlightByKeyRef.current.set(refreshKey, refreshPromise);
+      try {
+        return await refreshPromise;
+      } finally {
+        if (historyRefreshInFlightByKeyRef.current.get(refreshKey) === refreshPromise) {
+          historyRefreshInFlightByKeyRef.current.delete(refreshKey);
         }
-        markMediaActive(cachedThreadKey, nextActiveMediaJobs.length > 0);
-        historyLoadedRef.current.add(targetChatId);
-        void refreshCompactionState(targetChatId);
-        if (
-          options?.clearIssueOnReconcile === true &&
-          currentThreadKeyRef.current === targetThreadKey
-        ) {
-          setIssue(null);
-          setThreadPendingSend(targetThreadKey, null);
-        }
-        return reconciledOptimisticTurn;
-      } catch {
-        /* non-critical resume refresh */ return false;
       }
     },
     [applyThreadMessages, getToken, refreshCompactionState, setThreadPendingSend]
@@ -1804,122 +1826,135 @@ export function useChat(threadKey: string): UseChatReturn {
       targetThreadKey: string,
       clientTurnId: string
     ): Promise<"running" | "terminal" | "unknown"> => {
-      const token = await getToken({ skipCache: true });
-      if (!token) return "unknown";
-      const controller = new AbortController();
-      let latestResult: "running" | "terminal" | "unknown" = "unknown";
-      try {
-        await reattachAssistantWebChatTurnStream(
-          token,
-          clientTurnId,
-          {
-            onHeadersOk: () => {
-              markStreaming(targetThreadKey, true);
-            },
-            onTurnStatus: ({ turn }) => {
-              latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn);
-            },
-            onReattached: ({ turn }) => {
-              latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn);
-            },
-            onDelta: ({ delta }) => {
-              applyThreadMessages(targetThreadKey, (prev) =>
-                prev.map((message) =>
-                  message.role === "assistant" && message.status === "streaming"
-                    ? { ...message, content: `${message.content}${delta}` }
-                    : message
-                )
-              );
-            },
-            onThinking: ({ accumulated }) => {
-              const now = new Date().toISOString();
-              applyThreadMessages(targetThreadKey, (prev) =>
-                prev.map((message) =>
-                  message.role === "assistant" && message.status === "streaming"
-                    ? {
-                        ...message,
-                        thought: accumulated,
-                        thoughtStartedAt: message.thoughtStartedAt ?? now
-                      }
-                    : message
-                )
-              );
-            },
-            onTool: ({ phase, toolName, isError }) => {
-              const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-              const assistantMessageId =
-                snapshot?.messages.find((message) => message.role === "assistant")?.id ?? null;
-              if (assistantMessageId === null) {
-                return;
-              }
-              applyThreadLiveActivities(targetThreadKey, (prev) => ({
-                ...prev,
-                [assistantMessageId]: applyPriorSkillDetail(
-                  buildToolLiveActivity({
-                    assistantMessageId,
-                    toolName,
-                    phase,
-                    isError
-                  }),
-                  prev[assistantMessageId]
-                )
-              }));
-            },
-            onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
-              const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-              const assistantMessageId =
-                snapshot?.messages.find((message) => message.role === "assistant")?.id ?? null;
-              if (assistantMessageId === null) {
-                return;
-              }
-              applyThreadLiveActivities(targetThreadKey, (prev) => {
-                const nextActivity = buildRetrievalLiveActivity({
-                  assistantMessageId,
-                  source,
-                  resultCount,
-                  ...(skillName === undefined ? {} : { skillName }),
-                  ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
-                });
-                return {
+      const reattachKey = `${targetThreadKey}:${clientTurnId}`;
+      const existingReattach = turnReattachInFlightByKeyRef.current.get(reattachKey);
+      if (existingReattach !== undefined) {
+        return existingReattach;
+      }
+      const reattachPromise = (async (): Promise<"running" | "terminal" | "unknown"> => {
+        const token = await getToken({ skipCache: true });
+        if (!token) return "unknown";
+        const controller = new AbortController();
+        let latestResult: "running" | "terminal" | "unknown" = "unknown";
+        try {
+          await reattachAssistantWebChatTurnStream(
+            token,
+            clientTurnId,
+            {
+              onHeadersOk: () => {
+                markStreaming(targetThreadKey, true);
+              },
+              onTurnStatus: ({ turn }) => {
+                latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn);
+              },
+              onReattached: ({ turn }) => {
+                latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn);
+              },
+              onDelta: ({ delta }) => {
+                applyThreadMessages(targetThreadKey, (prev) =>
+                  prev.map((message) =>
+                    message.role === "assistant" && message.status === "streaming"
+                      ? { ...message, content: `${message.content}${delta}` }
+                      : message
+                  )
+                );
+              },
+              onThinking: ({ accumulated }) => {
+                const now = new Date().toISOString();
+                applyThreadMessages(targetThreadKey, (prev) =>
+                  prev.map((message) =>
+                    message.role === "assistant" && message.status === "streaming"
+                      ? {
+                          ...message,
+                          thought: accumulated,
+                          thoughtStartedAt: message.thoughtStartedAt ?? now
+                        }
+                      : message
+                  )
+                );
+              },
+              onTool: ({ phase, toolName, isError }) => {
+                const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+                const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
+                if (assistantMessageId === null) {
+                  return;
+                }
+                applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
                   [assistantMessageId]: applyPriorSkillDetail(
-                    nextActivity,
+                    buildToolLiveActivity({
+                      assistantMessageId,
+                      toolName,
+                      phase,
+                      isError
+                    }),
                     prev[assistantMessageId]
                   )
-                };
-              });
+                }));
+              },
+              onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
+                const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+                const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
+                if (assistantMessageId === null) {
+                  return;
+                }
+                applyThreadLiveActivities(targetThreadKey, (prev) => {
+                  const nextActivity = buildRetrievalLiveActivity({
+                    assistantMessageId,
+                    source,
+                    resultCount,
+                    ...(skillName === undefined ? {} : { skillName }),
+                    ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
+                  });
+                  return {
+                    ...prev,
+                    [assistantMessageId]: applyPriorSkillDetail(
+                      nextActivity,
+                      prev[assistantMessageId]
+                    )
+                  };
+                });
+              },
+              onCompleted: async () => {
+                const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
+                const reconciled = targetChatId
+                  ? await refreshLatestHistory(targetChatId, { targetThreadKey })
+                  : false;
+                latestResult = reconciled ? "terminal" : "unknown";
+              },
+              onInterrupted: async () => {
+                const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
+                const reconciled = targetChatId
+                  ? await refreshLatestHistory(targetChatId, { targetThreadKey })
+                  : false;
+                latestResult = reconciled ? "terminal" : "unknown";
+              },
+              onFailed: async (payload) => {
+                setIssue(toWebChatUxIssue(payload));
+                const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
+                const reconciled = targetChatId
+                  ? await refreshLatestHistory(targetChatId, { targetThreadKey })
+                  : false;
+                latestResult = reconciled ? "terminal" : "unknown";
+              }
             },
-            onCompleted: async () => {
-              const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
-              const reconciled = targetChatId
-                ? await refreshLatestHistory(targetChatId, { targetThreadKey })
-                : false;
-              latestResult = reconciled ? "terminal" : "unknown";
-            },
-            onInterrupted: async () => {
-              const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
-              const reconciled = targetChatId
-                ? await refreshLatestHistory(targetChatId, { targetThreadKey })
-                : false;
-              latestResult = reconciled ? "terminal" : "unknown";
-            },
-            onFailed: async (payload) => {
-              setIssue(toWebChatUxIssue(payload));
-              const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
-              const reconciled = targetChatId
-                ? await refreshLatestHistory(targetChatId, { targetThreadKey })
-                : false;
-              latestResult = reconciled ? "terminal" : "unknown";
-            }
-          },
-          controller.signal
-        );
-        return latestResult;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
+            controller.signal
+          );
+          return latestResult;
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return latestResult;
+          }
           return latestResult;
         }
-        return latestResult;
+      })();
+      turnReattachInFlightByKeyRef.current.set(reattachKey, reattachPromise);
+      try {
+        return await reattachPromise;
+      } finally {
+        if (turnReattachInFlightByKeyRef.current.get(reattachKey) === reattachPromise) {
+          turnReattachInFlightByKeyRef.current.delete(reattachKey);
+        }
       }
     },
     [
@@ -2016,7 +2051,14 @@ export function useChat(threadKey: string): UseChatReturn {
           return;
         }
         attempts += 1;
-        const statusResult = await startTurnReattach(targetThreadKey, clientTurnId);
+        let statusResult =
+          activeSnapshot === undefined && !hasSeenRunning
+            ? await refreshTurnStatus(targetThreadKey, clientTurnId)
+            : await startTurnReattach(targetThreadKey, clientTurnId);
+        if (statusResult === "running" && !hasSeenRunning) {
+          hasSeenRunning = true;
+          statusResult = await startTurnReattach(targetThreadKey, clientTurnId);
+        }
         if (statusResult === "terminal") {
           clearActiveTurnRestoreTimer(restoreKey);
           return;
@@ -2045,7 +2087,7 @@ export function useChat(threadKey: string): UseChatReturn {
       const timer = setTimeout(tick, 0);
       activeTurnRestoreTimersByKeyRef.current.set(restoreKey, timer);
     },
-    [clearActiveTurnRestoreTimer, startTurnReattach]
+    [clearActiveTurnRestoreTimer, refreshTurnStatus, startTurnReattach]
   );
   const compactNow = useCallback(
     async (instructions?: string): Promise<ChatCompactionResult | null> => {
@@ -2110,41 +2152,49 @@ export function useChat(threadKey: string): UseChatReturn {
       if (now - lastResumeRefreshAtRef.current < RESUME_REFRESH_DEBOUNCE_MS) {
         return;
       }
+      if (resumeRefreshInFlightRef.current) {
+        return;
+      }
       lastResumeRefreshAtRef.current = now;
+      resumeRefreshInFlightRef.current = true;
       const targetThreadKey = currentThreadKeyRef.current;
       void (async () => {
-        const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-        const clientTurnId =
-          activeSnapshot?.clientTurnId ?? readStoredActiveTurnClientTurnId(targetThreadKey);
-        if (clientTurnId !== null) {
-          const statusResult = await refreshTurnStatus(targetThreadKey, clientTurnId);
-          if (statusResult === "running") {
+        try {
+          const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+          const clientTurnId =
+            activeSnapshot?.clientTurnId ?? readStoredActiveTurnClientTurnId(targetThreadKey);
+          if (clientTurnId !== null) {
+            const statusResult = await refreshTurnStatus(targetThreadKey, clientTurnId);
+            if (statusResult === "running") {
+              startSoftDetachReconcile(targetThreadKey, targetChatId);
+              return;
+            }
+            if (statusResult === "terminal") {
+              await refreshLatestHistory(targetChatId, {
+                clearIssueOnReconcile: true,
+                targetThreadKey
+              });
+              void refreshCompactionState(targetChatId);
+              return;
+            }
+          }
+          const reconciled = await refreshLatestHistory(targetChatId, {
+            clearIssueOnReconcile: true,
+            targetThreadKey
+          });
+          if (reconciled) {
+            finalizeReconciledDetachedTurn(targetThreadKey);
+            return;
+          }
+          if (
+            activeThreads.has(targetThreadKey) ||
+            activeTurnSnapshotsRef.current.has(targetThreadKey) ||
+            abortControllersByThreadRef.current.has(targetThreadKey)
+          ) {
             startSoftDetachReconcile(targetThreadKey, targetChatId);
-            return;
           }
-          if (statusResult === "terminal") {
-            await refreshLatestHistory(targetChatId, {
-              clearIssueOnReconcile: true,
-              targetThreadKey
-            });
-            void refreshCompactionState(targetChatId);
-            return;
-          }
-        }
-        const reconciled = await refreshLatestHistory(targetChatId, {
-          clearIssueOnReconcile: true,
-          targetThreadKey
-        });
-        if (reconciled) {
-          finalizeReconciledDetachedTurn(targetThreadKey);
-          return;
-        }
-        if (
-          activeThreads.has(targetThreadKey) ||
-          activeTurnSnapshotsRef.current.has(targetThreadKey) ||
-          abortControllersByThreadRef.current.has(targetThreadKey)
-        ) {
-          startSoftDetachReconcile(targetThreadKey, targetChatId);
+        } finally {
+          resumeRefreshInFlightRef.current = false;
         }
       })();
     };

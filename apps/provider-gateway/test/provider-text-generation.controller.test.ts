@@ -52,6 +52,7 @@ class FakeRequest extends EventEmitter {
 class FakeResponse extends EventEmitter {
   headers = new Map<string, string>();
   writes: string[] = [];
+  flushCount = 0;
   writableEnded = false;
   order: string[] = [];
 
@@ -70,6 +71,7 @@ class FakeResponse extends EventEmitter {
   }
 
   flush(): void {
+    this.flushCount += 1;
     this.order.push("flush");
   }
 
@@ -153,6 +155,7 @@ export async function runProviderTextGenerationControllerTest(): Promise<void> {
   const resWithRawDeltas = new FakeResponse();
   await controller.streamText(req as never, resWithRawDeltas as never, body);
   assert.equal(resWithRawDeltas.writes.length, 3);
+  assert.equal(resWithRawDeltas.flushCount, 2);
   assert.ok(
     resWithRawDeltas.writes[0]?.includes('"type":"text_delta"') &&
       resWithRawDeltas.writes[0]?.includes('"delta":"Hel"') &&

@@ -2,11 +2,15 @@ import { Body, Controller, HttpCode, HttpStatus, Logger, Post, Req, Res } from "
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type {
   ProviderGatewayTextGenerateRequest,
+  ProviderGatewayTextStreamEvent,
   ProviderGatewayTextGenerateResult
 } from "@persai/runtime-contract";
 import { ProviderTextGenerationService } from "../../provider-text-generation.service";
 import { ProviderStreamObservabilityService } from "../../provider-stream-observability.service";
-import { createStreamWriterInstrumentation } from "./stream-writer-instrumentation";
+import {
+  createCoalescedStreamFlusher,
+  createStreamWriterInstrumentation
+} from "./stream-writer-instrumentation";
 
 const TRACE_HEADER_NAME = "x-persai-trace";
 
@@ -75,14 +79,24 @@ export class ProviderTextGenerationController {
     let status: "completed" | "failed" | "interrupted" = "completed";
     let firstEventMs: number | null = null;
     let firstTextDeltaMs: number | null = null;
+    let wroteFirstPayload = false;
     const writerInstrumentation = createStreamWriterInstrumentation();
-    const writeEvent = (event: unknown): void => {
+    const streamFlusher = createCoalescedStreamFlusher(res);
+    const writeEvent = (event: ProviderGatewayTextStreamEvent): void => {
       if (res.writableEnded) {
         return;
       }
       const writeReturnedTrue = res.write(`${JSON.stringify(event)}\n`);
       writerInstrumentation.recordWrite(writeReturnedTrue, res);
-      res.flush?.();
+      const shouldFlushImmediately =
+        !wroteFirstPayload ||
+        event.type === "completed" ||
+        event.type === "tool_calls" ||
+        event.type === "failed";
+      wroteFirstPayload = true;
+      streamFlusher.flushAfterWrite({
+        immediate: shouldFlushImmediately
+      });
     };
 
     this.providerStreamObservabilityService.beginStreamRequest();
@@ -118,7 +132,10 @@ export class ProviderTextGenerationController {
         status = "interrupted";
       }
       if (!res.writableEnded) {
+        streamFlusher.dispose();
         res.end();
+      } else {
+        streamFlusher.dispose();
       }
       const totalMs = Date.now() - startedAtMs;
       this.providerStreamObservabilityService.recordStreamRequest({

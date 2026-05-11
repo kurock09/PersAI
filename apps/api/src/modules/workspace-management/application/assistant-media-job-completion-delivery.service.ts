@@ -46,6 +46,17 @@ type CompletionRequestPayload = {
   sourceUserMessageCreatedAt: string;
 };
 
+type CompletionAssistantTextResolution = {
+  text: string;
+  shouldUpdateExistingMessage: boolean;
+};
+
+function parseTelegramChatIdFromSurfaceThreadKey(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^telegram:(.+):session:[^:]+$/);
+  return match?.[1]?.trim() || trimmed;
+}
+
 function truncateLastError(message: string): string {
   if (message.length <= COMPLETION_DELIVERY_LAST_ERROR_MAX_CHARS) {
     return message;
@@ -224,29 +235,19 @@ export class AssistantMediaJobCompletionDeliveryService {
       sourceText: requestPayload.sourceUserMessageText
     });
 
-    const rawAssistantText = job.resultText?.trim() ?? "";
-
     try {
-      const completionAssistantText =
-        (await this.assistantMediaJobCompletionTurnService.maybeFrame({
-          id: job.id,
-          assistantId: job.assistantId,
-          workspaceId: job.workspaceId,
-          chatId: job.chatId,
-          surface: job.surface,
-          kind: job.kind,
-          sourceUserMessageId: job.sourceUserMessageId,
-          sourceUserMessageText: requestPayload.sourceUserMessageText,
-          sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt,
-          resultText: rawAssistantText,
-          artifacts
-        })) ?? rawAssistantText;
+      const completionAssistantText = await this.resolveCompletionAssistantText({
+        job,
+        sourceUserMessageText: requestPayload.sourceUserMessageText,
+        sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt,
+        artifacts
+      });
       const messageId = await this.ensureCompletionMessage(job, completionAssistantText);
-      if (completionAssistantText !== rawAssistantText) {
+      if (completionAssistantText.shouldUpdateExistingMessage) {
         await this.assistantChatRepository.updateMessageContent(
           messageId,
           job.assistantId,
-          completionAssistantText
+          completionAssistantText.text
         );
       }
 
@@ -255,7 +256,7 @@ export class AssistantMediaJobCompletionDeliveryService {
           job,
           artifacts,
           messageId,
-          rawAssistantText: completionAssistantText
+          rawAssistantText: completionAssistantText.text
         });
         return;
       }
@@ -269,7 +270,7 @@ export class AssistantMediaJobCompletionDeliveryService {
         workspaceId: job.workspaceId
       });
       const finalText = applyFinalDeliveryHonestyCorrection({
-        assistantText: completionAssistantText,
+        assistantText: completionAssistantText.text,
         attemptedArtifactCount: artifacts.length,
         deliveredAttachmentCount: delivered.attachments.length,
         deliveredAttachmentFilenames: delivered.attachments
@@ -277,7 +278,7 @@ export class AssistantMediaJobCompletionDeliveryService {
           .filter((filename): filename is string => typeof filename === "string")
       });
 
-      if (completionAssistantText !== finalText) {
+      if (completionAssistantText.text !== finalText) {
         await this.assistantChatRepository.updateMessageContent(
           messageId,
           job.assistantId,
@@ -321,6 +322,48 @@ export class AssistantMediaJobCompletionDeliveryService {
       });
       this.logger.warn(`Completion delivery retry scheduled for media job ${job.id}: ${message}`);
     }
+  }
+
+  private async resolveCompletionAssistantText(input: {
+    job: ClaimedCompletionPendingMediaJob;
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+    artifacts: RuntimeOutputArtifact[];
+  }): Promise<CompletionAssistantTextResolution> {
+    const rawAssistantText = input.job.resultText?.trim() ?? "";
+    if (input.job.completionAssistantMessageId !== null) {
+      const existing = await this.assistantChatRepository.findMessageByIdForAssistant(
+        input.job.completionAssistantMessageId,
+        input.job.assistantId
+      );
+      const existingContent = existing?.content.trim() ?? "";
+      if (existingContent.length > 0) {
+        return {
+          text: existingContent,
+          shouldUpdateExistingMessage: false
+        };
+      }
+    }
+
+    const framed =
+      (await this.assistantMediaJobCompletionTurnService.maybeFrame({
+        id: input.job.id,
+        assistantId: input.job.assistantId,
+        workspaceId: input.job.workspaceId,
+        chatId: input.job.chatId,
+        surface: input.job.surface,
+        kind: input.job.kind,
+        sourceUserMessageId: input.job.sourceUserMessageId,
+        sourceUserMessageText: input.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
+        resultText: rawAssistantText,
+        artifacts: input.artifacts
+      })) ?? rawAssistantText;
+
+    return {
+      text: framed,
+      shouldUpdateExistingMessage: input.job.completionAssistantMessageId !== null
+    };
   }
 
   private async failDelivery(
@@ -403,7 +446,7 @@ export class AssistantMediaJobCompletionDeliveryService {
 
   private async ensureCompletionMessage(
     job: ClaimedCompletionPendingMediaJob,
-    assistantText: string
+    assistantText: CompletionAssistantTextResolution
   ): Promise<string> {
     if (job.completionAssistantMessageId !== null) {
       return job.completionAssistantMessageId;
@@ -412,7 +455,7 @@ export class AssistantMediaJobCompletionDeliveryService {
       chatId: job.chatId,
       assistantId: job.assistantId,
       author: "assistant",
-      content: assistantText
+      content: assistantText.text
     });
     await this.prisma.assistantMediaJob.updateMany({
       where: { id: job.id, schedulerClaimToken: job.claimToken },
@@ -535,7 +578,7 @@ export class AssistantMediaJobCompletionDeliveryService {
       throw new Error("Telegram outbound delivery is not available for this assistant.");
     }
     return {
-      chatId: chat.surfaceThreadKey,
+      chatId: parseTelegramChatIdFromSurfaceThreadKey(chat.surfaceThreadKey),
       botToken: config.botToken,
       parseMode: config.parseMode,
       locale: config.locale

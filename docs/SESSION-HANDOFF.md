@@ -255,6 +255,131 @@ Completion checklist:
 
 ---
 
+## 2026-05-11 — ADR-093 Session 3: provider-gateway, SSE transport efficiency, and web client reconcile pressure (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **Provider-gateway stream writes no longer force one socket flush per provider event** — `ProviderTextGenerationController` now writes every NDJSON event as before, but coalesces rapid `flush()` calls with a 40ms bounded flusher. The first payload and terminal/provider-control events (`completed`, `tool_calls`, `failed`) still flush immediately, preserving stream visibility while reducing transport syscall/proxy flush pressure during small delta bursts.
+
+2. **Runtime internal stream writes use the same bounded flush contour** — `TurnsController` now coalesces flushes for rapid runtime `text_delta` events and heartbeat blank lines while keeping the first payload and all non-delta events immediate. Runtime still emits the same event sequence and API-facing stream semantics; only the internal flush cadence changes.
+
+3. **Web reattach/resume pressure is de-duplicated by thread/turn** — `useChat` now reuses in-flight latest-history refresh promises for the same thread/chat/options key and reuses an in-flight reattach stream for the same `threadKey + clientTurnId`. Focus/visibility/pageshow resume now skips starting a second refresh while one is already running.
+
+4. **Stored active-turn restore opens fewer SSE reattach streams** — reload restore now checks the lightweight turn-status endpoint first when only the stored `clientTurnId` is known, and only opens the reattach SSE stream after the server reports the turn as accepted/running. Unknown stored turns therefore retry status without repeatedly opening empty reattach streams.
+
+5. **Audit follow-up closed two reattach failure-model risks before handoff** — the reattach SSE reader now has a bounded idle watchdog so an open but silent stream cannot stall reconciliation forever, and reattached tool/activity events now attach to the snapshot's canonical `liveAssistantMessageId` instead of scanning the merged visible message list for the first assistant bubble.
+
+6. **Docs/test truth now names the Session 3 contract** — `docs/TEST-PLAN.md` now contains focused Session 3 checks for stream flush efficiency and reconcile/reattach behavior.
+
+### Verification
+
+- Focused tests:
+  - `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-text-generation.controller.test.ts` — pass
+  - `corepack pnpm --filter @persai/runtime exec tsx test/turns.controller.test.ts` — pass
+  - `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/assistant-api-client.test.ts --config vitest.config.ts` — pass, 118 tests after audit follow-up regressions
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts` — pass, 11 tests
+  - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts` — pass
+- Package/repo checks:
+  - `corepack pnpm --filter @persai/provider-gateway run typecheck` — pass
+  - `corepack pnpm --filter @persai/runtime run typecheck` — pass
+  - `corepack pnpm --filter @persai/web run typecheck` — pass
+  - `corepack pnpm --filter @persai/api run typecheck` — pass
+  - `corepack pnpm -r --if-present run lint` — pass
+  - `corepack pnpm --filter @persai/web exec prettier --write app/app/assistant-api-client.ts app/app/assistant-api-client.test.ts app/app/_components/use-chat.ts app/app/_components/use-chat.test.tsx` — pass
+  - `corepack pnpm exec prettier --check apps/provider-gateway/src/modules/providers/interface/http/provider-text-generation.controller.ts apps/provider-gateway/src/modules/providers/interface/http/stream-writer-instrumentation.ts apps/provider-gateway/test/provider-text-generation.controller.test.ts apps/runtime/src/modules/turns/interface/http/turns.controller.ts apps/runtime/src/modules/turns/interface/http/stream-writer-instrumentation.ts apps/runtime/test/turns.controller.test.ts apps/web/app/app/_components/use-chat.ts apps/web/app/app/_components/use-chat.test.tsx apps/web/app/app/assistant-api-client.ts apps/web/app/app/assistant-api-client.test.ts` — pass
+  - `corepack pnpm run format:check` — failed on pre-existing unrelated dirty files in `apps/api/*` and `apps/web/app/_components/app-url-open-bridge.tsx`; the Session 3 touched files pass the targeted Prettier check and those unrelated files were left untouched.
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** because this slice changes live `apps/provider-gateway`, `apps/runtime`, and `apps/web` stream/reconcile behavior.
+- **Not deployed in this local session**: no push/rollout was performed here, so the ADR-093 post-deploy `kubectl` checklist and human `/app` stream/resume smoke are still pending before calling Session 3 fully closed in `persai-dev`.
+- No Helm/config wiring changed.
+
+### ADR-093 audit outcomes
+
+- **Code-cleanliness:** pass. The slice stays inside Session 3 scope, preserves event payloads and existing public UX contracts, and adds no business routing, prompt, quota, or tool-parallelism changes.
+- **Legacy / tail cleanup:** pass. No hidden flags, temporary dual paths, dead stubs, or compatibility shims were introduced.
+- **Failure-model:** pass after audit follow-up. Flush coalescing is bounded and terminal/non-delta events flush immediately; web request de-duplication reuses in-flight promises rather than dropping required reconciliation. The audit-found reattach risks were closed locally: silent reattach streams now fail through a bounded idle watchdog, and live tool/activity events are scoped to `liveAssistantMessageId`.
+- **Deploy-truth:** local pass, live pending. No Helm changes were needed, but behavior changes in deploy-bearing services require rollout verification.
+- **Load / evidence:** pass for session scope. This reduces technical overhead and redundant requests, but no SR10 load artifact was produced and no 500–1000 user readiness ceiling is claimed.
+
+### Risks / residuals
+
+- Coalesced internal flushes can shift some rapid text deltas by up to 40ms on the internal provider-gateway/runtime hops; first payloads and terminal/non-delta events remain immediate.
+- The full repo `format:check` is still blocked by unrelated pre-existing dirty files outside the Session 3 touch area.
+- Because this session was not deployed, live `/app` streaming, focus/visibility resume, mobile WebView return, and tool-using stream smoke remain pending.
+
+### Next recommended step
+
+Push/deploy this slice once as one coherent rollout, then run the ADR-093 post-deploy checks plus `/app` smoke: one short chat, one resume/reattach continuity check, and one ordinary vs one tool-using stream comparison for obvious regressions.
+
+### Exact next-session prompt (ADR-093 Session 4, GPT-5.4)
+
+```text
+Start ADR-093 Session 4: Sandbox isolation and completion-path cleanup.
+
+You are GPT-5.4 working in Cursor on PersAI.
+
+Mandatory reading before edits:
+- docs/ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md
+- AGENTS.md
+- docs/TEST-PLAN.md
+- docs/SESSION-HANDOFF.md
+- infra/dev/gitops/README.md
+- infra/dev/gke/RUNBOOK.md
+
+Scope:
+Implement Session 4 only: sandbox isolation and completion-path cleanup for concurrent-load readiness. Focus on sandbox scaling/health, bounded queue/failure behavior, and less chatty completion/polling patterns without changing the sandbox security model or product semantics.
+
+Allowed touch areas:
+- apps/sandbox
+- apps/runtime sandbox client / sandbox-adjacent completion paths
+- infra/helm for sandbox replicas/resources/PDB/wiring only if needed and aligned with existing chart patterns
+- docs
+
+Forbidden shortcuts:
+- Do not weaken sandbox isolation, authorization, file ownership, or workspace lease semantics.
+- Do not change business logic, assistant behavior, quotas, prompts, or product scenarios.
+- Do not reduce tool parallelism just to make load easier.
+- Do not add hidden flags, dead stubs, or temporary dual paths without explicit removal conditions.
+- Do not claim 500–1000 user readiness without saved load evidence.
+
+Deploy expectation:
+- DEPLOY REQUIRED for Session 4 because sandbox/runtime/Helm behavior changes must be rollout-verified.
+- Avoid intermediate pushes; land one coherent session push only after checks.
+
+Required implementation discipline:
+- Keep the session bounded to ADR-093 Session 4.
+- Prefer direct cleanup over transitional compatibility.
+- Add focused tests only for touched behavior.
+- Update docs in the same slice if operational truth changes.
+- Before ending, run the ADR-093 audits: code-cleanliness, legacy/tail cleanup, failure-model, deploy-truth, and load/evidence audit.
+
+Verification baseline:
+Run relevant repo checks from docs/TEST-PLAN.md for touched packages.
+If deploy-bearing, use the ADR-093 post-deploy template:
+- kubectl get applications.argoproj.io -n argocd
+- kubectl -n persai-dev get deploy,svc,ingress,networkpolicy
+- kubectl -n persai-dev get pods -o wide
+- targeted kubectl logs / kubectl top / env checks as needed
+
+Human UI smoke after deploy:
+- Open /app
+- Run one file or sandbox-backed flow if available in the test workspace
+- Confirm the response/completion path is visible and does not regress ordinary chat streaming
+
+Completion checklist:
+- Summarize exactly what sandbox isolation/completion overhead truth changed.
+- State whether deploy was required and why.
+- Include all verification commands and results.
+- Record audit outcomes and any residual risks.
+- Update docs/SESSION-HANDOFF.md and docs/CHANGELOG.md without claiming PROD readiness.
+- Stop at the Session 4 boundary.
+- Output the exact next-session prompt for ADR-093 Session 5 on GPT-5.4.
+```
+
+---
+
 ## 2026-05-11 — admin delete cleanup + web compaction-state regression fix (LANDED)
 
 ### What landed in this session

@@ -13,6 +13,7 @@ import {
   postAssistantMemoryItemCloseOpenLoop,
   postAssistantTelegramDisconnect,
   reattachAssistantWebChatTurnStream,
+  REATTACH_STREAM_IDLE_TIMEOUT_MS,
   toWebChatUxIssue,
   putAdminRuntimeProviderSettings,
   stopAssistantWebChatTurn,
@@ -897,6 +898,38 @@ describe("reattachAssistantWebChatTurnStream", () => {
     await expect(reattachAssistantWebChatTurnStream("token-1", "turn-1", {})).rejects.toThrow(
       /Stream closed before terminal event/
     );
+  });
+
+  it("rejects when the reattach stream stays open without a terminal event", async () => {
+    vi.useFakeTimers();
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `event: turn_status\ndata: ${JSON.stringify({ turn: { status: "running", chat: null, userMessage: null, assistantMessage: null, currentActivity: null, runtime: null, error: null } })}\n\n`
+          )
+        );
+      }
+    });
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(stream, {
+        status: 200,
+        headers: {
+          "content-type": "text/event-stream"
+        }
+      })
+    ) as typeof fetch;
+
+    try {
+      const reattachExpectation = expect(
+        reattachAssistantWebChatTurnStream("token-1", "turn-1", {})
+      ).rejects.toThrow(/Reattach stream stalled/);
+      await vi.advanceTimersByTimeAsync(REATTACH_STREAM_IDLE_TIMEOUT_MS + 1);
+      await reattachExpectation;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

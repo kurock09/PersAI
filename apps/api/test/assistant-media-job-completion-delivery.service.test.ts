@@ -102,13 +102,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(txUpdates.length, 1);
     assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
     assert.equal(finalUpdates.at(-1)?.data?.completionAssistantMessageId, undefined);
-    assert.deepEqual(messageUpdates, [
-      {
-        messageId: "assistant-message-1",
-        assistantId: "assistant-1",
-        content: "Fresh current-context framing."
-      }
-    ]);
+    assert.deepEqual(messageUpdates, []);
   });
 
   test("delivers completion_pending telegram jobs asynchronously and marks them delivered", async () => {
@@ -175,7 +169,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           userId: "user-1",
           workspaceId: "workspace-1",
           surface: "telegram",
-          surfaceThreadKey: "telegram-chat-42",
+          surfaceThreadKey: "telegram:telegram-chat-42:session:session-2",
           title: null,
           deepModeEnabled: false,
           skillDecisionState: null,
@@ -243,6 +237,94 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(sendReplyCalls[0]?.chatId, "telegram-chat-42");
     assert.equal(sendReplyCalls[0]?.mediaAlreadyDelivered, true);
     assert.equal(sendReplyCalls[0]?.turnResult?.assistantMessage, "Fresh Telegram framing.");
+  });
+
+  test("reuses the existing completion message on retry instead of reframing again", async () => {
+    const finalUpdates: Array<Record<string, unknown>> = [];
+    let maybeFrameCalls = 0;
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-retry-1",
+                assistantId: "assistant-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-1",
+                surface: "web",
+                kind: "image",
+                sourceUserMessageId: "user-message-retry-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "draw mountains",
+                  sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z"
+                },
+                resultText: "Your image is ready.",
+                artifactsJson: [{ artifactId: "artifact-retry-1", kind: "image" }],
+                completionAssistantMessageId: "assistant-message-existing-1",
+                attemptCount: 2,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: {
+              update: async () => undefined
+            }
+          }),
+        assistantMediaJob: {
+          updateMany: async (input: Record<string, unknown>) => {
+            finalUpdates.push(input);
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          throw new Error("createMessage should not run when completion message already exists");
+        },
+        findMessageByIdForAssistant: async () => ({
+          id: "assistant-message-existing-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "Existing framed completion text.",
+          createdAt: new Date("2026-05-05T09:10:00.000Z")
+        }),
+        updateMessageContent: async () => null
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: [
+            {
+              id: "attachment-retry-1",
+              originalFilename: "image.png"
+            }
+          ]
+        })
+      } as never,
+      {
+        async sendAssistantTurnReply() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          maybeFrameCalls += 1;
+          return "Fresh current-context framing.";
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(maybeFrameCalls, 0);
+    assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
   });
 
   test("replaces the optimistic completion text with a user-visible failure message when web delivery fails", async () => {
@@ -322,6 +404,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       {
         async maybeFrame() {
           return "Fresh current-context framing.";
+        },
+        async maybeFrameFailure() {
+          return null;
         }
       } as never
     );
@@ -331,10 +416,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(processed, 1);
     assert.equal(finalUpdates.at(-1)?.data?.status, "failed");
     assert.equal(finalUpdates.at(-1)?.data?.completionAssistantMessageId, "assistant-message-3");
-    assert.match(
-      String(messageUpdates.at(-1)?.content),
-      /blocked the request under its safety policy/i
-    );
+    assert.match(String(messageUpdates.at(-1)?.content), /couldn't finish the image request/i);
   });
 
   test("uses LLM-authored failure copy when delivery fails and the framing call succeeds", async () => {
@@ -523,9 +605,6 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
 
     assert.equal(processed, 1);
     assert.equal(finalUpdates.at(-1)?.data?.status, "failed");
-    assert.match(
-      String(messageUpdates.at(-1)?.content),
-      /blocked the request under its safety policy/i
-    );
+    assert.match(String(messageUpdates.at(-1)?.content), /couldn't finish the image request/i);
   });
 });

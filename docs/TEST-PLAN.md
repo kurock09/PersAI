@@ -74,6 +74,28 @@ Interpretation rules:
 4. Queue pressure must be operator-visible through runtime `/metrics`; do not introduce an unbounded or silent waiting path.
 5. Any claimed concurrency/readiness improvement still requires saved SR10 load evidence before stating a user ceiling.
 
+## ADR-093 Session 3 — provider-gateway, SSE transport efficiency, and web reconcile pressure
+
+When a change touches provider-gateway/runtime stream flushing, web stream reattach/resume, or web client reconcile pressure, add these focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-text-generation.controller.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turns.controller.test.ts
+corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/assistant-api-client.test.ts --config vitest.config.ts
+corepack pnpm --filter @persai/provider-gateway run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Flush coalescing may reduce internal socket flush frequency, but first payloads, non-delta activity, and terminal events must still flush promptly enough to preserve visible streaming behavior.
+2. Web resume/reattach cleanup must not remove idempotent replay, soft detach, active media-job visibility, or `clientTurnId` retry/status semantics.
+3. Reconcile-pressure reductions should avoid overlapping client requests for the same thread/turn instead of reducing tool parallelism or changing assistant behavior.
+4. Any claimed throughput/readiness improvement still requires saved SR10 load evidence before stating a user ceiling.
+
 ## Focused checks for destructive cleanup and compaction-state slices
 
 When a change touches destructive admin delete flows, web compaction-state reads, background compaction notice classification, or related persisted runtime-bundle parsing seams, add these focused checks before broad verification:

@@ -13,7 +13,10 @@ import type {
 import { SessionStoreService } from "../../../sessions/session-store.service";
 import { SessionCompactionService } from "../../session-compaction.service";
 import { TurnExecutionService } from "../../turn-execution.service";
-import { createStreamWriterInstrumentation } from "./stream-writer-instrumentation";
+import {
+  createCoalescedStreamFlusher,
+  createStreamWriterInstrumentation
+} from "./stream-writer-instrumentation";
 
 const STREAM_HEARTBEAT_INTERVAL_MS = 10_000;
 const TRACE_HEADER_NAME = "x-persai-trace";
@@ -77,6 +80,8 @@ export class TurnsController {
     res.setHeader("X-Accel-Buffering", "no");
 
     const writerInstrumentation = createStreamWriterInstrumentation();
+    const streamFlusher = createCoalescedStreamFlusher(res);
+    let wroteFirstPayload = false;
     const heartbeat = setInterval(() => {
       if (res.writableEnded) {
         return;
@@ -84,7 +89,7 @@ export class TurnsController {
       // Empty NDJSON lines are ignored by readers but keep the socket active through proxies.
       const writeReturnedTrue = res.write("\n");
       writerInstrumentation.recordWrite(writeReturnedTrue, res);
-      res.flush?.();
+      streamFlusher.flushAfterWrite();
     }, STREAM_HEARTBEAT_INTERVAL_MS);
 
     const startedAtMs = Date.now();
@@ -93,10 +98,13 @@ export class TurnsController {
         if (res.writableEnded) {
           return;
         }
-        this.writeEvent(res, event, writerInstrumentation);
+        const shouldFlushImmediately = !wroteFirstPayload || event.type !== "text_delta";
+        wroteFirstPayload = true;
+        this.writeEvent(res, event, writerInstrumentation, streamFlusher, shouldFlushImmediately);
       }
     } finally {
       clearInterval(heartbeat);
+      streamFlusher.dispose();
       if (!res.writableEnded) {
         res.end();
       }
@@ -127,10 +135,12 @@ export class TurnsController {
   private writeEvent(
     res: ServerResponse & { flush?: () => void },
     event: RuntimeTurnStreamEvent,
-    writerInstrumentation: ReturnType<typeof createStreamWriterInstrumentation>
+    writerInstrumentation: ReturnType<typeof createStreamWriterInstrumentation>,
+    streamFlusher: ReturnType<typeof createCoalescedStreamFlusher>,
+    flushImmediately: boolean
   ): void {
     const writeReturnedTrue = res.write(`${JSON.stringify(event)}\n`);
     writerInstrumentation.recordWrite(writeReturnedTrue, res);
-    res.flush?.();
+    streamFlusher.flushAfterWrite({ immediate: flushImmediately });
   }
 }

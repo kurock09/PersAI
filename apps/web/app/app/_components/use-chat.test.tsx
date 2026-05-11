@@ -1701,6 +1701,31 @@ describe("useChat", () => {
 
   it("keeps a reattached running assistant bubble streaming after status refresh", async () => {
     window.sessionStorage.setItem("persai.active-web-turn.v1.thread-A", "turn-A");
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+      status: "running",
+      chat: { id: "chat-A" },
+      userMessage: {
+        id: "server-user-A",
+        chatId: "chat-A",
+        assistantId: "assistant-1",
+        author: "user",
+        content: "write a long text",
+        attachments: [],
+        createdAt: "2026-04-25T17:45:35.000Z"
+      },
+      assistantMessage: {
+        id: "server-assistant-A",
+        chatId: "chat-A",
+        assistantId: "assistant-1",
+        author: "assistant",
+        content: "Already streamed",
+        attachments: [],
+        createdAt: "2026-04-25T17:45:36.000Z"
+      },
+      currentActivity: null,
+      runtime: null,
+      error: null
+    });
     assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
       async (
         _token: string,
@@ -1760,6 +1785,102 @@ describe("useChat", () => {
           content: "Already streamed and keeps going"
         })
       ]);
+    });
+  });
+
+  it("attaches reattached tool activity to the live assistant after history merge", async () => {
+    window.sessionStorage.setItem("persai.active-web-turn.v1.thread-A", "turn-A");
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+      status: "running",
+      chat: { id: "chat-A" },
+      userMessage: {
+        id: "server-user-A",
+        chatId: "chat-A",
+        assistantId: "assistant-1",
+        author: "user",
+        content: "continue",
+        attachments: [],
+        createdAt: "2026-04-25T17:45:35.000Z"
+      },
+      assistantMessage: {
+        id: "server-assistant-A",
+        chatId: "chat-A",
+        assistantId: "assistant-1",
+        author: "assistant",
+        content: "Working",
+        attachments: [],
+        createdAt: "2026-04-25T17:45:36.000Z"
+      },
+      currentActivity: null,
+      runtime: null,
+      error: null
+    });
+    assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+      nextCursor: null,
+      messages: [
+        {
+          id: "older-user-A",
+          chatId: "chat-A",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "older question",
+          attachments: [],
+          createdAt: "2026-04-25T17:40:35.000Z"
+        },
+        {
+          id: "older-assistant-A",
+          chatId: "chat-A",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "Older answer",
+          attachments: [],
+          createdAt: "2026-04-25T17:41:05.000Z"
+        }
+      ]
+    });
+    assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+      async (
+        _token: string,
+        _clientTurnId: string,
+        handlers: {
+          onHeadersOk?: () => void;
+          onTool?: (payload: {
+            phase: "start" | "end";
+            toolName: string;
+            toolCallId: string;
+            isError: boolean;
+          }) => void;
+        }
+      ) => {
+        handlers.onHeadersOk?.();
+        handlers.onTool?.({
+          phase: "start",
+          toolName: "web_search",
+          toolCallId: "tool-1",
+          isError: false
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-A"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await waitFor(() => expect(result.current.isStreaming).toBe(true));
+
+    await act(async () => {
+      await result.current.loadHistory("chat-A");
+    });
+
+    await waitFor(() => {
+      const activityEntries = result.current.entries.filter(
+        (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+          entry.kind === "activity"
+      );
+      expect(activityEntries).toHaveLength(1);
+      expect(activityEntries[0]?.event.label).toBe("Searching the web");
+      expect(activityEntries[0]?.event.afterMessageId).toBe("server-assistant-A");
+      expect(activityEntries[0]?.event.afterMessageId).not.toBe("older-assistant-A");
     });
   });
 
@@ -1975,6 +2096,7 @@ describe("useChat", () => {
       expect(
         assistantApiMocks.getAssistantWebChatTurnStatus.mock.calls.length
       ).toBeGreaterThanOrEqual(3);
+      expect(assistantApiMocks.reattachAssistantWebChatTurnStream).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
