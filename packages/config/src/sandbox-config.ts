@@ -17,7 +17,12 @@ const baseSandboxConfigSchema = z.object({
   LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
   PERSAI_MEDIA_BUCKET_NAME: optionalNonEmptyString,
   PERSAI_MEDIA_OBJECT_PREFIX: optionalNonEmptyString,
-  PERSAI_INTERNAL_API_TOKEN: optionalNonEmptyString
+  PERSAI_INTERNAL_API_TOKEN: optionalNonEmptyString,
+  SANDBOX_MAX_PENDING_JOBS: z.coerce.number().int().positive().default(16),
+  SANDBOX_MAX_PENDING_JOBS_PER_WORKSPACE: z.coerce.number().int().positive().default(4),
+  SANDBOX_MAX_POLL_WAIT_MS: z.coerce.number().int().positive().default(1_500),
+  SANDBOX_QUEUED_JOB_STALE_AFTER_MS: z.coerce.number().int().positive().default(45_000),
+  SANDBOX_RUNNING_JOB_GRACE_MS: z.coerce.number().int().positive().default(15_000)
 });
 
 const localSandboxConfigSchema = baseSandboxConfigSchema.extend({

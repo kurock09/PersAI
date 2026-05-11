@@ -3,7 +3,8 @@ import { promises as fs } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join, dirname, extname, basename, isAbsolute, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { SandboxConfig } from "@persai/config";
 import type {
   RuntimeFileRef,
   RuntimeSandboxJobRequest,
@@ -12,6 +13,8 @@ import type {
   RuntimeSandboxProducedFile
 } from "@persai/runtime-contract";
 import { Prisma } from "@prisma/client";
+import { SANDBOX_CONFIG } from "./sandbox-config";
+import { SandboxObservabilityService } from "./sandbox-observability.service";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
 import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
 
@@ -118,6 +121,7 @@ const WORKSPACE_LEASE_TTL_MS = 30_000;
 const WORKSPACE_LEASE_RENEW_INTERVAL_MS = 5_000;
 const WORKSPACE_LEASE_ACQUIRE_RETRY_MS = 200;
 const WORKSPACE_LEASE_WAIT_TIMEOUT_MS = 15_000;
+const PENDING_SANDBOX_JOB_STATUSES = ["queued", "running"] as const;
 
 @Injectable()
 export class SandboxService {
@@ -127,7 +131,9 @@ export class SandboxService {
 
   constructor(
     private readonly prisma: SandboxPrismaService,
-    private readonly objectStorage: SandboxObjectStorageService
+    private readonly objectStorage: SandboxObjectStorageService,
+    private readonly sandboxObservabilityService: SandboxObservabilityService,
+    @Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig
   ) {}
 
   async submitJob(request: RuntimeSandboxJobRequest): Promise<RuntimeSandboxJobResult> {
@@ -160,6 +166,7 @@ export class SandboxService {
             })
       }
     });
+    this.sandboxObservabilityService.recordSubmittedJob();
     if (preflightViolation === null) {
       void this.enqueueWorkspaceJob(
         this.buildWorkspaceSessionKey(request.assistantId, request.workspaceId),
@@ -171,11 +178,31 @@ export class SandboxService {
     return this.pollJob(created.id);
   }
 
-  async pollJob(jobId: string): Promise<RuntimeSandboxJobResult> {
-    const job = await this.prisma.sandboxJob.findUnique({
-      where: { id: jobId },
-      include: { assistantFiles: true }
-    });
+  async pollJob(jobId: string, waitMs = 0): Promise<RuntimeSandboxJobResult> {
+    const startedAtMs = waitMs > 0 ? Date.now() : 0;
+    const deadlineMs =
+      waitMs > 0 ? Date.now() + Math.min(waitMs, this.config.SANDBOX_MAX_POLL_WAIT_MS) : null;
+    let job = await this.findJobRecord(jobId);
+    job = await this.failStaleJobIfNeeded(job);
+    while (
+      job !== null &&
+      !this.isTerminalJobStatus(job.status) &&
+      deadlineMs !== null &&
+      Date.now() < deadlineMs
+    ) {
+      const remainingWaitMs = deadlineMs - Date.now();
+      if (remainingWaitMs <= 0) {
+        break;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(WORKSPACE_LEASE_ACQUIRE_RETRY_MS, remainingWaitMs))
+      );
+      job = await this.findJobRecord(jobId);
+      job = await this.failStaleJobIfNeeded(job);
+    }
+    if (waitMs > 0) {
+      this.sandboxObservabilityService.recordLongPoll(Date.now() - startedAtMs);
+    }
     if (job === null) {
       return {
         jobId,
@@ -221,9 +248,162 @@ export class SandboxService {
     return true;
   }
 
+  private async findJobRecord(jobId: string) {
+    return await this.prisma.sandboxJob.findUnique({
+      where: { id: jobId },
+      include: { assistantFiles: true }
+    });
+  }
+
+  private isTerminalJobStatus(status: RuntimeSandboxJobResult["status"]): boolean {
+    return (
+      status === "completed" ||
+      status === "failed" ||
+      status === "blocked" ||
+      status === "cancelled"
+    );
+  }
+
+  private async failStaleJobIfNeeded<
+    T extends {
+      id: string;
+      status: RuntimeSandboxJobResult["status"];
+      toolCode: string;
+      policySnapshot: Prisma.JsonValue | null;
+      createdAt: Date;
+      startedAt: Date | null;
+      completedAt: Date | null;
+    } | null
+  >(job: T): Promise<T> {
+    if (job === null || this.isTerminalJobStatus(job.status)) {
+      return job;
+    }
+    const policy = this.parsePolicySnapshot(job.policySnapshot);
+    if (job.status === "queued") {
+      const queuedForMs = Date.now() - job.createdAt.getTime();
+      if (queuedForMs <= this.config.SANDBOX_QUEUED_JOB_STALE_AFTER_MS) {
+        return job;
+      }
+      const message = `Sandbox job stayed queued for ${String(queuedForMs)}ms, exceeding the ${String(this.config.SANDBOX_QUEUED_JOB_STALE_AFTER_MS)}ms stale threshold.`;
+      const updated = await this.failStaleJob(job, "sandbox_queue_timeout", message);
+      return updated as T;
+    }
+    const startedAtMs = job.startedAt?.getTime() ?? job.createdAt.getTime();
+    const runningForMs = Date.now() - startedAtMs;
+    const maxRunningMs =
+      (policy?.maxProcessRuntimeMs ?? WORKSPACE_LEASE_WAIT_TIMEOUT_MS) +
+      this.config.SANDBOX_RUNNING_JOB_GRACE_MS;
+    if (runningForMs <= maxRunningMs) {
+      return job;
+    }
+    const message = `Sandbox job kept running for ${String(runningForMs)}ms, exceeding the ${String(maxRunningMs)}ms stale threshold.`;
+    const updated = await this.failStaleJob(job, "sandbox_execution_timeout", message);
+    return updated as T;
+  }
+
+  private async failStaleJob(
+    job: {
+      id: string;
+      status: RuntimeSandboxJobResult["status"];
+      toolCode: string;
+    },
+    reason: string,
+    message: string
+  ) {
+    const updated = await this.prisma.sandboxJob.updateMany({
+      where: {
+        id: job.id,
+        status: job.status,
+        completedAt: null
+      },
+      data: {
+        status: "failed",
+        completedAt: new Date(),
+        violationCode: reason,
+        violationMessage: message,
+        resultPayload: {
+          reason,
+          warning: message,
+          exitCode: null,
+          stdout: null,
+          stderr: null,
+          content: null
+        }
+      }
+    });
+    if (updated.count === 0) {
+      return await this.findJobRecord(job.id);
+    }
+    this.sandboxObservabilityService.recordStaleFailure(
+      job.status === "running" ? "running" : "queued"
+    );
+    this.logger.warn(
+      `[sandbox-stale-job] jobId=${job.id} tool=${job.toolCode} status=${job.status} reason=${reason}`
+    );
+    return await this.findJobRecord(job.id);
+  }
+
+  private parsePolicySnapshot(
+    policySnapshot: Prisma.JsonValue | null
+  ): RuntimeSandboxPolicy | null {
+    if (
+      policySnapshot === null ||
+      typeof policySnapshot !== "object" ||
+      Array.isArray(policySnapshot)
+    ) {
+      return null;
+    }
+    const candidate = policySnapshot as Partial<RuntimeSandboxPolicy>;
+    if (
+      typeof candidate.enabled !== "boolean" ||
+      typeof candidate.maxProcessRuntimeMs !== "number"
+    ) {
+      return null;
+    }
+    return candidate as RuntimeSandboxPolicy;
+  }
+
   private async resolvePreflightViolation(
     request: RuntimeSandboxJobRequest
   ): Promise<{ code: string; message: string } | null> {
+    const [pendingJobs, workspacePendingJobs] = await Promise.all([
+      this.prisma.sandboxJob.count({
+        where: {
+          status: {
+            in: [...PENDING_SANDBOX_JOB_STATUSES]
+          }
+        }
+      }),
+      this.prisma.sandboxJob.count({
+        where: {
+          assistantId: request.assistantId,
+          workspaceId: request.workspaceId,
+          status: {
+            in: [...PENDING_SANDBOX_JOB_STATUSES]
+          }
+        }
+      })
+    ]);
+    if (pendingJobs >= this.config.SANDBOX_MAX_PENDING_JOBS) {
+      this.sandboxObservabilityService.recordBacklogRejected("global");
+      this.logger.warn(
+        `sandbox_backlog_full pending=${String(pendingJobs)} limit=${String(this.config.SANDBOX_MAX_PENDING_JOBS)}`
+      );
+      return {
+        code: "sandbox_backlog_full",
+        message: `Sandbox backlog is full (${String(this.config.SANDBOX_MAX_PENDING_JOBS)} pending jobs limit). Retry shortly.`
+      };
+    }
+    if (workspacePendingJobs >= this.config.SANDBOX_MAX_PENDING_JOBS_PER_WORKSPACE) {
+      this.sandboxObservabilityService.recordBacklogRejected("workspace");
+      this.logger.warn(
+        `sandbox_workspace_backlog_full assistantId=${request.assistantId} workspaceId=${request.workspaceId} pending=${String(workspacePendingJobs)} limit=${String(this.config.SANDBOX_MAX_PENDING_JOBS_PER_WORKSPACE)}`
+      );
+      return {
+        code: "sandbox_workspace_backlog_full",
+        message: `Sandbox backlog is full for this workspace (${String(this.config.SANDBOX_MAX_PENDING_JOBS_PER_WORKSPACE)} pending jobs limit). Retry shortly.`
+      };
+    }
     if (request.policy.sandboxJobsPerDay !== null) {
       const startOfDay = this.startOfUtcDay(new Date());
       const jobsToday = await this.prisma.sandboxJob.count({

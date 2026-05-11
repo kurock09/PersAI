@@ -380,6 +380,128 @@ Completion checklist:
 
 ---
 
+## 2026-05-11 — ADR-093 Session 4: sandbox isolation and completion-path cleanup (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **Sandbox backlog is now bounded before execution starts** — `SandboxService` now enforces a finite pending-job ceiling both globally per sandbox service and per `assistantId + workspaceId`. When those bounds are hit, the job is stored as `blocked` with a structured `sandbox_backlog_full` or `sandbox_workspace_backlog_full` reason instead of silently accepting more queued work.
+
+2. **Completion-path polling is less chatty without changing result semantics** — `SandboxClientService.waitForCompletion()` no longer loops with a fixed 200ms sleep and one immediate `GET /jobs/:id` per cycle. Runtime now uses the same terminal job contract through bounded `waitMs` long-poll requests, so the sandbox service can wait briefly for state changes server-side before responding.
+
+3. **Sandbox stale queued/running jobs now fail predictably instead of lingering forever** — sandbox job reads now detect stale `queued` and overlong `running` rows from persisted timestamps/policy snapshot, mark them `failed`, and return structured timeout-shaped reasons (`sandbox_queue_timeout`, `sandbox_execution_timeout`) so runtime callers and operators can see that the execution path was lost rather than polling forever.
+
+4. **Sandbox now exposes operator-facing pressure metrics** — the service gained a `/metrics` endpoint that reports current queued/running pressure, configured backlog/long-poll bounds, backlog rejections, stale-job failure counts, and long-poll wait histograms. This makes Session 4’s “no silent queue growth” requirement observable on the sandbox itself instead of only indirectly through runtime symptoms.
+
+5. **Helm deploy truth now reflects sandbox isolation expectations** — `infra/helm/values.yaml` and `infra/helm/values-dev.yaml` now set the sandbox bound env vars, raise sandbox replicas to 2, and enable a sandbox PDB so the workload is no longer pinned to a single replica by default.
+
+6. **Deploy-truth audit also corrected an unrelated but critical GitOps drift before continuing** — during verification, `infra/helm/values-dev.yaml` was found with blank pinned image tags for `api`, `web`, `provider-gateway`, and `runtime`. Those unrelated changes were restored to the `HEAD` pinned SHA values so Session 4 could continue on a valid selective-pinning baseline.
+
+### Verification
+
+- Focused tests:
+  - `corepack pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts` — pass
+  - `corepack pnpm --filter @persai/sandbox exec tsx test/sandbox-metrics.service.test.ts` — pass
+  - `corepack pnpm --filter @persai/runtime exec tsx test/sandbox-client.service.test.ts` — pass
+  - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts` — pass
+- Package/repo checks:
+  - `corepack pnpm --filter @persai/sandbox run typecheck` — pass
+  - `corepack pnpm --filter @persai/runtime run typecheck` — pass
+  - `corepack pnpm --filter @persai/api run typecheck` — pass
+  - `corepack pnpm --filter @persai/web run typecheck` — pass
+  - `corepack pnpm -r --if-present run lint` — pass
+  - `helm lint infra/helm -f infra/helm/values.yaml` — pass
+  - `helm template persai infra/helm -f infra/helm/values.yaml > /dev/null` — pass
+  - `helm lint infra/helm -f infra/helm/values-dev.yaml` — pass
+  - `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml > /dev/null` — pass
+  - `corepack pnpm exec prettier --write apps/runtime/src/modules/turns/sandbox-client.service.ts apps/runtime/test/sandbox-client.service.test.ts apps/sandbox/src/sandbox-metrics.service.ts apps/sandbox/src/sandbox.service.ts` — pass
+  - `corepack pnpm run format:check` — pending re-run after final docs updates in this session
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** because this slice changes live `apps/sandbox`, live runtime sandbox completion behavior, and Helm deploy truth for sandbox replicas/PDB/env bounds.
+- **Not deployed in this local session**: no push/rollout was performed here, so the ADR-093 post-deploy `kubectl` checklist and the required `/app` + sandbox-backed UI smoke remain pending before calling Session 4 fully closed in `persai-dev`.
+- The unrelated blank-tag drift in `infra/helm/values-dev.yaml` was corrected locally back to the `HEAD` pinned SHA values for `api`, `web`, `provider-gateway`, and `runtime`.
+
+### ADR-093 audit outcomes
+
+- **Code-cleanliness:** pass. The slice stays within Session 4 scope: sandbox backlog, completion cleanup, observability, and Helm sandbox capacity. No business logic, prompt, quota, or tool-parallelism semantics changed.
+- **Legacy / tail cleanup:** pass. No hidden flags, temporary dual paths, or dead stubs were introduced; the completion cleanup directly replaces the old fixed-interval polling behavior on the runtime side.
+- **Failure-model:** pass locally. Sandbox now rejects overload with structured reasons, bounds long-poll wait time, and fails stale queued/running jobs instead of leaving indefinite wait paths. Authorization, workspace lease, and file ownership rules remain intact.
+- **Deploy-truth:** local pass, live pending. Helm renders cleanly and sandbox workload defaults now reflect Session 4, but live rollout verification is still required. An unrelated critical pinned-tag drift was detected and restored before continuing.
+- **Load / evidence:** pass for session scope. This reduces a sandbox bottleneck and cuts completion chatter, but no SR10 artifact was produced and no 500–1000 user readiness ceiling is claimed.
+
+### Risks / residuals
+
+- Stale-job cleanup relies on persisted timestamps and the stored policy snapshot, so if a future slice changes sandbox runtime accounting again it should keep those fields truthful.
+- Sandbox metrics are now present, but no live scrape/observation evidence was captured in this local-only session.
+- Because this session was not deployed, live `/metrics`, `/app` sandbox-backed flow behavior, pod pressure, and Argo sync health are still pending verification.
+
+### Next recommended step
+
+Push/deploy this slice once as one coherent rollout, then run the ADR-093 post-deploy checks plus `/app` smoke: one normal chat, one sandbox-backed/file flow, and one verification that completion/status returns cleanly without visible stuck polling.
+
+### Exact next-session prompt (ADR-093 Session 5, GPT-5.4)
+
+```text
+Start ADR-093 Session 5: Bounded load proof and PROD sign-off.
+
+You are GPT-5.4 working in Cursor on PersAI.
+
+Mandatory reading before edits:
+- AGENTS.md
+- docs/ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md
+- docs/TEST-PLAN.md
+- docs/SESSION-HANDOFF.md
+- docs/CHANGELOG.md
+- scripts/loadtest/README.md
+- infra/dev/gitops/README.md
+- infra/dev/gke/RUNBOOK.md
+
+Context:
+ADR-093 Sessions 1-4 are locally landed. Session 4 added bounded sandbox backlog/failure behavior, sandbox metrics, runtime long-poll completion cleanup, and sandbox Helm replica/PDB truth. Do not reopen Sessions 1-4 unless a real regression is found.
+
+Scope:
+Implement ADR-093 Session 5 only: bounded load proof and production sign-off discipline. Execute the SR10 ladder, save the real artifacts, record the first bottleneck honestly, and do not claim a ceiling above the highest passing saved profile.
+
+Allowed touch areas:
+- scripts/loadtest
+- artifacts/sr10-loadtest
+- docs
+- infra/helm only if a small deploy-truth adjustment is strictly required by evidence
+
+Forbidden shortcuts:
+- Do not fabricate or round load results.
+- Do not claim 500-1000 user readiness without saved artifact files.
+- Do not reopen sandbox/runtime/provider-gateway/web behavior slices unless the load evidence exposes a real regression that must be fixed first.
+- Do not add hidden flags, dead stubs, or temporary dual paths.
+
+Deploy expectation:
+- Decide honestly whether deployment is required based on what the load/evidence slice actually changes.
+- Avoid intermediate pushes; land one coherent session push only after checks.
+
+Required implementation discipline:
+- Keep the session bounded to ADR-093 Session 5.
+- Save SR10 reports under `artifacts/sr10-loadtest/`.
+- Record the first bottleneck after each ladder/profile run.
+- Update docs in the same slice if operational truth changes.
+- Before ending, run the ADR-093 audits: code-cleanliness, legacy/tail cleanup, failure-model, deploy-truth, and load/evidence audit.
+
+Verification baseline:
+- Run the SR10 ladder from `docs/TEST-PLAN.md` / `scripts/loadtest/README.md`.
+- If any supporting code/harness changes are made, run the relevant focused tests/typechecks too.
+- If deployment happens, run the ADR-093 post-deploy kubectl/Argo checklist and a short `/app` sanity smoke.
+
+Completion checklist:
+- Summarize exactly what evidence was produced and where it is saved.
+- State the highest passing profile backed by saved artifacts, or state that no safe ceiling is proven.
+- Record the first bottleneck and residual risks.
+- Include tests/checks/deploy evidence.
+- Update docs/SESSION-HANDOFF.md and docs/CHANGELOG.md.
+- Stop at the Session 5 boundary.
+```
+
+---
+
 ## 2026-05-11 — admin delete cleanup + web compaction-state regression fix (LANDED)
 
 ### What landed in this session

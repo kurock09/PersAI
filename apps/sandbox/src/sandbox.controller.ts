@@ -5,19 +5,27 @@ import {
   Headers,
   Param,
   Post,
+  Query,
+  Res,
   ServiceUnavailableException,
   UnauthorizedException
 } from "@nestjs/common";
 import type { SandboxConfig } from "@persai/config";
 import type { RuntimeSandboxJobRequest } from "@persai/runtime-contract";
+import { SandboxMetricsService } from "./sandbox-metrics.service";
 import { SandboxService } from "./sandbox.service";
 import { Inject } from "@nestjs/common";
 import { SANDBOX_CONFIG } from "./sandbox-config";
+
+interface MetricsResponseHeaders {
+  setHeader(name: string, value: string): void;
+}
 
 @Controller()
 export class SandboxController {
   constructor(
     private readonly sandboxService: SandboxService,
+    private readonly sandboxMetricsService: SandboxMetricsService,
     @Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig
   ) {}
 
@@ -38,6 +46,12 @@ export class SandboxController {
     }
   }
 
+  @Get("/metrics")
+  getMetrics(@Res({ passthrough: true }) res: MetricsResponseHeaders): Promise<string> {
+    res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+    return this.sandboxMetricsService.renderMetrics();
+  }
+
   @Post("/api/v1/jobs")
   async createJob(
     @Headers("authorization") authorization: string | undefined,
@@ -50,10 +64,11 @@ export class SandboxController {
   @Get("/api/v1/jobs/:jobId")
   async getJob(
     @Headers("authorization") authorization: string | undefined,
-    @Param("jobId") jobId: string
+    @Param("jobId") jobId: string,
+    @Query("waitMs") waitMs: string | undefined
   ) {
     this.assertAuthorized(authorization);
-    return this.sandboxService.pollJob(jobId);
+    return this.sandboxService.pollJob(jobId, this.parseOptionalWaitMs(waitMs));
   }
 
   private assertAuthorized(authorization: string | undefined): void {
@@ -65,5 +80,16 @@ export class SandboxController {
     if (value !== expected) {
       throw new UnauthorizedException("Unauthorized sandbox request.");
     }
+  }
+
+  private parseOptionalWaitMs(value: string | undefined): number {
+    if (value === undefined) {
+      return 0;
+    }
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 0;
+    }
+    return parsed;
   }
 }

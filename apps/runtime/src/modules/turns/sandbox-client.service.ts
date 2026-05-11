@@ -33,8 +33,9 @@ export class SandboxClientService {
     return this.parseJobResponse(response);
   }
 
-  async pollJob(jobId: string): Promise<RuntimeSandboxJobResult> {
-    const response = await this.fetchJson(`/api/v1/jobs/${encodeURIComponent(jobId)}`, {
+  async pollJob(jobId: string, waitMs = 0): Promise<RuntimeSandboxJobResult> {
+    const query = waitMs > 0 ? `?waitMs=${String(waitMs)}` : "";
+    const response = await this.fetchJson(`/api/v1/jobs/${encodeURIComponent(jobId)}${query}`, {
       method: "GET",
       headers: this.buildHeaders()
     });
@@ -46,13 +47,13 @@ export class SandboxClientService {
     const deadline = Date.now() + this.resolveCompletionTimeoutMs(request);
     let current = submitted;
     while (current.status === "queued" || current.status === "running") {
-      if (Date.now() >= deadline) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
         throw new ServiceUnavailableException(
           "Sandbox job timed out while waiting for completion."
         );
       }
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      current = await this.pollJob(current.jobId);
+      current = await this.pollJob(current.jobId, Math.max(1, Math.min(remainingMs, 1_500)));
     }
     return current;
   }

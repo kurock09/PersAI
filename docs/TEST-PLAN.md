@@ -96,6 +96,27 @@ Interpretation rules:
 3. Reconcile-pressure reductions should avoid overlapping client requests for the same thread/turn instead of reducing tool parallelism or changing assistant behavior.
 4. Any claimed throughput/readiness improvement still requires saved SR10 load evidence before stating a user ceiling.
 
+## ADR-093 Session 4 — sandbox isolation and completion-path cleanup
+
+When a change touches sandbox backlog bounds, sandbox status polling/completion cleanup, sandbox operator metrics, or sandbox replica/PDB deploy truth, add these focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts
+corepack pnpm --filter @persai/sandbox exec tsx test/sandbox-metrics.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/sandbox-client.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts
+corepack pnpm --filter @persai/sandbox run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+```
+
+Interpretation rules:
+
+1. Sandbox backlog protection must stay technical only: no weakened isolation, no skipped authorization, and no product/business routing shortcuts.
+2. Queue growth must be bounded and operator-visible. If sandbox accepts only finite pending work, the resulting rejection path must return a structured reason instead of silently waiting forever.
+3. Completion cleanup may reduce poll chatter with bounded long-polling or similar server-truth waiting, but runtime callers must still receive terminal `completed` / `blocked` / `failed` truth without ad hoc hidden flags.
+4. Stale queued/running sandbox jobs must fail predictably enough that runtime callers do not sit behind an indefinite polling path after the real execution path is gone.
+5. Helm scaling/PDB adjustments for sandbox remain deploy-truth only; no 500-1000 user readiness ceiling may be claimed without saved SR10 evidence.
+
 ## Focused checks for destructive cleanup and compaction-state slices
 
 When a change touches destructive admin delete flows, web compaction-state reads, background compaction notice classification, or related persisted runtime-bundle parsing seams, add these focused checks before broad verification:

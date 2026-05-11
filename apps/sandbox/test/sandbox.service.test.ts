@@ -4,7 +4,9 @@ import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { SandboxConfig } from "@persai/config";
 import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
+import { SandboxObservabilityService } from "../src/sandbox-observability.service";
 import { SandboxService } from "../src/sandbox.service";
 
 type MountedWorkspaceState = {
@@ -147,6 +149,26 @@ function createDeferred(): {
       resolvePromise?.();
     }
   };
+}
+
+function createSandboxConfig(overrides: Partial<SandboxConfig> = {}): SandboxConfig {
+  return {
+    APP_ENV: "local",
+    DATABASE_URL: "postgresql://persai:persai@localhost:5432/persai",
+    PORT: 3013,
+    LOG_LEVEL: "info",
+    PERSAI_INTERNAL_API_TOKEN: "sandbox-token",
+    SANDBOX_MAX_PENDING_JOBS: 16,
+    SANDBOX_MAX_PENDING_JOBS_PER_WORKSPACE: 4,
+    SANDBOX_MAX_POLL_WAIT_MS: 1_500,
+    SANDBOX_QUEUED_JOB_STALE_AFTER_MS: 45_000,
+    SANDBOX_RUNNING_JOB_GRACE_MS: 15_000,
+    ...overrides
+  } as SandboxConfig;
+}
+
+function createSandboxObservabilityService(): SandboxObservabilityService {
+  return new SandboxObservabilityService();
 }
 
 function createDurableHarness() {
@@ -403,7 +425,12 @@ function createDurableHarness() {
     storedObjects,
     workspaceLeases,
     createService() {
-      return new SandboxService(prismaStub as never, objectStorageStub as never);
+      return new SandboxService(
+        prismaStub as never,
+        objectStorageStub as never,
+        createSandboxObservabilityService(),
+        createSandboxConfig()
+      );
     }
   };
 }
@@ -434,7 +461,9 @@ async function run(): Promise<void> {
         assert.equal(objectKey, "sandbox/input/example.txt");
         return sourceBuffer;
       }
-    } as never
+    } as never,
+    createSandboxObservabilityService(),
+    createSandboxConfig()
   );
   const serviceTestAccess = service as unknown as SandboxServiceTestAccess;
 
@@ -556,7 +585,9 @@ async function run(): Promise<void> {
         }
       }
     } as never,
-    {} as never
+    {} as never,
+    createSandboxObservabilityService(),
+    createSandboxConfig()
   );
   const completedJob = await completedService.pollJob("job-completed-1");
   assert.equal(completedJob.status, "completed");
@@ -1102,17 +1133,19 @@ async function run(): Promise<void> {
   const blockedService = new SandboxService(
     {
       sandboxJob: {
-        async count(input: {
-          where: {
-            assistantId: string;
-            workspaceId: string;
-            createdAt: { gte: Date };
-          };
-        }) {
-          assert.equal(input.where.assistantId, "assistant-1");
-          assert.equal(input.where.workspaceId, "workspace-1");
-          assert.ok(input.where.createdAt.gte instanceof Date);
-          return 1;
+        async count(input: { where: Record<string, unknown> }) {
+          if ("createdAt" in input.where) {
+            assert.equal(input.where.assistantId, "assistant-1");
+            assert.equal(input.where.workspaceId, "workspace-1");
+            assert.ok(
+              typeof input.where.createdAt === "object" &&
+                input.where.createdAt !== null &&
+                "gte" in input.where.createdAt &&
+                (input.where.createdAt as { gte: unknown }).gte instanceof Date
+            );
+            return 1;
+          }
+          return 0;
         },
         async create(input: { data: Record<string, unknown> }) {
           storedJob = {
@@ -1133,7 +1166,9 @@ async function run(): Promise<void> {
         }
       }
     } as never,
-    {} as never
+    {} as never,
+    createSandboxObservabilityService(),
+    createSandboxConfig()
   );
 
   const blockedJob = await blockedService.submitJob({
@@ -1159,7 +1194,110 @@ async function run(): Promise<void> {
   assert.equal(blockedJob.violationCode, "sandbox_daily_job_limit_reached");
   assert.match(blockedJob.warning ?? "", /Sandbox job quota reached for today/);
 
-  const processGuardService = new SandboxService({} as never, {} as never);
+  let backlogStoredJob: {
+    id: string;
+    toolCode: string;
+    status: string;
+    resultPayload: unknown;
+    violationCode: string | null;
+    violationMessage: string | null;
+    assistantFiles: unknown[];
+  } | null = null;
+  const backlogService = new SandboxService(
+    {
+      sandboxJob: {
+        async count(input: { where: Record<string, unknown> }) {
+          return "createdAt" in input.where ? 0 : 1;
+        },
+        async create(input: { data: Record<string, unknown> }) {
+          backlogStoredJob = {
+            id: "job-backlog-1",
+            toolCode: String(input.data.toolCode),
+            status: String(input.data.status),
+            resultPayload: input.data.resultPayload ?? null,
+            violationCode:
+              typeof input.data.violationCode === "string" ? input.data.violationCode : null,
+            violationMessage:
+              typeof input.data.violationMessage === "string" ? input.data.violationMessage : null,
+            assistantFiles: []
+          };
+          return backlogStoredJob;
+        },
+        async findUnique() {
+          return backlogStoredJob;
+        }
+      }
+    } as never,
+    {} as never,
+    createSandboxObservabilityService(),
+    createSandboxConfig({ SANDBOX_MAX_PENDING_JOBS: 1 })
+  );
+  const backlogJob = await backlogService.submitJob({
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    runtimeRequestId: "request-backlog",
+    runtimeSessionId: "session-backlog",
+    toolCode: "files",
+    policy: {
+      ...DEFAULT_RUNTIME_SANDBOX_POLICY,
+      enabled: true,
+      sandboxJobsPerDay: null
+    },
+    args: {
+      action: "write",
+      path: "outputs/report.txt",
+      content: "backlog should block this job"
+    }
+  });
+  assert.equal(backlogJob.status, "blocked");
+  assert.equal(backlogJob.reason, "sandbox_backlog_full");
+  assert.match(backlogJob.warning ?? "", /Sandbox backlog is full/);
+
+  const staleObservability = createSandboxObservabilityService();
+  let staleJob = {
+    id: "job-stale-queued-1",
+    toolCode: "files",
+    status: "queued",
+    policySnapshot: DEFAULT_RUNTIME_SANDBOX_POLICY,
+    resultPayload: null,
+    violationCode: null,
+    violationMessage: null,
+    createdAt: new Date(Date.now() - 2_000),
+    startedAt: null,
+    completedAt: null,
+    assistantFiles: []
+  };
+  const staleService = new SandboxService(
+    {
+      sandboxJob: {
+        async findUnique() {
+          return staleJob;
+        },
+        async updateMany(input: { data: Record<string, unknown> }) {
+          staleJob = {
+            ...staleJob,
+            ...input.data
+          };
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {} as never,
+    staleObservability,
+    createSandboxConfig({ SANDBOX_QUEUED_JOB_STALE_AFTER_MS: 1_000 })
+  );
+  const staleResult = await staleService.pollJob("job-stale-queued-1", 25);
+  assert.equal(staleResult.status, "failed");
+  assert.equal(staleResult.reason, "sandbox_queue_timeout");
+  assert.match(staleResult.warning ?? "", /stayed queued/i);
+  assert.equal(staleObservability.getCounters().staleFailures.queued, 1);
+
+  const processGuardService = new SandboxService(
+    {} as never,
+    {} as never,
+    createSandboxObservabilityService(),
+    createSandboxConfig()
+  );
   const processGuardTestAccess = processGuardService as unknown as SandboxServiceTestAccess;
   let workspaceStatsChecks = 0;
   (

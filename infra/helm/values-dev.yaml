@@ -399,6 +399,11 @@ sandbox:
     GCP_REGION: europe-west1
     PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
     PERSAI_MEDIA_OBJECT_PREFIX: "assistant-media"
+    SANDBOX_MAX_PENDING_JOBS: "16"
+    SANDBOX_MAX_PENDING_JOBS_PER_WORKSPACE: "4"
+    SANDBOX_MAX_POLL_WAIT_MS: "1500"
+    SANDBOX_QUEUED_JOB_STALE_AFTER_MS: "45000"
+    SANDBOX_RUNNING_JOB_GRACE_MS: "15000"
   secretEnv:
     PERSAI_INTERNAL_API_TOKEN:
       secretName: persai-runtime-secrets
@@ -406,7 +411,7 @@ sandbox:
     DATABASE_URL:
       secretName: persai-api-secrets
       secretKey: DATABASE_URL
-  replicaCount: 1
+  replicaCount: 2
   revisionHistoryLimit: 2
   minReadySeconds: 5
   strategy:
@@ -428,7 +433,7 @@ sandbox:
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 80
   podDisruptionBudget:
-    enabled: false
+    enabled: true
     minAvailable: 1
   topologySpreadConstraints:
     - maxSkew: 1
@@ -455,6 +460,3 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
-
-
-
