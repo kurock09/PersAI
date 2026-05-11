@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { createAssistantInboundConflict } from "../src/modules/workspace-management/application/assistant-inbound-error";
 import { StreamWebChatTurnService } from "../src/modules/workspace-management/application/stream-web-chat-turn.service";
 import { PrismaAssistantChatRepository } from "../src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository";
 
@@ -1086,6 +1087,155 @@ describe("StreamWebChatTurnService", () => {
         source: "llm"
       }
     );
+  });
+
+  test("retries stream web turn after waiting for active compaction conflict", async () => {
+    let nativeRuntimeCalls = 0;
+    let compactionWaitCalls = 0;
+
+    const service = new StreamWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        findChatById: async (chatId: string) => ({
+          id: chatId,
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+          createdAt: new Date("2026-04-05T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-05T12:00:00.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        releaseWebTurnProcessing: async () => undefined,
+        completeWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async function* () {
+          nativeRuntimeCalls += 1;
+          if (nativeRuntimeCalls === 1) {
+            throw createAssistantInboundConflict(
+              "native_runtime_conflict",
+              "Session is already processing another turn."
+            );
+          }
+          yield { type: "delta", delta: "recovered", accumulated: "recovered" };
+          yield {
+            type: "done",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            turnRouting: null
+          };
+        }
+      } as never,
+      createSendNativeWebChatTurnServiceMock() as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called in this test");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => {
+          throw new Error("resolve should not be called in this test");
+        }
+      } as never,
+      {
+        execute: async () => undefined
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: []
+        })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      {
+        deliverIntentNow: async () => undefined
+      } as never,
+      {
+        maybeCreateFollowUp: async () => null
+      } as never,
+      undefined,
+      undefined,
+      {
+        async waitForActiveThreadCompaction() {
+          compactionWaitCalls += 1;
+          return {
+            waited: compactionWaitCalls > 1,
+            readyForRetry: compactionWaitCalls > 1,
+            noticeKind: null
+          };
+        }
+      } as never
+    );
+
+    const outcome = await service.streamToCompletion(
+      {
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: "2026-04-05T12:00:00.000Z",
+          updatedAt: "2026-04-05T12:00:00.000Z"
+        },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "hello",
+          attachments: [],
+          createdAt: "2026-04-05T12:00:00.000Z"
+        },
+        assistant: {
+          id: "assistant-1",
+          workspaceId: "workspace-1"
+        },
+        assistantId: "assistant-1",
+        publishedVersionId: "pub-1",
+        runtimeTier: "paid_shared",
+        quotaDegradeModelOverride: null,
+        quotaDegradeReason: null,
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        workspaceTimezone: "UTC"
+      } as never,
+      {
+        isClientAborted: () => false,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onDone: () => undefined
+      }
+    );
+
+    assert.equal(outcome.status, "completed");
+    assert.equal(nativeRuntimeCalls, 2);
+    assert.equal(compactionWaitCalls, 2);
+    assert.equal(outcome.transport?.assistantMessage.content, "recovered");
   });
 
   test("uses the admin-managed onboarding prompt for welcome stream turns", async () => {

@@ -1,5 +1,11 @@
 # SESSION-HANDOFF
 
+## Active execution umbrella — ADR-093
+
+Large-session hardening for **clean PROD launch with test users** (concurrency, isolation, evidence-first load proof) is specified in [`docs/ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md`](ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md). Use that ADR for **session scope, deploy policy, audit gates, and GPT-5.4 handoff prompts** — it does **not** replace product ADRs (087, 088, 092, etc.) but governs **how** this program is executed.
+
+---
+
 ## 2026-05-11 — ADR-087 deferred media enqueue guidance completion (LANDED)
 
 ### What landed in this session

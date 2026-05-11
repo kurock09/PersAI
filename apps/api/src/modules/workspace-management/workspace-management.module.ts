@@ -211,6 +211,7 @@ import { BackgroundSchedulerMetricsService } from "./application/background-sche
 import { PersaiBackgroundTaskSchedulerService } from "./application/persai-background-task-scheduler.service";
 import { PersaiIdleReengagementSchedulerService } from "./application/persai-idle-reengagement-scheduler.service";
 import { SchedulerLeaseService } from "./application/scheduler-lease.service";
+import { BackgroundCompactionQueueService } from "./application/background-compaction-queue.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
 import { MutateInternalRuntimeMonthlyMediaQuotaService } from "./application/mutate-internal-runtime-monthly-media-quota.service";
@@ -442,6 +443,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     HandleInternalCronFireService,
     BuildReminderContextSnapshotService,
     BackgroundSchedulerMetricsService,
+    BackgroundCompactionQueueService,
     PersaiScheduledActionSchedulerService,
     PersaiBackgroundCompactionSchedulerService,
     PersaiBackgroundTaskSchedulerService,

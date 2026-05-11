@@ -12,10 +12,7 @@ import type {
   AssistantChatSkillCadenceState,
   AssistantChatSkillDecisionState
 } from "../domain/assistant-chat.entity";
-import {
-  ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
-  type AssistantMaterializedSpecRepository
-} from "../domain/assistant-materialized-spec.repository";
+import type { Assistant } from "../domain/assistant.entity";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { AssistantRuntimeError } from "./assistant-runtime.facade";
 import { CompactNativeWebChatSessionService } from "./compact-native-web-chat-session.service";
@@ -23,6 +20,7 @@ import { ResolveNativeWebChatSessionStateService } from "./resolve-native-web-ch
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
+import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
 import type {
   AssistantWebChatActiveTurnState,
   AssistantWebChatActiveMediaJobState,
@@ -37,7 +35,8 @@ import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
   countRecentAutoCompactionStreak,
-  isCompactionExhaustedAtPlanLimit
+  isCompactionExhaustedAtPlanLimit,
+  isLatestAutoCompactionWeak
 } from "./compaction-advisory-state";
 
 export interface UpdateWebChatRequest {
@@ -95,8 +94,7 @@ export class ManageWebChatListService {
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
-    @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
-    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
+    private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
@@ -383,9 +381,11 @@ export class ManageWebChatListService {
       }),
       this.resolveEffectiveSharedCompactionConfig(assistant)
     ]);
-    const recentAutoCompactionStreak = await this.readRecentAutoCompactionStreak(
-      runtimeSessionState.session?.sessionId ?? null
-    );
+    const sessionId = runtimeSessionState.session?.sessionId ?? null;
+    const [recentAutoCompactionStreak, latestAutoCompactionWeak] = await Promise.all([
+      this.readRecentAutoCompactionStreak(sessionId),
+      this.readLatestAutoCompactionWeak({ sessionId })
+    ]);
     return this.buildCompactionState({
       messageCount,
       assistantMessageCount,
@@ -396,7 +396,8 @@ export class ManageWebChatListService {
       updatedAt: runtimeSessionState.session?.updatedAt ?? null,
       compactionConfig,
       totalTokensFresh: runtimeSessionState.session?.totalTokensFresh === true,
-      recentAutoCompactionStreak
+      recentAutoCompactionStreak,
+      latestAutoCompactionWeak
     });
   }
 
@@ -422,9 +423,11 @@ export class ManageWebChatListService {
       throw this.createCompactionUnavailableError();
     }
     const compactionConfig = await this.resolveEffectiveSharedCompactionConfig(assistant);
-    const recentAutoCompactionStreak = await this.readRecentAutoCompactionStreak(
-      result.session?.sessionId ?? null
-    );
+    const sessionId = result.session?.sessionId ?? null;
+    const [recentAutoCompactionStreak, latestAutoCompactionWeak] = await Promise.all([
+      this.readRecentAutoCompactionStreak(sessionId),
+      this.readLatestAutoCompactionWeak({ sessionId })
+    ]);
     const state = this.buildCompactionState({
       messageCount,
       assistantMessageCount,
@@ -436,6 +439,7 @@ export class ManageWebChatListService {
       compactionConfig,
       totalTokensFresh: result.session?.totalTokensFresh === true,
       recentAutoCompactionStreak,
+      latestAutoCompactionWeak,
       forceSuggestedFalse:
         result.compacted ||
         result.reason === "threshold_not_reached" ||
@@ -545,6 +549,7 @@ export class ManageWebChatListService {
     compactionConfig: EffectiveSharedCompactionConfig;
     totalTokensFresh: boolean;
     recentAutoCompactionStreak: number;
+    latestAutoCompactionWeak: boolean;
     forceSuggestedFalse?: boolean;
   }): AssistantWebChatCompactionState {
     const tokenThreshold = Math.max(
@@ -566,7 +571,8 @@ export class ManageWebChatListService {
         totalTokensFresh: input.totalTokensFresh,
         reserveTokens: input.compactionConfig.reserveTokens,
         autoCompactionEnabled: input.compactionConfig.autoCompactionEnabled,
-        recentAutoCompactionStreak: input.recentAutoCompactionStreak
+        recentAutoCompactionStreak: input.recentAutoCompactionStreak,
+        latestAutoCompactionWeak: input.latestAutoCompactionWeak
       }),
       recentAutoCompactionStreak: input.recentAutoCompactionStreak,
       messageCount: input.messageCount,
@@ -596,19 +602,37 @@ export class ManageWebChatListService {
     return countRecentAutoCompactionStreak(rows);
   }
 
-  private async resolveEffectiveSharedCompactionConfig(assistant: {
-    applyAppliedVersionId: string | null;
-  }): Promise<EffectiveSharedCompactionConfig> {
-    const publishedVersionId = assistant.applyAppliedVersionId?.trim() ?? "";
-    if (publishedVersionId.length === 0) {
-      throw new AssistantRuntimeError(
-        "runtime_degraded",
-        "Assistant applied published version is missing for shared compaction."
-      );
+  private async readLatestAutoCompactionWeak(input: {
+    sessionId: string | null;
+  }): Promise<boolean> {
+    if (input.sessionId === null) {
+      return false;
     }
+    const session = await this.prisma.runtimeSession.findUnique({
+      where: {
+        id: input.sessionId
+      },
+      select: {
+        currentTokens: true,
+        compactionHintTokens: true,
+        totalTokensFresh: true
+      }
+    });
+    if (session === null) {
+      return false;
+    }
+    return isLatestAutoCompactionWeak({
+      latestCompactionBaselineTokens: session.compactionHintTokens,
+      currentTokens: session.currentTokens,
+      totalTokensFresh: session.totalTokensFresh
+    });
+  }
 
+  private async resolveEffectiveSharedCompactionConfig(
+    assistant: Assistant
+  ): Promise<EffectiveSharedCompactionConfig> {
     const materializedSpec =
-      await this.assistantMaterializedSpecRepository.findByPublishedVersionId(publishedVersionId);
+      await this.ensureAssistantMaterializedSpecCurrentService.resolveCurrent(assistant);
     if (materializedSpec === null) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
@@ -617,7 +641,7 @@ export class ManageWebChatListService {
     }
 
     const sharedCompaction = this.readEffectiveSharedCompactionConfig(
-      materializedSpec.runtimeBundle
+      materializedSpec.runtimeBundleDocument
     );
     if (sharedCompaction === null) {
       throw new AssistantRuntimeError(

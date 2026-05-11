@@ -54,6 +54,8 @@ export class RenderAssistantInboundSurfaceMessageService {
         return "Requests are temporarily limited right now. Please try again in a moment.";
       case "runtime_timeout":
         return "The assistant took too long to respond. Please try again.";
+      case "native_runtime_conflict":
+        return "One previous response is still finishing. Please wait a moment and try again.";
       case "runtime_degraded":
       case "runtime_unreachable":
       case "runtime_auth_failure":

@@ -289,10 +289,10 @@ function createService(overrides?: {
       }
     } as never,
     {
-      findByPublishedVersionId: async (publishedVersionId: string) => {
-        assert.equal(publishedVersionId, "version-1");
+      resolveCurrent: async (assistant: { id: string }) => {
+        assert.equal(assistant.id, "assistant-1");
         return {
-          runtimeBundle: {
+          runtimeBundleDocument: {
             runtime: {
               sharedCompaction,
               contextHydration: {
@@ -362,6 +362,13 @@ function createService(overrides?: {
       getActiveTurnForChat: async () => null
     } as never,
     {
+      runtimeSession: {
+        findUnique: async () => ({
+          currentTokens: 12_000,
+          compactionHintTokens: 18_000,
+          totalTokensFresh: true
+        })
+      },
       runtimeSessionCompaction: {
         findMany: async () => []
       }

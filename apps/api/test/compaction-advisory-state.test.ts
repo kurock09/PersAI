@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildCompactionAdvisoryDedupeKey,
   DEFAULT_COMPACTION_ADVISORY_SUPPRESSION_MINUTES,
+  isLatestAutoCompactionWeak,
   isCompactionExhaustedAdvisoryPayload,
   isCompactionExhaustedAtPlanLimit,
   resolveCompactionAdvisorySuppressionMinutes
@@ -15,7 +16,8 @@ test("marks compaction exhausted only at plan limit with repeated auto-compactio
       totalTokensFresh: true,
       reserveTokens: 24_000,
       autoCompactionEnabled: true,
-      recentAutoCompactionStreak: 3
+      recentAutoCompactionStreak: 3,
+      latestAutoCompactionWeak: false
     }),
     true
   );
@@ -25,7 +27,8 @@ test("marks compaction exhausted only at plan limit with repeated auto-compactio
       totalTokensFresh: true,
       reserveTokens: 24_000,
       autoCompactionEnabled: true,
-      recentAutoCompactionStreak: 3
+      recentAutoCompactionStreak: 3,
+      latestAutoCompactionWeak: false
     }),
     false
   );
@@ -35,7 +38,60 @@ test("marks compaction exhausted only at plan limit with repeated auto-compactio
       totalTokensFresh: false,
       reserveTokens: 24_000,
       autoCompactionEnabled: true,
-      recentAutoCompactionStreak: 3
+      recentAutoCompactionStreak: 3,
+      latestAutoCompactionWeak: false
+    }),
+    false
+  );
+});
+
+test("treats repeated weak auto-compaction as exhausted even below the reserve line", () => {
+  assert.equal(
+    isLatestAutoCompactionWeak({
+      latestCompactionBaselineTokens: 11_144,
+      currentTokens: 9_612,
+      totalTokensFresh: true
+    }),
+    true
+  );
+  assert.equal(
+    isCompactionExhaustedAtPlanLimit({
+      currentTokens: 9_612,
+      totalTokensFresh: true,
+      reserveTokens: 24_000,
+      autoCompactionEnabled: true,
+      recentAutoCompactionStreak: 3,
+      latestAutoCompactionWeak: true
+    }),
+    true
+  );
+  assert.equal(
+    isCompactionExhaustedAtPlanLimit({
+      currentTokens: 9_612,
+      totalTokensFresh: true,
+      reserveTokens: 24_000,
+      autoCompactionEnabled: true,
+      recentAutoCompactionStreak: 2,
+      latestAutoCompactionWeak: true
+    }),
+    false
+  );
+});
+
+test("does not relabel a previously healthy compaction from stale later token growth", () => {
+  assert.equal(
+    isLatestAutoCompactionWeak({
+      latestCompactionBaselineTokens: 10_000,
+      currentTokens: 7_000,
+      totalTokensFresh: true
+    }),
+    false
+  );
+  assert.equal(
+    isLatestAutoCompactionWeak({
+      latestCompactionBaselineTokens: null,
+      currentTokens: 8_500,
+      totalTokensFresh: true
     }),
     false
   );

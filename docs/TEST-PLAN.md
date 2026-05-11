@@ -4,6 +4,16 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-093 clean PROD launch readiness — verification discipline
+
+When work is executed under [`docs/ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md`](ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md), verification is **not** “ship and hope”:
+
+1. **Deploy-bearing slices** — After cluster rollout, follow the ADR’s **agent kubectl / Argo** checklist and the session-specific **short human UI smoke** (2–5 checks). Do not substitute open-ended manual exploration for that list.
+2. **Intermediate audits** — Before starting the next ADR-093 session, run the five readonly audits in the ADR (code-cleanliness, legacy/tail, failure-model, deploy-truth, load/evidence). **Critical findings block** progression.
+3. **Load-proof gate** — Claims about concurrent-user ceilings require **saved** ladder output under `artifacts/sr10-loadtest/*.json` (see **SR10 load test** below and `scripts/loadtest/README.md`). Do not claim readiness above the highest **passing** profile with artifacts checked in or referenced from the session handoff.
+
+Repo checks below (lint, typecheck, etc.) still apply to every code change; ADR-093 adds **deploy discipline** and **evidence discipline** on top.
+
 ## Required repo checks
 
 Run these before calling a change clean:

@@ -2,6 +2,7 @@ import type { RuntimeSession } from "@prisma/client";
 
 export const MIN_AUTO_COMPACTION_STREAK_FOR_EXHAUSTION = 3;
 export const DEFAULT_COMPACTION_ADVISORY_SUPPRESSION_MINUTES = 60;
+export const MIN_EFFECTIVE_AUTO_COMPACTION_REDUCTION_RATIO = 0.2;
 
 export type RecentCompactionReasonRow = {
   reason: string | null;
@@ -32,12 +33,42 @@ export function countRecentAutoCompactionStreak(
   return streak;
 }
 
+export function isLatestAutoCompactionWeak(input: {
+  latestCompactionBaselineTokens: number | null;
+  currentTokens: number | null;
+  totalTokensFresh: boolean;
+  minReductionRatio?: number;
+}): boolean {
+  if (!input.totalTokensFresh || typeof input.currentTokens !== "number") {
+    return false;
+  }
+
+  if (typeof input.latestCompactionBaselineTokens !== "number") {
+    return false;
+  }
+
+  if (
+    input.latestCompactionBaselineTokens <= 0 ||
+    input.currentTokens >= input.latestCompactionBaselineTokens
+  ) {
+    return true;
+  }
+
+  const reductionRatio =
+    (input.latestCompactionBaselineTokens - input.currentTokens) /
+    input.latestCompactionBaselineTokens;
+  return (
+    reductionRatio < (input.minReductionRatio ?? MIN_EFFECTIVE_AUTO_COMPACTION_REDUCTION_RATIO)
+  );
+}
+
 export function isCompactionExhaustedAtPlanLimit(input: {
   currentTokens: number | null;
   totalTokensFresh: boolean;
   reserveTokens: number;
   autoCompactionEnabled: boolean;
   recentAutoCompactionStreak: number;
+  latestAutoCompactionWeak?: boolean;
 }): boolean {
   if (!input.autoCompactionEnabled) {
     return false;
@@ -48,7 +79,9 @@ export function isCompactionExhaustedAtPlanLimit(input: {
   if (typeof input.currentTokens !== "number") {
     return false;
   }
-  if (input.currentTokens < Math.max(1, input.reserveTokens)) {
+  const reachedPlanLimit = input.currentTokens >= Math.max(1, input.reserveTokens);
+  const compactionStalled = input.latestAutoCompactionWeak === true;
+  if (!reachedPlanLimit && !compactionStalled) {
     return false;
   }
   return input.recentAutoCompactionStreak >= MIN_AUTO_COMPACTION_STREAK_FOR_EXHAUSTION;

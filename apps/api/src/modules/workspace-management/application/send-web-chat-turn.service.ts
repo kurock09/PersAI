@@ -21,6 +21,7 @@ import type { AssistantWebChatTurnState } from "./web-chat.types";
 import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-turn.service";
 import {
   createAssistantInboundConflict,
+  toAssistantInboundFailurePayload,
   toAssistantInboundHttpException
 } from "./assistant-inbound-error";
 import { MediaDeliveryService } from "./media/media-delivery.service";
@@ -38,6 +39,7 @@ import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
+import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
@@ -163,7 +165,9 @@ export class SendWebChatTurnService {
     private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
     private readonly webChatTurnAttemptService?: WebChatTurnAttemptService,
     @Optional()
-    private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService
+    private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService,
+    @Optional()
+    private readonly backgroundCompactionQueueService?: BackgroundCompactionQueueService
   ) {}
 
   parseInput(payload: unknown): SendWebChatTurnRequest {
@@ -314,11 +318,31 @@ export class SendWebChatTurnService {
         ...(request.clientTurnId === undefined ? {} : { clientTurnId: request.clientTurnId })
       });
 
+      await this.backgroundCompactionQueueService?.waitForActiveThreadCompaction({
+        assistantId: prepared.assistantId,
+        channel: "web",
+        externalThreadKey: prepared.chat.surfaceThreadKey
+      });
+
       let runtimeResponse: AssistantRuntimeWebChatTurnResult;
       try {
         runtimeResponse = await this.sendNativeWebChatTurnService.execute(nativeTurnInput);
       } catch (error: unknown) {
-        throw toAssistantInboundHttpException(error);
+        if (
+          await this.shouldRetryAfterCompactionWait(
+            error,
+            prepared.assistantId,
+            prepared.chat.surfaceThreadKey
+          )
+        ) {
+          try {
+            runtimeResponse = await this.sendNativeWebChatTurnService.execute(nativeTurnInput);
+          } catch (retryError: unknown) {
+            throw toAssistantInboundHttpException(retryError);
+          }
+        } else {
+          throw toAssistantInboundHttpException(error);
+        }
       }
       if (runtimeResponse.runtimeTrace) {
         trace.attachExternalTrace(runtimeResponse.runtimeTrace);
@@ -849,6 +873,26 @@ export class SendWebChatTurnService {
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };
+  }
+
+  private async shouldRetryAfterCompactionWait(
+    error: unknown,
+    assistantId: string,
+    surfaceThreadKey: string
+  ): Promise<boolean> {
+    if (
+      this.backgroundCompactionQueueService === undefined ||
+      toAssistantInboundFailurePayload(error).code !== "native_runtime_conflict"
+    ) {
+      return false;
+    }
+
+    const waitResult = await this.backgroundCompactionQueueService.waitForActiveThreadCompaction({
+      assistantId,
+      channel: "web",
+      externalThreadKey: surfaceThreadKey
+    });
+    return waitResult.readyForRetry;
   }
 
   private logWebRuntimeRoute(input: {

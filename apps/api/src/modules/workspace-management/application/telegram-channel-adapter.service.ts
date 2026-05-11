@@ -146,6 +146,20 @@ function buildTelegramAutoCompactionNotice(locale: "ru" | "en"): string {
     : "Older context was auto-compacted after this reply to stay within your plan's context budget.";
 }
 
+function buildTelegramCompactionQueueNotice(
+  locale: "ru" | "en",
+  kind: "compacted" | "exhausted"
+): string {
+  if (kind === "exhausted") {
+    return locale === "ru"
+      ? "Я уже сжимаю этот чат слишком слабо. Лучше начать новый чат."
+      : "I am no longer shrinking this chat enough. It is better to start a new chat.";
+  }
+  return locale === "ru"
+    ? "Готово, контекст сжал. Продолжаем."
+    : "Done, I compacted the context. Let's continue.";
+}
+
 function buildTelegramNewSessionStartedReply(locale: "ru" | "en"): string {
   return locale === "ru"
     ? "Начала новый чат с чистым контекстом. Следующее сообщение продолжу уже в новой сессии."
@@ -783,6 +797,20 @@ export class TelegramChannelAdapterService {
         turnResult: outboundTurnResult,
         mediaAlreadyDelivered: deliveredAttachmentCount > 0,
         postReplyNotices: [
+          ...(typeof outboundTurnResult.compactionQueueNoticeKind === "string" &&
+          outboundTurnResult.compactionQueueNoticeKind.length > 0 &&
+          !(
+            outboundTurnResult.compactionQueueNoticeKind === "exhausted" &&
+            typeof outboundTurnResult.compactionAdvisoryFollowUpIntentId === "string" &&
+            outboundTurnResult.compactionAdvisoryFollowUpIntentId.length > 0
+          )
+            ? [
+                buildTelegramCompactionQueueNotice(
+                  config.locale,
+                  outboundTurnResult.compactionQueueNoticeKind
+                )
+              ]
+            : []),
           ...(outboundTurnResult.autoCompaction === undefined ||
           (typeof outboundTurnResult.compactionAdvisoryFollowUpIntentId === "string" &&
             outboundTurnResult.compactionAdvisoryFollowUpIntentId.length > 0)

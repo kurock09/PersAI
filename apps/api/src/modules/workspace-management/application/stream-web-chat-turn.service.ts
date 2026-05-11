@@ -55,6 +55,7 @@ import {
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
+import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 
 export interface StreamWebChatTurnPrepared {
@@ -193,7 +194,9 @@ export class StreamWebChatTurnService {
     private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
     private readonly webChatTurnAttemptService?: WebChatTurnAttemptService,
     @Optional()
-    private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService
+    private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService,
+    @Optional()
+    private readonly backgroundCompactionQueueService?: BackgroundCompactionQueueService
   ) {}
 
   async prepare(
@@ -364,9 +367,15 @@ export class StreamWebChatTurnService {
     const primaryRuntimeStartedAt = Date.now();
     let primaryFirstDeltaMs: number | null = null;
     const stallReports: CadenceWatchdogStallReport[] = [];
-    let lastAttemptStatus: "completed" | "client-aborted" | "stalled" = "completed";
+    let lastAttemptStatus: "completed" | "client-aborted" | "stalled" | "retry_after_compaction" =
+      "completed";
 
     try {
+      await this.backgroundCompactionQueueService?.waitForActiveThreadCompaction({
+        assistantId: prepared.assistantId,
+        channel: "web",
+        externalThreadKey: prepared.chat.surfaceThreadKey
+      });
       trace.stage("runtime_stream_requested");
 
       for (let attempt = 1; attempt <= WEB_TURN_MAX_STREAM_ATTEMPTS; attempt++) {
@@ -399,6 +408,16 @@ export class StreamWebChatTurnService {
 
         if (result.status === "completed" || result.status === "client-aborted") {
           break;
+        }
+
+        if (result.status === "retry_after_compaction") {
+          if (isLastAttempt) {
+            throw createAssistantInboundConflict(
+              "native_runtime_conflict",
+              "This web turn is already being processed."
+            );
+          }
+          continue;
         }
 
         // result.status === "stalled"
@@ -925,6 +944,26 @@ export class StreamWebChatTurnService {
     return this.streamNativeWebChatTurnService.execute(input.nativeTurnInput, options);
   }
 
+  private async shouldRetryAfterCompactionWait(
+    error: unknown,
+    assistantId: string,
+    surfaceThreadKey: string
+  ): Promise<boolean> {
+    if (
+      this.backgroundCompactionQueueService === undefined ||
+      toAssistantInboundFailurePayload(error).code !== "native_runtime_conflict"
+    ) {
+      return false;
+    }
+
+    const waitResult = await this.backgroundCompactionQueueService.waitForActiveThreadCompaction({
+      assistantId,
+      channel: "web",
+      externalThreadKey: surfaceThreadKey
+    });
+    return waitResult.readyForRetry;
+  }
+
   private async streamRuntimeAttempt(input: {
     attempt: number;
     isLastAttempt: boolean;
@@ -958,7 +997,7 @@ export class StreamWebChatTurnService {
     primaryFirstDeltaMs: number | null;
     onStallReport: (report: CadenceWatchdogStallReport) => void;
   }): Promise<{
-    status: "completed" | "client-aborted" | "stalled";
+    status: "completed" | "client-aborted" | "stalled" | "retry_after_compaction";
     accumulated: string;
     respondedAt: string | null;
     usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
@@ -1143,6 +1182,32 @@ export class StreamWebChatTurnService {
       ) {
         return {
           status: "stalled",
+          accumulated,
+          respondedAt,
+          usageAccounting,
+          turnRouting,
+          deferredMediaJobs,
+          collectedMedia,
+          primaryFirstDeltaMs,
+          toolEventCount,
+          stallReport: capturedStallReport
+        };
+      }
+      const safeToRetryAfterConflict =
+        accumulated.length === 0 &&
+        respondedAt === null &&
+        collectedMedia.length === 0 &&
+        toolEventCount === 0;
+      if (
+        safeToRetryAfterConflict &&
+        (await this.shouldRetryAfterCompactionWait(
+          error,
+          input.prepared.assistantId,
+          input.prepared.chat.surfaceThreadKey
+        ))
+      ) {
+        return {
+          status: "retry_after_compaction",
           accumulated,
           respondedAt,
           usageAccounting,

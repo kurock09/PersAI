@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { SendWebChatTurnService } from "../src/modules/workspace-management/application/send-web-chat-turn.service";
+import { createAssistantInboundConflict } from "../src/modules/workspace-management/application/assistant-inbound-error";
 
 function createOverviewLatencyTraceServiceMock() {
   return {
@@ -829,5 +830,243 @@ describe("SendWebChatTurnService", () => {
       String(quotaWrites[0]?.assistantContent ?? ""),
       /Поправка: файл не был реально доставлен в этот чат/
     );
+  });
+
+  test("retries sync web turn after waiting for active compaction conflict", async () => {
+    let nativeCalls = 0;
+    let compactionWaitCalls = 0;
+
+    const service = new SendWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:02.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        completeWebTurnProcessing: async () => undefined,
+        releaseWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async () => {
+          nativeCalls += 1;
+          if (nativeCalls === 1) {
+            throw createAssistantInboundConflict(
+              "native_runtime_conflict",
+              "Session is already processing another turn."
+            );
+          }
+          return {
+            assistantMessage: "Recovered web reply",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            media: []
+          };
+        }
+      } as never,
+      {
+        execute: async () => ({
+          chat: {
+            id: "chat-1",
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: "Chat",
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: "2026-04-05T12:00:00.000Z",
+            updatedAt: "2026-04-05T12:00:00.000Z"
+          },
+          userMessage: {
+            id: "user-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "hello after compaction",
+            attachments: [],
+            createdAt: "2026-04-05T12:00:00.000Z"
+          },
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "workspace-1"
+          },
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          quotaDegradeModelOverride: null,
+          quotaDegradeReason: null,
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          workspaceTimezone: "UTC"
+        })
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1"
+        })
+      } as never,
+      {
+        execute: async () => undefined
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      {
+        deliverIntentNow: async () => undefined
+      } as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never,
+      undefined,
+      undefined,
+      {
+        async waitForActiveThreadCompaction() {
+          compactionWaitCalls += 1;
+          return { waited: true, readyForRetry: true, noticeKind: "compacted" as const };
+        }
+      } as never
+    );
+
+    const result = await service.execute("user-1", {
+      surfaceThreadKey: "thread-1",
+      message: "hello after compaction"
+    });
+
+    assert.equal(nativeCalls, 2);
+    assert.equal(compactionWaitCalls, 2);
+    assert.equal(result.assistantMessage.content, "Recovered web reply");
+  });
+
+  test("does not retry sync web turn when compaction wait timed out", async () => {
+    let nativeCalls = 0;
+    let compactionWaitCalls = 0;
+
+    const service = new SendWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:02.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        completeWebTurnProcessing: async () => undefined,
+        releaseWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async () => {
+          nativeCalls += 1;
+          throw createAssistantInboundConflict(
+            "native_runtime_conflict",
+            "Session is already processing another turn."
+          );
+        }
+      } as never,
+      {
+        execute: async () => ({
+          chat: {
+            id: "chat-1",
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: "Chat",
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: "2026-04-05T12:00:00.000Z",
+            updatedAt: "2026-04-05T12:00:00.000Z"
+          },
+          userMessage: {
+            id: "user-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "hello after compaction timeout",
+            attachments: [],
+            createdAt: "2026-04-05T12:00:00.000Z"
+          },
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "workspace-1"
+          },
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          quotaDegradeModelOverride: null,
+          quotaDegradeReason: null,
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          workspaceTimezone: "UTC"
+        })
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1"
+        })
+      } as never,
+      {
+        execute: async () => undefined
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      {
+        deliverIntentNow: async () => undefined
+      } as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never,
+      undefined,
+      undefined,
+      {
+        async waitForActiveThreadCompaction() {
+          compactionWaitCalls += 1;
+          return {
+            waited: true,
+            readyForRetry: false,
+            noticeKind: null
+          };
+        }
+      } as never
+    );
+
+    await assert.rejects(
+      service.execute("user-1", {
+        surfaceThreadKey: "thread-1",
+        message: "hello after compaction timeout"
+      })
+    );
+
+    assert.equal(nativeCalls, 1);
+    assert.equal(compactionWaitCalls, 2);
   });
 });

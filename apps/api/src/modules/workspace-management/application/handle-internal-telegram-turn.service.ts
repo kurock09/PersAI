@@ -18,11 +18,16 @@ import {
   type AssistantChannelSurfaceBindingRepository
 } from "../domain/assistant-channel-surface-binding.repository";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
-import { SendNativeTelegramTurnService } from "./send-native-telegram-turn.service";
+import {
+  SendNativeTelegramTurnService,
+  type SendNativeTelegramTurnInput
+} from "./send-native-telegram-turn.service";
 import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
+import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
+import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
@@ -34,6 +39,7 @@ export interface InternalTelegramTurnResult {
   autoCompaction?: RuntimeTurnAutoCompactionState;
   quotaAdvisoryFollowUpIntentId?: string | null;
   compactionAdvisoryFollowUpIntentId?: string | null;
+  compactionQueueNoticeKind?: "compacted" | "exhausted" | null;
   deduplicated?: boolean;
 }
 
@@ -80,7 +86,9 @@ export class HandleInternalTelegramTurnService {
     @Optional()
     private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
     @Optional()
-    private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService
+    private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService,
+    @Optional()
+    private readonly backgroundCompactionQueueService?: BackgroundCompactionQueueService
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
@@ -232,33 +240,56 @@ export class HandleInternalTelegramTurnService {
         userId: chat.userId,
         chatId: chat.id
       });
-      const runtimeResponse = await this.sendNativeTelegramTurnService.execute(
-        {
+      const nativeTurnInput: SendNativeTelegramTurnInput = {
+        assistantId: resolved.assistantId,
+        publishedVersionId: resolved.publishedVersionId,
+        runtimeTier: resolved.runtimeTier,
+        workspaceId: resolved.workspaceId,
+        ...(quotaDecision.mode === "degrade_allowed" && resolved.quotaDegradeModelOverride
+          ? {
+              providerOverride: resolved.quotaDegradeModelOverride.provider,
+              modelOverride: resolved.quotaDegradeModelOverride.model
+            }
+          : {}),
+        threadId: input.threadId,
+        externalUserKey: input.externalUserKey,
+        mode: input.conversationMode,
+        userMessageId: userMessage.id,
+        userMessage: enrichedMessage,
+        attachments: runtimeAttachments,
+        ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
+        userTimezone: workspace.timezone,
+        currentTimeIso,
+        deepMode: defaultDeepModeEnabled
+      };
+      let queueWaitResult =
+        (await this.backgroundCompactionQueueService?.waitForActiveThreadCompaction({
           assistantId: resolved.assistantId,
-          publishedVersionId: resolved.publishedVersionId,
-          runtimeTier: resolved.runtimeTier,
-          workspaceId: resolved.workspaceId,
-          ...(quotaDecision.mode === "degrade_allowed" && resolved.quotaDegradeModelOverride
-            ? {
-                providerOverride: resolved.quotaDegradeModelOverride.provider,
-                modelOverride: resolved.quotaDegradeModelOverride.model
-              }
-            : {}),
-          threadId: input.threadId,
-          externalUserKey: input.externalUserKey,
-          mode: input.conversationMode,
-          userMessageId: userMessage.id,
-          userMessage: enrichedMessage,
-          attachments: runtimeAttachments,
-          ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
-          userTimezone: workspace.timezone,
-          currentTimeIso,
-          deepMode: defaultDeepModeEnabled
-        },
-        {
+          channel: "telegram",
+          externalThreadKey: input.threadId
+        })) ?? null;
+
+      let runtimeResponse: Awaited<ReturnType<SendNativeTelegramTurnService["execute"]>>;
+      try {
+        runtimeResponse = await this.sendNativeTelegramTurnService.execute(nativeTurnInput, {
           onTool: input.onRuntimeTool
+        });
+      } catch (error: unknown) {
+        const retryWaitResult = await this.waitForRetryAfterCompactionConflict(
+          error,
+          resolved.assistantId,
+          input.threadId
+        );
+        if (retryWaitResult === null || retryWaitResult.readyForRetry === false) {
+          throw error;
         }
-      );
+        if (retryWaitResult.noticeKind !== null) {
+          queueWaitResult = retryWaitResult;
+        }
+        runtimeResponse = await this.sendNativeTelegramTurnService.execute(nativeTurnInput, {
+          onTool: input.onRuntimeTool
+        });
+      }
       if (runtimeResponse.runtimeTrace) {
         trace.attachExternalTrace(runtimeResponse.runtimeTrace);
       }
@@ -311,7 +342,8 @@ export class HandleInternalTelegramTurnService {
           assistantMessageId,
           chatId: chat.id,
           workspaceId: resolved.workspaceId,
-          quotaAdvisoryFollowUpIntentId: null
+          quotaAdvisoryFollowUpIntentId: null,
+          compactionQueueNoticeKind: queueWaitResult?.noticeKind ?? null
         };
       }
 
@@ -377,7 +409,8 @@ export class HandleInternalTelegramTurnService {
         chatId: chat.id,
         workspaceId: resolved.workspaceId,
         quotaAdvisoryFollowUpIntentId: quotaAdvisoryFollowUp?.intentId ?? null,
-        compactionAdvisoryFollowUpIntentId: compactionAdvisoryFollowUp?.intentId ?? null
+        compactionAdvisoryFollowUpIntentId: compactionAdvisoryFollowUp?.intentId ?? null,
+        compactionQueueNoticeKind: queueWaitResult?.noticeKind ?? null
       };
     } catch (error) {
       if (claimedUpdateId !== null) {
@@ -421,8 +454,32 @@ export class HandleInternalTelegramTurnService {
       chatId: "",
       workspaceId: "",
       quotaAdvisoryFollowUpIntentId: null,
+      compactionQueueNoticeKind: null,
       deduplicated: true
     };
+  }
+
+  private async waitForRetryAfterCompactionConflict(
+    error: unknown,
+    assistantId: string,
+    threadId: string
+  ): Promise<{
+    waited: boolean;
+    readyForRetry: boolean;
+    noticeKind: "compacted" | "exhausted" | null;
+  } | null> {
+    if (
+      this.backgroundCompactionQueueService === undefined ||
+      toAssistantInboundFailurePayload(error).code !== "native_runtime_conflict"
+    ) {
+      return null;
+    }
+
+    return this.backgroundCompactionQueueService.waitForActiveThreadCompaction({
+      assistantId,
+      channel: "telegram",
+      externalThreadKey: threadId
+    });
   }
 
   private async releaseTelegramUpdateClaimBestEffort(

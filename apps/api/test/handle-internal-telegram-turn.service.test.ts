@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { HandleInternalTelegramTurnService } from "../src/modules/workspace-management/application/handle-internal-telegram-turn.service";
+import { createAssistantInboundConflict } from "../src/modules/workspace-management/application/assistant-inbound-error";
 
 type ClaimState = {
   telegramLastHandledUpdateId?: number;
@@ -787,6 +788,99 @@ async function run(): Promise<void> {
   assert.equal(releasedUpdateId, null);
   assert.equal(completionFailureBindingRepository.state.telegramLastHandledUpdateId, undefined);
   assert.equal(completionFailureBindingRepository.state.telegramActiveUpdateId, 113);
+
+  let retryingRuntimeCalls = 0;
+  let waitedForCompaction = 0;
+  const conflictRecoveryService = new HandleInternalTelegramTurnService(
+    createChatRepositoryMock() as never,
+    createBindingRepository() as never,
+    {
+      async enforceInboundTurn() {
+        return { mode: "allow" };
+      }
+    } as never,
+    {
+      async enforceAndRegisterAttempt() {
+        return undefined;
+      }
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return createResolvedAssistant();
+      }
+    } as never,
+    {
+      async recordInboundTurnUsage() {
+        return undefined;
+      }
+    } as never,
+    {
+      workspace: {
+        async findUnique() {
+          return { timezone: "UTC" };
+        }
+      }
+    } as never,
+    {
+      async resolve() {
+        throw new Error("attachments not expected");
+      }
+    } as never,
+    traceService as never,
+    {
+      async execute() {
+        retryingRuntimeCalls += 1;
+        if (retryingRuntimeCalls === 1) {
+          throw createAssistantInboundConflict(
+            "native_runtime_conflict",
+            "Session is already processing another turn."
+          );
+        }
+        return {
+          assistantMessage: "Recovered after compaction",
+          respondedAt: "2026-04-06T00:00:06.000Z",
+          media: []
+        };
+      }
+    } as never,
+    {
+      async assertRuntimeReadable() {
+        return undefined;
+      }
+    } as never,
+    {
+      async listOpenJobsForChatContext() {
+        return [];
+      },
+      async attachAcknowledgementMessageId() {
+        return 0;
+      }
+    } as never,
+    undefined,
+    undefined,
+    {
+      async waitForActiveThreadCompaction() {
+        waitedForCompaction += 1;
+        return {
+          waited: true,
+          readyForRetry: true,
+          noticeKind: waitedForCompaction === 1 ? null : ("compacted" as const)
+        };
+      }
+    } as never
+  );
+  const recoveredAfterCompactionConflict = await conflictRecoveryService.execute({
+    assistantId: "assistant-1",
+    threadId: "chat-1",
+    conversationMode: "direct",
+    externalUserKey: "telegram-user-1",
+    message: "retry after compaction",
+    updateId: 114
+  });
+  assert.equal(retryingRuntimeCalls, 2);
+  assert.equal(waitedForCompaction, 2);
+  assert.equal(recoveredAfterCompactionConflict.assistantMessage, "Recovered after compaction");
+  assert.equal(recoveredAfterCompactionConflict.compactionQueueNoticeKind, "compacted");
 }
 
 void run();

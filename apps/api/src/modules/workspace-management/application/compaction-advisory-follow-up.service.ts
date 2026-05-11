@@ -11,6 +11,7 @@ import {
   countRecentAutoCompactionStreak,
   isCompactionExhaustedAdvisoryPayload,
   isCompactionExhaustedAtPlanLimit,
+  isLatestAutoCompactionWeak,
   resolveCompactionAdvisorySuppressionMinutes
 } from "./compaction-advisory-state";
 
@@ -33,6 +34,7 @@ type CompactionAdvisoryState = {
   reserveTokens: number;
   autoCompactionEnabled: boolean;
   recentAutoCompactionStreak: number;
+  latestAutoCompactionWeak: boolean;
 };
 
 export type CompactionAdvisoryFollowUpResult = {
@@ -275,6 +277,7 @@ export class CompactionAdvisoryFollowUpService {
       select: {
         id: true,
         currentTokens: true,
+        compactionHintTokens: true,
         totalTokensFresh: true,
         compactionCount: true,
         updatedAt: true
@@ -296,9 +299,26 @@ export class CompactionAdvisoryFollowUpService {
       select: { reason: true }
     });
     const recentAutoCompactionStreak = countRecentAutoCompactionStreak(recentCompactions);
+    const latestAutoCompactionWeak = isLatestAutoCompactionWeak({
+      latestCompactionBaselineTokens: session.compactionHintTokens,
+      currentTokens: session.currentTokens,
+      totalTokensFresh: session.totalTokensFresh
+    });
     if (recentAutoCompactionStreak >= 2) {
       this.logger.log({
         event: "compaction.repeated_auto_detected",
+        assistantId: input.assistantId,
+        surface: input.surface,
+        surfaceThreadKey: input.surfaceThreadKey,
+        sessionId: session.id,
+        currentTokens: session.currentTokens,
+        reserveTokens: config.reserveTokens,
+        recentAutoCompactionStreak
+      });
+    }
+    if (latestAutoCompactionWeak) {
+      this.logger.log({
+        event: "compaction.weak_auto_detected",
         assistantId: input.assistantId,
         surface: input.surface,
         surfaceThreadKey: input.surfaceThreadKey,
@@ -326,7 +346,8 @@ export class CompactionAdvisoryFollowUpService {
         totalTokensFresh: session.totalTokensFresh,
         reserveTokens: config.reserveTokens,
         autoCompactionEnabled: config.autoCompactionEnabled,
-        recentAutoCompactionStreak
+        recentAutoCompactionStreak,
+        latestAutoCompactionWeak
       })
     ) {
       return null;
@@ -346,7 +367,8 @@ export class CompactionAdvisoryFollowUpService {
       currentTokens: session.currentTokens,
       reserveTokens: config.reserveTokens,
       autoCompactionEnabled: config.autoCompactionEnabled,
-      recentAutoCompactionStreak
+      recentAutoCompactionStreak,
+      latestAutoCompactionWeak
     };
   }
 

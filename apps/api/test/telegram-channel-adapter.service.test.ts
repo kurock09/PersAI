@@ -465,3 +465,153 @@ test("uses rotated telegram session key for the next inbound turn after /new", a
   assert.equal(runtimeThreadIds.length, 1);
   assert.equal(runtimeThreadIds[0], `telegram:12345:session:${rotatedSessionKey}`);
 });
+
+test("passes compaction queue notice as a post-reply notice instead of sending a separate pre-reply text", async () => {
+  let sendPlainTextCalls = 0;
+  let capturedPostReplyNotices: string[] | null = null;
+
+  const service = new TelegramChannelAdapterService(
+    {
+      async resolveByAssistantId() {
+        return {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          locale: "ru",
+          botToken: "bot-token",
+          botUserId: 555,
+          botUsername: "test_bot",
+          inbound: true,
+          outbound: true,
+          groupReplyMode: "mention_reply",
+          parseMode: "plain_text",
+          defaultDeepModeEnabled: false,
+          accessMode: "owner_only",
+          ownerClaimStatus: "claimed",
+          ownerClaimCode: null,
+          ownerClaimCodeExpiresAt: null,
+          ownerTelegramUserId: 777,
+          ownerTelegramUsername: "alex",
+          ownerTelegramChatId: "12345",
+          sessionThreadKey: "default_session",
+          runtimeHealth: "ok",
+          webhookSecret: "secret-1"
+        };
+      }
+    } as never,
+    {
+      async sendPlainText() {
+        sendPlainTextCalls += 1;
+      },
+      async sendAssistantTurnReply(params: { postReplyNotices?: string[] }) {
+        capturedPostReplyNotices = params.postReplyNotices ?? [];
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          assistantMessage: "reply",
+          respondedAt: "2026-05-11T10:00:00.000Z",
+          media: [],
+          assistantMessageId: "assistant-msg-1",
+          chatId: "chat-1",
+          workspaceId: "workspace-1",
+          quotaAdvisoryFollowUpIntentId: null,
+          compactionAdvisoryFollowUpIntentId: null,
+          compactionQueueNoticeKind: "compacted" as const
+        };
+      }
+    } as never,
+    {
+      async markUndeliveredArtifactsReconciliationRequired() {
+        return undefined;
+      },
+      async deliver() {
+        return undefined;
+      }
+    } as never,
+    {
+      async execute() {
+        return undefined;
+      }
+    } as never,
+    {
+      async execute() {
+        return undefined;
+      }
+    } as never,
+    {
+      renderError() {
+        return { text: "error" };
+      }
+    } as never,
+    {
+      async deliverIntentNow() {
+        return undefined;
+      }
+    } as never,
+    {
+      async listChatsByAssistantId() {
+        return [];
+      },
+      async updateMessageContent() {
+        return null;
+      }
+    } as never,
+    {
+      async findByAssistantProviderSurface() {
+        return {
+          id: "binding-1",
+          assistantId: "assistant-1",
+          providerKey: "telegram",
+          surfaceType: "telegram_bot",
+          bindingState: "active",
+          tokenFingerprint: null,
+          tokenLastFour: null,
+          policy: null,
+          config: null,
+          metadata: {
+            telegramOwnerClaimStatus: "claimed",
+            telegramOwnerTelegramUserId: 777,
+            telegramOwnerTelegramChatId: "12345",
+            telegramSessionThreadKey: "default_session"
+          },
+          connectedAt: null,
+          disconnectedAt: null,
+          createdAt: new Date("2026-05-01T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-01T00:00:00.000Z")
+        };
+      },
+      async claimTelegramUpdateProcessing() {
+        return "claimed" as const;
+      },
+      async completeTelegramUpdateProcessing() {
+        return undefined;
+      },
+      async releaseTelegramUpdateProcessing() {
+        return undefined;
+      },
+      async patchMetadata() {
+        return undefined;
+      },
+      async hasActiveBindingForProvider() {
+        return true;
+      }
+    } as never
+  );
+
+  await service.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "secret-1",
+    payload: {
+      update_id: 301,
+      message: {
+        text: "hello",
+        chat: { id: 12345, type: "private" },
+        from: { id: 777, username: "alex" }
+      }
+    }
+  });
+
+  assert.equal(sendPlainTextCalls, 0);
+  assert.deepEqual(capturedPostReplyNotices, ["Готово, контекст сжал. Продолжаем."]);
+});
