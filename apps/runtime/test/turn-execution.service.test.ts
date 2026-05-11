@@ -1150,15 +1150,18 @@ class FakeTurnContextHydrationService {
 class FakeTurnFinalizationService {
   completed: Array<{ acceptedTurn: AcceptedRuntimeTurn; result: RuntimeTurnResult }> = [];
   failed: Array<{ acceptedTurn: AcceptedRuntimeTurn; code: string; message: string }> = [];
+  completedFinalizedSession: FinalizedRuntimeTurn["session"] | null = null;
+  eventLog: string[] = [];
 
   async completeAcceptedTurn(
     acceptedTurn: AcceptedRuntimeTurn,
     result: RuntimeTurnResult
   ): Promise<FinalizedRuntimeTurn> {
+    this.eventLog.push("completeAcceptedTurn");
     this.completed.push({ acceptedTurn, result });
     return {
       receiptStatus: "completed",
-      session: acceptedTurn.session,
+      session: this.completedFinalizedSession ?? acceptedTurn.session,
       leaseReleased: true
     };
   }
@@ -1167,6 +1170,7 @@ class FakeTurnFinalizationService {
     acceptedTurn: AcceptedRuntimeTurn,
     event: { code: string; message: string }
   ): Promise<FinalizedRuntimeTurn> {
+    this.eventLog.push("failAcceptedTurn");
     this.failed.push({ acceptedTurn, code: event.code, message: event.message });
     return {
       receiptStatus: "failed",
@@ -1535,8 +1539,10 @@ class FakePersaiInternalApiClientService {
   }
 
   enqueueBackgroundCompactionCalls: Array<Record<string, unknown>> = [];
+  eventLog: string[] = [];
 
   async enqueueBackgroundCompaction(input: Record<string, unknown>): Promise<void> {
+    this.eventLog.push("enqueueBackgroundCompaction");
     this.enqueueBackgroundCompactionCalls.push(input);
   }
 }
@@ -3833,9 +3839,37 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.runtime.contextHydration.autoCompactionWeb = true;
   }
+  turnFinalizationService.completedFinalizedSession = {
+    ...(turnAcceptanceService.result as AcceptedRuntimeTurn).session,
+    currentTokens: 33,
+    totalTokensFresh: true
+  };
+  const enqueueCallsBeforeBelowThreshold =
+    persaiInternalApiClientService.enqueueBackgroundCompactionCalls.length;
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
+  turnFinalizationService.completedFinalizedSession = {
+    ...(turnAcceptanceService.result as AcceptedRuntimeTurn).session,
+    currentTokens: 33,
+    totalTokensFresh: true
+  };
+  await service.createTurn(request);
+  await flushTaskQueue();
+  assert.equal(
+    persaiInternalApiClientService.enqueueBackgroundCompactionCalls.length,
+    enqueueCallsBeforeBelowThreshold,
+    "post-turn compaction must not enqueue before the configured token threshold is reached"
+  );
+
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  turnFinalizationService.completedFinalizedSession = {
+    ...(turnAcceptanceService.result as AcceptedRuntimeTurn).session,
+    currentTokens: 9_000,
+    totalTokensFresh: true
+  };
   const webAutoCompactionCompleted = await service.createTurn(request);
   assert.equal(webAutoCompactionCompleted.assistantText, "override reply");
   await flushTaskQueue();
@@ -3873,6 +3907,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).session.conversation = {
     ...telegramRequest.conversation
   };
+  turnFinalizationService.completedFinalizedSession = {
+    ...(turnAcceptanceService.result as AcceptedRuntimeTurn).session,
+    conversation: {
+      ...telegramRequest.conversation
+    },
+    currentTokens: 9_000,
+    totalTokensFresh: true
+  };
   const telegramCompleted = await service.createTurn(telegramRequest);
   assert.equal(telegramCompleted.assistantText, "override reply");
   await flushTaskQueue();
@@ -3897,6 +3939,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).session.conversation = {
     ...telegramRequest.conversation
   };
+  turnFinalizationService.completedFinalizedSession = {
+    ...(turnAcceptanceService.result as AcceptedRuntimeTurn).session,
+    conversation: {
+      ...telegramRequest.conversation
+    },
+    currentTokens: 9_000,
+    totalTokensFresh: true
+  };
   const enqueueCallsBeforeTelegramOff =
     persaiInternalApiClientService.enqueueBackgroundCompactionCalls.length;
   await service.createTurn(telegramRequest);
@@ -3909,6 +3959,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.runtime.contextHydration.autoCompactionTelegram = true;
   }
+  turnFinalizationService.completedFinalizedSession = null;
 
   const providerCallsBeforeManualDurableCompaction = providerGatewayClient.calls.length;
   const compactionCallsBeforeManualDurableCompaction = sessionCompactionService.calls.length;

@@ -116,9 +116,13 @@ class FakeWorkspaceManagementPrismaService {
         return this.rows
           .filter(
             (row) =>
-              row.status === "pending" &&
+              (row.status === "pending" ||
+                (row.status === "in_progress" &&
+                  (row.schedulerClaimExpiresAt?.getTime() ?? Number.MAX_SAFE_INTEGER) <= now) ||
+                (row.status === "in_progress" && (row.schedulerClaimEpoch ?? 0) < epoch)) &&
               (row.retryAfterAt === null || row.retryAfterAt.getTime() <= now) &&
-              (row.schedulerClaimExpiresAt === null ||
+              (row.status === "pending" ||
+                row.schedulerClaimExpiresAt === null ||
                 row.schedulerClaimExpiresAt.getTime() <= now ||
                 (row.schedulerClaimEpoch ?? 0) < epoch)
           )
@@ -323,6 +327,7 @@ async function runRetryableFailureSchedulesRetry(): Promise<void> {
   assert.ok(row.retryAfterAt instanceof Date);
   assert.ok((row.retryAfterAt?.getTime() ?? 0) > Date.now());
   assert.equal(row.attemptCount, 1);
+  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1");
 }
 
 async function runNonRetryableFailureMarksFailed(): Promise<void> {
@@ -410,6 +415,7 @@ async function runEpochChangedReleasesClaim(): Promise<void> {
   assert.equal(row.schedulerClaimEpoch, null);
   assert.equal(row.lastErrorCode, "epoch_changed");
   assert.equal(row.attemptCount, 0);
+  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1");
 }
 
 async function runStaleClaimReclaimedAfterTtl(): Promise<void> {
@@ -422,6 +428,43 @@ async function runStaleClaimReclaimedAfterTtl(): Promise<void> {
     attemptCount: 1
   });
   const prisma = new FakeWorkspaceManagementPrismaService([stale], () => epochs.currentEpoch);
+  const client = new FakeInternalRuntimeCompactionClientService();
+  client.outcomes.push({
+    ok: true,
+    result: {
+      compacted: true,
+      reason: null,
+      toolResult: { ok: true, value: { compacted: true } }
+    } as never
+  });
+  const service = createScheduler(prisma, epochs, client);
+
+  const processed = await service.processDueJobsBatch();
+
+  assert.equal(processed, 1);
+  assert.equal(client.calls.length, 1);
+  const row = prisma.rows[0]!;
+  assert.equal(row.status, "completed");
+  assert.equal(row.attemptCount, 2);
+}
+
+async function runExpiredInProgressClaimGetsReclaimed(): Promise<void> {
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService(
+    [
+      makeRow({
+        id: "job-expired",
+        status: "in_progress",
+        pendingDedupeKey: null,
+        schedulerClaimToken: "stale-token",
+        schedulerClaimEpoch: 3,
+        schedulerClaimedAt: new Date(Date.now() - 10 * 60_000),
+        schedulerClaimExpiresAt: new Date(Date.now() - 60_000),
+        attemptCount: 1
+      })
+    ],
+    () => epochs.currentEpoch
+  );
   const client = new FakeInternalRuntimeCompactionClientService();
   client.outcomes.push({
     ok: true,
@@ -456,6 +499,32 @@ async function runUnexpectedThrowMarksRetryable(): Promise<void> {
   assert.equal(row.status, "pending");
   assert.equal(row.lastErrorCode, "scheduler_internal_error");
   assert.ok(row.retryAfterAt instanceof Date);
+  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1");
+}
+
+async function runRuntimeBusyDefersAndRestoresDedupe(): Promise<void> {
+  const epochs = new FakeBumpConfigGenerationService(3);
+  const prisma = new FakeWorkspaceManagementPrismaService([makeRow()], () => epochs.currentEpoch);
+  const client = new FakeInternalRuntimeCompactionClientService();
+  client.outcomes.push({
+    ok: false,
+    deferred: true,
+    status: 409,
+    code: "runtime_session_busy",
+    message: "Background-task runtime session is busy; evaluation deferred."
+  });
+  const service = createScheduler(prisma, epochs, client);
+
+  const processed = await service.processDueJobsBatch();
+
+  assert.equal(processed, 1);
+  const row = prisma.rows[0]!;
+  assert.equal(row.status, "pending");
+  assert.equal(row.lastErrorCode, "runtime_session_busy");
+  assert.equal(row.lastErrorMessage, "Deferred: runtime session busy.");
+  assert.ok(row.retryAfterAt instanceof Date);
+  assert.equal(row.attemptCount, 0);
+  assert.equal(row.pendingDedupeKey, "assistant-1:web:thread-1");
 }
 
 async function runTickSkipsWhenAnotherLeaderOwnsLease(): Promise<void> {
@@ -581,7 +650,9 @@ async function run(): Promise<void> {
   await runRetryableFailureExhaustionMarksFailed();
   await runEpochChangedReleasesClaim();
   await runStaleClaimReclaimedAfterTtl();
+  await runExpiredInProgressClaimGetsReclaimed();
   await runUnexpectedThrowMarksRetryable();
+  await runRuntimeBusyDefersAndRestoresDedupe();
   await runTickSkipsWhenAnotherLeaderOwnsLease();
   await runTickAbortsDrainWhenLeaseLost();
   await runRuntimeTimeoutDefersJobAndDrainContinuesWithoutLeaseLoss();

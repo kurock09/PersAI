@@ -279,8 +279,10 @@ async function run(): Promise<void> {
   assert.equal(completed.assistantMessage, "Telegram reply");
   assert.equal(concurrentRuntimeCalls, 1);
   assert.equal(concurrentUsageCalls, 1);
-  assert.equal(concurrentBindingRepository.state.telegramLastHandledUpdateId, 77);
-  assert.equal(concurrentBindingRepository.state.telegramActiveUpdateId, undefined);
+  // The internal turn service now leaves the update claim open until the outer
+  // Telegram adapter confirms the reply was actually delivered to the user.
+  assert.equal(concurrentBindingRepository.state.telegramLastHandledUpdateId, undefined);
+  assert.equal(concurrentBindingRepository.state.telegramActiveUpdateId, 77);
 
   const releasedBindingRepository = createBindingRepository();
   let releaseRuntimeCalls = 0;
@@ -371,7 +373,8 @@ async function run(): Promise<void> {
   });
   assert.equal(recovered.assistantMessage, "Recovered reply");
   assert.equal(releaseRuntimeCalls, 2);
-  assert.equal(releasedBindingRepository.state.telegramLastHandledUpdateId, 88);
+  assert.equal(releasedBindingRepository.state.telegramLastHandledUpdateId, undefined);
+  assert.equal(releasedBindingRepository.state.telegramActiveUpdateId, 88);
 
   const mediaBindingRepository = createBindingRepository();
   const mediaChatRepository = createChatRepositoryMock();
@@ -618,8 +621,8 @@ async function run(): Promise<void> {
   assert.equal(recoveredAfterAssistantSaveFailure.assistantMessageId, "");
   assert.deepEqual(recoveredAfterAssistantSaveFailure.media, []);
   assert.equal(persistenceFailureUsageCalls, 0);
-  assert.equal(persistenceFailureBindingRepository.state.telegramLastHandledUpdateId, 111);
-  assert.equal(persistenceFailureBindingRepository.state.telegramActiveUpdateId, undefined);
+  assert.equal(persistenceFailureBindingRepository.state.telegramLastHandledUpdateId, undefined);
+  assert.equal(persistenceFailureBindingRepository.state.telegramActiveUpdateId, 111);
 
   const quotaFailureBindingRepository = createBindingRepository();
   const quotaFailureChatRepository = createChatRepositoryMock();
@@ -696,8 +699,8 @@ async function run(): Promise<void> {
   assert.equal(recoveredAfterQuotaFailure.assistantMessage, "Completed despite quota failure");
   assert.equal(recoveredAfterQuotaFailure.assistantMessageId, "message-2");
   assert.equal(quotaFailureUsageCalls, 1);
-  assert.equal(quotaFailureBindingRepository.state.telegramLastHandledUpdateId, 112);
-  assert.equal(quotaFailureBindingRepository.state.telegramActiveUpdateId, undefined);
+  assert.equal(quotaFailureBindingRepository.state.telegramLastHandledUpdateId, undefined);
+  assert.equal(quotaFailureBindingRepository.state.telegramActiveUpdateId, 112);
 
   let releasedUpdateId: number | null = null;
   const completionFailureBindingRepository = createBindingRepository(
@@ -781,9 +784,9 @@ async function run(): Promise<void> {
     recoveredAfterCompletionFailure.assistantMessage,
     "Completed despite completion failure"
   );
-  assert.equal(releasedUpdateId, 113);
+  assert.equal(releasedUpdateId, null);
   assert.equal(completionFailureBindingRepository.state.telegramLastHandledUpdateId, undefined);
-  assert.equal(completionFailureBindingRepository.state.telegramActiveUpdateId, undefined);
+  assert.equal(completionFailureBindingRepository.state.telegramActiveUpdateId, 113);
 }
 
 void run();

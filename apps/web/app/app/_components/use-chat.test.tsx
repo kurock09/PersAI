@@ -56,6 +56,8 @@ describe("useChat", () => {
       available: boolean;
       suggested: boolean;
       suggestionReason: "token_threshold" | "history_threshold" | null;
+      exhaustedAtPlanLimit: boolean;
+      recentAutoCompactionStreak: number;
       messageCount: number;
       assistantMessageCount: number;
       currentTokens: number | null;
@@ -71,6 +73,8 @@ describe("useChat", () => {
       available: true,
       suggested: false,
       suggestionReason: null,
+      exhaustedAtPlanLimit: false,
+      recentAutoCompactionStreak: 0,
       messageCount: 12,
       assistantMessageCount: 6,
       currentTokens: 7_800,
@@ -2851,6 +2855,122 @@ describe("useChat", () => {
       expect(result.current.messages.map((message) => message.id)).toEqual([
         "server-user-1",
         "server-assistant-1"
+      ]);
+    });
+
+    it("retryPendingSend keeps a completed follow-up assistant message when the server turn already finished", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockRejectedValueOnce(
+        new TypeError("fetch failed")
+      );
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+        status: "completed",
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          deepModeEnabled: false,
+          archivedAt: null,
+          lastMessageAt: "2026-04-14T10:00:02.000Z",
+          createdAt: "2026-04-14T10:00:00.000Z",
+          updatedAt: "2026-04-14T10:00:02.000Z"
+        },
+        userMessage: {
+          id: "server-user-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "retry me",
+          attachments: [],
+          createdAt: "2026-04-14T10:00:00.000Z"
+        },
+        assistantMessage: {
+          id: "server-assistant-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "already saved",
+          attachments: [],
+          createdAt: "2026-04-14T10:00:01.000Z"
+        },
+        followUpAssistantMessage: {
+          id: "follow-up-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "Please start a new chat.",
+          attachments: [],
+          createdAt: "2026-04-14T10:00:02.000Z"
+        },
+        currentActivity: null,
+        runtime: {
+          respondedAt: "2026-04-14T10:00:01.000Z",
+          degradedByQuotaFallback: false,
+          quotaFallbackReason: null,
+          quotaFallbackModel: null
+        },
+        error: null
+      });
+      assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+        nextCursor: null,
+        activeMediaJobs: [],
+        messages: [
+          {
+            id: "server-user-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "retry me",
+            attachments: [],
+            createdAt: "2026-04-14T10:00:00.000Z"
+          },
+          {
+            id: "server-assistant-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "already saved",
+            attachments: [],
+            createdAt: "2026-04-14T10:00:01.000Z"
+          },
+          {
+            id: "follow-up-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "Please start a new chat.",
+            attachments: [],
+            createdAt: "2026-04-14T10:00:02.000Z"
+          }
+        ]
+      });
+      assistantApiMocks.getChatCompactionState.mockResolvedValueOnce(createCompactionState());
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("retry me");
+      });
+      expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
+
+      await act(async () => {
+        await result.current.retryPendingSend();
+      });
+
+      expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledTimes(1);
+      expect(assistantApiMocks.getChatMessages).toHaveBeenCalledWith(
+        "token-1",
+        "chat-1",
+        undefined,
+        20
+      );
+      expect(assistantApiMocks.getChatCompactionState).toHaveBeenCalledWith("token-1", "chat-1");
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(result.current.messages.map((message) => message.id)).toEqual([
+        "server-user-1",
+        "server-assistant-1",
+        "follow-up-1"
       ]);
     });
 

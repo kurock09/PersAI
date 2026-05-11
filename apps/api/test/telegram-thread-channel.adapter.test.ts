@@ -156,6 +156,41 @@ async function run(): Promise<void> {
     console.log("✓ deliver: 4xx response → status=failed, error present");
   }
 
+  // 2.1 Runtime thread key should resolve to the underlying Telegram chat id.
+  {
+    const fetchCalls: Array<{ url: string; body: unknown }> = [];
+    const originalFetch = global.fetch;
+    (global as Record<string, unknown>)["fetch"] = async (url: string, opts: { body: string }) => {
+      fetchCalls.push({ url, body: JSON.parse(opts.body) });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, result: { message_id: 1001 } })
+      };
+    };
+
+    const adapter = new TelegramThreadChannelAdapter(
+      makeSecretStore("bot-token-123") as never,
+      makePrisma(null) as never
+    );
+
+    const result = await adapter.deliver(
+      makeIntent({ surfaceThreadKey: "telegram:54321:session:rotated-session" }) as never,
+      makeRenderedPayload(),
+      makeChannelConfig()
+    );
+
+    (global as Record<string, unknown>)["fetch"] = originalFetch;
+
+    assert.equal(result.status, "delivered", "runtime thread key should still deliver");
+    assert.equal(
+      (fetchCalls[0]?.body as Record<string, unknown>)?.chat_id,
+      "54321",
+      "adapter should unwrap runtime thread key back to Telegram chat id"
+    );
+    console.log("✓ deliver: runtime thread key resolves to Telegram chat id");
+  }
+
   // 3. Network fetch rejection → status: "failed"
   {
     const originalFetch = global.fetch;

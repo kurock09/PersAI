@@ -360,6 +360,11 @@ function createService(overrides?: {
     } as never,
     {
       getActiveTurnForChat: async () => null
+    } as never,
+    {
+      runtimeSessionCompaction: {
+        findMany: async () => []
+      }
     } as never
   );
 
@@ -450,6 +455,8 @@ describe("ManageWebChatListService", () => {
         available: true,
         suggested: false,
         suggestionReason: null,
+        exhaustedAtPlanLimit: false,
+        recentAutoCompactionStreak: 0,
         messageCount: 24,
         assistantMessageCount: 12,
         currentTokens: 18_250,
@@ -496,6 +503,8 @@ describe("ManageWebChatListService", () => {
       available: true,
       suggested: true,
       suggestionReason: "token_threshold",
+      exhaustedAtPlanLimit: false,
+      recentAutoCompactionStreak: 0,
       messageCount: 24,
       assistantMessageCount: 12,
       currentTokens: 18_250,
@@ -535,6 +544,8 @@ describe("ManageWebChatListService", () => {
       available: true,
       suggested: false,
       suggestionReason: null,
+      exhaustedAtPlanLimit: false,
+      recentAutoCompactionStreak: 0,
       messageCount: 24,
       assistantMessageCount: 12,
       currentTokens: null,

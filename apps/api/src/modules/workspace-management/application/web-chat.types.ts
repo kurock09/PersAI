@@ -146,6 +146,8 @@ export interface AssistantWebChatCompactionState {
   available: boolean;
   suggested: boolean;
   suggestionReason: "token_threshold" | "history_threshold" | null;
+  exhaustedAtPlanLimit: boolean;
+  recentAutoCompactionStreak: number;
   messageCount: number;
   assistantMessageCount: number;
   currentTokens: number | null;

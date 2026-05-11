@@ -1466,19 +1466,28 @@ export class TurnExecutionService {
     bundle: AssistantRuntimeBundle;
     turnState: TurnExecutionState;
   }): Promise<RuntimeTurnResult> {
-    // ADR-074 Slice M2 — auto-compaction is now off-band: we hand it to the
-    // API-side scheduler and complete the user turn immediately. The next
-    // turn will see the rolling synopsis the scheduler produced. We never
-    // block on the enqueue itself; failures are logged inside the client.
-    this.fireBackgroundCompactionEnqueue(input.input, input.bundle, input.turnState);
-    await this.turnFinalizationService.completeAcceptedTurn(input.acceptedTurn, input.result);
+    const finalizedTurn = await this.turnFinalizationService.completeAcceptedTurn(
+      input.acceptedTurn,
+      input.result
+    );
+    // ADR-074 Slice M2 — auto-compaction is off-band, but we only enqueue it
+    // after the user turn is durably finalized and its lease is released.
+    // This keeps the background pass from competing with the just-finished
+    // foreground turn and lets the scheduler read the latest token counters.
+    this.fireBackgroundCompactionEnqueue(
+      input.input,
+      input.bundle,
+      input.turnState,
+      finalizedTurn.session
+    );
     return input.result;
   }
 
   private fireBackgroundCompactionEnqueue(
     input: RuntimeTurnRequest,
     bundle: AssistantRuntimeBundle,
-    turnState: TurnExecutionState
+    turnState: TurnExecutionState,
+    finalizedSession: AcceptedRuntimeTurn["session"]
   ): void {
     if (turnState.sharedCompaction.durableStatePersisted) {
       return;
@@ -1492,6 +1501,12 @@ export class TurnExecutionService {
           ? contextHydration.autoCompactionWeb
           : false;
     if (!enabled) {
+      return;
+    }
+    const tokenThreshold = Math.max(1, contextHydration.compactionTriggerThreshold);
+    const freshCurrentTokens =
+      finalizedSession.totalTokensFresh === true ? finalizedSession.currentTokens : null;
+    if (freshCurrentTokens === null || freshCurrentTokens < tokenThreshold) {
       return;
     }
     void this.persaiInternalApiClientService

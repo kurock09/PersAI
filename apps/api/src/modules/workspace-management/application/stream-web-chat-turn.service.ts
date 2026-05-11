@@ -54,6 +54,7 @@ import {
 } from "./cadence-watchdog";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
+import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 
 export interface StreamWebChatTurnPrepared {
@@ -190,7 +191,9 @@ export class StreamWebChatTurnService {
     private readonly notificationDeliveryWorkerService: NotificationDeliveryWorkerService,
     @Optional()
     private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
-    private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
+    private readonly webChatTurnAttemptService?: WebChatTurnAttemptService,
+    @Optional()
+    private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService
   ) {}
 
   async prepare(
@@ -610,6 +613,20 @@ export class StreamWebChatTurnService {
           mainAssistantMessage: finalAssistantContent,
           traceId: trace.getTraceId()
         })) ?? null;
+      const compactionAdvisoryFollowUp =
+        quotaAdvisoryFollowUp === null
+          ? ((await this.compactionAdvisoryFollowUpService?.maybeCreateFollowUp({
+              assistantId: prepared.assistantId,
+              workspaceId: prepared.workspaceId,
+              userId: prepared.userId,
+              chatId: prepared.chat.id,
+              surface: "web",
+              surfaceThreadKey: prepared.chat.surfaceThreadKey,
+              externalUserKey: prepared.userId,
+              mainAssistantMessage: finalAssistantContent,
+              traceId: trace.getTraceId()
+            })) ?? null)
+          : null;
       let followUpAssistantMessageId: string | null = null;
       let followUpAssistantMessage: {
         id: string;
@@ -620,10 +637,16 @@ export class StreamWebChatTurnService {
         attachments: ReturnType<typeof toAttachmentState>[];
         createdAt: string;
       } | null = null;
+      const followUpIntent = quotaAdvisoryFollowUp ?? compactionAdvisoryFollowUp;
       if (quotaAdvisoryFollowUp !== null) {
         trace.stage("quota_advisory_follow_up_intent_created");
+      }
+      if (compactionAdvisoryFollowUp !== null) {
+        trace.stage("compaction_advisory_follow_up_intent_created");
+      }
+      if (followUpIntent !== null) {
         const delivery = await this.notificationDeliveryWorkerService.deliverIntentNow(
-          quotaAdvisoryFollowUp.intentId
+          followUpIntent.intentId
         );
         followUpAssistantMessageId = parseWebThreadProviderMessageId(delivery.providerRef);
         if (followUpAssistantMessageId !== null) {

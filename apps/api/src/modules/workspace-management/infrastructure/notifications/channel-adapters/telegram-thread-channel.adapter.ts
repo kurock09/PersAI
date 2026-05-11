@@ -24,6 +24,12 @@ function parseTelegramMessageId(value: unknown): string | undefined {
     : undefined;
 }
 
+function parseTelegramChatIdFromSurfaceThreadKey(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^telegram:(.+):session:[^:]+$/);
+  return match?.[1]?.trim() || trimmed;
+}
+
 /**
  * Delivers a notification to the user's active Telegram thread.
  * ChatId resolution order:
@@ -107,7 +113,7 @@ export class TelegramThreadChannelAdapter implements NotificationChannelAdapter 
     channelConfig: ChannelRegistryRow
   ): Promise<string | null> {
     if (typeof intent.surfaceThreadKey === "string" && intent.surfaceThreadKey.trim().length > 0) {
-      return intent.surfaceThreadKey.trim();
+      return parseTelegramChatIdFromSurfaceThreadKey(intent.surfaceThreadKey);
     }
 
     const configChatId = channelConfig.config["chatId"];

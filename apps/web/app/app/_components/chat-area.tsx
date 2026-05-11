@@ -319,19 +319,31 @@ export function ChatArea({
       ? t("compactionTokensValue", { count: chat.compaction.currentTokens })
       : t("compactionTokensNone");
   const recentAutoCompaction = chat.recentAutoCompaction;
-  const compactionBannerMode = recentAutoCompaction !== null ? "auto_compacted" : "pressure";
+  const compactionBannerMode =
+    chat.compaction?.exhaustedAtPlanLimit === true
+      ? "exhausted"
+      : recentAutoCompaction !== null
+        ? "auto_compacted"
+        : "pressure";
   const compactionBannerTitle =
-    compactionBannerMode === "auto_compacted"
-      ? t("compactionAutoSuccessTitle")
-      : chat.compaction?.autoCompactionEnabled
-        ? t("compactionPressureAutoTitle")
-        : t("compactionPressureManualTitle");
+    compactionBannerMode === "exhausted"
+      ? t("compactionExhaustedTitle")
+      : compactionBannerMode === "auto_compacted"
+        ? t("compactionAutoSuccessTitle")
+        : chat.compaction?.autoCompactionEnabled
+          ? t("compactionPressureAutoTitle")
+          : t("compactionPressureManualTitle");
   const compactionBannerBody =
-    compactionBannerMode === "auto_compacted"
-      ? t("compactionAutoSuccessBody")
-      : chat.compaction?.autoCompactionEnabled
-        ? t("compactionHintAuto", { tokens: compactionTokensLabel })
-        : t("compactionHintManual", { tokens: compactionTokensLabel });
+    compactionBannerMode === "exhausted"
+      ? t("compactionExhaustedBody", {
+          tokens: compactionTokensLabel,
+          count: String(chat.compaction?.recentAutoCompactionStreak ?? 0)
+        })
+      : compactionBannerMode === "auto_compacted"
+        ? t("compactionAutoSuccessBody")
+        : chat.compaction?.autoCompactionEnabled
+          ? t("compactionHintAuto", { tokens: compactionTokensLabel })
+          : t("compactionHintManual", { tokens: compactionTokensLabel });
   const hasAutoCompactionTokenDetail =
     compactionBannerMode === "auto_compacted" &&
     recentAutoCompaction !== null &&
@@ -342,11 +354,13 @@ export function ChatArea({
         before: recentAutoCompaction!.tokensBefore!,
         after: recentAutoCompaction!.tokensAfter!
       })
-    : compactionBannerMode === "auto_compacted"
-      ? t("compactionAutoSuccessDetail")
-      : chat.compaction?.autoCompactionEnabled
-        ? t("compactionHintAutoDetail")
-        : t("compactionHintManualDetail");
+    : compactionBannerMode === "exhausted"
+      ? t("compactionExhaustedDetail")
+      : compactionBannerMode === "auto_compacted"
+        ? t("compactionAutoSuccessDetail")
+        : chat.compaction?.autoCompactionEnabled
+          ? t("compactionHintAutoDetail")
+          : t("compactionHintManualDetail");
   const compactionPressureSnoozed =
     compactionBannerMode === "pressure" && chat.messages.length < compactionBannerSnoozedUntilCount;
   const compactionPressureSuppressedByAutoMode =
@@ -354,7 +368,9 @@ export function ChatArea({
   const showCompactionBanner =
     !compactionPressureSnoozed &&
     !compactionPressureSuppressedByAutoMode &&
-    (chat.compaction?.suggested === true || recentAutoCompaction !== null);
+    (chat.compaction?.exhaustedAtPlanLimit === true ||
+      chat.compaction?.suggested === true ||
+      recentAutoCompaction !== null);
 
   useEffect(() => {
     setCompactionBannerSnoozedUntilCount(0);

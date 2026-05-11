@@ -102,6 +102,12 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async completeTelegramUpdateProcessing() {
+        return undefined;
+      },
+      async releaseTelegramUpdateProcessing() {
+        return undefined;
+      },
       async patchMetadata() {
         return undefined;
       }
@@ -255,6 +261,12 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async completeTelegramUpdateProcessing() {
+        return undefined;
+      },
+      async releaseTelegramUpdateProcessing() {
+        return undefined;
+      },
       async patchMetadata() {
         return undefined;
       }
@@ -358,6 +370,12 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async completeTelegramUpdateProcessing() {
+        return undefined;
+      },
+      async releaseTelegramUpdateProcessing() {
+        return undefined;
+      },
       async patchMetadata() {
         return undefined;
       }
@@ -475,6 +493,9 @@ async function run(): Promise<void> {
         updateId: number
       ) {
         lastHandledUpdateId = updateId;
+      },
+      async releaseTelegramUpdateProcessing() {
+        return undefined;
       },
       async patchMetadata() {
         return undefined;

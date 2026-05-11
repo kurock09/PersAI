@@ -34,6 +34,11 @@ import type {
 } from "./web-chat.types";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import {
+  countRecentAutoCompactionStreak,
+  isCompactionExhaustedAtPlanLimit
+} from "./compaction-advisory-state";
 
 export interface UpdateWebChatRequest {
   title?: string | null;
@@ -98,7 +103,8 @@ export class ManageWebChatListService {
     private readonly compactNativeWebChatSessionService: CompactNativeWebChatSessionService,
     private readonly resolveNativeWebChatSessionStateService: ResolveNativeWebChatSessionStateService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
-    private readonly webChatTurnAttemptService: WebChatTurnAttemptService
+    private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   parseUpdateInput(payload: unknown): UpdateWebChatRequest {
@@ -377,6 +383,9 @@ export class ManageWebChatListService {
       }),
       this.resolveEffectiveSharedCompactionConfig(assistant)
     ]);
+    const recentAutoCompactionStreak = await this.readRecentAutoCompactionStreak(
+      runtimeSessionState.session?.sessionId ?? null
+    );
     return this.buildCompactionState({
       messageCount,
       assistantMessageCount,
@@ -385,7 +394,9 @@ export class ManageWebChatListService {
       sessionKey: null,
       compactionCount: runtimeSessionState.session?.compactionCount ?? 0,
       updatedAt: runtimeSessionState.session?.updatedAt ?? null,
-      compactionConfig
+      compactionConfig,
+      totalTokensFresh: runtimeSessionState.session?.totalTokensFresh === true,
+      recentAutoCompactionStreak
     });
   }
 
@@ -411,6 +422,9 @@ export class ManageWebChatListService {
       throw this.createCompactionUnavailableError();
     }
     const compactionConfig = await this.resolveEffectiveSharedCompactionConfig(assistant);
+    const recentAutoCompactionStreak = await this.readRecentAutoCompactionStreak(
+      result.session?.sessionId ?? null
+    );
     const state = this.buildCompactionState({
       messageCount,
       assistantMessageCount,
@@ -420,6 +434,8 @@ export class ManageWebChatListService {
       compactionCount: result.session?.compactionCount ?? 0,
       updatedAt: result.session?.updatedAt ?? null,
       compactionConfig,
+      totalTokensFresh: result.session?.totalTokensFresh === true,
+      recentAutoCompactionStreak,
       forceSuggestedFalse:
         result.compacted ||
         result.reason === "threshold_not_reached" ||
@@ -527,6 +543,8 @@ export class ManageWebChatListService {
     compactionCount: number;
     updatedAt: string | null;
     compactionConfig: EffectiveSharedCompactionConfig;
+    totalTokensFresh: boolean;
+    recentAutoCompactionStreak: number;
     forceSuggestedFalse?: boolean;
   }): AssistantWebChatCompactionState {
     const tokenThreshold = Math.max(
@@ -543,6 +561,14 @@ export class ManageWebChatListService {
       available: input.available,
       suggested: suggestionReason !== null,
       suggestionReason,
+      exhaustedAtPlanLimit: isCompactionExhaustedAtPlanLimit({
+        currentTokens: input.currentTokens,
+        totalTokensFresh: input.totalTokensFresh,
+        reserveTokens: input.compactionConfig.reserveTokens,
+        autoCompactionEnabled: input.compactionConfig.autoCompactionEnabled,
+        recentAutoCompactionStreak: input.recentAutoCompactionStreak
+      }),
+      recentAutoCompactionStreak: input.recentAutoCompactionStreak,
       messageCount: input.messageCount,
       assistantMessageCount: input.assistantMessageCount,
       currentTokens: input.currentTokens,
@@ -553,6 +579,21 @@ export class ManageWebChatListService {
       keepRecentTokens: input.compactionConfig.keepRecentTokens,
       autoCompactionEnabled: input.compactionConfig.autoCompactionEnabled
     };
+  }
+
+  private async readRecentAutoCompactionStreak(sessionId: string | null): Promise<number> {
+    if (sessionId === null) {
+      return 0;
+    }
+    const rows = await this.prisma.runtimeSessionCompaction.findMany({
+      where: {
+        runtimeSessionId: sessionId
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 3,
+      select: { reason: true }
+    });
+    return countRecentAutoCompactionStreak(rows);
   }
 
   private async resolveEffectiveSharedCompactionConfig(assistant: {

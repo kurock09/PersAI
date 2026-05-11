@@ -1,4 +1,4 @@
-import { randomInt } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 
 export type TelegramClaimStatus = "not_started" | "pending" | "claimed";
 export type TelegramConnectionStatus =
@@ -25,6 +25,8 @@ export type TelegramBindingMetadataState = {
   telegramOwnerTelegramUserId: number | null;
   telegramOwnerTelegramUsername: string | null;
   telegramOwnerTelegramChatId: string | null;
+  telegramSessionThreadKey: string;
+  telegramSessionRotatedAt: string | null;
   telegramOwnerSystemWelcomeSentAt: string | null;
   telegramRuntimeHealth: TelegramRuntimeHealth;
   telegramRuntimeHealthUpdatedAt: string | null;
@@ -58,6 +60,10 @@ export function createTelegramOwnerClaimCode(): string {
   return String(randomInt(0, 1_000_000)).padStart(TELEGRAM_OWNER_CLAIM_CODE_LENGTH, "0");
 }
 
+export function createTelegramSessionThreadKey(): string {
+  return randomUUID();
+}
+
 function createTelegramOwnerClaimExpiresAt(issuedAt: Date): string {
   return new Date(issuedAt.getTime() + TELEGRAM_OWNER_CLAIM_TTL_MS).toISOString();
 }
@@ -83,6 +89,8 @@ export function refreshTelegramOwnerClaimMetadata(metadata: unknown): Record<str
     telegramOwnerTelegramUserId: null,
     telegramOwnerTelegramUsername: null,
     telegramOwnerTelegramChatId: null,
+    telegramSessionThreadKey: current.telegramSessionThreadKey,
+    telegramSessionRotatedAt: current.telegramSessionRotatedAt,
     telegramOwnerSystemWelcomeSentAt: null
   };
 }
@@ -111,6 +119,8 @@ export function resolveTelegramBindingMetadataState(
     telegramOwnerTelegramUserId: toNumberOrNull(row?.telegramOwnerTelegramUserId),
     telegramOwnerTelegramUsername: toStringOrNull(row?.telegramOwnerTelegramUsername),
     telegramOwnerTelegramChatId: toStringOrNull(row?.telegramOwnerTelegramChatId),
+    telegramSessionThreadKey: toStringOrNull(row?.telegramSessionThreadKey) ?? "default_session",
+    telegramSessionRotatedAt: toStringOrNull(row?.telegramSessionRotatedAt),
     telegramOwnerSystemWelcomeSentAt: toStringOrNull(row?.telegramOwnerSystemWelcomeSentAt),
     telegramRuntimeHealth: toRuntimeHealth(row?.telegramRuntimeHealth),
     telegramRuntimeHealthUpdatedAt: toStringOrNull(row?.telegramRuntimeHealthUpdatedAt),
@@ -162,8 +172,19 @@ export function createTelegramConnectedMetadata(input: {
     displayName: input.displayName,
     avatarUrl: input.avatarUrl,
     telegramAccessMode: "owner_only",
+    telegramSessionThreadKey: createTelegramSessionThreadKey(),
+    telegramSessionRotatedAt: null,
     telegramRuntimeHealth: "ok",
     telegramRuntimeHealthUpdatedAt: null,
     telegramRuntimeHealthMessage: null
+  };
+}
+
+export function rotateTelegramSessionMetadata(metadata: unknown): Record<string, unknown> {
+  const current = resolveTelegramBindingMetadataState(metadata);
+  return {
+    ...current,
+    telegramSessionThreadKey: createTelegramSessionThreadKey(),
+    telegramSessionRotatedAt: new Date().toISOString()
   };
 }

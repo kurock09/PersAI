@@ -28,6 +28,7 @@ export interface ResolvedTelegramChannelRuntimeConfig {
   ownerTelegramUserId: number | null;
   ownerTelegramUsername: string | null;
   ownerTelegramChatId: string | null;
+  sessionThreadKey: string;
   runtimeHealth: "ok" | "invalid_token";
   webhookSecret: string | null;
 }
@@ -120,6 +121,7 @@ export class ResolveTelegramChannelRuntimeConfigService {
       ownerTelegramUserId: metadata.telegramOwnerTelegramUserId,
       ownerTelegramUsername: metadata.telegramOwnerTelegramUsername,
       ownerTelegramChatId: metadata.telegramOwnerTelegramChatId,
+      sessionThreadKey: metadata.telegramSessionThreadKey,
       runtimeHealth: metadata.telegramRuntimeHealth,
       webhookSecret: resolveWebhookSecret(assistantId)
     };

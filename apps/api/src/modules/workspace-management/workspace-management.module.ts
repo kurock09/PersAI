@@ -217,6 +217,7 @@ import { MutateInternalRuntimeMonthlyMediaQuotaService } from "./application/mut
 import { ReserveInternalRuntimeMonthlyMediaQuotaService } from "./application/reserve-internal-runtime-monthly-media-quota.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./application/read-internal-runtime-quota-status.service";
 import { QuotaAdvisoryFollowUpService } from "./application/quota-advisory-follow-up.service";
+import { CompactionAdvisoryFollowUpService } from "./application/compaction-advisory-follow-up.service";
 import { QuotaGroundedLimitCopyService } from "./application/quota-grounded-limit-copy.service";
 import { CreateInternalRuntimeQuotaCheckoutService } from "./application/create-internal-runtime-quota-checkout.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./application/resolve-assistant-inbound-runtime-context.service";
@@ -458,6 +459,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ReserveInternalRuntimeMonthlyMediaQuotaService,
     ReadInternalRuntimeQuotaStatusService,
     QuotaAdvisoryFollowUpService,
+    CompactionAdvisoryFollowUpService,
     QuotaGroundedLimitCopyService,
     CreateInternalRuntimeQuotaCheckoutService,
     ResolveAssistantInboundRuntimeContextService,

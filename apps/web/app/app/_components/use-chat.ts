@@ -2123,6 +2123,11 @@ export function useChat(threadKey: string): UseChatReturn {
             return;
           }
           if (statusResult === "terminal") {
+            await refreshLatestHistory(targetChatId, {
+              clearIssueOnReconcile: true,
+              targetThreadKey
+            });
+            void refreshCompactionState(targetChatId);
             return;
           }
         }
@@ -2160,6 +2165,7 @@ export function useChat(threadKey: string): UseChatReturn {
     activeThreads,
     chatId,
     finalizeReconciledDetachedTurn,
+    refreshCompactionState,
     refreshLatestHistory,
     refreshTurnStatus,
     startSoftDetachReconcile
@@ -3476,7 +3482,11 @@ export function useChat(threadKey: string): UseChatReturn {
           status.userMessage !== null &&
           status.assistantMessage !== null
         ) {
-          const committed = [status.userMessage, status.assistantMessage]
+          const committed = [
+            status.userMessage,
+            status.assistantMessage,
+            ...(status.followUpAssistantMessage ? [status.followUpAssistantMessage] : [])
+          ]
             .map(toCommittedChatMessage)
             .filter((m): m is ChatMessage => m !== null);
           setMessages((prev) => {
@@ -3486,6 +3496,14 @@ export function useChat(threadKey: string): UseChatReturn {
           });
           activeTurnSnapshotsRef.current.delete(threadKey);
           setThreadPendingSend(threadKey, null);
+          const reconciledChatId = status.chat?.id ?? activeChatIdRef.current ?? chatId;
+          if (reconciledChatId !== null) {
+            await refreshLatestHistory(reconciledChatId, {
+              clearIssueOnReconcile: true,
+              targetThreadKey: threadKey
+            });
+            void refreshCompactionState(reconciledChatId);
+          }
           return;
         }
         if (status.status === "accepted" || status.status === "running") {
@@ -3530,7 +3548,16 @@ export function useChat(threadKey: string): UseChatReturn {
       clientTurnId: pending.clientTurnId,
       clientAttachmentIds: pending.clientAttachmentIds
     });
-  }, [applyTurnStatusState, getToken, setThreadPendingSend, t, threadKey]);
+  }, [
+    applyTurnStatusState,
+    chatId,
+    getToken,
+    refreshCompactionState,
+    refreshLatestHistory,
+    setThreadPendingSend,
+    t,
+    threadKey
+  ]);
   const cancelPendingSend = useCallback((): string | null => {
     const pending = pendingSendRef.current;
     if (pending === null) return null;

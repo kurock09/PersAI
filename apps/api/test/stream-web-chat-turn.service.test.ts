@@ -306,6 +306,215 @@ describe("StreamWebChatTurnService", () => {
     );
   });
 
+  test("delivers compaction follow-up on streamed turns after media has already been attached", async () => {
+    const deliveredIntentIds: string[] = [];
+    const service = new StreamWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        findChatById: async () => ({
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+          createdAt: new Date("2026-04-05T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant",
+          content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        findMessageByIdForAssistant: async (messageId: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content:
+            messageId === "follow-up-msg-1" ? "Please start a new chat." : "Here is your file.",
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async (messageId: string) =>
+          messageId === "assistant-msg-1"
+            ? [
+                {
+                  id: "att-1",
+                  assistantFileId: null,
+                  attachmentType: "audio",
+                  originalFilename: "reply.ogg",
+                  mimeType: "audio/ogg",
+                  sizeBytes: BigInt(1234),
+                  processingStatus: "ready",
+                  metadata: null,
+                  createdAt: new Date("2026-04-05T12:00:00.000Z")
+                }
+              ]
+            : []
+      } as never,
+      {
+        releaseWebTurnProcessing: async () => undefined,
+        completeWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async function* () {
+          yield { type: "delta", delta: "Here is your file.", accumulated: "Here is your file." };
+          yield {
+            type: "media",
+            media: [
+              {
+                source: "runtime_url",
+                url: "/tmp/reply.ogg",
+                type: "audio",
+                audioAsVoice: true
+              }
+            ]
+          };
+          yield {
+            type: "done",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            turnRouting: {
+              mode: "shadow",
+              executionMode: "premium",
+              source: "llm"
+            }
+          };
+        }
+      } as never,
+      createSendNativeWebChatTurnServiceMock() as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called in this test");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => {
+          throw new Error("resolve should not be called in this test");
+        }
+      } as never,
+      {
+        execute: async () => undefined
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
+        deliver: async () => ({
+          attachments: [
+            {
+              id: "att-1",
+              attachmentType: "audio",
+              originalFilename: "reply.ogg",
+              mimeType: "audio/ogg",
+              sizeBytes: 1234,
+              processingStatus: "ready",
+              createdAt: "2026-04-05T12:00:00.000Z"
+            }
+          ]
+        })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      {
+        deliverIntentNow: async (intentId: string) => {
+          deliveredIntentIds.push(intentId);
+          return {
+            status: "delivered",
+            providerRef: "web_thread:thread-1:follow-up-msg-1",
+            channel: "web_thread"
+          };
+        }
+      } as never,
+      {
+        maybeCreateFollowUp: async () => null
+      } as never,
+      undefined,
+      {
+        maybeCreateFollowUp: async () => ({
+          intentId: "intent-compaction-1"
+        })
+      } as never
+    );
+
+    const outcome = await service.streamToCompletion(
+      {
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: "2026-04-05T12:00:00.000Z",
+          updatedAt: "2026-04-05T12:00:00.000Z"
+        },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "hello",
+          attachments: [],
+          createdAt: "2026-04-05T12:00:00.000Z"
+        },
+        assistant: {
+          id: "assistant-1",
+          workspaceId: "workspace-1"
+        },
+        assistantId: "assistant-1",
+        publishedVersionId: "pub-1",
+        runtimeTier: "paid_shared",
+        quotaDegradeModelOverride: null,
+        quotaDegradeReason: null,
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        workspaceTimezone: "UTC"
+      } as never,
+      {
+        isClientAborted: () => false,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onDone: () => undefined
+      }
+    );
+
+    assert.equal(outcome.status, "completed");
+    assert.equal(deliveredIntentIds.length, 1);
+    const transport = (
+      outcome as {
+        transport: {
+          assistantMessage: { attachments: Array<Record<string, unknown>> };
+          followUpAssistantMessage?: { id: string; content: string };
+        };
+      }
+    ).transport;
+    assert.equal(transport.assistantMessage.attachments.length, 1);
+    assert.equal(transport.assistantMessage.attachments[0]?.id, "att-1");
+    assert.equal(transport.followUpAssistantMessage?.id, "follow-up-msg-1");
+    assert.equal(transport.followUpAssistantMessage?.content, "Please start a new chat.");
+  });
+
   test("corrects streamed assistant text when runtime queued media but final web delivery produced no attachments", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
     const updatedContents: string[] = [];

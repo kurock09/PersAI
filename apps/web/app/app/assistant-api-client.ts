@@ -2056,9 +2056,22 @@ export type ChatHistoryMessage = {
   createdAt: string;
 };
 
-export type ChatCompactionState = AssistantWebChatCompactionState;
+export type ChatCompactionState = AssistantWebChatCompactionState & {
+  exhaustedAtPlanLimit: boolean;
+  recentAutoCompactionStreak: number;
+};
 
 export type ChatCompactionResult = AssistantWebChatCompactionResult;
+
+function normalizeChatCompactionState(state: AssistantWebChatCompactionState): ChatCompactionState {
+  const row = state as AssistantWebChatCompactionState & Partial<ChatCompactionState>;
+  return {
+    ...state,
+    exhaustedAtPlanLimit: row.exhaustedAtPlanLimit === true,
+    recentAutoCompactionStreak:
+      typeof row.recentAutoCompactionStreak === "number" ? row.recentAutoCompactionStreak : 0
+  };
+}
 
 export async function getChatMessages(
   token: string,
@@ -2100,7 +2113,7 @@ export async function getChatCompactionState(
         "Unexpected non-success response for GET /assistant/chats/web/{chatId}/compaction."
       );
     }
-    return response.data.state;
+    return normalizeChatCompactionState(response.data.state);
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
@@ -2122,7 +2135,7 @@ export async function compactChat(
       );
     }
     return {
-      state: response.data.state,
+      state: normalizeChatCompactionState(response.data.state),
       result: response.data.result
     };
   } catch (error) {

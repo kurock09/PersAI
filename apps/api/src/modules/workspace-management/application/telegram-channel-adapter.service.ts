@@ -5,6 +5,7 @@ import {
   ResolveTelegramChannelRuntimeConfigService,
   type ResolvedTelegramChannelRuntimeConfig
 } from "./resolve-telegram-channel-runtime-config.service";
+import { rotateTelegramSessionMetadata } from "./telegram-integration.metadata";
 import {
   TelegramBotClientService,
   TelegramBotUnauthorizedError,
@@ -143,6 +144,47 @@ function buildTelegramAutoCompactionNotice(locale: "ru" | "en"): string {
   return locale === "ru"
     ? "После этого ответа старый контекст был автоматически сжат, чтобы уложиться в бюджет контекста тарифа."
     : "Older context was auto-compacted after this reply to stay within your plan's context budget.";
+}
+
+function buildTelegramNewSessionStartedReply(locale: "ru" | "en"): string {
+  return locale === "ru"
+    ? "Начала новый чат с чистым контекстом. Следующее сообщение продолжу уже в новой сессии."
+    : "Started a fresh chat with clean context. I will continue from your next message in the new session.";
+}
+
+export function normalizeTelegramTextIntent(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^\/new(?:@\w+)?$/i, "/new")
+    .replace(/[!?.:,;]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isTelegramNewSessionRequest(params: {
+  event: Extract<ParsedTelegramWebhookEvent, { kind: "message" }>;
+}): boolean {
+  if (params.event.turnKind !== "text" || params.event.chatType !== "private") {
+    return false;
+  }
+  const normalized = normalizeTelegramTextIntent(params.event.incomingText);
+  return (
+    normalized === "/new" ||
+    normalized === "new chat" ||
+    normalized === "start new chat" ||
+    normalized === "start a new chat" ||
+    normalized === "новый чат" ||
+    normalized === "начни новый чат" ||
+    normalized === "начать новый чат"
+  );
+}
+
+export function buildTelegramRuntimeThreadKey(chatId: string, sessionThreadKey: string): string {
+  if (sessionThreadKey === "default_session") {
+    return chatId;
+  }
+  return `telegram:${chatId}:session:${sessionThreadKey}`;
 }
 
 function evaluateTelegramOwnerGate(params: {
@@ -545,15 +587,60 @@ export class TelegramChannelAdapterService {
       runtimeHealthMessage: null
     });
 
+    if (isTelegramNewSessionRequest({ event })) {
+      const updateClaim = await this.claimTelegramUpdateIfNeeded(
+        config.assistantId,
+        event.updateId
+      );
+      if (updateClaim !== "claimed") {
+        return { statusCode: 200, body: { ok: true } };
+      }
+      try {
+        const binding = await this.bindingRepository.findByAssistantProviderSurface(
+          config.assistantId,
+          "telegram",
+          "telegram_bot"
+        );
+        if (binding !== null) {
+          await this.bindingRepository.patchMetadata(
+            config.assistantId,
+            "telegram",
+            "telegram_bot",
+            rotateTelegramSessionMetadata(binding.metadata)
+          );
+        }
+        this.logger.log({
+          event: "telegram.session.rotated",
+          assistantId: config.assistantId,
+          telegramChatId: event.chatId,
+          trigger: normalizeTelegramTextIntent(event.incomingText)
+        });
+        const unauthorized = await this.safeSendPlainText(
+          config,
+          event.chatId,
+          buildTelegramNewSessionStartedReply(config.locale)
+        );
+        if (unauthorized) {
+          return { statusCode: 200, body: { ok: false, error: "invalid_bot_token" } };
+        }
+        await this.completeTelegramUpdateBestEffort(config.assistantId, event.updateId);
+        return { statusCode: 200, body: { ok: true } };
+      } catch (error) {
+        await this.releaseTelegramUpdateClaimBestEffort(config.assistantId, event.updateId);
+        throw error;
+      }
+    }
+
     let turnResult;
     const chatActionState: { current: TelegramChatActionHeartbeat | null } = {
       current: null
     };
     try {
       const conversationIdentity = toTelegramConversationIdentity(event);
+      const runtimeThreadKey = buildTelegramRuntimeThreadKey(event.chatId, config.sessionThreadKey);
       turnResult = await this.handleInternalTelegramTurnService.execute({
         assistantId: config.assistantId,
-        threadId: event.chatId,
+        threadId: runtimeThreadKey,
         conversationMode: conversationIdentity.mode,
         externalUserKey: conversationIdentity.externalUserKey,
         message: event.userMessage,
@@ -612,12 +699,17 @@ export class TelegramChannelAdapterService {
       });
     }
 
+    if (turnResult.deduplicated) {
+      chatActionState.current?.stop();
+      return { statusCode: 200, body: { ok: true } };
+    }
+
     let mediaDeliveryCompleted = false;
     let outboundTurnResult = turnResult;
     try {
       let deliveredAttachmentCount = 0;
       let deliveredAttachmentFilenames: string[] = [];
-      if (turnResult.media.length > 0 && turnResult.deduplicated !== true) {
+      if (turnResult.media.length > 0 && !turnResult.deduplicated) {
         const deliveredMedia = await this.mediaDeliveryService.deliver({
           artifacts: turnResult.media,
           channel: "telegram",
@@ -691,7 +783,9 @@ export class TelegramChannelAdapterService {
         turnResult: outboundTurnResult,
         mediaAlreadyDelivered: deliveredAttachmentCount > 0,
         postReplyNotices: [
-          ...(outboundTurnResult.autoCompaction === undefined
+          ...(outboundTurnResult.autoCompaction === undefined ||
+          (typeof outboundTurnResult.compactionAdvisoryFollowUpIntentId === "string" &&
+            outboundTurnResult.compactionAdvisoryFollowUpIntentId.length > 0)
             ? []
             : [buildTelegramAutoCompactionNotice(config.locale)])
         ],
@@ -699,6 +793,7 @@ export class TelegramChannelAdapterService {
           chatActionState.current?.setAction(resolveTelegramOutboundChatAction(media));
         }
       });
+      await this.completeTelegramUpdateBestEffort(config.assistantId, event.updateId);
       if (
         typeof outboundTurnResult.quotaAdvisoryFollowUpIntentId === "string" &&
         outboundTurnResult.quotaAdvisoryFollowUpIntentId.length > 0
@@ -707,13 +802,18 @@ export class TelegramChannelAdapterService {
           outboundTurnResult.quotaAdvisoryFollowUpIntentId
         );
       }
+      if (
+        typeof outboundTurnResult.compactionAdvisoryFollowUpIntentId === "string" &&
+        outboundTurnResult.compactionAdvisoryFollowUpIntentId.length > 0
+      ) {
+        await this.notificationDeliveryWorkerService.deliverIntentNow(
+          outboundTurnResult.compactionAdvisoryFollowUpIntentId
+        );
+      }
     } catch (error) {
       chatActionState.current?.stop();
-      if (
-        turnResult.media.length > 0 &&
-        turnResult.deduplicated !== true &&
-        !mediaDeliveryCompleted
-      ) {
+      await this.releaseTelegramUpdateClaimBestEffort(config.assistantId, event.updateId);
+      if (turnResult.media.length > 0 && !turnResult.deduplicated && !mediaDeliveryCompleted) {
         await this.mediaDeliveryService.markUndeliveredArtifactsReconciliationRequired({
           assistantId: config.assistantId,
           artifacts: turnResult.media,
@@ -806,6 +906,38 @@ export class TelegramChannelAdapterService {
     };
   }
 
+  private async claimTelegramUpdateIfNeeded(
+    assistantId: string,
+    updateId: number | null
+  ): Promise<"claimed" | "duplicate_handled" | "duplicate_inflight" | "missing_binding"> {
+    if (updateId === null) {
+      return "claimed";
+    }
+    try {
+      const outcome = await this.bindingRepository.claimTelegramUpdateProcessing(
+        assistantId,
+        "telegram",
+        "telegram_bot",
+        updateId,
+        new Date(),
+        120_000
+      );
+      if (outcome === "duplicate_handled" || outcome === "duplicate_inflight") {
+        this.logger.log(
+          `[telegram-webhook] Dropped duplicate Telegram update ${updateId} for assistant ${assistantId} (${outcome})`
+        );
+      }
+      return outcome;
+    } catch (error) {
+      this.logger.warn(
+        `[telegram-webhook] Failed to claim Telegram update ${updateId} for assistant ${assistantId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return "missing_binding";
+    }
+  }
+
   private async completeTelegramUpdateBestEffort(
     assistantId: string,
     updateId: number | null
@@ -824,6 +956,29 @@ export class TelegramChannelAdapterService {
     } catch (error) {
       this.logger.warn(
         `[telegram-webhook] Non-fatal: failed to finalize Telegram update ${updateId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  private async releaseTelegramUpdateClaimBestEffort(
+    assistantId: string,
+    updateId: number | null
+  ): Promise<void> {
+    if (updateId === null) {
+      return;
+    }
+    try {
+      await this.bindingRepository.releaseTelegramUpdateProcessing(
+        assistantId,
+        "telegram",
+        "telegram_bot",
+        updateId
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[telegram-webhook] Non-fatal: failed to release Telegram update ${updateId}: ${
           error instanceof Error ? error.message : String(error)
         }`
       );

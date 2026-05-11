@@ -22,6 +22,7 @@ import { SendNativeTelegramTurnService } from "./send-native-telegram-turn.servi
 import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
+import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
@@ -32,6 +33,7 @@ export interface InternalTelegramTurnResult {
   workspaceId: string;
   autoCompaction?: RuntimeTurnAutoCompactionState;
   quotaAdvisoryFollowUpIntentId?: string | null;
+  compactionAdvisoryFollowUpIntentId?: string | null;
   deduplicated?: boolean;
 }
 
@@ -76,7 +78,9 @@ export class HandleInternalTelegramTurnService {
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
     @Optional()
-    private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService
+    private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
+    @Optional()
+    private readonly compactionAdvisoryFollowUpService?: CompactionAdvisoryFollowUpService
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
@@ -296,7 +300,6 @@ export class HandleInternalTelegramTurnService {
           );
           deliveredMedia = [];
         }
-        await this.completeTelegramUpdateBestEffort(resolved.assistantId, claimedUpdateId);
         trace.finish({
           status: "completed",
           outputPreview: assistantMessage
@@ -342,19 +345,26 @@ export class HandleInternalTelegramTurnService {
           mainAssistantMessage: assistantMessage,
           traceId: trace.getTraceId()
         })) ?? null;
+      const compactionAdvisoryFollowUp =
+        quotaAdvisoryFollowUp === null
+          ? ((await this.compactionAdvisoryFollowUpService?.maybeCreateFollowUp({
+              assistantId: resolved.assistantId,
+              workspaceId: resolved.workspaceId,
+              userId: resolved.userId,
+              chatId: chat.id,
+              surface: "telegram",
+              surfaceThreadKey: input.threadId,
+              externalUserKey: input.externalUserKey,
+              mainAssistantMessage: assistantMessage,
+              traceId: trace.getTraceId()
+            })) ?? null)
+          : null;
       if (quotaAdvisoryFollowUp !== null) {
         trace.stage("quota_advisory_follow_up_intent_created");
       }
-      if (claimedUpdateId !== null) {
-        const completedUpdate = await this.completeTelegramUpdateBestEffort(
-          resolved.assistantId,
-          claimedUpdateId
-        );
-        if (completedUpdate) {
-          trace.stage("update_completed");
-        }
+      if (compactionAdvisoryFollowUp !== null) {
+        trace.stage("compaction_advisory_follow_up_intent_created");
       }
-
       trace.finish({
         status: "completed",
         outputPreview: assistantMessage
@@ -366,7 +376,8 @@ export class HandleInternalTelegramTurnService {
         assistantMessageId,
         chatId: chat.id,
         workspaceId: resolved.workspaceId,
-        quotaAdvisoryFollowUpIntentId: quotaAdvisoryFollowUp?.intentId ?? null
+        quotaAdvisoryFollowUpIntentId: quotaAdvisoryFollowUp?.intentId ?? null,
+        compactionAdvisoryFollowUpIntentId: compactionAdvisoryFollowUp?.intentId ?? null
       };
     } catch (error) {
       if (claimedUpdateId !== null) {

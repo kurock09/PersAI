@@ -40,6 +40,7 @@ type ClaimedJob = {
   attemptCount: number;
   claimToken: string;
   claimEpoch: number;
+  pendingDedupeKey: string;
 };
 
 @Injectable()
@@ -219,13 +220,20 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
           "enqueued_request_id" AS "enqueuedRequestId",
           "attempt_count"       AS "attemptCount"
         FROM "assistant_background_compaction_jobs"
-        WHERE "status" = 'pending'
-          AND ("retry_after_at" IS NULL OR "retry_after_at" <= NOW())
-          AND (
-            "scheduler_claim_expires_at" IS NULL
-            OR "scheduler_claim_expires_at" <= NOW()
-            OR COALESCE("scheduler_claim_epoch", 0) < ${currentEpoch}
+        WHERE (
+            "status" = 'pending'
+            OR (
+              "status" = 'in_progress'
+              AND (
+                (
+                  "scheduler_claim_expires_at" IS NOT NULL
+                  AND "scheduler_claim_expires_at" <= NOW()
+                )
+                OR COALESCE("scheduler_claim_epoch", 0) < ${currentEpoch}
+              )
+            )
           )
+          AND ("retry_after_at" IS NULL OR "retry_after_at" <= NOW())
         ORDER BY "created_at" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT ${Math.max(1, Math.floor(limit))}
@@ -261,7 +269,8 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
           enqueuedRequestId: row.enqueuedRequestId,
           attemptCount: row.attemptCount + 1,
           claimToken,
-          claimEpoch: currentEpoch
+          claimEpoch: currentEpoch,
+          pendingDedupeKey: `${row.assistantId}:${row.channel}:${row.externalThreadKey}`
         });
       }
       return claimed;
@@ -391,6 +400,7 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
       },
       data: {
         status: "pending",
+        pendingDedupeKey: job.pendingDedupeKey,
         retryAfterAt: new Date(Date.now() + delayMs),
         schedulerClaimToken: null,
         schedulerClaimEpoch: null,
@@ -417,6 +427,7 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
       },
       data: {
         status: "pending",
+        pendingDedupeKey: job.pendingDedupeKey,
         retryAfterAt: new Date(Date.now() + RUNTIME_SESSION_BUSY_DEFER_MS),
         schedulerClaimToken: null,
         schedulerClaimEpoch: null,
@@ -441,6 +452,7 @@ export class PersaiBackgroundCompactionSchedulerService implements OnModuleInit,
       },
       data: {
         status: "pending",
+        pendingDedupeKey: job.pendingDedupeKey,
         schedulerClaimToken: null,
         schedulerClaimEpoch: null,
         schedulerClaimedAt: null,
