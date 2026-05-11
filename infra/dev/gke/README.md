@@ -69,7 +69,7 @@ Current dev routing in `infra/helm/values-dev.yaml`:
 
 Active image publish is handled by `.github/workflows/dev-image-publish.yml`.
 
-That workflow publishes the active PersAI images and updates `infra/helm/values-dev.yaml` `global.images.tag` to the immutable Git SHA used by Argo CD. There is no separate OpenClaw image publish step in the current path.
+That workflow publishes only the affected active PersAI images and updates the matching service `image.tag` fields in `infra/helm/values-dev.yaml` to the immutable Git SHA used by Argo CD. `global.images.tag` remains the fallback for unchanged services. There is no separate OpenClaw image publish step in the current path.
 
 ## Related files
 

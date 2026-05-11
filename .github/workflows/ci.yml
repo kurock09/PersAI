@@ -4,11 +4,52 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - infra/helm/values-dev.yaml
   pull_request:
   workflow_dispatch:
 
 jobs:
-  checks:
+  detect-affected:
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.detect.outputs.docs_only }}
+      test_only: ${{ steps.detect.outputs.test_only }}
+      run_helm_validation: ${{ steps.detect.outputs.run_helm_validation }}
+      migration_changed: ${{ steps.detect.outputs.migration_changed }}
+      requires_integration: ${{ steps.detect.outputs.requires_integration }}
+      requires_full_ci: ${{ steps.detect.outputs.requires_full_ci }}
+      affected_projects_json: ${{ steps.detect.outputs.affected_projects_json }}
+      app_test_targets_json: ${{ steps.detect.outputs.app_test_targets_json }}
+      summary: ${{ steps.detect.outputs.summary }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Detect affected projects
+        id: detect
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          node scripts/ci/detect-affected.mjs \
+            --event "${{ github.event_name }}" \
+            --base "${BASE_REF}" \
+            --head "${HEAD_REF}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY"
+
+  full-checks:
+    if: ${{ github.event_name != 'pull_request' || needs.detect-affected.outputs.requires_full_ci == 'true' }}
+    needs:
+      - detect-affected
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -70,3 +111,155 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+  affected-helm-validation:
+    if: ${{ github.event_name == 'pull_request' && needs.detect-affected.outputs.requires_full_ci != 'true' && needs.detect-affected.outputs.run_helm_validation == 'true' }}
+    needs:
+      - detect-affected
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm Lint
+        run: |
+          helm lint infra/helm -f infra/helm/values-dev.yaml
+          helm template persai-dev infra/helm -f infra/helm/values-dev.yaml > /dev/null
+
+  affected-quality:
+    if: ${{ github.event_name == 'pull_request' && needs.detect-affected.outputs.requires_full_ci != 'true' && needs.detect-affected.outputs.docs_only != 'true' && needs.detect-affected.outputs.affected_projects_json != '[]' }}
+    needs:
+      - detect-affected
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Run affected lint
+        env:
+          AFFECTED_PROJECTS_JSON: ${{ needs.detect-affected.outputs.affected_projects_json }}
+        run: |
+          WORKSPACES=$(node -e "const projects = JSON.parse(process.env.AFFECTED_PROJECTS_JSON); console.log(projects.map((project) => project.workspace).join(' '));")
+          for workspace in $WORKSPACES; do
+            echo "Linting ${workspace}"
+            corepack pnpm --filter "$workspace" --if-present run lint
+          done
+
+      - name: Run affected typecheck
+        env:
+          AFFECTED_PROJECTS_JSON: ${{ needs.detect-affected.outputs.affected_projects_json }}
+        run: |
+          corepack pnpm run prisma:generate
+          WORKSPACES=$(node -e "const projects = JSON.parse(process.env.AFFECTED_PROJECTS_JSON); console.log(projects.map((project) => project.workspace).join(' '));")
+          for workspace in $WORKSPACES; do
+            echo "Typechecking ${workspace}"
+            corepack pnpm --filter "$workspace" --if-present run typecheck
+          done
+
+  affected-tests:
+    if: ${{ github.event_name == 'pull_request' && needs.detect-affected.outputs.requires_full_ci != 'true' && needs.detect-affected.outputs.docs_only != 'true' && needs.detect-affected.outputs.app_test_targets_json != '[]' }}
+    needs:
+      - detect-affected
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: persai_v2
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d persai_v2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma Generate
+        run: corepack pnpm run prisma:generate
+
+      - name: Run affected tests
+        env:
+          APP_TEST_TARGETS_JSON: ${{ needs.detect-affected.outputs.app_test_targets_json }}
+        run: |
+          WORKSPACES=$(node -e "const projects = JSON.parse(process.env.APP_TEST_TARGETS_JSON); console.log(projects.map((project) => project.workspace).join(' '));")
+          for workspace in $WORKSPACES; do
+            echo "Testing ${workspace}"
+            corepack pnpm --filter "$workspace" run test
+          done
+
+  affected-integration:
+    if: ${{ github.event_name == 'pull_request' && needs.detect-affected.outputs.requires_full_ci != 'true' && needs.detect-affected.outputs.requires_integration == 'true' }}
+    needs:
+      - detect-affected
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: persai_v2
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d persai_v2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/persai_v2?schema=public
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma Generate
+        run: corepack pnpm run prisma:generate
+
+      - name: Run affected integration gate
+        run: corepack pnpm run test:step2

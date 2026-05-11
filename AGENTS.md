@@ -33,6 +33,7 @@ The active PersAI path is native-only:
 - `apps/web`
 - `apps/runtime`
 - `apps/provider-gateway`
+- `apps/sandbox`
 
 Do not reintroduce OpenClaw-specific deploy wiring, CI workflows, secret names, route modes, or operational docs into the active repo path unless the user explicitly asks for historical analysis.
 
@@ -46,6 +47,26 @@ Before claiming a change is clean, run:
 4. `corepack pnpm --filter @persai/web run typecheck`
 
 If generated artifacts changed, regenerate them before running the checks.
+
+## CI / deploy truth
+
+- PR CI uses `scripts/ci/detect-affected.mjs` as the affected-entrypoint.
+- Default PR path is risk-oriented and scoped:
+  - affected lint
+  - affected typecheck
+  - affected focused tests
+- Full verification now lives separately in `.github/workflows/full-verification.yml` for merge queue / nightly / explicit manual runs.
+- Changes in `infra/helm` or `infra/dev/gitops` run deploy-truth validation only (`helm lint` + `helm template`) unless code risk requires more.
+- Docs-only and test-only changes must not trigger image publish or GitOps tag pinning.
+- Bot-only commits that touch only `infra/helm/values-dev.yaml` must not re-run the main `CI` workflow.
+- Risky changes escalate back to full CI instead of silently skipping coverage. Treat these as full-check paths:
+  - auth / identity / Clerk
+  - billing / subscription / payment flows
+  - runtime concurrency / scheduling / queueing / admission
+  - Prisma schema / migrations
+  - root workspace dependency changes
+  - CI workflow / affected-rule changes
+- Dev image publish uses selective service pinning in `infra/helm/values-dev.yaml` service `image.tag` fields. `global.images.tag` remains the fallback for services that were not rebuilt in that push.
 
 ## Live validation guidance
 
