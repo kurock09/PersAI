@@ -34,6 +34,31 @@ type MediaStageMetricSeries = {
   buckets: HistogramBucket[];
 };
 
+type WebStreamMetricKey = {
+  outcome: string;
+};
+
+type WebStreamMetricSeries = {
+  key: WebStreamMetricKey;
+  count: number;
+  durationMsTotal: number;
+  maxDurationMs: number;
+  buckets: HistogramBucket[];
+};
+
+type WebStreamStageMetricKey = {
+  stage: string;
+  outcome: string;
+};
+
+type WebStreamStageMetricSeries = {
+  key: WebStreamStageMetricKey;
+  count: number;
+  durationMsTotal: number;
+  maxDurationMs: number;
+  buckets: HistogramBucket[];
+};
+
 export type PlatformHttpMetricsSnapshot = {
   requestsTotal: number;
   errorRequestsTotal: number;
@@ -42,6 +67,8 @@ export type PlatformHttpMetricsSnapshot = {
   processStartedAt: string;
   series: RequestMetricSeries[];
   mediaStageSeries: MediaStageMetricSeries[];
+  webStreamSeries: WebStreamMetricSeries[];
+  webStreamStageSeries: WebStreamStageMetricSeries[];
 };
 
 const LATENCY_BUCKETS_MS = [50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000];
@@ -125,6 +152,14 @@ function mediaSeriesKeyOf(key: MediaStageMetricKey): string {
   return `${key.stage} ${key.channel} ${key.outcome}`;
 }
 
+function webStreamSeriesKeyOf(key: WebStreamMetricKey): string {
+  return key.outcome;
+}
+
+function webStreamStageSeriesKeyOf(key: WebStreamStageMetricKey): string {
+  return `${key.stage} ${key.outcome}`;
+}
+
 @Injectable()
 export class PlatformHttpMetricsService {
   private inFlightRequests = 0;
@@ -134,6 +169,8 @@ export class PlatformHttpMetricsService {
   private readonly processStartedAt = new Date().toISOString();
   private readonly series = new Map<string, RequestMetricSeries>();
   private readonly mediaStageSeries = new Map<string, MediaStageMetricSeries>();
+  private readonly webStreamSeries = new Map<string, WebStreamMetricSeries>();
+  private readonly webStreamStageSeries = new Map<string, WebStreamStageMetricSeries>();
 
   beginRequest(): void {
     this.inFlightRequests += 1;
@@ -222,6 +259,66 @@ export class PlatformHttpMetricsService {
     this.mediaStageSeries.set(seriesKey, series);
   }
 
+  recordWebStreamTurn(input: {
+    outcome: "completed" | "failed" | "interrupted" | "replayed";
+    latencyMs: number;
+  }): void {
+    const key: WebStreamMetricKey = {
+      outcome: input.outcome
+    };
+    const seriesKey = webStreamSeriesKeyOf(key);
+    const series = this.webStreamSeries.get(seriesKey) ?? {
+      key,
+      count: 0,
+      durationMsTotal: 0,
+      maxDurationMs: 0,
+      buckets: createBuckets()
+    };
+
+    series.count += 1;
+    series.durationMsTotal += input.latencyMs;
+    series.maxDurationMs = Math.max(series.maxDurationMs, input.latencyMs);
+
+    for (const bucket of series.buckets) {
+      if (input.latencyMs <= bucket.le) {
+        bucket.value += 1;
+      }
+    }
+
+    this.webStreamSeries.set(seriesKey, series);
+  }
+
+  recordWebStreamStage(input: {
+    stage: string;
+    outcome: "completed" | "failed" | "interrupted";
+    latencyMs: number;
+  }): void {
+    const key: WebStreamStageMetricKey = {
+      stage: input.stage.trim(),
+      outcome: input.outcome
+    };
+    const seriesKey = webStreamStageSeriesKeyOf(key);
+    const series = this.webStreamStageSeries.get(seriesKey) ?? {
+      key,
+      count: 0,
+      durationMsTotal: 0,
+      maxDurationMs: 0,
+      buckets: createBuckets()
+    };
+
+    series.count += 1;
+    series.durationMsTotal += input.latencyMs;
+    series.maxDurationMs = Math.max(series.maxDurationMs, input.latencyMs);
+
+    for (const bucket of series.buckets) {
+      if (input.latencyMs <= bucket.le) {
+        bucket.value += 1;
+      }
+    }
+
+    this.webStreamStageSeries.set(seriesKey, series);
+  }
+
   getSnapshot(): PlatformHttpMetricsSnapshot {
     return {
       requestsTotal: this.requestsTotal,
@@ -234,6 +331,14 @@ export class PlatformHttpMetricsService {
       }),
       mediaStageSeries: Array.from(this.mediaStageSeries.values()).sort((left, right) => {
         return mediaSeriesKeyOf(left.key).localeCompare(mediaSeriesKeyOf(right.key));
+      }),
+      webStreamSeries: Array.from(this.webStreamSeries.values()).sort((left, right) => {
+        return webStreamSeriesKeyOf(left.key).localeCompare(webStreamSeriesKeyOf(right.key));
+      }),
+      webStreamStageSeries: Array.from(this.webStreamStageSeries.values()).sort((left, right) => {
+        return webStreamStageSeriesKeyOf(left.key).localeCompare(
+          webStreamStageSeriesKeyOf(right.key)
+        );
       })
     };
   }

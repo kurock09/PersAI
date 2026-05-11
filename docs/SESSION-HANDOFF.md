@@ -6,6 +6,130 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 
 ---
 
+## 2026-05-11 — ADR-093 Session 1: observability, measurement truth, and hot-path tracing (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **One cross-service correlation id now ties the hot path together** — `StreamWebChatTurnService` now propagates its `traceId` into `StreamNativeWebChatTurnService` as the runtime `requestId`, so the same id appears in API `web_stream_timing`, runtime stream traces, and runtime-side `[provider-gateway-stream]` logs for the same streamed turn.
+
+2. **API `/metrics` now exposes real web-stream pressure signals instead of only log lines** — `PlatformHttpMetricsService` and `MetricsController` now publish `web_stream_*` counters/histograms for end-to-end web-stream duration plus hot-path stage timing (`runtime_first_delta`, `runtime_total`), and `web_stream_timing` / `web_stream_timing_failed` log lines now include `traceId=...` explicitly.
+
+3. **Runtime `/metrics` now exposes the existing per-turn trace truth as operator-visible metrics** — `RuntimeObservabilityService` no longer stops at bundle warm/invalidate counters; it now tracks in-flight stream turns plus `runtime_stream_*` counters/histograms derived from the same trace stages already emitted in runtime terminal payloads (`prepare.*`, provider-header timing, first-provider-event, first-text-delta, etc.). `TurnExecutionService` now records those terminal traces on completed/failed/interrupted stream turns.
+
+4. **Provider-gateway `/metrics` now exposes first-event / first-delta / total stream pressure** — added `ProviderStreamObservabilityService`; `ProviderTextGenerationController` now records in-flight request pressure plus `provider_gateway_stream_*` counters/histograms for `first_event`, `first_text_delta`, and `total` stream timing, and the trace-mode log line is now one consolidated `stream-text-timing` record instead of a writer-stats-only tail log.
+
+5. **Docs/test truth now names the new observability contract** — `docs/TEST-PLAN.md` now explicitly requires the three hot-path metric families (`web_stream_*`, `runtime_stream_*`, `provider_gateway_stream_*`) and the shared request-id correlation when this path is touched.
+
+### Verification
+
+- Focused tests:
+  - `corepack pnpm --filter @persai/api exec tsx test/platform-http-metrics.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/platform-readiness.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-observability.service.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+  - `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-text-generation.controller.test.ts`
+  - `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-stream-observability.service.test.ts`
+- Repo/package checks:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+  - `corepack pnpm --filter @persai/runtime run typecheck`
+  - `corepack pnpm --filter @persai/provider-gateway run typecheck`
+  - `corepack pnpm run format:check` -> still fails only on unrelated pre-existing dirty files outside this session (`background-scheduler-*`, `telegram-bot.client.service.ts`, `internal-runtime-tool-quota.controller.ts`, related tests, and `apps/web/app/_components/app-url-open-bridge.tsx`)
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** because this slice changes live service metrics endpoints and stream-path observability behavior in `apps/api`, `apps/runtime`, and `apps/provider-gateway`.
+- **Not deployed in this local session**: no push/rollout was performed here, so the ADR-093 post-deploy `kubectl` checklist and short human `/app` smoke are still pending before calling Session 1 fully closed in `persai-dev`.
+
+### ADR-093 audit outcomes
+
+- **Code-cleanliness:** pass. No new business-logic branches, feature flags, or shadow execution paths; the slice stays inside observability/tracing and uses the existing stream trace/data seams.
+- **Legacy / tail cleanup:** pass. No temporary compatibility flags or orphan debug paths were introduced; the correlation id directly replaces guesswork instead of adding a second id.
+- **Failure-model:** pass with residual note. The new metrics/logging stay read-only and do not affect stream control flow, but cluster rollout is still needed to verify scrape visibility and log correlation in the real multi-pod environment.
+- **Deploy-truth:** local pass, live pending. No Helm changes were needed; `/metrics` endpoints already exist. Because the metrics output changed, real cluster verification is still required after deploy.
+- **Load / evidence:** pass for session scope. This session adds observation surfaces only; it does **not** claim any 500–1000 user readiness or new load ceiling without saved SR10 artifacts.
+
+### Risks / residuals
+
+- The metrics are still process-local until scraped; cross-pod truth in `persai-dev` depends on the real metrics backend scraping every API/runtime/provider-gateway pod after rollout.
+- Because this session was not deployed, we have not yet confirmed the new metrics families are visible from live pods or that the shared request-id correlation is ergonomic under real traffic/log aggregation.
+- The working tree contains unrelated user changes outside this session; they were left untouched.
+
+### Next recommended step
+
+Deploy this slice once as one coherent push, then run the ADR-093 post-deploy checks plus one short `/app` streamed-chat smoke and verify: (1) `web_stream_*`, `runtime_stream_*`, and `provider_gateway_stream_*` all appear on live `/metrics`; (2) one request id can be followed from API `web_stream_timing` into runtime/provider-gateway logs for the same turn.
+
+### Exact next-session prompt (ADR-093 Session 2, GPT-5.4)
+
+```text
+Start ADR-093 Session 2: Runtime / API execution isolation and fairness foundations.
+
+You are GPT-5.4 working in Cursor on PersAI.
+
+Mandatory reading before edits:
+- docs/ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md
+- AGENTS.md
+- docs/TEST-PLAN.md
+- docs/SESSION-HANDOFF.md
+- infra/dev/gitops/README.md
+- infra/dev/gke/RUNBOOK.md
+
+Scope:
+Implement Session 2 only: runtime/API execution isolation and fairness foundations for concurrent-load readiness. Focus on technical isolation, admission fairness, queueing/claim behavior, and non-starvation between heavy and light turns without changing product outcomes.
+
+Allowed touch areas:
+- apps/api
+- apps/runtime
+- infra/helm only if existing replica/resource/HPA wiring needs a small aligned update
+- docs
+
+Forbidden shortcuts:
+- Do not change business logic, assistant behavior, quotas, prompts, or product scenarios.
+- Do not introduce dumb keyword routing in chat.
+- Do not reduce current parallelism just to make load easier.
+- Do not add hidden flags, dead stubs, or temporary dual paths without explicit removal conditions.
+- Do not claim 500–1000 user readiness without saved load evidence.
+
+Deploy expectation:
+- DEPLOY REQUIRED if behavior, runtime/API admission/queueing, or Helm/runtime config changes need rollout verification.
+- Avoid intermediate pushes; land one coherent session push only after checks.
+
+Required implementation discipline:
+- Keep the session bounded to ADR-093 Session 2.
+- Prefer direct cleanup over transitional compatibility.
+- Add focused tests only for touched behavior.
+- Update docs in the same slice if operational truth changes.
+- Before ending, run the ADR-093 audits: code-cleanliness, legacy/tail cleanup, failure-model, deploy-truth, and load/evidence audit.
+
+Verification baseline:
+Run relevant repo checks from docs/TEST-PLAN.md for touched packages.
+If deploy-bearing, use the ADR-093 post-deploy template:
+- kubectl get applications.argoproj.io -n argocd
+- kubectl -n persai-dev get deploy,svc,ingress,networkpolicy
+- kubectl -n persai-dev get pods -o wide
+- targeted kubectl logs / kubectl top / env checks as needed
+
+Human UI smoke after deploy, if deploy-bearing:
+- Open /app
+- Send one short web chat message
+- Confirm the response streams normally
+- If the session changes visible throughput/fairness behavior, run one light turn and one heavier/tool-using turn and confirm neither starves or regresses obviously
+
+Completion checklist:
+- Summarize exactly what execution-isolation/fairness truth changed.
+- State whether deploy was required and why.
+- Include all verification commands and results.
+- Record audit outcomes and any residual risks.
+- Update docs/SESSION-HANDOFF.md and docs/CHANGELOG.md without claiming PROD readiness.
+- Stop at the Session 2 boundary.
+- Output the exact next-session prompt for ADR-093 Session 3 on GPT-5.4.
+```
+
+---
+
 ## 2026-05-11 — admin delete cleanup + web compaction-state regression fix (LANDED)
 
 ### What landed in this session

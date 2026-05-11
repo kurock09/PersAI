@@ -35,6 +35,17 @@ function createAttachmentObjectAvailabilityServiceMock() {
   };
 }
 
+function createPlatformHttpMetricsServiceMock() {
+  return {
+    recordWebStreamTurn() {
+      return undefined;
+    },
+    recordWebStreamStage() {
+      return undefined;
+    }
+  };
+}
+
 function createSendNativeWebChatTurnServiceMock() {
   return {
     checkSkillRouting: async () => {
@@ -235,6 +246,7 @@ describe("StreamWebChatTurnService", () => {
         })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
       {
@@ -429,6 +441,7 @@ describe("StreamWebChatTurnService", () => {
         })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
       {
@@ -618,6 +631,7 @@ describe("StreamWebChatTurnService", () => {
         })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
       {
@@ -786,6 +800,7 @@ describe("StreamWebChatTurnService", () => {
         deliver: async () => ({ attachments: [] })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       {
         buildRuntimeContext: async (input: {
@@ -972,6 +987,7 @@ describe("StreamWebChatTurnService", () => {
         })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
       {
@@ -1162,6 +1178,7 @@ describe("StreamWebChatTurnService", () => {
         })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
       {
@@ -1301,6 +1318,7 @@ describe("StreamWebChatTurnService", () => {
         deliver: async () => ({ attachments: [] })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
       {
@@ -1428,6 +1446,7 @@ describe("StreamWebChatTurnService", () => {
       {} as never,
       {} as never,
       createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
       {
@@ -1469,9 +1488,10 @@ describe("StreamWebChatTurnService", () => {
       assert.equal(outcome.status, "completed");
     });
 
-    const matched = captured.match(/web_stream_timing assistantId=[^\n]*/);
+    const matched = captured.match(/web_stream_timing traceId=[^\n]*/);
     assert.ok(matched, `expected web_stream_timing log line in captured stdout: ${captured}`);
     const line = matched[0];
+    assert.match(line, /traceId=trace-test/);
     assert.match(line, /toolStarts=1/);
     assert.match(line, /toolEnds=1/);
     assert.match(line, /interDeltaCount=\d+/);
@@ -1499,9 +1519,10 @@ describe("StreamWebChatTurnService", () => {
       assert.equal(outcome.status, "completed");
     });
 
-    const matched = captured.match(/web_stream_timing assistantId=[^\n]*/);
+    const matched = captured.match(/web_stream_timing traceId=[^\n]*/);
     assert.ok(matched, `expected web_stream_timing log line in captured stdout: ${captured}`);
     const line = matched[0];
+    assert.match(line, /traceId=trace-test/);
     assert.doesNotMatch(line, /toolStarts=/);
     assert.doesNotMatch(line, /interDeltaCount=/);
     assert.doesNotMatch(line, /sse_writes=/);
@@ -1593,6 +1614,7 @@ function buildToolStreamingServiceForTraceTest(options: {
       deliver: async () => ({ attachments: [] })
     } as never,
     createOverviewLatencyTraceServiceMock({ enabled: options.traceEnabled }) as never,
+    createPlatformHttpMetricsServiceMock() as never,
     createAttachmentObjectAvailabilityServiceMock() as never,
     createSkillStatePersistenceServiceMock() as never,
     {

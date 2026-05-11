@@ -66,6 +66,7 @@ import {
   type RuntimeTrace
 } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
+import { RuntimeObservabilityService } from "../observability/runtime-observability.service";
 import type { RuntimeTurnReceiptSummary } from "./idempotency.service";
 import {
   projectRuntimeNativeTools,
@@ -325,7 +326,8 @@ export class TurnExecutionService {
     private readonly runtimeBackgroundTaskToolService: RuntimeBackgroundTaskToolService,
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
     private readonly runtimeTtsToolService: RuntimeTtsToolService,
-    private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService
+    private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService,
+    private readonly runtimeObservabilityService: RuntimeObservabilityService
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -906,349 +908,419 @@ export class TurnExecutionService {
     const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
     const maxToolLoopIterations =
       toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
+    this.runtimeObservabilityService.beginStreamTurn();
     try {
-      for (let iteration = 0; iteration < maxToolLoopIterations; iteration += 1) {
-        const iterationBaseText = assembledText;
-        const providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
-          assistantText: iterationBaseText,
-          baseDeveloperInstructionSections: execution.developerInstructionSections,
-          toolHistory,
-          availableWorkingFileRefs: execution.availableWorkingFileRefs,
-          closedOpenLoopRefs: turnState.closedOpenLoopRefs,
-          forceFinalTextOnly,
-          deferredMediaJobs: turnState.deferredMediaJobs,
-          requestMetadata: this.createTurnProviderRequestMetadata({
-            acceptedTurn,
-            classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
-            toolLoopIteration: iteration
-          })
-        });
-        this.logger.log(
-          `[turn-stream] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} modelRole=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} toolCount=${String(providerRequest.tools?.length ?? 0)} toolHistoryCount=${String(providerRequest.toolHistory?.length ?? 0)}`
-        );
-        trace?.stage(`iter${String(iteration)}.provider_request_ready`);
-        const providerStream = await this.providerGatewayClientService.streamText(
-          providerRequest,
-          this.buildProviderGatewayStreamOptions(signal, traceEnabled)
-        );
-        trace?.stage(`iter${String(iteration)}.provider_headers_received`);
-        let advancedToNextIteration = false;
-        let firstProviderEventSeen = false;
-
-        for await (const event of providerStream) {
-          if (signal?.aborted) {
-            await this.interruptAcceptedTurnQuietly({
+      try {
+        for (let iteration = 0; iteration < maxToolLoopIterations; iteration += 1) {
+          const iterationBaseText = assembledText;
+          const providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
+            assistantText: iterationBaseText,
+            baseDeveloperInstructionSections: execution.developerInstructionSections,
+            toolHistory,
+            availableWorkingFileRefs: execution.availableWorkingFileRefs,
+            closedOpenLoopRefs: turnState.closedOpenLoopRefs,
+            forceFinalTextOnly,
+            deferredMediaJobs: turnState.deferredMediaJobs,
+            requestMetadata: this.createTurnProviderRequestMetadata({
               acceptedTurn,
-              event: this.toInterruptedEvent(
-                acceptedTurn,
-                deliveredText,
-                null,
-                trace?.build("interrupted"),
-                turnState
-              )
-            });
-            return;
-          }
+              classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
+              toolLoopIteration: iteration
+            })
+          });
+          this.logger.log(
+            `[turn-stream] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} modelRole=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} toolCount=${String(providerRequest.tools?.length ?? 0)} toolHistoryCount=${String(providerRequest.toolHistory?.length ?? 0)}`
+          );
+          trace?.stage(`iter${String(iteration)}.provider_request_ready`);
+          const providerStream = await this.providerGatewayClientService.streamText(
+            providerRequest,
+            this.buildProviderGatewayStreamOptions(signal, traceEnabled)
+          );
+          trace?.stage(`iter${String(iteration)}.provider_headers_received`);
+          let advancedToNextIteration = false;
+          let firstProviderEventSeen = false;
 
-          if (event.type === "keepalive") {
-            continue;
-          }
-          if (!firstProviderEventSeen) {
-            firstProviderEventSeen = true;
-            trace?.stage(`iter${String(iteration)}.first_provider_event`);
-          }
-
-          if (event.type === "text_delta" && event.delta !== undefined) {
-            assembledText = this.mergeAssistantTurnText(iterationBaseText, event.accumulatedText);
-            if (deliveredText.length === 0) {
-              trace?.stage("stream.first_text_delta");
-            }
-            const deltaEvent = this.createVisibleTextDeltaStreamEvent({
-              acceptedTurn,
-              previousDeliveredText: deliveredText,
-              nextVisibleText: assembledText,
-              source: "provider_text_delta"
-            });
-            if (deltaEvent !== null) {
-              deliveredText = deltaEvent.accumulatedText;
-              yield deltaEvent;
-            }
-            continue;
-          }
-
-          if (event.type === "tool_calls") {
-            trace?.stage(`iter${String(iteration)}.tool_calls_received`);
-            this.recordUsageEntry(turnState, {
-              stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
-              modelRole: execution.selectedModelRole,
-              usage: event.result.usage
-            });
-            assembledText = this.mergeAssistantTurnText(assembledText, event.result.text);
-            forceFinalTextOnly = false;
-            if (event.result.toolCalls.length === 0) {
-              throw new TurnExecutionError(
-                "native_tool_result_invalid",
-                new ServiceUnavailableException(
-                  "Provider stream returned a tool-call stop without any tool calls."
-                )
-              );
-            }
-
-            const bufferedPrefixEvent = this.createVisibleTextDeltaStreamEvent({
-              acceptedTurn,
-              previousDeliveredText: deliveredText,
-              nextVisibleText: assembledText,
-              source: "provider_tool_calls_result_text"
-            });
-            if (bufferedPrefixEvent !== null) {
-              deliveredText = bufferedPrefixEvent.accumulatedText;
-              yield bufferedPrefixEvent;
-            }
-
-            let durableCompactionExecuted = false;
-            const plannedToolExecutions = this.planToolExecutions(
-              event.result.toolCalls,
-              toolBudgetPolicy,
-              iteration
-            );
-            for (
-              let batchStart = 0;
-              batchStart < plannedToolExecutions.length;
-              batchStart = this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
-            ) {
-              const batch = plannedToolExecutions.slice(
-                batchStart,
-                this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
-              );
-              if (batch[0]?.parallelSafe) {
-                for (const entry of batch) {
-                  yield this.createToolStartedStreamEvent(acceptedTurn, entry.toolCall);
-                }
-                const batchResults = await this.executeParallelToolChunk({
-                  plannedToolExecutions: batch,
-                  execution,
-                  acceptedTurn,
-                  input,
-                  turnState,
-                  trace,
-                  iteration
-                });
-                let firstError: unknown = null;
-                for (const result of batchResults) {
-                  if (result.outcome !== undefined) {
-                    toolHistory.push(result.outcome.exchange);
-                    this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
-                    durableCompactionExecuted =
-                      durableCompactionExecuted ||
-                      result.outcome.sharedCompaction?.durableStatePersisted === true;
-                    yield this.createToolFinishedStreamEvent(
-                      acceptedTurn,
-                      result.toolCall,
-                      result.outcome.exchange.toolResult.isError
-                    );
-                    if (result.outcome.artifacts !== undefined) {
-                      for (const artifact of result.outcome.artifacts) {
-                        yield this.createArtifactStreamEvent(acceptedTurn, artifact);
-                      }
-                    }
-                    continue;
-                  }
-                  firstError ??= result.error;
-                  yield this.createToolFinishedStreamEvent(acceptedTurn, result.toolCall, true);
-                }
-                if (firstError !== null) {
-                  throw firstError;
-                }
-                continue;
-              }
-              for (const entry of batch) {
-                const toolCall = entry.toolCall;
-                yield this.createToolStartedStreamEvent(acceptedTurn, toolCall);
-                let outcome: ToolExecutionOutcome;
-                if (entry.reservation.exhausted) {
-                  outcome = this.createToolBudgetExhaustedOutcome({
-                    toolCall,
-                    reservation: entry.reservation,
-                    trace,
-                    iteration,
-                    acceptedTurn
-                  });
-                } else {
-                  try {
-                    outcome = await this.executeProjectedToolCall(
-                      execution,
-                      acceptedTurn,
-                      input,
-                      toolCall,
-                      input.idempotencyKey,
-                      turnState.artifacts,
-                      turnState.fileRefs
-                    );
-                  } catch (error) {
-                    yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
-                    throw error;
-                  }
-                }
-                toolHistory.push(outcome.exchange);
-                this.applyToolExecutionOutcome(turnState, outcome, iteration);
-                durableCompactionExecuted =
-                  durableCompactionExecuted ||
-                  outcome.sharedCompaction?.durableStatePersisted === true;
-                yield this.createToolFinishedStreamEvent(
-                  acceptedTurn,
-                  toolCall,
-                  outcome.exchange.toolResult.isError
-                );
-                if (outcome.artifacts !== undefined) {
-                  for (const artifact of outcome.artifacts) {
-                    yield this.createArtifactStreamEvent(acceptedTurn, artifact);
-                  }
-                }
-              }
-            }
-            if (durableCompactionExecuted) {
-              const refreshStartedAtMs = Date.now();
-              execution.providerRequest = await this.refreshProviderRequestMessages(
-                execution,
-                input
-              );
-              const refreshElapsedMs = Date.now() - refreshStartedAtMs;
-              trace?.stage(`iter${String(iteration)}.provider_request_refreshed`);
-              if (traceEnabled) {
-                this.logger.log(
-                  `[turn-stream-refresh] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} refreshProviderRequestMessagesMs=${String(refreshElapsedMs)} reason=durable_compaction`
-                );
-              }
-            }
-
-            advancedToNextIteration = true;
-            break;
-          }
-
-          if (event.type === "completed" && event.result !== undefined) {
-            trace?.stage(`iter${String(iteration)}.completed_event`);
-            const completedProviderResult = this.withAssistantText(
-              event.result,
-              this.resolveCompletedStreamAssistantText(
-                iterationBaseText,
-                assembledText,
-                event.result.text
-              )
-            );
-            if (
-              (completedProviderResult.text ?? "").trim().length === 0 &&
-              toolHistory.length > 0 &&
-              iteration + 1 < maxToolLoopIterations
-            ) {
-              forceFinalTextOnly = true;
-              advancedToNextIteration = true;
-              trace?.stage(`iter${String(iteration)}.empty_tool_followup_retry`);
-              break;
-            }
-            const correctedAssistantText = this.applyAssistantTextCorrections({
-              assistantText: completedProviderResult.text ?? "",
-              artifacts: turnState.artifacts,
-              deferredMediaJobs: turnState.deferredMediaJobs,
-              locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
-            });
-            if (correctedAssistantText !== (completedProviderResult.text ?? "")) {
-              const correctionDeltaEvent = this.createVisibleTextDeltaStreamEvent({
-                acceptedTurn,
-                previousDeliveredText: deliveredText,
-                nextVisibleText: correctedAssistantText,
-                source: "provider_tool_calls_result_text"
-              });
-              if (correctionDeltaEvent !== null) {
-                deliveredText = correctionDeltaEvent.accumulatedText;
-                yield correctionDeltaEvent;
-              }
-            }
-            const correctedProviderResult = this.withAssistantText(
-              completedProviderResult,
-              correctedAssistantText
-            );
-            this.recordUsageEntry(turnState, {
-              stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
-              modelRole: execution.selectedModelRole,
-              usage: correctedProviderResult.usage
-            });
-            const result = this.buildTurnResult(
-              acceptedTurn,
-              correctedProviderResult,
-              turnState,
-              execution.routeDecision,
-              trace?.build("ok")
-            );
-            completionFinalizationAttempted = true;
-            const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
-              acceptedTurn,
-              result,
-              input,
-              bundle: execution.bundle,
-              turnState
-            });
-            yield {
-              type: "completed",
-              result: finalizedResult
-            };
-            return;
-          }
-
-          if (event.type === "failed") {
-            trace?.stage(`iter${String(iteration)}.failed_event`);
-            if (
-              event.code === "provider_context_window_exceeded" &&
-              !contextOverflowRetryAttempted &&
-              deliveredText.trim().length === 0 &&
-              iteration + 1 < maxToolLoopIterations
-            ) {
-              contextOverflowRetryAttempted = true;
-              toolHistory.splice(0, toolHistory.length);
-              forceFinalTextOnly = true;
-              execution.providerRequest = this.buildContextOverflowRecoveryProviderRequest(
-                execution.providerRequest
-              );
-              advancedToNextIteration = true;
-              trace?.stage(`iter${String(iteration)}.context_overflow_retry`);
-              break;
-            }
-            if (deliveredText.trim().length > 0) {
-              const interrupted = this.toInterruptedEvent(
-                acceptedTurn,
-                deliveredText,
-                null,
-                trace?.build("interrupted"),
-                turnState
-              );
+          for await (const event of providerStream) {
+            if (signal?.aborted) {
               await this.interruptAcceptedTurnQuietly({
                 acceptedTurn,
-                event: interrupted
+                event: this.toInterruptedEvent(
+                  acceptedTurn,
+                  deliveredText,
+                  null,
+                  trace?.build("interrupted"),
+                  turnState
+                )
               });
-              yield interrupted;
               return;
             }
 
-            const failed = await this.failAcceptedTurnQuietly(
+            if (event.type === "keepalive") {
+              continue;
+            }
+            if (!firstProviderEventSeen) {
+              firstProviderEventSeen = true;
+              trace?.stage(`iter${String(iteration)}.first_provider_event`);
+            }
+
+            if (event.type === "text_delta" && event.delta !== undefined) {
+              assembledText = this.mergeAssistantTurnText(iterationBaseText, event.accumulatedText);
+              if (deliveredText.length === 0) {
+                trace?.stage("stream.first_text_delta");
+              }
+              const deltaEvent = this.createVisibleTextDeltaStreamEvent({
+                acceptedTurn,
+                previousDeliveredText: deliveredText,
+                nextVisibleText: assembledText,
+                source: "provider_text_delta"
+              });
+              if (deltaEvent !== null) {
+                deliveredText = deltaEvent.accumulatedText;
+                yield deltaEvent;
+              }
+              continue;
+            }
+
+            if (event.type === "tool_calls") {
+              trace?.stage(`iter${String(iteration)}.tool_calls_received`);
+              this.recordUsageEntry(turnState, {
+                stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
+                modelRole: execution.selectedModelRole,
+                usage: event.result.usage
+              });
+              assembledText = this.mergeAssistantTurnText(assembledText, event.result.text);
+              forceFinalTextOnly = false;
+              if (event.result.toolCalls.length === 0) {
+                throw new TurnExecutionError(
+                  "native_tool_result_invalid",
+                  new ServiceUnavailableException(
+                    "Provider stream returned a tool-call stop without any tool calls."
+                  )
+                );
+              }
+
+              const bufferedPrefixEvent = this.createVisibleTextDeltaStreamEvent({
+                acceptedTurn,
+                previousDeliveredText: deliveredText,
+                nextVisibleText: assembledText,
+                source: "provider_tool_calls_result_text"
+              });
+              if (bufferedPrefixEvent !== null) {
+                deliveredText = bufferedPrefixEvent.accumulatedText;
+                yield bufferedPrefixEvent;
+              }
+
+              let durableCompactionExecuted = false;
+              const plannedToolExecutions = this.planToolExecutions(
+                event.result.toolCalls,
+                toolBudgetPolicy,
+                iteration
+              );
+              for (
+                let batchStart = 0;
+                batchStart < plannedToolExecutions.length;
+                batchStart = this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
+              ) {
+                const batch = plannedToolExecutions.slice(
+                  batchStart,
+                  this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
+                );
+                if (batch[0]?.parallelSafe) {
+                  for (const entry of batch) {
+                    yield this.createToolStartedStreamEvent(acceptedTurn, entry.toolCall);
+                  }
+                  const batchResults = await this.executeParallelToolChunk({
+                    plannedToolExecutions: batch,
+                    execution,
+                    acceptedTurn,
+                    input,
+                    turnState,
+                    trace,
+                    iteration
+                  });
+                  let firstError: unknown = null;
+                  for (const result of batchResults) {
+                    if (result.outcome !== undefined) {
+                      toolHistory.push(result.outcome.exchange);
+                      this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
+                      durableCompactionExecuted =
+                        durableCompactionExecuted ||
+                        result.outcome.sharedCompaction?.durableStatePersisted === true;
+                      yield this.createToolFinishedStreamEvent(
+                        acceptedTurn,
+                        result.toolCall,
+                        result.outcome.exchange.toolResult.isError
+                      );
+                      if (result.outcome.artifacts !== undefined) {
+                        for (const artifact of result.outcome.artifacts) {
+                          yield this.createArtifactStreamEvent(acceptedTurn, artifact);
+                        }
+                      }
+                      continue;
+                    }
+                    firstError ??= result.error;
+                    yield this.createToolFinishedStreamEvent(acceptedTurn, result.toolCall, true);
+                  }
+                  if (firstError !== null) {
+                    throw firstError;
+                  }
+                  continue;
+                }
+                for (const entry of batch) {
+                  const toolCall = entry.toolCall;
+                  yield this.createToolStartedStreamEvent(acceptedTurn, toolCall);
+                  let outcome: ToolExecutionOutcome;
+                  if (entry.reservation.exhausted) {
+                    outcome = this.createToolBudgetExhaustedOutcome({
+                      toolCall,
+                      reservation: entry.reservation,
+                      trace,
+                      iteration,
+                      acceptedTurn
+                    });
+                  } else {
+                    try {
+                      outcome = await this.executeProjectedToolCall(
+                        execution,
+                        acceptedTurn,
+                        input,
+                        toolCall,
+                        input.idempotencyKey,
+                        turnState.artifacts,
+                        turnState.fileRefs
+                      );
+                    } catch (error) {
+                      yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
+                      throw error;
+                    }
+                  }
+                  toolHistory.push(outcome.exchange);
+                  this.applyToolExecutionOutcome(turnState, outcome, iteration);
+                  durableCompactionExecuted =
+                    durableCompactionExecuted ||
+                    outcome.sharedCompaction?.durableStatePersisted === true;
+                  yield this.createToolFinishedStreamEvent(
+                    acceptedTurn,
+                    toolCall,
+                    outcome.exchange.toolResult.isError
+                  );
+                  if (outcome.artifacts !== undefined) {
+                    for (const artifact of outcome.artifacts) {
+                      yield this.createArtifactStreamEvent(acceptedTurn, artifact);
+                    }
+                  }
+                }
+              }
+              if (durableCompactionExecuted) {
+                const refreshStartedAtMs = Date.now();
+                execution.providerRequest = await this.refreshProviderRequestMessages(
+                  execution,
+                  input
+                );
+                const refreshElapsedMs = Date.now() - refreshStartedAtMs;
+                trace?.stage(`iter${String(iteration)}.provider_request_refreshed`);
+                if (traceEnabled) {
+                  this.logger.log(
+                    `[turn-stream-refresh] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} refreshProviderRequestMessagesMs=${String(refreshElapsedMs)} reason=durable_compaction`
+                  );
+                }
+              }
+
+              advancedToNextIteration = true;
+              break;
+            }
+
+            if (event.type === "completed" && event.result !== undefined) {
+              trace?.stage(`iter${String(iteration)}.completed_event`);
+              const completedProviderResult = this.withAssistantText(
+                event.result,
+                this.resolveCompletedStreamAssistantText(
+                  iterationBaseText,
+                  assembledText,
+                  event.result.text
+                )
+              );
+              if (
+                (completedProviderResult.text ?? "").trim().length === 0 &&
+                toolHistory.length > 0 &&
+                iteration + 1 < maxToolLoopIterations
+              ) {
+                forceFinalTextOnly = true;
+                advancedToNextIteration = true;
+                trace?.stage(`iter${String(iteration)}.empty_tool_followup_retry`);
+                break;
+              }
+              const correctedAssistantText = this.applyAssistantTextCorrections({
+                assistantText: completedProviderResult.text ?? "",
+                artifacts: turnState.artifacts,
+                deferredMediaJobs: turnState.deferredMediaJobs,
+                locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
+              });
+              if (correctedAssistantText !== (completedProviderResult.text ?? "")) {
+                const correctionDeltaEvent = this.createVisibleTextDeltaStreamEvent({
+                  acceptedTurn,
+                  previousDeliveredText: deliveredText,
+                  nextVisibleText: correctedAssistantText,
+                  source: "provider_tool_calls_result_text"
+                });
+                if (correctionDeltaEvent !== null) {
+                  deliveredText = correctionDeltaEvent.accumulatedText;
+                  yield correctionDeltaEvent;
+                }
+              }
+              const correctedProviderResult = this.withAssistantText(
+                completedProviderResult,
+                correctedAssistantText
+              );
+              this.recordUsageEntry(turnState, {
+                stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
+                modelRole: execution.selectedModelRole,
+                usage: correctedProviderResult.usage
+              });
+              const result = this.buildTurnResult(
+                acceptedTurn,
+                correctedProviderResult,
+                turnState,
+                execution.routeDecision,
+                trace?.build("ok")
+              );
+              completionFinalizationAttempted = true;
+              const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
+                acceptedTurn,
+                result,
+                input,
+                bundle: execution.bundle,
+                turnState
+              });
+              yield {
+                type: "completed",
+                result: finalizedResult
+              };
+              return;
+            }
+
+            if (event.type === "failed") {
+              trace?.stage(`iter${String(iteration)}.failed_event`);
+              if (
+                event.code === "provider_context_window_exceeded" &&
+                !contextOverflowRetryAttempted &&
+                deliveredText.trim().length === 0 &&
+                iteration + 1 < maxToolLoopIterations
+              ) {
+                contextOverflowRetryAttempted = true;
+                toolHistory.splice(0, toolHistory.length);
+                forceFinalTextOnly = true;
+                execution.providerRequest = this.buildContextOverflowRecoveryProviderRequest(
+                  execution.providerRequest
+                );
+                advancedToNextIteration = true;
+                trace?.stage(`iter${String(iteration)}.context_overflow_retry`);
+                break;
+              }
+              if (deliveredText.trim().length > 0) {
+                const interrupted = this.toInterruptedEvent(
+                  acceptedTurn,
+                  deliveredText,
+                  null,
+                  trace?.build("interrupted"),
+                  turnState
+                );
+                await this.interruptAcceptedTurnQuietly({
+                  acceptedTurn,
+                  event: interrupted
+                });
+                yield interrupted;
+                return;
+              }
+
+              const failed = await this.failAcceptedTurnQuietly(
+                acceptedTurn,
+                {
+                  type: "failed",
+                  requestId: acceptedTurn.receipt.requestId,
+                  sessionId: acceptedTurn.session.sessionId,
+                  code: event.code ?? "provider_stream_failed",
+                  message: event.message ?? "Provider stream failed.",
+                  willRetry: false,
+                  ...(trace === undefined ? {} : { trace: trace.build("failed") })
+                },
+                undefined,
+                turnState
+              );
+              yield failed;
+              return;
+            }
+          }
+
+          if (advancedToNextIteration) {
+            continue;
+          }
+
+          if (deliveredText.trim().length > 0) {
+            const interrupted = this.toInterruptedEvent(
               acceptedTurn,
-              {
-                type: "failed",
-                requestId: acceptedTurn.receipt.requestId,
-                sessionId: acceptedTurn.session.sessionId,
-                code: event.code ?? "provider_stream_failed",
-                message: event.message ?? "Provider stream failed.",
-                willRetry: false,
-                ...(trace === undefined ? {} : { trace: trace.build("failed") })
-              },
-              undefined,
+              deliveredText,
+              null,
+              trace?.build("interrupted"),
               turnState
             );
-            yield failed;
+            await this.interruptAcceptedTurnQuietly({
+              acceptedTurn,
+              event: interrupted
+            });
+            yield interrupted;
             return;
           }
+
+          const failed = await this.failAcceptedTurnQuietly(
+            acceptedTurn,
+            {
+              type: "failed",
+              requestId: acceptedTurn.receipt.requestId,
+              sessionId: acceptedTurn.session.sessionId,
+              code: "provider_stream_ended",
+              message: "Provider stream ended before native turn completion.",
+              willRetry: false,
+              ...(trace === undefined ? {} : { trace: trace.build("failed") })
+            },
+            undefined,
+            turnState
+          );
+          yield failed;
+          return;
         }
 
-        if (advancedToNextIteration) {
-          continue;
+        const exhausted = await this.failAcceptedTurnQuietly(
+          acceptedTurn,
+          {
+            type: "failed",
+            requestId: acceptedTurn.receipt.requestId,
+            sessionId: acceptedTurn.session.sessionId,
+            code: "native_tool_loop_exhausted",
+            message: `Native tool loop exceeded ${String(maxToolLoopIterations)} iterations (mode=${toolBudgetPolicy.executionModeName()}, loopLimit=${String(toolBudgetPolicy.loopLimit())}, wrapUp=${String(NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS)}).`,
+            willRetry: false,
+            ...(trace === undefined ? {} : { trace: trace.build("failed") })
+          },
+          undefined,
+          turnState
+        );
+        yield exhausted;
+      } catch (error) {
+        if (completionFinalizationAttempted) {
+          throw this.toHttpException(error);
+        }
+
+        if (signal?.aborted || this.isAbortError(error)) {
+          await this.interruptAcceptedTurnQuietly({
+            acceptedTurn,
+            event: this.toInterruptedEvent(
+              acceptedTurn,
+              deliveredText,
+              null,
+              trace?.build("interrupted"),
+              turnState
+            )
+          });
+          return;
         }
 
         if (deliveredText.trim().length > 0) {
@@ -1269,79 +1341,14 @@ export class TurnExecutionService {
 
         const failed = await this.failAcceptedTurnQuietly(
           acceptedTurn,
-          {
-            type: "failed",
-            requestId: acceptedTurn.receipt.requestId,
-            sessionId: acceptedTurn.session.sessionId,
-            code: "provider_stream_ended",
-            message: "Provider stream ended before native turn completion.",
-            willRetry: false,
-            ...(trace === undefined ? {} : { trace: trace.build("failed") })
-          },
-          undefined,
+          error,
+          trace?.build("failed"),
           turnState
         );
         yield failed;
-        return;
       }
-
-      const exhausted = await this.failAcceptedTurnQuietly(
-        acceptedTurn,
-        {
-          type: "failed",
-          requestId: acceptedTurn.receipt.requestId,
-          sessionId: acceptedTurn.session.sessionId,
-          code: "native_tool_loop_exhausted",
-          message: `Native tool loop exceeded ${String(maxToolLoopIterations)} iterations (mode=${toolBudgetPolicy.executionModeName()}, loopLimit=${String(toolBudgetPolicy.loopLimit())}, wrapUp=${String(NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS)}).`,
-          willRetry: false,
-          ...(trace === undefined ? {} : { trace: trace.build("failed") })
-        },
-        undefined,
-        turnState
-      );
-      yield exhausted;
-    } catch (error) {
-      if (completionFinalizationAttempted) {
-        throw this.toHttpException(error);
-      }
-
-      if (signal?.aborted || this.isAbortError(error)) {
-        await this.interruptAcceptedTurnQuietly({
-          acceptedTurn,
-          event: this.toInterruptedEvent(
-            acceptedTurn,
-            deliveredText,
-            null,
-            trace?.build("interrupted"),
-            turnState
-          )
-        });
-        return;
-      }
-
-      if (deliveredText.trim().length > 0) {
-        const interrupted = this.toInterruptedEvent(
-          acceptedTurn,
-          deliveredText,
-          null,
-          trace?.build("interrupted"),
-          turnState
-        );
-        await this.interruptAcceptedTurnQuietly({
-          acceptedTurn,
-          event: interrupted
-        });
-        yield interrupted;
-        return;
-      }
-
-      const failed = await this.failAcceptedTurnQuietly(
-        acceptedTurn,
-        error,
-        trace?.build("failed"),
-        turnState
-      );
-      yield failed;
+    } finally {
+      this.runtimeObservabilityService.endStreamTurn();
     }
   }
 
@@ -1415,7 +1422,7 @@ export class TurnExecutionService {
 
     const turnRouting =
       routeDecision === undefined ? null : this.toRuntimeTurnRoutingSnapshot(routeDecision);
-    return {
+    const result: RuntimeTurnResult = {
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
       assistantText: providerResult.text ?? "",
@@ -1434,6 +1441,10 @@ export class TurnExecutionService {
         ? {}
         : { deferredMediaJobs: [...turnState.deferredMediaJobs] })
     };
+    if (trace !== undefined) {
+      this.runtimeObservabilityService.recordStreamTurn(trace);
+    }
+    return result;
   }
 
   private toRuntimeTurnRoutingSnapshot(
@@ -4347,6 +4358,9 @@ export class TurnExecutionService {
     turnState?: TurnExecutionState
   ): Promise<RuntimeFailedEvent> {
     const failure = this.toFailureEvent(acceptedTurn, error, trace, turnState);
+    if (failure.trace !== undefined) {
+      this.runtimeObservabilityService.recordStreamTurn(failure.trace);
+    }
     try {
       await this.turnFinalizationService.failAcceptedTurn(acceptedTurn, failure);
     } catch {
@@ -4360,6 +4374,9 @@ export class TurnExecutionService {
     event: RuntimeInterruptedEvent;
     usage?: RuntimeUsageSnapshot | null;
   }): Promise<void> {
+    if (input.event.trace !== undefined) {
+      this.runtimeObservabilityService.recordStreamTurn(input.event.trace);
+    }
     try {
       await this.turnFinalizationService.interruptAcceptedTurn(input);
     } catch {

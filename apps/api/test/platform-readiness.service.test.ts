@@ -220,6 +220,15 @@ async function run(): Promise<void> {
     outcome: "failure",
     latencyMs: 45
   });
+  httpMetricsService.recordWebStreamTurn({
+    outcome: "completed",
+    latencyMs: 1_250
+  });
+  httpMetricsService.recordWebStreamStage({
+    stage: "runtime_first_delta",
+    outcome: "completed",
+    latencyMs: 480
+  });
   const metricsTextWithMedia = await metricsController.getMetrics({
     setHeader() {
       return undefined;
@@ -240,6 +249,15 @@ async function run(): Promise<void> {
   assert.match(
     metricsTextWithMedia,
     /^media_stage_duration_ms_sum\{stage="web_stage_attachment",channel="web",outcome="failure"\} 45\.00$/m
+  );
+  assert.match(metricsTextWithMedia, /^web_stream_turns_total\{outcome="completed"\} 1$/m);
+  assert.match(
+    metricsTextWithMedia,
+    /^web_stream_duration_ms_sum\{outcome="completed"\} 1250\.00$/m
+  );
+  assert.match(
+    metricsTextWithMedia,
+    /^web_stream_stage_duration_ms_sum\{stage="runtime_first_delta",outcome="completed"\} 480\.00$/m
   );
   assert.match(
     metricsText,

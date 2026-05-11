@@ -22,6 +22,7 @@ import { ProviderTextGenerationService } from "./provider-text-generation.servic
 import { ProviderVideoGenerationService } from "./provider-video-generation.service";
 import { ProviderWebFetchService } from "./provider-web-fetch.service";
 import { ProviderWebSearchService } from "./provider-web-search.service";
+import { ProviderStreamObservabilityService } from "./provider-stream-observability.service";
 import { ProviderWarmupService } from "./provider-warmup.service";
 import { YandexProviderClient } from "./yandex/yandex-provider.client";
 
@@ -52,6 +53,7 @@ import { YandexProviderClient } from "./yandex/yandex-provider.client";
     ProviderSpeechGenerationService,
     ProviderVideoGenerationService,
     ProviderTextGenerationService,
+    ProviderStreamObservabilityService,
     ProviderWebFetchService,
     ProviderWebSearchService
   ],
@@ -63,6 +65,7 @@ import { YandexProviderClient } from "./yandex/yandex-provider.client";
     ProviderVideoGenerationService,
     ProviderSpeechGenerationService,
     ProviderTextGenerationService,
+    ProviderStreamObservabilityService,
     PersaiInternalApiClientService,
     ProviderBrowserService,
     ProviderWebFetchService,

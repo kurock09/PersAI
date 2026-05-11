@@ -676,7 +676,9 @@ Interpretation rules:
 2. verify completed/failed/interrupted runtime stream results can carry structured `trace` stages such as `prepare.*`, `provider_headers_received`, `first_provider_event`, and `first_text_delta`
 3. verify provider-gateway stream logs include elapsed time to response headers or `failed-before-headers`, so live slow cases can be split between upstream-connect delay and token-generation delay
 4. for any live slow-stream investigation, correlate `web_stream_timing` / `web_stream_timing_failed` from `api` with `[provider-gateway-stream]` lines from `runtime` by `requestId` before making claims about where the delay lives
-5. for web-chat continuity changes, prove the ordinary first-send path still uses a single `POST /assistant/chat/web/stream` without a blocking preflight, while resume/switch paths can use `messages.activeTurn` plus `GET /assistant/chat/web/turns/:clientTurnId/stream` reattach
+5. verify the three hot-path `/metrics` surfaces stay aligned with those logs: `apps/api` exposes `web_stream_*`, `apps/runtime` exposes `runtime_stream_*`, and `apps/provider-gateway` exposes `provider_gateway_stream_*`
+6. verify the API trace/request id used in `web_stream_timing` is the same request id propagated into runtime/provider-gateway stream logs for the same turn, so operators do not need to guess cross-service correlation keys
+7. for web-chat continuity changes, prove the ordinary first-send path still uses a single `POST /assistant/chat/web/stream` without a blocking preflight, while resume/switch paths can use `messages.activeTurn` plus `GET /assistant/chat/web/turns/:clientTurnId/stream` reattach
 
 ## Durable memory M1 focused checks
 

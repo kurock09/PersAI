@@ -52,7 +52,49 @@ export class RuntimeMetricsService {
       `runtime_bundle_invalidate_requests_total ${observability.invalidateRequests}`,
       "# HELP runtime_bundle_invalidated_entries_total Total runtime bundle cache entries invalidated",
       "# TYPE runtime_bundle_invalidated_entries_total counter",
-      `runtime_bundle_invalidated_entries_total ${observability.invalidatedBundles}`
+      `runtime_bundle_invalidated_entries_total ${observability.invalidatedBundles}`,
+      "# HELP runtime_stream_turns_in_flight Current in-flight runtime stream turns",
+      "# TYPE runtime_stream_turns_in_flight gauge",
+      `runtime_stream_turns_in_flight ${observability.streamTurnsInFlight}`,
+      "# HELP runtime_stream_turns_total Total runtime stream-turn outcomes",
+      "# TYPE runtime_stream_turns_total counter",
+      ...observability.streamTurnSeries.map(
+        (series) => `runtime_stream_turns_total{status="${series.key.status}"} ${series.count}`
+      ),
+      "# HELP runtime_stream_duration_ms Runtime stream-turn end-to-end duration in milliseconds",
+      "# TYPE runtime_stream_duration_ms histogram",
+      "# HELP runtime_stream_duration_ms_max Maximum observed runtime stream-turn duration in milliseconds",
+      "# TYPE runtime_stream_duration_ms_max gauge",
+      ...observability.streamTurnSeries.map(
+        (series) =>
+          `runtime_stream_duration_ms_max{status="${series.key.status}"} ${series.maxDurationMs.toFixed(2)}`
+      ),
+      ...observability.streamTurnSeries.flatMap((series) => [
+        ...series.buckets.map(
+          (bucket) =>
+            `runtime_stream_duration_ms_bucket{status="${series.key.status}",le="${bucket.le}"} ${bucket.value}`
+        ),
+        `runtime_stream_duration_ms_bucket{status="${series.key.status}",le="+Inf"} ${series.count}`,
+        `runtime_stream_duration_ms_sum{status="${series.key.status}"} ${series.durationMsTotal.toFixed(2)}`,
+        `runtime_stream_duration_ms_count{status="${series.key.status}"} ${series.count}`
+      ]),
+      "# HELP runtime_stream_stage_duration_ms Runtime stream hot-path stage duration in milliseconds",
+      "# TYPE runtime_stream_stage_duration_ms histogram",
+      "# HELP runtime_stream_stage_duration_ms_max Maximum observed runtime stream hot-path stage duration in milliseconds",
+      "# TYPE runtime_stream_stage_duration_ms_max gauge",
+      ...observability.streamStageSeries.map(
+        (series) =>
+          `runtime_stream_stage_duration_ms_max{stage="${series.key.stage}",status="${series.key.status}"} ${series.maxDurationMs.toFixed(2)}`
+      ),
+      ...observability.streamStageSeries.flatMap((series) => [
+        ...series.buckets.map(
+          (bucket) =>
+            `runtime_stream_stage_duration_ms_bucket{stage="${series.key.stage}",status="${series.key.status}",le="${bucket.le}"} ${bucket.value}`
+        ),
+        `runtime_stream_stage_duration_ms_bucket{stage="${series.key.stage}",status="${series.key.status}",le="+Inf"} ${series.count}`,
+        `runtime_stream_stage_duration_ms_sum{stage="${series.key.stage}",status="${series.key.status}"} ${series.durationMsTotal.toFixed(2)}`,
+        `runtime_stream_stage_duration_ms_count{stage="${series.key.stage}",status="${series.key.status}"} ${series.count}`
+      ])
     ];
 
     return `${lines.join("\n")}\n`;

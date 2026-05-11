@@ -5,6 +5,7 @@ import type {
   ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
 import { ProviderTextGenerationController } from "../src/modules/providers/interface/http/provider-text-generation.controller";
+import { ProviderStreamObservabilityService } from "../src/modules/providers/provider-stream-observability.service";
 import type { ProviderTextGenerationService } from "../src/modules/providers/provider-text-generation.service";
 
 class FakeProviderTextGenerationService {
@@ -95,7 +96,8 @@ function createRequest(): ProviderGatewayTextGenerateRequest {
 export async function runProviderTextGenerationControllerTest(): Promise<void> {
   const service = new FakeProviderTextGenerationService();
   const controller = new ProviderTextGenerationController(
-    service as unknown as ProviderTextGenerationService
+    service as unknown as ProviderTextGenerationService,
+    new ProviderStreamObservabilityService()
   );
   const req = new FakeRequest();
   const res = new FakeResponse();

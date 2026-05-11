@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { BundlesModule } from "../bundles/bundles.module";
+import { ObservabilityModule } from "../observability/observability.module";
 import { SessionsModule } from "../sessions/sessions.module";
 import { RuntimeStateModule } from "../runtime-state/runtime-state.module";
 import { TurnsController } from "./interface/http/turns.controller";
@@ -39,7 +40,7 @@ import { SkillStateRoutingService } from "./skill-state-routing.service";
 import { TurnRoutingService } from "./turn-routing.service";
 
 @Module({
-  imports: [BundlesModule, RuntimeStateModule, SessionsModule],
+  imports: [BundlesModule, RuntimeStateModule, SessionsModule, ObservabilityModule],
   controllers: [
     TurnsController,
     InternalRuntimeSessionsController,

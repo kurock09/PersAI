@@ -57,6 +57,7 @@ import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
+import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -186,6 +187,7 @@ export class StreamWebChatTurnService {
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
+    private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly autoSkillRoutingStateService: AutoSkillRoutingStateService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
@@ -290,6 +292,7 @@ export class StreamWebChatTurnService {
       getSseWriterStatsSummary?: () => string | null;
     }
   ): Promise<StreamWebChatTurnOutcome> {
+    const startedAtMs = Date.now();
     let accumulated = "";
     let respondedAt: string | null = null;
     let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
@@ -336,6 +339,7 @@ export class StreamWebChatTurnService {
       cadenceState: prepared.chat.skillCadenceState
     });
     const nativeTurnInput = this.buildNativeStreamTurnInput({
+      requestId: trace.getTraceId(),
       assistantId: prepared.assistantId,
       publishedVersionId: prepared.publishedVersionId,
       runtimeTier: prepared.runtimeTier,
@@ -508,6 +512,12 @@ export class StreamWebChatTurnService {
             message: "The user stopped this web chat turn."
           });
         }
+        this.recordWebStreamHotPathMetrics({
+          outcome: "interrupted",
+          startedAtMs,
+          runtimeStartedAtMs: primaryRuntimeStartedAt,
+          firstDeltaMs: primaryFirstDeltaMs
+        });
         return interrupted;
       }
 
@@ -548,6 +558,12 @@ export class StreamWebChatTurnService {
           );
         }
         trace.finish({ status: "failed" });
+        this.recordWebStreamHotPathMetrics({
+          outcome: "failed",
+          startedAtMs,
+          runtimeStartedAtMs: primaryRuntimeStartedAt,
+          firstDeltaMs: primaryFirstDeltaMs
+        });
         return {
           status: "failed",
           transport: null,
@@ -764,6 +780,7 @@ export class StreamWebChatTurnService {
       });
       this.logger.log(
         this.composeWebStreamTimingLogLine({
+          traceId: trace.getTraceId(),
           eventName: "web_stream_timing",
           assistantId: prepared.assistantId,
           threadKey: prepared.chat.surfaceThreadKey,
@@ -775,6 +792,12 @@ export class StreamWebChatTurnService {
           extraFields: null
         })
       );
+      this.recordWebStreamHotPathMetrics({
+        outcome: "completed",
+        startedAtMs,
+        runtimeStartedAtMs: primaryRuntimeStartedAt,
+        firstDeltaMs: primaryFirstDeltaMs
+      });
       return {
         status: "completed",
         transport: {
@@ -852,6 +875,7 @@ export class StreamWebChatTurnService {
       });
       this.logger.warn(
         this.composeWebStreamTimingLogLine({
+          traceId: trace.getTraceId(),
           eventName: "web_stream_timing_failed",
           assistantId: prepared.assistantId,
           threadKey: prepared.chat.surfaceThreadKey,
@@ -863,6 +887,12 @@ export class StreamWebChatTurnService {
           extraFields: `code=${normalized.code}`
         })
       );
+      this.recordWebStreamHotPathMetrics({
+        outcome: "failed",
+        startedAtMs,
+        runtimeStartedAtMs: primaryRuntimeStartedAt,
+        firstDeltaMs: primaryFirstDeltaMs
+      });
       return {
         status: "failed",
         transport: interruptedOutcome.transport,
@@ -873,6 +903,7 @@ export class StreamWebChatTurnService {
   }
 
   private buildNativeStreamTurnInput(input: {
+    requestId?: string;
     assistantId: string;
     publishedVersionId: string;
     runtimeTier: RuntimeTier;
@@ -892,6 +923,7 @@ export class StreamWebChatTurnService {
     modelOverride?: string;
   }): StreamNativeWebChatTurnInput {
     return {
+      ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
       assistantId: input.assistantId,
       publishedVersionId: input.publishedVersionId,
       runtimeTier: input.runtimeTier,
@@ -1301,6 +1333,7 @@ export class StreamWebChatTurnService {
   }
 
   private composeWebStreamTimingLogLine(input: {
+    traceId: string;
     eventName: "web_stream_timing" | "web_stream_timing_failed";
     assistantId: string;
     threadKey: string;
@@ -1311,12 +1344,36 @@ export class StreamWebChatTurnService {
     sseWriterStatsSummary: string | null;
     extraFields: string | null;
   }): string {
-    const baseFields = `assistantId=${input.assistantId} threadKey=${input.threadKey} clientTurnId=${input.clientTurnId ?? "n/a"} firstDeltaMs=${input.firstDeltaMs ?? -1} totalRuntimeMs=${String(input.totalRuntimeMs)}`;
+    const baseFields = `traceId=${input.traceId} assistantId=${input.assistantId} threadKey=${input.threadKey} clientTurnId=${input.clientTurnId ?? "n/a"} firstDeltaMs=${input.firstDeltaMs ?? -1} totalRuntimeMs=${String(input.totalRuntimeMs)}`;
     const cadenceFields = input.cadence === null ? "" : ` ${formatDeltaCadence(input.cadence)}`;
     const sseFields =
       input.sseWriterStatsSummary === null ? "" : ` sse_${input.sseWriterStatsSummary}`;
     const extraFields = input.extraFields === null ? "" : ` ${input.extraFields}`;
     return `${input.eventName} ${baseFields}${cadenceFields}${sseFields}${extraFields}`;
+  }
+
+  private recordWebStreamHotPathMetrics(input: {
+    outcome: "completed" | "failed" | "interrupted";
+    startedAtMs: number;
+    runtimeStartedAtMs: number;
+    firstDeltaMs: number | null;
+  }): void {
+    this.platformHttpMetricsService.recordWebStreamTurn({
+      outcome: input.outcome,
+      latencyMs: Math.max(0, Date.now() - input.startedAtMs)
+    });
+    this.platformHttpMetricsService.recordWebStreamStage({
+      stage: "runtime_total",
+      outcome: input.outcome,
+      latencyMs: Math.max(0, Date.now() - input.runtimeStartedAtMs)
+    });
+    if (input.firstDeltaMs !== null) {
+      this.platformHttpMetricsService.recordWebStreamStage({
+        stage: "runtime_first_delta",
+        outcome: input.outcome,
+        latencyMs: Math.max(0, input.firstDeltaMs)
+      });
+    }
   }
 
   private async claimOrReplayWebTurn(

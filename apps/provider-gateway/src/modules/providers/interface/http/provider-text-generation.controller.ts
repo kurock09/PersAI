@@ -5,6 +5,7 @@ import type {
   ProviderGatewayTextGenerateResult
 } from "@persai/runtime-contract";
 import { ProviderTextGenerationService } from "../../provider-text-generation.service";
+import { ProviderStreamObservabilityService } from "../../provider-stream-observability.service";
 import { createStreamWriterInstrumentation } from "./stream-writer-instrumentation";
 
 const TRACE_HEADER_NAME = "x-persai-trace";
@@ -30,7 +31,10 @@ function readTraceEnabledHeader(req: IncomingMessage | undefined | null): boolea
 export class ProviderTextGenerationController {
   private readonly logger = new Logger(ProviderTextGenerationController.name);
 
-  constructor(private readonly providerTextGenerationService: ProviderTextGenerationService) {}
+  constructor(
+    private readonly providerTextGenerationService: ProviderTextGenerationService,
+    private readonly providerStreamObservabilityService: ProviderStreamObservabilityService
+  ) {}
 
   @Post("generate-text")
   @HttpCode(HttpStatus.OK)
@@ -60,16 +64,17 @@ export class ProviderTextGenerationController {
     );
 
     const traceEnabled = readTraceEnabledHeader(req);
-    const stream = await this.providerTextGenerationService.streamText(
-      body,
-      abortController.signal
-    );
-    res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders?.();
-
+    const startedAtMs = Date.now();
+    const requestId = body.requestMetadata?.runtimeRequestId ?? "unknown";
+    const classification = body.requestMetadata?.classification ?? "unknown";
+    const iteration =
+      body.requestMetadata?.toolLoopIteration === null ||
+      body.requestMetadata?.toolLoopIteration === undefined
+        ? "null"
+        : String(body.requestMetadata.toolLoopIteration);
+    let status: "completed" | "failed" | "interrupted" = "completed";
+    let firstEventMs: number | null = null;
+    let firstTextDeltaMs: number | null = null;
     const writerInstrumentation = createStreamWriterInstrumentation();
     const writeEvent = (event: unknown): void => {
       if (res.writableEnded) {
@@ -80,26 +85,59 @@ export class ProviderTextGenerationController {
       res.flush?.();
     };
 
-    const startedAtMs = Date.now();
+    this.providerStreamObservabilityService.beginStreamRequest();
     try {
+      const stream = await this.providerTextGenerationService.streamText(
+        body,
+        abortController.signal
+      );
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders?.();
+
       for await (const event of stream) {
         if (res.writableEnded) {
+          status = abortController.signal.aborted ? "interrupted" : "completed";
           return;
+        }
+        if (event.type !== "keepalive" && firstEventMs === null) {
+          firstEventMs = Date.now() - startedAtMs;
+        }
+        if (event.type === "text_delta" && firstTextDeltaMs === null) {
+          firstTextDeltaMs = Date.now() - startedAtMs;
         }
         writeEvent(event);
       }
+    } catch (error) {
+      status = abortController.signal.aborted ? "interrupted" : "failed";
+      throw error;
     } finally {
+      if (abortController.signal.aborted && status === "completed") {
+        status = "interrupted";
+      }
       if (!res.writableEnded) {
         res.end();
       }
+      const totalMs = Date.now() - startedAtMs;
+      this.providerStreamObservabilityService.recordStreamRequest({
+        provider: body.provider,
+        classification,
+        status,
+        totalMs,
+        stageDurations: [
+          ...(firstEventMs === null ? [] : [{ stage: "first_event", durationMs: firstEventMs }]),
+          ...(firstTextDeltaMs === null
+            ? []
+            : [{ stage: "first_text_delta", durationMs: firstTextDeltaMs }]),
+          { stage: "total", durationMs: totalMs }
+        ]
+      });
+      this.providerStreamObservabilityService.endStreamRequest();
       if (traceEnabled) {
         this.logger.log(
-          `[stream-text-writer-stats] requestId=${body.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${body.requestMetadata?.classification ?? "unknown"} iteration=${
-            body.requestMetadata?.toolLoopIteration === null ||
-            body.requestMetadata?.toolLoopIteration === undefined
-              ? "null"
-              : String(body.requestMetadata.toolLoopIteration)
-          } provider=${body.provider} model=${body.model} elapsedMs=${String(Date.now() - startedAtMs)} ${writerInstrumentation.formatStats()}`
+          `[stream-text-timing] requestId=${requestId} classification=${classification} iteration=${iteration} provider=${body.provider} model=${body.model} status=${status} firstEventMs=${firstEventMs ?? -1} firstTextDeltaMs=${firstTextDeltaMs ?? -1} totalMs=${String(totalMs)} ${writerInstrumentation.formatStats()}`
         );
       }
     }

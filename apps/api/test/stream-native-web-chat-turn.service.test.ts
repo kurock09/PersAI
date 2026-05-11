@@ -155,6 +155,7 @@ describe("StreamNativeWebChatTurnService", () => {
 
       const chunks = await collectChunks(
         service.execute({
+          requestId: "trace-request-1",
           assistantId: "assistant-1",
           publishedVersionId: "version-1",
           runtimeTier: "paid_shared_restricted",
@@ -184,6 +185,7 @@ describe("StreamNativeWebChatTurnService", () => {
       );
 
       assert.equal(capturedUrl, "http://runtime.local/api/v1/turns/stream");
+      assert.equal(capturedBody?.requestId, "trace-request-1");
       assert.equal(capturedBody?.idempotencyKey, "user-msg-1");
       assert.equal(capturedBody?.modelRoleOverride, "premium_reply");
       assert.equal(capturedBody?.providerOverride, "anthropic");

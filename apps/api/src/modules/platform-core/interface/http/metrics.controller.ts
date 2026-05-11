@@ -148,6 +148,45 @@ export class MetricsController {
         `media_stage_duration_ms_sum{stage="${series.key.stage}",channel="${series.key.channel}",outcome="${series.key.outcome}"} ${series.durationMsTotal.toFixed(2)}`,
         `media_stage_duration_ms_count{stage="${series.key.stage}",channel="${series.key.channel}",outcome="${series.key.outcome}"} ${series.count}`
       ]),
+      "# HELP web_stream_turns_total Total web-stream turn outcomes",
+      "# TYPE web_stream_turns_total counter",
+      ...httpMetrics.webStreamSeries.map(
+        (series) => `web_stream_turns_total{outcome="${series.key.outcome}"} ${series.count}`
+      ),
+      "# HELP web_stream_duration_ms Web-stream end-to-end duration in milliseconds",
+      "# TYPE web_stream_duration_ms histogram",
+      "# HELP web_stream_duration_ms_max Maximum observed web-stream end-to-end duration in milliseconds",
+      "# TYPE web_stream_duration_ms_max gauge",
+      ...httpMetrics.webStreamSeries.map(
+        (series) =>
+          `web_stream_duration_ms_max{outcome="${series.key.outcome}"} ${series.maxDurationMs.toFixed(2)}`
+      ),
+      ...httpMetrics.webStreamSeries.flatMap((series) => [
+        ...series.buckets.map(
+          (bucket) =>
+            `web_stream_duration_ms_bucket{outcome="${series.key.outcome}",le="${bucket.le}"} ${bucket.value}`
+        ),
+        `web_stream_duration_ms_bucket{outcome="${series.key.outcome}",le="+Inf"} ${series.count}`,
+        `web_stream_duration_ms_sum{outcome="${series.key.outcome}"} ${series.durationMsTotal.toFixed(2)}`,
+        `web_stream_duration_ms_count{outcome="${series.key.outcome}"} ${series.count}`
+      ]),
+      "# HELP web_stream_stage_duration_ms Web-stream hot-path stage duration in milliseconds",
+      "# TYPE web_stream_stage_duration_ms histogram",
+      "# HELP web_stream_stage_duration_ms_max Maximum observed web-stream hot-path stage duration in milliseconds",
+      "# TYPE web_stream_stage_duration_ms_max gauge",
+      ...httpMetrics.webStreamStageSeries.map(
+        (series) =>
+          `web_stream_stage_duration_ms_max{stage="${series.key.stage}",outcome="${series.key.outcome}"} ${series.maxDurationMs.toFixed(2)}`
+      ),
+      ...httpMetrics.webStreamStageSeries.flatMap((series) => [
+        ...series.buckets.map(
+          (bucket) =>
+            `web_stream_stage_duration_ms_bucket{stage="${series.key.stage}",outcome="${series.key.outcome}",le="${bucket.le}"} ${bucket.value}`
+        ),
+        `web_stream_stage_duration_ms_bucket{stage="${series.key.stage}",outcome="${series.key.outcome}",le="+Inf"} ${series.count}`,
+        `web_stream_stage_duration_ms_sum{stage="${series.key.stage}",outcome="${series.key.outcome}"} ${series.durationMsTotal.toFixed(2)}`,
+        `web_stream_stage_duration_ms_count{stage="${series.key.stage}",outcome="${series.key.outcome}"} ${series.count}`
+      ]),
       "# HELP process_uptime_seconds Process uptime in seconds",
       "# TYPE process_uptime_seconds gauge",
       `process_uptime_seconds ${process.uptime().toFixed(2)}`,

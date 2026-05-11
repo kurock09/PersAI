@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { RuntimeObservabilityService } from "../src/modules/observability/runtime-observability.service";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 
 function createBareTurnExecutionService(): TurnExecutionService {
-  const deps = Array.from({ length: 21 }, () => ({})) as unknown as ConstructorParameters<
+  const deps = Array.from({ length: 22 }, () => ({})) as unknown as ConstructorParameters<
     typeof TurnExecutionService
   >;
+  deps[21] = new RuntimeObservabilityService() as never;
   return new TurnExecutionService(...deps);
 }
 

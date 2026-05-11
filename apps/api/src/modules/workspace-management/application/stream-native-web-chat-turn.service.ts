@@ -32,6 +32,7 @@ const HIDDEN_RUNTIME_TOOL_NAMES = new Set<string>();
 const DEGRADED_TOOL_OUTPUT_MESSAGE = "Tool completed, but follow-up text was interrupted.";
 
 export interface StreamNativeWebChatTurnInput {
+  requestId?: string;
   assistantId: string;
   publishedVersionId: string;
   runtimeTier: RuntimeTier;
@@ -103,7 +104,7 @@ export class StreamNativeWebChatTurnService {
     }
 
     const request: RuntimeTurnRequest = {
-      requestId: randomUUID(),
+      requestId: input.requestId ?? randomUUID(),
       idempotencyKey: input.userMessageId,
       runtimeTier: input.runtimeTier,
       bundle: {

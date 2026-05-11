@@ -96,6 +96,34 @@ async function run(): Promise<void> {
   assert.equal(mediaFailureSeries?.count, 1);
   assert.equal(mediaFailureSeries?.buckets.find((bucket) => bucket.le === 500)?.value, 1);
 
+  service.recordWebStreamTurn({
+    outcome: "completed",
+    latencyMs: 1_250
+  });
+  service.recordWebStreamStage({
+    stage: "runtime_first_delta",
+    outcome: "completed",
+    latencyMs: 480
+  });
+
+  const webStreamSeries = service
+    .getSnapshot()
+    .webStreamSeries.find((series) => series.key.outcome === "completed");
+  assert.ok(webStreamSeries);
+  assert.equal(webStreamSeries?.count, 1);
+  assert.equal(webStreamSeries?.durationMsTotal, 1_250);
+  assert.equal(webStreamSeries?.buckets.find((bucket) => bucket.le === 2_500)?.value, 1);
+
+  const webStreamStageSeries = service
+    .getSnapshot()
+    .webStreamStageSeries.find(
+      (series) => series.key.stage === "runtime_first_delta" && series.key.outcome === "completed"
+    );
+  assert.ok(webStreamStageSeries);
+  assert.equal(webStreamStageSeries?.count, 1);
+  assert.equal(webStreamStageSeries?.durationMsTotal, 480);
+  assert.equal(webStreamStageSeries?.buckets.find((bucket) => bucket.le === 500)?.value, 1);
+
   const middlewareMetrics = new PlatformHttpMetricsService();
   const middleware = new RequestLoggingMiddleware(
     {
