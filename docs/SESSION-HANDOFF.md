@@ -42,7 +42,7 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 ### Deploy truth
 
 - **DEPLOY REQUIRED** because this slice changes live service metrics endpoints and stream-path observability behavior in `apps/api`, `apps/runtime`, and `apps/provider-gateway`.
-- **Not deployed in this local session**: no push/rollout was performed here, so the ADR-093 post-deploy `kubectl` checklist and short human `/app` smoke are still pending before calling Session 1 fully closed in `persai-dev`.
+- **Live closeout completed after later ADR-093 rollout work**: `persai-dev` was deployed, Argo reached `Synced / Healthy`, and the short `/app` smoke for the active chat path passed. Session 1 observability truth is now live for the subsequent ADR-093 sessions.
 
 ### ADR-093 audit outcomes
 
@@ -60,7 +60,7 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 
 ### Next recommended step
 
-Deploy this slice once as one coherent push, then run the ADR-093 post-deploy checks plus one short `/app` streamed-chat smoke and verify: (1) `web_stream_*`, `runtime_stream_*`, and `provider_gateway_stream_*` all appear on live `/metrics`; (2) one request id can be followed from API `web_stream_timing` into runtime/provider-gateway logs for the same turn.
+Closed on the live path. The deploy/smoke follow-through for this session was completed before Session 5 handoff.
 
 ### Exact next-session prompt (ADR-093 Session 2, GPT-5.4)
 
@@ -164,7 +164,7 @@ Completion checklist:
 ### Deploy truth
 
 - **DEPLOY REQUIRED** because this slice changes live runtime admission, queueing, and fairness behavior in `apps/runtime`, and it changes the runtime `/metrics` surface operators will use to observe queue pressure.
-- **Not deployed in this local session**: no push/rollout was performed here, so the ADR-093 post-deploy `kubectl` checklist and short human `/app` fairness smoke are still pending before calling Session 2 fully closed in `persai-dev`.
+- **Live closeout completed after later ADR-093 rollout work**: `persai-dev` was deployed, Argo reached `Synced / Healthy`, and the short `/app` fairness smoke passed (ordinary chat plus heavier/tool-using flow). Session 2 runtime admission/fairness truth is now live.
 
 ### ADR-093 audit outcomes
 
@@ -178,12 +178,12 @@ Completion checklist:
 
 - Admission fairness is currently process-local. It protects a hot runtime pod from self-starvation, but it is not a cluster-wide global scheduler.
 - No Helm update was made in this slice, so replica count/resources/HPA truth is unchanged from before Session 2.
-- Because this session was not deployed, we have not yet verified live queue metrics, conflict/error shape, or the light-vs-heavy smoke pair in `persai-dev`.
+- Live deploy/smoke closure has since been completed, so the earlier pending queue-metrics and light-vs-heavy smoke items are no longer open for Session 2.
 - The working tree still contains the pre-existing unrelated modification to `docs/ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md`; it was left as-is.
 
 ### Next recommended step
 
-Push/deploy this slice once as one coherent rollout, then run the ADR-093 post-deploy checks plus the short `/app` smoke pair for one light turn and one heavier/tool-using turn. Only after that deploy truth is captured should Session 3 start.
+Closed on the live path. The deploy/smoke follow-through for this session was completed before Session 5 handoff.
 
 ### Exact next-session prompt (ADR-093 Session 3, GPT-5.4)
 
@@ -292,7 +292,7 @@ Completion checklist:
 ### Deploy truth
 
 - **DEPLOY REQUIRED** because this slice changes live `apps/provider-gateway`, `apps/runtime`, and `apps/web` stream/reconcile behavior.
-- **Not deployed in this local session**: no push/rollout was performed here, so the ADR-093 post-deploy `kubectl` checklist and human `/app` stream/resume smoke are still pending before calling Session 3 fully closed in `persai-dev`.
+- **Live closeout completed after later ADR-093 rollout work**: `persai-dev` was deployed, Argo reached `Synced / Healthy`, and the required `/app` stream/resume smoke passed.
 - No Helm/config wiring changed.
 
 ### ADR-093 audit outcomes
@@ -307,11 +307,11 @@ Completion checklist:
 
 - Coalesced internal flushes can shift some rapid text deltas by up to 40ms on the internal provider-gateway/runtime hops; first payloads and terminal/non-delta events remain immediate.
 - The full repo `format:check` is still blocked by unrelated pre-existing dirty files outside the Session 3 touch area.
-- Because this session was not deployed, live `/app` streaming, focus/visibility resume, mobile WebView return, and tool-using stream smoke remain pending.
+- The earlier pending live `/app` streaming/resume/tool smoke items have since passed during the ADR-093 live validation sequence for Sessions 1-4.
 
 ### Next recommended step
 
-Push/deploy this slice once as one coherent rollout, then run the ADR-093 post-deploy checks plus `/app` smoke: one short chat, one resume/reattach continuity check, and one ordinary vs one tool-using stream comparison for obvious regressions.
+Closed on the live path. The deploy/smoke follow-through for this session was completed before Session 5 handoff.
 
 ### Exact next-session prompt (ADR-093 Session 4, GPT-5.4)
 
@@ -414,12 +414,13 @@ Completion checklist:
   - `helm lint infra/helm -f infra/helm/values-dev.yaml` — pass
   - `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml > /dev/null` — pass
   - `corepack pnpm exec prettier --write apps/runtime/src/modules/turns/sandbox-client.service.ts apps/runtime/test/sandbox-client.service.test.ts apps/sandbox/src/sandbox-metrics.service.ts apps/sandbox/src/sandbox.service.ts` — pass
-  - `corepack pnpm run format:check` — pending re-run after final docs updates in this session
+  - `corepack pnpm run format:check` — pass
 
 ### Deploy truth
 
 - **DEPLOY REQUIRED** because this slice changes live `apps/sandbox`, live runtime sandbox completion behavior, and Helm deploy truth for sandbox replicas/PDB/env bounds.
-- **Not deployed in this local session**: no push/rollout was performed here, so the ADR-093 post-deploy `kubectl` checklist and the required `/app` + sandbox-backed UI smoke remain pending before calling Session 4 fully closed in `persai-dev`.
+- **Live deploy completed**: commit `5b2101c6` shipped, `Dev Image Publish` and `CI` passed, bot pin commit `97457c70` updated `infra/helm/values-dev.yaml`, Argo reached `Synced / Healthy`, and `api` / `runtime` / `provider-gateway` / `sandbox` rolled out successfully in `persai-dev`.
+- **Human smoke completed**: Sessions 1-4 smoke checks passed on the live path, including ordinary chat and sandbox-backed file flow validation for Session 4.
 - The unrelated blank-tag drift in `infra/helm/values-dev.yaml` was corrected locally back to the `HEAD` pinned SHA values for `api`, `web`, `provider-gateway`, and `runtime`.
 
 ### ADR-093 audit outcomes
@@ -433,12 +434,12 @@ Completion checklist:
 ### Risks / residuals
 
 - Stale-job cleanup relies on persisted timestamps and the stored policy snapshot, so if a future slice changes sandbox runtime accounting again it should keep those fields truthful.
-- Sandbox metrics are now present, but no live scrape/observation evidence was captured in this local-only session.
-- Because this session was not deployed, live `/metrics`, `/app` sandbox-backed flow behavior, pod pressure, and Argo sync health are still pending verification.
+- Sandbox metrics are now present and live, but no separate saved scrape artifact was captured beyond the rollout/log verification.
+- The required live `/metrics`, `/app` sandbox-backed flow behavior, pod pressure, and Argo sync health checks have been completed for Session 4.
 
 ### Next recommended step
 
-Push/deploy this slice once as one coherent rollout, then run the ADR-093 post-deploy checks plus `/app` smoke: one normal chat, one sandbox-backed/file flow, and one verification that completion/status returns cleanly without visible stuck polling.
+Session 4 is closed on the live path. Next is ADR-093 Session 5: bounded load proof and PROD sign-off.
 
 ### Exact next-session prompt (ADR-093 Session 5, GPT-5.4)
 
@@ -499,6 +500,48 @@ Completion checklist:
 - Update docs/SESSION-HANDOFF.md and docs/CHANGELOG.md.
 - Stop at the Session 5 boundary.
 ```
+
+---
+
+## 2026-05-11 — ADR-093 Session 5: bounded load proof and PROD sign-off (LOCAL LANDED, NO DEPLOY)
+
+### What landed in this session
+
+1. **Session 5 produced real saved SR10 evidence instead of a verbal readiness claim** — ran the required single-profile `100` command and then the `100,500,1000` ladder invocation with the active SR10 harness against `https://api.persai.dev/api/v1`, saving the reports to `artifacts/sr10-loadtest/sr10-2026-05-11T20-47-00-652Z.json` and `artifacts/sr10-loadtest/sr10-2026-05-11T21-02-46-705Z.json`.
+
+2. **The highest passing saved profile is currently none** — both saved runs stopped early on `100/step`, so Session 5 does not prove a safe ceiling at `100`, `500`, or `1000` concurrent workers. No 500-1000 readiness claim is made.
+
+3. **The first bottleneck was recorded honestly from the saved artifacts** — at `100/step`, the biggest client error buckets were `rate_limited:429` and `internal_error:500`, while admin snapshots simultaneously showed high queue pressure (`peakInFlight` 77-84), elevated API error rate (~34%-41%), high latency warnings, and `processStartedAt` drift that indicates an API process restart during the phase. The evidence therefore points to request-path saturation/failure under the current fixed-scale dev shape before any passing `100` profile exists.
+
+4. **The Session 5 harness/config truth is now explicit instead of hidden in shell history** — added `scripts/loadtest/sr10.local.json` as the concrete local SR10 config used for this bounded pass. It keeps the documented `100 / 500 / 1000` profile timings and admin snapshots, but this run used one real user identity and the active web/attachment scenarios only (no `voice_transcribe` fixture was available for this session).
+
+5. **Legacy artifact tail was cleaned inside the same evidence slice** — removed the obsolete April `telegram_turn` SR10 JSON files from `artifacts/sr10-loadtest/`, because those belonged to the pre-ADR-072 synthetic Telegram harness that is no longer an active readiness signal.
+
+### Verification
+
+- `curl.exe -s -o - -w "\nHTTP_STATUS:%{http_code}\n" -H "Authorization: Bearer <user-token>" https://api.persai.dev/api/v1/assistant/runtime/preflight` -> `200`, `live=true`, `ready=true`
+- `curl.exe -s -o - -w "\nHTTP_STATUS:%{http_code}\n" -H "Authorization: Bearer <admin-token>" https://api.persai.dev/api/v1/admin/overview/dashboard` -> `200`
+- `node scripts/loadtest/run-sr10.cjs --config scripts/loadtest/sr10.local.json --dry-run`
+- `node scripts/loadtest/run-sr10.cjs --config scripts/loadtest/sr10.local.json --profile 100`
+- `node scripts/loadtest/run-sr10.cjs --config scripts/loadtest/sr10.local.json --profile 100,500,1000`
+
+### ADR-093 audit outcomes
+
+- **Code-cleanliness:** pass for session scope. The slice stayed inside `scripts/loadtest`, `artifacts/sr10-loadtest`, and docs; no runtime/provider/web/sandbox behavior slice was reopened and no hidden flags or dual paths were added.
+- **Legacy / tail cleanup:** pass. Removed the stale April `telegram_turn` SR10 artifacts so the artifact directory now reflects only the active harness truth.
+- **Failure-model:** fail for PROD sign-off. Both saved runs failed already at `100/step`; the dominant client failures were `rate_limited:429` and `internal_error:500`, and admin snapshots showed elevated error rate, critical queue pressure, and an API process restart during load.
+- **Deploy-truth:** pass, no deploy required. Session 5 changed harness/config/docs/evidence only; the saved admin snapshots still show the fixed-scale truth (`runtime` and `provider-gateway` at 2 replicas with autoscaling disabled).
+- **Load / evidence:** fail for readiness sign-off. Evidence is now saved and honest, but it proves only that the current shape does **not** pass the first `100` rung; no safe ceiling is established.
+
+### Risks / residuals
+
+- This bounded pass used one real authenticated user identity because no second/third user token was available in-session; that means per-user guardrails are part of the observed bottleneck, and the saved evidence should not be over-interpreted as a pure multi-identity capacity test.
+- Even with that limitation, the artifacts still show substantial `internal_error:500`, admin error-rate escalation, queue-pressure warnings, and `processStartedAt` drift, so the failure is not limited to a clean/isolated 429-only outcome.
+- No deploy occurred in Session 5, so there is no new post-deploy `/app` smoke or kubectl/Argo checklist to report for this slice.
+
+### Next recommended step
+
+ADR-093 stops at the Session 5 boundary. The next step is **not** “claim a ceiling anyway”; it is to open a separate evidence-driven remediation slice that first decides whether to widen the identity mix for SR10, tune/relax the relevant rate-limit policy for loadproof traffic, or investigate the coupled `internal_error:500` + queue-pressure + process-restart failure path before rerunning Session 5 evidence.
 
 ---
 

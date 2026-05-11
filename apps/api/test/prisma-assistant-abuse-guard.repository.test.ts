@@ -6,16 +6,34 @@ const attemptedAt = new Date("2026-04-05T23:30:00.000Z");
 
 async function runRetriesSerializableDistributedAttempt(): Promise<void> {
   let transactionCalls = 0;
+  let userCreateManyCalls = 0;
+  let assistantCreateManyCalls = 0;
+  let userBootstrapWindowStartedAt: Date | null = null;
+  let assistantBootstrapWindowStartedAt: Date | null = null;
   const repository = new PrismaAssistantAbuseGuardRepository({
+    assistantAbuseGuardState: {
+      createMany: async ({ data }: { data: Array<{ windowStartedAt: Date }> }) => {
+        userCreateManyCalls += 1;
+        userBootstrapWindowStartedAt = data[0]?.windowStartedAt ?? null;
+        return { count: 1 };
+      }
+    },
+    assistantAbuseAssistantState: {
+      createMany: async ({ data }: { data: Array<{ windowStartedAt: Date }> }) => {
+        assistantCreateManyCalls += 1;
+        assistantBootstrapWindowStartedAt = data[0]?.windowStartedAt ?? null;
+        return { count: 1 };
+      }
+    },
     $transaction: async (
       callback: (tx: {
         assistantAbuseGuardState: {
           findUnique: typeof assistantAbuseGuardState.findUnique;
-          upsert: typeof assistantAbuseGuardState.upsert;
+          update: typeof assistantAbuseGuardState.update;
         };
         assistantAbuseAssistantState: {
           findUnique: typeof assistantAbuseAssistantState.findUnique;
-          upsert: typeof assistantAbuseAssistantState.upsert;
+          update: typeof assistantAbuseAssistantState.update;
         };
       }) => Promise<unknown>
     ) => {
@@ -54,6 +72,12 @@ async function runRetriesSerializableDistributedAttempt(): Promise<void> {
   });
 
   assert.equal(transactionCalls, 2);
+  assert.equal(userCreateManyCalls, 1);
+  assert.equal(assistantCreateManyCalls, 1);
+  assert.notEqual(userBootstrapWindowStartedAt, null);
+  assert.notEqual(assistantBootstrapWindowStartedAt, null);
+  assert.equal(userBootstrapWindowStartedAt?.getTime(), attemptedAt.getTime() - 60_000 - 1);
+  assert.equal(assistantBootstrapWindowStartedAt?.getTime(), attemptedAt.getTime() - 60_000 - 1);
   assert.equal(result.userState.requestCount, 2);
   assert.equal(result.assistantState.requestCount, 2);
   assert.equal(result.finalReason, "user_request_rate_limit_slowdown");
@@ -77,25 +101,19 @@ const assistantAbuseGuardState = {
     createdAt: new Date("2026-04-05T23:29:30.000Z"),
     updatedAt: new Date("2026-04-05T23:29:30.000Z")
   }),
-  upsert: async ({
-    create,
-    update
-  }: {
-    create: Record<string, unknown>;
-    update: Record<string, unknown>;
-  }) => ({
+  update: async ({ data }: { data: Record<string, unknown> }) => ({
     id: "user-state-1",
     assistantId: "assistant-1",
     userId: "user-1",
     workspaceId: "ws-1",
     surface: "web_chat" as const,
-    windowStartedAt: (update.windowStartedAt ?? create.windowStartedAt) as Date,
-    requestCount: (update.requestCount ?? create.requestCount) as number,
-    slowedUntil: (update.slowedUntil ?? create.slowedUntil) as Date | null,
-    blockedUntil: (update.blockedUntil ?? create.blockedUntil) as Date | null,
-    blockReason: (update.blockReason ?? create.blockReason) as string | null,
-    adminOverrideUntil: (update.adminOverrideUntil ?? create.adminOverrideUntil) as Date | null,
-    lastSeenAt: (update.lastSeenAt ?? create.lastSeenAt) as Date,
+    windowStartedAt: data.windowStartedAt as Date,
+    requestCount: data.requestCount as number,
+    slowedUntil: data.slowedUntil as Date | null,
+    blockedUntil: data.blockedUntil as Date | null,
+    blockReason: data.blockReason as string | null,
+    adminOverrideUntil: data.adminOverrideUntil as Date | null,
+    lastSeenAt: data.lastSeenAt as Date,
     createdAt: attemptedAt,
     updatedAt: attemptedAt
   })
@@ -116,23 +134,17 @@ const assistantAbuseAssistantState = {
     createdAt: new Date("2026-04-05T23:29:30.000Z"),
     updatedAt: new Date("2026-04-05T23:29:30.000Z")
   }),
-  upsert: async ({
-    create,
-    update
-  }: {
-    create: Record<string, unknown>;
-    update: Record<string, unknown>;
-  }) => ({
+  update: async ({ data }: { data: Record<string, unknown> }) => ({
     id: "assistant-state-1",
     assistantId: "assistant-1",
     surface: "web_chat" as const,
-    windowStartedAt: (update.windowStartedAt ?? create.windowStartedAt) as Date,
-    requestCount: (update.requestCount ?? create.requestCount) as number,
-    slowedUntil: (update.slowedUntil ?? create.slowedUntil) as Date | null,
-    blockedUntil: (update.blockedUntil ?? create.blockedUntil) as Date | null,
-    blockReason: (update.blockReason ?? create.blockReason) as string | null,
-    adminOverrideUntil: (update.adminOverrideUntil ?? create.adminOverrideUntil) as Date | null,
-    lastSeenAt: (update.lastSeenAt ?? create.lastSeenAt) as Date,
+    windowStartedAt: data.windowStartedAt as Date,
+    requestCount: data.requestCount as number,
+    slowedUntil: data.slowedUntil as Date | null,
+    blockedUntil: data.blockedUntil as Date | null,
+    blockReason: data.blockReason as string | null,
+    adminOverrideUntil: data.adminOverrideUntil as Date | null,
+    lastSeenAt: data.lastSeenAt as Date,
     createdAt: attemptedAt,
     updatedAt: attemptedAt
   })
@@ -141,6 +153,12 @@ const assistantAbuseAssistantState = {
 async function runPeerDomainMapsSnakeCaseRawQueryResult(): Promise<void> {
   const now = new Date("2026-04-06T00:00:00.000Z");
   const repository = new PrismaAssistantAbuseGuardRepository({
+    assistantAbuseGuardState: {
+      createMany: async () => ({ count: 1 })
+    },
+    assistantAbuseAssistantState: {
+      createMany: async () => ({ count: 1 })
+    },
     $queryRaw: async () => [
       {
         id: "peer-raw-1",
@@ -176,6 +194,12 @@ async function runPeerDomainMapsSnakeCaseRawQueryResult(): Promise<void> {
 async function runPeerDomainNormalizesUndefinedAdminOverrideToNull(): Promise<void> {
   const now = new Date("2026-04-06T00:00:00.000Z");
   const repository = new PrismaAssistantAbuseGuardRepository({
+    assistantAbuseGuardState: {
+      createMany: async () => ({ count: 1 })
+    },
+    assistantAbuseAssistantState: {
+      createMany: async () => ({ count: 1 })
+    },
     $queryRaw: async () => [
       {
         id: "peer-undef-1",

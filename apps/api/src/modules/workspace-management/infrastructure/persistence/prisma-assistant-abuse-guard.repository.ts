@@ -18,6 +18,10 @@ import type {
 } from "../../domain/assistant-abuse-guard.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function maxDate(a: Date | null | undefined, b: Date | null | undefined): Date | null {
   const sa = a ?? null;
   const sb = b ?? null;
@@ -149,27 +153,12 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
   async registerDistributedAttempt(
     input: RegisterDistributedAbuseAttemptInput
   ): Promise<RegisterDistributedAbuseAttemptResult> {
-    const maxRetries = 3;
-
-    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      try {
-        return await this.prisma.$transaction(
-          async (tx) => this.registerDistributedAttemptTx(tx, input),
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable
-          }
-        );
-      } catch (error) {
-        const prismaCode =
-          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
-        if (prismaCode === "P2034" && attempt < maxRetries) {
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    throw new Error("Distributed abuse attempt registration exhausted retries.");
+    await this.ensureDistributedRowsExist(input);
+    return this.withSerializableRetry("register distributed abuse attempt", async () =>
+      this.prisma.$transaction(async (tx) => this.registerDistributedAttemptTx(tx, input), {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+      })
+    );
   }
 
   async upsertUserState(input: {
@@ -347,39 +336,39 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       }
     });
 
-    const userState = userRow === null ? null : this.toUserDomain(userRow);
-    const assistantState = assistantRow === null ? null : this.toAssistantDomain(assistantRow);
+    if (userRow === null || assistantRow === null) {
+      throw new Error("Distributed abuse guard rows must exist before registration.");
+    }
+
+    const userState = this.toUserDomain(userRow);
+    const assistantState = this.toAssistantDomain(assistantRow);
     const userAfterQuota = abuseDecisionAfterQuotaReconciled(userState, input.quotaDecision);
     const assistantAfterQuota = abuseDecisionAfterQuotaReconciled(
       assistantState,
       input.quotaDecision
     );
     const userBypass =
-      userState !== null &&
       userState.adminOverrideUntil != null &&
       userState.adminOverrideUntil.getTime() > input.attemptedAt.getTime();
     const assistantBypass =
-      assistantState !== null &&
       assistantState.adminOverrideUntil != null &&
       assistantState.adminOverrideUntil.getTime() > input.attemptedAt.getTime();
 
     const userWindowStartedAt =
-      userState === null ||
       input.attemptedAt.getTime() - userState.windowStartedAt.getTime() > input.windowMs
         ? input.attemptedAt
         : userState.windowStartedAt;
     const assistantWindowStartedAt =
-      assistantState === null ||
       input.attemptedAt.getTime() - assistantState.windowStartedAt.getTime() > input.windowMs
         ? input.attemptedAt
         : assistantState.windowStartedAt;
 
     const userCount =
-      userState === null || userWindowStartedAt.getTime() === input.attemptedAt.getTime()
+      userWindowStartedAt.getTime() === input.attemptedAt.getTime()
         ? 1
         : userState.requestCount + 1;
     const assistantCount =
-      assistantState === null || assistantWindowStartedAt.getTime() === input.attemptedAt.getTime()
+      assistantWindowStartedAt.getTime() === input.attemptedAt.getTime()
         ? 1
         : assistantState.requestCount + 1;
 
@@ -436,7 +425,7 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
     const finalReason =
       input.quotaDecision.reason ?? assistantDecision.reason ?? userDecision.reason ?? null;
 
-    const savedUserRow = await tx.assistantAbuseGuardState.upsert({
+    const savedUserRow = await tx.assistantAbuseGuardState.update({
       where: {
         assistantId_userId_surface: {
           assistantId: input.assistantId,
@@ -444,54 +433,30 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
           surface: input.surface
         }
       },
-      create: {
-        assistantId: input.assistantId,
-        userId: input.userId,
-        workspaceId: input.workspaceId,
-        surface: input.surface,
+      data: {
         windowStartedAt: userWindowStartedAt,
         requestCount: userCount,
         slowedUntil: finalSlowedUntil,
         blockedUntil: finalBlockedUntil,
         blockReason: finalReason,
-        adminOverrideUntil: userBypass ? (userState?.adminOverrideUntil ?? null) : null,
-        lastSeenAt: input.attemptedAt
-      },
-      update: {
-        windowStartedAt: userWindowStartedAt,
-        requestCount: userCount,
-        slowedUntil: finalSlowedUntil,
-        blockedUntil: finalBlockedUntil,
-        blockReason: finalReason,
-        adminOverrideUntil: userBypass ? (userState?.adminOverrideUntil ?? null) : null,
+        adminOverrideUntil: userBypass ? userState.adminOverrideUntil : null,
         lastSeenAt: input.attemptedAt
       }
     });
-    const savedAssistantRow = await tx.assistantAbuseAssistantState.upsert({
+    const savedAssistantRow = await tx.assistantAbuseAssistantState.update({
       where: {
         assistantId_surface: {
           assistantId: input.assistantId,
           surface: input.surface
         }
       },
-      create: {
-        assistantId: input.assistantId,
-        surface: input.surface,
+      data: {
         windowStartedAt: assistantWindowStartedAt,
         requestCount: assistantCount,
         slowedUntil: finalSlowedUntil,
         blockedUntil: finalBlockedUntil,
         blockReason: finalReason,
-        adminOverrideUntil: assistantBypass ? (assistantState?.adminOverrideUntil ?? null) : null,
-        lastSeenAt: input.attemptedAt
-      },
-      update: {
-        windowStartedAt: assistantWindowStartedAt,
-        requestCount: assistantCount,
-        slowedUntil: finalSlowedUntil,
-        blockedUntil: finalBlockedUntil,
-        blockReason: finalReason,
-        adminOverrideUntil: assistantBypass ? (assistantState?.adminOverrideUntil ?? null) : null,
+        adminOverrideUntil: assistantBypass ? assistantState.adminOverrideUntil : null,
         lastSeenAt: input.attemptedAt
       }
     });
@@ -505,6 +470,64 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       finalSlowedUntil,
       finalReason
     };
+  }
+
+  private async ensureDistributedRowsExist(
+    input: RegisterDistributedAbuseAttemptInput
+  ): Promise<void> {
+    const bootstrapWindowStartedAt = new Date(input.attemptedAt.getTime() - input.windowMs - 1);
+    await this.prisma.assistantAbuseGuardState.createMany({
+      data: [
+        {
+          assistantId: input.assistantId,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          surface: input.surface,
+          windowStartedAt: bootstrapWindowStartedAt,
+          requestCount: 0,
+          slowedUntil: null,
+          blockedUntil: null,
+          blockReason: null,
+          adminOverrideUntil: null,
+          lastSeenAt: input.attemptedAt
+        }
+      ],
+      skipDuplicates: true
+    });
+    await this.prisma.assistantAbuseAssistantState.createMany({
+      data: [
+        {
+          assistantId: input.assistantId,
+          surface: input.surface,
+          windowStartedAt: bootstrapWindowStartedAt,
+          requestCount: 0,
+          slowedUntil: null,
+          blockedUntil: null,
+          blockReason: null,
+          adminOverrideUntil: null,
+          lastSeenAt: input.attemptedAt
+        }
+      ],
+      skipDuplicates: true
+    });
+  }
+
+  private async withSerializableRetry<T>(label: string, execute: () => Promise<T>): Promise<T> {
+    const maxRetries = 5;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        return await execute();
+      } catch (error) {
+        const prismaCode =
+          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
+        if (prismaCode === "P2034" && attempt < maxRetries) {
+          await sleep(25 * (attempt + 1));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error(`Failed to ${label} after serialization retries.`);
   }
 
   private toUserDomain(row: PrismaAssistantAbuseGuardState): AssistantAbuseGuardState {
