@@ -65,6 +65,8 @@ jobs:
       GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
       GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
       GCP_WIF_SERVICE_ACCOUNT: ${{ vars.GCP_WIF_SERVICE_ACCOUNT }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_CLERK_PROXY_URL: ${{ vars.NEXT_PUBLIC_CLERK_PROXY_URL }}
       MAIN_TAG: dev-main
     strategy:
       matrix:
@@ -102,13 +104,44 @@ jobs:
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
 
+      - name: Resolve Docker build args
+        id: build-args
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.buildArgs }}" in
+            "")
+              {
+                echo "build_args<<EOF"
+                echo ""
+                echo "EOF"
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            "web")
+              test -n "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" || (echo "Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" && exit 1)
+              test -n "${NEXT_PUBLIC_CLERK_PROXY_URL}" || (echo "Missing NEXT_PUBLIC_CLERK_PROXY_URL" && exit 1)
+              {
+                echo "build_args<<EOF"
+                echo "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}"
+                echo "NEXT_PUBLIC_CLERK_PROXY_URL=${NEXT_PUBLIC_CLERK_PROXY_URL}"
+                echo "NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in"
+                echo "NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up"
+                echo "EOF"
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unknown buildArgs marker: ${{ matrix.buildArgs }}" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Build and push ${{ matrix.service }} image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
-          build-args: ${{ matrix.buildArgs }}
+          build-args: ${{ steps.build-args.outputs.build_args }}
           tags: |
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.service }}:${{ github.sha }}
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.service }}:${{ env.MAIN_TAG }}

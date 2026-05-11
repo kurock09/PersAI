@@ -34,12 +34,7 @@ const APP_METADATA = {
     relPath: "apps/web",
     dockerfile: "apps/web/Dockerfile",
     valuesKey: "web",
-    buildArgs: [
-      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}",
-      "NEXT_PUBLIC_CLERK_PROXY_URL=${{ vars.NEXT_PUBLIC_CLERK_PROXY_URL }}",
-      "NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in",
-      "NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up"
-    ].join("\n")
+    buildArgs: "web"
   },
   "provider-gateway": {
     service: "provider-gateway",
