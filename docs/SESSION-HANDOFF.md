@@ -130,6 +130,131 @@ Completion checklist:
 
 ---
 
+## 2026-05-11 — ADR-093 Session 2: runtime/API execution isolation and fairness foundations (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **Runtime execution admission is no longer one undifferentiated lane per pod** — added `RuntimeExecutionAdmissionService` in `apps/runtime` and routed execution through three explicit technical classes: `interactive_light`, `interactive_heavy`, and `background`. This is per-pod admission only; it does **not** change prompts, product behavior, quotas, or business routing.
+
+2. **Light interactive turns now keep reserved capacity under mixed load** — `TurnExecutionService` classifies interactive turns from existing technical signals only (`selectedModelRole`, deep mode, attachments, open media jobs, and visibility of worker/sandbox tools). Light turns keep reserved slots, while shared slots are distributed round-robin across queued classes so heavy turns and background work cannot monopolize all local execution capacity.
+
+3. **Background/media execution now competes in an isolated class instead of directly contending with chat turns** — background-task evaluation, media-job run, and media-job completion framing now all enter the same bounded admission seam before execution. This preserves current outcomes while preventing unbounded silent background pressure from starving ordinary chat execution on a hot pod.
+
+4. **Queueing is now bounded and operator-visible** — the new admission seam enforces finite per-class queue depth plus finite queue wait timeout instead of silently waiting forever. Runtime `/metrics` now exports the policy and live pressure under `runtime_execution_*`: reserved slots, in-flight per class, queue depth / peak queue depth, admits, rejects, timeouts, and queue-wait histograms.
+
+5. **Docs/test truth now names the fairness contract explicitly** — `docs/TEST-PLAN.md` now contains a focused ADR-093 Session 2 verification section for runtime admission/fairness work, so this path is no longer validated only by source inspection.
+
+### Verification
+
+- Focused tests:
+  - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-execution-admission.service.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-observability.service.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-background-task-evaluation.service.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-run.service.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-completion.service.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- Repo/package checks:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+  - `corepack pnpm --filter @persai/runtime run typecheck`
+  - `corepack pnpm run test`
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** because this slice changes live runtime admission, queueing, and fairness behavior in `apps/runtime`, and it changes the runtime `/metrics` surface operators will use to observe queue pressure.
+- **Not deployed in this local session**: no push/rollout was performed here, so the ADR-093 post-deploy `kubectl` checklist and short human `/app` fairness smoke are still pending before calling Session 2 fully closed in `persai-dev`.
+
+### ADR-093 audit outcomes
+
+- **Code-cleanliness:** pass. The slice stays inside Session 2 scope and uses one direct admission path rather than adding feature flags, business-rule routing, or temporary dual schedulers.
+- **Legacy / tail cleanup:** pass. No hidden flags, dead stubs, or removal-later compatibility paths were introduced; the fairness policy is the live path immediately.
+- **Failure-model:** pass with explicit operator surface. Queue depth and wait are bounded; overload now fails via queue-full / queue-timeout conflicts instead of silent indefinite waiting. Residual: fairness is currently per-pod, so cross-pod balance still depends on the upstream traffic distribution and replica shape.
+- **Deploy-truth:** local pass, live pending. No Helm wiring change was required for this slice; current fixed-replica runtime shape remains the deploy truth. Real rollout verification is still required because admission behavior changed.
+- **Load / evidence:** pass for session scope. This slice improves technical isolation/fairness only and adds metrics for observing it; it does **not** claim any 500–1000 user readiness ceiling without saved SR10 artifacts.
+
+### Risks / residuals
+
+- Admission fairness is currently process-local. It protects a hot runtime pod from self-starvation, but it is not a cluster-wide global scheduler.
+- No Helm update was made in this slice, so replica count/resources/HPA truth is unchanged from before Session 2.
+- Because this session was not deployed, we have not yet verified live queue metrics, conflict/error shape, or the light-vs-heavy smoke pair in `persai-dev`.
+- The working tree still contains the pre-existing unrelated modification to `docs/ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md`; it was left as-is.
+
+### Next recommended step
+
+Push/deploy this slice once as one coherent rollout, then run the ADR-093 post-deploy checks plus the short `/app` smoke pair for one light turn and one heavier/tool-using turn. Only after that deploy truth is captured should Session 3 start.
+
+### Exact next-session prompt (ADR-093 Session 3, GPT-5.4)
+
+```text
+Start ADR-093 Session 3: Provider-gateway, SSE transport efficiency, and web client reconcile pressure.
+
+You are GPT-5.4 working in Cursor on PersAI.
+
+Mandatory reading before edits:
+- docs/ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md
+- AGENTS.md
+- docs/TEST-PLAN.md
+- docs/SESSION-HANDOFF.md
+- infra/dev/gitops/README.md
+- infra/dev/gke/RUNBOOK.md
+
+Scope:
+Implement Session 3 only: reduce technical overhead in provider-gateway/runtime/web streaming and client reconcile pressure while preserving current UX contracts. Focus on SSE transport efficiency, flush/replay/reattach overhead, redundant request amplification, and web-client reconcile/poll pressure without breaking soft detach, resume, idempotent replay, or media-job visibility.
+
+Allowed touch areas:
+- apps/provider-gateway
+- apps/runtime
+- apps/web
+- infra/helm only if existing timeout/wiring needs a small aligned update
+- docs
+
+Forbidden shortcuts:
+- Do not change business logic, assistant behavior, quotas, prompts, or product scenarios.
+- Do not remove idempotent replay or break `clientTurnId` semantics.
+- Do not reduce tool parallelism just to make load easier.
+- Do not add hidden flags, dead stubs, or temporary dual paths without explicit removal conditions.
+- Do not claim 500–1000 user readiness without saved load evidence.
+
+Deploy expectation:
+- DEPLOY REQUIRED if web/runtime/provider-gateway behavior or config changes need rollout verification.
+- Avoid intermediate pushes; land one coherent session push only after checks.
+
+Required implementation discipline:
+- Keep the session bounded to ADR-093 Session 3.
+- Prefer direct cleanup over transitional compatibility.
+- Add focused tests only for touched behavior.
+- Update docs in the same slice if operational truth changes.
+- Before ending, run the ADR-093 audits: code-cleanliness, legacy/tail cleanup, failure-model, deploy-truth, and load/evidence audit.
+
+Verification baseline:
+Run relevant repo checks from docs/TEST-PLAN.md for touched packages.
+If deploy-bearing, use the ADR-093 post-deploy template:
+- kubectl get applications.argoproj.io -n argocd
+- kubectl -n persai-dev get deploy,svc,ingress,networkpolicy
+- kubectl -n persai-dev get pods -o wide
+- targeted kubectl logs / kubectl top / env checks as needed
+
+Human UI smoke after deploy, if deploy-bearing:
+- Open /app
+- Send one short web chat message
+- Confirm the response streams normally
+- Run one resume/reattach continuity smoke if the slice touches replay/reattach flow
+- If the slice changes visible streaming throughput, compare one ordinary stream and one tool-using stream for obvious regressions
+
+Completion checklist:
+- Summarize exactly what transport/reconcile overhead truth changed.
+- State whether deploy was required and why.
+- Include all verification commands and results.
+- Record audit outcomes and any residual risks.
+- Update docs/SESSION-HANDOFF.md and docs/CHANGELOG.md without claiming PROD readiness.
+- Stop at the Session 3 boundary.
+- Output the exact next-session prompt for ADR-093 Session 4 on GPT-5.4.
+```
+
+---
+
 ## 2026-05-11 — admin delete cleanup + web compaction-state regression fix (LANDED)
 
 ### What landed in this session

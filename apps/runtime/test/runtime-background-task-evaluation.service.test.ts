@@ -5,7 +5,9 @@ import type {
   RuntimeTurnRequest,
   RuntimeTurnResult
 } from "@persai/runtime-contract";
+import { RuntimeObservabilityService } from "../src/modules/observability/runtime-observability.service";
 import type { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
+import { RuntimeExecutionAdmissionService } from "../src/modules/turns/runtime-execution-admission.service";
 import { RuntimeBackgroundTaskEvaluationService } from "../src/modules/turns/runtime-background-task-evaluation.service";
 import type { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 
@@ -106,9 +108,13 @@ function createEvaluationRequest(): RuntimeBackgroundTaskEvaluationRequest {
 export async function runRuntimeBackgroundTaskEvaluationServiceTest(): Promise<void> {
   const turnExecution = new FakeTurnExecutionService();
   const providerGateway = new FakeProviderGatewayClientService();
+  const runtimeExecutionAdmissionService = new RuntimeExecutionAdmissionService(
+    new RuntimeObservabilityService()
+  );
   const service = new RuntimeBackgroundTaskEvaluationService(
     providerGateway as unknown as ProviderGatewayClientService,
-    turnExecution as unknown as TurnExecutionService
+    turnExecution as unknown as TurnExecutionService,
+    runtimeExecutionAdmissionService
   );
 
   const input = createEvaluationRequest();
@@ -145,9 +151,13 @@ export async function runRuntimeBackgroundTaskEvaluationServiceTest(): Promise<v
 export async function runUniqueExternalThreadKeyTest(): Promise<void> {
   const turnExecution = new FakeTurnExecutionService();
   const providerGateway = new FakeProviderGatewayClientService();
+  const runtimeExecutionAdmissionService = new RuntimeExecutionAdmissionService(
+    new RuntimeObservabilityService()
+  );
   const service = new RuntimeBackgroundTaskEvaluationService(
     providerGateway as unknown as ProviderGatewayClientService,
-    turnExecution as unknown as TurnExecutionService
+    turnExecution as unknown as TurnExecutionService,
+    runtimeExecutionAdmissionService
   );
 
   const attemptId = "aabbccdd-0000-4000-8000-112233445566";
@@ -178,9 +188,13 @@ export async function runUniqueExternalThreadKeyTest(): Promise<void> {
 export async function runLegacyThreadKeyFallbackTest(): Promise<void> {
   const turnExecution = new FakeTurnExecutionService();
   const providerGateway = new FakeProviderGatewayClientService();
+  const runtimeExecutionAdmissionService = new RuntimeExecutionAdmissionService(
+    new RuntimeObservabilityService()
+  );
   const service = new RuntimeBackgroundTaskEvaluationService(
     providerGateway as unknown as ProviderGatewayClientService,
-    turnExecution as unknown as TurnExecutionService
+    turnExecution as unknown as TurnExecutionService,
+    runtimeExecutionAdmissionService
   );
 
   const input = createEvaluationRequest();
@@ -209,9 +223,13 @@ export async function runLegacyThreadKeyFallbackTest(): Promise<void> {
 export async function runEmptyAttemptIdFallsBackToLegacyKeyTest(): Promise<void> {
   const turnExecution = new FakeTurnExecutionService();
   const providerGateway = new FakeProviderGatewayClientService();
+  const runtimeExecutionAdmissionService = new RuntimeExecutionAdmissionService(
+    new RuntimeObservabilityService()
+  );
   const service = new RuntimeBackgroundTaskEvaluationService(
     providerGateway as unknown as ProviderGatewayClientService,
-    turnExecution as unknown as TurnExecutionService
+    turnExecution as unknown as TurnExecutionService,
+    runtimeExecutionAdmissionService
   );
 
   for (const blank of ["", "   ", "\n\t"]) {

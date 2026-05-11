@@ -104,6 +104,10 @@ import { TurnFinalizationService } from "./turn-finalization.service";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
 import { SkillStateRoutingService } from "./skill-state-routing.service";
 import { TurnRoutingService, type TurnRouteDecision } from "./turn-routing.service";
+import {
+  RuntimeExecutionAdmissionService,
+  classifyInteractiveExecutionClass
+} from "./runtime-execution-admission.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
 
@@ -327,7 +331,8 @@ export class TurnExecutionService {
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
     private readonly runtimeTtsToolService: RuntimeTtsToolService,
     private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService,
-    private readonly runtimeObservabilityService: RuntimeObservabilityService
+    private readonly runtimeObservabilityService: RuntimeObservabilityService,
+    private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -351,15 +356,18 @@ export class TurnExecutionService {
         const execution = await this.prepareTurnExecution(input, {
           allowModelToolExposure: true
         });
-        const turnState = this.createTurnExecutionState();
-        this.applyPreparedTurnExecutionState(turnState, execution);
-        const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
-        return this.finalizeAcceptedTurnWithPostTurnEffects({
-          acceptedTurn,
-          result,
-          input,
-          bundle: execution.bundle,
-          turnState
+        const executionClass = this.classifyInteractiveExecutionClass(input, execution);
+        return this.runtimeExecutionAdmissionService.runWithAdmission(executionClass, async () => {
+          const turnState = this.createTurnExecutionState();
+          this.applyPreparedTurnExecutionState(turnState, execution);
+          const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
+          return this.finalizeAcceptedTurnWithPostTurnEffects({
+            acceptedTurn,
+            result,
+            input,
+            bundle: execution.bundle,
+            turnState
+          });
         });
       }
     }
@@ -383,19 +391,21 @@ export class TurnExecutionService {
       case "replayed":
         return this.resolveReplayResult(acceptedTurn.receipt);
       case "accepted": {
-        const execution = await this.prepareTurnExecution(input, {
-          allowModelToolExposure: true,
-          excludedToolNames: BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS
-        });
-        const turnState = this.createTurnExecutionState();
-        this.applyPreparedTurnExecutionState(turnState, execution);
-        const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
-        return this.finalizeAcceptedTurnWithPostTurnEffects({
-          acceptedTurn,
-          result,
-          input,
-          bundle: execution.bundle,
-          turnState
+        return this.runtimeExecutionAdmissionService.runWithAdmission("background", async () => {
+          const execution = await this.prepareTurnExecution(input, {
+            allowModelToolExposure: true,
+            excludedToolNames: BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS
+          });
+          const turnState = this.createTurnExecutionState();
+          this.applyPreparedTurnExecutionState(turnState, execution);
+          const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
+          return this.finalizeAcceptedTurnWithPostTurnEffects({
+            acceptedTurn,
+            result,
+            input,
+            bundle: execution.bundle,
+            turnState
+          });
         });
       }
     }
@@ -428,17 +438,20 @@ export class TurnExecutionService {
           allowModelToolExposure: true,
           trace
         });
-        const turnState = this.createTurnExecutionState();
-        this.applyPreparedTurnExecutionState(turnState, execution);
-        return this.streamAcceptedTurn(
-          acceptedTurn,
-          execution,
-          input,
-          turnState,
-          options?.signal,
-          trace,
-          options?.traceEnabled === true
-        );
+        const executionClass = this.classifyInteractiveExecutionClass(input, execution);
+        return this.runtimeExecutionAdmissionService.runStreamWithAdmission(executionClass, () => {
+          const turnState = this.createTurnExecutionState();
+          this.applyPreparedTurnExecutionState(turnState, execution);
+          return this.streamAcceptedTurn(
+            acceptedTurn,
+            execution,
+            input,
+            turnState,
+            options?.signal,
+            trace,
+            options?.traceEnabled === true
+          );
+        });
       }
     }
   }
@@ -1362,6 +1375,21 @@ export class TurnExecutionService {
         result
       };
     })();
+  }
+
+  private classifyInteractiveExecutionClass(
+    input: RuntimeTurnRequest,
+    execution: PreparedTurnExecution
+  ) {
+    return classifyInteractiveExecutionClass({
+      selectedModelRole: execution.selectedModelRole,
+      deepModeEnabled: execution.deepModeEnabled,
+      attachmentCount: input.message.attachments.length,
+      openMediaJobCount: input.openMediaJobs?.length ?? 0,
+      visibleToolPolicies: execution.bundle.governance.toolPolicies.filter(
+        (policy) => policy.enabled === true && policy.visibleToModel === true
+      )
+    });
   }
 
   private createRuntimeStreamTraceCollector(): RuntimeStreamTraceCollector {

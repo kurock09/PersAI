@@ -6,6 +6,8 @@ import type {
   RuntimeTurnRequest,
   RuntimeTurnResult
 } from "@persai/runtime-contract";
+import { RuntimeObservabilityService } from "../src/modules/observability/runtime-observability.service";
+import { RuntimeExecutionAdmissionService } from "../src/modules/turns/runtime-execution-admission.service";
 import { RuntimeMediaJobCompletionService } from "../src/modules/turns/runtime-media-job-completion.service";
 
 describe("RuntimeMediaJobCompletionService", () => {
@@ -70,7 +72,8 @@ describe("RuntimeMediaJobCompletionService", () => {
         failAcceptedTurn: async () => {
           throw new Error("should not fail");
         }
-      } as never
+      } as never,
+      new RuntimeExecutionAdmissionService(new RuntimeObservabilityService())
     );
 
     const result = await service.complete({
@@ -212,7 +215,8 @@ describe("RuntimeMediaJobCompletionService", () => {
         failAcceptedTurn: async () => {
           throw new Error("should not fail");
         }
-      } as never
+      } as never,
+      new RuntimeExecutionAdmissionService(new RuntimeObservabilityService())
     );
 
     const result = await service.complete({
@@ -316,7 +320,8 @@ describe("RuntimeMediaJobCompletionService", () => {
           leaseReleased: true
         }),
         failAcceptedTurn: async () => undefined
-      } as never
+      } as never,
+      new RuntimeExecutionAdmissionService(new RuntimeObservabilityService())
     );
 
     await assert.rejects(

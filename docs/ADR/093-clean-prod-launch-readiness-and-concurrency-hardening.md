@@ -28,11 +28,11 @@ This ADR is **not** a reopen of historical migration ADRs (072–078). It is a *
 2. **Agent discipline** follows [AGENTS.md](../../AGENTS.md): one session = one bounded slice unless the user explicitly expands scope; no silent architecture changes; docs updated in the same slice when truth moves.
 3. **Transition modes** are **disallowed by default**. Prefer **direct replace** to target state while real external user load is absent. Use a **temporary dual path** only when a technical cutover requires it; then it MUST name: owner, removal condition, and removal slice. No “forever compat”.
 4. **Deploy discipline**: `persai-dev` uses **Argo CD auto-sync**; **push → image publish → GitOps pin → sync** ([infra/dev/gitops/README.md](../../infra/dev/gitops/README.md)). Therefore:
-   - Group risky changes so **one session → ideally one deploy** (one coherent merge/push), not many small pushes.
-   - Every session that expects cluster rollout MUST be labeled **`DEPLOY REQUIRED`** and include the post-deploy checklist below.
+  - Group risky changes so **one session → ideally one deploy** (one coherent merge/push), not many small pushes.
+  - Every session that expects cluster rollout MUST be labeled `**DEPLOY REQUIRED`** and include the post-deploy checklist below.
 5. **Verification split** after any deploy:
-   - **Agent (kubectl / GitOps):** cluster health, rollout, migrations hook, targeted logs/metrics as needed.
-   - **Human (UI):** short smoke list only (2–5 checks). No open-ended “click around”.
+  - **Agent (kubectl / GitOps):** cluster health, rollout, migrations hook, targeted logs/metrics as needed.
+  - **Human (UI):** short smoke list only (2–5 checks). No open-ended “click around”.
 6. **Progression gate:** before starting the next session, run the **mandatory intermediate audits** for the finished session. **Critical findings block** starting the next session. **Quality findings** are fixed in the same session or explicitly deferred with reason in CHANGELOG / handoff.
 7. **Session boundary:** when a session completes, the agent **stops**. It outputs the **next-session prompt** for **GPT-5.4** (see §Session handoff contract). It does not silently continue across the boundary.
 
@@ -40,13 +40,15 @@ This ADR is **not** a reopen of historical migration ADRs (072–078). It is a *
 
 Run in parallel readonly passes where possible:
 
-| Audit | Question |
-|-------|----------|
-| **Code-cleanliness** | No dead code paths, no duplicate “shadow” helpers, no unexplained magic numbers; changes match session scope. |
-| **Legacy / tail cleanup** | Temporary paths removed or have explicit removal slice; no stale flags. |
-| **Failure-model** | Timeouts, retries, and degradation behave predictably; no unbounded queues without operator visibility. |
-| **Deploy-truth** | Helm values, secrets wiring, and Argo app still match [infra/dev/gitops/README.md](../../infra/dev/gitops/README.md). |
-| **Load / evidence** | If the session touches scale paths, cite existing or new evidence (e.g. SR10 JSON under `artifacts/sr10-loadtest/` per [TEST-PLAN.md](../TEST-PLAN.md)); do not claim ceilings without saved reports. |
+
+| Audit                     | Question                                                                                                                                                                                              |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Code-cleanliness**      | No dead code paths, no duplicate “shadow” helpers, no unexplained magic numbers; changes match session scope.                                                                                         |
+| **Legacy / tail cleanup** | Temporary paths removed or have explicit removal slice; no stale flags.                                                                                                                               |
+| **Failure-model**         | Timeouts, retries, and degradation behave predictably; no unbounded queues without operator visibility.                                                                                               |
+| **Deploy-truth**          | Helm values, secrets wiring, and Argo app still match [infra/dev/gitops/README.md](../../infra/dev/gitops/README.md).                                                                                 |
+| **Load / evidence**       | If the session touches scale paths, cite existing or new evidence (e.g. SR10 JSON under `artifacts/sr10-loadtest/` per [TEST-PLAN.md](../TEST-PLAN.md)); do not claim ceilings without saved reports. |
+
 
 ### Deploy policy and post-deploy template
 
@@ -82,7 +84,7 @@ When a session ends, the agent MUST append to [SESSION-HANDOFF.md](../SESSION-HA
 2. **Mandatory reading:** this ADR, relevant slice section, [AGENTS.md](../../AGENTS.md), [TEST-PLAN.md](../TEST-PLAN.md) gates touched.
 3. **Exact scope** (in / out).
 4. **Forbidden shortcuts:** no business-logic hacks, no keyword routing, no silent flags.
-5. **`DEPLOY REQUIRED` or `NO DEPLOY EXPECTED`** and why.
+5. `**DEPLOY REQUIRED` or `NO DEPLOY EXPECTED`** and why.
 6. **Audit expectation:** which of the five audits run and outcomes.
 7. **Completion checklist:** tests run, cluster checks, UI checks, residuals.
 
@@ -157,3 +159,4 @@ When a session ends, the agent MUST append to [SESSION-HANDOFF.md](../SESSION-HA
 - **Many small ADRs** — rejected: fragments agent context and encourages micro-deploys.
 - **No ADR, only chat** — rejected: violates repo truth and [AGENTS.md](../../AGENTS.md) discipline.
 - **Always transitional dual paths** — rejected: conflicts with clean launch; allowed only when technically necessary.
+

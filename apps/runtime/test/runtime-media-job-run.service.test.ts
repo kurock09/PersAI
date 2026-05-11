@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { ProviderGatewayToolCall } from "@persai/runtime-contract";
+import { RuntimeObservabilityService } from "../src/modules/observability/runtime-observability.service";
+import { RuntimeExecutionAdmissionService } from "../src/modules/turns/runtime-execution-admission.service";
 import { RuntimeMediaJobRunService } from "../src/modules/turns/runtime-media-job-run.service";
 
 describe("RuntimeMediaJobRunService", () => {
@@ -32,7 +34,8 @@ describe("RuntimeMediaJobRunService", () => {
         }
       } as never,
       {} as never,
-      {} as never
+      {} as never,
+      new RuntimeExecutionAdmissionService(new RuntimeObservabilityService())
     );
 
     const result = await service.run({

@@ -33,6 +33,7 @@ import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.s
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService } from "./turn-acceptance.service";
+import { RuntimeExecutionAdmissionService } from "./runtime-execution-admission.service";
 import { TurnExecutionService } from "./turn-execution.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
@@ -74,6 +75,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     AutoExtractToMemoryService,
     SessionCompactionService,
     TurnAcceptanceService,
+    RuntimeExecutionAdmissionService,
     SkillStateRoutingService,
     TurnRoutingService,
     TurnExecutionService,
@@ -107,6 +109,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     AutoExtractToMemoryService,
     SessionCompactionService,
     TurnAcceptanceService,
+    RuntimeExecutionAdmissionService,
     SkillStateRoutingService,
     TurnRoutingService,
     TurnExecutionService,

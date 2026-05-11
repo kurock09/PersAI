@@ -13,6 +13,7 @@ import type {
   RuntimeTurnResult
 } from "@persai/runtime-contract";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { RuntimeExecutionAdmissionService } from "./runtime-execution-admission.service";
 import { TurnExecutionService } from "./turn-execution.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
@@ -25,34 +26,37 @@ const BACKGROUND_TASK_RUN_KEY_PREFIX = "background-task-tool-run";
 export class RuntimeBackgroundTaskEvaluationService {
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
-    private readonly turnExecutionService: TurnExecutionService
+    private readonly turnExecutionService: TurnExecutionService,
+    private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService
   ) {}
 
   async evaluate(
     input: RuntimeBackgroundTaskEvaluationRequest
   ): Promise<RuntimeBackgroundTaskEvaluationResult> {
-    const bundle = this.parseBundle(input.runtimeBundleDocument);
-    if (bundle.metadata.assistantId !== input.assistantId) {
-      throw new BadRequestException("runtimeBundleDocument assistantId does not match request.");
-    }
-    if (bundle.metadata.workspaceId !== input.workspaceId) {
-      throw new BadRequestException("runtimeBundleDocument workspaceId does not match request.");
-    }
+    return this.runtimeExecutionAdmissionService.runWithAdmission("background", async () => {
+      const bundle = this.parseBundle(input.runtimeBundleDocument);
+      if (bundle.metadata.assistantId !== input.assistantId) {
+        throw new BadRequestException("runtimeBundleDocument assistantId does not match request.");
+      }
+      if (bundle.metadata.workspaceId !== input.workspaceId) {
+        throw new BadRequestException("runtimeBundleDocument workspaceId does not match request.");
+      }
 
-    const toolRun = await this.turnExecutionService.createBackgroundTaskToolRun(
-      this.buildToolRunRequest(input, bundle)
-    );
-    const providerSelection = this.resolveProviderSelection(bundle, "system_tool");
-    const request = this.buildProviderRequest(input, bundle, providerSelection, toolRun);
-    const result = await this.providerGatewayClientService.generateText(request);
-    const parsed = this.parseEvaluationJson(result.text);
-    return {
-      ...parsed,
-      toolRunText: toolRun.assistantText.trim() || null,
-      artifacts: toolRun.artifacts,
-      usage: result.usage,
-      rawText: result.text
-    };
+      const toolRun = await this.turnExecutionService.createBackgroundTaskToolRun(
+        this.buildToolRunRequest(input, bundle)
+      );
+      const providerSelection = this.resolveProviderSelection(bundle, "system_tool");
+      const request = this.buildProviderRequest(input, bundle, providerSelection, toolRun);
+      const result = await this.providerGatewayClientService.generateText(request);
+      const parsed = this.parseEvaluationJson(result.text);
+      return {
+        ...parsed,
+        toolRunText: toolRun.assistantText.trim() || null,
+        artifacts: toolRun.artifacts,
+        usage: result.usage,
+        rawText: result.text
+      };
+    });
   }
 
   private buildToolRunRequest(

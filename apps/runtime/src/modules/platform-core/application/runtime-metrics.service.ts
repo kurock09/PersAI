@@ -56,6 +56,82 @@ export class RuntimeMetricsService {
       "# HELP runtime_stream_turns_in_flight Current in-flight runtime stream turns",
       "# TYPE runtime_stream_turns_in_flight gauge",
       `runtime_stream_turns_in_flight ${observability.streamTurnsInFlight}`,
+      "# HELP runtime_execution_admission_max_concurrent Configured maximum concurrent runtime executions per pod",
+      "# TYPE runtime_execution_admission_max_concurrent gauge",
+      `runtime_execution_admission_max_concurrent ${observability.executionAdmissionPolicy?.maxConcurrent ?? 0}`,
+      "# HELP runtime_execution_admission_queue_timeout_ms Configured runtime admission queue timeout in milliseconds",
+      "# TYPE runtime_execution_admission_queue_timeout_ms gauge",
+      `runtime_execution_admission_queue_timeout_ms ${observability.executionAdmissionPolicy?.queueTimeoutMs ?? 0}`,
+      "# HELP runtime_execution_admission_queue_max_per_class Configured maximum queued runtime executions per class",
+      "# TYPE runtime_execution_admission_queue_max_per_class gauge",
+      `runtime_execution_admission_queue_max_per_class ${observability.executionAdmissionPolicy?.maxQueuePerClass ?? 0}`,
+      "# HELP runtime_execution_reserved_slots Reserved execution slots per runtime class",
+      "# TYPE runtime_execution_reserved_slots gauge",
+      ...(observability.executionAdmissionPolicy === null
+        ? []
+        : Object.entries(observability.executionAdmissionPolicy.reservedSlots).map(
+            ([executionClass, reserved]) =>
+              `runtime_execution_reserved_slots{execution_class="${executionClass}"} ${reserved}`
+          )),
+      "# HELP runtime_execution_in_flight Current in-flight runtime executions by class",
+      "# TYPE runtime_execution_in_flight gauge",
+      ...observability.executionInFlightSeries.map(
+        (series) =>
+          `runtime_execution_in_flight{execution_class="${series.executionClass}"} ${series.inFlight}`
+      ),
+      "# HELP runtime_execution_in_flight_peak Peak observed in-flight runtime executions by class",
+      "# TYPE runtime_execution_in_flight_peak gauge",
+      ...observability.executionInFlightSeries.map(
+        (series) =>
+          `runtime_execution_in_flight_peak{execution_class="${series.executionClass}"} ${series.peakInFlight}`
+      ),
+      "# HELP runtime_execution_queue_depth Current queued runtime executions by class",
+      "# TYPE runtime_execution_queue_depth gauge",
+      ...observability.executionQueueSeries.map(
+        (series) =>
+          `runtime_execution_queue_depth{execution_class="${series.executionClass}"} ${series.queued}`
+      ),
+      "# HELP runtime_execution_queue_depth_peak Peak observed queued runtime executions by class",
+      "# TYPE runtime_execution_queue_depth_peak gauge",
+      ...observability.executionQueueSeries.map(
+        (series) =>
+          `runtime_execution_queue_depth_peak{execution_class="${series.executionClass}"} ${series.peakQueued}`
+      ),
+      "# HELP runtime_execution_admissions_total Total runtime executions admitted by class",
+      "# TYPE runtime_execution_admissions_total counter",
+      ...observability.executionQueueSeries.map(
+        (series) =>
+          `runtime_execution_admissions_total{execution_class="${series.executionClass}"} ${series.admitted}`
+      ),
+      "# HELP runtime_execution_queue_rejections_total Total runtime executions rejected immediately because the per-class queue was full",
+      "# TYPE runtime_execution_queue_rejections_total counter",
+      ...observability.executionQueueSeries.map(
+        (series) =>
+          `runtime_execution_queue_rejections_total{execution_class="${series.executionClass}"} ${series.rejected}`
+      ),
+      "# HELP runtime_execution_queue_timeouts_total Total runtime executions that timed out while waiting in the admission queue",
+      "# TYPE runtime_execution_queue_timeouts_total counter",
+      ...observability.executionQueueSeries.map(
+        (series) =>
+          `runtime_execution_queue_timeouts_total{execution_class="${series.executionClass}"} ${series.timedOut}`
+      ),
+      "# HELP runtime_execution_queue_wait_ms Runtime admission queue wait in milliseconds by class",
+      "# TYPE runtime_execution_queue_wait_ms histogram",
+      "# HELP runtime_execution_queue_wait_ms_max Maximum observed runtime admission queue wait in milliseconds by class",
+      "# TYPE runtime_execution_queue_wait_ms_max gauge",
+      ...observability.executionWaitSeries.map(
+        (series) =>
+          `runtime_execution_queue_wait_ms_max{execution_class="${series.key.executionClass}"} ${series.maxDurationMs.toFixed(2)}`
+      ),
+      ...observability.executionWaitSeries.flatMap((series) => [
+        ...series.buckets.map(
+          (bucket) =>
+            `runtime_execution_queue_wait_ms_bucket{execution_class="${series.key.executionClass}",le="${bucket.le}"} ${bucket.value}`
+        ),
+        `runtime_execution_queue_wait_ms_bucket{execution_class="${series.key.executionClass}",le="+Inf"} ${series.count}`,
+        `runtime_execution_queue_wait_ms_sum{execution_class="${series.key.executionClass}"} ${series.durationMsTotal.toFixed(2)}`,
+        `runtime_execution_queue_wait_ms_count{execution_class="${series.key.executionClass}"} ${series.count}`
+      ]),
       "# HELP runtime_stream_turns_total Total runtime stream-turn outcomes",
       "# TYPE runtime_stream_turns_total counter",
       ...observability.streamTurnSeries.map(

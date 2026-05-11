@@ -27,6 +27,28 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
+## ADR-093 Session 2 — runtime/API execution isolation and fairness foundations
+
+When a change touches runtime execution admission, queue fairness, heavy-vs-light turn isolation, or background/media execution class separation, add these focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-execution-admission.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-observability.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-background-task-evaluation.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-run.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-completion.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
+corepack pnpm --filter @persai/runtime run typecheck
+```
+
+Interpretation rules:
+
+1. Interactive turns, heavy interactive turns, and background/media work must no longer compete through one undifferentiated per-pod execution lane.
+2. Light interactive turns must keep a reserved path so queued heavy/background work cannot starve ordinary chat sends under mixed load.
+3. Fairness changes must stay technical: no prompt changes, no business-rule routing, no reduced model/tool parallelism just to make load easier.
+4. Queue pressure must be operator-visible through runtime `/metrics`; do not introduce an unbounded or silent waiting path.
+5. Any claimed concurrency/readiness improvement still requires saved SR10 load evidence before stating a user ceiling.
+
 ## Focused checks for destructive cleanup and compaction-state slices
 
 When a change touches destructive admin delete flows, web compaction-state reads, background compaction notice classification, or related persisted runtime-bundle parsing seams, add these focused checks before broad verification:

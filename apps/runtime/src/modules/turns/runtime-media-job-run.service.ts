@@ -9,6 +9,7 @@ import type {
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
+import { RuntimeExecutionAdmissionService } from "./runtime-execution-admission.service";
 
 const MEDIA_JOB_RUN_KEY_PREFIX = "media-job-run";
 
@@ -17,19 +18,22 @@ export class RuntimeMediaJobRunService {
   constructor(
     private readonly runtimeImageGenerateToolService: RuntimeImageGenerateToolService,
     private readonly runtimeImageEditToolService: RuntimeImageEditToolService,
-    private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService
+    private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService,
+    private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService
   ) {}
 
   async run(input: RuntimeMediaJobRunRequest): Promise<RuntimeMediaJobRunResult> {
-    const bundle = this.parseBundle(input.runtimeBundleDocument);
-    if (bundle.metadata.assistantId !== input.assistantId) {
-      throw new BadRequestException("runtimeBundleDocument assistantId does not match request.");
-    }
-    if (bundle.metadata.workspaceId !== input.workspaceId) {
-      throw new BadRequestException("runtimeBundleDocument workspaceId does not match request.");
-    }
+    return this.runtimeExecutionAdmissionService.runWithAdmission("background", async () => {
+      const bundle = this.parseBundle(input.runtimeBundleDocument);
+      if (bundle.metadata.assistantId !== input.assistantId) {
+        throw new BadRequestException("runtimeBundleDocument assistantId does not match request.");
+      }
+      if (bundle.metadata.workspaceId !== input.workspaceId) {
+        throw new BadRequestException("runtimeBundleDocument workspaceId does not match request.");
+      }
 
-    return this.runDirectToolExecution(input, bundle);
+      return this.runDirectToolExecution(input, bundle);
+    });
   }
 
   private async runDirectToolExecution(

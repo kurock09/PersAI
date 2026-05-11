@@ -39,6 +39,7 @@ import type {
 import type { RuntimeBundleCacheEntry } from "../src/modules/bundles/bundle.types";
 import type { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
 import { RuntimeObservabilityService } from "../src/modules/observability/runtime-observability.service";
+import { RuntimeExecutionAdmissionService } from "../src/modules/turns/runtime-execution-admission.service";
 import type { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
 import { TurnRoutingService } from "../src/modules/turns/turn-routing.service";
 import type { TurnContextHydrationService } from "../src/modules/turns/turn-context-hydration.service";
@@ -2220,6 +2221,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeFilesToolService = new FakeRuntimeFilesToolService();
   const runtimeSandboxToolService = new FakeRuntimeSandboxToolService();
   const runtimeObservabilityService = new RuntimeObservabilityService();
+  const runtimeExecutionAdmissionService = new RuntimeExecutionAdmissionService(
+    runtimeObservabilityService
+  );
   const turnRoutingService = new TurnRoutingService(
     providerGatewayClient as unknown as ProviderGatewayClientService
   );
@@ -2253,7 +2257,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService,
-    runtimeObservabilityService
+    runtimeObservabilityService,
+    runtimeExecutionAdmissionService
   );
 
   const request = createRuntimeTurnRequest();
@@ -2371,7 +2376,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService,
-    runtimeObservabilityService
+    runtimeObservabilityService,
+    runtimeExecutionAdmissionService
   );
   providerGatewayClient.calls = [];
   turnAcceptanceService.result = createAcceptedTurn();
@@ -2442,7 +2448,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService,
-    runtimeObservabilityService
+    runtimeObservabilityService,
+    runtimeExecutionAdmissionService
   );
   providerGatewayClient.calls = [];
   turnAcceptanceService.result = createAcceptedTurn();

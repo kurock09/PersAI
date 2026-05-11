@@ -19,6 +19,7 @@ import type {
   RuntimeTurnResult
 } from "@persai/runtime-contract";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { RuntimeExecutionAdmissionService } from "./runtime-execution-admission.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 
@@ -35,48 +36,51 @@ export class RuntimeMediaJobCompletionService {
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly turnAcceptanceService: TurnAcceptanceService,
-    private readonly turnFinalizationService: TurnFinalizationService
+    private readonly turnFinalizationService: TurnFinalizationService,
+    private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService
   ) {}
 
   async complete(
     input: RuntimeMediaJobCompletionRequest
   ): Promise<RuntimeMediaJobCompletionResult> {
-    const bundle = this.parseBundle(input.runtimeBundleDocument);
-    if (bundle.metadata.assistantId !== input.assistantId) {
-      throw new BadRequestException("runtimeBundleDocument assistantId does not match request.");
-    }
-    if (bundle.metadata.workspaceId !== input.workspaceId) {
-      throw new BadRequestException("runtimeBundleDocument workspaceId does not match request.");
-    }
-    if (input.workerResult === undefined && input.failure === undefined) {
-      throw new BadRequestException(
-        "Media-job completion requires either workerResult or failure context."
-      );
-    }
-    if (input.workerResult !== undefined && input.failure !== undefined) {
-      throw new BadRequestException(
-        "Media-job completion request cannot carry both workerResult and failure."
-      );
-    }
+    return this.runtimeExecutionAdmissionService.runWithAdmission("background", async () => {
+      const bundle = this.parseBundle(input.runtimeBundleDocument);
+      if (bundle.metadata.assistantId !== input.assistantId) {
+        throw new BadRequestException("runtimeBundleDocument assistantId does not match request.");
+      }
+      if (bundle.metadata.workspaceId !== input.workspaceId) {
+        throw new BadRequestException("runtimeBundleDocument workspaceId does not match request.");
+      }
+      if (input.workerResult === undefined && input.failure === undefined) {
+        throw new BadRequestException(
+          "Media-job completion requires either workerResult or failure context."
+        );
+      }
+      if (input.workerResult !== undefined && input.failure !== undefined) {
+        throw new BadRequestException(
+          "Media-job completion request cannot carry both workerResult and failure."
+        );
+      }
 
-    const syntheticTurn = this.buildSyntheticTurnRequest(input, bundle);
-    const acceptedTurn = await this.turnAcceptanceService.acceptTurn(syntheticTurn);
-    switch (acceptedTurn.outcome) {
-      case "busy":
-        throw new ConflictException(
-          `Media-job completion session "${acceptedTurn.session.sessionId}" is already processing another turn.`
-        );
-      case "in_flight":
-        throw new ConflictException(
-          acceptedTurn.requestId === null
-            ? "A matching media-job completion turn is already in flight."
-            : `Media-job completion turn "${acceptedTurn.requestId}" is already in flight.`
-        );
-      case "replayed":
-        return this.resolveReplayResult(acceptedTurn.receipt.resultPayload);
-      case "accepted":
-        return this.executeAcceptedCompletion(acceptedTurn, input, bundle);
-    }
+      const syntheticTurn = this.buildSyntheticTurnRequest(input, bundle);
+      const acceptedTurn = await this.turnAcceptanceService.acceptTurn(syntheticTurn);
+      switch (acceptedTurn.outcome) {
+        case "busy":
+          throw new ConflictException(
+            `Media-job completion session "${acceptedTurn.session.sessionId}" is already processing another turn.`
+          );
+        case "in_flight":
+          throw new ConflictException(
+            acceptedTurn.requestId === null
+              ? "A matching media-job completion turn is already in flight."
+              : `Media-job completion turn "${acceptedTurn.requestId}" is already in flight.`
+          );
+        case "replayed":
+          return this.resolveReplayResult(acceptedTurn.receipt.resultPayload);
+        case "accepted":
+          return this.executeAcceptedCompletion(acceptedTurn, input, bundle);
+      }
+    });
   }
 
   private async executeAcceptedCompletion(
