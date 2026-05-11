@@ -50,7 +50,7 @@ Interpretation rules:
 2. `infra/helm` and `infra/dev/gitops` changes must always keep Helm validation, even when app checks are skipped.
 3. `infra/helm/values-dev.yaml` bot-only tag-pin commits are GitOps bookkeeping and should not retrigger the main `CI` workflow by themselves.
 4. Affected-only is an optimization layer, not a waiver: when a path is risky, the repo must fall back to full verification rather than silently reducing coverage.
-5. Prisma/schema/migration pushes may build images automatically, but GitOps pinning must wait for the manual `.github/workflows/dev-migration-rollout.yml` approval lane.
+5. Prisma/schema/migration pushes may build images automatically, but GitOps pinning must wait at the `persai-dev-migrations` GitHub Environment approval lane.
 
 ## ADR-093 Session 2 — runtime/API execution isolation and fairness foundations
 

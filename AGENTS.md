@@ -59,7 +59,7 @@ If generated artifacts changed, regenerate them before running the checks.
 - Changes in `infra/helm` or `infra/dev/gitops` run deploy-truth validation only (`helm lint` + `helm template`) unless code risk requires more.
 - Docs-only and test-only changes must not trigger image publish or GitOps tag pinning.
 - Bot-only commits that touch only `infra/helm/values-dev.yaml` must not re-run the main `CI` workflow.
-- Prisma/schema/migration changes must not auto-pin `persai-dev`; they use `.github/workflows/dev-migration-rollout.yml` after images are built and reviewed.
+- Prisma/schema/migration changes must not auto-pin `persai-dev`; `Dev Image Publish` now pauses on the `persai-dev-migrations` GitHub Environment and waits for approval before GitOps pinning continues.
 - Risky changes escalate back to full CI instead of silently skipping coverage. Treat these as full-check paths:
   - auth / identity / Clerk
   - billing / subscription / payment flows

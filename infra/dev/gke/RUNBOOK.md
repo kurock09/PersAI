@@ -141,17 +141,15 @@ No `openclaw*` deployment, service, configmap, or ingress should exist in the ac
 
 ## Controlled migration rollout
 
-When a change includes Prisma schema or migration files, the regular `Dev Image Publish` workflow still builds/pushes the affected images, but it intentionally does **not** auto-update `infra/helm/values-dev.yaml`.
+When a change includes Prisma schema or migration files, the regular `Dev Image Publish` workflow still builds/pushes the affected images, but it intentionally pauses at the `persai-dev-migrations` GitHub Environment before updating `infra/helm/values-dev.yaml`.
 
-Approve that rollout explicitly with:
+Approve that rollout in the GitHub Actions UI:
 
-```bash
-gh workflow run dev-migration-rollout.yml --ref main -f sha=<commit-sha> -f services="api,runtime,sandbox"
-```
+1. Open the `Dev Image Publish` run for the migration-bearing push on `main`
+2. Click `Review deployments`
+3. Approve deployment to `persai-dev-migrations`
 
-Add `web` or `provider-gateway` to `services` only if that migration-bearing slice also changed and you want those workloads to roll with the same approved SHA.
-
-After the manual rollout workflow finishes, run:
+After the approval-backed rollout job finishes, run:
 
 ```bash
 kubectl get applications.argoproj.io -n argocd
