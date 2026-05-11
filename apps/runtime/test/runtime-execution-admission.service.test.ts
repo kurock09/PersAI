@@ -89,8 +89,7 @@ export async function runRuntimeExecutionAdmissionServiceTest(): Promise<void> {
 
   {
     const observability = new RuntimeObservabilityService();
-    const service = new RuntimeExecutionAdmissionService(
-      observability,
+    const service = new RuntimeExecutionAdmissionService(observability).setPolicyForTest(
       createPolicy({
         maxConcurrent: 2,
         reservedSlots: {
@@ -131,8 +130,7 @@ export async function runRuntimeExecutionAdmissionServiceTest(): Promise<void> {
 
   {
     const observability = new RuntimeObservabilityService();
-    const service = new RuntimeExecutionAdmissionService(
-      observability,
+    const service = new RuntimeExecutionAdmissionService(observability).setPolicyForTest(
       createPolicy({
         maxConcurrent: 1,
         reservedSlots: {
@@ -172,8 +170,7 @@ export async function runRuntimeExecutionAdmissionServiceTest(): Promise<void> {
 
   {
     const observability = new RuntimeObservabilityService();
-    const service = new RuntimeExecutionAdmissionService(
-      observability,
+    const service = new RuntimeExecutionAdmissionService(observability).setPolicyForTest(
       createPolicy({
         maxConcurrent: 1,
         queueTimeoutMs: 20,

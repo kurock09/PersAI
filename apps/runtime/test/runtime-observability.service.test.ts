@@ -7,7 +7,7 @@ import { RuntimeExecutionAdmissionService } from "../src/modules/turns/runtime-e
 describe("RuntimeObservabilityService", () => {
   test("tracks in-flight stream turns and stage timings", async () => {
     const service = new RuntimeObservabilityService();
-    const admission = new RuntimeExecutionAdmissionService(service, {
+    const admission = new RuntimeExecutionAdmissionService(service).setPolicyForTest({
       maxConcurrent: 2,
       queueTimeoutMs: 1_000,
       maxQueuePerClass: 8,

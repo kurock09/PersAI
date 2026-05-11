@@ -114,17 +114,19 @@ export class RuntimeExecutionAdmissionService {
     RUNTIME_EXECUTION_CLASSES.map((executionClass) => [executionClass, 0])
   );
   private roundRobinCursor = 0;
+  private policy: RuntimeExecutionAdmissionPolicy = DEFAULT_RUNTIME_EXECUTION_ADMISSION_POLICY;
 
-  constructor(
-    private readonly runtimeObservabilityService: RuntimeObservabilityService,
-    private readonly policy: RuntimeExecutionAdmissionPolicy = DEFAULT_RUNTIME_EXECUTION_ADMISSION_POLICY
-  ) {
-    assertPolicy(policy);
-    this.runtimeObservabilityService.setExecutionAdmissionPolicy(policy);
+  constructor(private readonly runtimeObservabilityService: RuntimeObservabilityService) {
+    this.applyPolicy(DEFAULT_RUNTIME_EXECUTION_ADMISSION_POLICY);
   }
 
   getPolicy(): RuntimeExecutionAdmissionPolicy {
     return this.policy;
+  }
+
+  setPolicyForTest(policy: RuntimeExecutionAdmissionPolicy): this {
+    this.applyPolicy(policy);
+    return this;
   }
 
   async runWithAdmission<T>(
@@ -362,5 +364,11 @@ export class RuntimeExecutionAdmissionService {
     }
     queue.splice(index, 1);
     return true;
+  }
+
+  private applyPolicy(policy: RuntimeExecutionAdmissionPolicy): void {
+    assertPolicy(policy);
+    this.policy = policy;
+    this.runtimeObservabilityService.setExecutionAdmissionPolicy(policy);
   }
 }
