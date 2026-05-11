@@ -292,14 +292,15 @@ function createService(overrides?: {
       resolveCurrent: async (assistant: { id: string }) => {
         assert.equal(assistant.id, "assistant-1");
         return {
-          runtimeBundleDocument: {
+          runtimeBundle: null,
+          runtimeBundleDocument: JSON.stringify({
             runtime: {
               sharedCompaction,
               contextHydration: {
                 autoCompactionWeb: overrides?.contextHydration?.autoCompactionWeb ?? false
               }
             }
-          }
+          })
         };
       }
     } as never,
@@ -563,6 +564,25 @@ describe("ManageWebChatListService", () => {
       keepRecentTokens: 4_000,
       autoCompactionEnabled: true
     });
+  });
+
+  test("parses shared compaction config from runtime bundle document json", async () => {
+    const { service } = createService({
+      sharedCompaction: {
+        reserveTokens: 11_000,
+        keepRecentTokens: 5_000,
+        recentTurnsPreserve: 3
+      },
+      contextHydration: {
+        autoCompactionWeb: true
+      }
+    });
+
+    const state = await service.getChatCompactionState("user-1", "chat-1");
+
+    assert.equal(state.reserveTokens, 11_000);
+    assert.equal(state.keepRecentTokens, 5_000);
+    assert.equal(state.autoCompactionEnabled, true);
   });
 
   test("treats threshold skips as non-errors and clears the suggestion", async () => {

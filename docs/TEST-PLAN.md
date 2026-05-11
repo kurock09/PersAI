@@ -27,6 +27,23 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
+## Focused checks for destructive cleanup and compaction-state slices
+
+When a change touches destructive admin delete flows, web compaction-state reads, background compaction notice classification, or related persisted runtime-bundle parsing seams, add these focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts
+corepack pnpm --filter @persai/api exec tsx --test test/manage-web-chat-list.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+```
+
+Interpretation rules:
+
+1. `AdminDeleteUserService` must delete newer assistant/workspace-owned registries before removing the assistant, workspace, and user rows.
+2. Trigger-disable helper refactors for destructive cleanup must preserve the real root error rather than replacing it with a follow-up transaction-aborted noise error.
+3. Web compaction-state reads and background compaction notice classification must parse both materialized-object and persisted JSON-document runtime bundle shapes.
+4. Compaction execution success is not enough on its own; the read path behind `GET /assistant/chats/web/:chatId/compaction` must remain green so the UI can render the actual banner state.
+
 ## ADR-082 billing quota readiness focused checks
 
 When a change touches Admin Runtime provider/model profiles, weighted token accounting, ADR-082 monthly media quota model code, or delivery-confirmed media settlement, add focused checks before broad verification:

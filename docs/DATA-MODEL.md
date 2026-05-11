@@ -22,6 +22,7 @@ PersAI is the source of truth for:
 - plan-owned retrieval policy and admin-managed knowledge governance
 - durable retrieval observability rollups/events
 - governance, quota, audit, and admin state, including subscription-period media quota counters
+- destructive assistant/workspace deletion must clear newer assistant/workspace-owned registries (for example `assistant_files`, `assistant_web_chat_turn_attempts`, `assistant_media_jobs`, `assistant_background_tasks`, `assistant_background_task_runs`, retrieval rows, and period quota/billing rows) before the owning assistant/workspace/user rows are removed
 - durable quota-advisory threshold/dedupe state for active-surface warning delivery
 - durable notification control-plane state across assistant outbox delivery, billing lifecycle notification jobs, admin notification channels, delivery attempts, and workspace notification policy rows, with ADR-088 defining the target-state convergence of these currently split models
 - integration state such as Telegram binding/config
@@ -34,6 +35,7 @@ The native runtime path uses PersAI-owned runtime state models for:
 - runtime sessions
 - turn receipts and idempotency state
 - session compaction metadata
+- web compaction banner state and background compaction notice classification read `runtime_session*` state together with the current materialized runtime-bundle compaction config; persisted bundle truth may arrive as either a materialized object or a JSON document string and both shapes are valid current-state storage forms
 
 ## Web chat send reliability
 

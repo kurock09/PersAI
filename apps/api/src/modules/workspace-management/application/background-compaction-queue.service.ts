@@ -127,9 +127,12 @@ export class BackgroundCompactionQueueService {
       if (assistant === null) {
         return "compacted";
       }
-      const bundleDocument =
+      const materializedSpec =
         await this.ensureAssistantMaterializedSpecCurrentService.resolveCurrent(assistant);
-      config = this.readCompactionConfig(bundleDocument?.runtimeBundleDocument, input.channel);
+      config = this.readCompactionConfig(
+        materializedSpec?.runtimeBundle ?? materializedSpec?.runtimeBundleDocument,
+        input.channel
+      );
     } catch {
       config = null;
     }
@@ -153,7 +156,7 @@ export class BackgroundCompactionQueueService {
     runtimeBundle: unknown,
     surface: "web" | "telegram"
   ): { reserveTokens: number; autoCompactionEnabled: boolean } | null {
-    const bundle = this.asObject(runtimeBundle);
+    const bundle = this.readRuntimeBundle(runtimeBundle);
     const runtime = this.asObject(bundle?.runtime);
     const sharedCompaction = this.asObject(runtime?.sharedCompaction);
     const contextHydration = this.asObject(runtime?.contextHydration);
@@ -169,6 +172,23 @@ export class BackgroundCompactionQueueService {
       reserveTokens,
       autoCompactionEnabled
     };
+  }
+
+  private readRuntimeBundle(value: unknown): Record<string, unknown> | null {
+    const direct = this.asObject(value);
+    if (direct !== null) {
+      return direct;
+    }
+
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    try {
+      return this.asObject(JSON.parse(value));
+    } catch {
+      return null;
+    }
   }
 
   private asObject(value: unknown): Record<string, unknown> | null {

@@ -641,7 +641,7 @@ export class ManageWebChatListService {
     }
 
     const sharedCompaction = this.readEffectiveSharedCompactionConfig(
-      materializedSpec.runtimeBundleDocument
+      materializedSpec.runtimeBundle ?? materializedSpec.runtimeBundleDocument
     );
     if (sharedCompaction === null) {
       throw new AssistantRuntimeError(
@@ -656,7 +656,7 @@ export class ManageWebChatListService {
   private readEffectiveSharedCompactionConfig(
     runtimeBundle: unknown
   ): EffectiveSharedCompactionConfig | null {
-    const bundle = this.asObject(runtimeBundle);
+    const bundle = this.readRuntimeBundle(runtimeBundle);
     const runtime = this.asObject(bundle?.runtime);
     const sharedCompaction = this.asObject(runtime?.sharedCompaction);
     const contextHydration = this.asObject(runtime?.contextHydration);
@@ -678,6 +678,23 @@ export class ManageWebChatListService {
       recentTurnsPreserve,
       autoCompactionEnabled
     };
+  }
+
+  private readRuntimeBundle(value: unknown): Record<string, unknown> | null {
+    const direct = this.asObject(value);
+    if (direct !== null) {
+      return direct;
+    }
+
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    try {
+      return this.asObject(JSON.parse(value));
+    } catch {
+      return null;
+    }
   }
 
   private isCompactionUnavailableReason(reason: string | null): boolean {

@@ -210,21 +210,34 @@ async function run(): Promise<void> {
     "assistant-knowledge/assistants/assistant-1/"
   ]);
   assert.deepEqual(auditUpdateCalls, []);
-  assert.equal(
-    normalizeSql(rawSql[0] ?? ""),
-    'ALTER TABLE "assistant_audit_events" DISABLE TRIGGER "assistant_audit_events_no_update"'
+  const normalizedRawSql = rawSql.map(normalizeSql);
+  assert.ok(
+    normalizedRawSql.includes(
+      'ALTER TABLE "assistant_audit_events" DISABLE TRIGGER "assistant_audit_events_no_update"'
+    )
   );
-  assert.equal(
-    normalizeSql(rawSql[1] ?? ""),
-    'ALTER TABLE "assistant_published_versions" DISABLE TRIGGER "assistant_published_versions_no_delete"'
+  assert.ok(
+    normalizedRawSql.includes(
+      'ALTER TABLE "assistant_audit_events" ENABLE TRIGGER "assistant_audit_events_no_update"'
+    )
   );
-  assert.equal(
-    normalizeSql(rawSql[2] ?? ""),
-    'ALTER TABLE "assistant_published_versions" ENABLE TRIGGER "assistant_published_versions_no_delete"'
+  assert.ok(
+    normalizedRawSql.includes(
+      'ALTER TABLE "assistant_published_versions" DISABLE TRIGGER "assistant_published_versions_no_delete"'
+    )
   );
-  assert.equal(
-    normalizeSql(rawSql[3] ?? ""),
-    'ALTER TABLE "assistant_audit_events" ENABLE TRIGGER "assistant_audit_events_no_update"'
+  assert.ok(
+    normalizedRawSql.includes(
+      'ALTER TABLE "assistant_published_versions" ENABLE TRIGGER "assistant_published_versions_no_delete"'
+    )
+  );
+  assert.ok(
+    normalizedRawSql.includes('DELETE FROM "assistant_files" WHERE "assistant_id" = $1::uuid')
+  );
+  assert.ok(
+    normalizedRawSql.includes(
+      'DELETE FROM "assistant_web_chat_turn_attempts" WHERE "assistant_id" = $1::uuid'
+    )
   );
   assert.ok(deleted.includes("assistantKnowledgeSource"));
   assert.ok(deleted.includes("runtimeBundleState"));

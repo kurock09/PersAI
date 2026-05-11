@@ -6,6 +6,38 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 
 ---
 
+## 2026-05-11 — admin delete cleanup + web compaction-state regression fix (LANDED)
+
+### What landed in this session
+
+1. **`/admin/ops` destructive user delete now clears the newer assistant/workspace-owned rows before deleting the assistant, workspace, and app user** — `AdminDeleteUserService` was still assuming an older ownership surface and could fail once newer rows existed in files, web-turn-attempt, media/background-task, sandbox, knowledge-retrieval, token/media counter, or billing/payment tables. The delete path now explicitly removes those newer rows first, so the operation no longer stops on missing cleanup coverage while leaving the user partially undeleted.
+
+2. **Trigger-disable helpers were reshaped so the real failing statement is preserved instead of being buried under a follow-up transaction-aborted error** — the cleanup path now wraps the two trigger-sensitive zones (`assistant_audit_events` update restriction and `assistant_published_versions` delete restriction) in dedicated helper methods rather than interleaving those toggles with the larger delete sequence.
+
+3. **Web compaction state reads no longer degrade on persisted JSON runtime bundle documents** — the live regression was not in compaction execution itself; it was in the read path behind `GET /api/v1/assistant/chats/web/:chatId/compaction`. After the recent refactor, `ManageWebChatListService` read `runtimeBundleDocument` as if it were already an object. In production it is often a JSON string, so shared compaction config parsing failed and the endpoint returned `runtime_degraded` / `503`, which hid the web compaction banner state even when compaction had actually completed. The service now resolves compaction config from `runtimeBundle` or `runtimeBundleDocument` and accepts both object and JSON-document shapes.
+
+4. **Background compaction queue notice classification now uses the same tolerant bundle parsing** — `BackgroundCompactionQueueService` was hardened in parallel so queue notices (`compacted` vs `exhausted`) do not silently drift from the web state endpoint when the materialized spec is read from persisted JSON-document form.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx --test test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- The web compaction-state regression is fixed in code, but the live `503` will persist in the cluster until the next deploy rolls out this slice.
+- This slice hardens the delete and compaction-state seams that were directly touched, but it does not claim fresh live smoke evidence yet for the post-deploy banner path or for the `/admin/ops` delete flow in a production-like workspace.
+
+### Next recommended step
+
+After deploy, run two short live checks in `persai-dev`: (1) web compaction banner/state fetch on a chat that just compacted, and (2) one controlled `/admin/ops` delete on a test user that owns files/background/media history.
+
+---
+
 ## 2026-05-11 — ADR-087 deferred media enqueue guidance completion (LANDED)
 
 ### What landed in this session
