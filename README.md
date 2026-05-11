@@ -8,6 +8,7 @@ This repository contains the active PersAI platform baseline.
 - `apps/web` is the user and admin UI
 - `apps/runtime` is the PersAI-native execution service
 - `apps/provider-gateway` is the internal provider bridge used by native runtime execution
+- `apps/sandbox` is the isolated tool/media execution sidecar used by runtime
 - `infra/helm` and `infra/dev/gitops` define the active dev deploy path for `persai-dev`
 
 OpenClaw is not part of the active PersAI deploy, runtime, or control-plane path in this repo. Historical references are intentionally retained only in ADRs, changelog snapshots, session handoff logs, and old migrations.
@@ -21,6 +22,7 @@ apps/
   api/
   provider-gateway/
   runtime/
+  sandbox/
   web/
 
 packages/
@@ -74,6 +76,7 @@ The active dev namespace should contain only these workload families:
 - `web`
 - `runtime`
 - `provider-gateway`
+- `sandbox`
 
 Current secret split:
 
@@ -91,7 +94,25 @@ Current runtime routing truth:
 
 Active image publish is driven by `.github/workflows/dev-image-publish.yml`.
 
-The workflow publishes active PersAI images and updates `infra/helm/values-dev.yaml` `global.images.tag` to the immutable commit SHA used by GitOps. There is no active OpenClaw image pin or fork-based deploy step in the current path.
+PR CI risk-splits checks through `scripts/ci/detect-affected.mjs`:
+
+- affected lint
+- affected typecheck
+- affected focused tests
+- conditional heavier integration gates for risky boundaries
+- full CI remains for risky paths on ordinary CI
+- `.github/workflows/full-verification.yml` owns nightly / merge-queue / manual full verification
+
+Dev image publish is selective:
+
+- only affected services build/push
+- only affected service tags are pinned in `infra/helm/values-dev.yaml`
+- `global.images.tag` stays as the fallback for unchanged services
+- Prisma/schema/migration changes stop at a GitHub Environment approval gate (`persai-dev-migrations`) before GitOps pinning continues
+
+Main `CI` intentionally ignores bot-only commits that update only `infra/helm/values-dev.yaml`, so the GitOps tag-pin follow-up commit does not re-run the full repository checks by itself.
+
+There is no active OpenClaw image pin or fork-based deploy step in the current path.
 
 ## Useful docs
 

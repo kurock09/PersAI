@@ -17,6 +17,7 @@ The active chart deploys only:
 - `web`
 - `runtime`
 - `provider-gateway`
+- `sandbox`
 
 ## Image pinning
 
@@ -25,9 +26,19 @@ Current image composition:
 - registry host: `global.images.registryHost`
 - project id: `global.images.projectId`
 - repository: `global.images.repository`
-- deployed tag: `global.images.tag`
+- fallback tag for non-pinned services: `global.images.tag`
+- per-service override tags:
+  - `api.image.tag`
+  - `web.image.tag`
+  - `runtime.image.tag`
+  - `providerGateway.image.tag`
+  - `sandbox.image.tag`
 
-`global.images.tag` is the only active GitOps image pin. It is updated by `.github/workflows/dev-image-publish.yml` to the immutable Git SHA produced on `main`.
+`.github/workflows/dev-image-publish.yml` now builds/pushes only the affected services detected by `scripts/ci/detect-affected.mjs` and pins only those service tags in `infra/helm/values-dev.yaml` to the immutable commit SHA produced on `main`.
+
+This keeps unchanged services on their previously pinned SHA instead of forcing a whole-environment image tag advance on every app/package change.
+
+When Prisma/schema/migration changes are detected, image publish still builds the affected service images, but GitOps pinning stops at the `persai-dev-migrations` GitHub Environment and continues only after approval in the Actions UI.
 
 There is no active OpenClaw image tag, fork SHA pin, or fork-clone build stage in the current GitOps path.
 
@@ -60,6 +71,19 @@ Current secret split:
 - `api-migrate` runs as a `PreSync` hook before API rollout
 - failed migrations block rollout
 - GitHub Actions do not mutate the cluster directly
+
+## Affected deploy policy
+
+- `apps/api` -> build/push/pin `api`
+- `apps/runtime` -> build/push/pin `runtime`
+- `apps/web` -> build/push/pin `web`
+- `apps/provider-gateway` -> build/push/pin `provider-gateway`
+- `apps/sandbox` -> build/push/pin `sandbox`
+- shared `packages/*` -> build/push/pin only dependent services, not every workload
+- `infra/helm` / `infra/dev/gitops` -> validation only, no image publish
+- docs-only and test-only changes -> no image publish
+- Prisma schema / migrations -> migration-sensitive path; affected checks and deploy scope must stay explicit, never broad by default, and GitOps pinning continues only after `persai-dev-migrations` environment approval
+- the GitOps tag-pin follow-up commit touches only `infra/helm/values-dev.yaml`; main `CI` ignores that bot-only commit so Argo sync bookkeeping does not retrigger repo-wide checks by itself
 
 ## Verification checklist
 

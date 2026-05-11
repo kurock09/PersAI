@@ -16,10 +16,45 @@ on:
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
       - .dockerignore
+      - scripts/ci/**
   workflow_dispatch:
 
 jobs:
+  detect-affected:
+    runs-on: ubuntu-latest
+    outputs:
+      migration_changed: ${{ steps.detect.outputs.migration_changed }}
+      deploy_services_json: ${{ steps.detect.outputs.deploy_services_json }}
+      deploy_service_names_csv: ${{ steps.detect.outputs.deploy_service_names_csv }}
+      summary: ${{ steps.detect.outputs.summary }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Detect affected deploy services
+        id: detect
+        env:
+          BASE_REF: ${{ github.event.before }}
+          HEAD_REF: ${{ github.sha }}
+        run: |
+          node scripts/ci/detect-affected.mjs \
+            --event "${{ github.event_name }}" \
+            --base "${BASE_REF}" \
+            --head "${HEAD_REF}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY"
+
   build-and-push:
+    if: ${{ needs.detect-affected.outputs.deploy_services_json != '[]' }}
+    needs:
+      - detect-affected
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -33,26 +68,7 @@ jobs:
       MAIN_TAG: dev-main
     strategy:
       matrix:
-        include:
-          - image: api
-            dockerfile: apps/api/Dockerfile
-            build-args: ""
-          - image: runtime
-            dockerfile: apps/runtime/Dockerfile
-            build-args: ""
-          - image: sandbox
-            dockerfile: apps/sandbox/Dockerfile
-            build-args: ""
-          - image: provider-gateway
-            dockerfile: apps/provider-gateway/Dockerfile
-            build-args: ""
-          - image: web
-            dockerfile: apps/web/Dockerfile
-            build-args: |
-              NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-              NEXT_PUBLIC_CLERK_PROXY_URL=${{ vars.NEXT_PUBLIC_CLERK_PROXY_URL }}
-              NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
-              NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+        include: ${{ fromJSON(needs.detect-affected.outputs.deploy_services_json) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -86,22 +102,137 @@ jobs:
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
 
-      - name: Build and push ${{ matrix.image }} image
+      - name: Build and push ${{ matrix.service }} image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
-          build-args: ${{ matrix.build-args }}
+          build-args: ${{ matrix.buildArgs }}
           tags: |
-            ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.image }}:${{ github.sha }}
-            ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.image }}:${{ env.MAIN_TAG }}
+            ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.service }}:${{ github.sha }}
+            ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.service }}:${{ env.MAIN_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  pin-approved-migration-values-tag:
+    if: ${{ github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed == 'true' }}
+    needs:
+      - detect-affected
+      - build-and-push
+    runs-on: ubuntu-latest
+    environment:
+      name: persai-dev-migrations
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      GAR_REGION: ${{ vars.GAR_REGION }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      GCP_WIF_SERVICE_ACCOUNT: ${{ vars.GCP_WIF_SERVICE_ACCOUNT }}
+      TARGET_SHA: ${{ github.sha }}
+      TARGET_SERVICES: ${{ needs.detect-affected.outputs.deploy_service_names_csv }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate rollout request
+        run: |
+          set -eu
+          test -n "${TARGET_SHA}" || (echo "Missing target SHA" && exit 1)
+          test -n "${TARGET_SERVICES}" || (echo "Missing target services" && exit 1)
+          git rev-parse --verify "${TARGET_SHA}^{commit}" > /dev/null
+          node scripts/ci/pin-dev-image-tags.mjs \
+            --file infra/helm/values-dev.yaml \
+            --sha "${TARGET_SHA}" \
+            --services "${TARGET_SERVICES}" \
+            --dry-run
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_WIF_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Login to Artifact Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.GAR_REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Verify approved images exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra SERVICES <<< "${TARGET_SERVICES}"
+          for service in "${SERVICES[@]}"; do
+            service_trimmed="$(echo "${service}" | xargs)"
+            test -n "${service_trimmed}" || continue
+            image="${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/${service_trimmed}:${TARGET_SHA}"
+            echo "Verifying ${image}"
+            docker manifest inspect "${image}" > /dev/null
+          done
+
+      - name: Pin approved migration rollout tags
+        run: |
+          set -eu
+          node scripts/ci/pin-dev-image-tags.mjs \
+            --file infra/helm/values-dev.yaml \
+            --sha "${TARGET_SHA}" \
+            --services "${TARGET_SERVICES}"
+
+      - name: Commit and push approved rollout pin
+        run: |
+          set -eu
+          if git diff --quiet -- infra/helm/values-dev.yaml; then
+            echo "No values-dev tag change to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infra/helm/values-dev.yaml
+          git commit -m "chore(dev-gitops): approve migration rollout for ${TARGET_SHA}"
+
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}); rebasing onto origin/main and retrying..."
+            git pull --rebase origin main
+          done
+
+          echo "Failed to push values-dev rollout update after retries." >&2
+          exit 1
+
+      - name: Summarize rollout verification follow-up
+        run: |
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ## Migration rollout pinned after approval
+
+          Approved migration rollout for \`${TARGET_SERVICES}\` at \`${TARGET_SHA}\`.
+
+          Recommended follow-up:
+
+          \`\`\`bash
+          kubectl get applications.argoproj.io -n argocd
+          kubectl -n persai-dev get deploy,svc,ingress,networkpolicy
+          kubectl -n persai-dev get pods -o wide
+          kubectl -n persai-dev get jobs -l app.kubernetes.io/name=api-migrate
+          kubectl -n persai-dev logs job/api-migrate --tail=120
+          \`\`\`
+          EOF
+
   pin-dev-values-tag:
-    if: ${{ github.event_name == 'push' }}
-    needs: build-and-push
+    if: ${{ github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed != 'true' }}
+    needs:
+      - detect-affected
+      - build-and-push
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -109,22 +240,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Pin dev Helm image tag to current commit SHA
+      - name: Pin affected dev Helm image tags to current commit SHA
+        env:
+          DEPLOY_SERVICES: ${{ needs.detect-affected.outputs.deploy_service_names_csv }}
         run: |
           set -eu
-          awk -v sha="${GITHUB_SHA}" '
-            /^global:$/ { in_global=1 }
-            in_global && /^[^ ]/ && $0 !~ /^global:$/ { in_global=0 }
-            in_global && /^    tag:/ { sub(/^    tag:.*/, "    tag: " sha); replaced+=1 }
-            { print }
-            END {
-              if (replaced != 1) {
-                print "Expected to update exactly one global.images.tag line, updated " replaced "." > "/dev/stderr"
-                exit 1
-              }
-            }
-          ' infra/helm/values-dev.yaml > infra/helm/values-dev.yaml.tmp
-          mv infra/helm/values-dev.yaml.tmp infra/helm/values-dev.yaml
+          node scripts/ci/pin-dev-image-tags.mjs \
+            --file infra/helm/values-dev.yaml \
+            --sha "${GITHUB_SHA}" \
+            --services "${DEPLOY_SERVICES}"
 
       - name: Commit and push values-dev tag update
         run: |
@@ -137,7 +261,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add infra/helm/values-dev.yaml
-          git commit -m "chore(dev-gitops): pin dev image tag to ${GITHUB_SHA}"
+          git commit -m "chore(dev-gitops): pin affected image tags to ${GITHUB_SHA}"
 
           for attempt in 1 2 3; do
             if git push origin HEAD:main; then

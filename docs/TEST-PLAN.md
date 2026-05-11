@@ -27,6 +27,31 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
+## CI verification lanes
+
+Current CI is intentionally split into three lanes:
+
+1. **Affected PR lane** in `.github/workflows/ci.yml`
+   - `detect-affected`
+   - affected lint
+   - affected typecheck
+   - affected focused tests
+   - conditional integration gate when risky boundaries are touched
+2. **Escalated full lane** in `.github/workflows/ci.yml`
+   - used when the affected detector marks a PR as high-risk (`auth`, `billing`, runtime concurrency/scheduling/admission, Prisma schema/migrations, root workspace dependency changes, or CI/affected-rule changes)
+3. **Full verification lane** in `.github/workflows/full-verification.yml`
+   - merge queue / `merge_group`
+   - nightly schedule
+   - manual operator-triggered full runs
+
+Interpretation rules:
+
+1. Docs-only and test-only changes must not trigger deploy publication.
+2. `infra/helm` and `infra/dev/gitops` changes must always keep Helm validation, even when app checks are skipped.
+3. `infra/helm/values-dev.yaml` bot-only tag-pin commits are GitOps bookkeeping and should not retrigger the main `CI` workflow by themselves.
+4. Affected-only is an optimization layer, not a waiver: when a path is risky, the repo must fall back to full verification rather than silently reducing coverage.
+5. Prisma/schema/migration pushes may build images automatically, but GitOps pinning must wait at the `persai-dev-migrations` GitHub Environment approval lane.
+
 ## ADR-093 Session 2 — runtime/API execution isolation and fairness foundations
 
 When a change touches runtime execution admission, queue fairness, heavy-vs-light turn isolation, or background/media execution class separation, add these focused checks before broad verification:
@@ -153,14 +178,14 @@ corepack pnpm run test
 
 Slice 1 focused test coverage (as of Slice 1 closeout):
 
-| Test file | Scenarios covered |
-|---|---|
-| `notification-intent.service.test.ts` | basic creation, deduplication, quiet-hours deferral, immediate override, scheduled intent |
-| `notification-routing.service.test.ts` | active quiet hours → deferred; immediate override; source not in list; disabled; no config; outside window; respectQuietHours=false |
+| Test file                                      | Scenarios covered                                                                                                                                                                                 |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `notification-intent.service.test.ts`          | basic creation, deduplication, quiet-hours deferral, immediate override, scheduled intent                                                                                                         |
+| `notification-routing.service.test.ts`         | active quiet hours → deferred; immediate override; source not in list; disabled; no config; outside window; respectQuietHours=false                                                               |
 | `notification-delivery-worker.service.test.ts` | all ADR §11 fields present in delivery.attempted; latencyMs from intent.createdAt; delivery.delivered userId+outcome; delivery.failed errorCode; intent.dead_letter lastError; delivery.escalated |
-| `email-channel.adapter.test.ts` | full Postmark request shape; List-Unsubscribe headers; no List-Unsubscribe without URL; 4xx→not retryable; 5xx→retryable; no HtmlBody when html=null |
-| `handle-postmark-webhook.service.test.ts` | valid HMAC accepted; invalid HMAC rejected; unsigned accepted in dev; unsigned rejected in prod; 5 failures→healthStatus=down |
-| `admin-notifications.controller.test.ts` | all 8 endpoint shapes match OpenAPI (bare views, no wrappers; 204 discard; deadLetters key; pagination fields) |
+| `email-channel.adapter.test.ts`                | full Postmark request shape; List-Unsubscribe headers; no List-Unsubscribe without URL; 4xx→not retryable; 5xx→retryable; no HtmlBody when html=null                                              |
+| `handle-postmark-webhook.service.test.ts`      | valid HMAC accepted; invalid HMAC rejected; unsigned accepted in dev; unsigned rejected in prod; 5 failures→healthStatus=down                                                                     |
+| `admin-notifications.controller.test.ts`       | all 8 endpoint shapes match OpenAPI (bare views, no wrappers; 204 discard; deadLetters key; pagination fields)                                                                                    |
 
 Slice 2.5 — multi-user correction (LANDED 2026-05-09 closeout):
 
@@ -172,11 +197,11 @@ corepack pnpm --filter @persai/api exec tsx test/notification-intent.service.tes
 corepack pnpm --filter @persai/api exec tsx test/notification-delivery-worker.service.test.ts
 ```
 
-| Test file | Scenarios covered |
-|---|---|
+| Test file                                                 | Scenarios covered                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `resolve-workspace-notification-channels.service.test.ts` | email available iff owner `AppUser.email` non-empty; telegram requires `AssistantChannelSurfaceBinding` `bindingState=active`; `web_thread` / `web_notification_center` always available even with no registry row or registry row disabled; `admin_webhook` unavailable when `webhookUrl` empty; `admin_webhook` disabled-globally → `channel_disabled_globally`; `resolvePolicy` / `resolveQuietHours` fall back to `notification-defaults.ts` when DB empty; DB row overrides defaults when present |
-| `handle-postmark-webhook.service.test.ts` | HMAC verified via `PlatformRuntimeProviderSecretStoreService` only (no `process.env` fallback); invalid HMAC rejected; unsigned accepted in dev; unsigned rejected in prod; 5-failure escalation to `down`; `SpamComplaint` increments `consecutiveFailures` |
-| `admin-notifications.controller.authz.test.ts` | non-admin `userId` → `ForbiddenException` on every notifications admin endpoint, including `POST /channels/:type/test-send` (the dry-run endpoint must run the same admin gate as the rest of the surface) |
+| `handle-postmark-webhook.service.test.ts`                 | HMAC verified via `PlatformRuntimeProviderSecretStoreService` only (no `process.env` fallback); invalid HMAC rejected; unsigned accepted in dev; unsigned rejected in prod; 5-failure escalation to `down`; `SpamComplaint` increments `consecutiveFailures`                                                                                                                                                                                                                                           |
+| `admin-notifications.controller.authz.test.ts`            | non-admin `userId` → `ForbiddenException` on every notifications admin endpoint, including `POST /channels/:type/test-send` (the dry-run endpoint must run the same admin gate as the rest of the surface)                                                                                                                                                                                                                                                                                             |
 
 Interpretation rules (Slice 2.5):
 
@@ -202,16 +227,16 @@ corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-notifications
 corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts
 ```
 
-| Test file | Scenarios covered |
-|---|---|
-| `persai-idle-reengagement-scheduler.service.test.ts` | no policy → skips; skippable intent created; cooldown dedup check against notification_intents |
-| `handle-internal-cron-fire.test.ts` | reminder intent created; respectQuietHours=false; deliveredTo="none" |
-| `billing-lifecycle-notifications.service.test.ts` | transactional intent created; assistantNotificationOutboxId references removed |
-| `read-internal-runtime-quota-status.service.test.ts` | advisoryCandidates empty when no threshold crossed |
-| `notification-intent.service.test.ts` | quiet-hours deferral via notification_intents |
-| `notification-routing.service.test.ts` | 7 quiet-hours routing scenarios |
-| `notification-delivery-worker.service.test.ts` | ADR §11 structured log fields + latencyMs + dead-letter (Part A); quiet-hours deferral end-to-end, dedupe collision at intent-service level, primary failure → escalation success (Part B) |
-| `admin-notifications.controller.test.ts` | all 8 endpoint shapes; no legacy policy endpoints |
+| Test file                                            | Scenarios covered                                                                                                                                                                          |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `persai-idle-reengagement-scheduler.service.test.ts` | no policy → skips; skippable intent created; cooldown dedup check against notification_intents                                                                                             |
+| `handle-internal-cron-fire.test.ts`                  | reminder intent created; respectQuietHours=false; deliveredTo="none"                                                                                                                       |
+| `billing-lifecycle-notifications.service.test.ts`    | transactional intent created; assistantNotificationOutboxId references removed                                                                                                             |
+| `read-internal-runtime-quota-status.service.test.ts` | advisoryCandidates empty when no threshold crossed                                                                                                                                         |
+| `notification-intent.service.test.ts`                | quiet-hours deferral via notification_intents                                                                                                                                              |
+| `notification-routing.service.test.ts`               | 7 quiet-hours routing scenarios                                                                                                                                                            |
+| `notification-delivery-worker.service.test.ts`       | ADR §11 structured log fields + latencyMs + dead-letter (Part A); quiet-hours deferral end-to-end, dedupe collision at intent-service level, primary failure → escalation success (Part B) |
+| `admin-notifications.controller.test.ts`             | all 8 endpoint shapes; no legacy policy endpoints                                                                                                                                          |
 
 Interpretation rules:
 
