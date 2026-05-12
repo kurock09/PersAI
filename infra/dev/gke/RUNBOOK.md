@@ -72,6 +72,39 @@ kubectl -n argocd get appprojects.argoproj.io persai-dev
 kubectl -n argocd get applications.argoproj.io persai-dev
 ```
 
+## Dedicated API pool
+
+The dev cluster keeps the API request path isolated on its own autoscaled node pool so long-lived
+stream turns do not compete with `runtime`, `provider-gateway`, `web`, or cluster system pods.
+
+Current target shape:
+
+```bash
+gcloud container node-pools create api-pool \
+  --cluster personal-ai-gke \
+  --zone europe-west1-b \
+  --machine-type e2-standard-4 \
+  --enable-autoscaling \
+  --min-nodes 1 \
+  --max-nodes 8 \
+  --node-labels workload=api \
+  --node-taints dedicated=api:NoSchedule
+```
+
+Verify:
+
+```bash
+kubectl get nodes --show-labels
+kubectl get deploy -n persai-dev api -o yaml
+kubectl get hpa -n persai-dev api
+```
+
+Expected truth:
+
+- `api` pods select nodes with `workload=api`
+- `api` tolerates `dedicated=api:NoSchedule`
+- `api` HPA min=`2`, max=`8`, CPU target=`60%`
+
 ## Required secrets
 
 Create or update `persai-api-secrets`:

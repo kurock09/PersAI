@@ -8,6 +8,7 @@ ADR-072 is closed as the historical native migration ADR. The active continuatio
 
 - namespace and Argo CD bootstrap
 - Helm deploy for `api`, `web`, `runtime`, and `provider-gateway`
+- dedicated autoscaled GKE node pool for `api` stream orchestration in dev
 - Google Artifact Registry image pull/publish wiring
 - Workload Identity and Cloud SQL proxy wiring for `api` and `runtime`
 - manual reset/bootstrap procedures described in `infra/dev/gke/RUNBOOK.md`
@@ -27,6 +28,13 @@ Current workload set in `persai-dev`:
 - `service/web`
 - `service/runtime`
 - `service/provider-gateway`
+
+Current dev scaling truth:
+
+- `api` is the first stream hot path and should scale separately from `runtime` / `provider-gateway`
+- `api` targets a dedicated node pool labeled `workload=api` and tainted `dedicated=api:NoSchedule`
+- `api` HPA is enabled in dev with min `2`, max `8`, CPU target `60%`
+- `runtime` and `provider-gateway` remain fixed at `2` replicas until evidence shows they saturate first
 
 Current ingress truth:
 

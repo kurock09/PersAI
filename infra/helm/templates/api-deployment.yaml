@@ -24,6 +24,14 @@ spec:
         app.kubernetes.io/name: api
     spec:
       serviceAccountName: {{ .Values.api.serviceAccount.name }}
+{{- with .Values.api.scheduling.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+{{- end }}
+{{- with .Values.api.scheduling.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+{{- end }}
 {{- if .Values.api.topologySpreadConstraints }}
       topologySpreadConstraints:
 {{ include "persai.workloadTopologySpreadConstraints" (dict "constraints" .Values.api.topologySpreadConstraints "labels" (dict "app.kubernetes.io/name" "api")) | indent 8 }}

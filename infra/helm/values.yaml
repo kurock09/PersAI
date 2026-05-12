@@ -102,6 +102,9 @@ api:
     limits:
       cpu: "1"
       memory: 1Gi
+  scheduling:
+    nodeSelector: {}
+    tolerations: []
   autoscaling:
     # Keep HPA explicit but disabled until SR3 owns request-path and dependency
     # scaling behavior under real target-environment evidence.
