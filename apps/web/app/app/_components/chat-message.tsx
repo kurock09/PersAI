@@ -772,7 +772,7 @@ function AttachmentStrip({
   attachments: ChatAttachment[];
   className?: string;
   compactBubble?: boolean;
-  variant?: "default" | "user-media";
+  variant?: "default" | "user-media" | "assistant-media";
 }) {
   const t = useTranslations("chat");
   // Lightbox state is keyed by attachment id so we can open/close
@@ -819,7 +819,9 @@ function AttachmentStrip({
                     "block overflow-hidden transition focus:ring-2 focus:ring-accent focus:outline-none",
                     variant === "user-media"
                       ? "rounded-[18px] bg-black/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                      : "rounded-lg border border-border hover:border-border-strong"
+                      : variant === "assistant-media"
+                        ? "rounded-[22px] bg-surface-raised/70 shadow-[0_12px_32px_rgba(0,0,0,0.12)] ring-1 ring-border/70"
+                        : "rounded-lg border border-border hover:border-border-strong"
                   )}
                 >
                   <img
@@ -873,7 +875,9 @@ function AttachmentStrip({
               className={cn(
                 "w-full max-w-[min(100%,320px)]",
                 isPending && audioSrc && "opacity-80",
-                variant === "user-media" && "rounded-[18px] bg-black/[0.04] p-1.5"
+                variant === "user-media" && "rounded-[18px] bg-black/[0.04] p-1.5",
+                variant === "assistant-media" &&
+                  "rounded-[20px] bg-surface-raised/70 p-1.5 ring-1 ring-border/70"
               )}
             >
               {audioSrc ? (
@@ -892,7 +896,7 @@ function AttachmentStrip({
         if (att.attachmentType === "video") {
           const fullUrl = inlineUrl ?? previewUrl;
           return (
-            <div key={att.id} className="w-full max-w-sm">
+            <div key={att.id} className="w-full max-w-[min(100%,23rem)]">
               {fullUrl && !isPending ? (
                 <>
                   <button
@@ -902,21 +906,23 @@ function AttachmentStrip({
                       "group relative block w-full overflow-hidden transition focus:ring-2 focus:ring-accent focus:outline-none",
                       variant === "user-media"
                         ? "rounded-[18px] bg-black/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                        : "rounded-lg border border-border hover:border-border-strong"
+                        : variant === "assistant-media"
+                          ? "rounded-[22px] bg-surface-raised/70 shadow-[0_12px_32px_rgba(0,0,0,0.12)] ring-1 ring-border/70"
+                          : "rounded-lg border border-border hover:border-border-strong"
                     )}
                   >
                     <video
                       preload="metadata"
                       muted
                       playsInline
-                      className="max-h-56 w-full object-cover"
+                      className="aspect-video max-h-64 w-full bg-black object-cover"
                       src={fullUrl}
                     >
                       <track kind="captions" />
                     </video>
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/65 via-black/15 to-transparent" />
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md transition group-hover:scale-[1.03]">
+                      <span className="flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-black/38 text-white shadow-[0_12px_34px_rgba(0,0,0,0.30)] backdrop-blur-sm transition group-hover:scale-[1.03]">
                         <svg
                           viewBox="0 0 24 24"
                           fill="currentColor"
@@ -1221,9 +1227,25 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 )}
               </>
             )}
-            {message.attachments && message.attachments.length > 0 && (
-              <AttachmentStrip attachments={message.attachments} />
-            )}
+            {message.attachments && message.attachments.length > 0 ? (
+              <div className="flex flex-col gap-3">
+                <div className="w-fit max-w-full">
+                  <AttachmentStrip
+                    attachments={message.attachments}
+                    variant="assistant-media"
+                    className="mt-0 gap-2"
+                  />
+                </div>
+                {message.content.trim().length > 0 ? (
+                  <div className="max-w-[min(100%,46rem)] rounded-[22px] rounded-tl-md bg-surface-raised/58 px-4 py-3 ring-1 ring-border/60">
+                    <MarkdownMessageContent
+                      content={message.content}
+                      onAction={onAssistantAction}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         )}
 

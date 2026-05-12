@@ -130,7 +130,7 @@ function ConnectForm({
   const [feedback, setFeedback] = useState<Feedback>(null);
 
   const handleConnect = useCallback(async () => {
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (!token || !botToken.trim()) return;
 
     setBusy(true);
@@ -328,7 +328,7 @@ function ConnectedView({
   const findBotUrl = bot.username ? `https://t.me/${bot.username}` : null;
 
   const loadGroups = useCallback(async () => {
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (!token) {
       setGroups([]);
       setGroupsLoading(false);
@@ -406,7 +406,7 @@ function ConnectedView({
   }, [integration.connectionStatus, onUpdated]);
 
   const handleSave = useCallback(async () => {
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (!token) return;
 
     setSaving(true);
@@ -445,7 +445,7 @@ function ConnectedView({
   ]);
 
   const handleDisconnect = useCallback(async () => {
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (!token) return;
 
     setDisconnecting(true);
@@ -483,7 +483,7 @@ function ConnectedView({
   }, [integration.ownerClaim.code, t]);
 
   const handleResendOwnerMessage = useCallback(async () => {
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (!token) return;
 
     setResendingOwnerMessage(true);
@@ -511,7 +511,7 @@ function ConnectedView({
   }, [findBotUrl]);
 
   const handleRefreshGroups = useCallback(async () => {
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (!token) {
       return;
     }

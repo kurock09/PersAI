@@ -147,7 +147,7 @@ describe("ImageLightbox", () => {
     expect(screen.getByTestId("media-lightbox-top-chrome")).toBeInTheDocument();
     expect(screen.getByTestId("media-lightbox-video-controls")).toBeInTheDocument();
 
-    fireEvent.click(surface.querySelector(".aspect-\\[9\\/16\\]") as Element);
+    fireEvent.click(surface.querySelector("div.relative") as Element);
 
     expect(screen.queryByTestId("media-lightbox-top-chrome")).toBeNull();
     expect(screen.queryByTestId("media-lightbox-video-controls")).toBeNull();

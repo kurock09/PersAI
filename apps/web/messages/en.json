@@ -442,6 +442,7 @@
     "voiceProviderElevenlabs": "ElevenLabs",
     "voiceProviderYandex": "Yandex SpeechKit",
     "voiceProviderOpenai": "OpenAI TTS",
+    "all": "All",
     "voiceChooseBaseVoice": "Choose a voice",
     "voiceElevenlabsLoading": "Loading available ElevenLabs voices...",
     "voiceElevenlabsNotConfigured": "ElevenLabs is the current primary provider, but its admin API key is not configured yet.",

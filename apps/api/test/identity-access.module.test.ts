@@ -55,6 +55,13 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
   );
   assert.equal(
     hasRoute(consumer.routes, {
+      path: "api/v1/assistant/integrations/telegram/groups/refresh",
+      method: RequestMethod.POST
+    }),
+    true
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
       path: "api/v1/assistant/knowledge-sources",
       method: RequestMethod.POST
     }),
