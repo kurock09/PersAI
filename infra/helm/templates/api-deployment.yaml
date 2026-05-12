@@ -14,7 +14,9 @@ spec:
   strategy:
 {{ toYaml . | indent 4 }}
 {{- end }}
+{{- if not .Values.api.autoscaling.enabled }}
   replicas: {{ .Values.api.replicaCount }}
+{{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: api
