@@ -39,6 +39,8 @@ import type {
   DeleteProductKnowledgeTextEntryResponse,
   DeliveryIntentView,
   ErrorEnvelope,
+  GetAdminAbuseAssistantsResponse,
+  GetAdminAbuseControlsAssistantsParams,
   GetAdminBillingLifecycleSettingsResponse,
   GetAdminBillingProviderCredentialsResponse,
   GetAdminBusinessCockpitResponse,
@@ -1715,6 +1717,82 @@ export const postAdminAbuseControlsUnblock = async (
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(adminAbuseUnblockRequest)
   });
+};
+
+/**
+ * @summary Find assistant targets for abuse/load-test controls by user email
+ */
+export type getAdminAbuseControlsAssistantsResponse200 = {
+  data: GetAdminAbuseAssistantsResponse;
+  status: 200;
+};
+
+export type getAdminAbuseControlsAssistantsResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type getAdminAbuseControlsAssistantsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminAbuseControlsAssistantsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminAbuseControlsAssistantsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminAbuseControlsAssistantsResponseSuccess =
+  getAdminAbuseControlsAssistantsResponse200 & {
+    headers: Headers;
+  };
+export type getAdminAbuseControlsAssistantsResponseError = (
+  | getAdminAbuseControlsAssistantsResponse400
+  | getAdminAbuseControlsAssistantsResponse401
+  | getAdminAbuseControlsAssistantsResponse403
+  | getAdminAbuseControlsAssistantsResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminAbuseControlsAssistantsResponse =
+  | getAdminAbuseControlsAssistantsResponseSuccess
+  | getAdminAbuseControlsAssistantsResponseError;
+
+export const getGetAdminAbuseControlsAssistantsUrl = (
+  params: GetAdminAbuseControlsAssistantsParams
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/abuse-controls/assistants?${stringifiedParams}`
+    : `/admin/abuse-controls/assistants`;
+};
+
+export const getAdminAbuseControlsAssistants = async (
+  params: GetAdminAbuseControlsAssistantsParams,
+  options?: RequestInit
+): Promise<getAdminAbuseControlsAssistantsResponse> => {
+  return customFetch<getAdminAbuseControlsAssistantsResponse>(
+    getGetAdminAbuseControlsAssistantsUrl(params),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
 };
 
 /**

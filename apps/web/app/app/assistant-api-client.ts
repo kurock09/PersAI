@@ -24,7 +24,9 @@ import {
   type PutAdminRuntimeProviderSettingsResponse,
   type ProductKnowledgeTextEntryInput,
   type ProductKnowledgeTextEntryState,
+  type AdminAbuseAssistantLookupItem,
   type AdminAbuseUnblockRequest,
+  type GetAdminAbuseAssistantsResponse,
   type PostAdminAbuseUnblockResponse,
   type AssistantTelegramConfigUpdateRequest,
   type TelegramIntegrationState,
@@ -100,6 +102,7 @@ import {
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
   getAssistantSkills as getAssistantSkillsContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
+  getAdminAbuseControlsAssistants as getAdminAbuseControlsAssistantsContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
   postAdminAbuseControlsUnblock as postAdminAbuseControlsUnblockContract,
   putAssistantSkillAssignments as putAssistantSkillAssignmentsContract,
@@ -3418,7 +3421,14 @@ export async function deleteAdminPlan(token: string, code: string): Promise<void
 export async function postAdminAbuseUnblock(
   token: string,
   payload: AdminAbuseUnblockRequest
-): Promise<{ assistantId: string; affectedUserRows: number; affectedAssistantRows: number }> {
+): Promise<{
+  assistantId: string;
+  userId: string | null;
+  surface: "web_chat" | "telegram" | "whatsapp" | "max";
+  adminOverrideUntil: string;
+  affectedUserRows: number;
+  affectedAssistantRows: number;
+}> {
   try {
     const response = await postAdminAbuseControlsUnblockContract(payload, {
       headers: getAuthHeaders(token)
@@ -3433,6 +3443,32 @@ export async function postAdminAbuseUnblock(
     throw new Error(toErrorMessage(error));
   }
 }
+
+export async function lookupAdminAbuseAssistantsByEmail(
+  token: string,
+  email: string
+): Promise<AdminAbuseAssistantLookupItem[]> {
+  try {
+    const normalizedEmail = email.trim();
+    if (normalizedEmail.length === 0) {
+      throw new Error("Email is required.");
+    }
+    const response = await getAdminAbuseControlsAssistantsContract(
+      { email: normalizedEmail },
+      {
+        headers: getAuthHeaders(token)
+      }
+    );
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/abuse-controls/assistants.");
+    }
+    return (response.data as GetAdminAbuseAssistantsResponse).assistants;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export type { AdminAbuseAssistantLookupItem };
 
 export type MediaPackageCatalogItem = {
   id: string;

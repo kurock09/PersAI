@@ -17,6 +17,15 @@ export type AdminAbuseUnblockInput = {
   overrideMinutes: number | null;
 };
 
+export type AdminAbuseAssistantLookupItem = {
+  assistantId: string;
+  assistantDisplayName: string | null;
+  userId: string;
+  userEmail: string;
+  userDisplayName: string | null;
+  workspaceId: string;
+};
+
 @Injectable()
 export class ManageAdminAbuseControlsService {
   constructor(
@@ -68,6 +77,66 @@ export class ManageAdminAbuseControlsService {
       surface,
       overrideMinutes
     };
+  }
+
+  async lookupAssistantsByEmail(
+    adminUserId: string,
+    email: string
+  ): Promise<AdminAbuseAssistantLookupItem[]> {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail.length === 0) {
+      throw new BadRequestException("email is required.");
+    }
+    const context = await this.adminAuthorizationService.assertCanManageAbuseControls(adminUserId);
+    const assistants = await this.prisma.assistant.findMany({
+      where: {
+        user: {
+          email: {
+            equals: normalizedEmail,
+            mode: "insensitive"
+          }
+        },
+        ...(context.hasGlobalPlatformAdminScope ? {} : { workspaceId: context.workspaceId })
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        userId: true,
+        draftDisplayName: true,
+        user: {
+          select: {
+            email: true,
+            displayName: true
+          }
+        }
+      },
+      orderBy: [{ draftDisplayName: "asc" }, { createdAt: "asc" }]
+    });
+    const result = assistants.map((assistant) => ({
+      assistantId: assistant.id,
+      assistantDisplayName: assistant.draftDisplayName,
+      userId: assistant.userId,
+      userEmail: assistant.user.email,
+      userDisplayName: assistant.user.displayName,
+      workspaceId: assistant.workspaceId
+    }));
+    const firstMatch = result[0] ?? null;
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: result.length === 1 ? (firstMatch?.workspaceId ?? null) : null,
+      assistantId: result.length === 1 ? (firstMatch?.assistantId ?? null) : null,
+      actorUserId: adminUserId,
+      eventCategory: "admin_action",
+      eventCode: "admin.abuse_lookup_performed",
+      summary: "Admin abuse/load-test target lookup performed.",
+      details: {
+        email: normalizedEmail,
+        matchedAssistantCount: result.length,
+        matchedAssistantIds: result.map((item) => item.assistantId),
+        actorRoles: context.roles,
+        legacyOwnerFallback: context.hasLegacyOwnerFallback
+      }
+    });
+    return result;
   }
 
   async unblock(

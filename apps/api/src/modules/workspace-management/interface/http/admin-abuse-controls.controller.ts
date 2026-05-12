@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Req,
   UnauthorizedException
 } from "@nestjs/common";
@@ -13,6 +15,32 @@ import { ManageAdminAbuseControlsService } from "../../application/manage-admin-
 @Controller("api/v1/admin/abuse-controls")
 export class AdminAbuseControlsController {
   constructor(private readonly manageAdminAbuseControlsService: ManageAdminAbuseControlsService) {}
+
+  @Get("assistants")
+  async lookupAssistants(
+    @Req() req: RequestWithPlatformContext,
+    @Query("email") email?: string
+  ): Promise<{
+    requestId: string | null;
+    assistants: Array<{
+      assistantId: string;
+      assistantDisplayName: string | null;
+      userId: string;
+      userEmail: string;
+      userDisplayName: string | null;
+      workspaceId: string;
+    }>;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const assistants = await this.manageAdminAbuseControlsService.lookupAssistantsByEmail(
+      userId,
+      email ?? ""
+    );
+    return {
+      requestId: req.requestId ?? null,
+      assistants
+    };
+  }
 
   @Post("unblock")
   @HttpCode(HttpStatus.OK)

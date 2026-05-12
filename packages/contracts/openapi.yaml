@@ -1065,6 +1065,49 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/abuse-controls/assistants:
+    get:
+      operationId: getAdminAbuseControlsAssistants
+      summary: Find assistant targets for abuse/load-test controls by user email
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: email
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching assistant targets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminAbuseAssistantsResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/assistants/ownership/transfer:
     post:
       operationId: postAdminAssistantOwnershipTransfer
@@ -13114,6 +13157,40 @@ components:
           nullable: true
         unblock:
           $ref: "#/components/schemas/AdminAbuseUnblockState"
+    AdminAbuseAssistantLookupItem:
+      type: object
+      required:
+        - assistantId
+        - userId
+        - userEmail
+        - workspaceId
+      properties:
+        assistantId:
+          type: string
+        assistantDisplayName:
+          type: string
+          nullable: true
+        userId:
+          type: string
+        userEmail:
+          type: string
+        userDisplayName:
+          type: string
+          nullable: true
+        workspaceId:
+          type: string
+    GetAdminAbuseAssistantsResponse:
+      type: object
+      required:
+        - assistants
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        assistants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminAbuseAssistantLookupItem"
     AdminAssistantOwnershipTransferRequest:
       type: object
       required:

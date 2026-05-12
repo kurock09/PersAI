@@ -14,6 +14,7 @@ function ensureApiConfigEnv(): void {
 async function run(): Promise<void> {
   ensureApiConfigEnv();
   const auditEvents: unknown[] = [];
+  const lookupEmail = "owner@example.com";
   const service = new ManageAdminAbuseControlsService(
     {
       assertCanManageAbuseControls: async () => ({
@@ -31,6 +32,18 @@ async function run(): Promise<void> {
     } as never,
     {
       assistant: {
+        findMany: async () => [
+          {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "ws-1",
+            draftDisplayName: "Load Test Assistant",
+            user: {
+              email: lookupEmail,
+              displayName: "Owner"
+            }
+          }
+        ],
         findUnique: async () => ({
           id: "assistant-1",
           userId: "user-1",
@@ -43,6 +56,11 @@ async function run(): Promise<void> {
       applyPeerAdminUnblock: async () => 1
     } as never
   );
+
+  const lookup = await service.lookupAssistantsByEmail("admin-1", lookupEmail);
+  assert.equal(lookup.length, 1);
+  assert.equal(lookup[0]?.assistantId, "assistant-1");
+  assert.equal(lookup[0]?.userEmail, lookupEmail);
 
   const parsed = service.parseUnblockInput({
     assistantId: "assistant-1",
@@ -60,7 +78,7 @@ async function run(): Promise<void> {
   assert.equal(result.surface, "web_chat");
   assert.equal(result.affectedUserRows, 1);
   assert.equal(result.affectedAssistantRows, 1);
-  assert.equal(auditEvents.length, 1);
+  assert.equal(auditEvents.length, 2);
 }
 
 void run();
