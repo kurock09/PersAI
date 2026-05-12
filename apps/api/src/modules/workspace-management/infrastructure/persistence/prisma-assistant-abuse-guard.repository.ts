@@ -465,7 +465,12 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
     tx: Prisma.TransactionClient,
     input: RegisterDistributedAbuseAttemptInput
   ): Promise<AssistantAbuseGuardState> {
-    const existing = await this.lockUserStateRow(tx, input.assistantId, input.userId, input.surface);
+    const existing = await this.lockUserStateRow(
+      tx,
+      input.assistantId,
+      input.userId,
+      input.surface
+    );
     if (existing !== null) {
       return existing;
     }
@@ -490,7 +495,12 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       return this.toUserDomain(created);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        const raced = await this.lockUserStateRow(tx, input.assistantId, input.userId, input.surface);
+        const raced = await this.lockUserStateRow(
+          tx,
+          input.assistantId,
+          input.userId,
+          input.surface
+        );
         if (raced !== null) {
           return raced;
         }
@@ -638,8 +648,7 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       slowedUntil: get<Date | null>("slowedUntil", "slowed_until") ?? null,
       blockedUntil: get<Date | null>("blockedUntil", "blocked_until") ?? null,
       blockReason: get<string | null>("blockReason", "block_reason") ?? null,
-      adminOverrideUntil:
-        get<Date | null>("adminOverrideUntil", "admin_override_until") ?? null,
+      adminOverrideUntil: get<Date | null>("adminOverrideUntil", "admin_override_until") ?? null,
       lastSeenAt: get<Date>("lastSeenAt", "last_seen_at"),
       createdAt: get<Date>("createdAt", "created_at"),
       updatedAt: get<Date>("updatedAt", "updated_at")
@@ -659,8 +668,7 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       slowedUntil: get<Date | null>("slowedUntil", "slowed_until") ?? null,
       blockedUntil: get<Date | null>("blockedUntil", "blocked_until") ?? null,
       blockReason: get<string | null>("blockReason", "block_reason") ?? null,
-      adminOverrideUntil:
-        get<Date | null>("adminOverrideUntil", "admin_override_until") ?? null,
+      adminOverrideUntil: get<Date | null>("adminOverrideUntil", "admin_override_until") ?? null,
       lastSeenAt: get<Date>("lastSeenAt", "last_seen_at"),
       createdAt: get<Date>("createdAt", "created_at"),
       updatedAt: get<Date>("updatedAt", "updated_at")

@@ -134,8 +134,8 @@ export class ManageAdminAbuseControlsService {
     }));
     const firstMatch = result[0] ?? null;
     await this.appendAssistantAuditEventService.execute({
-      workspaceId: result.length === 1 ? firstMatch?.workspaceId ?? null : null,
-      assistantId: result.length === 1 ? firstMatch?.assistantId ?? null : null,
+      workspaceId: result.length === 1 ? (firstMatch?.workspaceId ?? null) : null,
+      assistantId: result.length === 1 ? (firstMatch?.assistantId ?? null) : null,
       actorUserId: adminUserId,
       eventCategory: "admin_action",
       eventCode: "admin.abuse_lookup_performed",

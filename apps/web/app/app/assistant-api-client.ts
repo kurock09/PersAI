@@ -3460,9 +3460,7 @@ export async function lookupAdminAbuseAssistantsByEmail(
       }
     );
     if (response.status !== 200) {
-      throw new Error(
-        "Unexpected non-success response for GET /admin/abuse-controls/assistants."
-      );
+      throw new Error("Unexpected non-success response for GET /admin/abuse-controls/assistants.");
     }
     return (response.data as GetAdminAbuseAssistantsResponse).assistants;
   } catch (error) {
@@ -3492,7 +3490,9 @@ export async function listAdminAbuseActiveOverrides(
       headers: getAuthHeaders(token)
     });
     if (!response.ok) {
-      throw new Error(await readJsonErrorMessage(response, "Failed to load active abuse overrides."));
+      throw new Error(
+        await readJsonErrorMessage(response, "Failed to load active abuse overrides.")
+      );
     }
     const payload = (await response.json()) as {
       overrides?: AdminAbuseActiveOverrideItem[];

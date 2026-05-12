@@ -108,7 +108,7 @@ export default function AdminAbusePage() {
         if (assistants.some((assistant) => assistant.assistantId === current)) {
           return current;
         }
-        return assistants.length === 1 ? assistants[0]?.assistantId ?? "" : "";
+        return assistants.length === 1 ? (assistants[0]?.assistantId ?? "") : "";
       });
       setLookupFeedback(
         assistants.length === 0
@@ -151,7 +151,8 @@ export default function AdminAbusePage() {
 
   const handleLoadTestEnable = useCallback(async () => {
     const token = await getToken();
-    const assistant = matchedAssistants.find((item) => item.assistantId === selectedAssistantId) ?? null;
+    const assistant =
+      matchedAssistants.find((item) => item.assistantId === selectedAssistantId) ?? null;
     if (!token || assistant === null) return;
     setLoadTestBusy(true);
     setLookupFeedback(null);
@@ -208,7 +209,10 @@ export default function AdminAbusePage() {
       });
       await refreshActiveOverrides({ silent: true });
     } catch (error) {
-      setFeedback({ type: "err", text: error instanceof Error ? error.message : "Unblock failed." });
+      setFeedback({
+        type: "err",
+        text: error instanceof Error ? error.message : "Unblock failed."
+      });
     }
     setBusy(false);
   }, [getToken, assistantId, userId, surface, overrideMinutes, refreshActiveOverrides]);
@@ -425,8 +429,8 @@ export default function AdminAbusePage() {
             <div>
               <h2 className="text-sm font-semibold text-text">Active load-test windows</h2>
               <p className="mt-1 text-xs text-text-muted">
-                Read-only view of assistants with an active abuse override. Countdown updates locally;
-                the list refreshes automatically every 30 seconds.
+                Read-only view of assistants with an active abuse override. Countdown updates
+                locally; the list refreshes automatically every 30 seconds.
               </p>
             </div>
             <button
@@ -482,7 +486,9 @@ export default function AdminAbusePage() {
                             <div className="mt-1 text-text-muted">{override.userDisplayName}</div>
                           )}
                         </td>
-                        <td className="px-3 py-3 text-text">{renderSurfaceLabel(override.surface)}</td>
+                        <td className="px-3 py-3 text-text">
+                          {renderSurfaceLabel(override.surface)}
+                        </td>
                         <td className="px-3 py-3 text-text">
                           {new Date(override.adminOverrideUntil).toLocaleString()}
                         </td>
@@ -522,8 +528,8 @@ export default function AdminAbusePage() {
         <div className="rounded-lg border border-border bg-surface-raised p-5 max-w-lg">
           <h2 className="mb-4 text-sm font-semibold text-text">Manual Unblock</h2>
           <p className="mb-4 text-xs text-text-muted">
-            Temporarily override abuse blocks for a specific assistant. The override expires after the
-            specified duration.
+            Temporarily override abuse blocks for a specific assistant. The override expires after
+            the specified duration.
           </p>
 
           <div className="space-y-3">
