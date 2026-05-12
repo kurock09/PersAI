@@ -765,10 +765,14 @@ function userMessageHasVoiceAttachment(attachments: ChatAttachment[] | undefined
 
 function AttachmentStrip({
   attachments,
-  className
+  className,
+  compactBubble = false,
+  variant = "default"
 }: {
   attachments: ChatAttachment[];
   className?: string;
+  compactBubble?: boolean;
+  variant?: "default" | "user-media";
 }) {
   const t = useTranslations("chat");
   // Lightbox state is keyed by attachment id so we can open/close
@@ -777,7 +781,13 @@ function AttachmentStrip({
   if (attachments.length === 0) return null;
 
   return (
-    <div className={cn("mt-2 flex w-full min-w-0 flex-wrap gap-2", className)}>
+    <div
+      className={cn(
+        "mt-2 flex min-w-0 flex-wrap gap-2",
+        compactBubble ? "w-auto max-w-full self-start" : "w-full",
+        className
+      )}
+    >
       {attachments.map((att) => {
         const isPending = att.processingStatus === "pending";
         const isFailed = att.processingStatus === "failed";
@@ -805,7 +815,12 @@ function AttachmentStrip({
                   type="button"
                   onClick={() => fullUrl && setOpenImageId(att.id)}
                   disabled={!fullUrl}
-                  className="block overflow-hidden rounded-lg border border-border transition hover:border-border-strong focus:ring-2 focus:ring-accent focus:outline-none"
+                  className={cn(
+                    "block overflow-hidden transition focus:ring-2 focus:ring-accent focus:outline-none",
+                    variant === "user-media"
+                      ? "rounded-[18px] bg-black/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                      : "rounded-lg border border-border hover:border-border-strong"
+                  )}
                 >
                   <img
                     src={previewUrl}
@@ -857,7 +872,8 @@ function AttachmentStrip({
               key={att.id}
               className={cn(
                 "w-full max-w-[min(100%,320px)]",
-                isPending && audioSrc && "opacity-80"
+                isPending && audioSrc && "opacity-80",
+                variant === "user-media" && "rounded-[18px] bg-black/[0.04] p-1.5"
               )}
             >
               {audioSrc ? (
@@ -874,17 +890,54 @@ function AttachmentStrip({
         }
 
         if (att.attachmentType === "video") {
+          const fullUrl = inlineUrl ?? previewUrl;
           return (
             <div key={att.id} className="w-full max-w-sm">
-              {inlineUrl && !isPending ? (
-                <video
-                  controls
-                  preload="metadata"
-                  className="max-h-56 w-full rounded-lg border border-border"
-                  src={inlineUrl}
-                >
-                  <track kind="captions" />
-                </video>
+              {fullUrl && !isPending ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setOpenImageId(att.id)}
+                    className={cn(
+                      "group relative block w-full overflow-hidden transition focus:ring-2 focus:ring-accent focus:outline-none",
+                      variant === "user-media"
+                        ? "rounded-[18px] bg-black/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                        : "rounded-lg border border-border hover:border-border-strong"
+                    )}
+                  >
+                    <video
+                      preload="metadata"
+                      muted
+                      playsInline
+                      className="max-h-56 w-full object-cover"
+                      src={fullUrl}
+                    >
+                      <track kind="captions" />
+                    </video>
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/65 via-black/15 to-transparent" />
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md transition group-hover:scale-[1.03]">
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                          className="ml-0.5 h-5 w-5"
+                          aria-hidden="true"
+                        >
+                          <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.68L9.54 5.98A1 1 0 0 0 8 6.82Z" />
+                        </svg>
+                      </span>
+                    </div>
+                  </button>
+                  <ImageLightbox
+                    open={openImageId === att.id}
+                    src={fullUrl}
+                    downloadUrl={downloadUrl ?? fullUrl}
+                    filename={att.originalFilename ?? undefined}
+                    alt={att.originalFilename ?? undefined}
+                    mediaType="video"
+                    onClose={() => setOpenImageId(null)}
+                  />
+                </>
               ) : (
                 <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
                   {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
@@ -973,6 +1026,16 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     isUser && (message.status === "sending" || message.status === "reconciling");
   const isUserSendFailed = isUser && message.status.startsWith("send_failed");
   const hasUserAttachments = isUser && (message.attachments?.length ?? 0) > 0;
+  const hasUserVisualAttachments =
+    isUser &&
+    (message.attachments?.some(
+      (attachment) =>
+        attachment.attachmentType === "image" ||
+        attachment.attachmentType === "video" ||
+        attachment.attachmentType === "audio" ||
+        attachment.attachmentType === "voice"
+    ) ??
+      false);
   const hideUserVoiceTranscript = isUser && userMessageHasVoiceAttachment(message.attachments);
   // FIX 3 — when a user sends only attachments, the composer fills `content`
   // with the canonical placeholder so the API contract stays satisfied. The
@@ -982,6 +1045,11 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     isUser &&
     (message.attachments?.length ?? 0) > 0 &&
     isAttachmentsOnlyPlaceholderText(message.content);
+  const hasUserCaption =
+    isUser &&
+    !hideUserVoiceTranscript &&
+    !hideUserTextForAttachmentsOnly &&
+    message.content.trim().length > 0;
 
   // ADR-076 Section M — arm the short delay only while the bubble is in
   // `sending`. Any status change (committed / send_failed) clears the timer
@@ -1029,26 +1097,51 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       >
         {isUser ? (
           <>
-            <div
-              className={cn(
-                "min-w-0 max-w-full rounded-2xl rounded-br-md bg-accent/15 px-3 py-2 text-text md:px-4 md:py-2.5",
-                isUserSendFailed && "opacity-80"
-              )}
-            >
-              {!hideUserVoiceTranscript && !hideUserTextForAttachmentsOnly && (
-                <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">
-                  {message.content}
-                </p>
-              )}
-              {message.attachments && message.attachments.length > 0 && (
+            {hasUserAttachments && hasUserVisualAttachments ? (
+              <div
+                className={cn(
+                  "inline-flex min-w-0 max-w-[min(100%,28rem)] flex-col overflow-hidden rounded-[24px] rounded-br-md bg-accent/16 p-1.5 text-text shadow-[0_12px_36px_rgba(15,23,42,0.10)] ring-1 ring-black/5",
+                  isUserSendFailed && "opacity-80"
+                )}
+              >
                 <AttachmentStrip
-                  attachments={message.attachments}
-                  {...(hideUserVoiceTranscript || hideUserTextForAttachmentsOnly
-                    ? { className: "mt-0" }
-                    : {})}
+                  attachments={message.attachments ?? []}
+                  compactBubble
+                  variant="user-media"
+                  className="mt-0 gap-1.5"
                 />
-              )}
-            </div>
+                {hasUserCaption ? (
+                  <div className="px-2.5 pb-2 pt-2.5">
+                    <p className="max-w-full whitespace-pre-wrap text-left text-sm leading-relaxed break-words text-text">
+                      {message.content}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  "min-w-0 max-w-full rounded-2xl rounded-br-md bg-accent/15 px-3 py-2 text-text md:px-4 md:py-2.5",
+                  hasUserAttachments && "inline-flex w-fit max-w-[min(100%,20rem)] flex-col",
+                  isUserSendFailed && "opacity-80"
+                )}
+              >
+                {!hideUserVoiceTranscript && !hideUserTextForAttachmentsOnly && (
+                  <p className="max-w-full whitespace-pre-wrap text-sm leading-relaxed break-words text-left">
+                    {message.content}
+                  </p>
+                )}
+                {message.attachments && message.attachments.length > 0 && (
+                  <AttachmentStrip
+                    attachments={message.attachments}
+                    compactBubble
+                    className={cn(
+                      hideUserVoiceTranscript || hideUserTextForAttachmentsOnly ? "mt-0" : "mt-2"
+                    )}
+                  />
+                )}
+              </div>
+            )}
             {isUserSendFailed && (
               <div
                 role="group"

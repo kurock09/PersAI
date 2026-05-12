@@ -37,6 +37,7 @@ import { useClerkAvatar } from "./use-clerk-avatar";
 import { useNetworkOnline } from "./use-network-online";
 import { resolveBillingSummaryCopy } from "./billing-summary";
 import { AndroidAppDownloadBanner } from "../../_components/android-app-download-banner";
+import { navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
 import {
   patchAssistantWebChat,
   postAssistantWebChatArchive,
@@ -705,7 +706,11 @@ function AccountFooter({
               onClick={() => {
                 setOpen(false);
                 onClose?.();
-                void signOut({ redirectUrl: "/" });
+                void signOut()
+                  .catch(() => undefined)
+                  .finally(() => {
+                    navigateAfterClerkAuth("/", "replace");
+                  });
               }}
               className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-destructive/10"
             >

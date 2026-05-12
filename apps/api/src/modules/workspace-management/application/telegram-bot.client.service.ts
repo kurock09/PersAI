@@ -32,6 +32,10 @@ export interface TelegramChatActionHeartbeat {
   stop: () => void;
 }
 
+export interface TelegramChatMemberResult {
+  status: string;
+}
+
 export class TelegramBotApiError extends Error {
   constructor(
     readonly status: number,
@@ -136,6 +140,17 @@ export class TelegramBotClientService {
     }
     await this.requestJson(botToken, "setMyName", {
       name: trimmed
+    });
+  }
+
+  async getChatMember(
+    botToken: string,
+    chatId: string,
+    userId: number | string
+  ): Promise<TelegramChatMemberResult> {
+    return this.requestJson<TelegramChatMemberResult>(botToken, "getChatMember", {
+      chat_id: chatId,
+      user_id: userId
     });
   }
 

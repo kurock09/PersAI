@@ -79,6 +79,20 @@ function buildChatHrefWithoutBillingParams(
   return (query.length > 0 ? `/app/chat?${query}` : "/app/chat") as Route;
 }
 
+function buildAppRootHrefPreservingNonChatParams(
+  searchParams: URLSearchParams | ReadonlyURLSearchParamsLike
+): Route {
+  const next = new URLSearchParams(searchParams.toString());
+  next.delete("thread");
+  next.delete("welcome");
+  next.delete("billingReturn");
+  next.delete("billingPlan");
+  next.delete("billingPaymentIntentId");
+  next.delete("settings");
+  const query = next.toString();
+  return (query.length > 0 ? `/app?${query}` : "/app") as Route;
+}
+
 function shouldWaitForImmediatePlanRefresh(purpose: string): boolean {
   return purpose === "plan_purchase" || purpose === "managed_recurring_upgrade";
 }
@@ -149,6 +163,36 @@ function ChatPageInner() {
   // server during the first send becomes visible in the header immediately
   // after `reloadChats()` lands, even before the URL has been updated.
   const existingChat = appData.chats.find((c) => c.chat.surfaceThreadKey === threadKey);
+
+  useEffect(() => {
+    if (appData.isLoading) {
+      return;
+    }
+    if (!threadFromUrl) {
+      return;
+    }
+    if (welcomeFromUrl && threadFromUrl === WELCOME_THREAD_KEY) {
+      return;
+    }
+    if (existingChat?.chat.id) {
+      return;
+    }
+    if (chat.chatId || chat.isStreaming || chat.pendingSendStatus !== null || chat.historyLoading) {
+      return;
+    }
+    router.replace(buildAppRootHrefPreservingNonChatParams(searchParams));
+  }, [
+    appData.isLoading,
+    chat.chatId,
+    chat.historyLoading,
+    chat.isStreaming,
+    chat.pendingSendStatus,
+    existingChat?.chat.id,
+    router,
+    searchParams,
+    threadFromUrl,
+    welcomeFromUrl
+  ]);
 
   useEffect(() => {
     if (!existingChat?.chat.id) {

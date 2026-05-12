@@ -9,7 +9,12 @@ const ORIGINAL_USER_AGENT = window.navigator.userAgent;
 
 const navigationMocks = vi.hoisted(() => ({
   push: vi.fn(),
-  replace: vi.fn()
+  replace: vi.fn(),
+  navigateAfterClerkAuth: vi.fn()
+}));
+
+const clerkMocks = vi.hoisted(() => ({
+  signOut: vi.fn()
 }));
 
 const liveThreadMocks = vi.hoisted(() => ({
@@ -20,7 +25,7 @@ const liveThreadMocks = vi.hoisted(() => ({
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({ getToken: vi.fn(async () => null) }),
   useUser: () => ({ user: null }),
-  useClerk: () => ({ signOut: vi.fn() })
+  useClerk: () => ({ signOut: clerkMocks.signOut })
 }));
 
 vi.mock("next/navigation", () => ({
@@ -59,11 +64,18 @@ vi.mock("../assistant-api-client", () => ({
   deleteAssistantWebChat: vi.fn(async () => undefined)
 }));
 
+vi.mock("@/app/lib/clerk-navigation", () => ({
+  navigateAfterClerkAuth: navigationMocks.navigateAfterClerkAuth
+}));
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   navigationMocks.push.mockClear();
   navigationMocks.replace.mockClear();
+  navigationMocks.navigateAfterClerkAuth.mockClear();
+  clerkMocks.signOut.mockReset();
+  clerkMocks.signOut.mockResolvedValue(undefined);
   Object.defineProperty(window.navigator, "userAgent", {
     configurable: true,
     value: ORIGINAL_USER_AGENT
@@ -375,6 +387,18 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
 
     await waitFor(() => {
       expect(screen.queryByRole("link", { name: "androidAppCta" })).toBeNull();
+    });
+  });
+
+  it("uses mobile-safe logout navigation after signOut resolves", async () => {
+    render(<Sidebar data={makeAppData({})} />);
+
+    fireEvent.click(screen.getByText("freePlan · 0%").closest("button")!);
+    fireEvent.click(screen.getByText("signOut"));
+
+    await waitFor(() => {
+      expect(clerkMocks.signOut).toHaveBeenCalled();
+      expect(navigationMocks.navigateAfterClerkAuth).toHaveBeenCalledWith("/", "replace");
     });
   });
 });

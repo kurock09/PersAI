@@ -52,6 +52,7 @@ import { UpdateTelegramIntegrationConfigService } from "../../application/update
 import { UpdateAssistantNotificationPreferenceService } from "../../application/update-assistant-notification-preference.service";
 import { RevokeTelegramIntegrationSecretService } from "../../application/revoke-telegram-integration-secret.service";
 import { ResendTelegramOwnerMessageService } from "../../application/resend-telegram-owner-message.service";
+import { RefreshTelegramGroupsService } from "../../application/refresh-telegram-groups.service";
 import { DoNotRememberAssistantMemoryService } from "../../application/do-not-remember-assistant-memory.service";
 import { ForgetAssistantMemoryItemService } from "../../application/forget-assistant-memory-item.service";
 import { CloseAssistantMemoryByRefService } from "../../application/close-assistant-memory-by-ref.service";
@@ -111,6 +112,7 @@ export class AssistantController {
     private readonly updateAssistantNotificationPreferenceService: UpdateAssistantNotificationPreferenceService,
     private readonly revokeTelegramIntegrationSecretService: RevokeTelegramIntegrationSecretService,
     private readonly resendTelegramOwnerMessageService: ResendTelegramOwnerMessageService,
+    private readonly refreshTelegramGroupsService: RefreshTelegramGroupsService,
     private readonly listAssistantMemoryItemsService: ListAssistantMemoryItemsService,
     private readonly forgetAssistantMemoryItemService: ForgetAssistantMemoryItemService,
     private readonly closeAssistantMemoryByRefService: CloseAssistantMemoryByRefService,
@@ -485,7 +487,8 @@ export class AssistantController {
     const seen = new Map<string, (typeof allGroups)[number]>();
     for (const g of allGroups) {
       const key = g.title.toLowerCase();
-      if (!seen.has(key)) {
+      const existing = seen.get(key);
+      if (existing === undefined || (existing.status !== "active" && g.status === "active")) {
         seen.set(key, g);
       }
     }
@@ -500,6 +503,20 @@ export class AssistantController {
         status: g.status,
         joinedAt: g.joinedAt.toISOString()
       }))
+    };
+  }
+
+  @Post("assistant/integrations/telegram/groups/refresh")
+  @HttpCode(200)
+  async refreshTelegramGroups(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    refreshed: true;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    await this.refreshTelegramGroupsService.execute(userId);
+    return {
+      requestId: req.requestId ?? null,
+      refreshed: true
     };
   }
 

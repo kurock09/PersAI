@@ -23,6 +23,7 @@ import {
   postAssistantTelegramResendOwnerMessage,
   patchAssistantTelegramConfig,
   fetchAssistantTelegramGroups,
+  postAssistantTelegramGroupsRefresh,
   type TelegramIntegrationState,
   type TelegramGroupInfo,
   type AssistantTelegramConfigUpdateRequest
@@ -316,6 +317,7 @@ function ConnectedView({
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [groups, setGroups] = useState<TelegramGroupInfo[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(true);
+  const [groupsRefreshing, setGroupsRefreshing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [resendingOwnerMessage, setResendingOwnerMessage] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
@@ -325,21 +327,22 @@ function ConnectedView({
   const canResendOwnerMessage = Boolean(integration.bot.ownerTelegramChatId);
   const findBotUrl = bot.username ? `https://t.me/${bot.username}` : null;
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const t = await getToken();
-      if (!t || cancelled) return;
-      const g = await fetchAssistantTelegramGroups(t);
-      if (!cancelled) {
-        setGroups(g);
-        setGroupsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const loadGroups = useCallback(async () => {
+    const token = await getToken();
+    if (!token) {
+      setGroups([]);
+      setGroupsLoading(false);
+      return;
+    }
+
+    const nextGroups = await fetchAssistantTelegramGroups(token);
+    setGroups(nextGroups);
+    setGroupsLoading(false);
   }, [getToken]);
+
+  useEffect(() => {
+    void loadGroups();
+  }, [loadGroups]);
 
   useEffect(() => {
     setAutoCompactionEnabled(config.autoCompactionEnabled);
@@ -506,6 +509,30 @@ function ConnectedView({
     shouldRefreshAfterTelegramReturnRef.current = true;
     openTelegramUrl(findBotUrl);
   }, [findBotUrl]);
+
+  const handleRefreshGroups = useCallback(async () => {
+    const token = await getToken();
+    if (!token) {
+      return;
+    }
+
+    setFeedback(null);
+    setGroupsRefreshing(true);
+    try {
+      await postAssistantTelegramGroupsRefresh(token);
+      const nextGroups = await fetchAssistantTelegramGroups(token);
+      setGroups(nextGroups);
+      setFeedback({ type: "ok", text: t("groupsRefreshSuccess") });
+      onUpdated();
+    } catch (e) {
+      setFeedback({
+        type: "err",
+        text: e instanceof Error ? e.message : t("groupsRefreshFailed")
+      });
+    } finally {
+      setGroupsRefreshing(false);
+    }
+  }, [getToken, onUpdated, t]);
 
   return (
     <div className="space-y-5 px-5 py-5">
@@ -780,6 +807,15 @@ function ConnectedView({
         <div className="flex items-center gap-2 px-4 py-3">
           <Users className="h-4 w-4 text-text-subtle" />
           <span className="text-sm font-medium text-text">{t("groups")}</span>
+          <button
+            type="button"
+            onClick={() => void handleRefreshGroups()}
+            disabled={groupsLoading || groupsRefreshing}
+            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-surface/70 px-2.5 text-[11px] font-medium text-text-muted backdrop-blur-sm transition-all hover:border-border hover:bg-surface-hover hover:text-text disabled:cursor-default disabled:opacity-60"
+          >
+            <RefreshCw className={cn("h-3 w-3", groupsRefreshing && "animate-spin")} />
+            <span>{t("refreshGroups")}</span>
+          </button>
           <span className="ml-auto text-xs text-text-muted">
             {t("activeCount", { count: groups.filter((g) => g.status === "active").length })}
           </span>

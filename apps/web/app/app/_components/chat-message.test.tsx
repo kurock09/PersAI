@@ -288,6 +288,31 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
     expect(screen.getByText("Look at this please")).toBeInTheDocument();
   });
 
+  it("renders user attachments before the caption text when both are present", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: "Look at this please",
+          attachments: [
+            {
+              ...makeImageAttachment("att-ordered"),
+              localPreviewUrl: "blob:test-image"
+            }
+          ]
+        })}
+      />
+    );
+
+    const image = container.querySelector("img");
+    const caption = screen.getByText("Look at this please");
+
+    expect(image).not.toBeNull();
+    if (image === null) {
+      throw new Error("Expected image attachment preview to render.");
+    }
+    expect(image.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("renders the placeholder text verbatim when there are no attachments (defensive — should never happen in production)", () => {
     render(
       <ChatMessageBubble

@@ -228,6 +228,7 @@ import { RenderAssistantInboundSurfaceMessageService } from "./application/rende
 import { SyncAssistantTaskRegistryService } from "./application/sync-assistant-task-registry.service";
 import { SyncTelegramChatTargetService } from "./application/sync-telegram-chat-target.service";
 import { SyncTelegramGroupMembershipService } from "./application/sync-telegram-group-membership.service";
+import { RefreshTelegramGroupsService } from "./application/refresh-telegram-groups.service";
 import { TrackWorkspaceQuotaUsageService } from "./application/track-workspace-quota-usage.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./application/resolve-internal-runtime-tool-daily-policy.service";
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
@@ -539,6 +540,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     SyncAssistantTaskRegistryService,
     SyncTelegramChatTargetService,
     SyncTelegramGroupMembershipService,
+    RefreshTelegramGroupsService,
     MergeStagedWebChatAttachmentsService,
     PrepareAssistantInboundTurnService,
     SendWebChatTurnService,

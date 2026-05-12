@@ -3328,6 +3328,25 @@ export async function fetchAssistantTelegramGroups(token: string): Promise<Teleg
   }
 }
 
+export async function postAssistantTelegramGroupsRefresh(token: string): Promise<void> {
+  try {
+    const response = await fetch("/api/v1/assistant/integrations/telegram/groups/refresh", {
+      method: "POST",
+      headers: getAuthHeaders(token)
+    });
+    if (!response.ok) {
+      throw new Error(
+        await readJsonErrorMessage(
+          response,
+          "Unexpected non-success response for POST /assistant/integrations/telegram/groups/refresh."
+        )
+      );
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
 export async function postAdminPlanCreate(
   token: string,
   payload: AdminPlanCreateRequest

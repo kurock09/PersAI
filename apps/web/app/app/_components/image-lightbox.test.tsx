@@ -108,4 +108,86 @@ describe("ImageLightbox", () => {
     });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("renders the custom action chrome for video too", () => {
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-video-1"
+        downloadUrl="/api/assistant-file/file-ref-video-1?download=1"
+        filename="video.mp4"
+        alt="Generated video"
+        mediaType="video"
+        onClose={() => undefined}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "lightboxSave" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "lightboxShare" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "lightboxClose" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "lightboxPlay" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "lightboxPlayHero" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "lightboxUnmute" })).toBeInTheDocument();
+  });
+
+  it("toggles video chrome visibility when the media surface is tapped", () => {
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-video-1"
+        downloadUrl="/api/assistant-file/file-ref-video-1?download=1"
+        filename="video.mp4"
+        alt="Generated video"
+        mediaType="video"
+        onClose={() => undefined}
+      />
+    );
+
+    const surface = screen.getByTestId("media-lightbox-video-surface");
+    expect(screen.getByTestId("media-lightbox-top-chrome")).toBeInTheDocument();
+    expect(screen.getByTestId("media-lightbox-video-controls")).toBeInTheDocument();
+
+    fireEvent.click(surface.querySelector(".aspect-\\[9\\/16\\]") as Element);
+
+    expect(screen.queryByTestId("media-lightbox-top-chrome")).toBeNull();
+    expect(screen.queryByTestId("media-lightbox-video-controls")).toBeNull();
+  });
+
+  it("closes the video viewer on a downward swipe", () => {
+    const onClose = vi.fn();
+    render(
+      <ImageLightbox
+        open
+        src="/api/assistant-file/file-ref-video-1"
+        downloadUrl="/api/assistant-file/file-ref-video-1?download=1"
+        filename="video.mp4"
+        alt="Generated video"
+        mediaType="video"
+        onClose={onClose}
+      />
+    );
+
+    const surface = screen.getByTestId("media-lightbox-video-surface");
+
+    fireEvent.pointerDown(surface, {
+      pointerId: 1,
+      clientX: 100,
+      clientY: 100,
+      pointerType: "touch"
+    });
+    fireEvent.pointerMove(surface, {
+      pointerId: 1,
+      clientX: 102,
+      clientY: 260,
+      pointerType: "touch"
+    });
+    fireEvent.pointerUp(surface, {
+      pointerId: 1,
+      clientX: 102,
+      clientY: 260,
+      pointerType: "touch"
+    });
+
+    expect(onClose).toHaveBeenCalled();
+  });
 });

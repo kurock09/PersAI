@@ -15,7 +15,15 @@ const chatHookMocks = vi.hoisted(() => ({
   loadHistory: vi.fn(),
   markHistoryEmpty: vi.fn(),
   isStreaming: false,
+  historyLoading: false,
   chatId: null as string | null,
+  pendingSendStatus: null as
+    | null
+    | "sending"
+    | "reconciling"
+    | "send_failed"
+    | "send_failed_unconfirmed"
+    | "send_failed_confirmed",
   threadKeys: [] as string[]
 }));
 
@@ -97,6 +105,8 @@ describe("ChatPage", () => {
     window.sessionStorage.clear();
     chatHookMocks.chatId = null;
     chatHookMocks.isStreaming = false;
+    chatHookMocks.historyLoading = false;
+    chatHookMocks.pendingSendStatus = null;
     chatHookMocks.threadKeys = [];
     chatAreaMocks.lastProps = null;
     assistantApiClientMocks.getAssistantBillingPaymentIntent.mockReset();
@@ -208,6 +218,24 @@ describe("ChatPage", () => {
       expect(chatHookMocks.loadHistory).toHaveBeenCalledWith("chat-1");
     });
     expect(chatHookMocks.markHistoryEmpty).not.toHaveBeenCalled();
+  });
+
+  it("redirects to /app when the URL points to a deleted chat thread with no recoverable local state", async () => {
+    navigationMocks.searchParams = new URLSearchParams("thread=deleted-thread");
+    navigationMocks.replace.mockReset();
+    chatHookMocks.loadHistory.mockReset();
+    chatHookMocks.markHistoryEmpty.mockReset();
+    chatHookMocks.chatId = null;
+    chatHookMocks.isStreaming = false;
+    appDataMocks.isLoading = false;
+    appDataMocks.chats = [];
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(navigationMocks.replace).toHaveBeenCalledWith("/app");
+    });
+    expect(chatHookMocks.loadHistory).not.toHaveBeenCalled();
   });
 
   it("keeps the same draft thread key across bare chat remounts", async () => {
