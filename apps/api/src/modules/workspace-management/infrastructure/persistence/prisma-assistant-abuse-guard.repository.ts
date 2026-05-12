@@ -253,6 +253,7 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
     surface: AbuseSurface;
     adminOverrideUntil: Date;
   }): Promise<{ userRows: number; assistantRows: number }> {
+    const now = new Date();
     const where = {
       assistantId: input.assistantId,
       surface: input.surface,
@@ -265,29 +266,42 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
         slowedUntil: null,
         blockReason: null,
         requestCount: 0,
-        windowStartedAt: new Date(),
+        windowStartedAt: now,
         adminOverrideUntil: input.adminOverrideUntil,
-        lastSeenAt: new Date()
+        lastSeenAt: now
       }
     });
-    const assistantResult = await this.prisma.assistantAbuseAssistantState.updateMany({
+    await this.prisma.assistantAbuseAssistantState.upsert({
       where: {
-        assistantId: input.assistantId,
-        surface: input.surface
+        assistantId_surface: {
+          assistantId: input.assistantId,
+          surface: input.surface
+        }
       },
-      data: {
+      create: {
+        assistantId: input.assistantId,
+        surface: input.surface,
+        windowStartedAt: now,
+        requestCount: 0,
+        blockedUntil: null,
+        slowedUntil: null,
+        blockReason: null,
+        adminOverrideUntil: input.adminOverrideUntil,
+        lastSeenAt: now
+      },
+      update: {
         blockedUntil: null,
         slowedUntil: null,
         blockReason: null,
         requestCount: 0,
-        windowStartedAt: new Date(),
+        windowStartedAt: now,
         adminOverrideUntil: input.adminOverrideUntil,
-        lastSeenAt: new Date()
+        lastSeenAt: now
       }
     });
     return {
       userRows: userResult.count,
-      assistantRows: assistantResult.count
+      assistantRows: 1
     };
   }
 
@@ -451,12 +465,7 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
     tx: Prisma.TransactionClient,
     input: RegisterDistributedAbuseAttemptInput
   ): Promise<AssistantAbuseGuardState> {
-    const existing = await this.lockUserStateRow(
-      tx,
-      input.assistantId,
-      input.userId,
-      input.surface
-    );
+    const existing = await this.lockUserStateRow(tx, input.assistantId, input.userId, input.surface);
     if (existing !== null) {
       return existing;
     }
@@ -481,12 +490,7 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       return this.toUserDomain(created);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        const raced = await this.lockUserStateRow(
-          tx,
-          input.assistantId,
-          input.userId,
-          input.surface
-        );
+        const raced = await this.lockUserStateRow(tx, input.assistantId, input.userId, input.surface);
         if (raced !== null) {
           return raced;
         }
@@ -634,7 +638,8 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       slowedUntil: get<Date | null>("slowedUntil", "slowed_until") ?? null,
       blockedUntil: get<Date | null>("blockedUntil", "blocked_until") ?? null,
       blockReason: get<string | null>("blockReason", "block_reason") ?? null,
-      adminOverrideUntil: get<Date | null>("adminOverrideUntil", "admin_override_until") ?? null,
+      adminOverrideUntil:
+        get<Date | null>("adminOverrideUntil", "admin_override_until") ?? null,
       lastSeenAt: get<Date>("lastSeenAt", "last_seen_at"),
       createdAt: get<Date>("createdAt", "created_at"),
       updatedAt: get<Date>("updatedAt", "updated_at")
@@ -654,7 +659,8 @@ export class PrismaAssistantAbuseGuardRepository implements AssistantAbuseGuardR
       slowedUntil: get<Date | null>("slowedUntil", "slowed_until") ?? null,
       blockedUntil: get<Date | null>("blockedUntil", "blocked_until") ?? null,
       blockReason: get<string | null>("blockReason", "block_reason") ?? null,
-      adminOverrideUntil: get<Date | null>("adminOverrideUntil", "admin_override_until") ?? null,
+      adminOverrideUntil:
+        get<Date | null>("adminOverrideUntil", "admin_override_until") ?? null,
       lastSeenAt: get<Date>("lastSeenAt", "last_seen_at"),
       createdAt: get<Date>("createdAt", "created_at"),
       updatedAt: get<Date>("updatedAt", "updated_at")

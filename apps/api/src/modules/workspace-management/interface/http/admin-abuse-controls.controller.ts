@@ -42,6 +42,29 @@ export class AdminAbuseControlsController {
     };
   }
 
+  @Get("active-overrides")
+  async listActiveOverrides(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    overrides: Array<{
+      assistantId: string;
+      assistantDisplayName: string | null;
+      userId: string;
+      userEmail: string;
+      userDisplayName: string | null;
+      workspaceId: string;
+      surface: "web_chat" | "telegram" | "whatsapp" | "max";
+      adminOverrideUntil: string;
+      lastSeenAt: string;
+    }>;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const overrides = await this.manageAdminAbuseControlsService.listActiveOverrides(userId);
+    return {
+      requestId: req.requestId ?? null,
+      overrides
+    };
+  }
+
   @Post("unblock")
   @HttpCode(HttpStatus.OK)
   async unblock(

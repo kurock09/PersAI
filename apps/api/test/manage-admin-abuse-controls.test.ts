@@ -49,6 +49,25 @@ async function run(): Promise<void> {
           userId: "user-1",
           workspaceId: "ws-1"
         })
+      },
+      assistantAbuseAssistantState: {
+        findMany: async () => [
+          {
+            assistantId: "assistant-1",
+            surface: "web_chat",
+            adminOverrideUntil: new Date("2026-05-12T18:00:00.000Z"),
+            lastSeenAt: new Date("2026-05-12T17:00:00.000Z"),
+            assistant: {
+              workspaceId: "ws-1",
+              userId: "user-1",
+              draftDisplayName: "Load Test Assistant",
+              user: {
+                email: lookupEmail,
+                displayName: "Owner"
+              }
+            }
+          }
+        ]
       }
     } as never,
     {
@@ -61,6 +80,13 @@ async function run(): Promise<void> {
   assert.equal(lookup.length, 1);
   assert.equal(lookup[0]?.assistantId, "assistant-1");
   assert.equal(lookup[0]?.userEmail, lookupEmail);
+
+  const activeOverrides = await service.listActiveOverrides("admin-1");
+  assert.equal(activeOverrides.length, 1);
+  assert.equal(activeOverrides[0]?.assistantId, "assistant-1");
+  assert.equal(activeOverrides[0]?.surface, "web_chat");
+  assert.equal(activeOverrides[0]?.userEmail, lookupEmail);
+  assert.equal(activeOverrides[0]?.adminOverrideUntil, "2026-05-12T18:00:00.000Z");
 
   const parsed = service.parseUnblockInput({
     assistantId: "assistant-1",

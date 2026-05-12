@@ -26,6 +26,18 @@ export type AdminAbuseAssistantLookupItem = {
   workspaceId: string;
 };
 
+export type AdminAbuseActiveOverrideItem = {
+  assistantId: string;
+  assistantDisplayName: string | null;
+  userId: string;
+  userEmail: string;
+  userDisplayName: string | null;
+  workspaceId: string;
+  surface: AbuseSurface;
+  adminOverrideUntil: string;
+  lastSeenAt: string;
+};
+
 @Injectable()
 export class ManageAdminAbuseControlsService {
   constructor(
@@ -122,8 +134,8 @@ export class ManageAdminAbuseControlsService {
     }));
     const firstMatch = result[0] ?? null;
     await this.appendAssistantAuditEventService.execute({
-      workspaceId: result.length === 1 ? (firstMatch?.workspaceId ?? null) : null,
-      assistantId: result.length === 1 ? (firstMatch?.assistantId ?? null) : null,
+      workspaceId: result.length === 1 ? firstMatch?.workspaceId ?? null : null,
+      assistantId: result.length === 1 ? firstMatch?.assistantId ?? null : null,
       actorUserId: adminUserId,
       eventCategory: "admin_action",
       eventCode: "admin.abuse_lookup_performed",
@@ -137,6 +149,56 @@ export class ManageAdminAbuseControlsService {
       }
     });
     return result;
+  }
+
+  async listActiveOverrides(adminUserId: string): Promise<AdminAbuseActiveOverrideItem[]> {
+    const context = await this.adminAuthorizationService.assertCanManageAbuseControls(adminUserId);
+    const now = new Date();
+    const rows = await this.prisma.assistantAbuseAssistantState.findMany({
+      where: {
+        adminOverrideUntil: {
+          gt: now
+        },
+        ...(context.hasGlobalPlatformAdminScope
+          ? {}
+          : {
+              assistant: {
+                workspaceId: context.workspaceId
+              }
+            })
+      },
+      select: {
+        assistantId: true,
+        surface: true,
+        adminOverrideUntil: true,
+        lastSeenAt: true,
+        assistant: {
+          select: {
+            workspaceId: true,
+            userId: true,
+            draftDisplayName: true,
+            user: {
+              select: {
+                email: true,
+                displayName: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: [{ adminOverrideUntil: "asc" }, { lastSeenAt: "desc" }]
+    });
+    return rows.map((row) => ({
+      assistantId: row.assistantId,
+      assistantDisplayName: row.assistant.draftDisplayName,
+      userId: row.assistant.userId,
+      userEmail: row.assistant.user.email,
+      userDisplayName: row.assistant.user.displayName,
+      workspaceId: row.assistant.workspaceId,
+      surface: row.surface,
+      adminOverrideUntil: row.adminOverrideUntil?.toISOString() ?? now.toISOString(),
+      lastSeenAt: row.lastSeenAt.toISOString()
+    }));
   }
 
   async unblock(

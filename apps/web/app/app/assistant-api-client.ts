@@ -3460,7 +3460,9 @@ export async function lookupAdminAbuseAssistantsByEmail(
       }
     );
     if (response.status !== 200) {
-      throw new Error("Unexpected non-success response for GET /admin/abuse-controls/assistants.");
+      throw new Error(
+        "Unexpected non-success response for GET /admin/abuse-controls/assistants."
+      );
     }
     return (response.data as GetAdminAbuseAssistantsResponse).assistants;
   } catch (error) {
@@ -3469,6 +3471,37 @@ export async function lookupAdminAbuseAssistantsByEmail(
 }
 
 export type { AdminAbuseAssistantLookupItem };
+
+export type AdminAbuseActiveOverrideItem = {
+  assistantId: string;
+  assistantDisplayName: string | null;
+  userId: string;
+  userEmail: string;
+  userDisplayName: string | null;
+  workspaceId: string;
+  surface: "web_chat" | "telegram" | "whatsapp" | "max";
+  adminOverrideUntil: string;
+  lastSeenAt: string;
+};
+
+export async function listAdminAbuseActiveOverrides(
+  token: string
+): Promise<AdminAbuseActiveOverrideItem[]> {
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/admin/abuse-controls/active-overrides`, {
+      headers: getAuthHeaders(token)
+    });
+    if (!response.ok) {
+      throw new Error(await readJsonErrorMessage(response, "Failed to load active abuse overrides."));
+    }
+    const payload = (await response.json()) as {
+      overrides?: AdminAbuseActiveOverrideItem[];
+    };
+    return Array.isArray(payload.overrides) ? payload.overrides : [];
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
 
 export type MediaPackageCatalogItem = {
   id: string;

@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { ShieldAlert, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { ShieldAlert, Loader2, CheckCircle2, AlertCircle, RefreshCcw, Clock3 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import {
+  listAdminAbuseActiveOverrides,
   lookupAdminAbuseAssistantsByEmail,
   postAdminAbuseUnblock,
+  type AdminAbuseActiveOverrideItem,
   type AdminAbuseAssistantLookupItem
 } from "@/app/app/assistant-api-client";
 
@@ -57,6 +59,41 @@ export default function AdminAbusePage() {
   const [loadTestDuration, setLoadTestDuration] = useState("60");
   const [loadTestBusy, setLoadTestBusy] = useState(false);
   const [loadTestActivation, setLoadTestActivation] = useState<LoadTestActivation | null>(null);
+  const [activeOverrides, setActiveOverrides] = useState<AdminAbuseActiveOverrideItem[]>([]);
+  const [activeOverridesBusy, setActiveOverridesBusy] = useState(false);
+  const [activeOverridesFeedback, setActiveOverridesFeedback] = useState<Feedback>(null);
+  const [activeOverrideActionKey, setActiveOverrideActionKey] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const activeOverrideDurationMinutes = useMemo(() => {
+    const parsed = parseInt(loadTestDuration, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 120;
+  }, [loadTestDuration]);
+
+  const refreshActiveOverrides = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const token = await getToken();
+      if (!token) return;
+      if (!options?.silent) {
+        setActiveOverridesBusy(true);
+      }
+      try {
+        const overrides = await listAdminAbuseActiveOverrides(token);
+        setActiveOverrides(overrides);
+        setActiveOverridesFeedback(null);
+      } catch (error) {
+        setActiveOverridesFeedback({
+          type: "err",
+          text: error instanceof Error ? error.message : "Failed to load active overrides."
+        });
+      } finally {
+        if (!options?.silent) {
+          setActiveOverridesBusy(false);
+        }
+      }
+    },
+    [getToken]
+  );
 
   const handleLookup = useCallback(async () => {
     const token = await getToken();
@@ -71,7 +108,7 @@ export default function AdminAbusePage() {
         if (assistants.some((assistant) => assistant.assistantId === current)) {
           return current;
         }
-        return assistants.length === 1 ? (assistants[0]?.assistantId ?? "") : "";
+        return assistants.length === 1 ? assistants[0]?.assistantId ?? "" : "";
       });
       setLookupFeedback(
         assistants.length === 0
@@ -98,10 +135,23 @@ export default function AdminAbusePage() {
     setLookupBusy(false);
   }, [getToken, lookupEmail]);
 
+  useEffect(() => {
+    void refreshActiveOverrides();
+    const refreshInterval = window.setInterval(() => {
+      void refreshActiveOverrides({ silent: true });
+    }, 30_000);
+    const clockInterval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1_000);
+    return () => {
+      window.clearInterval(refreshInterval);
+      window.clearInterval(clockInterval);
+    };
+  }, [refreshActiveOverrides]);
+
   const handleLoadTestEnable = useCallback(async () => {
     const token = await getToken();
-    const assistant =
-      matchedAssistants.find((item) => item.assistantId === selectedAssistantId) ?? null;
+    const assistant = matchedAssistants.find((item) => item.assistantId === selectedAssistantId) ?? null;
     if (!token || assistant === null) return;
     setLoadTestBusy(true);
     setLookupFeedback(null);
@@ -123,6 +173,7 @@ export default function AdminAbusePage() {
         type: "ok",
         text: "Temporary load-test mode has been enabled."
       });
+      await refreshActiveOverrides({ silent: true });
     } catch (error) {
       setLookupFeedback({
         type: "err",
@@ -130,7 +181,14 @@ export default function AdminAbusePage() {
       });
     }
     setLoadTestBusy(false);
-  }, [getToken, matchedAssistants, selectedAssistantId, loadTestSurface, loadTestDuration]);
+  }, [
+    getToken,
+    matchedAssistants,
+    refreshActiveOverrides,
+    selectedAssistantId,
+    loadTestSurface,
+    loadTestDuration
+  ]);
 
   const handleUnblock = useCallback(async () => {
     const token = await getToken();
@@ -148,14 +206,43 @@ export default function AdminAbusePage() {
         type: "ok",
         text: `Unblocked. Affected ${result.affectedUserRows} user rows, ${result.affectedAssistantRows} assistant rows.`
       });
+      await refreshActiveOverrides({ silent: true });
     } catch (error) {
-      setFeedback({
-        type: "err",
-        text: error instanceof Error ? error.message : "Unblock failed."
-      });
+      setFeedback({ type: "err", text: error instanceof Error ? error.message : "Unblock failed." });
     }
     setBusy(false);
-  }, [getToken, assistantId, userId, surface, overrideMinutes]);
+  }, [getToken, assistantId, userId, surface, overrideMinutes, refreshActiveOverrides]);
+
+  const handleExtendActiveOverride = useCallback(
+    async (override: AdminAbuseActiveOverrideItem) => {
+      const token = await getToken();
+      if (!token) return;
+      const actionKey = `${override.assistantId}:${override.surface}`;
+      setActiveOverrideActionKey(actionKey);
+      setActiveOverridesFeedback(null);
+      try {
+        await postAdminAbuseUnblock(token, {
+          assistantId: override.assistantId,
+          userId: null,
+          surface: override.surface,
+          overrideMinutes: activeOverrideDurationMinutes
+        });
+        await refreshActiveOverrides({ silent: true });
+        setActiveOverridesFeedback({
+          type: "ok",
+          text: `Extended ${formatAssistantLabel(override)} for ${activeOverrideDurationMinutes} minutes.`
+        });
+      } catch (error) {
+        setActiveOverridesFeedback({
+          type: "err",
+          text: error instanceof Error ? error.message : "Failed to extend active override."
+        });
+      } finally {
+        setActiveOverrideActionKey(null);
+      }
+    },
+    [activeOverrideDurationMinutes, getToken, refreshActiveOverrides]
+  );
 
   return (
     <div>
@@ -333,11 +420,110 @@ export default function AdminAbusePage() {
           )}
         </div>
 
+        <div className="rounded-lg border border-border bg-surface-raised p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-text">Active load-test windows</h2>
+              <p className="mt-1 text-xs text-text-muted">
+                Read-only view of assistants with an active abuse override. Countdown updates locally;
+                the list refreshes automatically every 30 seconds.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refreshActiveOverrides()}
+              disabled={activeOverridesBusy}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text transition-colors hover:bg-surface",
+                "disabled:opacity-50"
+              )}
+            >
+              {activeOverridesBusy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCcw className="h-3.5 w-3.5" />
+              )}
+              Refresh
+            </button>
+          </div>
+
+          <FeedbackBanner feedback={activeOverridesFeedback} />
+
+          {activeOverrides.length === 0 ? (
+            <div className="mt-4 rounded-lg border border-dashed border-border px-4 py-6 text-sm text-text-muted">
+              No active assistant overrides right now.
+            </div>
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full divide-y divide-border text-left text-xs">
+                <thead>
+                  <tr className="text-text-muted">
+                    <th className="px-3 py-2 font-medium">Assistant</th>
+                    <th className="px-3 py-2 font-medium">User</th>
+                    <th className="px-3 py-2 font-medium">Channel</th>
+                    <th className="px-3 py-2 font-medium">Active until</th>
+                    <th className="px-3 py-2 font-medium">Time left</th>
+                    <th className="px-3 py-2 font-medium text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {activeOverrides.map((override) => {
+                    const actionKey = `${override.assistantId}:${override.surface}`;
+                    const isActing = activeOverrideActionKey === actionKey;
+                    return (
+                      <tr key={actionKey} className="align-top">
+                        <td className="px-3 py-3 text-text">
+                          <div className="font-medium">{formatAssistantLabel(override)}</div>
+                          <div className="mt-1 text-text-muted">{override.workspaceId}</div>
+                        </td>
+                        <td className="px-3 py-3 text-text">
+                          <div>{override.userEmail}</div>
+                          {override.userDisplayName && (
+                            <div className="mt-1 text-text-muted">{override.userDisplayName}</div>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-text">{renderSurfaceLabel(override.surface)}</td>
+                        <td className="px-3 py-3 text-text">
+                          {new Date(override.adminOverrideUntil).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-3 text-text">
+                          <div className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-1 text-[11px]">
+                            <Clock3 className="h-3 w-3" />
+                            {formatRemainingTime(override.adminOverrideUntil, nowMs)}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <button
+                            type="button"
+                            disabled={isActing}
+                            onClick={() => void handleExtendActiveOverride(override)}
+                            className={cn(
+                              "inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text transition-colors hover:bg-surface",
+                              "disabled:opacity-50"
+                            )}
+                          >
+                            {isActing ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <ShieldAlert className="h-3.5 w-3.5" />
+                            )}
+                            Extend {activeOverrideDurationMinutes}m
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         <div className="rounded-lg border border-border bg-surface-raised p-5 max-w-lg">
           <h2 className="mb-4 text-sm font-semibold text-text">Manual Unblock</h2>
           <p className="mb-4 text-xs text-text-muted">
-            Temporarily override abuse blocks for a specific assistant. The override expires after
-            the specified duration.
+            Temporarily override abuse blocks for a specific assistant. The override expires after the
+            specified duration.
           </p>
 
           <div className="space-y-3">
@@ -439,7 +625,12 @@ function FeedbackBanner({ feedback }: { feedback: Feedback }) {
   );
 }
 
-function formatAssistantLabel(assistant: AdminAbuseAssistantLookupItem): string {
+function formatAssistantLabel(
+  assistant: Pick<
+    AdminAbuseAssistantLookupItem,
+    "assistantId" | "assistantDisplayName" | "userDisplayName" | "userEmail"
+  >
+): string {
   const title =
     assistant.assistantDisplayName?.trim() ||
     assistant.userDisplayName?.trim() ||
@@ -447,8 +638,29 @@ function formatAssistantLabel(assistant: AdminAbuseAssistantLookupItem): string 
   return `${title} (${assistant.assistantId})`;
 }
 
-function renderSurfaceLabel(surface: "web_chat" | "telegram"): string {
-  return surface === "telegram" ? "Telegram" : "Web Chat";
+function renderSurfaceLabel(surface: "web_chat" | "telegram" | "whatsapp" | "max"): string {
+  if (surface === "telegram") return "Telegram";
+  if (surface === "whatsapp") return "WhatsApp";
+  if (surface === "max") return "MAX";
+  return "Web Chat";
+}
+
+function formatRemainingTime(iso: string, nowMs: number): string {
+  const remainingMs = new Date(iso).getTime() - nowMs;
+  if (remainingMs <= 0) {
+    return "Expired";
+  }
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
 }
 
 function Field({
