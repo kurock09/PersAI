@@ -60,6 +60,28 @@ async function runHappyAlreadyClosed(): Promise<void> {
   });
 }
 
+async function runHappyCooldownActive(): Promise<void> {
+  setupEnv();
+  const controller = new InternalRuntimeMemoryCloseByRefController({
+    parseRuntimeInput(payload: unknown) {
+      return payload as never;
+    },
+    async executeForRuntime() {
+      return { closed: false, closedItemId: "loop-1", reason: "cooldown_active" };
+    }
+  } as never);
+  const result = await controller.closeByRef(
+    { headers: { authorization: "Bearer internal-token" } },
+    VALID_PAYLOAD
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    closed: false,
+    closedItemId: "loop-1",
+    reason: "cooldown_active"
+  });
+}
+
 async function runRejectsMissingAuth(): Promise<void> {
   setupEnv();
   const controller = new InternalRuntimeMemoryCloseByRefController({
@@ -130,6 +152,7 @@ async function runPropagatesParseAndExecuteErrors(): Promise<void> {
 async function run(): Promise<void> {
   await runHappyClosed();
   await runHappyAlreadyClosed();
+  await runHappyCooldownActive();
   await runRejectsMissingAuth();
   await runRejectsWrongToken();
   await runPropagatesParseAndExecuteErrors();

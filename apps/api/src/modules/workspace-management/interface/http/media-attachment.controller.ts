@@ -219,9 +219,9 @@ export class MediaAttachmentController {
       forceDownload: download === "1"
     });
 
-    res.statusCode = 200;
     res.setHeader("Content-Type", payload.contentType);
     res.setHeader("Cache-Control", "private, max-age=3600");
+    res.setHeader("Accept-Ranges", "bytes");
     if (result.file.displayName) {
       res.setHeader(
         "Content-Disposition",
@@ -231,7 +231,77 @@ export class MediaAttachmentController {
         )
       );
     }
+
+    // Honour Range requests so HTML5 `<video>` playback works in Capacitor
+    // Android WebView. Without a real 206 reply to the initial
+    // `Range: bytes=0-` probe the WebView shows a grey poster and never
+    // starts playing. The buffer is already in memory so we just slice it.
+    const totalSize = payload.buffer.length;
+    const rangeHeader = typeof req.headers?.range === "string" ? req.headers.range : undefined;
+    const parsedRange = rangeHeader ? this.parseSingleByteRange(rangeHeader, totalSize) : null;
+
+    if (parsedRange) {
+      const slice = payload.buffer.subarray(parsedRange.start, parsedRange.end + 1);
+      res.statusCode = 206;
+      res.setHeader("Content-Range", `bytes ${parsedRange.start}-${parsedRange.end}/${totalSize}`);
+      res.setHeader("Content-Length", String(slice.length));
+      res.end(slice);
+      return;
+    }
+
+    if (rangeHeader && !parsedRange) {
+      res.statusCode = 416;
+      res.setHeader("Content-Range", `bytes */${totalSize}`);
+      res.end();
+      return;
+    }
+
+    res.statusCode = 200;
+    res.setHeader("Content-Length", String(totalSize));
     res.end(payload.buffer);
+  }
+
+  // RFC 7233 single-range parser. Returns null for unsupported / malformed /
+  // unsatisfiable ranges so the caller can return 416 or fall back to 200.
+  private parseSingleByteRange(
+    rangeHeader: string,
+    totalSize: number
+  ): { start: number; end: number } | null {
+    const match = /^\s*bytes=(\d*)-(\d*)\s*$/.exec(rangeHeader);
+    if (!match) {
+      return null;
+    }
+    const startRaw = match[1];
+    const endRaw = match[2];
+    if (totalSize <= 0) {
+      return null;
+    }
+    let start: number;
+    let end: number;
+    if (startRaw === "" && endRaw !== "") {
+      const suffix = Number(endRaw);
+      if (!Number.isFinite(suffix) || suffix <= 0) {
+        return null;
+      }
+      const length = Math.min(suffix, totalSize);
+      start = totalSize - length;
+      end = totalSize - 1;
+    } else if (startRaw !== "") {
+      start = Number(startRaw);
+      end = endRaw === "" ? totalSize - 1 : Number(endRaw);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) {
+        return null;
+      }
+      if (end >= totalSize) {
+        end = totalSize - 1;
+      }
+    } else {
+      return null;
+    }
+    if (start < 0 || start > end || start >= totalSize) {
+      return null;
+    }
+    return { start, end };
   }
 
   @Patch("assistant/files/:fileRef")

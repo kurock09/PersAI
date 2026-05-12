@@ -362,7 +362,7 @@ export type InternalCloseMostSimilarOpenLoopInput = {
 export type InternalCloseMostSimilarOpenLoopOutcome = {
   closed: boolean;
   closedItemId: string | null;
-  reason: "matched" | "no_active_open_loop_matched";
+  reason: "matched" | "no_active_open_loop_matched" | "cooldown_active";
 };
 
 // ADR-074 Slice M3.1 — deterministic close-by-ref for the model's structured
@@ -378,7 +378,7 @@ export type InternalCloseAssistantMemoryByRefInput = {
 export type InternalCloseAssistantMemoryByRefOutcome = {
   closed: boolean;
   closedItemId: string | null;
-  reason: "closed" | "already_closed" | "not_open_loop" | "not_found";
+  reason: "closed" | "already_closed" | "cooldown_active" | "not_open_loop" | "not_found";
 };
 
 // ADR-074 Slice M3 — turn-0 cross-session continuity carry-over fetch.
@@ -1285,7 +1285,9 @@ export class PersaiInternalApiClientService {
         payload?.ok === true &&
         typeof payload.closed === "boolean" &&
         (payload.closedItemId === null || typeof payload.closedItemId === "string") &&
-        (reason === "matched" || reason === "no_active_open_loop_matched")
+        (reason === "matched" ||
+          reason === "no_active_open_loop_matched" ||
+          reason === "cooldown_active")
       ) {
         return {
           closed: payload.closed,
@@ -1333,7 +1335,7 @@ export class PersaiInternalApiClientService {
         payload?.ok === true &&
         typeof payload.closed === "boolean" &&
         (payload.closedItemId === null || typeof payload.closedItemId === "string") &&
-        (reason === "closed" || reason === "already_closed")
+        (reason === "closed" || reason === "already_closed" || reason === "cooldown_active")
       ) {
         return {
           closed: payload.closed,

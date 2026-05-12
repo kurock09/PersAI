@@ -280,6 +280,24 @@ async function runRuntimeAlreadyResolved(): Promise<void> {
   );
 }
 
+async function runRuntimeCooldownActive(): Promise<void> {
+  const harness = createHarness({
+    existing: buildOpenLoop({ createdAt: new Date(Date.now() - 2_000) })
+  });
+  const result = await harness.service.executeForRuntime({
+    assistantId: "assistant-1",
+    itemId: "loop-1",
+    requestId: "req-cooldown"
+  });
+  assert.deepEqual(result, {
+    closed: false,
+    closedItemId: "loop-1",
+    reason: "cooldown_active"
+  });
+  assert.equal(harness.setResolvedCalls.length, 0);
+  assert.equal(harness.auditCalls.length, 0);
+}
+
 async function runRuntimeHappyPath(): Promise<void> {
   const harness = createHarness({
     existing: buildOpenLoop({ id: "loop-42" })
@@ -387,6 +405,7 @@ async function run(): Promise<void> {
   await runRuntimeNotFound();
   await runRuntimeNotOpenLoop();
   await runRuntimeAlreadyResolved();
+  await runRuntimeCooldownActive();
   await runRuntimeHappyPath();
   await runRuntimeRaceCondition();
   await runUserMissingAssistant();

@@ -172,6 +172,23 @@ async function run(): Promise<void> {
   assert.equal(noMatch.auditCalls.length, 1);
   assert.equal(noMatch.auditCalls[0]?.eventCode, "assistant.open_loop_close_no_match");
 
+  // fresh candidate within cooldown window -> soft no-op, no update, no audit
+  const cooldown = createHarness({
+    candidate: buildOpenLoop({ id: "loop-cooldown", createdAt: new Date(Date.now() - 2_000) })
+  });
+  const cooldownResult = await cooldown.service.execute({
+    assistantId: "assistant-1",
+    referenceText: "Picked the venue for the retreat",
+    requestId: "req-cooldown"
+  });
+  assert.deepEqual(cooldownResult, {
+    closed: false,
+    closedItemId: "loop-cooldown",
+    reason: "cooldown_active"
+  });
+  assert.equal(cooldown.setCalls.length, 0);
+  assert.equal(cooldown.auditCalls.length, 0);
+
   // happy path: candidate found → setResolvedAtById called, audit explicit
   const candidate = buildOpenLoop({ id: "loop-42" });
   const happy = createHarness({ candidate, setResolvedReturns: true });

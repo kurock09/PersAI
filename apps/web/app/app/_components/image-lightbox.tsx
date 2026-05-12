@@ -566,8 +566,11 @@ export function ImageLightbox({
       {mediaType === "video" ? (
         <div
           data-testid="media-lightbox-video-surface"
-          className="relative flex w-full max-w-[min(100vw-20px,42rem)] flex-col overflow-hidden rounded-[26px] border border-white/8 bg-black/72 shadow-[0_24px_80px_rgba(0,0,0,0.42)]"
-          onClick={(e) => e.stopPropagation()}
+          className="relative flex h-full max-h-[100dvh] w-full items-center justify-center"
+          onClick={(e) => {
+            e.stopPropagation();
+            setChromeVisible((current) => !current);
+          }}
           onPointerDown={(e) => {
             if (e.pointerType === "mouse") {
               return;
@@ -621,56 +624,46 @@ export function ImageLightbox({
               : "transform 0.18s ease-out, opacity 0.18s ease-out"
           }}
         >
-          <div
-            className="relative flex max-h-[78vh] min-h-[15rem] items-center justify-center bg-black"
-            onClick={(e) => {
-              e.stopPropagation();
-              setChromeVisible((current) => !current);
+          <video
+            ref={videoRef}
+            src={src}
+            playsInline
+            preload="metadata"
+            muted={videoMuted}
+            disableRemotePlayback
+            className="max-h-full max-w-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+            onPlay={() => setVideoPlaying(true)}
+            onPause={() => setVideoPlaying(false)}
+            onEnded={() => setVideoPlaying(false)}
+            onLoadedMetadata={(e) => {
+              setVideoDurationSec(e.currentTarget.duration || 0);
+              setVideoCurrentTimeSec(e.currentTarget.currentTime || 0);
             }}
-          >
-            <video
-              ref={videoRef}
-              src={src}
-              playsInline
-              preload="metadata"
-              muted={videoMuted}
-              className="max-h-[78vh] w-full bg-black object-contain"
-              onPlay={() => setVideoPlaying(true)}
-              onPause={() => setVideoPlaying(false)}
-              onEnded={() => setVideoPlaying(false)}
-              onLoadedMetadata={(e) => {
-                setVideoDurationSec(e.currentTarget.duration || 0);
-                setVideoCurrentTimeSec(e.currentTarget.currentTime || 0);
+            onTimeUpdate={(e) => {
+              setVideoCurrentTimeSec(e.currentTarget.currentTime || 0);
+            }}
+          />
+          {showVideoHeroPlay ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                void toggleVideoPlayback();
               }}
-              onTimeUpdate={(e) => {
-                setVideoCurrentTimeSec(e.currentTarget.currentTime || 0);
-              }}
-            />
-            {showVideoHeroPlay ? (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void toggleVideoPlayback();
-                }}
-                aria-label={videoPlaying ? pauseLabel : heroPlayLabel}
-                className="absolute inset-0 flex items-center justify-center"
-              >
-                <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/12 bg-black/34 text-white shadow-[0_10px_30px_rgba(0,0,0,0.30)] backdrop-blur-sm transition hover:scale-[1.03]">
-                  {videoPlaying ? (
-                    <Pause className="h-7 w-7" />
-                  ) : (
-                    <Play className="ml-0.5 h-7 w-7" />
-                  )}
-                </span>
-              </button>
-            ) : null}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/55 via-black/12 to-transparent" />
-          </div>
+              aria-label={videoPlaying ? pauseLabel : heroPlayLabel}
+              className="absolute inset-0 flex items-center justify-center"
+            >
+              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition hover:scale-[1.03]">
+                {videoPlaying ? <Pause className="h-7 w-7" /> : <Play className="ml-0.5 h-7 w-7" />}
+              </span>
+            </button>
+          ) : null}
           {showVideoTransportChrome ? (
             <div
               data-testid="media-lightbox-video-controls"
-              className="flex items-center gap-3 border-t border-white/6 bg-black/26 px-4 pb-3 pt-2.5 text-white/90 backdrop-blur-sm"
+              className="absolute inset-x-3 bottom-3 flex items-center gap-3 rounded-full bg-black/55 px-3 py-2 text-white/90 backdrop-blur-md sm:inset-x-auto sm:left-1/2 sm:w-[min(36rem,calc(100vw-1.5rem))] sm:-translate-x-1/2"
+              onClick={(e) => e.stopPropagation()}
             >
               <button
                 type="button"
@@ -679,7 +672,7 @@ export function ImageLightbox({
                   void toggleVideoPlayback();
                 }}
                 aria-label={videoPlaying ? pauseLabel : playLabel}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] transition hover:bg-white/[0.1]"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition hover:bg-white/10"
               >
                 {videoPlaying ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
               </button>
@@ -692,9 +685,9 @@ export function ImageLightbox({
                   value={Math.min(videoCurrentTimeSec, Math.max(videoDurationSec, 0))}
                   onChange={(e) => handleVideoSeek(Number(e.currentTarget.value))}
                   aria-label={t("lightboxSeek")}
-                  className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/18 accent-white"
+                  className="h-1 w-full cursor-pointer appearance-none rounded-full bg-white/20 accent-white"
                 />
-                <div className="mt-1.5 flex items-center justify-between text-[11px] text-white/65">
+                <div className="mt-1 flex items-center justify-between text-[11px] text-white/65">
                   <span>{formatMediaTime(videoCurrentTimeSec)}</span>
                   <span>{formatMediaTime(videoDurationSec)}</span>
                 </div>
@@ -706,7 +699,7 @@ export function ImageLightbox({
                   toggleVideoMuted();
                 }}
                 aria-label={videoMuted ? unmuteLabel : muteLabel}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] transition hover:bg-white/[0.1]"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition hover:bg-white/10"
               >
                 {videoMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
               </button>

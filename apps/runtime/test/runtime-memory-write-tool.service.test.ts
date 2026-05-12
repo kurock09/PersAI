@@ -207,7 +207,7 @@ class FakePersaiInternalApiClientService {
   closeByRefOutcome: {
     closed: boolean;
     closedItemId: string | null;
-    reason: "closed" | "already_closed" | "not_open_loop" | "not_found";
+    reason: "closed" | "already_closed" | "cooldown_active" | "not_open_loop" | "not_found";
   } = { closed: true, closedItemId: "loop-1", reason: "closed" };
   closeByRefError: Error | null = null;
   outcome: {
@@ -667,6 +667,38 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     assert.equal(result.payload.reason, "memory_close_ref_not_found");
     assert.equal(result.payload.requestedKind, null);
     assert.equal(result.payload.closedItemRef, null);
+    assert.equal(result.isError, false);
+  }
+
+  // (i.1) action:"close" with cooldown_active reason -> soft skipped payload,
+  //       not an error, so the model sees a controlled no-op instead of a
+  //       failing tool call.
+  {
+    const apiCooldown = new FakePersaiInternalApiClientService();
+    apiCooldown.closeByRefOutcome = {
+      closed: false,
+      closedItemId: SAMPLE_REF_UUID,
+      reason: "cooldown_active"
+    };
+    const svc = new RuntimeMemoryWriteToolService(
+      apiCooldown as unknown as PersaiInternalApiClientService
+    );
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        action: "close",
+        ref: SAMPLE_REF_UUID
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-close-cooldown"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "memory_close_ref_cooldown_active");
+    assert.equal(
+      result.payload.warning,
+      `Open-loop ref "${SAMPLE_REF_UUID}" was created too recently to close. Keep it active for now.`
+    );
     assert.equal(result.isError, false);
   }
 

@@ -68,6 +68,32 @@ async function runHappyNoMatch(): Promise<void> {
   });
 }
 
+async function runHappyCooldownActive(): Promise<void> {
+  setupEnv();
+  const controller = new InternalRuntimeMemoryCloseMostSimilarController({
+    parseInput(payload: unknown) {
+      return payload as never;
+    },
+    async execute() {
+      return {
+        closed: false,
+        closedItemId: "loop-1",
+        reason: "cooldown_active"
+      };
+    }
+  } as never);
+  const result = await controller.closeMostSimilarOpenLoop(
+    { headers: { authorization: "Bearer internal-token" } },
+    VALID_PAYLOAD
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    closed: false,
+    closedItemId: "loop-1",
+    reason: "cooldown_active"
+  });
+}
+
 async function runRejectsMissingAuth(): Promise<void> {
   setupEnv();
   const controller = new InternalRuntimeMemoryCloseMostSimilarController({
@@ -107,6 +133,7 @@ async function runRejectsWrongToken(): Promise<void> {
 async function run(): Promise<void> {
   await runHappyMatched();
   await runHappyNoMatch();
+  await runHappyCooldownActive();
   await runRejectsMissingAuth();
   await runRejectsWrongToken();
 }

@@ -1788,64 +1788,62 @@ export function AssistantSettings({
         onToggle={() => setOpenSection((current) => (current === "character" ? null : "character"))}
       >
         <div className="flex flex-col gap-3">
-          <div className="rounded-[26px] border border-border/70 bg-surface p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)] ring-1 ring-black/[0.02]">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-stretch">
-              <div className="min-w-0 rounded-[22px] border border-border/60 bg-surface-raised/45 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-                <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setEmojiPickerOpen((o) => !o)}
-                    className="flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl shadow-[0_8px_22px_rgba(0,0,0,0.08)] transition-colors hover:bg-accent/25"
-                    title={t("changeAvatar")}
-                  >
-                    {avatarUploading ? (
-                      <Loader2 className="h-6 w-6 animate-spin text-accent" />
-                    ) : avatarPreviewBlobUrl ? (
-                      <img
-                        src={avatarPreviewBlobUrl}
-                        alt="Avatar"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : draftAvatarUrl ? (
-                      <AssistantAvatar
-                        avatarUrl={draftAvatarUrl}
-                        size="md"
-                        className="h-full w-full rounded-2xl"
-                      />
-                    ) : (
-                      draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />
-                    )}
-                  </button>
-                  <div className="min-w-0">
-                    <input
-                      type="text"
-                      value={draftName}
-                      onChange={(e) => setDraftName(e.target.value)}
-                      placeholder={t("assistantNamePlaceholder")}
-                      className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+          <div className="rounded-2xl border border-border/70 bg-surface p-4">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-center">
+              <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEmojiPickerOpen((o) => !o)}
+                  className="flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl transition-colors hover:bg-accent/25"
+                  title={t("changeAvatar")}
+                >
+                  {avatarUploading ? (
+                    <Loader2 className="h-6 w-6 animate-spin text-accent" />
+                  ) : avatarPreviewBlobUrl ? (
+                    <img
+                      src={avatarPreviewBlobUrl}
+                      alt="Avatar"
+                      className="h-full w-full object-cover"
                     />
-                    <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface px-2.5 py-1 text-[11px] text-text-muted">
-                      <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
-                      <span>{statusLabel}</span>
-                    </div>
+                  ) : draftAvatarUrl ? (
+                    <AssistantAvatar
+                      avatarUrl={draftAvatarUrl}
+                      size="md"
+                      className="h-full w-full rounded-2xl"
+                    />
+                  ) : (
+                    draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />
+                  )}
+                </button>
+                <div className="min-w-0">
+                  <input
+                    type="text"
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    placeholder={t("assistantNamePlaceholder")}
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+                  />
+                  <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] text-text-muted">
+                    <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
+                    <span>{statusLabel}</span>
                   </div>
                 </div>
               </div>
-              <div className="grid gap-2 rounded-[22px] border border-border/60 bg-surface-raised/35 p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:grid-cols-2 lg:grid-cols-1">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
                 <ActionButton
                   icon={<Rocket className="h-3.5 w-3.5" />}
                   label={t("save")}
                   onClick={() => void handleSaveAndApply()}
                   busy={saving}
                   variant="primary"
-                  className="min-h-11 min-w-0 justify-center rounded-xl text-sm"
+                  className="min-h-10 min-w-0 justify-center text-sm"
                 />
                 <ActionButton
                   icon={<Sparkles className="h-3.5 w-3.5" />}
                   label={editingPersonality ? t("hidePersonality") : t("editPersonality")}
                   onClick={() => setEditingPersonality(!editingPersonality)}
                   busy={false}
-                  className="min-h-11 min-w-0 justify-center rounded-xl text-sm"
+                  className="min-h-10 min-w-0 justify-center text-sm"
                 />
               </div>
             </div>

@@ -763,6 +763,115 @@ function userMessageHasVoiceAttachment(attachments: ChatAttachment[] | undefined
   );
 }
 
+function formatVideoDuration(totalSeconds: number): string | null {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
+    return null;
+  }
+  const total = Math.round(totalSeconds);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes)}:${String(seconds).padStart(2, "0")}`;
+}
+
+/**
+ * Video attachment preview rendered inline in a chat bubble. Mirrors the
+ * still-image card shape (max-h-48, ~240px wide, rounded-[14px], plain
+ * border) instead of expanding to a full-width player. The Telegram-style
+ * play+duration chip in the bottom-left signals that it is playable; tapping
+ * the card opens the same {@link ImageLightbox} that images use.
+ *
+ * Why a real `<video preload="metadata">` is mounted rather than a static
+ * thumbnail: there is no server-side poster pipeline yet, so the first
+ * decoded frame is the only thing we can show without an extra round-trip.
+ * Range-aware downloads (see {@link MediaAttachmentController.downloadAssistantFile})
+ * make this work in Capacitor Android WebView too.
+ */
+function VideoAttachmentPreview({
+  variant,
+  fullUrl,
+  downloadUrl,
+  filename,
+  isPending,
+  progressLabel,
+  isLightboxOpen,
+  onOpen,
+  onClose
+}: {
+  variant: "default" | "user-media";
+  fullUrl: string | null;
+  downloadUrl: string | undefined;
+  filename: string | undefined;
+  isPending: boolean;
+  progressLabel: string | null;
+  isLightboxOpen: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
+  const t = useTranslations("chat");
+  const [durationSec, setDurationSec] = useState<number | null>(null);
+  const durationLabel = durationSec !== null ? formatVideoDuration(durationSec) : null;
+
+  if (!fullUrl || isPending) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
+        {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+        <span>{filename ?? "Video"}</span>
+        {progressLabel ? <span className="text-text-subtle">{progressLabel}</span> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={t("openVideo")}
+        className={cn(
+          "group relative block overflow-hidden transition focus:ring-2 focus:ring-accent focus:outline-none",
+          variant === "user-media"
+            ? "rounded-lg bg-transparent"
+            : "rounded-[14px] border border-border hover:border-border-strong"
+        )}
+      >
+        <video
+          preload="metadata"
+          muted
+          playsInline
+          // `disableRemotePlayback` keeps Android WebView from showing
+          // an AirPlay/Cast button in the inline preview.
+          disableRemotePlayback
+          className="max-h-48 max-w-[240px] object-cover"
+          src={fullUrl}
+          onLoadedMetadata={(e) => {
+            setDurationSec(e.currentTarget.duration);
+          }}
+        >
+          <track kind="captions" />
+        </video>
+        <span
+          className="pointer-events-none absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm"
+          aria-hidden="true"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" className="h-2.5 w-2.5">
+            <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.68L9.54 5.98A1 1 0 0 0 8 6.82Z" />
+          </svg>
+          <span>{durationLabel ?? "Video"}</span>
+        </span>
+      </button>
+      <ImageLightbox
+        open={isLightboxOpen}
+        src={fullUrl}
+        downloadUrl={downloadUrl ?? fullUrl}
+        filename={filename}
+        alt={filename}
+        mediaType="video"
+        onClose={onClose}
+      />
+    </div>
+  );
+}
+
 function AttachmentStrip({
   attachments,
   className,
@@ -772,7 +881,7 @@ function AttachmentStrip({
   attachments: ChatAttachment[];
   className?: string;
   compactBubble?: boolean;
-  variant?: "default" | "user-media" | "assistant-media";
+  variant?: "default" | "user-media";
 }) {
   const t = useTranslations("chat");
   // Lightbox state is keyed by attachment id so we can open/close
@@ -818,10 +927,8 @@ function AttachmentStrip({
                   className={cn(
                     "block overflow-hidden transition focus:ring-2 focus:ring-accent focus:outline-none",
                     variant === "user-media"
-                      ? "rounded-[18px] bg-black/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                      : variant === "assistant-media"
-                        ? "rounded-[22px] bg-surface-raised/70 shadow-[0_12px_32px_rgba(0,0,0,0.12)] ring-1 ring-border/70"
-                        : "rounded-lg border border-border hover:border-border-strong"
+                      ? "rounded-lg bg-transparent"
+                      : "rounded-[14px] border border-border hover:border-border-strong"
                   )}
                 >
                   <img
@@ -875,9 +982,7 @@ function AttachmentStrip({
               className={cn(
                 "w-full max-w-[min(100%,320px)]",
                 isPending && audioSrc && "opacity-80",
-                variant === "user-media" && "rounded-[18px] bg-black/[0.04] p-1.5",
-                variant === "assistant-media" &&
-                  "rounded-[20px] bg-surface-raised/70 p-1.5 ring-1 ring-border/70"
+                variant === "user-media" && "rounded-lg p-1"
               )}
             >
               {audioSrc ? (
@@ -896,62 +1001,18 @@ function AttachmentStrip({
         if (att.attachmentType === "video") {
           const fullUrl = inlineUrl ?? previewUrl;
           return (
-            <div key={att.id} className="w-full max-w-[min(100%,23rem)]">
-              {fullUrl && !isPending ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setOpenImageId(att.id)}
-                    className={cn(
-                      "group relative block w-full overflow-hidden transition focus:ring-2 focus:ring-accent focus:outline-none",
-                      variant === "user-media"
-                        ? "rounded-[18px] bg-black/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                        : variant === "assistant-media"
-                          ? "rounded-[22px] bg-surface-raised/70 shadow-[0_12px_32px_rgba(0,0,0,0.12)] ring-1 ring-border/70"
-                          : "rounded-lg border border-border hover:border-border-strong"
-                    )}
-                  >
-                    <video
-                      preload="metadata"
-                      muted
-                      playsInline
-                      className="aspect-video max-h-64 w-full bg-black object-cover"
-                      src={fullUrl}
-                    >
-                      <track kind="captions" />
-                    </video>
-                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <span className="flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-black/38 text-white shadow-[0_12px_34px_rgba(0,0,0,0.30)] backdrop-blur-sm transition group-hover:scale-[1.03]">
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="currentColor"
-                          className="ml-0.5 h-5 w-5"
-                          aria-hidden="true"
-                        >
-                          <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.68L9.54 5.98A1 1 0 0 0 8 6.82Z" />
-                        </svg>
-                      </span>
-                    </div>
-                  </button>
-                  <ImageLightbox
-                    open={openImageId === att.id}
-                    src={fullUrl}
-                    downloadUrl={downloadUrl ?? fullUrl}
-                    filename={att.originalFilename ?? undefined}
-                    alt={att.originalFilename ?? undefined}
-                    mediaType="video"
-                    onClose={() => setOpenImageId(null)}
-                  />
-                </>
-              ) : (
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
-                  {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  <span>{att.originalFilename ?? "Video"}</span>
-                  {progressLabel ? <span className="text-text-subtle">{progressLabel}</span> : null}
-                </div>
-              )}
-            </div>
+            <VideoAttachmentPreview
+              key={att.id}
+              variant={variant}
+              fullUrl={fullUrl ?? null}
+              downloadUrl={downloadUrl ?? fullUrl ?? undefined}
+              filename={att.originalFilename ?? undefined}
+              isPending={isPending}
+              progressLabel={progressLabel}
+              isLightboxOpen={openImageId === att.id}
+              onOpen={() => setOpenImageId(att.id)}
+              onClose={() => setOpenImageId(null)}
+            />
           );
         }
 
@@ -1104,21 +1165,28 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         {isUser ? (
           <>
             {hasUserAttachments && hasUserVisualAttachments ? (
-              <div
-                className={cn(
-                  "inline-flex min-w-0 max-w-[min(100%,28rem)] flex-col overflow-hidden rounded-[24px] rounded-br-md bg-accent/16 p-1.5 text-text shadow-[0_12px_36px_rgba(15,23,42,0.10)] ring-1 ring-black/5",
-                  isUserSendFailed && "opacity-80"
-                )}
-              >
-                <AttachmentStrip
-                  attachments={message.attachments ?? []}
-                  compactBubble
-                  variant="user-media"
-                  className="mt-0 gap-1.5"
-                />
+              <div className="flex w-full flex-col items-end gap-2">
+                <div
+                  className={cn(
+                    "inline-flex min-w-0 max-w-[min(100%,28rem)] flex-col overflow-hidden rounded-2xl rounded-br-md bg-accent/15 p-1 text-text",
+                    isUserSendFailed && "opacity-80"
+                  )}
+                >
+                  <AttachmentStrip
+                    attachments={message.attachments ?? []}
+                    compactBubble
+                    variant="user-media"
+                    className="mt-0 gap-1.5"
+                  />
+                </div>
                 {hasUserCaption ? (
-                  <div className="px-2.5 pb-2 pt-2.5">
-                    <p className="max-w-full whitespace-pre-wrap text-left text-sm leading-relaxed break-words text-text">
+                  <div
+                    className={cn(
+                      "min-w-0 max-w-[min(100%,22rem)] rounded-2xl rounded-br-md bg-accent/15 px-3 py-2 text-text md:px-4 md:py-2.5",
+                      isUserSendFailed && "opacity-80"
+                    )}
+                  >
+                    <p className="max-w-full whitespace-pre-wrap text-left text-sm leading-relaxed break-words">
                       {message.content}
                     </p>
                   </div>
@@ -1227,25 +1295,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 )}
               </>
             )}
-            {message.attachments && message.attachments.length > 0 ? (
-              <div className="flex flex-col gap-3">
-                <div className="w-fit max-w-full">
-                  <AttachmentStrip
-                    attachments={message.attachments}
-                    variant="assistant-media"
-                    className="mt-0 gap-2"
-                  />
-                </div>
-                {message.content.trim().length > 0 ? (
-                  <div className="max-w-[min(100%,46rem)] rounded-[22px] rounded-tl-md bg-surface-raised/58 px-4 py-3 ring-1 ring-border/60">
-                    <MarkdownMessageContent
-                      content={message.content}
-                      onAction={onAssistantAction}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+            {message.attachments && message.attachments.length > 0 && (
+              <AttachmentStrip attachments={message.attachments} />
+            )}
           </div>
         )}
 

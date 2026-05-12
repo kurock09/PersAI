@@ -49,6 +49,7 @@ export type CloseAssistantMemoryByRefSource = "memory_write_action_close" | "use
 export type CloseAssistantMemoryByRefReason =
   | "closed"
   | "already_closed"
+  | "cooldown_active"
   | "not_open_loop"
   | "not_found";
 
@@ -176,6 +177,16 @@ export class CloseAssistantMemoryByRefService {
         reason: "already_closed"
       };
     }
+    if (Date.now() - existing.createdAt.getTime() < OPEN_LOOP_CLOSE_COOLDOWN_MS) {
+      this.logger.log(
+        `[m31-close] Open-loop ${existing.id} is still in cooldown (assistant=${params.assistantId}, source=${params.source}, requestId=${params.requestId ?? "null"}).`
+      );
+      return {
+        closed: false,
+        closedItemId: existing.id,
+        reason: "cooldown_active"
+      };
+    }
 
     const updated = await this.assistantMemoryRegistryRepository.setResolvedAtById(
       existing.id,
@@ -233,3 +244,5 @@ export class CloseAssistantMemoryByRefService {
     return this.asNonEmptyString(value);
   }
 }
+
+const OPEN_LOOP_CLOSE_COOLDOWN_MS = 5_000;

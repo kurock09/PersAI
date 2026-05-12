@@ -31,7 +31,7 @@ export interface CloseMostSimilarOpenLoopInput {
 export interface CloseMostSimilarOpenLoopResult {
   closed: boolean;
   closedItemId: string | null;
-  reason: "matched" | "no_active_open_loop_matched";
+  reason: "matched" | "no_active_open_loop_matched" | "cooldown_active";
 }
 
 @Injectable()
@@ -103,6 +103,16 @@ export class CloseMostSimilarOpenLoopService {
         reason: "no_active_open_loop_matched"
       };
     }
+    if (Date.now() - candidate.createdAt.getTime() < OPEN_LOOP_CLOSE_COOLDOWN_MS) {
+      this.logger.log(
+        `[m3-close] Open-loop ${candidate.id} is still in cooldown for assistant=${assistant.id} (requestId=${input.requestId ?? "null"}).`
+      );
+      return {
+        closed: false,
+        closedItemId: candidate.id,
+        reason: "cooldown_active"
+      };
+    }
 
     const updated = await this.assistantMemoryRegistryRepository.setResolvedAtById(
       candidate.id,
@@ -171,3 +181,5 @@ export class CloseMostSimilarOpenLoopService {
     return this.asNonEmptyString(value);
   }
 }
+
+const OPEN_LOOP_CLOSE_COOLDOWN_MS = 5_000;

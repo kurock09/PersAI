@@ -130,16 +130,24 @@ export class RuntimeMemoryWriteToolService {
       // The API returns `not_found` / `not_open_loop` as soft outcomes (the
       // client maps 404 / 400 to these). The model should see a `skipped`
       // result so it can adjust, not a `closed` confirmation.
-      if (outcome.reason === "not_found" || outcome.reason === "not_open_loop") {
+      if (
+        outcome.reason === "not_found" ||
+        outcome.reason === "not_open_loop" ||
+        outcome.reason === "cooldown_active"
+      ) {
         return {
           payload: this.createSkippedPayload(
             null,
             outcome.reason === "not_found"
               ? "memory_close_ref_not_found"
-              : "memory_close_ref_not_open_loop",
+              : outcome.reason === "not_open_loop"
+                ? "memory_close_ref_not_open_loop"
+                : "memory_close_ref_cooldown_active",
             outcome.reason === "not_found"
               ? `Open-loop ref "${request.ref}" was not found.`
-              : `Memory item "${request.ref}" is not an open-loop.`
+              : outcome.reason === "not_open_loop"
+                ? `Memory item "${request.ref}" is not an open-loop.`
+                : `Open-loop ref "${request.ref}" was created too recently to close. Keep it active for now.`
           ),
           isError: false
         };
