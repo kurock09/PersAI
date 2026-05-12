@@ -13,6 +13,10 @@ spec:
     name: api
   minReplicas: {{ .Values.api.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.api.autoscaling.maxReplicas }}
+{{- with .Values.api.autoscaling.behavior }}
+  behavior:
+{{ toYaml . | indent 4 }}
+{{- end }}
   metrics:
     - type: Resource
       resource:
