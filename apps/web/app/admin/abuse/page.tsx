@@ -42,9 +42,9 @@ type LoadTestActivation = {
 };
 
 export default function AdminAbusePage() {
-  const { getToken } = useAuth();
+  const { getToken, isLoaded, userId: authUserId } = useAuth();
   const [assistantId, setAssistantId] = useState("");
-  const [userId, setUserId] = useState("");
+  const [manualUserId, setManualUserId] = useState("");
   const [surface, setSurface] = useState("");
   const [overrideMinutes, setOverrideMinutes] = useState("60");
   const [busy, setBusy] = useState(false);
@@ -72,6 +72,13 @@ export default function AdminAbusePage() {
 
   const refreshActiveOverrides = useCallback(
     async (options?: { silent?: boolean }) => {
+      if (!isLoaded || !authUserId) {
+        if (!options?.silent) {
+          setActiveOverridesFeedback(null);
+          setActiveOverridesBusy(false);
+        }
+        return;
+      }
       const token = await getToken();
       if (!token) return;
       if (!options?.silent) {
@@ -92,7 +99,7 @@ export default function AdminAbusePage() {
         }
       }
     },
-    [getToken]
+    [authUserId, getToken, isLoaded]
   );
 
   const handleLookup = useCallback(async () => {
@@ -136,6 +143,9 @@ export default function AdminAbusePage() {
   }, [getToken, lookupEmail]);
 
   useEffect(() => {
+    if (!isLoaded || !authUserId) {
+      return;
+    }
     void refreshActiveOverrides();
     const refreshInterval = window.setInterval(() => {
       void refreshActiveOverrides({ silent: true });
@@ -147,7 +157,7 @@ export default function AdminAbusePage() {
       window.clearInterval(refreshInterval);
       window.clearInterval(clockInterval);
     };
-  }, [refreshActiveOverrides]);
+  }, [authUserId, isLoaded, refreshActiveOverrides]);
 
   const handleLoadTestEnable = useCallback(async () => {
     const token = await getToken();
@@ -199,7 +209,7 @@ export default function AdminAbusePage() {
     try {
       const result = await postAdminAbuseUnblock(token, {
         assistantId: assistantId.trim(),
-        userId: userId.trim() || null,
+        userId: manualUserId.trim() || null,
         surface: (surface as "web_chat" | "telegram" | "whatsapp" | "max") || null,
         overrideMinutes: parseInt(overrideMinutes, 10) || 60
       });
@@ -215,7 +225,7 @@ export default function AdminAbusePage() {
       });
     }
     setBusy(false);
-  }, [getToken, assistantId, userId, surface, overrideMinutes, refreshActiveOverrides]);
+  }, [getToken, assistantId, manualUserId, surface, overrideMinutes, refreshActiveOverrides]);
 
   const handleExtendActiveOverride = useCallback(
     async (override: AdminAbuseActiveOverrideItem) => {
@@ -543,8 +553,8 @@ export default function AdminAbusePage() {
             <Field
               id="manual-user-id"
               label="User ID (optional)"
-              value={userId}
-              onChange={setUserId}
+              value={manualUserId}
+              onChange={setManualUserId}
               placeholder="Target specific user"
             />
             <div>
