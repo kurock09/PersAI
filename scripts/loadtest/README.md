@@ -90,6 +90,7 @@ Each run writes one JSON file with:
 - This harness is intentionally repo-local and simple; it does not yet scrape `/metrics` directly or persist raw time-series.
 - Telegram load uses the internal PersAI Telegram turn seam, not public Telegram delivery infrastructure.
 - Media upload uses generated small files by default; it validates flow pressure, not large-object bandwidth ceilings.
+- Web stream load uses a sticky per-worker thread key so each worker owns one active runtime session; short web/media scenarios rotate deterministic keys and should use a pool of at least `10` chats per test user to avoid synthetic self-collision dominating the evidence.
 - `100 / 500 / 1000` is a practical execution ladder for now; canonical final `SR10` evidence in docs still requires the full `1000 / 3000 / 5000` gate later.
 
 ## Step 19 usage

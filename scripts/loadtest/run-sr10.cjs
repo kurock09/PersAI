@@ -124,7 +124,10 @@ function choiceWeighted(items) {
 
 function withTimeout(ms) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error(`Request timed out after ${ms}ms`)), ms);
+  const timer = setTimeout(
+    () => controller.abort(new Error(`Request timed out after ${ms}ms`)),
+    ms
+  );
   return {
     signal: controller.signal,
     clear() {
@@ -260,9 +263,21 @@ function summarizePayloadError(payload) {
   return { code: "unknown_error", message: "Request failed without structured error payload." };
 }
 
-function makeThreadKey(prefix, identityLabel, poolSize) {
-  const slot = Math.floor(Math.random() * poolSize);
+function buildWorkerIdentityAssignment(users, workerIndex) {
+  const identityIndex = workerIndex % users.length;
+  return {
+    identity: users[identityIndex],
+    workerSlot: Math.floor(workerIndex / users.length)
+  };
+}
+
+function makeRotatingThreadKey(prefix, identityLabel, poolSize, workerSlot, requestSequence) {
+  const slot = (workerSlot + requestSequence) % poolSize;
   return `${prefix}-${identityLabel}-${slot}`;
+}
+
+function makeStickyWorkerThreadKey(prefix, identityLabel, workerSlot) {
+  return `${prefix}-${identityLabel}-worker-${workerSlot}`;
 }
 
 function createTextAttachment(config) {
@@ -288,12 +303,22 @@ function createPngAttachment(config) {
   };
 }
 
-async function scenarioWebSync(ctx, identity, scenarioKind) {
-  const surfaceThreadKey = makeThreadKey(ctx.config.web.surfaceThreadPrefix, identity.label, ctx.config.web.surfaceThreadPoolSize);
+async function scenarioWebSync(ctx, workerState, scenarioKind) {
+  const surfaceThreadKey = makeRotatingThreadKey(
+    ctx.config.web.surfaceThreadPrefix,
+    workerState.web.identity.label,
+    ctx.config.web.surfaceThreadPoolSize,
+    workerState.web.workerSlot,
+    workerState.web.requestSequence++
+  );
   const message =
     scenarioKind === "tool_prompt"
-      ? ctx.config.web.toolPromptTemplates[randomBetween(0, ctx.config.web.toolPromptTemplates.length - 1)]
-      : ctx.config.web.messageTemplates[randomBetween(0, ctx.config.web.messageTemplates.length - 1)];
+      ? ctx.config.web.toolPromptTemplates[
+          randomBetween(0, ctx.config.web.toolPromptTemplates.length - 1)
+        ]
+      : ctx.config.web.messageTemplates[
+          randomBetween(0, ctx.config.web.messageTemplates.length - 1)
+        ];
   const body = {
     surfaceThreadKey,
     message,
@@ -303,7 +328,7 @@ async function scenarioWebSync(ctx, identity, scenarioKind) {
     `${ctx.config.apiBaseUrl}/assistant/chat/web`,
     {
       method: "POST",
-      headers: buildJsonHeaders(identity.token),
+      headers: buildJsonHeaders(workerState.web.identity.token),
       body: JSON.stringify(body)
     },
     ctx.config.requestTimeoutMs
@@ -326,9 +351,14 @@ async function scenarioWebSync(ctx, identity, scenarioKind) {
   };
 }
 
-async function scenarioWebStream(ctx, identity) {
-  const surfaceThreadKey = makeThreadKey(ctx.config.web.surfaceThreadPrefix, identity.label, ctx.config.web.surfaceThreadPoolSize);
-  const message = ctx.config.web.messageTemplates[randomBetween(0, ctx.config.web.messageTemplates.length - 1)];
+async function scenarioWebStream(ctx, workerState) {
+  const surfaceThreadKey = makeStickyWorkerThreadKey(
+    ctx.config.web.surfaceThreadPrefix,
+    workerState.web.identity.label,
+    workerState.web.workerSlot
+  );
+  const message =
+    ctx.config.web.messageTemplates[randomBetween(0, ctx.config.web.messageTemplates.length - 1)];
   const body = {
     surfaceThreadKey,
     message,
@@ -337,7 +367,7 @@ async function scenarioWebStream(ctx, identity) {
   const result = await fetchSse(
     `${ctx.config.apiBaseUrl}/assistant/chat/web/stream`,
     body,
-    identity.token,
+    workerState.web.identity.token,
     ctx.config.requestTimeoutMs
   );
   if (result.ok) {
@@ -365,11 +395,13 @@ async function scenarioWebStream(ctx, identity) {
   };
 }
 
-async function scenarioWebStageAttachment(ctx, identity) {
-  const surfaceThreadKey = makeThreadKey(
+async function scenarioWebStageAttachment(ctx, workerState) {
+  const surfaceThreadKey = makeRotatingThreadKey(
     ctx.config.media.surfaceThreadPrefix,
-    identity.label,
-    ctx.config.media.surfaceThreadPoolSize
+    workerState.media.identity.label,
+    ctx.config.media.surfaceThreadPoolSize,
+    workerState.media.workerSlot,
+    workerState.media.requestSequence++
   );
   const attachment =
     ctx.config.media.attachment.kind === "png"
@@ -384,7 +416,7 @@ async function scenarioWebStageAttachment(ctx, identity) {
   try {
     const response = await fetch(`${ctx.config.apiBaseUrl}/assistant/chat/web/stage-attachment`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${identity.token}` },
+      headers: { Authorization: `Bearer ${workerState.media.identity.token}` },
       body: form,
       signal: timeout.signal
     });
@@ -410,7 +442,7 @@ async function scenarioWebStageAttachment(ctx, identity) {
   }
 }
 
-async function scenarioVoiceTranscribe(ctx, identity) {
+async function scenarioVoiceTranscribe(ctx, workerState) {
   const voice = ctx.config.media.voice;
   const bytes = await fs.readFile(voice.filePath);
   const form = new FormData();
@@ -421,7 +453,7 @@ async function scenarioVoiceTranscribe(ctx, identity) {
   try {
     const response = await fetch(`${ctx.config.apiBaseUrl}/assistant/voice/transcribe`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${identity.token}` },
+      headers: { Authorization: `Bearer ${workerState.media.identity.token}` },
       body: form,
       signal: timeout.signal
     });
@@ -516,7 +548,9 @@ async function collectAdminOverview(config) {
 function evaluateGates(config, phaseSummary, adminBefore, adminAfter) {
   const failures = [];
   if (phaseSummary.errorRate > config.gates.maxErrorRate) {
-    failures.push(`client error rate ${phaseSummary.errorRate.toFixed(4)} > ${config.gates.maxErrorRate}`);
+    failures.push(
+      `client error rate ${phaseSummary.errorRate.toFixed(4)} > ${config.gates.maxErrorRate}`
+    );
   }
   if (phaseSummary.p95Ms > config.gates.maxP95Ms) {
     failures.push(`client p95 ${phaseSummary.p95Ms}ms > ${config.gates.maxP95Ms}ms`);
@@ -527,7 +561,9 @@ function evaluateGates(config, phaseSummary, adminBefore, adminAfter) {
 
   if (adminAfter && !adminAfter.error) {
     if (config.gates.requireHealthyRuntimeTiers === true) {
-      const unhealthy = (adminAfter.runtime?.tiers ?? []).filter((tier) => !tier.live || !tier.ready);
+      const unhealthy = (adminAfter.runtime?.tiers ?? []).filter(
+        (tier) => !tier.live || !tier.ready
+      );
       if (unhealthy.length > 0) {
         failures.push(
           `runtime unhealthy after phase: ${unhealthy.map((tier) => tier.tier).join(", ")}`
@@ -554,7 +590,9 @@ function evaluateGates(config, phaseSummary, adminBefore, adminAfter) {
       adminAfter.health?.processStartedAt &&
       adminBefore.health.processStartedAt !== adminAfter.health.processStartedAt
     ) {
-      failures.push("admin overview processStartedAt changed during phase (possible process restart)");
+      failures.push(
+        "admin overview processStartedAt changed during phase (possible process restart)"
+      );
     }
   }
 
@@ -567,6 +605,22 @@ function evaluateGates(config, phaseSummary, adminBefore, adminAfter) {
 async function runWorker(ctx, workerIndex, phaseEndAt) {
   const webUsers = ctx.config.web ? ctx.config.web.usersResolved : [];
   const mediaUsers = ctx.config.media ? ctx.config.media.usersResolved : [];
+  const workerState = {
+    web:
+      webUsers.length === 0
+        ? null
+        : {
+            ...buildWorkerIdentityAssignment(webUsers, workerIndex),
+            requestSequence: 0
+          },
+    media:
+      mediaUsers.length === 0
+        ? null
+        : {
+            ...buildWorkerIdentityAssignment(mediaUsers, workerIndex),
+            requestSequence: 0
+          }
+  };
 
   while (Date.now() < phaseEndAt) {
     const kind = choiceWeighted(ctx.config.trafficMix);
@@ -574,17 +628,13 @@ async function runWorker(ctx, workerIndex, phaseEndAt) {
 
     try {
       if (kind === "web_sync" || kind === "tool_prompt") {
-        const identity = webUsers[workerIndex % webUsers.length];
-        result = await scenarioWebSync(ctx, identity, kind);
+        result = await scenarioWebSync(ctx, workerState, kind);
       } else if (kind === "web_stream") {
-        const identity = webUsers[workerIndex % webUsers.length];
-        result = await scenarioWebStream(ctx, identity);
+        result = await scenarioWebStream(ctx, workerState);
       } else if (kind === "web_stage_attachment") {
-        const identity = mediaUsers[workerIndex % mediaUsers.length];
-        result = await scenarioWebStageAttachment(ctx, identity);
+        result = await scenarioWebStageAttachment(ctx, workerState);
       } else if (kind === "voice_transcribe") {
-        const identity = mediaUsers[workerIndex % mediaUsers.length];
-        result = await scenarioVoiceTranscribe(ctx, identity);
+        result = await scenarioVoiceTranscribe(ctx, workerState);
       } else {
         throw new Error(`Unsupported scenario kind: ${kind}`);
       }
@@ -677,8 +727,14 @@ function normalizeConfig(rawConfig, cliArgs) {
       }
       normalizedProfiles[profileId][phaseName] = {
         users: assertPositiveInteger(phase.users, `${profileId}.${phaseName}.users`),
-        rampSeconds: assertNonNegativeNumber(phase.rampSeconds, `${profileId}.${phaseName}.rampSeconds`),
-        holdSeconds: assertNonNegativeNumber(phase.holdSeconds, `${profileId}.${phaseName}.holdSeconds`)
+        rampSeconds: assertNonNegativeNumber(
+          phase.rampSeconds,
+          `${profileId}.${phaseName}.rampSeconds`
+        ),
+        holdSeconds: assertNonNegativeNumber(
+          phase.holdSeconds,
+          `${profileId}.${phaseName}.holdSeconds`
+        )
       };
     }
   }
@@ -730,12 +786,14 @@ function normalizeConfig(rawConfig, cliArgs) {
     }
     config.web = {
       surfaceThreadPrefix: rawConfig.web.surfaceThreadPrefix ?? "sr10-web",
-      surfaceThreadPoolSize: rawConfig.web.surfaceThreadPoolSize ?? 4,
-      messageTemplates: Array.isArray(rawConfig.web.messageTemplates) && rawConfig.web.messageTemplates.length > 0
-        ? rawConfig.web.messageTemplates
-        : ["Give a short helpful reply about your purpose."],
+      surfaceThreadPoolSize: rawConfig.web.surfaceThreadPoolSize ?? 10,
+      messageTemplates:
+        Array.isArray(rawConfig.web.messageTemplates) && rawConfig.web.messageTemplates.length > 0
+          ? rawConfig.web.messageTemplates
+          : ["Give a short helpful reply about your purpose."],
       toolPromptTemplates:
-        Array.isArray(rawConfig.web.toolPromptTemplates) && rawConfig.web.toolPromptTemplates.length > 0
+        Array.isArray(rawConfig.web.toolPromptTemplates) &&
+        rawConfig.web.toolPromptTemplates.length > 0
           ? rawConfig.web.toolPromptTemplates
           : ["Use one allowed tool if available, then answer briefly."],
       usersResolved: users.map((user, index) => ({
@@ -752,7 +810,7 @@ function normalizeConfig(rawConfig, cliArgs) {
   if (rawConfig.media) {
     const users = Array.isArray(rawConfig.media.users)
       ? rawConfig.media.users
-      : rawConfig.web?.users ?? [];
+      : (rawConfig.web?.users ?? []);
     if (users.length === 0) {
       throw new Error("media.users (or web.users) must exist to run media scenarios.");
     }
@@ -762,7 +820,7 @@ function normalizeConfig(rawConfig, cliArgs) {
     }
     const media = {
       surfaceThreadPrefix: rawConfig.media.surfaceThreadPrefix ?? "sr10-media",
-      surfaceThreadPoolSize: rawConfig.media.surfaceThreadPoolSize ?? 4,
+      surfaceThreadPoolSize: rawConfig.media.surfaceThreadPoolSize ?? 10,
       attachment,
       usersResolved: users.map((user, index) => ({
         label: user.label ?? `media-${index + 1}`,

@@ -44,7 +44,7 @@
   },
   "web": {
     "surfaceThreadPrefix": "sr10-web",
-    "surfaceThreadPoolSize": 4,
+    "surfaceThreadPoolSize": 10,
     "users": [
       { "label": "user-1", "tokenEnv": "SR10_USER_TOKEN_1" },
       { "label": "user-2", "tokenEnv": "SR10_USER_TOKEN_2" },
@@ -63,10 +63,8 @@
   },
   "media": {
     "surfaceThreadPrefix": "sr10-media",
-    "surfaceThreadPoolSize": 3,
-    "users": [
-      { "label": "media-user-1", "tokenEnv": "SR10_USER_TOKEN_1" }
-    ],
+    "surfaceThreadPoolSize": 10,
+    "users": [{ "label": "media-user-1", "tokenEnv": "SR10_USER_TOKEN_1" }],
     "attachment": {
       "kind": "text",
       "filename": "sr10-note.txt",
