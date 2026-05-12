@@ -21,9 +21,9 @@ type MockState = {
 };
 
 type EventWrite = {
-  workspaceId?: string;
-  assistantId?: string | null;
-  userId?: string | null;
+  workspaceId: string;
+  assistantId: string | null;
+  userId: string | null;
   dimension: string;
   delta: bigint;
   source: string;
@@ -32,12 +32,15 @@ type EventWrite = {
 };
 
 type MockTokenBudgetPeriodCounter = {
+  id: string;
   workspaceId: string;
   periodStartedAt: Date;
   periodEndsAt: Date;
   usedCredits: bigint;
   limitCredits: bigint | null;
   lastComputedAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 function buildState(overrides: Partial<MockState> = {}): MockState {
@@ -61,14 +64,79 @@ function buildState(overrides: Partial<MockState> = {}): MockState {
   };
 }
 
-function applyUpdate(state: MockState, data: Record<string, unknown>): MockState {
+function buildCounter(
+  overrides: Partial<MockTokenBudgetPeriodCounter> = {}
+): MockTokenBudgetPeriodCounter {
+  return {
+    id: "counter-1",
+    workspaceId: "ws-1",
+    periodStartedAt: new Date("2026-05-01T00:00:00.000Z"),
+    periodEndsAt: new Date("2026-06-01T00:00:00.000Z"),
+    usedCredits: BigInt(0),
+    limitCredits: BigInt(100),
+    lastComputedAt: new Date("2026-04-06T00:00:00.000Z"),
+    createdAt: new Date("2026-04-06T00:00:00.000Z"),
+    updatedAt: new Date("2026-04-06T00:00:00.000Z"),
+    ...overrides
+  };
+}
+
+function toRawState(state: MockState): Record<string, unknown> {
+  return {
+    id: state.id,
+    workspace_id: state.workspaceId,
+    token_budget_used: state.tokenBudgetUsed,
+    token_budget_limit: state.tokenBudgetLimit,
+    cost_or_token_driving_tool_class_units_used: state.costOrTokenDrivingToolClassUnitsUsed,
+    cost_or_token_driving_tool_class_units_limit: state.costOrTokenDrivingToolClassUnitsLimit,
+    active_web_chats_current: state.activeWebChatsCurrent,
+    active_web_chats_limit: state.activeWebChatsLimit,
+    media_storage_bytes_used: state.mediaStorageBytesUsed,
+    media_storage_bytes_limit: state.mediaStorageBytesLimit,
+    knowledge_storage_bytes_used: state.knowledgeStorageBytesUsed,
+    knowledge_storage_bytes_limit: state.knowledgeStorageBytesLimit,
+    last_computed_at: state.lastComputedAt,
+    created_at: state.createdAt,
+    updated_at: state.updatedAt
+  };
+}
+
+function toRawCounter(counter: MockTokenBudgetPeriodCounter): Record<string, unknown> {
+  return {
+    id: counter.id,
+    workspace_id: counter.workspaceId,
+    period_started_at: counter.periodStartedAt,
+    period_ends_at: counter.periodEndsAt,
+    used_credits: counter.usedCredits,
+    limit_credits: counter.limitCredits,
+    last_computed_at: counter.lastComputedAt,
+    created_at: counter.createdAt,
+    updated_at: counter.updatedAt
+  };
+}
+
+function applyStateUpdate(state: MockState, data: Record<string, unknown>): MockState {
   const nextState = { ...state };
   if ("tokenBudgetUsed" in data) {
-    const tokenBudgetUsed = data.tokenBudgetUsed as bigint | { increment: bigint };
-    nextState.tokenBudgetUsed =
-      typeof tokenBudgetUsed === "bigint"
-        ? tokenBudgetUsed
-        : nextState.tokenBudgetUsed + tokenBudgetUsed.increment;
+    nextState.tokenBudgetUsed = data.tokenBudgetUsed as bigint;
+  }
+  if ("tokenBudgetLimit" in data) {
+    nextState.tokenBudgetLimit = (data.tokenBudgetLimit as bigint | null | undefined) ?? null;
+  }
+  if ("costOrTokenDrivingToolClassUnitsLimit" in data) {
+    nextState.costOrTokenDrivingToolClassUnitsLimit =
+      (data.costOrTokenDrivingToolClassUnitsLimit as number | null | undefined) ?? null;
+  }
+  if ("activeWebChatsLimit" in data) {
+    nextState.activeWebChatsLimit = (data.activeWebChatsLimit as number | null | undefined) ?? null;
+  }
+  if ("mediaStorageBytesLimit" in data) {
+    nextState.mediaStorageBytesLimit =
+      (data.mediaStorageBytesLimit as bigint | null | undefined) ?? null;
+  }
+  if ("knowledgeStorageBytesLimit" in data) {
+    nextState.knowledgeStorageBytesLimit =
+      (data.knowledgeStorageBytesLimit as bigint | null | undefined) ?? null;
   }
   if ("mediaStorageBytesUsed" in data) {
     const mediaStorageBytesUsed = data.mediaStorageBytesUsed as
@@ -90,111 +158,111 @@ function applyUpdate(state: MockState, data: Record<string, unknown>): MockState
       nextState.knowledgeStorageBytesUsed -= knowledgeStorageBytesUsed.decrement;
     }
   }
-  nextState.updatedAt = new Date("2026-04-06T00:00:01.000Z");
   nextState.lastComputedAt = new Date("2026-04-06T00:00:01.000Z");
+  nextState.updatedAt = new Date("2026-04-06T00:00:01.000Z");
   return nextState;
 }
 
-function createRetryingRepository(initialState: MockState): {
-  repository: PrismaWorkspaceQuotaAccountingRepository;
-  getTransactionCalls: () => number;
-  eventWrites: EventWrite[];
-} {
-  let state = initialState;
-  let tokenCounter: MockTokenBudgetPeriodCounter | null = null;
+function applyCounterUpdate(
+  counter: MockTokenBudgetPeriodCounter,
+  data: Record<string, unknown>
+): MockTokenBudgetPeriodCounter {
+  const nextCounter = { ...counter };
+  const usedCreditsUpdate = data.usedCredits as { increment: bigint } | undefined;
+  nextCounter.usedCredits += usedCreditsUpdate?.increment ?? BigInt(0);
+  nextCounter.limitCredits = (data.limitCredits as bigint | null | undefined) ?? null;
+  nextCounter.lastComputedAt = new Date("2026-04-06T00:00:01.000Z");
+  nextCounter.updatedAt = new Date("2026-04-06T00:00:01.000Z");
+  return nextCounter;
+}
+
+function createRepositoryHarness(options?: {
+  initialState?: MockState | null;
+  initialCounter?: MockTokenBudgetPeriodCounter | null;
+  failFirstTransactions?: number;
+  raceOnStateCreate?: boolean;
+  raceOnCounterCreate?: boolean;
+}) {
+  let state = options?.initialState ?? null;
+  let counter = options?.initialCounter ?? null;
   let transactionCalls = 0;
+  let stateCreateCalls = 0;
+  let counterCreateCalls = 0;
+  let stateLockQueries = 0;
+  let counterLockQueries = 0;
+  let raceOnStateCreate = options?.raceOnStateCreate ?? false;
+  let raceOnCounterCreate = options?.raceOnCounterCreate ?? false;
   const eventWrites: EventWrite[] = [];
 
   const repository = new PrismaWorkspaceQuotaAccountingRepository({
-    $transaction: async (
-      callback: (tx: {
-        workspaceQuotaAccountingState: {
-          findUnique: () => Promise<MockState>;
-          upsert: (args: {
-            update: Record<string, unknown>;
-            create: Record<string, unknown>;
-          }) => Promise<MockState>;
-          update: (args: { data: Record<string, unknown> }) => Promise<MockState>;
-          create: () => Promise<never>;
-        };
-        workspaceTokenBudgetPeriodCounter: {
-          findUnique: () => Promise<MockTokenBudgetPeriodCounter | null>;
-          upsert: (args: {
-            update: Record<string, unknown>;
-            create: {
-              workspaceId: string;
-              periodStartedAt: Date;
-              periodEndsAt: Date;
-              usedCredits: bigint;
-              limitCredits: bigint | null;
-              lastComputedAt: Date;
-            };
-          }) => Promise<MockTokenBudgetPeriodCounter>;
-        };
-        workspaceQuotaUsageEvent: {
-          create: (args: {
-            data: { dimension: string; delta: bigint; source: string };
-          }) => Promise<Record<string, never>>;
-        };
-      }) => Promise<unknown>
-    ) => {
+    $transaction: async (callback: (tx: Record<string, unknown>) => Promise<unknown>) => {
       transactionCalls += 1;
-      if (transactionCalls === 1) {
-        throw new Prisma.PrismaClientKnownRequestError("serialization conflict", {
+      if (transactionCalls <= (options?.failFirstTransactions ?? 0)) {
+        throw new Prisma.PrismaClientKnownRequestError("transaction conflict", {
           code: "P2034",
           clientVersion: "test"
         });
       }
 
       return callback({
+        $queryRaw: async (query: { strings?: string[] }) => {
+          const sql = Array.isArray(query?.strings) ? query.strings.join(" ") : String(query);
+          if (sql.includes("workspace_quota_accounting_state")) {
+            stateLockQueries += 1;
+            return state === null ? [] : [toRawState(state)];
+          }
+          if (sql.includes("workspace_token_budget_period_counters")) {
+            counterLockQueries += 1;
+            return counter === null ? [] : [toRawCounter(counter)];
+          }
+          throw new Error(`Unexpected raw query: ${sql}`);
+        },
         workspaceQuotaAccountingState: {
-          findUnique: async () => state,
-          upsert: async ({ update, create }) => {
-            if (state) {
-              state = applyUpdate(state, update);
-            } else {
-              state = buildState(create as Partial<MockState>);
+          create: async ({ data }: { data: Partial<MockState> }) => {
+            stateCreateCalls += 1;
+            if (raceOnStateCreate) {
+              raceOnStateCreate = false;
+              state = buildState(data);
+              throw new Prisma.PrismaClientKnownRequestError("duplicate state", {
+                code: "P2002",
+                clientVersion: "test"
+              });
             }
+            state = buildState(data);
             return state;
           },
           update: async ({ data }: { data: Record<string, unknown> }) => {
-            state = applyUpdate(state, data);
+            if (state === null) {
+              throw new Error("quota state must be locked or created before update");
+            }
+            state = applyStateUpdate(state, data);
             return state;
-          },
-          create: async () => {
-            throw new Error("create should not be called when state already exists");
           }
         },
         workspaceTokenBudgetPeriodCounter: {
-          findUnique: async () => tokenCounter,
-          upsert: async ({ update, create }) => {
-            if (tokenCounter === null) {
-              tokenCounter = {
-                workspaceId: create.workspaceId,
-                periodStartedAt: create.periodStartedAt,
-                periodEndsAt: create.periodEndsAt,
-                usedCredits: create.usedCredits,
-                limitCredits: create.limitCredits,
-                lastComputedAt: create.lastComputedAt
-              };
-              return tokenCounter;
+          create: async ({ data }: { data: Partial<MockTokenBudgetPeriodCounter> }) => {
+            counterCreateCalls += 1;
+            if (raceOnCounterCreate) {
+              raceOnCounterCreate = false;
+              counter = buildCounter(data);
+              throw new Prisma.PrismaClientKnownRequestError("duplicate counter", {
+                code: "P2002",
+                clientVersion: "test"
+              });
             }
-            const usedCreditsUpdate = update.usedCredits as { increment: bigint } | undefined;
-            tokenCounter = {
-              ...tokenCounter,
-              usedCredits: tokenCounter.usedCredits + (usedCreditsUpdate?.increment ?? BigInt(0)),
-              limitCredits: update.limitCredits as bigint | null,
-              lastComputedAt: update.lastComputedAt as Date
-            };
-            return tokenCounter;
+            counter = buildCounter(data);
+            return counter;
+          },
+          update: async ({ data }: { data: Record<string, unknown> }) => {
+            if (counter === null) {
+              throw new Error("token counter must be locked or created before update");
+            }
+            counter = applyCounterUpdate(counter, data);
+            return counter;
           }
         },
         workspaceQuotaUsageEvent: {
-          create: async ({
-            data
-          }: {
-            data: { dimension: string; delta: bigint; source: string };
-          }) => {
+          create: async ({ data }: { data: EventWrite }) => {
             eventWrites.push(data);
             return {};
           }
@@ -205,8 +273,12 @@ function createRetryingRepository(initialState: MockState): {
 
   return {
     repository,
+    eventWrites,
     getTransactionCalls: () => transactionCalls,
-    eventWrites
+    getStateCreateCalls: () => stateCreateCalls,
+    getCounterCreateCalls: () => counterCreateCalls,
+    getStateLockQueries: () => stateLockQueries,
+    getCounterLockQueries: () => counterLockQueries
   };
 }
 
@@ -220,93 +292,82 @@ function buildLimits() {
   };
 }
 
-async function runRetriesSerializableTokenBudgetCap(): Promise<void> {
-  const { repository, getTransactionCalls, eventWrites } = createRetryingRepository(
-    buildState({ tokenBudgetUsed: BigInt(95), mediaStorageBytesLimit: BigInt(1000) })
-  );
+async function runRetriesConflictingTransactionAndLocksRows(): Promise<void> {
+  const periodStartedAt = new Date("2026-05-01T00:00:00.000Z");
+  const periodEndsAt = new Date("2026-06-01T00:00:00.000Z");
+  const harness = createRepositoryHarness({
+    initialState: buildState({ tokenBudgetUsed: BigInt(95) }),
+    initialCounter: buildCounter({
+      periodStartedAt,
+      periodEndsAt,
+      usedCredits: BigInt(95)
+    }),
+    failFirstTransactions: 1
+  });
 
-  const result = await repository.applyTokenBudgetUsage({
+  const result = await harness.repository.applyTokenBudgetUsage({
     workspaceId: "ws-1",
     assistantId: "assistant-1",
     userId: "user-1",
-    periodStartedAt: new Date("2026-05-01T00:00:00.000Z"),
-    periodEndsAt: new Date("2026-06-01T00:00:00.000Z"),
+    periodStartedAt,
+    periodEndsAt,
     delta: BigInt(12),
     source: "web_chat_turn_sync",
     metadata: { estimator: "chars_div_4_ceil_v1" },
     limits: buildLimits()
   });
 
-  assert.equal(getTransactionCalls(), 2);
-  assert.equal(result.appliedDelta, BigInt(12));
-  assert.equal(result.capped, false);
-  assert.equal(result.state.tokenBudgetUsed, BigInt(12));
-  assert.equal(result.counter.usedCredits, BigInt(12));
-  assert.equal(eventWrites.length, 1);
-  assert.equal(eventWrites[0]?.dimension, "token_budget");
-  assert.equal(eventWrites[0]?.delta, BigInt(12));
-  assert.equal(eventWrites[0]?.source, "web_chat_turn_sync");
-  assert.equal(eventWrites[0]?.workspaceId, "ws-1");
+  assert.equal(harness.getTransactionCalls(), 2);
+  assert.equal(harness.getCounterLockQueries(), 1);
+  assert.equal(harness.getStateLockQueries(), 1);
+  assert.equal(result.appliedDelta, BigInt(5));
+  assert.equal(result.capped, true);
+  assert.equal(result.counter.usedCredits, BigInt(100));
+  assert.equal(result.state.tokenBudgetUsed, BigInt(100));
+  assert.equal(harness.eventWrites.length, 1);
+  assert.equal(harness.eventWrites[0]?.dimension, "token_budget");
+  assert.equal(harness.eventWrites[0]?.delta, BigInt(5));
 }
 
-async function runRetriesSerializableMediaStorageCap(): Promise<void> {
-  const { repository, getTransactionCalls, eventWrites } = createRetryingRepository(
-    buildState({ mediaStorageBytesUsed: BigInt(95) })
-  );
+async function runCreatesMissingRowsAfterRace(): Promise<void> {
+  const periodStartedAt = new Date("2026-05-01T00:00:00.000Z");
+  const periodEndsAt = new Date("2026-06-01T00:00:00.000Z");
+  const harness = createRepositoryHarness({
+    initialState: null,
+    initialCounter: null,
+    raceOnStateCreate: true,
+    raceOnCounterCreate: true
+  });
 
-  const result = await repository.applyMediaStorageUsage({
+  const result = await harness.repository.applyTokenBudgetUsage({
     workspaceId: "ws-1",
     assistantId: "assistant-1",
     userId: "user-1",
+    periodStartedAt,
+    periodEndsAt,
     delta: BigInt(12),
-    source: "web_staged_upload",
+    source: "web_chat_turn_sync",
     metadata: null,
     limits: buildLimits()
   });
 
-  assert.equal(getTransactionCalls(), 2);
-  assert.equal(result.appliedDelta, BigInt(5));
-  assert.equal(result.capped, true);
-  assert.equal(result.state.mediaStorageBytesUsed, BigInt(100));
-  assert.equal(eventWrites.length, 1);
-  assert.equal(eventWrites[0]?.dimension, "media_storage_bytes");
-  assert.equal(eventWrites[0]?.delta, BigInt(5));
-  assert.equal(eventWrites[0]?.source, "web_staged_upload");
-  assert.equal(eventWrites[0]?.workspaceId, "ws-1");
+  assert.equal(harness.getCounterCreateCalls(), 1);
+  assert.equal(harness.getStateCreateCalls(), 1);
+  assert.equal(harness.getCounterLockQueries(), 2);
+  assert.equal(harness.getStateLockQueries(), 2);
+  assert.equal(result.appliedDelta, BigInt(12));
+  assert.equal(result.capped, false);
+  assert.equal(result.counter.usedCredits, BigInt(12));
+  assert.equal(result.state.tokenBudgetUsed, BigInt(12));
 }
 
-async function runRetriesSerializableKnowledgeStorageCap(): Promise<void> {
-  const { repository, getTransactionCalls, eventWrites } = createRetryingRepository(
-    buildState({ knowledgeStorageBytesUsed: BigInt(95) })
-  );
-
-  const result = await repository.applyKnowledgeStorageUsage({
-    workspaceId: "ws-1",
-    assistantId: "assistant-1",
-    userId: "user-1",
-    delta: BigInt(12),
-    source: "assistant_knowledge_upload",
-    metadata: { filename: "gazprom.pdf" },
-    limits: buildLimits()
+async function runReleasesKnowledgeStorageAgainstLockedState(): Promise<void> {
+  const harness = createRepositoryHarness({
+    initialState: buildState({ knowledgeStorageBytesUsed: BigInt(7) }),
+    failFirstTransactions: 1
   });
 
-  assert.equal(getTransactionCalls(), 2);
-  assert.equal(result.appliedDelta, BigInt(5));
-  assert.equal(result.capped, true);
-  assert.equal(result.state.knowledgeStorageBytesUsed, BigInt(100));
-  assert.equal(eventWrites.length, 1);
-  assert.equal(eventWrites[0]?.dimension, "knowledge_storage_bytes");
-  assert.equal(eventWrites[0]?.delta, BigInt(5));
-  assert.equal(eventWrites[0]?.source, "assistant_knowledge_upload");
-  assert.equal(eventWrites[0]?.workspaceId, "ws-1");
-}
-
-async function runRetriesSerializableKnowledgeStorageRelease(): Promise<void> {
-  const { repository, getTransactionCalls, eventWrites } = createRetryingRepository(
-    buildState({ knowledgeStorageBytesUsed: BigInt(7) })
-  );
-
-  const result = await repository.releaseKnowledgeStorageUsage({
+  const result = await harness.repository.releaseKnowledgeStorageUsage({
     workspaceId: "ws-1",
     assistantId: "assistant-1",
     userId: "user-1",
@@ -316,21 +377,19 @@ async function runRetriesSerializableKnowledgeStorageRelease(): Promise<void> {
     limits: buildLimits()
   });
 
-  assert.equal(getTransactionCalls(), 2);
+  assert.equal(harness.getTransactionCalls(), 2);
+  assert.equal(harness.getStateLockQueries(), 1);
   assert.equal(result.releasedDelta, BigInt(7));
   assert.equal(result.state.knowledgeStorageBytesUsed, BigInt(0));
-  assert.equal(eventWrites.length, 1);
-  assert.equal(eventWrites[0]?.dimension, "knowledge_storage_bytes");
-  assert.equal(eventWrites[0]?.delta, BigInt(-7));
-  assert.equal(eventWrites[0]?.source, "assistant_reset_knowledge_cleanup");
-  assert.equal(eventWrites[0]?.workspaceId, "ws-1");
+  assert.equal(harness.eventWrites.length, 1);
+  assert.equal(harness.eventWrites[0]?.dimension, "knowledge_storage_bytes");
+  assert.equal(harness.eventWrites[0]?.delta, BigInt(-7));
 }
 
 async function main(): Promise<void> {
-  await runRetriesSerializableTokenBudgetCap();
-  await runRetriesSerializableMediaStorageCap();
-  await runRetriesSerializableKnowledgeStorageCap();
-  await runRetriesSerializableKnowledgeStorageRelease();
+  await runRetriesConflictingTransactionAndLocksRows();
+  await runCreatesMissingRowsAfterRace();
+  await runReleasesKnowledgeStorageAgainstLockedState();
 }
 
 void main();

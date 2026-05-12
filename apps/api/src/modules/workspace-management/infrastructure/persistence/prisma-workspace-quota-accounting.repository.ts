@@ -28,6 +28,10 @@ import type {
 import type { WorkspaceQuotaAccountingState } from "../../domain/workspace-quota-accounting.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 @Injectable()
 export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaAccountingRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
@@ -316,131 +320,41 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
   async applyTokenBudgetUsage(
     input: ApplyTokenBudgetUsageInput
   ): Promise<ApplyTokenBudgetUsageResult> {
-    const maxRetries = 3;
-
-    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      try {
-        return await this.prisma.$transaction(
-          async (tx) => this.applyTokenBudgetUsageTx(tx, input),
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable
-          }
-        );
-      } catch (error) {
-        const prismaCode =
-          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
-        if (prismaCode === "P2034" && attempt < maxRetries) {
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    throw new Error("Failed to apply token budget usage after serialization retries.");
+    return this.withTransactionRetry("apply token budget usage", async () =>
+      this.prisma.$transaction(async (tx) => this.applyTokenBudgetUsageTx(tx, input))
+    );
   }
 
   async applyMediaStorageUsage(
     input: ApplyMediaStorageUsageInput
   ): Promise<ApplyMediaStorageUsageResult> {
-    const maxRetries = 3;
-
-    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      try {
-        return await this.prisma.$transaction(
-          async (tx) => this.applyMediaStorageUsageTx(tx, input),
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable
-          }
-        );
-      } catch (error) {
-        const prismaCode =
-          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
-        if (prismaCode === "P2034" && attempt < maxRetries) {
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    throw new Error("Failed to apply media storage usage after serialization retries.");
+    return this.withTransactionRetry("apply media storage usage", async () =>
+      this.prisma.$transaction(async (tx) => this.applyMediaStorageUsageTx(tx, input))
+    );
   }
 
   async applyKnowledgeStorageUsage(
     input: ApplyKnowledgeStorageUsageInput
   ): Promise<ApplyKnowledgeStorageUsageResult> {
-    const maxRetries = 3;
-
-    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      try {
-        return await this.prisma.$transaction(
-          async (tx) => this.applyKnowledgeStorageUsageTx(tx, input),
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable
-          }
-        );
-      } catch (error) {
-        const prismaCode =
-          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
-        if (prismaCode === "P2034" && attempt < maxRetries) {
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    throw new Error("Failed to apply knowledge storage usage after serialization retries.");
+    return this.withTransactionRetry("apply knowledge storage usage", async () =>
+      this.prisma.$transaction(async (tx) => this.applyKnowledgeStorageUsageTx(tx, input))
+    );
   }
 
   async releaseMediaStorageUsage(
     input: ReleaseMediaStorageUsageInput
   ): Promise<ReleaseMediaStorageUsageResult> {
-    const maxRetries = 3;
-
-    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      try {
-        return await this.prisma.$transaction(
-          async (tx) => this.releaseMediaStorageUsageTx(tx, input),
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable
-          }
-        );
-      } catch (error) {
-        const prismaCode =
-          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
-        if (prismaCode === "P2034" && attempt < maxRetries) {
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    throw new Error("Failed to release media storage usage after serialization retries.");
+    return this.withTransactionRetry("release media storage usage", async () =>
+      this.prisma.$transaction(async (tx) => this.releaseMediaStorageUsageTx(tx, input))
+    );
   }
 
   async releaseKnowledgeStorageUsage(
     input: ReleaseKnowledgeStorageUsageInput
   ): Promise<ReleaseKnowledgeStorageUsageResult> {
-    const maxRetries = 3;
-
-    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      try {
-        return await this.prisma.$transaction(
-          async (tx) => this.releaseKnowledgeStorageUsageTx(tx, input),
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable
-          }
-        );
-      } catch (error) {
-        const prismaCode =
-          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
-        if (prismaCode === "P2034" && attempt < maxRetries) {
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    throw new Error("Failed to release knowledge storage usage after serialization retries.");
+    return this.withTransactionRetry("release knowledge storage usage", async () =>
+      this.prisma.$transaction(async (tx) => this.releaseKnowledgeStorageUsageTx(tx, input))
+    );
   }
 
   async refreshActiveWebChatsUsage(
@@ -486,15 +400,7 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     tx: Prisma.TransactionClient,
     input: ApplyTokenBudgetUsageInput
   ): Promise<ApplyTokenBudgetUsageResult> {
-    const existingCounter = await tx.workspaceTokenBudgetPeriodCounter.findUnique({
-      where: {
-        workspaceId_periodStartedAt_periodEndsAt: {
-          workspaceId: input.workspaceId,
-          periodStartedAt: input.periodStartedAt,
-          periodEndsAt: input.periodEndsAt
-        }
-      }
-    });
+    const existingCounter = await this.lockOrCreateTokenBudgetPeriodCounterRow(tx, input);
 
     const used = existingCounter?.usedCredits ?? BigInt(0);
     const limit = input.limits.tokenBudgetLimit;
@@ -508,7 +414,7 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
           ? input.delta
           : normalizedRemaining;
 
-    const nextCounter = await tx.workspaceTokenBudgetPeriodCounter.upsert({
+    const nextCounter = await tx.workspaceTokenBudgetPeriodCounter.update({
       where: {
         workspaceId_periodStartedAt_periodEndsAt: {
           workspaceId: input.workspaceId,
@@ -516,32 +422,23 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
           periodEndsAt: input.periodEndsAt
         }
       },
-      update: {
+      data: {
         usedCredits: { increment: appliedDelta },
-        limitCredits: input.limits.tokenBudgetLimit,
-        lastComputedAt: new Date()
-      },
-      create: {
-        workspaceId: input.workspaceId,
-        periodStartedAt: input.periodStartedAt,
-        periodEndsAt: input.periodEndsAt,
-        usedCredits: appliedDelta,
         limitCredits: input.limits.tokenBudgetLimit,
         lastComputedAt: new Date()
       }
     });
 
-    const nextState = await tx.workspaceQuotaAccountingState.upsert({
+    await this.lockOrCreateQuotaStateRow(tx, {
+      workspaceId: input.workspaceId,
+      limits: input.limits
+    });
+
+    const nextState = await tx.workspaceQuotaAccountingState.update({
       where: { workspaceId: input.workspaceId },
-      update: {
+      data: {
         tokenBudgetUsed: nextCounter.usedCredits,
         ...this.toLimitUpdateInput(input.limits),
-        lastComputedAt: new Date()
-      },
-      create: {
-        workspaceId: input.workspaceId,
-        ...this.toLimitCreateInput(input.limits),
-        ...this.toUsageCreateInput("token_budget", nextCounter.usedCredits),
         lastComputedAt: new Date()
       }
     });
@@ -575,8 +472,9 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     tx: Prisma.TransactionClient,
     input: ApplyMediaStorageUsageInput
   ): Promise<ApplyMediaStorageUsageResult> {
-    const existing = await tx.workspaceQuotaAccountingState.findUnique({
-      where: { workspaceId: input.workspaceId }
+    const existing = await this.lockOrCreateQuotaStateRow(tx, {
+      workspaceId: input.workspaceId,
+      limits: input.limits
     });
 
     const used = existing?.mediaStorageBytesUsed ?? BigInt(0);
@@ -591,23 +489,14 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
           ? input.delta
           : normalizedRemaining;
 
-    const nextState = existing
-      ? await tx.workspaceQuotaAccountingState.update({
-          where: { workspaceId: input.workspaceId },
-          data: {
-            mediaStorageBytesUsed: { increment: appliedDelta },
-            ...this.toLimitUpdateInput(input.limits),
-            lastComputedAt: new Date()
-          }
-        })
-      : await tx.workspaceQuotaAccountingState.create({
-          data: {
-            workspaceId: input.workspaceId,
-            ...this.toLimitCreateInput(input.limits),
-            ...this.toUsageCreateInput("media_storage_bytes", appliedDelta),
-            lastComputedAt: new Date()
-          }
-        });
+    const nextState = await tx.workspaceQuotaAccountingState.update({
+      where: { workspaceId: input.workspaceId },
+      data: {
+        mediaStorageBytesUsed: { increment: appliedDelta },
+        ...this.toLimitUpdateInput(input.limits),
+        lastComputedAt: new Date()
+      }
+    });
 
     await tx.workspaceQuotaUsageEvent.create({
       data: {
@@ -633,8 +522,9 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     tx: Prisma.TransactionClient,
     input: ApplyKnowledgeStorageUsageInput
   ): Promise<ApplyKnowledgeStorageUsageResult> {
-    const existing = await tx.workspaceQuotaAccountingState.findUnique({
-      where: { workspaceId: input.workspaceId }
+    const existing = await this.lockOrCreateQuotaStateRow(tx, {
+      workspaceId: input.workspaceId,
+      limits: input.limits
     });
 
     const used = existing?.knowledgeStorageBytesUsed ?? BigInt(0);
@@ -649,23 +539,14 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
           ? input.delta
           : normalizedRemaining;
 
-    const nextState = existing
-      ? await tx.workspaceQuotaAccountingState.update({
-          where: { workspaceId: input.workspaceId },
-          data: {
-            knowledgeStorageBytesUsed: { increment: appliedDelta },
-            ...this.toLimitUpdateInput(input.limits),
-            lastComputedAt: new Date()
-          }
-        })
-      : await tx.workspaceQuotaAccountingState.create({
-          data: {
-            workspaceId: input.workspaceId,
-            ...this.toLimitCreateInput(input.limits),
-            ...this.toUsageCreateInput("knowledge_storage_bytes", appliedDelta),
-            lastComputedAt: new Date()
-          }
-        });
+    const nextState = await tx.workspaceQuotaAccountingState.update({
+      where: { workspaceId: input.workspaceId },
+      data: {
+        knowledgeStorageBytesUsed: { increment: appliedDelta },
+        ...this.toLimitUpdateInput(input.limits),
+        lastComputedAt: new Date()
+      }
+    });
 
     await tx.workspaceQuotaUsageEvent.create({
       data: {
@@ -691,31 +572,23 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     tx: Prisma.TransactionClient,
     input: ReleaseMediaStorageUsageInput
   ): Promise<ReleaseMediaStorageUsageResult> {
-    const existing = await tx.workspaceQuotaAccountingState.findUnique({
-      where: { workspaceId: input.workspaceId }
+    const existing = await this.lockOrCreateQuotaStateRow(tx, {
+      workspaceId: input.workspaceId,
+      limits: input.limits
     });
 
     const used = existing?.mediaStorageBytesUsed ?? BigInt(0);
     const releasedDelta =
       input.delta <= BigInt(0) ? BigInt(0) : input.delta < used ? input.delta : used;
 
-    const nextState = existing
-      ? await tx.workspaceQuotaAccountingState.update({
-          where: { workspaceId: input.workspaceId },
-          data: {
-            mediaStorageBytesUsed: { decrement: releasedDelta },
-            ...this.toLimitUpdateInput(input.limits),
-            lastComputedAt: new Date()
-          }
-        })
-      : await tx.workspaceQuotaAccountingState.create({
-          data: {
-            workspaceId: input.workspaceId,
-            ...this.toLimitCreateInput(input.limits),
-            ...this.toUsageCreateInput("media_storage_bytes", BigInt(0)),
-            lastComputedAt: new Date()
-          }
-        });
+    const nextState = await tx.workspaceQuotaAccountingState.update({
+      where: { workspaceId: input.workspaceId },
+      data: {
+        mediaStorageBytesUsed: { decrement: releasedDelta },
+        ...this.toLimitUpdateInput(input.limits),
+        lastComputedAt: new Date()
+      }
+    });
 
     await tx.workspaceQuotaUsageEvent.create({
       data: {
@@ -740,31 +613,23 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     tx: Prisma.TransactionClient,
     input: ReleaseKnowledgeStorageUsageInput
   ): Promise<ReleaseKnowledgeStorageUsageResult> {
-    const existing = await tx.workspaceQuotaAccountingState.findUnique({
-      where: { workspaceId: input.workspaceId }
+    const existing = await this.lockOrCreateQuotaStateRow(tx, {
+      workspaceId: input.workspaceId,
+      limits: input.limits
     });
 
     const used = existing?.knowledgeStorageBytesUsed ?? BigInt(0);
     const releasedDelta =
       input.delta <= BigInt(0) ? BigInt(0) : input.delta < used ? input.delta : used;
 
-    const nextState = existing
-      ? await tx.workspaceQuotaAccountingState.update({
-          where: { workspaceId: input.workspaceId },
-          data: {
-            knowledgeStorageBytesUsed: { decrement: releasedDelta },
-            ...this.toLimitUpdateInput(input.limits),
-            lastComputedAt: new Date()
-          }
-        })
-      : await tx.workspaceQuotaAccountingState.create({
-          data: {
-            workspaceId: input.workspaceId,
-            ...this.toLimitCreateInput(input.limits),
-            ...this.toUsageCreateInput("knowledge_storage_bytes", BigInt(0)),
-            lastComputedAt: new Date()
-          }
-        });
+    const nextState = await tx.workspaceQuotaAccountingState.update({
+      where: { workspaceId: input.workspaceId },
+      data: {
+        knowledgeStorageBytesUsed: { decrement: releasedDelta },
+        ...this.toLimitUpdateInput(input.limits),
+        lastComputedAt: new Date()
+      }
+    });
 
     await tx.workspaceQuotaUsageEvent.create({
       data: {
@@ -808,6 +673,112 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     }
 
     return limits.activeWebChatsLimit === null ? null : BigInt(limits.activeWebChatsLimit);
+  }
+
+  private async lockOrCreateTokenBudgetPeriodCounterRow(
+    tx: Prisma.TransactionClient,
+    input: ApplyTokenBudgetUsageInput
+  ): Promise<WorkspaceTokenBudgetPeriodCounter> {
+    const existing = await this.lockTokenBudgetPeriodCounterRow(
+      tx,
+      input.workspaceId,
+      input.periodStartedAt,
+      input.periodEndsAt
+    );
+    if (existing !== null) {
+      return existing;
+    }
+
+    try {
+      const created = await tx.workspaceTokenBudgetPeriodCounter.create({
+        data: {
+          workspaceId: input.workspaceId,
+          periodStartedAt: input.periodStartedAt,
+          periodEndsAt: input.periodEndsAt,
+          usedCredits: BigInt(0),
+          limitCredits: input.limits.tokenBudgetLimit,
+          lastComputedAt: new Date()
+        }
+      });
+      return this.mapTokenBudgetPeriodCounter(created);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const raced = await this.lockTokenBudgetPeriodCounterRow(
+          tx,
+          input.workspaceId,
+          input.periodStartedAt,
+          input.periodEndsAt
+        );
+        if (raced !== null) {
+          return raced;
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async lockOrCreateQuotaStateRow(
+    tx: Prisma.TransactionClient,
+    input: {
+      workspaceId: string;
+      limits: IncrementWorkspaceQuotaUsageInput["limits"];
+    }
+  ): Promise<WorkspaceQuotaAccountingState> {
+    const existing = await this.lockQuotaStateRow(tx, input.workspaceId);
+    if (existing !== null) {
+      return existing;
+    }
+
+    try {
+      const created = await tx.workspaceQuotaAccountingState.create({
+        data: {
+          workspaceId: input.workspaceId,
+          ...this.toLimitCreateInput(input.limits),
+          lastComputedAt: new Date()
+        }
+      });
+      return this.mapToDomain(created);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const raced = await this.lockQuotaStateRow(tx, input.workspaceId);
+        if (raced !== null) {
+          return raced;
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async lockTokenBudgetPeriodCounterRow(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+    periodStartedAt: Date,
+    periodEndsAt: Date
+  ): Promise<WorkspaceTokenBudgetPeriodCounter | null> {
+    const rows = await tx.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      SELECT *
+      FROM "workspace_token_budget_period_counters"
+      WHERE "workspace_id" = CAST(${workspaceId} AS uuid)
+        AND "period_started_at" = ${periodStartedAt}
+        AND "period_ends_at" = ${periodEndsAt}
+      FOR UPDATE
+    `);
+    const row = rows[0];
+    return row ? this.toTokenBudgetPeriodCounterFromRaw(row) : null;
+  }
+
+  private async lockQuotaStateRow(
+    tx: Prisma.TransactionClient,
+    workspaceId: string
+  ): Promise<WorkspaceQuotaAccountingState | null> {
+    const rows = await tx.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      SELECT *
+      FROM "workspace_quota_accounting_state"
+      WHERE "workspace_id" = CAST(${workspaceId} AS uuid)
+      FOR UPDATE
+    `);
+    const row = rows[0];
+    return row ? this.toQuotaStateDomainFromRaw(row) : null;
   }
 
   private toUsageCreateInput(
@@ -890,6 +861,76 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
       lastComputedAt: state.lastComputedAt,
       createdAt: state.createdAt,
       updatedAt: state.updatedAt
+    };
+  }
+
+  private async withTransactionRetry<T>(label: string, execute: () => Promise<T>): Promise<T> {
+    const maxRetries = 5;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        return await execute();
+      } catch (error) {
+        const prismaCode =
+          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
+        if (prismaCode === "P2034" && attempt < maxRetries) {
+          await sleep(25 * (attempt + 1));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error(`Failed to ${label} after transaction retries.`);
+  }
+
+  private toQuotaStateDomainFromRaw(row: Record<string, unknown>): WorkspaceQuotaAccountingState {
+    const get = <T>(camel: string, snake: string): T =>
+      ((row as Record<string, unknown>)[camel] ?? (row as Record<string, unknown>)[snake]) as T;
+
+    return {
+      id: get<string>("id", "id"),
+      workspaceId: get<string>("workspaceId", "workspace_id"),
+      tokenBudgetUsed: get<bigint>("tokenBudgetUsed", "token_budget_used"),
+      tokenBudgetLimit: get<bigint | null>("tokenBudgetLimit", "token_budget_limit") ?? null,
+      costOrTokenDrivingToolClassUnitsUsed: get<number>(
+        "costOrTokenDrivingToolClassUnitsUsed",
+        "cost_or_token_driving_tool_class_units_used"
+      ),
+      costOrTokenDrivingToolClassUnitsLimit:
+        get<number | null>(
+          "costOrTokenDrivingToolClassUnitsLimit",
+          "cost_or_token_driving_tool_class_units_limit"
+        ) ?? null,
+      activeWebChatsCurrent: get<number>("activeWebChatsCurrent", "active_web_chats_current"),
+      activeWebChatsLimit:
+        get<number | null>("activeWebChatsLimit", "active_web_chats_limit") ?? null,
+      mediaStorageBytesUsed: get<bigint>("mediaStorageBytesUsed", "media_storage_bytes_used"),
+      mediaStorageBytesLimit:
+        get<bigint | null>("mediaStorageBytesLimit", "media_storage_bytes_limit") ?? null,
+      knowledgeStorageBytesUsed: get<bigint>(
+        "knowledgeStorageBytesUsed",
+        "knowledge_storage_bytes_used"
+      ),
+      knowledgeStorageBytesLimit:
+        get<bigint | null>("knowledgeStorageBytesLimit", "knowledge_storage_bytes_limit") ?? null,
+      lastComputedAt: get<Date>("lastComputedAt", "last_computed_at"),
+      createdAt: get<Date>("createdAt", "created_at"),
+      updatedAt: get<Date>("updatedAt", "updated_at")
+    };
+  }
+
+  private toTokenBudgetPeriodCounterFromRaw(
+    row: Record<string, unknown>
+  ): WorkspaceTokenBudgetPeriodCounter {
+    const get = <T>(camel: string, snake: string): T =>
+      ((row as Record<string, unknown>)[camel] ?? (row as Record<string, unknown>)[snake]) as T;
+
+    return {
+      workspaceId: get<string>("workspaceId", "workspace_id"),
+      periodStartedAt: get<Date>("periodStartedAt", "period_started_at"),
+      periodEndsAt: get<Date>("periodEndsAt", "period_ends_at"),
+      usedCredits: get<bigint>("usedCredits", "used_credits"),
+      limitCredits: get<bigint | null>("limitCredits", "limit_credits") ?? null,
+      lastComputedAt: get<Date>("lastComputedAt", "last_computed_at")
     };
   }
 }
