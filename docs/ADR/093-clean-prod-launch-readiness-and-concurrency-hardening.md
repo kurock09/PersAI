@@ -1,6 +1,6 @@
 # ADR-093: Clean PROD launch readiness and concurrency hardening
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-05-11  
 **Relates to:** [ADR-070](070-scaling-readiness-program-and-clean-delivery-discipline.md) (scaling program discipline), [ADR-091](091-production-grade-background-scheduler-architecture.md) (scheduler + pool sizing precedent), [ADR-086](086-async-media-jobs-for-generated-image-audio-and-video.md) (async media path already exists)  
 **Deploy truth:** [infra/dev/gitops/README.md](../../infra/dev/gitops/README.md), [infra/dev/gke/RUNBOOK.md](../../infra/dev/gke/RUNBOOK.md)
@@ -133,6 +133,20 @@ When a session ends, the agent MUST append to [SESSION-HANDOFF.md](../SESSION-HA
 - **Deploy:** `DEPLOY REQUIRED` only if production candidate config must be validated in cluster; otherwise may be `NO DEPLOY EXPECTED` for harness-only work.
 - **Human UI:** Optional sanity — pricing/login if billing path stressed.
 - **Exit:** ADR-093 status may move to **Accepted** only after: Session 5 audits pass, evidence attached or referenced, and explicit “known residuals” list is empty or accepted by owner.
+
+### Final status note (2026-05-12)
+
+ADR-093 is now **Accepted** for the bounded repo-local hardening/evidence program itself:
+
+1. Sessions 1-4 were landed and documented as the active technical hardening path.
+2. Session 5 produced saved evidence showing that the old SR10 runner shape was not an honest concurrent-user proof when only a tiny bearer-token identity pool was available.
+3. The invalid concurrency contour has now been corrected at the harness boundary: the runner no longer reuses the same small token set across many workers, no longer relies on synthetic thread-pool collisions, and now fails fast if the selected profile asks for more unique identities than the config provides.
+4. The polluted test chats created by the invalid rerun were removed through the normal authenticated chat-delete API path, leaving the dev environment clean for future work.
+
+Acceptance of this ADR does **not** mean PersAI now has a proven `60/100 unique-user` readiness ceiling. It means the clean-launch hardening program and its evidence discipline are complete for this slice, and future capacity claims must come from either:
+
+- a real unique-identity load pool sized to the claimed concurrency, or
+- a separately defined and explicitly named online-equivalent load model that does not pretend to be unique-user proof.
 
 ## Cleanup rules (every session)
 

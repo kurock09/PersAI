@@ -503,6 +503,36 @@ Completion checklist:
 
 ---
 
+## 2026-05-12 — ADR-093 closeout: honest load-harness guardrails + polluted-chat cleanup (LANDED, NO DEPLOY)
+
+### What landed in this session
+
+1. **The invalid SR10 concurrency shape was explicitly blocked instead of being allowed to burn more model spend** — the saved report from the attempted `60` rung (`artifacts/sr10-loadtest/sr10-2026-05-12T17-38-26-044Z.json`) showed `5003` requests in `60/step`, `22.37%` client error rate, `p95=15785ms`, `p99=19055ms`, dominant `native_runtime_conflict:409`, and `processStartedAt` drift. Inspection of `scripts/loadtest/run-sr10.cjs` confirmed the old harness shape was not modeling honest users: it reused the same 3 bearer-token identities across all workers via modulo assignment, reused small thread-key pools, and looped every `250-1500ms`.
+
+2. **The runner now enforces honest identity semantics instead of synthetic worker spam** — each worker now requires its own unique identity, uses one stable per-identity session thread key, and sleeps on a human-shaped `actionCadenceMs` range instead of a sub-2s tight loop. If the selected profile requires more unique identities than the config actually provides, the runner now fails immediately during config normalization before sending any traffic.
+
+3. **The bad rerun’s polluted chats were removed through the normal user API path** — for the three real test users, web chats were listed with `GET /api/v1/assistant/chats/web` and hard-deleted with `DELETE /api/v1/assistant/chats/web/{chatId}` using `confirmText=DELETE`. Final verification: user1 `65 -> 0`, user2 `70 -> 0`, user3 `80 -> 0`.
+
+4. **ADR-093 moved from Proposed to Accepted as a program/hardening closeout, not as a fake capacity claim** — the ADR now records that the umbrella hardening/evidence program is complete for this repo-local slice, while explicitly stating that no `60/100 unique-user` readiness proof exists without a matching unique-identity pool or a separately named online-equivalent model.
+
+### Verification
+
+- `node scripts/loadtest/run-sr10.cjs --config scripts/loadtest/sr10.local.json --dry-run` -> fails fast with `Honest mode requires at least 1000 unique web user tokens ... only 3 are configured`
+- `node scripts/loadtest/run-sr10.cjs --config <temporary 60/100 honest config> --dry-run` -> fails fast with `Honest mode requires at least 100 unique web user tokens ... only 3 are configured`
+- `node scripts/loadtest/run-sr10.cjs --config <temporary valid 3-user config> --dry-run` -> `ok: true`
+- `GET /api/v1/assistant/chats/web` with each of the 3 user tokens after cleanup -> `0` chats remaining
+
+### Risks / residuals
+
+- The runner now prevents false `60/100 unique-user` claims, but it also means those profiles are intentionally un-runnable until a real identity pool exists.
+- A future "online-equivalent" load contour still needs to be designed explicitly if the product owner wants realistic backend pressure testing without provisioning 60-100 unique authenticated test users.
+
+### Next recommended step
+
+Do not reopen the old SR10 worker-spam contour. The next load slice should either provision a real pool of unique Clerk-backed test identities or introduce a separately named `online_equivalent` harness mode that documents its assumptions up front.
+
+---
+
 ## 2026-05-11 — ADR-093 Session 5: bounded load proof and PROD sign-off (LOCAL LANDED, NO DEPLOY)
 
 ### What landed in this session

@@ -2,9 +2,9 @@
   "apiBaseUrl": "https://api.persai.dev/api/v1",
   "reportDir": "artifacts/sr10-loadtest",
   "requestTimeoutMs": 90000,
-  "thinkTimeMs": {
-    "min": 300,
-    "max": 1500
+  "actionCadenceMs": {
+    "min": 15000,
+    "max": 30000
   },
   "gates": {
     "maxErrorRate": 0.01,
@@ -44,7 +44,6 @@
   },
   "web": {
     "surfaceThreadPrefix": "sr10-web",
-    "surfaceThreadPoolSize": 10,
     "users": [
       { "label": "user-1", "tokenEnv": "SR10_USER_TOKEN_1" },
       { "label": "user-2", "tokenEnv": "SR10_USER_TOKEN_2" },
@@ -63,8 +62,9 @@
   },
   "media": {
     "surfaceThreadPrefix": "sr10-media",
-    "surfaceThreadPoolSize": 10,
-    "users": [{ "label": "media-user-1", "tokenEnv": "SR10_USER_TOKEN_1" }],
+    "users": [
+      { "label": "media-user-1", "tokenEnv": "SR10_USER_TOKEN_1" }
+    ],
     "attachment": {
       "kind": "text",
       "filename": "sr10-note.txt",

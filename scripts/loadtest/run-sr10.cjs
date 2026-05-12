@@ -84,6 +84,18 @@ function assertNonNegativeNumber(value, label) {
   return value;
 }
 
+function assertPositiveRange(range, label) {
+  if (!range || typeof range !== "object" || Array.isArray(range)) {
+    throw new Error(`${label} must be an object with min/max.`);
+  }
+  const min = assertPositiveInteger(range.min, `${label}.min`);
+  const max = assertPositiveInteger(range.max, `${label}.max`);
+  if (max < min) {
+    throw new Error(`${label}.max must be >= ${label}.min.`);
+  }
+  return { min, max };
+}
+
 function resolveEnvToken(envName, label, options = {}) {
   const token = process.env[envName];
   if (typeof token !== "string" || token.trim().length === 0) {
@@ -124,10 +136,7 @@ function choiceWeighted(items) {
 
 function withTimeout(ms) {
   const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(new Error(`Request timed out after ${ms}ms`)),
-    ms
-  );
+  const timer = setTimeout(() => controller.abort(new Error(`Request timed out after ${ms}ms`)), ms);
   return {
     signal: controller.signal,
     clear() {
@@ -263,21 +272,20 @@ function summarizePayloadError(payload) {
   return { code: "unknown_error", message: "Request failed without structured error payload." };
 }
 
-function buildWorkerIdentityAssignment(users, workerIndex) {
-  const identityIndex = workerIndex % users.length;
+function buildWorkerIdentityAssignment(users, workerIndex, label) {
+  if (workerIndex >= users.length) {
+    throw new Error(
+      `${label}: worker ${workerIndex + 1} has no unique identity. Honest mode forbids modulo reuse of the same bearer token across multiple concurrent workers.`
+    );
+  }
   return {
-    identity: users[identityIndex],
-    workerSlot: Math.floor(workerIndex / users.length)
+    identity: users[workerIndex],
+    workerSlot: workerIndex
   };
 }
 
-function makeRotatingThreadKey(prefix, identityLabel, poolSize, workerSlot, requestSequence) {
-  const slot = (workerSlot + requestSequence) % poolSize;
-  return `${prefix}-${identityLabel}-${slot}`;
-}
-
-function makeStickyWorkerThreadKey(prefix, identityLabel, workerSlot) {
-  return `${prefix}-${identityLabel}-worker-${workerSlot}`;
+function makeSessionThreadKey(prefix, identityLabel, workerSlot) {
+  return `${prefix}-${identityLabel}-session-${workerSlot + 1}`;
 }
 
 function createTextAttachment(config) {
@@ -304,23 +312,12 @@ function createPngAttachment(config) {
 }
 
 async function scenarioWebSync(ctx, workerState, scenarioKind) {
-  const surfaceThreadKey = makeRotatingThreadKey(
-    ctx.config.web.surfaceThreadPrefix,
-    workerState.web.identity.label,
-    ctx.config.web.surfaceThreadPoolSize,
-    workerState.web.workerSlot,
-    workerState.web.requestSequence++
-  );
   const message =
     scenarioKind === "tool_prompt"
-      ? ctx.config.web.toolPromptTemplates[
-          randomBetween(0, ctx.config.web.toolPromptTemplates.length - 1)
-        ]
-      : ctx.config.web.messageTemplates[
-          randomBetween(0, ctx.config.web.messageTemplates.length - 1)
-        ];
+      ? ctx.config.web.toolPromptTemplates[randomBetween(0, ctx.config.web.toolPromptTemplates.length - 1)]
+      : ctx.config.web.messageTemplates[randomBetween(0, ctx.config.web.messageTemplates.length - 1)];
   const body = {
-    surfaceThreadKey,
+    surfaceThreadKey: workerState.web.chatThreadKey,
     message,
     clientTurnId: crypto.randomUUID()
   };
@@ -352,15 +349,9 @@ async function scenarioWebSync(ctx, workerState, scenarioKind) {
 }
 
 async function scenarioWebStream(ctx, workerState) {
-  const surfaceThreadKey = makeStickyWorkerThreadKey(
-    ctx.config.web.surfaceThreadPrefix,
-    workerState.web.identity.label,
-    workerState.web.workerSlot
-  );
-  const message =
-    ctx.config.web.messageTemplates[randomBetween(0, ctx.config.web.messageTemplates.length - 1)];
+  const message = ctx.config.web.messageTemplates[randomBetween(0, ctx.config.web.messageTemplates.length - 1)];
   const body = {
-    surfaceThreadKey,
+    surfaceThreadKey: workerState.web.chatThreadKey,
     message,
     clientTurnId: crypto.randomUUID()
   };
@@ -396,19 +387,12 @@ async function scenarioWebStream(ctx, workerState) {
 }
 
 async function scenarioWebStageAttachment(ctx, workerState) {
-  const surfaceThreadKey = makeRotatingThreadKey(
-    ctx.config.media.surfaceThreadPrefix,
-    workerState.media.identity.label,
-    ctx.config.media.surfaceThreadPoolSize,
-    workerState.media.workerSlot,
-    workerState.media.requestSequence++
-  );
   const attachment =
     ctx.config.media.attachment.kind === "png"
       ? createPngAttachment(ctx.config.media.attachment)
       : createTextAttachment(ctx.config.media.attachment);
   const form = new FormData();
-  form.append("surfaceThreadKey", surfaceThreadKey);
+  form.append("surfaceThreadKey", workerState.media.chatThreadKey);
   form.append("file", attachment.blob, attachment.filename);
 
   const startedAt = Date.now();
@@ -548,9 +532,7 @@ async function collectAdminOverview(config) {
 function evaluateGates(config, phaseSummary, adminBefore, adminAfter) {
   const failures = [];
   if (phaseSummary.errorRate > config.gates.maxErrorRate) {
-    failures.push(
-      `client error rate ${phaseSummary.errorRate.toFixed(4)} > ${config.gates.maxErrorRate}`
-    );
+    failures.push(`client error rate ${phaseSummary.errorRate.toFixed(4)} > ${config.gates.maxErrorRate}`);
   }
   if (phaseSummary.p95Ms > config.gates.maxP95Ms) {
     failures.push(`client p95 ${phaseSummary.p95Ms}ms > ${config.gates.maxP95Ms}ms`);
@@ -561,9 +543,7 @@ function evaluateGates(config, phaseSummary, adminBefore, adminAfter) {
 
   if (adminAfter && !adminAfter.error) {
     if (config.gates.requireHealthyRuntimeTiers === true) {
-      const unhealthy = (adminAfter.runtime?.tiers ?? []).filter(
-        (tier) => !tier.live || !tier.ready
-      );
+      const unhealthy = (adminAfter.runtime?.tiers ?? []).filter((tier) => !tier.live || !tier.ready);
       if (unhealthy.length > 0) {
         failures.push(
           `runtime unhealthy after phase: ${unhealthy.map((tier) => tier.tier).join(", ")}`
@@ -590,9 +570,7 @@ function evaluateGates(config, phaseSummary, adminBefore, adminAfter) {
       adminAfter.health?.processStartedAt &&
       adminBefore.health.processStartedAt !== adminAfter.health.processStartedAt
     ) {
-      failures.push(
-        "admin overview processStartedAt changed during phase (possible process restart)"
-      );
+      failures.push("admin overview processStartedAt changed during phase (possible process restart)");
     }
   }
 
@@ -610,15 +588,23 @@ async function runWorker(ctx, workerIndex, phaseEndAt) {
       webUsers.length === 0
         ? null
         : {
-            ...buildWorkerIdentityAssignment(webUsers, workerIndex),
-            requestSequence: 0
+            ...buildWorkerIdentityAssignment(webUsers, workerIndex, "web.users"),
+            chatThreadKey: makeSessionThreadKey(
+              ctx.config.web.surfaceThreadPrefix,
+              webUsers[workerIndex].label,
+              workerIndex
+            )
           },
     media:
       mediaUsers.length === 0
         ? null
         : {
-            ...buildWorkerIdentityAssignment(mediaUsers, workerIndex),
-            requestSequence: 0
+            ...buildWorkerIdentityAssignment(mediaUsers, workerIndex, "media.users"),
+            chatThreadKey: makeSessionThreadKey(
+              ctx.config.media.surfaceThreadPrefix,
+              mediaUsers[workerIndex].label,
+              workerIndex
+            )
           }
   };
 
@@ -653,8 +639,11 @@ async function runWorker(ctx, workerIndex, phaseEndAt) {
 
     recordResult(ctx.phaseStats, result);
 
-    const thinkMs = randomBetween(ctx.config.thinkTimeMs.min, ctx.config.thinkTimeMs.max);
-    await sleep(thinkMs);
+    const actionCadenceMs = randomBetween(
+      ctx.config.actionCadenceMs.min,
+      ctx.config.actionCadenceMs.max
+    );
+    await sleep(actionCadenceMs);
   }
 }
 
@@ -703,6 +692,34 @@ async function writeReport(reportDir, runId, report) {
   return reportPath;
 }
 
+function listSelectedPhaseConfigs(profiles) {
+  return Object.values(profiles).flatMap((profile) => Object.values(profile));
+}
+
+function maxConcurrentUsers(profiles) {
+  const phases = listSelectedPhaseConfigs(profiles);
+  return phases.reduce((max, phase) => Math.max(max, phase.users), 0);
+}
+
+function validateHonestIdentityCapacity(config) {
+  const requiredUsers = maxConcurrentUsers(config.profiles);
+  if (config.web && config.web.usersResolved.length < requiredUsers) {
+    throw new Error(
+      `Honest mode requires at least ${requiredUsers} unique web user tokens for the selected profiles, but only ${config.web.usersResolved.length} are configured. Add more distinct user identities or lower concurrency.`
+    );
+  }
+  const mediaKindsEnabled = new Set(config.trafficMix.map((entry) => entry.kind));
+  if (
+    config.media &&
+    (mediaKindsEnabled.has("web_stage_attachment") || mediaKindsEnabled.has("voice_transcribe")) &&
+    config.media.usersResolved.length < requiredUsers
+  ) {
+    throw new Error(
+      `Honest mode requires at least ${requiredUsers} unique media-capable user tokens for the selected profiles, but only ${config.media.usersResolved.length} are configured.`
+    );
+  }
+}
+
 function normalizeConfig(rawConfig, cliArgs) {
   const envOptions = { allowMissing: cliArgs.dryRun === true };
   const apiBaseUrl = assertString(rawConfig.apiBaseUrl, "apiBaseUrl").replace(/\/$/, "");
@@ -727,14 +744,8 @@ function normalizeConfig(rawConfig, cliArgs) {
       }
       normalizedProfiles[profileId][phaseName] = {
         users: assertPositiveInteger(phase.users, `${profileId}.${phaseName}.users`),
-        rampSeconds: assertNonNegativeNumber(
-          phase.rampSeconds,
-          `${profileId}.${phaseName}.rampSeconds`
-        ),
-        holdSeconds: assertNonNegativeNumber(
-          phase.holdSeconds,
-          `${profileId}.${phaseName}.holdSeconds`
-        )
+        rampSeconds: assertNonNegativeNumber(phase.rampSeconds, `${profileId}.${phaseName}.rampSeconds`),
+        holdSeconds: assertNonNegativeNumber(phase.holdSeconds, `${profileId}.${phaseName}.holdSeconds`)
       };
     }
   }
@@ -752,10 +763,10 @@ function normalizeConfig(rawConfig, cliArgs) {
     apiBaseUrl,
     reportDir: cliArgs.reportDir ?? rawConfig.reportDir ?? "artifacts/sr10-loadtest",
     requestTimeoutMs: rawConfig.requestTimeoutMs ?? 90_000,
-    thinkTimeMs: {
-      min: rawConfig.thinkTimeMs?.min ?? 250,
-      max: rawConfig.thinkTimeMs?.max ?? 1500
-    },
+    actionCadenceMs: assertPositiveRange(
+      rawConfig.actionCadenceMs ?? rawConfig.thinkTimeMs ?? { min: 15_000, max: 30_000 },
+      "actionCadenceMs"
+    ),
     profiles: normalizedProfiles,
     trafficMix: normalizedMix,
     gates: {
@@ -787,13 +798,11 @@ function normalizeConfig(rawConfig, cliArgs) {
     config.web = {
       surfaceThreadPrefix: rawConfig.web.surfaceThreadPrefix ?? "sr10-web",
       surfaceThreadPoolSize: rawConfig.web.surfaceThreadPoolSize ?? 10,
-      messageTemplates:
-        Array.isArray(rawConfig.web.messageTemplates) && rawConfig.web.messageTemplates.length > 0
-          ? rawConfig.web.messageTemplates
-          : ["Give a short helpful reply about your purpose."],
+      messageTemplates: Array.isArray(rawConfig.web.messageTemplates) && rawConfig.web.messageTemplates.length > 0
+        ? rawConfig.web.messageTemplates
+        : ["Give a short helpful reply about your purpose."],
       toolPromptTemplates:
-        Array.isArray(rawConfig.web.toolPromptTemplates) &&
-        rawConfig.web.toolPromptTemplates.length > 0
+        Array.isArray(rawConfig.web.toolPromptTemplates) && rawConfig.web.toolPromptTemplates.length > 0
           ? rawConfig.web.toolPromptTemplates
           : ["Use one allowed tool if available, then answer briefly."],
       usersResolved: users.map((user, index) => ({
@@ -810,7 +819,7 @@ function normalizeConfig(rawConfig, cliArgs) {
   if (rawConfig.media) {
     const users = Array.isArray(rawConfig.media.users)
       ? rawConfig.media.users
-      : (rawConfig.web?.users ?? []);
+      : rawConfig.web?.users ?? [];
     if (users.length === 0) {
       throw new Error("media.users (or web.users) must exist to run media scenarios.");
     }
@@ -860,6 +869,7 @@ function normalizeConfig(rawConfig, cliArgs) {
     }
   }
 
+  validateHonestIdentityCapacity(config);
   return config;
 }
 
@@ -882,6 +892,9 @@ async function main() {
           ok: true,
           apiBaseUrl: config.apiBaseUrl,
           reportDir: config.reportDir,
+          actionCadenceMs: config.actionCadenceMs,
+          uniqueWebUsers: config.web?.usersResolved.length ?? 0,
+          uniqueMediaUsers: config.media?.usersResolved.length ?? 0,
           trafficMix: config.trafficMix,
           profiles: plan
         },
