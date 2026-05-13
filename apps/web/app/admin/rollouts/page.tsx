@@ -5,6 +5,8 @@ import { useAuth } from "@clerk/nextjs";
 import { Layers, Loader2, RefreshCw } from "lucide-react";
 import {
   getAdminPlatformRollouts,
+  postAdminForceReapplyAll,
+  type ForceReapplyAllSummary,
   type MaterializationRolloutView
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
@@ -87,6 +89,9 @@ export default function AdminRolloutsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [reapplying, setReapplying] = useState(false);
+  const [reapplyError, setReapplyError] = useState<string | null>(null);
+  const [reapplySummary, setReapplySummary] = useState<ForceReapplyAllSummary | null>(null);
 
   const load = useCallback(
     async (opts?: { quiet?: boolean }) => {
@@ -110,6 +115,33 @@ export default function AdminRolloutsPage() {
     },
     [getToken]
   );
+
+  const handleForceReapplyAll = useCallback(async () => {
+    if (
+      !window.confirm(
+        "This will queue a controlled materialization rollout for all published assistants. Continue?"
+      )
+    ) {
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      setReapplyError("Missing session.");
+      return;
+    }
+    setReapplying(true);
+    setReapplyError(null);
+    setReapplySummary(null);
+    try {
+      const summary = await postAdminForceReapplyAll(token);
+      setReapplySummary(summary);
+      await load({ quiet: true });
+    } catch (error) {
+      setReapplyError(error instanceof Error ? error.message : "Failed to queue rollout.");
+    } finally {
+      setReapplying(false);
+    }
+  }, [getToken, load]);
 
   useEffect(() => {
     void load();
@@ -147,10 +179,36 @@ export default function AdminRolloutsPage() {
         </div>
       )}
 
-      <div className="rounded-lg border border-border bg-surface-raised px-3 py-3 text-xs text-text-muted">
-        <code>Force reapply all</code> now queues a controlled <code>manual_reapply</code> rollout
-        from <code>Admin &gt; Plans</code>. This page is now read-only and shows rollout execution
-        state only.
+      <div className="rounded-lg border border-border bg-surface-raised p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-text">Force reapply all</p>
+            <p className="text-xs text-text-muted">
+              Queue a controlled <code>manual_reapply</code> rollout for all published assistants.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleForceReapplyAll()}
+            disabled={reapplying}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/15 disabled:opacity-50"
+          >
+            {reapplying ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Force reapply all
+          </button>
+        </div>
+        {reapplyError && <p className="mt-2 text-xs text-destructive">{reapplyError}</p>}
+        {reapplySummary && (
+          <p className="mt-2 text-xs text-text-muted">
+            Queued rollout <span className="font-mono text-text">{reapplySummary.rolloutId}</span>{" "}
+            at generation {reapplySummary.targetGeneration}. {reapplySummary.totalItems} item
+            {reapplySummary.totalItems === 1 ? "" : "s"}, {reapplySummary.pendingCount} pending.
+          </p>
+        )}
       </div>
 
       {rollouts.length === 0 ? (

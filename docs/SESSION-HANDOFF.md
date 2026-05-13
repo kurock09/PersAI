@@ -12,6 +12,40 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 
 ---
 
+## 2026-05-14 — ADR-085 follow-up: reapply action moved to Rollouts, and ADR truth was aligned (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **Manual reapply now lives on the rollout dashboard where operators already watch rollout state.** `Admin > Rollouts` now owns the queued `Force reapply all` action and shows the immediate queue summary after enqueue, while `Admin > Plans` no longer carries that operational control.
+
+2. **ADR/doc truth was aligned with the actual repo state.** The legacy active JSON-rollout and synchronous all-assistant reapply cleanup slice is now complete, but ADR-085 itself is still not fully closed because the rollout-aware next-turn freshness gate and failed-item operator controls are not implemented yet.
+
+3. **Focused UI coverage was added for the moved control.** The rollouts page now has a targeted test that proves the page can queue the manual rollout and refresh the list.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx app/admin/rollouts/page.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** for `web` and docs follow-through.
+- No schema migration in this slice.
+- `Admin > Rollouts` is the active operator surface for queued manual reapply plus rollout visibility.
+
+### Next recommended step
+
+Continue ADR-085 with the actual remaining product/runtime slice:
+
+1. make `EnsureAssistantMaterializedSpecCurrentService` and the inbound runtime freshness path rollout-aware instead of directly rematerializing inline on stale state
+2. add failed-item inspection plus retry/cancel controls to the admin rollout surface and API
+3. only after those land, move ADR-085 from accepted/in-progress implementation to truly closed
+
+---
+
 ## 2026-05-14 — ADR-085 Slice 4: billing/system producers now queue visible rollout jobs, and dead immediate path is removed (LOCAL LANDED, DEPLOY REQUIRED)
 
 ### What landed in this session

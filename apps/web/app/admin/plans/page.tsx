@@ -11,7 +11,6 @@ import {
   Loader2,
   Pencil,
   Plus,
-  RefreshCw,
   Trash2,
   X
 } from "lucide-react";
@@ -27,9 +26,7 @@ import {
   getAdminRuntimeProviderSettings,
   patchAdminPlan,
   postAdminPlanCreate,
-  postAdminForceReapplyAll,
   getAdminMediaPackages,
-  type ForceReapplyAllSummary,
   type MediaPackageCatalogItem
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
@@ -3534,8 +3531,6 @@ export default function AdminPlansPage() {
   const [availableVideoModelKeys, setAvailableVideoModelKeys] = useState<
     { provider: string; model: string }[]
   >([]);
-  const [reapplying, setReapplying] = useState(false);
-  const [reapplySummary, setReapplySummary] = useState<ForceReapplyAllSummary | null>(null);
   const [packages, setPackages] = useState<MediaPackageCatalogItem[]>([]);
   const [packagesLoading, setPackagesLoading] = useState(false);
 
@@ -3635,34 +3630,6 @@ export default function AdminPlansPage() {
     setEditDraft((d) => (d ? { ...d, ...p } : d));
     setEditValidationErrors((current) => clearValidationErrors(current, p));
   }, []);
-
-  const handleForceReapplyAll = useCallback(async () => {
-    if (
-      !window.confirm(
-        "This will queue a controlled materialization rollout for all published assistants. Continue?"
-      )
-    )
-      return;
-    const token = await getToken();
-    if (!token) return;
-    setReapplying(true);
-    setReapplySummary(null);
-    setFeedback(null);
-    try {
-      const summary = await postAdminForceReapplyAll(token);
-      setReapplySummary(summary);
-      setFeedback({
-        kind: "success",
-        message: `Queued rollout ${summary.rolloutId} for ${String(summary.totalItems)} assistants at generation ${String(summary.targetGeneration)}.`
-      });
-    } catch (err) {
-      setFeedback({
-        kind: "error",
-        message: err instanceof Error ? err.message : "Failed to queue materialization rollout."
-      });
-    }
-    setReapplying(false);
-  }, [getToken]);
 
   const openCreate = useCallback(() => {
     setEditingCode(null);
@@ -3827,19 +3794,6 @@ export default function AdminPlansPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => void handleForceReapplyAll()}
-            disabled={reapplying || saving}
-            className="inline-flex items-center gap-1 rounded border border-orange-400/40 bg-orange-500/10 px-2 py-1 text-[10px] font-semibold text-orange-600 transition-colors hover:bg-orange-500/20 disabled:opacity-50"
-          >
-            {reapplying ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3 w-3" />
-            )}
-            Force reapply all
-          </button>
-          <button
-            type="button"
             onClick={openCreate}
             disabled={saving}
             className={cn(
@@ -3878,16 +3832,6 @@ export default function AdminPlansPage() {
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           )}
           {feedback.message}
-        </div>
-      )}
-
-      {reapplySummary && (
-        <div className="mb-3 rounded border border-orange-400/30 bg-orange-500/10 p-2.5 text-[11px] text-orange-300">
-          <span className="font-semibold">Queued rollout:</span> {reapplySummary.rolloutId},{" "}
-          generation {reapplySummary.targetGeneration}, {reapplySummary.totalItems} items,{" "}
-          {reapplySummary.pendingCount} pending, {reapplySummary.runningCount} running,{" "}
-          {reapplySummary.succeeded} succeeded, {reapplySummary.degraded} degraded,{" "}
-          {reapplySummary.failed} failed, {reapplySummary.skipped} skipped
         </div>
       )}
 
