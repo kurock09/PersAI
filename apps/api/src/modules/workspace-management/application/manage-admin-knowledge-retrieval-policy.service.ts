@@ -11,6 +11,7 @@ import {
   type UpdateAdminKnowledgeRetrievalPolicyInput
 } from "./admin-knowledge-retrieval-policy";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
+import { MaterializationRolloutService } from "./materialization-rollout.service";
 import {
   createDefaultPlatformRuntimeRouterPolicy,
   createEmptyAvailableModelCatalogByProvider,
@@ -35,7 +36,8 @@ export class ManageAdminKnowledgeRetrievalPolicyService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly materializationRolloutService: MaterializationRolloutService
   ) {}
 
   parseUpdateInput(body: unknown): UpdateAdminKnowledgeRetrievalPolicyInput {
@@ -57,11 +59,28 @@ export class ManageAdminKnowledgeRetrievalPolicyService {
     userId: string,
     input: UpdateAdminKnowledgeRetrievalPolicyInput
   ): Promise<{ policy: AdminKnowledgeRetrievalPolicyState; configGeneration: number }> {
-    await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
+    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
     const policy = buildAdminKnowledgeRetrievalPolicyState(input);
     await this.persistPolicy(policy, userId);
     const backfill = await this.enqueueAdminKnowledgeEmbeddingBackfill(policy, userId);
     const configGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId: userId,
+      workspaceId: access.workspaceId,
+      rolloutType: "system_prompt_change",
+      triggerSource: "prompt_settings",
+      scopeType: "affected_policy",
+      criticality: "soft",
+      targetGeneration: configGeneration,
+      scopeMetadata: {
+        reason: "admin.knowledge_retrieval_policy.update",
+        embeddingModelKey: policy.embeddingModelKey,
+        retrievalModelKey: policy.retrievalModelKey,
+        authoringModelKey: policy.authoringModelKey
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a knowledge retrieval policy materialization rollout."
+    });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: null,
       assistantId: null,

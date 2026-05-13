@@ -8,9 +8,10 @@ import {
 import type { Prisma, WorkspaceSubscriptionStatus } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ManageAdminBillingLifecycleSettingsService } from "./manage-admin-billing-lifecycle-settings.service";
-import { MaterializeWorkspacePaidActivationService } from "./materialize-workspace-paid-activation.service";
 import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
 import { BillingLifecycleProducerService } from "./billing-lifecycle-producer.service";
+import { BumpConfigGenerationService } from "./bump-config-generation.service";
+import { MaterializationRolloutService } from "./materialization-rollout.service";
 
 export type WorkspaceSubscriptionLifecycleEventSource = "system" | "admin" | "provider" | "manual";
 
@@ -55,8 +56,9 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly billingLifecycleSettingsService: ManageAdminBillingLifecycleSettingsService,
     private readonly BillingLifecycleProducerService: BillingLifecycleProducerService,
-    @Inject(forwardRef(() => MaterializeWorkspacePaidActivationService))
-    private readonly materializeWorkspacePaidActivationService: MaterializeWorkspacePaidActivationService
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
+    @Inject(forwardRef(() => MaterializationRolloutService))
+    private readonly materializationRolloutService: MaterializationRolloutService
   ) {}
 
   private fallbackProviderResetData(): Pick<
@@ -138,6 +140,9 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       );
     });
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, "renewal_failed", {
+      reason: "renewal_failed"
+    });
     await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
@@ -196,6 +201,9 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       );
     });
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, "billing_lifecycle", {
+      reason: "trial_extended"
+    });
     await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
@@ -248,6 +256,9 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       );
     });
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, "billing_lifecycle", {
+      reason: "grace_started"
+    });
     await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
@@ -302,6 +313,9 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       );
     });
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, "billing_lifecycle", {
+      reason: "grace_extended"
+    });
     await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
@@ -378,6 +392,9 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       );
     });
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, "billing_lifecycle", {
+      reason: "grace_expired"
+    });
     await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
@@ -445,6 +462,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     source: WorkspaceSubscriptionLifecycleEventSource;
     refs?: LifecycleEventRefs;
   }): Promise<void> {
+    const lifecycleEventIds: string[] = [];
     await this.prisma.$transaction(async (tx) => {
       const current = await this.requireWorkspaceSubscription(tx, input.workspaceId);
       if (
@@ -472,17 +490,27 @@ export class ManageWorkspaceSubscriptionLifecycleService {
           })
         }
       });
-      await this.appendLifecycleEvent(tx, {
-        workspaceId: input.workspaceId,
-        userId: input.userId,
-        subscriptionId: current.id,
-        eventCode: "auto_renew_disabled",
-        previous: current,
-        next: updated,
-        source: input.source,
-        refs: input.refs
-      });
+      lifecycleEventIds.push(
+        await this.appendLifecycleEvent(tx, {
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          subscriptionId: current.id,
+          eventCode: "auto_renew_disabled",
+          previous: current,
+          next: updated,
+          source: input.source,
+          refs: input.refs
+        })
+      );
     });
+    if (lifecycleEventIds.length === 0) {
+      return;
+    }
+    await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, "billing_lifecycle", {
+      reason: "auto_renew_disabled"
+    });
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   async resumePaidAutoRenew(input: {
@@ -494,6 +522,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     providerCustomerRef?: string | null;
     providerSubscriptionRef?: string | null;
   }): Promise<void> {
+    const lifecycleEventIds: string[] = [];
     await this.prisma.$transaction(async (tx) => {
       const current = await this.requireWorkspaceSubscription(tx, input.workspaceId);
       if (
@@ -525,17 +554,29 @@ export class ManageWorkspaceSubscriptionLifecycleService {
           })
         }
       });
-      await this.appendLifecycleEvent(tx, {
-        workspaceId: input.workspaceId,
-        userId: input.userId,
-        subscriptionId: current.id,
-        eventCode: "subscription_resumed",
-        previous: current,
-        next: updated,
-        source: input.source,
-        refs: input.refs
-      });
+      lifecycleEventIds.push(
+        await this.appendLifecycleEvent(tx, {
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          subscriptionId: current.id,
+          eventCode: "subscription_resumed",
+          previous: current,
+          next: updated,
+          source: input.source,
+          refs: input.refs
+        })
+      );
     });
+    if (lifecycleEventIds.length === 0) {
+      return;
+    }
+    await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, "billing_lifecycle", {
+      reason: "subscription_resumed",
+      billingProvider: input.billingProvider ?? null,
+      providerSubscriptionRef: input.providerSubscriptionRef ?? null
+    });
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   async enablePaidAutoRenew(input: {
@@ -547,6 +588,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     providerCustomerRef: string | null;
     providerSubscriptionRef: string;
   }): Promise<void> {
+    const lifecycleEventIds: string[] = [];
     await this.prisma.$transaction(async (tx) => {
       const current = await this.requireWorkspaceSubscription(tx, input.workspaceId);
       if (
@@ -583,17 +625,29 @@ export class ManageWorkspaceSubscriptionLifecycleService {
           })
         }
       });
-      await this.appendLifecycleEvent(tx, {
-        workspaceId: input.workspaceId,
-        userId: input.userId,
-        subscriptionId: current.id,
-        eventCode: "auto_renew_enabled",
-        previous: current,
-        next: updated,
-        source: input.source,
-        refs: input.refs
-      });
+      lifecycleEventIds.push(
+        await this.appendLifecycleEvent(tx, {
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          subscriptionId: current.id,
+          eventCode: "auto_renew_enabled",
+          previous: current,
+          next: updated,
+          source: input.source,
+          refs: input.refs
+        })
+      );
     });
+    if (lifecycleEventIds.length === 0) {
+      return;
+    }
+    await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, "billing_lifecycle", {
+      reason: "auto_renew_enabled",
+      billingProvider: input.billingProvider,
+      providerSubscriptionRef: input.providerSubscriptionRef
+    });
+    await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
   async schedulePlanChangeAtPeriodEnd(input: {
@@ -749,6 +803,9 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       return;
     }
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, "billing_lifecycle", {
+      reason: "canceled_paid_period_ended"
+    });
     await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
@@ -820,6 +877,9 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     });
 
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, "billing_lifecycle", {
+      reason: "payment_reversed"
+    });
     await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
@@ -885,6 +945,9 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     });
 
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, "billing_lifecycle", {
+      reason: "fallback_applied_now"
+    });
     await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
@@ -1066,7 +1129,12 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     });
 
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
-    await this.materializeWorkspacePaidActivationService.execute(input.workspaceId);
+    await this.queueBillingLifecycleRollout(input.workspaceId, input.userId, input.eventCode, {
+      reason: input.lifecycleReason,
+      paidPlanCode: input.paidPlanCode,
+      billingProvider: input.billingProvider,
+      providerSubscriptionRef: input.providerSubscriptionRef
+    });
     await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
   }
 
@@ -1224,6 +1292,30 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     await this.prisma.assistant.updateMany({
       where: { workspaceId },
       data: { configDirtyAt: new Date() }
+    });
+  }
+
+  private async queueBillingLifecycleRollout(
+    workspaceId: string,
+    actorUserId: string | null,
+    reason: string,
+    scopeMetadata: Record<string, unknown>
+  ): Promise<void> {
+    const targetGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId,
+      workspaceId,
+      rolloutType: "billing_lifecycle_change",
+      triggerSource: "billing_lifecycle",
+      scopeType: "affected_policy",
+      criticality: "hard",
+      targetGeneration,
+      scopeMetadata: {
+        reason,
+        ...scopeMetadata
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Billing lifecycle queued a materialization rollout."
     });
   }
 }

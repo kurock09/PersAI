@@ -1327,8 +1327,8 @@ async function run(): Promise<void> {
   try {
     const processFanoutScript = [
       "const { spawn } = require('node:child_process');",
-      "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { stdio: 'ignore' });",
-      "setTimeout(() => {}, 5000);"
+      "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 15000)'], { stdio: 'ignore' });",
+      "setTimeout(() => {}, 15000);"
     ].join(" ");
     await assert.rejects(
       () =>

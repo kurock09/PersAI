@@ -6,13 +6,12 @@ import {
   type AdminBillingLifecycleSettingsState,
   type PutAdminBillingLifecycleSettingsResponse,
   type AssistantSkillCatalogItemState,
+  type MaterializationRolloutView,
   type AdminSkillState,
   type AdminSkillUpsertRequest,
   type GetAssistantSkillsResponse,
   type KnowledgeIndexingJobState,
-  type PlatformRolloutState,
   type PutAssistantSkillAssignmentsRequest,
-  type PostAdminPlatformRolloutRequest,
   type SkillDocumentState,
   type AdminPlanCreateRequest,
   type AdminDangerousActionCode,
@@ -108,8 +107,6 @@ import {
   putAssistantSkillAssignments as putAssistantSkillAssignmentsContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract,
   postAssistantTelegramRevoke as postAssistantTelegramRevokeContract,
-  postAdminPlatformRollout as postAdminPlatformRolloutContract,
-  postAdminPlatformRolloutRollback as postAdminPlatformRolloutRollbackContract,
   putAdminRuntimeProviderSettings as putAdminRuntimeProviderSettingsContract,
   putAdminBillingLifecycleSettings as putAdminBillingLifecycleSettingsContract,
   // ADR-088 unified notification platform
@@ -2172,7 +2169,7 @@ export async function compactChat(
 export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };
 export type { AdminBusinessCockpitState };
 export type { AdminOpsCockpitState };
-export type { PlatformRolloutState, PostAdminPlatformRolloutRequest };
+export type { MaterializationRolloutView };
 export type { UserPlanVisibilityState, AdminPlanVisibilityState };
 export type { TelegramIntegrationState, AssistantTelegramConfigUpdateRequest };
 
@@ -2869,7 +2866,9 @@ export async function previewNotification(
   }
 }
 
-export async function getAdminPlatformRollouts(token: string): Promise<PlatformRolloutState[]> {
+export async function getAdminPlatformRollouts(
+  token: string
+): Promise<MaterializationRolloutView[]> {
   try {
     const response = await getAdminPlatformRolloutsContract({
       headers: getAuthHeaders(token)
@@ -2976,66 +2975,6 @@ export async function putAdminRuntimeProviderSettings(
       throw new Error("Unexpected non-success response for PUT /admin/runtime/provider-settings.");
     }
     return response.data;
-  } catch (error) {
-    throw new Error(toErrorMessage(error));
-  }
-}
-
-export async function postAdminPlatformRollout(
-  token: string,
-  input: PostAdminPlatformRolloutRequest
-): Promise<PlatformRolloutState> {
-  try {
-    const stepUpToken = await issueAdminStepUpToken(token, "admin.rollout.apply");
-    const response = await postAdminPlatformRolloutContract(input, {
-      headers: {
-        ...getAuthHeaders(token),
-        "x-persai-step-up-token": stepUpToken
-      }
-    });
-    if (!isSuccessStatus(response.status)) {
-      throw new Error("Unexpected non-success response for POST /admin/platform-rollouts.");
-    }
-    if (
-      typeof response.data !== "object" ||
-      response.data === null ||
-      !("rollout" in response.data)
-    ) {
-      throw new Error("Unexpected non-success response for POST /admin/platform-rollouts.");
-    }
-    return response.data.rollout;
-  } catch (error) {
-    throw new Error(toErrorMessage(error));
-  }
-}
-
-export async function postAdminPlatformRolloutRollback(
-  token: string,
-  rolloutId: string
-): Promise<PlatformRolloutState> {
-  try {
-    const stepUpToken = await issueAdminStepUpToken(token, "admin.rollout.rollback");
-    const response = await postAdminPlatformRolloutRollbackContract(rolloutId, {
-      headers: {
-        ...getAuthHeaders(token),
-        "x-persai-step-up-token": stepUpToken
-      }
-    });
-    if (!isSuccessStatus(response.status)) {
-      throw new Error(
-        "Unexpected non-success response for POST /admin/platform-rollouts/{rolloutId}/rollback."
-      );
-    }
-    if (
-      typeof response.data !== "object" ||
-      response.data === null ||
-      !("rollout" in response.data)
-    ) {
-      throw new Error(
-        "Unexpected non-success response for POST /admin/platform-rollouts/{rolloutId}/rollback."
-      );
-    }
-    return response.data.rollout;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
@@ -3700,12 +3639,17 @@ export async function postAssistantBillingPackagePaymentIntent(
 }
 
 export type ForceReapplyAllSummary = {
-  totalAssistants: number;
-  withPublishedVersion: number;
+  rolloutId: string;
+  targetGeneration: number;
+  totalItems: number;
+  pendingCount: number;
+  runningCount: number;
   succeeded: number;
   degraded: number;
   failed: number;
   skipped: number;
+  cancelledCount: number;
+  status: string;
 };
 
 export function getAssistantFileDownloadUrl(

@@ -10,6 +10,7 @@ import type {
 } from "../domain/persona-archetype.entity";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
+import { MaterializationRolloutService } from "./materialization-rollout.service";
 
 /**
  * ADR-074 V1 — admin/runtime gateway for `persona_archetypes`.
@@ -32,7 +33,8 @@ export class ManagePersonaArchetypesService {
     @Inject(PERSONA_ARCHETYPE_REPOSITORY)
     private readonly personaArchetypeRepository: PersonaArchetypeRepository,
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    private readonly bumpConfigGenerationService: BumpConfigGenerationService
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
+    private readonly materializationRolloutService: MaterializationRolloutService
   ) {}
 
   async ensureDefaults(): Promise<void> {
@@ -79,15 +81,30 @@ export class ManagePersonaArchetypesService {
     key: string,
     input: PersonaArchetypePatchInput
   ): Promise<PersonaArchetype> {
-    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     await this.ensureDefaults();
     const result = await this.personaArchetypeRepository.patch(key, input);
-    await this.bumpConfigGenerationService.execute();
+    const configGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId: userId,
+      workspaceId: access.workspaceId,
+      rolloutType: "system_prompt_change",
+      triggerSource: "prompt_settings",
+      scopeType: "affected_policy",
+      criticality: "soft",
+      targetGeneration: configGeneration,
+      scopeMetadata: {
+        reason: "admin.persona_archetype.patch",
+        archetypeKey: key
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a persona archetype materialization rollout."
+    });
     return result;
   }
 
   async resetToDefault(userId: string, key: string): Promise<PersonaArchetype> {
-    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const compiledDefault = PERSONA_ARCHETYPE_DEFAULTS.find((archetype) => archetype.key === key);
     if (!compiledDefault) {
       throw new NotFoundException(
@@ -95,7 +112,22 @@ export class ManagePersonaArchetypesService {
       );
     }
     const result = await this.personaArchetypeRepository.upsertOverwrite(compiledDefault);
-    await this.bumpConfigGenerationService.execute();
+    const configGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId: userId,
+      workspaceId: access.workspaceId,
+      rolloutType: "system_prompt_change",
+      triggerSource: "prompt_settings",
+      scopeType: "affected_policy",
+      criticality: "soft",
+      targetGeneration: configGeneration,
+      scopeMetadata: {
+        reason: "admin.persona_archetype.reset",
+        archetypeKey: key
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a persona archetype materialization rollout."
+    });
     return result;
   }
 }

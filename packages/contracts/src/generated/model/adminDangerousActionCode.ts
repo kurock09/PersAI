@@ -15,8 +15,6 @@ export const AdminDangerousActionCode = {
   adminplandelete: "admin.plan.delete",
   adminbilling_lifecycle_settingsupdate: "admin.billing_lifecycle_settings.update",
   adminruntime_provider_settingsupdate: "admin.runtime_provider_settings.update",
-  adminrolloutapply: "admin.rollout.apply",
-  adminrolloutrollback: "admin.rollout.rollback",
   adminassistanttransfer_ownership: "admin.assistant.transfer_ownership",
   adminassistantrecover_ownership: "admin.assistant.recover_ownership",
   adminforce_reapply_all: "admin.force_reapply_all"

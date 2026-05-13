@@ -9,6 +9,7 @@ function createHarness() {
   >();
   const secrets = new Map<string, { value: string; lastFour: string; updatedAt: Date }>();
   const auditEvents: unknown[] = [];
+  const rolloutRequests: unknown[] = [];
   let configGeneration = 0;
 
   const prisma = {
@@ -79,6 +80,29 @@ function createHarness() {
       execute: async (event: unknown) => {
         auditEvents.push(event);
       }
+    } as never,
+    {
+      createAutomaticGlobalRollout: async (input: unknown) => {
+        rolloutRequests.push(input);
+        return {
+          id: "rollout-1",
+          rolloutType: "runtime_provider_settings_change",
+          targetGeneration: 1,
+          totalItems: 0,
+          pendingCount: 0,
+          runningCount: 0,
+          succeededCount: 0,
+          degradedCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          cancelledCount: 0,
+          status: "succeeded",
+          startedAt: null,
+          finishedAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+      }
     } as never
   );
 
@@ -86,7 +110,8 @@ function createHarness() {
     service,
     settingsRows,
     secrets,
-    auditEvents
+    auditEvents,
+    rolloutRequests
   };
 }
 
@@ -153,6 +178,25 @@ async function run(): Promise<void> {
     true
   );
   assert.equal(harness.auditEvents.length, 1);
+  assert.equal(harness.rolloutRequests.length, 1);
+  assert.deepEqual(harness.rolloutRequests[0], {
+    actorUserId: "admin-1",
+    workspaceId: "ws-1",
+    rolloutType: "runtime_provider_settings_change",
+    triggerSource: "provider_settings",
+    scopeType: "provider_profile",
+    criticality: "soft",
+    targetGeneration: 1,
+    scopeMetadata: {
+      reason: "admin.document_processing_settings.update",
+      defaultProvider: "mistral",
+      highQualityFallbackProvider: "llamaparse",
+      localFallbackEnabled: true,
+      autoFallbackEnabled: true
+    },
+    auditEventCode: "admin.materialization_rollout_created",
+    auditSummary: "Admin queued a document processing settings materialization rollout."
+  });
 
   const localConnection = await harness.service.testConnection("admin-1", "local");
   assert.equal(localConnection.ok, true);

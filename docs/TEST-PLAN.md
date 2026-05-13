@@ -471,13 +471,14 @@ Interpretation rules:
 5. **Notifications:** billing and payment-success communications must flow through `NotificationIntentService` / unified platform paths; delivery history must remain visible under `GET /api/v1/admin/notifications/deliveries` for billing sources after ADR-092 implementation closes the audit items in the ADR.
 6. **Receipt policy:** branded PersAI payment email must link to the official provider/cash-register receipt when available, without pretending the marketing email is the fiscal document.
 
-## ADR-084 immediate activation/materialization focused checks
+## ADR-085 billing/system rollout focused checks
 
-When a change touches post-payment activation speed, assistant rematerialization after trusted success, or the billing-return truth refresh path, add focused checks before broad verification:
+When a change touches billing/system subscription transitions, post-payment propagation, admin workspace subscription writes, or the billing-return truth refresh path, add focused checks before broad verification:
 
 ```bash
 corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts
-corepack pnpm --filter @persai/api exec tsx test/materialize-workspace-paid-activation.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-workspace-subscription.service.test.ts
 corepack pnpm --filter @persai/web exec vitest run app/app/chat/page.test.tsx
 corepack pnpm --filter @persai/api run typecheck
 corepack pnpm --filter @persai/web run typecheck
@@ -485,9 +486,29 @@ corepack pnpm --filter @persai/web run typecheck
 
 Interpretation rules:
 
-1. Trusted paid success must not stop at `workspace_subscriptions`; it must trigger immediate assistant rematerialization/warmup for published assistants in the workspace.
-2. The next paid-sensitive turn must not rely on a later random refresh to pick up the new plan/runtime policy after a trusted success path.
+1. Trusted paid success must not stop at `workspace_subscriptions`; it must mark workspace assistants dirty, bump config generation, and enqueue visible `billing_lifecycle_change` rollout work for published assistants in the workspace.
+2. System-created subscription initialization/fallback and admin workspace subscription writes must use the same visible rollout contract instead of hidden synchronous or lazy-only propagation.
 3. Client return routing may trigger a reload of server truth, but it must not declare paid activation from client params alone.
+
+## ADR-085 materialization rollout foundation focused checks
+
+When a change touches queued materialization rollouts, manual reapply, rollout workers, rollout status persistence, or the replacement of synchronous reapply paths, add these focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma
+corepack pnpm --filter @persai/api exec tsx test/materialization-rollout.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/materialization-rollout-worker.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. `Admin > Plans > Force reapply all` must enqueue a `manual_reapply` rollout job instead of synchronously looping every assistant in the request/response path.
+2. The rollout worker must skip assistants that already have a fresh-enough materialized spec for the target generation.
+3. Rollout processing must continue to use the existing safe apply/materialize/warmup path rather than inventing a parallel partial apply seam.
+4. The old JSON governance `/admin/rollouts` product path must not be silently treated as equivalent truth to the new materialization rollout path during the migration.
+5. Prisma/schema slices here are deploy-bearing and must be followed by the normal migration-aware deploy discipline from `AGENTS.md` / ADR-093.
 
 ## ADR-084 admin manual payment and Ops support focused checks
 

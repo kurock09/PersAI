@@ -17,6 +17,8 @@ import type {
 } from "../domain/workspace-subscription.entity";
 import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
 import { ApplyWorkspaceSubscriptionBillingEventService } from "./apply-workspace-subscription-billing-event.service";
+import { BumpConfigGenerationService } from "./bump-config-generation.service";
+import { MaterializationRolloutService } from "./materialization-rollout.service";
 
 const WORKSPACE_SUBSCRIPTION_STATUSES: readonly WorkspaceSubscriptionStatus[] = [
   "trialing",
@@ -56,7 +58,9 @@ export class ManageAdminWorkspaceSubscriptionService {
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
     private readonly planCatalogRepository: AssistantPlanCatalogRepository,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly applyWorkspaceSubscriptionBillingEventService: ApplyWorkspaceSubscriptionBillingEventService
+    private readonly applyWorkspaceSubscriptionBillingEventService: ApplyWorkspaceSubscriptionBillingEventService,
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
+    private readonly materializationRolloutService: MaterializationRolloutService
   ) {}
 
   parseApplyInput(body: unknown): AdminWorkspaceSubscriptionInput {
@@ -162,6 +166,16 @@ export class ManageAdminWorkspaceSubscriptionService {
 
     await this.workspaceSubscriptionRepository.upsertFromBillingSnapshot(snapshot);
     await this.markWorkspaceAssistantsConfigDirty(assistant.workspaceId);
+    await this.queueBillingLifecycleRollout(
+      assistant.workspaceId,
+      targetUserId,
+      "admin_workspace_subscription_set",
+      {
+        reason: "admin.workspace_subscription.set",
+        planCode: snapshot.planCode,
+        status: snapshot.status
+      }
+    );
     return { ok: true, changed: true, workspaceId: assistant.workspaceId };
   }
 
@@ -186,6 +200,14 @@ export class ManageAdminWorkspaceSubscriptionService {
 
     await this.workspaceSubscriptionRepository.deleteByWorkspaceId(assistant.workspaceId);
     await this.markWorkspaceAssistantsConfigDirty(assistant.workspaceId);
+    await this.queueBillingLifecycleRollout(
+      assistant.workspaceId,
+      targetUserId,
+      "admin_workspace_subscription_reset",
+      {
+        reason: "admin.workspace_subscription.reset"
+      }
+    );
     return { ok: true, changed: true, workspaceId: assistant.workspaceId };
   }
 
@@ -308,6 +330,30 @@ export class ManageAdminWorkspaceSubscriptionService {
     await this.prisma.assistant.updateMany({
       where: { workspaceId },
       data: { configDirtyAt: new Date() }
+    });
+  }
+
+  private async queueBillingLifecycleRollout(
+    workspaceId: string,
+    actorUserId: string | null,
+    reason: string,
+    scopeMetadata: Record<string, unknown>
+  ): Promise<void> {
+    const targetGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId,
+      workspaceId,
+      rolloutType: "billing_lifecycle_change",
+      triggerSource: "billing_lifecycle",
+      scopeType: "affected_policy",
+      criticality: "hard",
+      targetGeneration,
+      scopeMetadata: {
+        reason,
+        ...scopeMetadata
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Billing lifecycle queued a materialization rollout."
     });
   }
 

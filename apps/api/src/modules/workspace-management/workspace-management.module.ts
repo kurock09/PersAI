@@ -96,7 +96,6 @@ import { WebPushChannelAdapter } from "./infrastructure/notifications/channel-ad
 import { MobilePushChannelAdapter } from "./infrastructure/notifications/channel-adapters/mobile-push-channel.adapter";
 import { NOTIFICATION_CHANNEL_ADAPTERS } from "./infrastructure/notifications/channel-adapters/channel-adapter.interface";
 import { InternalNotificationsPostmarkWebhookController } from "./interface/http/internal-notifications-postmark-webhook.controller";
-import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
 import { ManageAdminRuntimeProviderSettingsService } from "./application/manage-admin-runtime-provider-settings.service";
 import { ManageAdminDocumentProcessingSettingsService } from "./application/manage-admin-document-processing-settings.service";
 import { ManageAdminBillingProviderCredentialsService } from "./application/manage-admin-billing-provider-credentials.service";
@@ -133,7 +132,6 @@ import { HandleCloudpaymentsWebhookService } from "./application/handle-cloudpay
 import { ManageMediaPackageCatalogService } from "./application/manage-media-package-catalog.service";
 import { ManageMediaPackagePurchaseService } from "./application/manage-media-package-purchase.service";
 import { ManageWorkspaceSubscriptionLifecycleService } from "./application/manage-workspace-subscription-lifecycle.service";
-import { MaterializeWorkspacePaidActivationService } from "./application/materialize-workspace-paid-activation.service";
 import { ApplyWorkspaceSubscriptionBillingEventService } from "./application/apply-workspace-subscription-billing-event.service";
 import { BillingLifecycleProducerService } from "./application/billing-lifecycle-producer.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
@@ -269,6 +267,8 @@ import { ManagePersonaArchetypesService } from "./application/manage-persona-arc
 import { SeedToolCatalogService } from "./application/seed-tool-catalog.service";
 import { BumpConfigGenerationService } from "./application/bump-config-generation.service";
 import { ForceReapplyAllService } from "./application/force-reapply-all.service";
+import { MaterializationRolloutService } from "./application/materialization-rollout.service";
+import { MaterializationRolloutWorkerService } from "./application/materialization-rollout-worker.service";
 import { SyncNativeRuntimeBundleService } from "./application/sync-native-runtime-bundle.service";
 import { SyncProviderGatewayWarmupService } from "./application/sync-provider-gateway-warmup.service";
 import { CompilePromptConstructorService } from "./application/compile-prompt-constructor.service";
@@ -408,7 +408,6 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageNotificationPlatformService,
     HandlePostmarkWebhookService,
     ResolveWorkspaceNotificationChannelsService,
-    ManagePlatformRolloutsService,
     ManageAdminRuntimeProviderSettingsService,
     ManageAdminDocumentProcessingSettingsService,
     ManageAdminBillingProviderCredentialsService,
@@ -438,7 +437,6 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAssistantPaymentIntentsService,
     HandleCloudpaymentsWebhookService,
     ManageWorkspaceSubscriptionLifecycleService,
-    MaterializeWorkspacePaidActivationService,
     ApplyWorkspaceSubscriptionBillingEventService,
     BillingLifecycleProducerService,
     HandleInternalCronFireService,
@@ -651,6 +649,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     SeedToolCatalogService,
     BumpConfigGenerationService,
     ForceReapplyAllService,
+    MaterializationRolloutService,
+    MaterializationRolloutWorkerService,
     SyncNativeRuntimeBundleService,
     SyncProviderGatewayWarmupService,
     CompilePromptConstructorService,

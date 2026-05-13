@@ -110,12 +110,15 @@ async function run(): Promise<void> {
     }
   });
 
-  const { challenge } = await issuer.issueStepUpChallenge("user-1", "admin.rollout.apply");
+  const { challenge } = await issuer.issueStepUpChallenge(
+    "user-1",
+    "admin.runtime_provider_settings.update"
+  );
   await assert.rejects(
     () =>
       verifier.assertCanPerformDangerousAdminAction(
         "user-1",
-        "admin.rollout.apply",
+        "admin.runtime_provider_settings.update",
         challenge.token
       ),
     ForbiddenException

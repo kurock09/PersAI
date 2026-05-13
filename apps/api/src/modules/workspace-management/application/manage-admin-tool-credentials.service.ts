@@ -4,6 +4,7 @@ import { AdminAuthorizationService } from "./admin-authorization.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { MaterializationRolloutService } from "./materialization-rollout.service";
 import type { PlatformRuntimeProviderKeyMetadata } from "./platform-runtime-provider-settings";
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
@@ -24,7 +25,8 @@ export class ManageAdminToolCredentialsService {
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly materializationRolloutService: MaterializationRolloutService
   ) {}
 
   parseUpdateInput(body: unknown): UpdateToolCredentialsInput {
@@ -53,7 +55,7 @@ export class ManageAdminToolCredentialsService {
     input: UpdateToolCredentialsInput,
     stepUpToken: string | null
   ): Promise<AdminToolCredentialsState> {
-    await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+    const access = await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
       userId,
       "admin.tool_credentials.update",
       stepUpToken
@@ -97,6 +99,27 @@ export class ManageAdminToolCredentialsService {
     });
 
     const configGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId: userId,
+      workspaceId: access.workspaceId,
+      rolloutType: "tool_policy_change",
+      triggerSource: "tool_policy",
+      scopeType: "affected_policy",
+      criticality: "hard",
+      targetGeneration: configGeneration,
+      scopeMetadata: {
+        reason: "admin.tool_credentials.update",
+        updatedCredentials: Object.entries(input.keys)
+          .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
+          .map(([key]) => key),
+        updatedProviders: Object.entries(input.providers)
+          .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
+          .map(([key, value]) => ({ credentialKey: key, providerId: value })),
+        ttsPrimaryProviderId: input.ttsPrimaryProviderId ?? null
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a tool credential materialization rollout."
+    });
 
     await this.appendAssistantAuditEventService.execute({
       workspaceId: null,

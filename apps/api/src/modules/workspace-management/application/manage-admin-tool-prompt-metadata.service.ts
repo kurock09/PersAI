@@ -10,6 +10,7 @@ import {
 } from "../domain/tool-catalog.repository";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
+import { MaterializationRolloutService } from "./materialization-rollout.service";
 import {
   isPromptConstructorModelToolCode,
   PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER,
@@ -44,7 +45,8 @@ export class ManageAdminToolPromptMetadataService {
     @Inject(TOOL_CATALOG_REPOSITORY)
     private readonly toolCatalogRepository: ToolCatalogRepository,
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    private readonly bumpConfigGenerationService: BumpConfigGenerationService
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
+    private readonly materializationRolloutService: MaterializationRolloutService
   ) {}
 
   async list(userId: string): Promise<AdminToolPromptMetadataState[]> {
@@ -72,7 +74,7 @@ export class ManageAdminToolPromptMetadataService {
       modelUsageGuidance?: string | null;
     }
   ): Promise<AdminToolPromptMetadataState> {
-    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     await this.ensureHiddenPromptTemplateDefaults();
     if (isSyntheticPromptConstructorToolCode(toolCode)) {
       const ids = getSyntheticPromptConstructorToolStorageIds(toolCode);
@@ -85,7 +87,22 @@ export class ManageAdminToolPromptMetadataService {
           patch.modelUsageGuidance ?? ""
         );
       }
-      await this.bumpConfigGenerationService.execute();
+      const configGeneration = await this.bumpConfigGenerationService.execute();
+      await this.materializationRolloutService.createAutomaticGlobalRollout({
+        actorUserId: userId,
+        workspaceId: access.workspaceId,
+        rolloutType: "system_prompt_change",
+        triggerSource: "prompt_settings",
+        scopeType: "affected_policy",
+        criticality: "soft",
+        targetGeneration: configGeneration,
+        scopeMetadata: {
+          reason: "admin.tool_prompt_metadata.update",
+          toolCode
+        },
+        auditEventCode: "admin.materialization_rollout_created",
+        auditSummary: "Admin queued a tool prompt metadata materialization rollout."
+      });
       const rows = await this.promptTemplateRepository.findAll();
       return resolveSyntheticPromptConstructorTool(toolCode, rows);
     }
@@ -94,7 +111,22 @@ export class ManageAdminToolPromptMetadataService {
     }
     try {
       const updated = await this.toolCatalogRepository.updateToolPromptMetadata(toolCode, patch);
-      await this.bumpConfigGenerationService.execute();
+      const configGeneration = await this.bumpConfigGenerationService.execute();
+      await this.materializationRolloutService.createAutomaticGlobalRollout({
+        actorUserId: userId,
+        workspaceId: access.workspaceId,
+        rolloutType: "system_prompt_change",
+        triggerSource: "prompt_settings",
+        scopeType: "affected_policy",
+        criticality: "soft",
+        targetGeneration: configGeneration,
+        scopeMetadata: {
+          reason: "admin.tool_prompt_metadata.update",
+          toolCode
+        },
+        auditEventCode: "admin.materialization_rollout_created",
+        auditSummary: "Admin queued a tool prompt metadata materialization rollout."
+      });
       return updated;
     } catch (error) {
       if (error instanceof Error && error.message.includes("not found")) {

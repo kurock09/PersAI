@@ -4914,12 +4914,12 @@ paths:
   /admin/platform-rollouts:
     get:
       operationId: getAdminPlatformRollouts
-      summary: List platform-managed rollout operations
+      summary: List materialization rollout operations
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Platform rollout operations
+          description: Materialization rollout operations
           content:
             application/json:
               schema:
@@ -4932,110 +4932,6 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "403":
           description: Forbidden (ops/business/security/super-admin role required)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-    post:
-      operationId: postAdminPlatformRollout
-      summary: Apply platform-managed progressive rollout
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: header
-          name: x-persai-step-up-token
-          required: true
-          schema:
-            type: string
-          description: Step-up token issued by POST /admin/step-up/challenge for action admin.rollout.apply.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PostAdminPlatformRolloutRequest"
-      responses:
-        "200":
-          description: Platform rollout applied
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PostAdminPlatformRolloutResponse"
-        "400":
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          description: Forbidden (ops/super-admin role and valid step-up required)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-  /admin/platform-rollouts/{rolloutId}/rollback:
-    post:
-      operationId: postAdminPlatformRolloutRollback
-      summary: Roll back a platform-managed rollout operation
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: rolloutId
-          required: true
-          schema:
-            type: string
-        - in: header
-          name: x-persai-step-up-token
-          required: true
-          schema:
-            type: string
-          description: Step-up token issued by POST /admin/step-up/challenge for action admin.rollout.rollback.
-      responses:
-        "200":
-          description: Platform rollout rolled back
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PostAdminPlatformRolloutRollbackResponse"
-        "400":
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          description: Forbidden (ops/super-admin role and valid step-up required)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "404":
-          description: Rollout not found
           content:
             application/json:
               schema:
@@ -13047,59 +12943,59 @@ components:
           nullable: true
         tool:
           $ref: "#/components/schemas/AdminToolPromptMetadataState"
-    PlatformRolloutStatus:
+    MaterializationRolloutStatus:
       type: string
       enum:
-        - in_progress
-        - applied
-        - rolled_back
+        - pending
+        - running
+        - succeeded
         - failed
-    PlatformRolloutPatch:
-      type: object
-      additionalProperties: false
-      properties:
-        capabilityEnvelope: {}
-        secretRefs: {}
-        policyEnvelope: {}
-        memoryControl: {}
-        tasksControl: {}
-        quotaHook: {}
-        auditHook: {}
-    PlatformRolloutState:
+        - cancelled
+    MaterializationRolloutView:
       type: object
       required:
         - id
+        - rolloutType
+        - targetGeneration
+        - totalItems
+        - pendingCount
+        - runningCount
+        - succeededCount
+        - degradedCount
+        - failedCount
+        - skippedCount
+        - cancelledCount
         - status
-        - rolloutPercent
-        - targetPatch
-        - totalAssistants
-        - targetedAssistants
-        - applySucceededCount
-        - applyDegradedCount
-        - applyFailedCount
-        - rolledBackAt
-        - createdAt
-        - updatedAt
       properties:
         id:
           type: string
+        rolloutType:
+          type: string
+        targetGeneration:
+          type: integer
+        totalItems:
+          type: integer
+        pendingCount:
+          type: integer
+        runningCount:
+          type: integer
+        succeededCount:
+          type: integer
+        degradedCount:
+          type: integer
+        failedCount:
+          type: integer
+        skippedCount:
+          type: integer
+        cancelledCount:
+          type: integer
         status:
-          $ref: "#/components/schemas/PlatformRolloutStatus"
-        rolloutPercent:
-          type: integer
-        targetPatch:
-          $ref: "#/components/schemas/PlatformRolloutPatch"
-        totalAssistants:
-          type: integer
-        targetedAssistants:
-          type: integer
-        applySucceededCount:
-          type: integer
-        applyDegradedCount:
-          type: integer
-        applyFailedCount:
-          type: integer
-        rolledBackAt:
+          $ref: "#/components/schemas/MaterializationRolloutStatus"
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
           type: string
           format: date-time
           nullable: true
@@ -13109,38 +13005,18 @@ components:
         updatedAt:
           type: string
           format: date-time
-    PostAdminPlatformRolloutRequest:
+    GetAdminPlatformRolloutsResponse:
       type: object
       required:
-        - rolloutPercent
-        - targetPatch
-      properties:
-        rolloutPercent:
-          type: integer
-          minimum: 1
-          maximum: 100
-        targetPatch:
-          $ref: "#/components/schemas/PlatformRolloutPatch"
-    PostAdminPlatformRolloutResponse:
-      type: object
-      required:
-        - rollout
+        - rollouts
       properties:
         requestId:
           type: string
           nullable: true
-        rollout:
-          $ref: "#/components/schemas/PlatformRolloutState"
-    PostAdminPlatformRolloutRollbackResponse:
-      type: object
-      required:
-        - rollout
-      properties:
-        requestId:
-          type: string
-          nullable: true
-        rollout:
-          $ref: "#/components/schemas/PlatformRolloutState"
+        rollouts:
+          type: array
+          items:
+            $ref: "#/components/schemas/MaterializationRolloutView"
     AdminAbuseUnblockRequest:
       type: object
       required:
@@ -13354,18 +13230,6 @@ components:
           nullable: true
         ownership:
           $ref: "#/components/schemas/AdminAssistantOwnershipState"
-    GetAdminPlatformRolloutsResponse:
-      type: object
-      required:
-        - rollouts
-      properties:
-        requestId:
-          type: string
-          nullable: true
-        rollouts:
-          type: array
-          items:
-            $ref: "#/components/schemas/PlatformRolloutState"
     PostAdminPlanResponse:
       type: object
       required:
@@ -13384,8 +13248,6 @@ components:
         - admin.plan.delete
         - admin.billing_lifecycle_settings.update
         - admin.runtime_provider_settings.update
-        - admin.rollout.apply
-        - admin.rollout.rollback
         - admin.assistant.transfer_ownership
         - admin.assistant.recover_ownership
         - admin.force_reapply_all

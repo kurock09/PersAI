@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
+import { MaterializationRolloutService } from "./materialization-rollout.service";
 import {
   PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID,
   createDefaultPlatformRuntimeRouterPolicy,
@@ -35,7 +36,8 @@ export class ManageAdminDocumentProcessingSettingsService {
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly materializationRolloutService: MaterializationRolloutService
   ) {}
 
   parseUpdateInput(body: unknown): AdminDocumentProcessingSettingsRequest {
@@ -73,7 +75,7 @@ export class ManageAdminDocumentProcessingSettingsService {
     settings: AdminDocumentProcessingSettingsState;
     configGeneration: number;
   }> {
-    await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+    const access = await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
       userId,
       "admin.document_processing_settings.update",
       stepUpToken
@@ -107,6 +109,24 @@ export class ManageAdminDocumentProcessingSettingsService {
     await this.persistPolicy(input.policy, userId);
     const settings = await this.resolveSettingsState();
     const configGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId: userId,
+      workspaceId: access.workspaceId,
+      rolloutType: "runtime_provider_settings_change",
+      triggerSource: "provider_settings",
+      scopeType: "provider_profile",
+      criticality: "soft",
+      targetGeneration: configGeneration,
+      scopeMetadata: {
+        reason: "admin.document_processing_settings.update",
+        defaultProvider: settings.policy.defaultProvider,
+        highQualityFallbackProvider: settings.policy.highQualityFallbackProvider,
+        localFallbackEnabled: settings.policy.localFallbackEnabled,
+        autoFallbackEnabled: settings.policy.autoFallbackEnabled
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a document processing settings materialization rollout."
+    });
 
     await this.appendAssistantAuditEventService.execute({
       workspaceId: null,

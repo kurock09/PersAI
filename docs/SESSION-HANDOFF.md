@@ -12,6 +12,150 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 
 ---
 
+## 2026-05-14 — ADR-085 Slice 4: billing/system producers now queue visible rollout jobs, and dead immediate path is removed (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **Billing/system subscription transitions now create visible materialization rollout jobs instead of hidden propagation.** `ManageWorkspaceSubscriptionLifecycleService`, `ResolveEffectiveSubscriptionStateService`, and `ManageAdminWorkspaceSubscriptionService` now all use the same pattern for rollout-bearing subscription changes: mark assistants dirty, bump config generation, then queue a `billing_lifecycle_change` rollout through `MaterializationRolloutService`.
+
+2. **The dead immediate paid-activation helper was removed from the active tree.** The orphaned `MaterializeWorkspacePaidActivationService` class is no longer registered in Nest and its standalone test was removed, so the repo now has one active billing/system propagation truth instead of a live rollout path plus a stale unused immediate path.
+
+3. **Focused handoff/test truth now matches the code again.** Billing/system rollout behavior is documented as rollout-queue based, not as a hidden synchronous rematerialization helper.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-workspace-subscription.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** for `api`.
+- No schema migration in this slice.
+- Active billing/system rollout-bearing subscription changes now appear in the materialization rollout queue/dashboard instead of relying on a hidden immediate helper path.
+
+### Next recommended step
+
+1. run the remaining AGENTS/ADR verification gates for the whole ADR-085 worktree
+2. truth-align the remaining ADR/docs tables that still describe pending or legacy rollout state
+3. only then consider historical schema cleanup for legacy rollout tables
+
+---
+
+## 2026-05-13 — ADR-085 Slice 3: automatic global config changes now create visible rollout jobs (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **Automatic global admin config changes now create rollout jobs instead of only bumping generation silently.** `MaterializationRolloutService` now has a shared helper for global rollout creation after a known config-generation bump.
+
+2. **The main active global writers now queue visible materialization rollout jobs.** This session wired automatic rollout creation into:
+   - `ManageAdminPlansService`
+   - `ManageAdminRuntimeProviderSettingsService`
+   - `ManageAdminDocumentProcessingSettingsService`
+   - `ManageAdminToolCredentialsService`
+   - `ManageAdminKnowledgeRetrievalPolicyService`
+   - `ManagePromptTemplatesService`
+   - `ManageAdminToolPromptMetadataService`
+   - `ManagePersonaArchetypesService`
+
+3. **Global config propagation is now much more honest operationally.** These paths still bump config generation as before, but they now also create visible rollout rows with rollout type / trigger source / scope / criticality metadata so operators can see that broad rematerialization work was requested instead of relying on hidden lazy drift.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx --test test/materialization-rollout.service.test.ts test/materialization-rollout-worker.service.test.ts test/admin-authorization.test.ts test/manage-admin-document-processing-settings.service.test.ts test/manage-bootstrap-presets.service.test.ts test/manage-admin-tool-prompt-metadata.service.test.ts test/manage-admin-runtime-provider-settings.service.test.ts test/manage-admin-tool-credentials.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** for `api`.
+- This slice changes active admin config writers so they now create rollout jobs as part of the write path.
+- Automatic billing/system producers are **not** yet migrated in this slice; this session only covers the active admin/global config writers listed above.
+
+### Next recommended step
+
+Continue ADR-085 with the **remaining system producer slice**:
+
+1. route billing/system-triggered global config/materialization changes into visible rollout jobs
+2. add failed-item inspection / retry controls if still needed by the ADR
+3. only after that, consider historical schema cleanup for old rollout tables
+
+---
+
+## 2026-05-13 — ADR-085 Slice 2: `/admin/rollouts` replacement + legacy rollout cleanup (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **`Admin > Rollouts` now reads the new materialization rollout truth.** `GET /api/v1/admin/platform-rollouts` now returns the new materialization rollout dashboard view sourced from `MaterializationRolloutService`, and `apps/web/app/admin/rollouts/page.tsx` is now a compact read-only operations page showing rollout status, generation, counts, and timing instead of the old JSON governance patch form.
+
+2. **The old active JSON rollout mutation path is removed.** The live `POST /api/v1/admin/platform-rollouts` and `POST /api/v1/admin/platform-rollouts/{rolloutId}/rollback` product boundaries were removed from the controller/auth/contracts/web-client path, and the stale step-up actions for `admin.rollout.apply` / `admin.rollout.rollback` are no longer part of the active admin contract.
+
+3. **Legacy rollout implementation files were physically cleaned out.** The obsolete backend `ManagePlatformRolloutsService` and `platform-rollout.types.ts` files were removed, stale generated rollout contract artifacts were deleted, and the remaining product path now has one coherent rollout truth instead of a live hybrid.
+
+### Verification
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx --test test/admin-authorization.test.ts test/materialization-rollout.service.test.ts test/materialization-rollout-worker.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts --config vitest.config.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** for `api` and `web`.
+- This slice changes the active admin rollout API/UI boundary and generated contracts.
+- The old Prisma rollout tables still exist as legacy persisted data because this slice removed the active product path, not historical schema rows.
+
+### Next recommended step
+
+Continue ADR-085 with the **automatic producer routing slice**:
+
+1. route automatic global config/materialization triggers into visible rollout jobs
+2. add failed-item inspection / operator retry controls if still needed by the ADR
+3. only then consider historical schema cleanup for old rollout tables
+
+---
+
+## 2026-05-13 — ADR-085 Slice 1: materialization rollout foundation + queued manual reapply (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **New durable rollout foundation exists in Prisma.** `apps/api/prisma/schema.prisma` and migration `20260513230500_adr085_materialization_rollout_foundation` add first-class `materialization_rollouts` / `materialization_rollout_items` plus enums for rollout type, trigger source, scope type, criticality, rollout status, and item status. Scheduler leadership also now reserves a `materialization_rollout` lease row.
+
+2. **Manual reapply now has a real queue/service boundary.** `MaterializationRolloutService` creates `manual_reapply` jobs against the new tables after a config-generation bump, records the target generation, scopes to published assistants only, and appends an admin audit event (`admin.materialization_rollout_created`).
+
+3. **A bounded worker now processes queued rollout items through the existing safe apply path.** `MaterializationRolloutWorkerService` claims pending items under the new scheduler lease, skips already-fresh assistants, otherwise calls the existing `ApplyAssistantPublishedVersionService`, and updates per-item plus per-rollout summary counts. Terminal rollout completion emits a system audit event so operations can see success/failure without pretending the old JSON rollout model is still the truth.
+
+4. **`Admin > Plans > Force reapply all` is no longer synchronous.** The existing `POST /api/v1/admin/runtime/force-reapply-all` boundary now queues a `manual_reapply` rollout and returns queue summary (`rolloutId`, `targetGeneration`, counts, status) instead of blocking on an all-assistants apply loop. The Plans UI copy and summary card were updated to reflect queued rollout semantics.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma`
+- `corepack pnpm --filter @persai/api exec tsx test/materialization-rollout.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/materialization-rollout-worker.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** for `api` and `web`.
+- This slice includes a Prisma migration and a new API background worker path. The dev/cluster rollout must include the migration before the new queued manual reapply path can be used safely.
+- The legacy `/admin/rollouts` JSON governance patch UI/API is intentionally **not** replaced in this slice. It remains legacy product truth that must be removed/replaced in a later ADR-085 slice.
+
+### Next recommended step
+
+Continue ADR-085 with the **admin/API replacement slice**:
+
+1. add read APIs for `materialization_rollouts` / failed items
+2. redesign `/admin/rollouts` around the new rollout model
+3. remove old JSON governance rollout creation/rollback product paths
+4. only after that, route automatic global config changes into visible rollout jobs
+
+---
+
 ## 2026-05-13 — ADR-094 smart-inline backfill + long-doc path (CLOSED ON DEV PATH)
 
 ### What landed in this session
@@ -5089,15 +5233,14 @@ Re-live-smoke the same `persai-dev` chat shape and focus on persistence rather t
 ### What changed
 
 - Kept this session bounded to ADR-084 Slice 6 only: immediate activation/materialization after trusted paid success. Concrete CloudPayments checkout/session creation, assistant billing-tool UX, admin manual payment operations, and provider-specific recurring/cancel management stayed out of scope.
-- Added `MaterializeWorkspacePaidActivationService` and wired it into the paid-success lifecycle path (`payment_activated`, `renewal_succeeded`, `payment_recovered`). After `WorkspaceSubscription` is updated and assistants are marked dirty, published assistants in the workspace now rematerialize immediately and warm both the native runtime bundle and provider-gateway model inventory instead of waiting for a later incidental refresh.
-- Kept the transition order honest: payment success still enters through trusted billing/lifecycle truth first, and only then triggers the immediate materialization/warmup step. Client return state still does not activate paid access by itself.
+- Historical note: this original immediate paid-activation helper path was later superseded by ADR-085 billing/system rollout routing. Current repo truth is `billing lifecycle write -> config dirty + generation bump -> visible materialization rollout job`, not a live standalone immediate helper service.
+- Kept the transition order honest: payment success still enters through trusted billing/lifecycle truth first, and only then triggered post-success propagation. Client return state still does not activate paid access by itself.
 - The web billing return path now carries `billingPaymentIntentId`, and `/app/chat` reloads authoritative server truth on successful return by checking the persisted payment intent and then refreshing app bootstrap state. That lets the user pick up the new plan/limits quickly when trusted success has already landed, without inventing a second client-owned billing truth.
 - Updated `ADR-084`, `TEST-PLAN`, `CHANGELOG`, and this handoff so repo truth now says Slice 6 is completed and Slice 7 admin manual payment/Ops support is the next billing item.
 
 ### Verification
 
 - `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
-- `corepack pnpm --filter @persai/api exec tsx test/materialize-workspace-paid-activation.service.test.ts`
 - `corepack pnpm --filter @persai/web exec vitest run app/app/chat/page.test.tsx`
 - `ReadLints` on touched API/web files
 - `corepack pnpm -r --if-present run lint`

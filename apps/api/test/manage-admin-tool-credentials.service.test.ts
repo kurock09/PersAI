@@ -1,0 +1,75 @@
+import assert from "node:assert/strict";
+import { ManageAdminToolCredentialsService } from "../src/modules/workspace-management/application/manage-admin-tool-credentials.service";
+
+async function run(): Promise<void> {
+  const rolloutRequests: unknown[] = [];
+  let configGeneration = 0;
+
+  const service = new ManageAdminToolCredentialsService(
+    {
+      assertCanPerformDangerousAdminAction: async () => ({ workspaceId: "ws-1" })
+    } as never,
+    {
+      execute: async () => {
+        configGeneration += 1;
+        return configGeneration;
+      }
+    } as never,
+    {
+      assertEncryptionConfigured: () => undefined,
+      upsertProviderKey: async () => undefined,
+      resolveSecretValueByProviderKey: async () => null,
+      loadKeyMetadataByKeys: async () => ({})
+    } as never,
+    {
+      execute: async () => undefined
+    } as never,
+    {
+      createAutomaticGlobalRollout: async (input: unknown) => {
+        rolloutRequests.push(input);
+        return {};
+      }
+    } as never
+  );
+
+  await service.updateCredentials(
+    "admin-1",
+    {
+      keys: {
+        tool_browser: "browserless-secret"
+      },
+      providers: {
+        tool_browser: "browserless"
+      },
+      ttsPrimaryProviderId: "openai"
+    },
+    "step-up"
+  );
+
+  assert.equal(configGeneration, 1);
+  assert.equal(rolloutRequests.length, 1);
+  assert.deepEqual(rolloutRequests[0], {
+    actorUserId: "admin-1",
+    workspaceId: "ws-1",
+    rolloutType: "tool_policy_change",
+    triggerSource: "tool_policy",
+    scopeType: "affected_policy",
+    criticality: "hard",
+    targetGeneration: 1,
+    scopeMetadata: {
+      reason: "admin.tool_credentials.update",
+      updatedCredentials: ["tool_browser"],
+      updatedProviders: [
+        {
+          credentialKey: "tool_browser",
+          providerId: "browserless"
+        }
+      ],
+      ttsPrimaryProviderId: "openai"
+    },
+    auditEventCode: "admin.materialization_rollout_created",
+    auditSummary: "Admin queued a tool credential materialization rollout."
+  });
+}
+
+void run();

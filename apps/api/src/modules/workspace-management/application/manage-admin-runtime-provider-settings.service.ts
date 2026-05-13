@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
+import { MaterializationRolloutService } from "./materialization-rollout.service";
 import {
   PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID,
   assertRequiredProviderKeysAvailable,
@@ -22,7 +23,8 @@ export class ManageAdminRuntimeProviderSettingsService {
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly materializationRolloutService: MaterializationRolloutService
   ) {}
 
   parseUpdateInput(body: unknown): UpdatePlatformRuntimeProviderSettingsInput {
@@ -48,7 +50,7 @@ export class ManageAdminRuntimeProviderSettingsService {
     settings: PlatformRuntimeProviderSettingsState;
     configGeneration: number;
   }> {
-    await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+    const access = await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
       userId,
       "admin.runtime_provider_settings.update",
       stepUpToken
@@ -112,6 +114,24 @@ export class ManageAdminRuntimeProviderSettingsService {
 
     const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
     const configGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId: userId,
+      workspaceId: access.workspaceId,
+      rolloutType: "runtime_provider_settings_change",
+      triggerSource: "provider_settings",
+      scopeType: "provider_profile",
+      criticality: "hard",
+      targetGeneration: configGeneration,
+      scopeMetadata: {
+        reason: "admin.runtime_provider_settings.update",
+        primaryProvider: settings.primary?.provider ?? null,
+        primaryModel: settings.primary?.model ?? null,
+        fallbackProvider: settings.fallback?.provider ?? null,
+        fallbackModel: settings.fallback?.model ?? null
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a runtime provider settings materialization rollout."
+    });
 
     await this.appendAssistantAuditEventService.execute({
       workspaceId: null,

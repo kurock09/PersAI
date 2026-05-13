@@ -16,6 +16,7 @@ function createService(deps: {
   planRepo: PlanRepoStub;
   workspaceSubscriptionRepo: SubscriptionRepoStub;
 }): ResolveEffectiveSubscriptionStateService {
+  let generation = 300;
   return new ResolveEffectiveSubscriptionStateService(
     deps.workspaceSubscriptionRepo as WorkspaceSubscriptionRepository,
     deps.planRepo as AssistantPlanCatalogRepository,
@@ -34,6 +35,17 @@ function createService(deps: {
     {
       async emitForLifecycleEventIds() {
         return undefined;
+      }
+    } as never,
+    {
+      async execute() {
+        generation += 1;
+        return generation;
+      }
+    } as never,
+    {
+      async createAutomaticGlobalRollout() {
+        return { id: "rollout-1" };
       }
     } as never
   );

@@ -11,6 +11,7 @@ PersAI is the source of truth for:
 - assistants and published versions
 - persona archetypes plus draft/published Voice DNA selection and snapshot state
 - runtime bundle materialization
+- durable materialization rollout control-plane state through `materialization_rollouts` and `materialization_rollout_items`
 - canonical chats and messages
 - canonical assistant chat attachments and media metadata
 - durable web-chat logical turn attempts keyed by `assistantId + userId + surfaceThreadKey + clientTurnId`, used for retry/replay/status reconciliation
@@ -160,6 +161,17 @@ ADR-087 adds one more quota/product truth layer:
 
 `Admin > Ops Cockpit` reads support projections from these PersAI-owned tables: `workspace_subscriptions`, `workspace_subscription_lifecycle_events`, and period quota counters. Billing notification history lives in `notification_intents` / `notification_delivery_attempts` (ADR-088 Slice 3) and is surfaced through `Admin > Notifications`. Provider customer/subscription refs are displayed only as support identifiers; product surfaces do not read provider state directly at request time.
 
+ADR-085 Slice 1 adds the first durable materialization rollout control-plane tables:
+
+- `materialization_rollouts` — one queued rollout/job per propagation reason with `rolloutType`, `triggerSource`, `scopeType`, `scopeMetadata`, `criticality`, `targetGeneration`, queue summary counts, and operator ownership fields (`createdByUserId`, timestamps, concurrency/rate-limit snapshot)
+- `materialization_rollout_items` — one per targeted assistant with `targetGeneration`, `priority`, status/attempts/retry state, terminal error fields, timestamps, and resulting materialized spec/content/runtime bundle hashes when available
+
+Current active usage after Slice 1:
+
+- `Admin > Plans > Force reapply all` now creates a `manual_reapply` row in `materialization_rollouts` and corresponding per-assistant `materialization_rollout_items`
+- `materialization_rollout_items` are processed by a dedicated API worker under the `scheduler_leases.scheduler_key = materialization_rollout` leader row
+- the old `assistant_platform_rollouts` / `assistant_platform_rollout_items` tables remain legacy JSON-governance rollout truth until the later ADR-085 replacement slice removes them from the active product path
+
 ADR-082 Slice 4 adds `workspace_media_monthly_quota_counters` as the period-scoped truth for media generation/editing allowances. Rows are keyed by workspace, tool code (`image_generate`, `image_edit`, `video_generate`), and period start/end; counters separately track reserved, settled, released, and reconciliation-required units. Slice 5 uses those columns as the delivery-confirmed settlement lifecycle: reservations happen before provider work, successful delivery moves reserved units into settled units, provider/no-delivery outcomes are released or marked reconciliation-required, and only reserved plus settled units count as active user quota usage. Periods resolve from `WorkspaceSubscription.currentPeriodStartedAt/currentPeriodEndsAt` with an explicit UTC calendar-month fallback for local/manual states. `WorkspaceToolUsageDailyCounter` remains day-scoped safety/rate-limit state and is not the paid monthly media quota model.
 
 Materialization validates plan-selected image/video model keys against the capability-aware catalog and writes the resolved primary/fallback keys into each runtime bundle tool credential ref. Runtime tool execution treats that credential chain as request-time truth for `image_generate`, `image_edit`, and `video_generate`, so feature-specific requests can switch to a compatible fallback model or soft-skip before calling the provider.
@@ -182,33 +194,33 @@ ADR-088 Slice 1 introduced the unified notification platform tables; ADR-088 Sli
 
 Active enum values (Prisma source of truth):
 
-| Enum | Values |
-|---|---|
-| `NotificationSource` | `idle_reengagement`, `quota_advisory`, `reminder`, `background_task_push`, `billing_lifecycle`, `admin_system`, `system_event` |
-| `NotificationClass` | `conversational`, `transactional`, `operational`, `administrative` |
-| `NotificationPriority` | `immediate`, `scheduled`, `digest`, `skippable` |
-| `NotificationLifecycleStatus` | `pending`, `claimed`, `delivered`, `failed`, `dead_letter`, `skipped`, `deferred_quiet_hours`, `deferred_rate_limit` |
-| `NotificationRenderStrategy` | `grounded_llm`, `template`, `static_fallback` |
-| `NotificationDeliveryAttemptStatus` | `pending`, `sent`, `delivered`, `failed`, `bounced`, `complaint`, `escalated` |
-| `NotificationChannelType` | `telegram_thread`, `web_thread`, `web_notification_center`, `email`, `admin_webhook`, `web_push`, `mobile_push` |
-| `NotificationChannelHealth` | `healthy`, `degraded`, `down`, `unconfigured` |
-| `NotificationQuietHoursTimezoneMode` | `workspace_default`, `per_user_resolved` |
+| Enum                                 | Values                                                                                                                         |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `NotificationSource`                 | `idle_reengagement`, `quota_advisory`, `reminder`, `background_task_push`, `billing_lifecycle`, `admin_system`, `system_event` |
+| `NotificationClass`                  | `conversational`, `transactional`, `operational`, `administrative`                                                             |
+| `NotificationPriority`               | `immediate`, `scheduled`, `digest`, `skippable`                                                                                |
+| `NotificationLifecycleStatus`        | `pending`, `claimed`, `delivered`, `failed`, `dead_letter`, `skipped`, `deferred_quiet_hours`, `deferred_rate_limit`           |
+| `NotificationRenderStrategy`         | `grounded_llm`, `template`, `static_fallback`                                                                                  |
+| `NotificationDeliveryAttemptStatus`  | `pending`, `sent`, `delivered`, `failed`, `bounced`, `complaint`, `escalated`                                                  |
+| `NotificationChannelType`            | `telegram_thread`, `web_thread`, `web_notification_center`, `email`, `admin_webhook`, `web_push`, `mobile_push`                |
+| `NotificationChannelHealth`          | `healthy`, `degraded`, `down`, `unconfigured`                                                                                  |
+| `NotificationQuietHoursTimezoneMode` | `workspace_default`, `per_user_resolved`                                                                                       |
 
 Legacy notification tables retired in Slices 2 and 3 (dropped 2026-05-08):
 
-| Legacy table | Retired by |
-|---|---|
-| `assistant_notification_outbox` | Slice 2 |
-| `assistant_quota_advisory_states` | Slice 2 |
-| `workspace_notification_policies` (idle + quota rows) | Slice 2 |
-| `billing_lifecycle_notification_jobs` | Slice 3 |
+| Legacy table                                          | Retired by |
+| ----------------------------------------------------- | ---------- |
+| `assistant_notification_outbox`                       | Slice 2    |
+| `assistant_quota_advisory_states`                     | Slice 2    |
+| `workspace_notification_policies` (idle + quota rows) | Slice 2    |
+| `billing_lifecycle_notification_jobs`                 | Slice 3    |
 
 Remaining legacy notification tables still **transitional** until Slice 4:
 
-| Legacy table | Owning producer | Retiring slice |
-|---|---|---|
-| `workspace_admin_notification_channels` | legacy admin webhook config | Slice 4 |
-| `admin_notification_deliveries` | legacy admin webhook log | Slice 4 |
+| Legacy table                            | Owning producer             | Retiring slice |
+| --------------------------------------- | --------------------------- | -------------- |
+| `workspace_admin_notification_channels` | legacy admin webhook config | Slice 4        |
+| `admin_notification_deliveries`         | legacy admin webhook log    | Slice 4        |
 
 ADR-082 Slice 3 makes these provider/model profiles the active token quota-weight truth for completed native turns. `WorkspaceQuotaUsageEvent.dimension=token_budget` records one weighted Credits delta per completed turn where runtime `usageAccounting.entries` are available, with metadata carrying raw input/cached-input/output token totals, applied weights, rounded Credits, and whether any entry fell back to neutral default weights. Plans continue to own token budget limits; provider/model weights remain global Admin Runtime policy.
 

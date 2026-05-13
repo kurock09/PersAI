@@ -14,6 +14,8 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
 import { ManageWorkspaceSubscriptionLifecycleService } from "./manage-workspace-subscription-lifecycle.service";
 import { BillingLifecycleProducerService } from "./billing-lifecycle-producer.service";
+import { BumpConfigGenerationService } from "./bump-config-generation.service";
+import { MaterializationRolloutService } from "./materialization-rollout.service";
 
 export type ResolveEffectiveSubscriptionInput = {
   userId: string;
@@ -40,6 +42,8 @@ export class ResolveEffectiveSubscriptionStateService {
     private readonly planCatalogRepository: AssistantPlanCatalogRepository,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly BillingLifecycleProducerService: BillingLifecycleProducerService,
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
+    private readonly materializationRolloutService: MaterializationRolloutService,
     @Inject(forwardRef(() => ManageWorkspaceSubscriptionLifecycleService))
     private readonly manageWorkspaceSubscriptionLifecycleService: ManageWorkspaceSubscriptionLifecycleService
   ) {}
@@ -265,6 +269,12 @@ export class ResolveEffectiveSubscriptionStateService {
       );
     }
     await this.markWorkspaceAssistantsConfigDirty(workspaceId);
+    await this.queueBillingLifecycleRollout(workspaceId, userId, "subscription_initialized", {
+      reason:
+        created.status === "trialing" ? "registration_default_trial" : "registration_default_plan",
+      planCode: created.planCode,
+      source
+    });
     await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
     return {
       ...this.toEffectiveWorkspaceSubscription(created),
@@ -381,6 +391,11 @@ export class ResolveEffectiveSubscriptionStateService {
       })
     );
     await this.markWorkspaceAssistantsConfigDirty(workspaceId);
+    await this.queueBillingLifecycleRollout(workspaceId, userId, "trial_expired_fallback", {
+      reason: "trial_expired_without_payment",
+      previousPlanCode: workspaceSubscription.planCode,
+      fallbackPlanCode
+    });
     await this.BillingLifecycleProducerService.emitForLifecycleEventIds(lifecycleEventIds);
     return {
       ...this.toEffectiveWorkspaceSubscription(updated),
@@ -466,6 +481,30 @@ export class ResolveEffectiveSubscriptionStateService {
     await this.prisma.assistant.updateMany({
       where: { workspaceId },
       data: { configDirtyAt: new Date() }
+    });
+  }
+
+  private async queueBillingLifecycleRollout(
+    workspaceId: string,
+    actorUserId: string | null,
+    reason: string,
+    scopeMetadata: Record<string, unknown>
+  ): Promise<void> {
+    const targetGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId,
+      workspaceId,
+      rolloutType: "billing_lifecycle_change",
+      triggerSource: "billing_lifecycle",
+      scopeType: "affected_policy",
+      criticality: "hard",
+      targetGeneration,
+      scopeMetadata: {
+        reason,
+        ...scopeMetadata
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Billing lifecycle queued a materialization rollout."
     });
   }
 

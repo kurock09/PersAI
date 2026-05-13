@@ -3639,7 +3639,7 @@ export default function AdminPlansPage() {
   const handleForceReapplyAll = useCallback(async () => {
     if (
       !window.confirm(
-        "This will re-materialize ALL assistants immediately. This may take a while. Continue?"
+        "This will queue a controlled materialization rollout for all published assistants. Continue?"
       )
     )
       return;
@@ -3653,12 +3653,12 @@ export default function AdminPlansPage() {
       setReapplySummary(summary);
       setFeedback({
         kind: "success",
-        message: `Force reapply complete: ${String(summary.succeeded)} succeeded, ${String(summary.failed)} failed, ${String(summary.skipped)} skipped.`
+        message: `Queued rollout ${summary.rolloutId} for ${String(summary.totalItems)} assistants at generation ${String(summary.targetGeneration)}.`
       });
     } catch (err) {
       setFeedback({
         kind: "error",
-        message: err instanceof Error ? err.message : "Force reapply failed."
+        message: err instanceof Error ? err.message : "Failed to queue materialization rollout."
       });
     }
     setReapplying(false);
@@ -3883,10 +3883,11 @@ export default function AdminPlansPage() {
 
       {reapplySummary && (
         <div className="mb-3 rounded border border-orange-400/30 bg-orange-500/10 p-2.5 text-[11px] text-orange-300">
-          <span className="font-semibold">Reapply summary:</span> {reapplySummary.totalAssistants}{" "}
-          total, {reapplySummary.withPublishedVersion} with version, {reapplySummary.succeeded}{" "}
-          succeeded, {reapplySummary.degraded} degraded, {reapplySummary.failed} failed,{" "}
-          {reapplySummary.skipped} skipped
+          <span className="font-semibold">Queued rollout:</span> {reapplySummary.rolloutId},{" "}
+          generation {reapplySummary.targetGeneration}, {reapplySummary.totalItems} items,{" "}
+          {reapplySummary.pendingCount} pending, {reapplySummary.runningCount} running,{" "}
+          {reapplySummary.succeeded} succeeded, {reapplySummary.degraded} degraded,{" "}
+          {reapplySummary.failed} failed, {reapplySummary.skipped} skipped
         </div>
       )}
 

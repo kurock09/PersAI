@@ -13,11 +13,13 @@ async function run(): Promise<void> {
   const upserts: Array<{ workspaceId: string; planCode: string; status: string }> = [];
   const deletes: string[] = [];
   const dirtyWrites: string[] = [];
+  const rolloutRequests: Array<{ reason: string | null; targetGeneration: number }> = [];
   const appliedBillingEvents: Array<{
     eventCode: string;
     source: string;
     planCode: string | null;
   }> = [];
+  let generation = 400;
 
   const planCatalogByCode: Record<
     string,
@@ -250,7 +252,25 @@ async function run(): Promise<void> {
     } as Pick<
       ApplyWorkspaceSubscriptionBillingEventService,
       "apply"
-    > as ApplyWorkspaceSubscriptionBillingEventService
+    > as ApplyWorkspaceSubscriptionBillingEventService,
+    {
+      async execute() {
+        generation += 1;
+        return generation;
+      }
+    } as never,
+    {
+      async createAutomaticGlobalRollout(input: {
+        targetGeneration: number;
+        scopeMetadata?: { reason?: string | null };
+      }) {
+        rolloutRequests.push({
+          reason: input.scopeMetadata?.reason ?? null,
+          targetGeneration: input.targetGeneration
+        });
+        return { id: `rollout-${rolloutRequests.length}` };
+      }
+    } as never
   );
 
   const parsed = service.parseApplyInput({
@@ -311,6 +331,9 @@ async function run(): Promise<void> {
   assert.deepEqual(deleted, { ok: true, changed: true, workspaceId: "ws-1" });
   assert.deepEqual(deletes, ["ws-1"]);
   assert.deepEqual(dirtyWrites, ["ws-1"]);
+  assert.deepEqual(rolloutRequests, [
+    { reason: "admin.workspace_subscription.reset", targetGeneration: 401 }
+  ]);
   assert.deepEqual(authCalls, [
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-1" },
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-2" },
@@ -378,6 +401,14 @@ async function run(): Promise<void> {
     () => service.setWorkspaceSubscription("admin-1", "user-1", { planCode: "free" }, "step-up-9"),
     /Use Apply fallback now for FREE access instead of Apply workspace subscription/
   );
+  assert.deepEqual(rolloutRequests, [
+    { reason: "admin.workspace_subscription.reset", targetGeneration: 401 },
+    { reason: "admin.workspace_subscription.set", targetGeneration: 402 },
+    { reason: "admin.workspace_subscription.reset", targetGeneration: 403 },
+    { reason: "admin.workspace_subscription.set", targetGeneration: 404 },
+    { reason: "admin.workspace_subscription.reset", targetGeneration: 405 },
+    { reason: "admin.workspace_subscription.set", targetGeneration: 406 }
+  ]);
 }
 
 void run();

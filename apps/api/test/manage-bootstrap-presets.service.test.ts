@@ -47,7 +47,7 @@ async function run(): Promise<void> {
       },
       {
         async assertCanReadAdminSurface() {
-          return undefined;
+          return { workspaceId: "ws-1" };
         }
       } as never,
       {
@@ -93,7 +93,7 @@ async function run(): Promise<void> {
       },
       {
         async assertCanReadAdminSurface() {
-          return undefined;
+          return { workspaceId: "ws-1" };
         }
       } as never,
       {
@@ -112,6 +112,7 @@ async function run(): Promise<void> {
   {
     let bumped = 0;
     let saved: PresetRow | null = null;
+    const rolloutRequests: unknown[] = [];
     const service = new ManagePromptTemplatesService(
       {
         async findAll() {
@@ -130,12 +131,18 @@ async function run(): Promise<void> {
       },
       {
         async assertCanReadAdminSurface() {
-          return undefined;
+          return { workspaceId: "ws-1" };
         }
       } as never,
       {
         async execute() {
           bumped += 1;
+        }
+      } as never,
+      {
+        async createAutomaticGlobalRollout(input: unknown) {
+          rolloutRequests.push(input);
+          return {};
         }
       } as never
     );
@@ -145,11 +152,13 @@ async function run(): Promise<void> {
     assert.equal(result.template, "new tools template");
     assert.equal(saved?.id, "tools");
     assert.equal(bumped, 1, "successful updates should bump config generation");
+    assert.equal(rolloutRequests.length, 1, "successful updates should queue rollout");
   }
 
   {
     let bumped = 0;
     let savedTemplate = "";
+    const rolloutRequests: unknown[] = [];
     const service = new ManagePromptTemplatesService(
       {
         async findAll() {
@@ -168,12 +177,18 @@ async function run(): Promise<void> {
       },
       {
         async assertCanReadAdminSurface() {
-          return undefined;
+          return { workspaceId: "ws-1" };
         }
       } as never,
       {
         async execute() {
           bumped += 1;
+        }
+      } as never,
+      {
+        async createAutomaticGlobalRollout(input: unknown) {
+          rolloutRequests.push(input);
+          return {};
         }
       } as never
     );
@@ -182,6 +197,7 @@ async function run(): Promise<void> {
     assert.equal(result.template, VISIBLE_PROMPT_TEMPLATE_DEFAULTS.agents);
     assert.equal(savedTemplate, VISIBLE_PROMPT_TEMPLATE_DEFAULTS.agents);
     assert.equal(bumped, 1, "successful reset should bump config generation");
+    assert.equal(rolloutRequests.length, 1, "successful reset should queue rollout");
   }
 }
 

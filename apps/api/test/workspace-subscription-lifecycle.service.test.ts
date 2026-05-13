@@ -11,7 +11,8 @@ async function run(): Promise<void> {
   }> = [];
   const dirtyWorkspaces: string[] = [];
   const scheduledEventIds: string[][] = [];
-  const immediateActivationWorkspaces: string[] = [];
+  const rolloutRequests: Array<{ targetGeneration: number; reason: string | null }> = [];
+  let generation = 200;
   let subscription = {
     id: "sub-1",
     workspaceId: "ws-1",
@@ -122,12 +123,22 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async execute(workspaceId: string) {
-        immediateActivationWorkspaces.push(workspaceId);
+      async execute() {
+        generation += 1;
+        return generation;
+      }
+    } as never,
+    {
+      async createAutomaticGlobalRollout(input: {
+        targetGeneration: number;
+        scopeMetadata?: { reason?: string | null };
+      }) {
+        rolloutRequests.push({
+          targetGeneration: input.targetGeneration,
+          reason: input.scopeMetadata?.reason ?? null
+        });
         return {
-          attemptedAssistants: 1,
-          refreshedAssistants: 1,
-          failedAssistants: 0
+          id: `rollout-${rolloutRequests.length}`
         };
       }
     } as never
@@ -464,13 +475,16 @@ async function run(): Promise<void> {
     source: "admin"
   });
   assert.equal(events.at(-1)?.eventCode, "billing_reminder_requested");
-  assert.equal(dirtyWorkspaces.length, 12);
+  assert.equal(dirtyWorkspaces.length, 15);
   assert.deepEqual(scheduledEventIds, [
     ["event-1"],
     ["event-2", "event-3"],
     ["event-4", "event-5"],
     ["event-6"],
+    ["event-7"],
     ["event-8", "event-9"],
+    ["event-10"],
+    ["event-11"],
     ["event-12", "event-13"],
     ["event-14"],
     ["event-15", "event-16"],
@@ -480,7 +494,30 @@ async function run(): Promise<void> {
     ["event-20"],
     ["event-21"]
   ]);
-  assert.deepEqual(immediateActivationWorkspaces, ["ws-1", "ws-1", "ws-1"]);
+  assert.deepEqual(
+    rolloutRequests.map((request) => request.reason),
+    [
+      "renewal_succeeded",
+      "renewal_failed",
+      "grace_expired",
+      "payment_recovered",
+      "auto_renew_disabled",
+      "canceled_paid_period_ended",
+      "auto_renew_enabled",
+      "subscription_resumed",
+      "canceled_paid_period_ended",
+      "renewal_succeeded",
+      "payment_reversed",
+      "trial_extended",
+      "fallback_applied_now",
+      "grace_started",
+      "grace_extended"
+    ]
+  );
+  assert.deepEqual(
+    rolloutRequests.map((request) => request.targetGeneration),
+    [201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215]
+  );
 }
 
 void run();

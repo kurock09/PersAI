@@ -22,6 +22,7 @@ import type {
 } from "./admin-plan-management.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
+import { MaterializationRolloutService } from "./materialization-rollout.service";
 import {
   AdminAuthorizationService,
   type DangerousAdminActionCode
@@ -480,7 +481,8 @@ export class ManageAdminPlansService {
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
-    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
+    private readonly materializationRolloutService: MaterializationRolloutService
   ) {}
 
   async listPlans(userId: string): Promise<AdminPlanState[]> {
@@ -576,7 +578,22 @@ export class ManageAdminPlansService {
     await this.assertLifecycleFallbackPlansAreActive(input, input.code);
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
-    await this.bumpConfigGenerationService.execute();
+    const configGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId: userId,
+      workspaceId: access.workspaceId,
+      rolloutType: "plan_change",
+      triggerSource: "plan_settings",
+      scopeType: "effective_plan",
+      criticality: "hard",
+      targetGeneration: configGeneration,
+      scopeMetadata: {
+        reason: "admin.plan.create",
+        planCode: created.code
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a plan-change materialization rollout."
+    });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: access.workspaceId,
       assistantId: null,
@@ -641,7 +658,22 @@ export class ManageAdminPlansService {
     if (updated === null) {
       throw new NotFoundException("Plan not found.");
     }
-    await this.bumpConfigGenerationService.execute();
+    const configGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId: userId,
+      workspaceId: access.workspaceId,
+      rolloutType: "plan_change",
+      triggerSource: "plan_settings",
+      scopeType: "effective_plan",
+      criticality: "hard",
+      targetGeneration: configGeneration,
+      scopeMetadata: {
+        reason: "admin.plan.update",
+        planCode: updated.code
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a plan-change materialization rollout."
+    });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: access.workspaceId,
       assistantId: null,
@@ -694,7 +726,22 @@ export class ManageAdminPlansService {
     if (!deleted) {
       throw new NotFoundException("Plan not found.");
     }
-    await this.bumpConfigGenerationService.execute();
+    const configGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId: userId,
+      workspaceId: access.workspaceId,
+      rolloutType: "plan_change",
+      triggerSource: "plan_settings",
+      scopeType: "effective_plan",
+      criticality: "hard",
+      targetGeneration: configGeneration,
+      scopeMetadata: {
+        reason: "admin.plan.delete",
+        planCode: normalizedCode
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a plan-change materialization rollout."
+    });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: access.workspaceId,
       assistantId: null,

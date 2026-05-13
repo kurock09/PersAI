@@ -14,8 +14,6 @@ export type DangerousAdminActionCode =
   | "admin.runtime_provider_settings.update"
   | "admin.document_processing_settings.update"
   | "admin.tool_credentials.update"
-  | "admin.rollout.apply"
-  | "admin.rollout.rollback"
   | "admin.assistant.transfer_ownership"
   | "admin.assistant.recover_ownership"
   | "admin.force_reapply_all";
@@ -54,9 +52,6 @@ function requiredRolesForDangerousAction(action: DangerousAdminActionCode): Supp
     action === "admin.assistant.transfer_ownership" ||
     action === "admin.assistant.recover_ownership"
   ) {
-    return ["ops_admin", "super_admin"];
-  }
-  if (action === "admin.rollout.apply" || action === "admin.rollout.rollback") {
     return ["ops_admin", "super_admin"];
   }
   if (

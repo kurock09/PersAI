@@ -9,13 +9,19 @@ function createService(overrides?: {
   adminAuthorizationService?: object;
   bumpConfigGenerationService?: object;
   resolvePlatformRuntimeProviderSettingsService?: object;
+  materializationRolloutService?: object;
 }): ManageAdminPlansService {
   return new ManageAdminPlansService(
     (overrides?.planCatalogRepository ?? {}) as never,
     (overrides?.appendAssistantAuditEventService ?? {}) as never,
     (overrides?.adminAuthorizationService ?? {}) as never,
     (overrides?.bumpConfigGenerationService ?? {}) as never,
-    (overrides?.resolvePlatformRuntimeProviderSettingsService ?? {}) as never
+    (overrides?.resolvePlatformRuntimeProviderSettingsService ?? {}) as never,
+    ((overrides?.materializationRolloutService ?? {
+      async createAutomaticGlobalRollout() {
+        return undefined;
+      }
+    }) as never)
   );
 }
 
@@ -494,6 +500,7 @@ async function run(): Promise<void> {
   );
 
   let updatedWriteInput: Record<string, unknown> | null = null;
+  const partialUpdateRolloutRequests: Array<Record<string, unknown>> = [];
   const partialUpdateService = createService({
     planCatalogRepository: {
       async findByCode(code: string) {
@@ -636,6 +643,11 @@ async function run(): Promise<void> {
           }
         };
       }
+    },
+    materializationRolloutService: {
+      async createAutomaticGlobalRollout(input: Record<string, unknown>) {
+        partialUpdateRolloutRequests.push(input);
+      }
     }
   });
   await partialUpdateService.updatePlan(
@@ -708,6 +720,23 @@ async function run(): Promise<void> {
     persistedRetrievalPolicy?.fetchFullModeMaxChatMessages,
     retrievalPolicyForTest.fetchFullModeMaxChatMessages
   );
+  assert.deepEqual(partialUpdateRolloutRequests, [
+    {
+      actorUserId: "admin-user",
+      workspaceId: "ws-1",
+      rolloutType: "plan_change",
+      triggerSource: "plan_settings",
+      scopeType: "effective_plan",
+      criticality: "hard",
+      targetGeneration: undefined,
+      scopeMetadata: {
+        reason: "admin.plan.update",
+        planCode: "starter"
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a plan-change materialization rollout."
+    }
+  ]);
   assert.equal(
     (
       updatedWriteInput as {

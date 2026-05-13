@@ -7,6 +7,7 @@ import {
 } from "../domain/bootstrap-document-preset.repository";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
+import { MaterializationRolloutService } from "./materialization-rollout.service";
 
 const VALID_PRESET_IDS = new Set(Object.keys(VISIBLE_PROMPT_TEMPLATE_DEFAULTS));
 const DEFAULT_TEMPLATES: Record<string, string> = { ...VISIBLE_PROMPT_TEMPLATE_DEFAULTS };
@@ -19,7 +20,8 @@ export class ManagePromptTemplatesService {
     @Inject(PROMPT_TEMPLATE_REPOSITORY)
     private readonly promptTemplateRepository: PromptTemplateRepository,
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    private readonly bumpConfigGenerationService: BumpConfigGenerationService
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
+    private readonly materializationRolloutService: MaterializationRolloutService
   ) {}
 
   async getAll(userId: string): Promise<PromptTemplate[]> {
@@ -46,25 +48,55 @@ export class ManagePromptTemplatesService {
   }
 
   async update(userId: string, id: string, template: string): Promise<PromptTemplate> {
-    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     if (!VALID_PRESET_IDS.has(id)) {
       throw new NotFoundException(`Prompt template "${id}" does not exist.`);
     }
 
     const result = await this.promptTemplateRepository.upsert(id, template);
-    await this.bumpConfigGenerationService.execute();
+    const configGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId: userId,
+      workspaceId: access.workspaceId,
+      rolloutType: "system_prompt_change",
+      triggerSource: "prompt_settings",
+      scopeType: "affected_policy",
+      criticality: "soft",
+      targetGeneration: configGeneration,
+      scopeMetadata: {
+        reason: "admin.prompt_template.update",
+        templateId: id
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a prompt template materialization rollout."
+    });
     return result;
   }
 
   async resetToDefault(userId: string, id: string): Promise<PromptTemplate> {
-    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const template = DEFAULT_TEMPLATES[id];
     if (typeof template !== "string") {
       throw new NotFoundException(`Prompt template "${id}" does not exist.`);
     }
 
     const result = await this.promptTemplateRepository.upsert(id, template);
-    await this.bumpConfigGenerationService.execute();
+    const configGeneration = await this.bumpConfigGenerationService.execute();
+    await this.materializationRolloutService.createAutomaticGlobalRollout({
+      actorUserId: userId,
+      workspaceId: access.workspaceId,
+      rolloutType: "system_prompt_change",
+      triggerSource: "prompt_settings",
+      scopeType: "affected_policy",
+      criticality: "soft",
+      targetGeneration: configGeneration,
+      scopeMetadata: {
+        reason: "admin.prompt_template.reset",
+        templateId: id
+      },
+      auditEventCode: "admin.materialization_rollout_created",
+      auditSummary: "Admin queued a prompt template materialization rollout."
+    });
     return result;
   }
 }

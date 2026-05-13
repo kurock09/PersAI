@@ -6,10 +6,9 @@ import {
   getAssistantFileDownloadUrl,
   getAssistantFiles,
   getChatCompactionState,
+  getAdminPlatformRollouts,
   getAdminRuntimeProviderSettings,
   postAssistantBillingPaymentIntent,
-  postAdminPlatformRollout,
-  postAdminPlatformRolloutRollback,
   postAssistantMemoryItemCloseOpenLoop,
   postAssistantTelegramDisconnect,
   reattachAssistantWebChatTurnStream,
@@ -23,11 +22,10 @@ import {
 const contractMocks = vi.hoisted(() => {
   return {
     postAdminStepUpChallenge: vi.fn(),
+    getAdminPlatformRollouts: vi.fn(),
     getAdminRuntimeProviderSettings: vi.fn(),
     getAssistantWebChatCompaction: vi.fn(),
     postAssistantBillingPaymentIntent: vi.fn(),
-    postAdminPlatformRollout: vi.fn(),
-    postAdminPlatformRolloutRollback: vi.fn(),
     postAssistantMemoryItemCloseOpenLoop: vi.fn(),
     postAssistantWebChatCompact: vi.fn(),
     putAdminRuntimeProviderSettings: vi.fn(),
@@ -40,11 +38,10 @@ vi.mock("@persai/contracts", async () => {
   return {
     ...actual,
     postAdminStepUpChallenge: contractMocks.postAdminStepUpChallenge,
+    getAdminPlatformRollouts: contractMocks.getAdminPlatformRollouts,
     getAdminRuntimeProviderSettings: contractMocks.getAdminRuntimeProviderSettings,
     getAssistantWebChatCompaction: contractMocks.getAssistantWebChatCompaction,
     postAssistantBillingPaymentIntent: contractMocks.postAssistantBillingPaymentIntent,
-    postAdminPlatformRollout: contractMocks.postAdminPlatformRollout,
-    postAdminPlatformRolloutRollback: contractMocks.postAdminPlatformRolloutRollback,
     postAssistantMemoryItemCloseOpenLoop: contractMocks.postAssistantMemoryItemCloseOpenLoop,
     postAssistantWebChatCompact: contractMocks.postAssistantWebChatCompact,
     putAdminRuntimeProviderSettings: contractMocks.putAdminRuntimeProviderSettings,
@@ -290,79 +287,41 @@ describe("admin rollout client", () => {
     });
   });
 
-  it("accepts 201 Created for platform rollout apply", async () => {
-    contractMocks.postAdminStepUpChallenge.mockResolvedValue({
+  it("loads materialization rollouts from admin dashboard endpoint", async () => {
+    contractMocks.getAdminPlatformRollouts.mockResolvedValue({
       status: 200,
       data: {
-        challenge: {
-          token: "step-up-token"
-        }
-      }
-    });
-    contractMocks.postAdminPlatformRollout.mockResolvedValue({
-      status: 201,
-      data: {
-        rollout: {
-          id: "rollout-1",
-          status: "applied",
-          rolloutPercent: 25,
-          targetPatch: {},
-          totalAssistants: 1,
-          targetedAssistants: 1,
-          applySucceededCount: 1,
-          applyDegradedCount: 0,
-          applyFailedCount: 0,
-          rolledBackAt: null,
-          createdAt: "2026-03-25T17:29:05.781Z",
-          updatedAt: "2026-03-25T17:29:05.781Z"
-        }
-      }
-    });
-
-    await expect(
-      postAdminPlatformRollout("token-1", {
-        rolloutPercent: 25,
-        targetPatch: {}
-      })
-    ).resolves.toMatchObject({
-      id: "rollout-1",
-      rolloutPercent: 25
-    });
-  });
-
-  it("accepts 201 Created for platform rollout rollback", async () => {
-    contractMocks.postAdminStepUpChallenge.mockResolvedValue({
-      status: 200,
-      data: {
-        challenge: {
-          token: "step-up-token"
-        }
-      }
-    });
-    contractMocks.postAdminPlatformRolloutRollback.mockResolvedValue({
-      status: 201,
-      data: {
-        rollout: {
-          id: "rollout-1",
-          status: "rolled_back",
-          rolloutPercent: 25,
-          targetPatch: {},
-          totalAssistants: 1,
-          targetedAssistants: 1,
-          applySucceededCount: 1,
-          applyDegradedCount: 0,
-          applyFailedCount: 0,
-          rolledBackAt: "2026-03-25T17:30:00.000Z",
-          createdAt: "2026-03-25T17:29:05.781Z",
-          updatedAt: "2026-03-25T17:30:00.000Z"
-        }
+        rollouts: [
+          {
+            id: "rollout-1",
+            rolloutType: "manual_reapply",
+            targetGeneration: 42,
+            totalItems: 3,
+            pendingCount: 1,
+            runningCount: 1,
+            succeededCount: 1,
+            degradedCount: 0,
+            failedCount: 0,
+            skippedCount: 0,
+            cancelledCount: 0,
+            status: "running",
+            startedAt: "2026-03-25T17:30:00.000Z",
+            finishedAt: null,
+            createdAt: "2026-03-25T17:29:05.781Z",
+            updatedAt: "2026-03-25T17:30:00.000Z"
+          }
+        ]
       }
     });
 
-    await expect(postAdminPlatformRolloutRollback("token-1", "rollout-1")).resolves.toMatchObject({
-      id: "rollout-1",
-      status: "rolled_back"
-    });
+    await expect(getAdminPlatformRollouts("token-1")).resolves.toMatchObject([
+      {
+        id: "rollout-1",
+        rolloutType: "manual_reapply",
+        targetGeneration: 42,
+        status: "running"
+      }
+    ]);
   });
 
   it("accepts 201 Created for telegram disconnect", async () => {

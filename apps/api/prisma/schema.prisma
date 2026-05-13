@@ -420,6 +420,61 @@ enum PlatformRolloutItemOutcome {
   skipped
 }
 
+enum MaterializationRolloutType {
+  manual_reapply
+  plan_change
+  system_prompt_change
+  runtime_provider_settings_change
+  tool_policy_change
+  skill_policy_change
+  billing_lifecycle_change
+  single_assistant_reapply
+}
+
+enum MaterializationRolloutTriggerSource {
+  admin
+  system
+  billing_lifecycle
+  plan_settings
+  prompt_settings
+  provider_settings
+  tool_policy
+  skill_policy
+}
+
+enum MaterializationRolloutScopeType {
+  all_published_assistants
+  single_assistant
+  effective_plan
+  provider_profile
+  affected_policy
+  recent_active_first
+}
+
+enum MaterializationRolloutCriticality {
+  hard
+  soft
+  maintenance
+}
+
+enum MaterializationRolloutStatus {
+  pending
+  running
+  succeeded
+  failed
+  cancelled
+}
+
+enum MaterializationRolloutItemStatus {
+  pending
+  running
+  succeeded
+  degraded
+  failed
+  skipped
+  cancelled
+}
+
 enum AbuseSurface {
   web_chat
   telegram
@@ -490,6 +545,8 @@ model AppUser {
   workspaceSubscriptionBillingEvents     WorkspaceSubscriptionBillingEvent[]
   workspacePaymentIntents                WorkspacePaymentIntent[]
   notificationIntents                    NotificationIntent[]              @relation("NotificationIntentUser")
+  createdMaterializationRollouts         MaterializationRollout[]          @relation("MaterializationRolloutCreatedByUser")
+  materializationRolloutItems            MaterializationRolloutItem[]      @relation("MaterializationRolloutItemUser")
 
   @@map("app_users")
 }
@@ -538,6 +595,8 @@ model Workspace {
   paymentIntents                    WorkspacePaymentIntent[]
   mediaJobs                         AssistantMediaJob[]
   notificationIntents               NotificationIntent[]            @relation("NotificationIntentWorkspace")
+  materializationRollouts           MaterializationRollout[]
+  materializationRolloutItems       MaterializationRolloutItem[]
   notificationDeadLetters           NotificationDeadLetter[]        @relation("NotificationDeadLetterWorkspace")
   mediaPackageGrants                WorkspaceMediaPackageGrant[]
 
@@ -620,6 +679,7 @@ model Assistant {
   channelSurfaceBindings               AssistantChannelSurfaceBinding[]
   auditEvents                          AssistantAuditEvent[]
   platformRolloutItems                 AssistantPlatformRolloutItem[]
+  materializationRolloutItems          MaterializationRolloutItem[]
   abuseGuardStates                     AssistantAbuseGuardState[]
   abuseAssistantStates                 AssistantAbuseAssistantState[]
   abusePeerStates                      AssistantAbusePeerState[]
@@ -859,6 +919,73 @@ model AssistantPlatformRolloutItem {
   @@unique([rolloutId, assistantId])
   @@index([assistantId, createdAt(sort: Desc)])
   @@map("assistant_platform_rollout_items")
+}
+
+model MaterializationRollout {
+  id                String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId       String                             @map("workspace_id") @db.Uuid
+  createdByUserId   String?                            @map("created_by_user_id") @db.Uuid
+  rolloutType       MaterializationRolloutType         @map("rollout_type")
+  triggerSource     MaterializationRolloutTriggerSource @map("trigger_source")
+  scopeType         MaterializationRolloutScopeType    @map("scope_type")
+  scopeMetadata     Json                               @default("{}") @map("scope_metadata") @db.JsonB
+  criticality       MaterializationRolloutCriticality
+  targetGeneration  Int                                @map("target_generation")
+  status            MaterializationRolloutStatus       @default(pending)
+  totalItems        Int                                @default(0) @map("total_items")
+  pendingCount      Int                                @default(0) @map("pending_count")
+  runningCount      Int                                @default(0) @map("running_count")
+  succeededCount    Int                                @default(0) @map("succeeded_count")
+  degradedCount     Int                                @default(0) @map("degraded_count")
+  failedCount       Int                                @default(0) @map("failed_count")
+  skippedCount      Int                                @default(0) @map("skipped_count")
+  cancelledCount    Int                                @default(0) @map("cancelled_count")
+  concurrencyLimit  Int                                @default(1) @map("concurrency_limit")
+  rateLimitPerMinute Int?                              @map("rate_limit_per_minute")
+  startedAt         DateTime?                          @map("started_at") @db.Timestamptz(6)
+  finishedAt        DateTime?                          @map("finished_at") @db.Timestamptz(6)
+  createdAt         DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace         Workspace                          @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdByUser     AppUser?                           @relation("MaterializationRolloutCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  items             MaterializationRolloutItem[]
+
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("materialization_rollouts")
+}
+
+model MaterializationRolloutItem {
+  id                    String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rolloutId             String                        @map("rollout_id") @db.Uuid
+  assistantId           String                        @map("assistant_id") @db.Uuid
+  workspaceId           String                        @map("workspace_id") @db.Uuid
+  userId                String                        @map("user_id") @db.Uuid
+  targetGeneration      Int                           @map("target_generation")
+  priority              Int                           @default(100)
+  status                MaterializationRolloutItemStatus @default(pending)
+  attempts              Int                           @default(0)
+  nextRetryAt           DateTime?                     @map("next_retry_at") @db.Timestamptz(6)
+  lastErrorCode         String?                       @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage      String?                       @map("last_error_message") @db.VarChar(512)
+  startedAt             DateTime?                     @map("started_at") @db.Timestamptz(6)
+  finishedAt            DateTime?                     @map("finished_at") @db.Timestamptz(6)
+  claimedAt             DateTime?                     @map("claimed_at") @db.Timestamptz(6)
+  materializedSpecId    String?                       @map("materialized_spec_id") @db.Uuid
+  materializedContentHash String?                     @map("materialized_content_hash") @db.VarChar(128)
+  runtimeBundleHash     String?                       @map("runtime_bundle_hash") @db.VarChar(128)
+  createdAt             DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  rollout               MaterializationRollout        @relation(fields: [rolloutId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant             Assistant                     @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace             Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user                  AppUser                       @relation("MaterializationRolloutItemUser", fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([rolloutId, assistantId])
+  @@index([status, nextRetryAt, createdAt(sort: Desc)])
+  @@index([assistantId, status])
+  @@index([rolloutId, status, createdAt(sort: Desc)])
+  @@map("materialization_rollout_items")
 }
 
 model AssistantAbuseGuardState {

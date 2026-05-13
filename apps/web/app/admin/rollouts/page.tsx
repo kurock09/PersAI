@@ -2,50 +2,41 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { ChevronUp, Layers, Loader2, Plus, RotateCcw } from "lucide-react";
-import type {
-  PlatformRolloutPatch,
-  PlatformRolloutState,
-  PostAdminPlatformRolloutRequest
-} from "@persai/contracts";
-import { PlatformRolloutStatus } from "@persai/contracts";
+import { Layers, Loader2, RefreshCw } from "lucide-react";
 import {
   getAdminPlatformRollouts,
-  postAdminPlatformRollout,
-  postAdminPlatformRolloutRollback
+  type MaterializationRolloutView
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
-function statusBadgeClass(status: PlatformRolloutState["status"]): string {
+function statusBadgeClass(status: MaterializationRolloutView["status"]): string {
   switch (status) {
-    case PlatformRolloutStatus.in_progress:
+    case "running":
       return "bg-accent/15 text-accent";
-    case PlatformRolloutStatus.applied:
+    case "succeeded":
       return "bg-success/15 text-success";
-    case PlatformRolloutStatus.rolled_back:
-      return "bg-surface-hover text-text-muted";
-    case PlatformRolloutStatus.failed:
+    case "failed":
       return "bg-destructive/15 text-destructive";
+    case "cancelled":
+      return "bg-warning/15 text-warning";
     default:
       return "bg-surface-hover text-text-muted";
   }
 }
 
-function canRollbackRollout(r: PlatformRolloutState): boolean {
-  if (r.rolledBackAt) return false;
-  return (
-    r.status === PlatformRolloutStatus.in_progress || r.status === PlatformRolloutStatus.applied
-  );
+function formatTimestamp(value: string | null | undefined): string {
+  if (typeof value !== "string" || value.length === 0) {
+    return "n/a";
+  }
+  return new Date(value).toLocaleString();
 }
 
-function RolloutProgressBar({ r }: { r: PlatformRolloutState }) {
-  const ok = r.applySucceededCount;
-  const deg = r.applyDegradedCount;
-  const fail = r.applyFailedCount;
-  const total = Math.max(ok + deg + fail, 1);
-  const okPct = (ok / total) * 100;
-  const degPct = (deg / total) * 100;
-  const failPct = (fail / total) * 100;
+function RolloutProgressBar({ rollout }: { rollout: MaterializationRolloutView }) {
+  const total = Math.max(rollout.totalItems, 1);
+  const okPct = (rollout.succeededCount / total) * 100;
+  const degPct = (rollout.degradedCount / total) * 100;
+  const failPct = (rollout.failedCount / total) * 100;
+  const skipPct = (rollout.skippedCount / total) * 100;
 
   return (
     <div className="space-y-1">
@@ -53,25 +44,37 @@ function RolloutProgressBar({ r }: { r: PlatformRolloutState }) {
         <div
           className="h-full bg-success transition-[width]"
           style={{ width: `${okPct}%` }}
-          title={`Succeeded: ${ok}`}
+          title={`Succeeded: ${rollout.succeededCount}`}
         />
         <div
           className="h-full bg-warning transition-[width]"
           style={{ width: `${degPct}%` }}
-          title={`Degraded: ${deg}`}
+          title={`Degraded: ${rollout.degradedCount}`}
         />
         <div
           className="h-full bg-destructive transition-[width]"
           style={{ width: `${failPct}%` }}
-          title={`Failed: ${fail}`}
+          title={`Failed: ${rollout.failedCount}`}
+        />
+        <div
+          className="h-full bg-surface-hover/80 transition-[width]"
+          style={{ width: `${skipPct}%` }}
+          title={`Skipped: ${rollout.skippedCount}`}
         />
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-text-muted">
-        <span className="text-success">{ok} succeeded</span>
-        {deg > 0 && <span className="text-warning">{deg} degraded</span>}
-        {fail > 0 && <span className="text-destructive">{fail} failed</span>}
+        <span className="text-success">{rollout.succeededCount} succeeded</span>
+        {rollout.degradedCount > 0 && (
+          <span className="text-warning">{rollout.degradedCount} degraded</span>
+        )}
+        {rollout.failedCount > 0 && (
+          <span className="text-destructive">{rollout.failedCount} failed</span>
+        )}
+        {rollout.skippedCount > 0 && (
+          <span className="text-text-subtle">{rollout.skippedCount} skipped</span>
+        )}
         <span className="text-text-subtle">
-          {r.targetedAssistants}/{r.totalAssistants} targeted
+          {rollout.pendingCount} pending, {rollout.runningCount} running
         </span>
       </div>
     </div>
@@ -80,19 +83,10 @@ function RolloutProgressBar({ r }: { r: PlatformRolloutState }) {
 
 export default function AdminRolloutsPage() {
   const { getToken } = useAuth();
-  const [rollouts, setRollouts] = useState<PlatformRolloutState[]>([]);
+  const [rollouts, setRollouts] = useState<MaterializationRolloutView[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [feedbackTone, setFeedbackTone] = useState<"ok" | "err">("ok");
-
-  const [createOpen, setCreateOpen] = useState(false);
-  const [rolloutPercent, setRolloutPercent] = useState(10);
-  const [targetPatchJson, setTargetPatchJson] = useState("{}");
-  const [creating, setCreating] = useState(false);
-
-  const [rollbackingId, setRollbackingId] = useState<string | null>(null);
 
   const load = useCallback(
     async (opts?: { quiet?: boolean }) => {
@@ -121,84 +115,6 @@ export default function AdminRolloutsPage() {
     void load();
   }, [load]);
 
-  async function onCreateSubmit(e: React.FormEvent): Promise<void> {
-    e.preventDefault();
-    const token = await getToken();
-    if (!token) {
-      setFeedbackTone("err");
-      setFeedback("Missing session.");
-      return;
-    }
-    const pct = Math.round(rolloutPercent);
-    if (!Number.isFinite(pct) || pct < 1 || pct > 100) {
-      setFeedbackTone("err");
-      setFeedback("Rollout percent must be between 1 and 100.");
-      return;
-    }
-    let patchObject: Record<string, unknown>;
-    try {
-      const parsed = JSON.parse(targetPatchJson);
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        setFeedbackTone("err");
-        setFeedback("Target patch must be a JSON object.");
-        return;
-      }
-      patchObject = parsed as Record<string, unknown>;
-    } catch {
-      setFeedbackTone("err");
-      setFeedback("Target patch JSON is invalid.");
-      return;
-    }
-    const input: PostAdminPlatformRolloutRequest = {
-      rolloutPercent: pct,
-      targetPatch: patchObject as PlatformRolloutPatch
-    };
-    setCreating(true);
-    setFeedback(null);
-    try {
-      await postAdminPlatformRollout(token, input);
-      setFeedbackTone("ok");
-      setFeedback("Rollout created.");
-      setCreateOpen(false);
-      setTargetPatchJson("{}");
-      await load({ quiet: true });
-    } catch (err) {
-      setFeedbackTone("err");
-      setFeedback(err instanceof Error ? err.message : "Could not create rollout.");
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function onRollback(rolloutId: string): Promise<void> {
-    if (
-      !confirm(
-        "Rollback this rollout? This will revert the platform patch for affected assistants."
-      )
-    ) {
-      return;
-    }
-    const token = await getToken();
-    if (!token) {
-      setFeedbackTone("err");
-      setFeedback("Missing session.");
-      return;
-    }
-    setRollbackingId(rolloutId);
-    setFeedback(null);
-    try {
-      await postAdminPlatformRolloutRollback(token, rolloutId);
-      setFeedbackTone("ok");
-      setFeedback("Rollback completed.");
-      await load({ quiet: true });
-    } catch (err) {
-      setFeedbackTone("err");
-      setFeedback(err instanceof Error ? err.message : "Could not rollback.");
-    } finally {
-      setRollbackingId(null);
-    }
-  }
-
   if (loading && rollouts.length === 0) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center rounded-lg border border-border bg-surface">
@@ -217,19 +133,11 @@ export default function AdminRolloutsPage() {
         </div>
         <button
           type="button"
-          onClick={() => {
-            setCreateOpen((o) => !o);
-            setFeedback(null);
-          }}
-          className={cn(
-            "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors",
-            createOpen
-              ? "border-border bg-surface-raised text-text"
-              : "border-accent/40 bg-accent/10 text-accent hover:bg-accent/15"
-          )}
+          onClick={() => void load({ quiet: true })}
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
         >
-          {createOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-          New rollout
+          <RefreshCw className="h-3.5 w-3.5" />
+          Refresh
         </button>
       </div>
 
@@ -239,154 +147,53 @@ export default function AdminRolloutsPage() {
         </div>
       )}
 
-      {feedback && (
-        <div
-          className={cn(
-            "rounded-lg border px-3 py-2 text-xs",
-            feedbackTone === "ok"
-              ? "border-success/40 bg-success/10 text-success"
-              : "border-destructive/40 bg-destructive/10 text-destructive"
-          )}
-        >
-          {feedback}
-        </div>
-      )}
-
-      <div
-        className={cn(
-          "grid transition-[grid-template-rows] duration-200 ease-out",
-          createOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-        )}
-      >
-        <div className="min-h-0 overflow-hidden">
-          <form
-            onSubmit={(e) => void onCreateSubmit(e)}
-            className="mb-1 space-y-3 rounded-lg border border-border bg-surface-raised p-3"
-          >
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[140px] flex-1 space-y-1">
-                <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                  Rollout %
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={1}
-                    max={100}
-                    value={rolloutPercent}
-                    onChange={(ev) => setRolloutPercent(Number(ev.target.value))}
-                    className="h-1.5 flex-1 cursor-pointer accent-accent"
-                  />
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={rolloutPercent}
-                    onChange={(ev) => {
-                      const v = Number(ev.target.value);
-                      if (Number.isFinite(v)) setRolloutPercent(Math.min(100, Math.max(1, v)));
-                    }}
-                    className="w-14 rounded border border-border bg-bg px-2 py-1 text-xs text-text"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                Target patch (JSON)
-              </label>
-              <textarea
-                value={targetPatchJson}
-                onChange={(ev) => setTargetPatchJson(ev.target.value)}
-                rows={6}
-                spellCheck={false}
-                className="w-full resize-y rounded border border-border bg-bg px-2 py-1.5 font-mono text-[11px] leading-relaxed text-text placeholder:text-text-subtle"
-                placeholder="{}"
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="submit"
-                disabled={creating}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg hover:opacity-90 disabled:opacity-50"
-              >
-                {creating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Create rollout
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setCreateOpen(false);
-                  setFeedback(null);
-                }}
-                className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-muted hover:bg-surface-hover hover:text-text"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
+      <div className="rounded-lg border border-border bg-surface-raised px-3 py-3 text-xs text-text-muted">
+        <code>Force reapply all</code> now queues a controlled <code>manual_reapply</code> rollout
+        from <code>Admin &gt; Plans</code>. This page is now read-only and shows rollout execution
+        state only.
       </div>
 
       {rollouts.length === 0 ? (
-        <p className="text-sm text-text-muted">No rollouts yet.</p>
+        <p className="text-sm text-text-muted">No materialization rollouts yet.</p>
       ) : (
         <div className="space-y-2.5">
-          {rollouts.map((r) => (
+          {rollouts.map((rollout) => (
             <div
-              key={r.id}
+              key={rollout.id}
               className="rounded-lg border border-border bg-surface-raised p-3 shadow-sm"
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 space-y-0.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs font-medium text-text">{r.id}</span>
+                    <span className="font-mono text-xs font-medium text-text">{rollout.id}</span>
                     <span
                       className={cn(
                         "rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize",
-                        statusBadgeClass(r.status)
+                        statusBadgeClass(rollout.status)
                       )}
                     >
-                      {r.status.replace(/_/g, " ")}
+                      {rollout.status.replace(/_/g, " ")}
                     </span>
-                    <span className="text-[10px] text-text-muted">{r.rolloutPercent}% rollout</span>
+                    <span className="text-[10px] text-text-muted">
+                      {rollout.rolloutType.replace(/_/g, " ")} · generation{" "}
+                      {rollout.targetGeneration}
+                    </span>
                   </div>
                   <p className="text-[10px] text-text-subtle">
-                    Created {new Date(r.createdAt).toLocaleString()} · Updated{" "}
-                    {new Date(r.updatedAt).toLocaleString()}
-                    {r.rolledBackAt &&
-                      ` · Rolled back ${new Date(r.rolledBackAt).toLocaleString()}`}
+                    Created {formatTimestamp(rollout.createdAt)} · Updated{" "}
+                    {formatTimestamp(rollout.updatedAt)}
+                    {rollout.startedAt && ` · Started ${formatTimestamp(rollout.startedAt)}`}
+                    {rollout.finishedAt && ` · Finished ${formatTimestamp(rollout.finishedAt)}`}
                   </p>
                 </div>
-                {canRollbackRollout(r) && (
-                  <button
-                    type="button"
-                    disabled={rollbackingId === r.id}
-                    onClick={() => void onRollback(r.id)}
-                    className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-medium text-text-muted hover:border-destructive/50 hover:text-destructive disabled:opacity-50"
-                  >
-                    {rollbackingId === r.id ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <RotateCcw className="h-3 w-3" />
-                    )}
-                    Rollback
-                  </button>
-                )}
+                <div className="rounded-md border border-border bg-bg px-2 py-1 text-[10px] text-text-muted">
+                  {rollout.totalItems} item{rollout.totalItems === 1 ? "" : "s"}
+                </div>
               </div>
 
               <div className="mt-2">
-                <RolloutProgressBar r={r} />
+                <RolloutProgressBar rollout={rollout} />
               </div>
-
-              <details className="mt-2">
-                <summary className="cursor-pointer text-[10px] font-medium text-text-muted hover:text-text">
-                  Target patch
-                </summary>
-                <pre className="mt-1 max-h-40 overflow-auto rounded border border-border bg-bg p-2 text-[10px] text-text-subtle">
-                  {JSON.stringify(r.targetPatch, null, 2)}
-                </pre>
-              </details>
             </div>
           ))}
         </div>

@@ -15,6 +15,7 @@ async function run(): Promise<void> {
 
   {
     let bumped = 0;
+    const rolloutRequests: unknown[] = [];
     const service = new ManageAdminToolPromptMetadataService(
       {
         async findAll() {
@@ -79,12 +80,18 @@ async function run(): Promise<void> {
       },
       {
         async assertCanReadAdminSurface() {
-          return undefined;
+          return { workspaceId: "ws-1" };
         }
       } as never,
       {
         async execute() {
           bumped += 1;
+        }
+      } as never,
+      {
+        async createAutomaticGlobalRollout(input: unknown) {
+          rolloutRequests.push(input);
+          return {};
         }
       } as never
     );
@@ -104,12 +111,14 @@ async function run(): Promise<void> {
     assert.equal(updated.modelUsageGuidance, "Use for links and recent external facts.");
     assert.equal(updated.modelDescriptionOverridden, true);
     assert.equal(bumped, 1);
+    assert.equal(rolloutRequests.length, 1);
   }
 
   {
     let bumped = 0;
     let storedDescription = "";
     let storedGuidance = "";
+    const rolloutRequests: unknown[] = [];
     const summarizeDescriptionId = buildSyntheticToolMetadataPromptTemplateId(
       "summarize_context",
       "description"
@@ -169,12 +178,18 @@ async function run(): Promise<void> {
       },
       {
         async assertCanReadAdminSurface() {
-          return undefined;
+          return { workspaceId: "ws-1" };
         }
       } as never,
       {
         async execute() {
           bumped += 1;
+        }
+      } as never,
+      {
+        async createAutomaticGlobalRollout(input: unknown) {
+          rolloutRequests.push(input);
+          return {};
         }
       } as never
     );
@@ -188,6 +203,7 @@ async function run(): Promise<void> {
     assert.equal(updated.modelUsageGuidance, "Use only when needed.");
     assert.equal(updated.modelDescriptionOverridden, true);
     assert.equal(bumped, 1);
+    assert.equal(rolloutRequests.length, 1);
   }
 
   {
@@ -224,7 +240,7 @@ async function run(): Promise<void> {
       },
       {
         async assertCanReadAdminSurface() {
-          return undefined;
+          return { workspaceId: "ws-1" };
         }
       } as never,
       {
@@ -276,7 +292,7 @@ async function run(): Promise<void> {
       },
       {
         async assertCanReadAdminSurface() {
-          return undefined;
+          return { workspaceId: "ws-1" };
         }
       } as never,
       {

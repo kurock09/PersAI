@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; implementation pending.
+Accepted; core slices landed in repo, with follow-up work still pending on next-turn freshness gating and final legacy cleanup.
 
 Current continuation state:
 
@@ -265,12 +265,12 @@ Implement in production-grade slices.
 | Slice                                                   | Status    | Purpose                                                                                            | Main affected areas                                                                    | Completion criteria                                                                                                                                             |
 | ------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1. ADR and product decision                             | Completed | Retire old JSON rollout product truth and lock the target controlled materialization dashboard.    | `docs/ADR/085-*`, handoff, changelog                                                   | ADR accepted; old JSON governance rollout UI is explicitly out of active product scope.                                                                         |
-| 2. Data model and service boundary                      | Pending   | Add first-class materialization rollout/job concepts.                                              | Prisma schema, repositories, rollout services, audit events                            | Rollouts/items can be created, listed, marked running/succeeded/failed/skipped/cancelled, and associated with target generation and reason.                     |
-| 3. Controlled worker and queue semantics                | Pending   | Process materialization jobs safely.                                                               | API workers/scheduler, materialization service, runtime bundle warmup                  | Queue uses concurrency limits, per-assistant locks, retry/backoff, idempotency, skip-if-fresh, and does not run all assistants synchronously in request path.   |
-| 4. Automatic rollout creation from global config change | Pending   | Replace hidden lazy-storm behavior with visible system rollouts.                                   | Admin Plans, Runtime settings, prompt/system config, tool/Skill policy writers         | Global changes bump generation and create scoped rollout jobs with reason/scope/criticality.                                                                    |
-| 5. Admin Rollouts dashboard replacement                 | Pending   | Replace old JSON patch UI with operational rollout dashboard.                                      | `apps/web/app/admin/rollouts`, admin APIs/contracts                                    | Dashboard shows active/completed rollouts, progress bars, statuses, failed items, retry/cancel, and manual reapply as queued jobs.                              |
+| 2. Data model and service boundary                      | Completed | Add first-class materialization rollout/job concepts.                                              | Prisma schema, repositories, rollout services, audit events                            | Rollouts/items can be created, listed, marked running/succeeded/failed/skipped/cancelled, and associated with target generation and reason.                     |
+| 3. Controlled worker and queue semantics                | Completed | Process materialization jobs safely.                                                               | API workers/scheduler, materialization service, runtime bundle warmup                  | Queue uses concurrency limits, per-assistant locks, retry/backoff, idempotency, skip-if-fresh, and does not run all assistants synchronously in request path.   |
+| 4. Automatic rollout creation from global config change | Completed | Replace hidden lazy-storm behavior with visible system rollouts.                                   | Admin Plans, Runtime settings, prompt/system config, tool/Skill policy writers         | Global changes bump generation and create scoped rollout jobs with reason/scope/criticality.                                                                    |
+| 5. Admin Rollouts dashboard replacement                 | Completed | Replace old JSON patch UI with operational rollout dashboard.                                      | `apps/web/app/admin/rollouts`, admin APIs/contracts                                    | Dashboard shows active/completed rollouts, progress bars, statuses, failed items, retry/cancel, and manual reapply as queued jobs.                              |
 | 6. Next-turn freshness gate                             | Pending   | Prevent stale hard-critical turns without causing stampedes.                                       | inbound runtime context, materialization freshness checks, runtime error/copy handling | Hard-critical stale state blocks/waits/activates clearly; soft changes can proceed when allowed; turn path can enqueue/boost but not unboundedly rematerialize. |
-| 7. Remove obsolete legacy paths                         | Pending   | Delete old active JSON governance rollout and synchronous force-reapply-all product paths cleanly. | old rollout services/controllers/contracts/UI, runtime admin endpoint                  | No active UI/API exposes raw JSON governance patch rollout or synchronous all-assistant reapply as product behavior; migrations/docs explain replacement.       |
+| 7. Remove obsolete legacy paths                         | In progress | Delete old active JSON governance rollout and synchronous force-reapply-all product paths cleanly. | old rollout services/controllers/contracts/UI, runtime admin endpoint                  | No active UI/API exposes raw JSON governance patch rollout or synchronous all-assistant reapply as product behavior; migrations/docs explain replacement.       |
 
 ### Execution rules
 
@@ -367,9 +367,9 @@ Focused checks should prove:
 - Existing ADR-042 rollout code becomes legacy and needs clean removal or migration.
 - Some changes may show "activating" briefly instead of pretending they are instantly complete.
 
-## Current code audit notes
+## Historical pre-implementation audit notes
 
-Current implementation observations that this ADR intentionally changes:
+These notes describe the pre-implementation state this ADR was written against. They are historical context, not current repo truth:
 
 - `apps/web/app/admin/rollouts/page.tsx` is still a JSON `targetPatch` editor for old governance patch rollout.
 - `ManagePlatformRolloutsService` synchronously applies JSON patches to targeted assistants and calls `ApplyAssistantPublishedVersionService` inline.

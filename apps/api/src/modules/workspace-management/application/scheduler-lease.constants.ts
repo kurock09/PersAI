@@ -6,7 +6,8 @@ export const SCHEDULER_KEYS = [
   "idle_reengagement",
   "background_task",
   "background_compaction",
-  "media_job"
+  "media_job",
+  "materialization_rollout"
 ] as const;
 
 export type SchedulerKey = (typeof SCHEDULER_KEYS)[number];
