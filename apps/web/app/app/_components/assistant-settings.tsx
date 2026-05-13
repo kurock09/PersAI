@@ -7,14 +7,13 @@ import { useAuth } from "@clerk/nextjs";
 import {
   Sparkles,
   Rocket,
-  RotateCcw,
   Trash2,
+  RotateCcw,
   CheckCircle2,
   Brain,
   ListTodo,
   Send,
   BarChart3,
-  History,
   Loader2,
   AlertTriangle,
   Upload,
@@ -44,7 +43,6 @@ import {
 import {
   patchAssistantDraft,
   postAssistantPublish,
-  postAssistantRollback,
   postAssistantReset,
   getAssistantVoiceSettings,
   getAssistantSkills,
@@ -110,19 +108,16 @@ type MonthlyMediaQuotaToolState =
 type ToolDailyLimitState = UserPlanVisibilityState["limits"]["toolDailyLimits"][number];
 type SettingsSectionId =
   | "character"
-  | "quickActions"
   | "knowledge"
   | "files"
   | "skills"
   | "memory"
   | "tasks"
   | "channels"
-  | "limits"
-  | "publishHistory";
+  | "limits";
 
 function normalizeInitialSection(value: string | undefined): SettingsSectionId {
   switch (value) {
-    case "quickActions":
     case "knowledge":
     case "files":
     case "skills":
@@ -130,7 +125,6 @@ function normalizeInitialSection(value: string | undefined): SettingsSectionId {
     case "tasks":
     case "channels":
     case "limits":
-    case "publishHistory":
     case "character":
       return value;
     default:
@@ -163,13 +157,15 @@ function Section({
   title,
   children,
   open,
-  onToggle
+  onToggle,
+  className
 }: {
   icon: React.ReactNode;
   title: string;
   children: React.ReactNode;
   open: boolean;
   onToggle: () => void;
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -180,7 +176,7 @@ function Section({
   }, [open]);
 
   return (
-    <div ref={ref} className="border-b border-border">
+    <div ref={ref} className={cn("border-b border-border", className)}>
       <button
         type="button"
         onClick={onToggle}
@@ -726,7 +722,6 @@ export function AssistantSettings({
     });
   };
 
-  const version = assistant?.latestPublishedVersion ?? null;
   const [draftName, setDraftName] = useState(assistant?.draft.displayName ?? "");
   const [draftInstructions, setDraftInstructions] = useState(assistant?.draft.instructions ?? "");
   const [editingPersonality, setEditingPersonality] = useState(false);
@@ -753,9 +748,6 @@ export function AssistantSettings({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
 
-  const [rollingBack, setRollingBack] = useState(false);
-  const [rollbackConfirm, setRollbackConfirm] = useState(false);
-  const [rollbackFb, setRollbackFb] = useState<ActionFeedback>(null);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
@@ -1608,24 +1600,6 @@ export function AssistantSettings({
     [getToken, t]
   );
 
-  const handleRollback = useCallback(async () => {
-    const token = await getToken({ skipCache: true });
-    if (!token || !version) return;
-    const targetVersion = version.version - 1;
-    if (targetVersion < 1) return;
-    setRollingBack(true);
-    setRollbackFb(null);
-    try {
-      await postAssistantRollback(token, { targetVersion });
-      setRollbackFb({ type: "ok", text: t("rolledBack", { v: targetVersion }) });
-      setRollbackConfirm(false);
-      data.reload();
-    } catch (e) {
-      setRollbackFb({ type: "err", text: e instanceof Error ? e.message : t("rollbackFailed") });
-    }
-    setRollingBack(false);
-  }, [getToken, version, data]);
-
   const handleReset = useCallback(async () => {
     const token = await getToken({ skipCache: true });
     if (!token) return;
@@ -1638,7 +1612,7 @@ export function AssistantSettings({
       setResetFb({ type: "err", text: e instanceof Error ? e.message : t("resetFailed") });
       setResetting(false);
     }
-  }, [getToken, router]);
+  }, [getToken, router, t]);
 
   const handleForget = useCallback(
     async (itemId: string) => {
@@ -1779,13 +1753,14 @@ export function AssistantSettings({
   }
 
   return (
-    <div>
+    <div className="flex flex-col">
       {/* 1. Character — hero */}
       <Section
         icon={<Sparkles className="h-4 w-4" />}
         title={t("character")}
         open={openSection === "character"}
         onToggle={() => setOpenSection((current) => (current === "character" ? null : "character"))}
+        className="order-1"
       >
         <div className="flex flex-col gap-3">
           <div className="rounded-2xl border border-border/70 bg-surface p-4">
@@ -2079,80 +2054,55 @@ export function AssistantSettings({
                 </div>
               )}
             </div>
+
+            <div className="mt-5 border-t border-border/70 pt-5">
+              <div className="rounded-2xl border border-destructive/15 bg-destructive/5 px-4 py-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-text">{t("reset")}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                      {t("resetScopeWarning")}
+                    </p>
+                  </div>
+                  {!resetConfirm ? (
+                    <button
+                      type="button"
+                      onClick={() => setResetConfirm(true)}
+                      className="inline-flex min-h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl border border-destructive/20 bg-background/40 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {t("reset")}
+                    </button>
+                  ) : (
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleReset()}
+                        disabled={resetting}
+                        className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:cursor-wait disabled:opacity-70"
+                      >
+                        {resetting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <AlertTriangle className="h-4 w-4" />
+                        )}
+                        {t("confirmReset")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setResetConfirm(false)}
+                        className="inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-border bg-surface-raised px-4 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                      >
+                        {t("cancel")}
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <FeedbackLine fb={resetFb} />
+              </div>
+            </div>
           </div>
         )}
-      </Section>
-
-      {/* 2. Quick actions */}
-      <Section
-        icon={<Rocket className="h-4 w-4" />}
-        title={t("quickActions")}
-        open={openSection === "quickActions"}
-        onToggle={() =>
-          setOpenSection((current) => (current === "quickActions" ? null : "quickActions"))
-        }
-      >
-        {version && (
-          <p className="mb-3 text-xs text-text-muted">
-            {t("version", { v: version.version, status: assistant.runtimeApply.status })}
-          </p>
-        )}
-        <div className="flex flex-wrap gap-2">
-          {!rollbackConfirm ? (
-            <ActionButton
-              icon={<RotateCcw className="h-3.5 w-3.5" />}
-              label={t("rollback")}
-              onClick={() => setRollbackConfirm(true)}
-              busy={false}
-              disabled={!version || version.version < 2}
-            />
-          ) : (
-            <div className="flex items-center gap-2">
-              <ActionButton
-                icon={<RotateCcw className="h-3.5 w-3.5" />}
-                label={t("rollbackTo", { v: (version?.version ?? 2) - 1 })}
-                onClick={() => void handleRollback()}
-                busy={rollingBack}
-              />
-              <button
-                type="button"
-                onClick={() => setRollbackConfirm(false)}
-                className="cursor-pointer text-xs text-text-subtle hover:text-text-muted"
-              >
-                {t("cancel")}
-              </button>
-            </div>
-          )}
-          {!resetConfirm ? (
-            <ActionButton
-              icon={<Trash2 className="h-3.5 w-3.5" />}
-              label={t("reset")}
-              variant="danger"
-              onClick={() => setResetConfirm(true)}
-              busy={false}
-            />
-          ) : (
-            <div className="flex items-center gap-2">
-              <ActionButton
-                icon={<AlertTriangle className="h-3.5 w-3.5" />}
-                label={t("confirmReset")}
-                variant="danger"
-                onClick={() => void handleReset()}
-                busy={resetting}
-              />
-              <button
-                type="button"
-                onClick={() => setResetConfirm(false)}
-                className="cursor-pointer text-xs text-text-subtle hover:text-text-muted"
-              >
-                {t("cancel")}
-              </button>
-            </div>
-          )}
-        </div>
-        <FeedbackLine fb={rollbackFb} />
-        <FeedbackLine fb={resetFb} />
-        {resetConfirm && <p className="mt-2 text-xs text-destructive">{t("resetScopeWarning")}</p>}
       </Section>
 
       {/* 3. Knowledge */}
@@ -2161,6 +2111,7 @@ export function AssistantSettings({
         title={t("knowledge")}
         open={openSection === "knowledge"}
         onToggle={() => setOpenSection((current) => (current === "knowledge" ? null : "knowledge"))}
+        className="order-6"
       >
         <div className="rounded-2xl border border-border/70 bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2184,6 +2135,7 @@ export function AssistantSettings({
         title={t("files")}
         open={openSection === "files"}
         onToggle={() => setOpenSection((current) => (current === "files" ? null : "files"))}
+        className="order-7"
       >
         <AssistantFilesManager />
       </Section>
@@ -2194,6 +2146,7 @@ export function AssistantSettings({
         title={t("skills")}
         open={openSection === "skills"}
         onToggle={() => setOpenSection((current) => (current === "skills" ? null : "skills"))}
+        className="order-4"
       >
         <AssistantSkillsManager
           state={skillsState}
@@ -2214,6 +2167,7 @@ export function AssistantSettings({
         title={t("memory")}
         open={openSection === "memory"}
         onToggle={() => setOpenSection((current) => (current === "memory" ? null : "memory"))}
+        className="order-5"
       >
         {/* ADR-074 Slice M3.3 — UX merge:
               - "Workspace" tab = curated structured memory: every
@@ -2517,6 +2471,7 @@ export function AssistantSettings({
         title={t("tasks")}
         open={openSection === "tasks"}
         onToggle={() => setOpenSection((current) => (current === "tasks" ? null : "tasks"))}
+        className="order-3"
       >
         <FeedbackLine fb={tasksFb} />
         {taskLoading ? (
@@ -2728,6 +2683,7 @@ export function AssistantSettings({
         title={t("channels")}
         open={openSection === "channels"}
         onToggle={() => setOpenSection((current) => (current === "channels" ? null : "channels"))}
+        className="order-8"
       >
         <div className="space-y-1.5">
           <ChannelRow
@@ -2786,6 +2742,7 @@ export function AssistantSettings({
         title={t("limitsAndPlan")}
         open={openSection === "limits"}
         onToggle={() => setOpenSection((current) => (current === "limits" ? null : "limits"))}
+        className="order-2"
       >
         {data.plan ? (
           <div className="space-y-3">
@@ -2944,28 +2901,7 @@ export function AssistantSettings({
         )}
       </Section>
 
-      {/* 7. Publish history */}
-      <Section
-        icon={<History className="h-4 w-4" />}
-        title={t("publishHistory")}
-        open={openSection === "publishHistory"}
-        onToggle={() =>
-          setOpenSection((current) => (current === "publishHistory" ? null : "publishHistory"))
-        }
-      >
-        {version ? (
-          <div className="text-xs text-text-muted">
-            <p>{t("latestVersion", { v: version.version })}</p>
-            <p className="text-text-subtle">
-              {t("published", { date: new Date(version.publishedAt).toLocaleString() })}
-            </p>
-          </div>
-        ) : (
-          <p className="text-xs text-text-subtle">{t("noVersions")}</p>
-        )}
-      </Section>
-
-      <div className="flex justify-center px-5 pt-10 pb-12">
+      <div className="order-9 flex justify-center px-5 pt-10 pb-12">
         <AndroidAppDownloadBanner
           className="min-w-[11.5rem]"
           copy={{

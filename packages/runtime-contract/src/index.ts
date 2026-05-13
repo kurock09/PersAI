@@ -1063,6 +1063,15 @@ export interface RuntimeQuotaStatusToolResult {
     availableTools: string[];
     paymentMethodClasses: Array<"card" | "sbp_qr">;
   } | null;
+  /**
+   * Convenience CTA hint for the model for subscription/plan questions. This
+   * carries the in-product pricing page the user should be sent to when they
+   * ask to compare plans, open tariffs, upgrade, or choose a subscription.
+   */
+  pricingPage: {
+    path: string;
+    url: string;
+  } | null;
   checkout: RuntimeQuotaStatusCheckout | null;
   subscriptionUpdate: RuntimeQuotaStatusSubscriptionUpdate | null;
   action: "reported" | "checkout_created" | "subscription_updated" | "skipped";

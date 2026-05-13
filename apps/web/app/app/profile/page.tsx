@@ -17,6 +17,7 @@ import {
   User
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
 import { useClerkAvatar } from "../_components/use-clerk-avatar";
 import { PasswordField } from "../_components/password-field";
 
@@ -26,6 +27,7 @@ export default function ProfilePage() {
   const router = useRouter();
   const t = useTranslations("profile");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const logoutInFlightRef = useRef(false);
   const clerkAvatar = useClerkAvatar();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -45,6 +47,7 @@ export default function ProfilePage() {
   } | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [previewBroken, setPreviewBroken] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -366,11 +369,25 @@ export default function ProfilePage() {
 
       <button
         type="button"
-        onClick={() => void signOut({ redirectUrl: "/" })}
-        className="mt-8 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+        onClick={() => {
+          if (logoutInFlightRef.current) return;
+          logoutInFlightRef.current = true;
+          setSigningOut(true);
+          void signOut({ redirectUrl: "/" })
+            .catch(() => undefined)
+            .finally(() => {
+              navigateAfterClerkAuth("/", "replace");
+            });
+        }}
+        disabled={signingOut}
+        aria-busy={signingOut}
+        className={cn(
+          "mt-8 flex w-full items-center justify-center gap-2 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10",
+          signingOut ? "cursor-wait opacity-70" : "cursor-pointer"
+        )}
       >
-        <LogOut className="h-4 w-4" />
-        {t("signOut")}
+        {signingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+        {signingOut ? t("signingOut") : t("signOut")}
       </button>
     </div>
   );

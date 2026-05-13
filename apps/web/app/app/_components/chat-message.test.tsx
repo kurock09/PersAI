@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forwardRef } from "react";
-import { ChatMessageBubble } from "./chat-message";
+import { ChatMessageBubble, resolveInternalChatCta } from "./chat-message";
 import type { ChatMessage } from "./use-chat";
 
 vi.mock("next-intl", () => ({
@@ -447,5 +447,37 @@ describe("ChatMessageBubble — pre-response status", () => {
 
     expect(screen.queryByText("preResponseThinking")).toBeNull();
     expect(screen.getByText("Hello")).toBeInTheDocument();
+  });
+});
+
+describe("resolveInternalChatCta", () => {
+  it("recognizes internal pricing links", () => {
+    expect(resolveInternalChatCta("/app/pricing", "Тарифы")).toEqual({
+      kind: "pricing",
+      href: "/app/pricing",
+      label: "Тарифы"
+    });
+  });
+
+  it("recognizes internal packages links", () => {
+    expect(resolveInternalChatCta("https://persai.dev/app/packages", "Медиа пакеты")).toEqual({
+      kind: "packages",
+      href: "/app/packages",
+      label: "Медиа пакеты"
+    });
+  });
+
+  it("recognizes internal checkout links", () => {
+    expect(
+      resolveInternalChatCta("https://persai.dev/app/billing/checkout/pi_123", "Оплатить")
+    ).toEqual({
+      kind: "payment",
+      href: "/app/billing/checkout/pi_123",
+      label: "Оплатить"
+    });
+  });
+
+  it("ignores external non-PersAI links", () => {
+    expect(resolveInternalChatCta("https://example.com/app/pricing", "Тарифы")).toBeNull();
   });
 });

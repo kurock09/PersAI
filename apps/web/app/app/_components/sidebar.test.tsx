@@ -401,4 +401,34 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
       expect(navigationMocks.navigateAfterClerkAuth).toHaveBeenCalledWith("/", "replace");
     });
   });
+
+  it("prevents repeated logout clicks while signOut is pending", async () => {
+    let resolveSignOut: (() => void) | undefined;
+    clerkMocks.signOut.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveSignOut = resolve;
+      })
+    );
+
+    render(<Sidebar data={makeAppData({})} />);
+
+    fireEvent.click(screen.getByText("freePlan · 0%").closest("button")!);
+    const logoutButton = screen.getByRole("button", { name: "signOut" });
+    fireEvent.click(logoutButton);
+
+    await waitFor(() => {
+      expect(clerkMocks.signOut).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "signOut" }));
+    expect(clerkMocks.signOut).toHaveBeenCalledTimes(1);
+
+    if (resolveSignOut) {
+      resolveSignOut();
+    }
+
+    await waitFor(() => {
+      expect(navigationMocks.navigateAfterClerkAuth).toHaveBeenCalledWith("/", "replace");
+    });
+  });
 });

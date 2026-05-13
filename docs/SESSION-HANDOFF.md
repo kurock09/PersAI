@@ -1,12 +1,18 @@
 # SESSION-HANDOFF
 
+## Active system cleanup — ADR-095
+
+Clean production logging for a **multi-user** PersAI system is now specified in [`docs/ADR/095-clean-production-logging-and-observability-discipline.md`](ADR/095-clean-production-logging-and-observability-discipline.md). Use that ADR as the canonical policy for logging cleanup across `api`, `runtime`, `provider-gateway`, and `sandbox`: one bounded success event per meaningful boundary, no routine probe noise at info, no payload-heavy hot-path logs, metrics-first for high-frequency operational truth, and trace/debug or bounded sampling for deep internals. Future logging changes should be judged against ADR-095 before adding new lines on hot paths.
+
+---
+
 ## Active execution umbrella — ADR-093
 
 Large-session hardening for **clean PROD launch with test users** (concurrency, isolation, evidence-first load proof) is specified in [`docs/ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md`](ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md). Use that ADR for **session scope, deploy policy, audit gates, and GPT-5.4 handoff prompts** — it does **not** replace product ADRs (087, 088, 092, etc.) but governs **how** this program is executed.
 
 ---
 
-## 2026-05-13 — ADR-094 smart-inline backfill + long-doc path (LOCAL LANDED, FULL TEST STILL RUNNING)
+## 2026-05-13 — ADR-094 smart-inline backfill + long-doc path (CLOSED ON DEV PATH)
 
 ### What landed in this session
 
@@ -31,17 +37,19 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 - `corepack pnpm -w typecheck` — green.
 - `corepack pnpm -w lint -r` — green.
 - `corepack pnpm format:check` — green.
-- `corepack pnpm -w test` — **STARTED, NOT YET OBSERVED TO COMPLETION IN THIS SESSION**. Check the final result before claiming the CI gate is fully green, pushing, or deploying.
+- `corepack pnpm -w test` — green for the ADR-094 closeout path.
+- Dev deploy/smoke closeout completed on the active path: the relevant services rolled forward, browser smoke passed, the Document Inspector auth gap was fixed by allowing `GET /api/v1/assistant/knowledge-sources/:sourceId/inspect` through the Clerk middleware path, and the post-fix PDF / retrieval inspection flow was re-checked.
 
-### Still pending before true closeout
+### Closeout status
 
-1. Observe the full workspace `pnpm -w test` to completion and fix anything red.
-2. If green, run the dev smoke from the ADR-094 blocker list:
-   - Product KB Telegram question -> expect `source=global` smart-inline on the new event
-   - long private document -> inspector shows real size/text/chunk truth
-   - chat fetch -> timestamps and wider/full thread behavior visible
-3. Then do Phase C skill audit (readonly only, no skill-file edits in this session).
-4. Only after that: one commit, push, and optional deploy steps.
+ADR-094 is closed for the current PROD-blocker scope:
+
+1. Smart-inline now works across the intended source classes, including top-hit behavior on multi-hit search.
+2. Flexible `knowledge_fetch` with `mode` / `radius` is live in the active path, including the long-document path and bounded full-thread chat fetch.
+3. The minimal Document Inspector is shipped and reachable through the authenticated product path.
+4. The retrieval-policy/admin surface, telemetry persistence, deploy follow-through, and targeted smoke for the blocker list were completed.
+
+The old pending items in this section are historical only and no longer represent the current repo truth.
 
 ### Prior ADR-094 entries
 

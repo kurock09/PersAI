@@ -282,6 +282,7 @@
     "adminPanel": "Админ-панель",
     "accountSettings": "Настройки аккаунта",
     "signOut": "Выйти",
+    "signingOut": "Выходим...",
     "lightModeBadge": "Лайт-режим",
     "switchLight": "Светлая тема",
     "switchDark": "Тёмная тема",
@@ -950,6 +951,7 @@
     "passwordSaveFailed": "Не удалось обновить пароль.",
     "passwordMismatch": "Новый пароль и подтверждение не совпадают.",
     "signOut": "Выйти",
+    "signingOut": "Выходим...",
     "unnamedUser": "Пользователь"
   },
   "persona": {

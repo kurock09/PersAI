@@ -406,7 +406,9 @@ function AccountFooter({
   const { theme, setTheme } = useTheme();
   const { isOnline, recheck } = useNetworkOnline();
   const [open, setOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const logoutInFlightRef = useRef(false);
   const {
     imageSrc: avatarUrl,
     broken: avatarBroken,
@@ -704,18 +706,30 @@ function AccountFooter({
             <button
               type="button"
               onClick={() => {
+                if (logoutInFlightRef.current) return;
+                logoutInFlightRef.current = true;
                 setOpen(false);
                 onClose?.();
-                void signOut()
+                setSigningOut(true);
+                void signOut({ redirectUrl: "/" })
                   .catch(() => undefined)
                   .finally(() => {
                     navigateAfterClerkAuth("/", "replace");
                   });
               }}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-destructive/10"
+              disabled={signingOut}
+              aria-busy={signingOut}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-destructive/10",
+                signingOut ? "cursor-wait opacity-70" : "cursor-pointer"
+              )}
             >
-              <LogOut className="h-3.5 w-3.5" />
-              {t("signOut")}
+              {signingOut ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <LogOut className="h-3.5 w-3.5" />
+              )}
+              {signingOut ? t("signingOut") : t("signOut")}
             </button>
           </motion.div>
         )}

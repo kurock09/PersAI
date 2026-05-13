@@ -115,6 +115,26 @@ export class AdminDeleteUserService {
           where: { publishedByUserId: targetUserId },
           data: { publishedByUserId: callerUserId }
         });
+        await tx.globalKnowledgeSource.updateMany({
+          where: { createdByUserId: targetUserId },
+          data: { createdByUserId: callerUserId }
+        });
+        await tx.productKnowledgeTextEntry.updateMany({
+          where: { createdByUserId: targetUserId },
+          data: { createdByUserId: callerUserId }
+        });
+        await tx.skill.updateMany({
+          where: { createdByUserId: targetUserId },
+          data: { createdByUserId: callerUserId }
+        });
+        await tx.skillDocument.updateMany({
+          where: { createdByUserId: targetUserId },
+          data: { createdByUserId: callerUserId }
+        });
+        await tx.skillKnowledgeCard.updateMany({
+          where: { createdByUserId: targetUserId },
+          data: { createdByUserId: callerUserId }
+        });
 
         await tx.workspaceMember.deleteMany({ where: { userId: targetUserId } });
         await tx.appUserAdminRole.deleteMany({ where: { userId: targetUserId } });
@@ -164,11 +184,25 @@ export class AdminDeleteUserService {
             await tx.notificationDeadLetter.deleteMany({ where: { workspaceId } });
             await tx.notificationIntent.deleteMany({ where: { workspaceId } });
 
+            await this.withAuditEventNoUpdateTriggerDisabled(tx, async () => {
+              await tx.assistantAuditEvent.updateMany({
+                where: { workspaceId },
+                data: { workspaceId: null }
+              });
+            });
+
             workspaceDeleted = true;
 
             await tx.workspace.delete({ where: { id: workspaceId } });
           }
         }
+
+        await this.withAuditEventNoUpdateTriggerDisabled(tx, async () => {
+          await tx.assistantAuditEvent.updateMany({
+            where: { actorUserId: targetUserId },
+            data: { actorUserId: null }
+          });
+        });
 
         await tx.appUser.delete({ where: { id: targetUserId } });
         return workspaceDeleted;

@@ -9,6 +9,11 @@ function normalizeSql(value: string): string {
 async function run(): Promise<void> {
   const rawSql: string[] = [];
   const auditUpdateCalls: Array<unknown> = [];
+  const globalKnowledgeSourceUpdateCalls: Array<unknown> = [];
+  const productKnowledgeTextEntryUpdateCalls: Array<unknown> = [];
+  const skillUpdateCalls: Array<unknown> = [];
+  const skillDocumentUpdateCalls: Array<unknown> = [];
+  const skillKnowledgeCardUpdateCalls: Array<unknown> = [];
   const deleted: string[] = [];
   const releasedBytes: bigint[] = [];
   const releasedKnowledgeBytes: bigint[] = [];
@@ -90,6 +95,31 @@ async function run(): Promise<void> {
     assistantPublishedVersion: {
       deleteMany: recordDelete("assistantPublishedVersion"),
       updateMany: recordDelete("assistantPublishedVersion.updateMany")
+    },
+    globalKnowledgeSource: {
+      updateMany: async (args: unknown) => {
+        globalKnowledgeSourceUpdateCalls.push(args);
+      }
+    },
+    productKnowledgeTextEntry: {
+      updateMany: async (args: unknown) => {
+        productKnowledgeTextEntryUpdateCalls.push(args);
+      }
+    },
+    skill: {
+      updateMany: async (args: unknown) => {
+        skillUpdateCalls.push(args);
+      }
+    },
+    skillDocument: {
+      updateMany: async (args: unknown) => {
+        skillDocumentUpdateCalls.push(args);
+      }
+    },
+    skillKnowledgeCard: {
+      updateMany: async (args: unknown) => {
+        skillKnowledgeCardUpdateCalls.push(args);
+      }
     },
     assistantChannelSurfaceBinding: {
       deleteMany: recordDelete("assistantChannelSurfaceBinding")
@@ -209,7 +239,24 @@ async function run(): Promise<void> {
     "assistant-media/assistants/assistant-1/",
     "assistant-knowledge/assistants/assistant-1/"
   ]);
-  assert.deepEqual(auditUpdateCalls, []);
+  assert.deepEqual(globalKnowledgeSourceUpdateCalls, [
+    { where: { createdByUserId: "user-1" }, data: { createdByUserId: "admin-1" } }
+  ]);
+  assert.deepEqual(productKnowledgeTextEntryUpdateCalls, [
+    { where: { createdByUserId: "user-1" }, data: { createdByUserId: "admin-1" } }
+  ]);
+  assert.deepEqual(skillUpdateCalls, [
+    { where: { createdByUserId: "user-1" }, data: { createdByUserId: "admin-1" } }
+  ]);
+  assert.deepEqual(skillDocumentUpdateCalls, [
+    { where: { createdByUserId: "user-1" }, data: { createdByUserId: "admin-1" } }
+  ]);
+  assert.deepEqual(skillKnowledgeCardUpdateCalls, [
+    { where: { createdByUserId: "user-1" }, data: { createdByUserId: "admin-1" } }
+  ]);
+  assert.deepEqual(auditUpdateCalls, [
+    { where: { actorUserId: "user-1" }, data: { actorUserId: null } }
+  ]);
   const normalizedRawSql = rawSql.map(normalizeSql);
   assert.ok(
     normalizedRawSql.includes(

@@ -282,6 +282,7 @@
     "adminPanel": "Admin panel",
     "accountSettings": "Account settings",
     "signOut": "Sign out",
+    "signingOut": "Signing out...",
     "lightModeBadge": "Light mode",
     "switchLight": "Switch to light mode",
     "switchDark": "Switch to dark mode",
@@ -950,6 +951,7 @@
     "passwordSaveFailed": "Could not update the password.",
     "passwordMismatch": "The new password and confirmation do not match.",
     "signOut": "Sign out",
+    "signingOut": "Signing out...",
     "unnamedUser": "User"
   },
   "persona": {

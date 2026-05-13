@@ -35,10 +35,14 @@ import {
   ThumbsDown,
   FileText,
   Download,
-  Loader2
+  Loader2,
+  CreditCard,
+  Package2,
+  ReceiptText
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
+import Link from "next/link";
 import { AssistantAvatar } from "./assistant-avatar";
 import {
   buildStreamingMarkdownTailPreview,
@@ -515,6 +519,65 @@ function isSafeMarkdownHref(href: unknown): href is string {
   );
 }
 
+export type InternalChatCtaMeta = {
+  kind: "pricing" | "packages" | "payment";
+  href: string;
+  label: string;
+};
+
+export function resolveInternalChatCta(href: string, text: string): InternalChatCtaMeta | null {
+  const normalizedHref = href.trim();
+  const safeText = stripInlineMarkdown(text).trim();
+  if (!normalizedHref) return null;
+
+  const normalizedPath = (() => {
+    if (normalizedHref.startsWith("http://") || normalizedHref.startsWith("https://")) {
+      try {
+        const url = new URL(normalizedHref);
+        if (url.hostname !== "persai.dev" && url.hostname !== "www.persai.dev") return null;
+        return `${url.pathname}${url.search}`;
+      } catch {
+        return null;
+      }
+    }
+    if (normalizedHref.startsWith("/")) {
+      return normalizedHref;
+    }
+    return null;
+  })();
+
+  if (normalizedPath === null) return null;
+  const pathOnly = normalizedPath.split("?")[0] ?? normalizedPath;
+
+  if (pathOnly === "/app/pricing") {
+    return { kind: "pricing", href: normalizedPath, label: safeText || "Тарифы" };
+  }
+  if (pathOnly === "/app/packages") {
+    return { kind: "packages", href: normalizedPath, label: safeText || "Медиа пакеты" };
+  }
+  if (pathOnly.startsWith("/app/billing/checkout/")) {
+    return { kind: "payment", href: normalizedPath, label: safeText || "Оплатить" };
+  }
+  return null;
+}
+
+function InternalChatCtaLink({ meta }: { meta: InternalChatCtaMeta }) {
+  const icon =
+    meta.kind === "pricing" ? CreditCard : meta.kind === "packages" ? Package2 : ReceiptText;
+  const Icon = icon;
+  return (
+    <Link
+      href={meta.href as Parameters<typeof Link>[0]["href"]}
+      className="my-2 inline-flex min-h-10 items-center gap-2 rounded-xl border border-border/70 bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-hover hover:border-border-strong"
+    >
+      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-bg text-text-muted">
+        <Icon className="h-4 w-4" />
+      </span>
+      <span>{meta.label}</span>
+    </Link>
+  );
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const markdownComponents: Record<string, React.ComponentType<any>> = {
   code: ({
@@ -556,20 +619,32 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
       {children}
     </td>
   ),
-  a: ({ children, href, ...props }: React.ComponentPropsWithoutRef<"a">) =>
-    isSafeMarkdownHref(href) ? (
-      <a
-        className="text-accent underline decoration-accent/30 hover:decoration-accent"
-        target="_blank"
-        rel="noopener noreferrer"
-        href={href}
-        {...props}
-      >
-        {children}
-      </a>
-    ) : (
-      <span className="text-text-muted">{children}</span>
-    ),
+  a: ({ children, href, ...props }: React.ComponentPropsWithoutRef<"a">) => {
+    const text =
+      typeof children === "string"
+        ? children
+        : Array.isArray(children)
+          ? children.join("").trim()
+          : "";
+    if (isSafeMarkdownHref(href)) {
+      const internalCta = resolveInternalChatCta(href, text);
+      if (internalCta) {
+        return <InternalChatCtaLink meta={internalCta} />;
+      }
+      return (
+        <a
+          className="text-accent underline decoration-accent/30 hover:decoration-accent"
+          target="_blank"
+          rel="noopener noreferrer"
+          href={href}
+          {...props}
+        >
+          {children}
+        </a>
+      );
+    }
+    return <span className="text-text-muted">{children}</span>;
+  },
   p: ({ children, ...props }: React.ComponentPropsWithoutRef<"p">) => (
     <p className="mb-3 last:mb-0 leading-relaxed" {...props}>
       {children}

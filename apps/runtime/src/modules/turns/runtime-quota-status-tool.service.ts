@@ -8,6 +8,17 @@ import type {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 
 const QUOTA_STATUS_TOOL_CODE = "quota_status" as const;
+const DEFAULT_PRICING_PAGE_PATH = "/app/pricing" as const;
+
+function resolvePricingPageHint(): {
+  path: string;
+  url: string;
+} {
+  return {
+    path: DEFAULT_PRICING_PAGE_PATH,
+    url: "https://persai.dev/app/pricing"
+  };
+}
 
 function resolvePackagesPurchaseHint(
   packageOffers: Awaited<
@@ -105,6 +116,7 @@ export class RuntimeQuotaStatusToolService {
             packagesAvailableByTool: quotaStatus.packagesAvailableByTool,
             packageOffers: quotaStatus.packageOffers,
             packagesPurchase: resolvePackagesPurchaseHint(quotaStatus.packageOffers),
+            pricingPage: resolvePricingPageHint(),
             checkout: outcome.checkout,
             subscriptionUpdate: outcome.subscriptionUpdate,
             action: outcome.action,
@@ -136,6 +148,7 @@ export class RuntimeQuotaStatusToolService {
           packagesAvailableByTool: outcome.packagesAvailableByTool,
           packageOffers: outcome.packageOffers,
           packagesPurchase: resolvePackagesPurchaseHint(outcome.packageOffers),
+          pricingPage: resolvePricingPageHint(),
           checkout: null,
           subscriptionUpdate: null,
           action: "reported",
@@ -263,6 +276,7 @@ export class RuntimeQuotaStatusToolService {
         tools: []
       },
       packagesPurchase: null,
+      pricingPage: resolvePricingPageHint(),
       checkout: null,
       subscriptionUpdate: null,
       action: "skipped",

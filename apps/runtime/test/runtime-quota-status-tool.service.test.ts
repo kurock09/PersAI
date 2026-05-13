@@ -521,6 +521,8 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.packageOffers.tools[0]?.offers[0]?.id, "pkg-image-1");
   assert.equal(success.payload.packagesPurchase?.path, "/app/packages");
   assert.equal(success.payload.packagesPurchase?.url, "https://persai.dev/app/packages");
+  assert.equal(success.payload.pricingPage?.path, "/app/pricing");
+  assert.equal(success.payload.pricingPage?.url, "https://persai.dev/app/pricing");
   assert.deepEqual([...(success.payload.packagesPurchase?.availableTools ?? [])].sort(), [
     "image_edit",
     "image_generate"
@@ -581,6 +583,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.deepEqual(failed.payload.packagesAvailableByTool, {});
   assert.deepEqual(failed.payload.packageOffers, { packagesPurchase: null, tools: [] });
   assert.equal(failed.payload.packagesPurchase, null);
+  assert.equal(failed.payload.pricingPage?.path, "/app/pricing");
   assert.equal(failed.isError, true);
 
   internalApi.error = null;
