@@ -17,11 +17,11 @@ function createService(overrides?: {
     (overrides?.adminAuthorizationService ?? {}) as never,
     (overrides?.bumpConfigGenerationService ?? {}) as never,
     (overrides?.resolvePlatformRuntimeProviderSettingsService ?? {}) as never,
-    ((overrides?.materializationRolloutService ?? {
+    (overrides?.materializationRolloutService ?? {
       async createAutomaticGlobalRollout() {
         return undefined;
       }
-    }) as never)
+    }) as never
   );
 }
 
