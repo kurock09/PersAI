@@ -83,6 +83,14 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
   );
   assert.equal(
     hasRoute(consumer.routes, {
+      path: "api/v1/assistant/knowledge-sources/:sourceId/inspect",
+      method: RequestMethod.GET
+    }),
+    true,
+    "GET /api/v1/assistant/knowledge-sources/:sourceId/inspect must be guarded by ClerkAuthMiddleware"
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
       path: "api/v1/assistant/knowledge-sources/:sourceId",
       method: RequestMethod.DELETE
     }),

@@ -63,6 +63,10 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.POST },
       { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.GET },
       { path: "api/v1/assistant/knowledge-sources/:sourceId", method: RequestMethod.GET },
+      {
+        path: "api/v1/assistant/knowledge-sources/:sourceId/inspect",
+        method: RequestMethod.GET
+      },
       { path: "api/v1/assistant/knowledge-sources/:sourceId", method: RequestMethod.DELETE },
       {
         path: "api/v1/assistant/knowledge-sources/:sourceId/reindex",
