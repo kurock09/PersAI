@@ -23,12 +23,22 @@ import {
 } from "./knowledge-vector-index";
 import { ReadAssistantKnowledgeService } from "./read-assistant-knowledge.service";
 
-const MAX_CONTEXT_ITEMS = 6;
-const MAX_ITEM_CHARS = 1_200;
+/**
+ * ADR-094 — `MAX_CONTEXT_ITEMS` and `MAX_ITEM_CHARS` are no longer in-file
+ * literals; they are derived from per-plan retrieval policy. The remaining
+ * constants below are unrelated technical caps (skill window cap, rendered
+ * block hard cap, per-source pre-rerank result count, vector cutoff).
+ */
 const MAX_SKILL_FETCHED_ITEM_CHARS = 2_400;
 const MAX_RENDERED_BLOCK_CHARS = 6_000;
 const MAX_PER_SOURCE_RESULTS = 3;
 const MIN_SKILL_VECTOR_SCORE = 0.18;
+/**
+ * ADR-094 — minimum number of context items the orchestrated block can hold,
+ * even on the most restrictive plan. Anything below this would defeat the
+ * point of orchestration. Effective limit is `max(policy.maxMaxResults, MIN_CONTEXT_ITEMS)`.
+ */
+const MIN_CONTEXT_ITEMS = 4;
 
 type RuntimeRetrievalInput = {
   assistantId: string;
@@ -159,6 +169,11 @@ export class OrchestrateRuntimeRetrievalService {
 
   async execute(input: RuntimeRetrievalInput): Promise<RuntimeRetrievedKnowledgeContext> {
     const workspaceId = await this.resolveAssistantWorkspaceId(input.assistantId);
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    const maxContextItems = Math.max(retrievalPolicy.maxMaxResults, MIN_CONTEXT_ITEMS);
+    const maxItemChars = retrievalPolicy.fetchMaxChars;
     const stagedItems: StagedContextItem[] = [];
     if (this.isActiveSkillTurn(input)) {
       let policyState: OrchestratedPolicyState = "skill_only";
@@ -185,9 +200,19 @@ export class OrchestrateRuntimeRetrievalService {
               source: "document",
               policyState,
               execute: async () => [
-                ...(await this.searchKnowledgeSource(input, "document", "user_document")),
-                ...(await this.searchKnowledgeSource(input, "memory", "user_document")),
-                ...(await this.searchKnowledgeSource(input, "chat", "user_document"))
+                ...(await this.searchKnowledgeSource(
+                  input,
+                  "document",
+                  "user_document",
+                  maxItemChars
+                )),
+                ...(await this.searchKnowledgeSource(
+                  input,
+                  "memory",
+                  "user_document",
+                  maxItemChars
+                )),
+                ...(await this.searchKnowledgeSource(input, "chat", "user_document", maxItemChars))
               ]
             })
           ).map((item) => ({ item, stagePriority: 1 }))
@@ -216,8 +241,13 @@ export class OrchestrateRuntimeRetrievalService {
               source: "product",
               policyState,
               execute: async () => [
-                ...(await this.searchKnowledgeSource(input, "global", "product_kb")),
-                ...(await this.searchKnowledgeSource(input, "subscription", "product_kb"))
+                ...(await this.searchKnowledgeSource(input, "global", "product_kb", maxItemChars)),
+                ...(await this.searchKnowledgeSource(
+                  input,
+                  "subscription",
+                  "product_kb",
+                  maxItemChars
+                ))
               ]
             })
           ).map((item) => ({ item, stagePriority: 3 }))
@@ -263,9 +293,19 @@ export class OrchestrateRuntimeRetrievalService {
               source: "document",
               policyState: ordinaryPolicyState,
               execute: async () => [
-                ...(await this.searchKnowledgeSource(input, "document", "user_document")),
-                ...(await this.searchKnowledgeSource(input, "memory", "user_document")),
-                ...(await this.searchKnowledgeSource(input, "chat", "user_document"))
+                ...(await this.searchKnowledgeSource(
+                  input,
+                  "document",
+                  "user_document",
+                  maxItemChars
+                )),
+                ...(await this.searchKnowledgeSource(
+                  input,
+                  "memory",
+                  "user_document",
+                  maxItemChars
+                )),
+                ...(await this.searchKnowledgeSource(input, "chat", "user_document", maxItemChars))
               ]
             })
           ).map((item) => ({ item, stagePriority: stagePriorities.user }))
@@ -280,8 +320,13 @@ export class OrchestrateRuntimeRetrievalService {
               source: "product",
               policyState: ordinaryPolicyState,
               execute: async () => [
-                ...(await this.searchKnowledgeSource(input, "global", "product_kb")),
-                ...(await this.searchKnowledgeSource(input, "subscription", "product_kb"))
+                ...(await this.searchKnowledgeSource(input, "global", "product_kb", maxItemChars)),
+                ...(await this.searchKnowledgeSource(
+                  input,
+                  "subscription",
+                  "product_kb",
+                  maxItemChars
+                ))
               ]
             })
           ).map((item) => ({ item, stagePriority: stagePriorities.product }))
@@ -301,7 +346,7 @@ export class OrchestrateRuntimeRetrievalService {
       }
     }
 
-    const selected = this.selectContextItems(stagedItems);
+    const selected = this.selectContextItems(stagedItems, maxContextItems);
     const renderedBlock = this.renderContextBlock(selected);
     return {
       items: selected,
@@ -309,10 +354,19 @@ export class OrchestrateRuntimeRetrievalService {
     };
   }
 
+  /**
+   * ADR-094 — orchestrated retrieval first asks `searchKnowledge`, which now
+   * already inlines content for short / medium single-hit documents
+   * (`inlinedDocument` / `inlinedSection`). We use that inline payload
+   * verbatim when present and only fall back to a separate `fetch` call when
+   * the search did not inline anything (multi-hit branches and
+   * memory/chat sources).
+   */
   private async searchKnowledgeSource(
     input: RuntimeRetrievalInput,
     source: "document" | "memory" | "chat" | "global" | "subscription",
-    label: RuntimeRetrievedKnowledgeSourceLabel
+    label: RuntimeRetrievedKnowledgeSourceLabel,
+    maxItemChars: number
   ): Promise<RuntimeRetrievedKnowledgeContextItem[]> {
     if (!this.isSearchSourceAllowedByPolicy(input, source)) {
       throw new BadRequestException(`Knowledge source "${source}" is blocked by the turn policy.`);
@@ -325,25 +379,62 @@ export class OrchestrateRuntimeRetrievalService {
     });
     const items: RuntimeRetrievedKnowledgeContextItem[] = [];
     for (const hit of hits.slice(0, MAX_PER_SOURCE_RESULTS)) {
-      const fetched = await this.readAssistantKnowledgeService.fetch({
-        assistantId: input.assistantId,
-        source,
-        referenceId: hit.referenceId
-      });
-      const content = this.asNonEmptyString(fetched?.content) ?? this.asNonEmptyString(hit.snippet);
-      if (content === null) {
+      let resolvedContent: string | null = null;
+      let resolvedTitle: string | null = hit.title;
+      let resolvedLocator: string | null = hit.locator;
+      let smartMetadata: Record<string, unknown> | null = null;
+
+      if (hit.inlinedDocument !== undefined) {
+        resolvedContent = hit.inlinedDocument.text;
+        smartMetadata = {
+          smartInlineKind: "document",
+          inlinedChars: hit.inlinedDocument.chars,
+          inlinedTruncated: hit.inlinedDocument.truncated
+        };
+      } else if (hit.inlinedSection !== undefined) {
+        const summary = hit.documentSummary;
+        resolvedContent =
+          summary !== undefined && summary.text.length > 0
+            ? `${hit.inlinedSection.text}\n\n[summary of remaining sections]\n${summary.text}`
+            : hit.inlinedSection.text;
+        smartMetadata = {
+          smartInlineKind: summary !== undefined ? "section_with_summary" : "section",
+          inlinedChars: hit.inlinedSection.chars,
+          sectionRadius: hit.inlinedSection.radius,
+          inlinedTruncated: hit.inlinedSection.truncated,
+          ...(summary !== undefined ? { summaryChars: summary.chars } : {})
+        };
+      } else {
+        const fetched = await this.readAssistantKnowledgeService.fetch({
+          assistantId: input.assistantId,
+          source,
+          referenceId: hit.referenceId,
+          mode: "section",
+          radius: null
+        });
+        resolvedContent =
+          this.asNonEmptyString(fetched?.content) ?? this.asNonEmptyString(hit.snippet);
+        if (fetched !== null) {
+          resolvedTitle = fetched.title ?? hit.title;
+          resolvedLocator = fetched.locator ?? hit.locator;
+        }
+      }
+
+      if (resolvedContent === null) {
         continue;
       }
+
       items.push({
         label,
         referenceId: hit.referenceId,
-        title: fetched?.title ?? hit.title,
-        locator: fetched?.locator ?? hit.locator,
-        content: this.truncate(content, MAX_ITEM_CHARS),
+        title: resolvedTitle,
+        locator: resolvedLocator,
+        content: this.truncate(resolvedContent, maxItemChars),
         score: hit.score,
         metadata: {
           ...(hit.metadata ?? {}),
-          source
+          source,
+          ...(smartMetadata ?? {})
         }
       });
     }
@@ -404,7 +495,9 @@ export class OrchestrateRuntimeRetrievalService {
         durationMs: input.durationMs,
         fetchDepth: input.result.fetchDepth,
         fetchedChars: input.result.fetchedChars,
-        embeddingModelKey: input.result.embeddingModelKey
+        embeddingModelKey: input.result.embeddingModelKey,
+        modeUsed: "orchestrate_inline",
+        bytesReturned: input.result.fetchedChars
       });
     }
   }
@@ -460,7 +553,9 @@ export class OrchestrateRuntimeRetrievalService {
           durationMs: Date.now() - startedAt,
           fetchDepth: result.fetchDepth,
           fetchedChars: result.fetchedChars,
-          embeddingModelKey: result.embeddingModelKey
+          embeddingModelKey: result.embeddingModelKey,
+          modeUsed: "orchestrate_inline",
+          bytesReturned: result.fetchedChars
         });
       }
       return result.items;
@@ -940,6 +1035,14 @@ export class OrchestrateRuntimeRetrievalService {
       policyState: input.policyState,
       outcome: input.outcome,
       errorCode: input.errorCode,
+      // ADR-094 — orchestrator aggregate search rows are per-source stage
+      // signals (latency / candidate counts), not content-bearing responses.
+      // The actual smart-inline / snippet truth lives on the upstream
+      // ReadAssistantKnowledgeService.search* rows; here we tag as
+      // `snippet_only` with no bytes returned so dashboards do not see NULL on
+      // the orchestrator stage.
+      modeUsed: "snippet_only",
+      bytesReturned: 0,
       ...(input.source === "skill" && input.decisionMode !== undefined
         ? { decisionMode: input.decisionMode }
         : {})
@@ -955,6 +1058,10 @@ export class OrchestrateRuntimeRetrievalService {
     fetchDepth: number;
     fetchedChars: number;
     embeddingModelKey: string | null;
+    /** ADR-094 — short tag for the orchestrate-side inline branch. */
+    modeUsed?: string | null;
+    /** ADR-094 — chars the orchestrate seam folded into the prompt block. */
+    bytesReturned?: number | null;
   }): Promise<void> {
     if (input.workspaceId === null) {
       return;
@@ -967,7 +1074,9 @@ export class OrchestrateRuntimeRetrievalService {
       durationMs: input.durationMs,
       fetchDepth: input.fetchDepth,
       fetchedChars: input.fetchedChars,
-      embeddingModelKey: input.embeddingModelKey
+      embeddingModelKey: input.embeddingModelKey,
+      modeUsed: input.modeUsed ?? null,
+      bytesReturned: input.bytesReturned ?? input.fetchedChars
     });
   }
 
@@ -1034,7 +1143,10 @@ export class OrchestrateRuntimeRetrievalService {
     }
   }
 
-  private selectContextItems(items: StagedContextItem[]): RuntimeRetrievedKnowledgeContextItem[] {
+  private selectContextItems(
+    items: StagedContextItem[],
+    maxContextItems: number
+  ): RuntimeRetrievedKnowledgeContextItem[] {
     const seen = new Set<string>();
     return [...items]
       .sort((left, right) => {
@@ -1052,7 +1164,7 @@ export class OrchestrateRuntimeRetrievalService {
         return true;
       })
       .map(({ item }) => item)
-      .slice(0, MAX_CONTEXT_ITEMS);
+      .slice(0, maxContextItems);
   }
 
   private renderContextBlock(items: RuntimeRetrievedKnowledgeContextItem[]): string | null {

@@ -1,10 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
-import type {
-  ProviderGatewayToolCall,
-  RuntimeKnowledgeAccessSourceConfig,
-  RuntimeKnowledgeFetchToolResult,
-  RuntimeKnowledgeSearchToolResult
+import {
+  PERSAI_RUNTIME_KNOWLEDGE_FETCH_MODES,
+  type PersaiRuntimeKnowledgeFetchMode,
+  type ProviderGatewayToolCall,
+  type RuntimeKnowledgeAccessSourceConfig,
+  type RuntimeKnowledgeFetchToolResult,
+  type RuntimeKnowledgeSearchToolResult
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 
@@ -179,7 +181,9 @@ export class RuntimeKnowledgeToolService {
       const document = await this.persaiInternalApiClientService.fetchKnowledge({
         assistantId: params.bundle.metadata.assistantId,
         source: request.source,
-        referenceId: request.referenceId
+        referenceId: request.referenceId,
+        mode: request.mode,
+        radius: request.radius
       });
       if (document === null) {
         return {
@@ -255,11 +259,23 @@ export class RuntimeKnowledgeToolService {
     };
   }
 
-  private readFetchArguments(
-    args: Record<string, unknown>
-  ): { source: RuntimeKnowledgeFetchToolResult["source"]; referenceId: string } | Error {
+  /**
+   * ADR-094 — `mode` is a permanent contract field with default `"section"`.
+   * The default matches pre-ADR-094 fetch behaviour shape, so existing skill
+   * tool calls without explicit `mode` keep working. `radius` is only valid
+   * for `mode = "section"`; for `mode = "short"` and `mode = "full"` we reject
+   * an explicit `radius` to keep the contract clean (no silent ignore).
+   */
+  private readFetchArguments(args: Record<string, unknown>):
+    | {
+        source: RuntimeKnowledgeFetchToolResult["source"];
+        referenceId: string;
+        mode: PersaiRuntimeKnowledgeFetchMode;
+        radius: number | null;
+      }
+    | Error {
     const unknownKeys = Object.keys(args).filter(
-      (key) => key !== "source" && key !== "referenceId"
+      (key) => key !== "source" && key !== "referenceId" && key !== "mode" && key !== "radius"
     );
     const source = this.asNonEmptyString(args.source);
     const referenceId = this.asNonEmptyString(args.referenceId);
@@ -267,9 +283,34 @@ export class RuntimeKnowledgeToolService {
       return new Error("Knowledge fetch arguments are invalid.");
     }
 
+    let mode: PersaiRuntimeKnowledgeFetchMode = "section";
+    if (args.mode !== undefined && args.mode !== null) {
+      if (typeof args.mode !== "string") {
+        return new Error("Knowledge fetch arguments are invalid.");
+      }
+      const normalized = args.mode.trim().toLowerCase();
+      if (!(PERSAI_RUNTIME_KNOWLEDGE_FETCH_MODES as readonly string[]).includes(normalized)) {
+        return new Error("Knowledge fetch arguments are invalid.");
+      }
+      mode = normalized as PersaiRuntimeKnowledgeFetchMode;
+    }
+
+    let radius: number | null = null;
+    if (args.radius !== undefined && args.radius !== null) {
+      if (typeof args.radius !== "number" || !Number.isInteger(args.radius) || args.radius <= 0) {
+        return new Error("Knowledge fetch arguments are invalid.");
+      }
+      if (mode !== "section") {
+        return new Error("Knowledge fetch arguments are invalid.");
+      }
+      radius = args.radius;
+    }
+
     return {
       source: source as RuntimeKnowledgeFetchToolResult["source"],
-      referenceId
+      referenceId,
+      mode,
+      radius
     };
   }
 

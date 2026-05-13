@@ -113,6 +113,17 @@ export type PlanDraft = {
   retrievalHelperCandidateLimit: string;
   retrievalHelperMaxOutputTokens: string;
   retrievalEmbeddingSearchEnabled: boolean;
+  /**
+   * ADR-094 — per-plan volume keys for smart `knowledge_search` and the
+   * flexible `knowledge_fetch`. They land in `billingHints.retrievalPolicy`
+   * alongside the legacy retrieval keys; admin-owned hard ceilings live in
+   * Admin Knowledge.
+   */
+  retrievalSmartSearchShortDocChars: string;
+  retrievalSmartSearchMediumDocChars: string;
+  retrievalChatSectionDefaultRadius: string;
+  retrievalFetchFullModeMaxChars: string;
+  retrievalFetchFullModeMaxChatMessages: string;
   sandboxEnabled: boolean;
   sandboxMaxSingleFileMb: string;
   sandboxMaxWorkspaceMb: string;
@@ -188,6 +199,11 @@ type NumericDraftField =
   | "retrievalFetchMaxChars"
   | "retrievalHelperCandidateLimit"
   | "retrievalHelperMaxOutputTokens"
+  | "retrievalSmartSearchShortDocChars"
+  | "retrievalSmartSearchMediumDocChars"
+  | "retrievalChatSectionDefaultRadius"
+  | "retrievalFetchFullModeMaxChars"
+  | "retrievalFetchFullModeMaxChatMessages"
   | "sandboxMaxSingleFileMb"
   | "sandboxMaxWorkspaceMb"
   | "sandboxMaxArtifactsPerJob"
@@ -469,6 +485,15 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
   { field: "retrievalFetchMaxChars", label: "Fetch max chars", min: 1 },
   { field: "retrievalHelperCandidateLimit", label: "Helper candidates", min: 1 },
   { field: "retrievalHelperMaxOutputTokens", label: "Helper max output tokens", min: 1 },
+  { field: "retrievalSmartSearchShortDocChars", label: "Smart search short-doc chars", min: 1 },
+  { field: "retrievalSmartSearchMediumDocChars", label: "Smart search medium-doc chars", min: 1 },
+  { field: "retrievalChatSectionDefaultRadius", label: "Chat section default radius", min: 1 },
+  { field: "retrievalFetchFullModeMaxChars", label: "Fetch full mode max chars", min: 1 },
+  {
+    field: "retrievalFetchFullModeMaxChatMessages",
+    label: "Fetch full mode max chat messages",
+    min: 1
+  },
   { field: "sandboxMaxSingleFileMb", label: "Single changed file cap (MB)", min: 1 },
   { field: "sandboxMaxWorkspaceMb", label: "Workspace growth per job (MB)", min: 1 },
   { field: "sandboxMaxArtifactsPerJob", label: "Persisted changed files per job", min: 1 },
@@ -674,6 +699,11 @@ function emptyDraft(): PlanDraft {
     retrievalHelperCandidateLimit: "6",
     retrievalHelperMaxOutputTokens: "220",
     retrievalEmbeddingSearchEnabled: true,
+    retrievalSmartSearchShortDocChars: "2000",
+    retrievalSmartSearchMediumDocChars: "8000",
+    retrievalChatSectionDefaultRadius: "15",
+    retrievalFetchFullModeMaxChars: "25000",
+    retrievalFetchFullModeMaxChatMessages: "150",
     sandboxEnabled: false,
     sandboxMaxSingleFileMb: "10",
     sandboxMaxWorkspaceMb: "25",
@@ -784,6 +814,13 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     retrievalHelperCandidateLimit: String(plan.retrievalPolicy.helperCandidateLimit),
     retrievalHelperMaxOutputTokens: String(plan.retrievalPolicy.helperMaxOutputTokens),
     retrievalEmbeddingSearchEnabled: plan.retrievalPolicy.embeddingSearchEnabled,
+    retrievalSmartSearchShortDocChars: String(plan.retrievalPolicy.smartSearchShortDocChars),
+    retrievalSmartSearchMediumDocChars: String(plan.retrievalPolicy.smartSearchMediumDocChars),
+    retrievalChatSectionDefaultRadius: String(plan.retrievalPolicy.chatSectionDefaultRadius),
+    retrievalFetchFullModeMaxChars: String(plan.retrievalPolicy.fetchFullModeMaxChars),
+    retrievalFetchFullModeMaxChatMessages: String(
+      plan.retrievalPolicy.fetchFullModeMaxChatMessages
+    ),
     sandboxEnabled: plan.sandboxPolicy.enabled,
     sandboxMaxSingleFileMb: String(
       Math.round(plan.sandboxPolicy.maxSingleFileWriteBytes / 1048576)
@@ -1064,7 +1101,30 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
         label: "Helper max output tokens",
         min: 1
       })!,
-      embeddingSearchEnabled: draft.retrievalEmbeddingSearchEnabled
+      embeddingSearchEnabled: draft.retrievalEmbeddingSearchEnabled,
+      smartSearchShortDocChars: parseStrictIntegerDraft(draft.retrievalSmartSearchShortDocChars, {
+        label: "Smart search short-doc chars",
+        min: 1
+      })!,
+      smartSearchMediumDocChars: parseStrictIntegerDraft(draft.retrievalSmartSearchMediumDocChars, {
+        label: "Smart search medium-doc chars",
+        min: 1
+      })!,
+      chatSectionDefaultRadius: parseStrictIntegerDraft(draft.retrievalChatSectionDefaultRadius, {
+        label: "Chat section default radius",
+        min: 1
+      })!,
+      fetchFullModeMaxChars: parseStrictIntegerDraft(draft.retrievalFetchFullModeMaxChars, {
+        label: "Fetch full mode max chars",
+        min: 1
+      })!,
+      fetchFullModeMaxChatMessages: parseStrictIntegerDraft(
+        draft.retrievalFetchFullModeMaxChatMessages,
+        {
+          label: "Fetch full mode max chat messages",
+          min: 1
+        }
+      )!
     },
     sandboxPolicy: {
       enabled: draft.sandboxEnabled,
@@ -2558,6 +2618,70 @@ function PlanForm({
                 </label>
               </div>
             </SubPanel>
+
+            <SubPanel title="Smart retrieval (ADR-094)">
+              <HelpText>
+                Per-plan volume for the smart <code>knowledge_search</code> inline branch and the
+                flexible <code>knowledge_fetch</code> mode. Admin-owned hard ceilings live under
+                Admin &gt; Knowledge &gt; Smart Retrieval Limits and cap any plan value above them.
+              </HelpText>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {[
+                  {
+                    key: "retrievalSmartSearchShortDocChars" as const,
+                    label: "Short-doc inline cap (chars)",
+                    hint: "1-hit search inlines the whole document when its total length is at or below this cap. Free ≈ 1 500 / Start ≈ 2 000 / Plus ≈ 2 500 / Premium ≈ 3 000 / Pro ≈ 4 000.",
+                    value: draft.retrievalSmartSearchShortDocChars,
+                    patch: (value: string) => onPatch({ retrievalSmartSearchShortDocChars: value })
+                  },
+                  {
+                    key: "retrievalSmartSearchMediumDocChars" as const,
+                    label: "Medium-doc inline cap (chars)",
+                    hint: "Above this length, 1-hit search returns an extended section plus a heading summary instead of the whole document. Free ≈ 5 000 / Start ≈ 8 000 / Plus ≈ 10 000 / Premium ≈ 14 000 / Pro ≈ 20 000.",
+                    value: draft.retrievalSmartSearchMediumDocChars,
+                    patch: (value: string) => onPatch({ retrievalSmartSearchMediumDocChars: value })
+                  },
+                  {
+                    key: "retrievalChatSectionDefaultRadius" as const,
+                    label: "Chat section radius (messages)",
+                    hint: "Default number of surrounding messages for chat knowledge_fetch with mode=section, assembled chronologically. Free ≈ 10 / Start ≈ 15 / Plus ≈ 20 / Premium ≈ 30 / Pro ≈ 50.",
+                    value: draft.retrievalChatSectionDefaultRadius,
+                    patch: (value: string) => onPatch({ retrievalChatSectionDefaultRadius: value })
+                  },
+                  {
+                    key: "retrievalFetchFullModeMaxChars" as const,
+                    label: "Fetch full mode max chars",
+                    hint: "knowledge_fetch(mode=full) cap for documents. Effective cap is min(plan, admin). Free ≈ 12 000 / Start ≈ 25 000 / Plus ≈ 40 000 / Premium ≈ 60 000 / Pro ≈ 100 000.",
+                    value: draft.retrievalFetchFullModeMaxChars,
+                    patch: (value: string) => onPatch({ retrievalFetchFullModeMaxChars: value })
+                  },
+                  {
+                    key: "retrievalFetchFullModeMaxChatMessages" as const,
+                    label: "Fetch full mode max chat messages",
+                    hint: "knowledge_fetch(mode=full) cap for a chat thread, in messages. Effective cap is min(plan, admin). Free ≈ 80 / Start ≈ 150 / Plus ≈ 250 / Premium ≈ 400 / Pro ≈ 800.",
+                    value: draft.retrievalFetchFullModeMaxChatMessages,
+                    patch: (value: string) =>
+                      onPatch({ retrievalFetchFullModeMaxChatMessages: value })
+                  }
+                ].map((field) => (
+                  <label
+                    key={field.key}
+                    className="flex items-center justify-between gap-2 text-[11px] font-medium text-text"
+                  >
+                    <span title={field.hint}>{field.label}</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={field.value}
+                      onValue={field.patch}
+                      invalid={Boolean(validationErrors[field.key])}
+                      className="w-28 appearance-none bg-bg text-right text-xs [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                    />
+                    <FieldError message={validationErrors[field.key]} />
+                  </label>
+                ))}
+              </div>
+            </SubPanel>
           </div>
         </Panel>
       </div>
@@ -3306,6 +3430,17 @@ function PlanCardReadOnly({
                   </div>
                   <div>
                     Embedding search: {plan.retrievalPolicy.embeddingSearchEnabled ? "on" : "off"}
+                  </div>
+                  <div>
+                    Smart inline bands: short ≤ {plan.retrievalPolicy.smartSearchShortDocChars} ·
+                    section ≤ {plan.retrievalPolicy.smartSearchMediumDocChars}
+                  </div>
+                  <div>
+                    Chat section radius: {plan.retrievalPolicy.chatSectionDefaultRadius} messages
+                  </div>
+                  <div>
+                    Fetch full cap: {plan.retrievalPolicy.fetchFullModeMaxChars} chars ·{" "}
+                    {plan.retrievalPolicy.fetchFullModeMaxChatMessages} chat messages
                   </div>
                 </div>
               </Sec>

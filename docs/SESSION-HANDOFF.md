@@ -6,6 +6,140 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 
 ---
 
+## 2026-05-13 — ADR-094 Step 2: admin UI + retrieval-policy contract + telemetry persistence (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **Admin Plans UI — five new per-plan retrieval-policy form fields.** `apps/web/app/admin/plans/page.tsx` gained a "Smart retrieval (ADR-094)" sub-panel inside the existing Retrieval-policy section with `smartSearchShortDocChars`, `smartSearchMediumDocChars`, `chatSectionDefaultRadius`, `fetchFullModeMaxChars`, `fetchFullModeMaxChatMessages`. Each input carries a `title=` hint with tier-aware reference values (Free ≈ … / Pro ≈ … / Business ≈ …) and the same numeric validation rule shape as the existing retrieval inputs. Values round-trip through `planToDraft` ↔ `draftToPayload` into `billingHints.retrievalPolicy`, and the per-plan read-only summary now also lists them so admins see effective per-tier shape at a glance.
+
+2. **Admin Knowledge UI — new "Smart Retrieval Limits" section.** `apps/web/app/admin/knowledge/page.tsx` now exposes the four admin-only ceilings already added in Step 1 (`smartSearchEnabled`, `smartSearchLongDocSummaryChars`, `fetchFullModeAbsoluteMaxChars`, `fetchFullModeAbsoluteMaxChatMessages`) right under the existing model-slot grid, saved together with the model fields through `PUT /admin/knowledge-sources/retrieval-policy`. The accompanying copy makes it explicit that the live effective per-call cap is `min(plan, admin)`.
+
+3. **OpenAPI / contracts synced.** `packages/contracts/openapi.yaml` `AdminPlanRetrievalPolicy` now lists the five new keys as required `integer ≥ 1`, with descriptions referencing ADR-094 semantics. Regenerated types via `corepack pnpm --filter @persai/contracts run generate`. `apps/web` typecheck passes against the new contract shape.
+
+4. **Prisma migration `adr094_knowledge_retrieval_event_mode_bytes` (additive, reversible).** `apps/api/prisma/migrations/20260513120000_adr094_knowledge_retrieval_event_mode_bytes/migration.sql` adds two **nullable** columns to `knowledge_retrieval_events`: `mode_used VARCHAR(32)` and `bytes_returned INTEGER`. `apps/api/prisma/schema.prisma` mirrors them as `modeUsed String? @db.VarChar(32)` and `bytesReturned Int?` on `KnowledgeRetrievalEvent`, with ADR-094 doc comments. The 32-char width was picked because the longest current tag (`smart_inline_summary`) is 20 chars and we want headroom without silent truncation. Pre-ADR-094 rows keep `NULL`; no backfill required; safe under the dev `api-migrate` PreSync hook.
+
+5. **Observability writes `modeUsed` / `bytesReturned` on every active retrieval seam.** `KnowledgeRetrievalObservabilityService.recordSearch` / `recordFetch` now accept and persist both fields (`modeUsed` is sliced to 32 chars defensively at the persistence boundary). `read-assistant-knowledge.service.ts` resolves per-event `modeUsed` for document searches (`smart_inline_full` / `smart_inline_section` / `smart_inline_summary`) with actual inline char tallies, and tags non-document searches (memory / chat / subscription / global success paths) as `snippet_only` with `bytesReturned = 0` so dashboards do not see `NULL` on the happy path. Fetches record `short` / `section` / `full` with the actual returned `content.length`. `orchestrate-runtime-retrieval.service.ts` tags its own skill-window inlining as `orchestrate_inline` with `bytesReturned = fetchedChars`, and tags aggregate per-source stage rows as `snippet_only` / `0`. Search/fetch **error** paths intentionally leave both columns NULL.
+
+6. **Web round-trip tests.** `apps/web/app/admin/plans/page.test.tsx` asserts both default hydration and full round-trip of the five new keys through `planToDraft` / `draftToPayload` / `validatePlanDraft`. `apps/web/app/admin/knowledge/page.test.tsx` asserts that the four admin ceilings hydrate from the loaded policy and are sent back as a single body in the save POST.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run generate` — green (regenerated client types).
+- `corepack pnpm --filter @persai/web run typecheck` — green.
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx app/admin/knowledge/page.test.tsx` — green (11 tests).
+- Full CI gate (`format:check`, `lint -r`, full `typecheck`, full `test`) — green; see the CI gate transcript at end of session.
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** for `api` (Prisma migration + new telemetry writes) and `web` (admin UI). `runtime` rolls with `api` on the same release for safety.
+- Migration is additive (nullable columns), reversible (no data backfill), safe under the dev `api-migrate` PreSync hook.
+
+### ADR-094 final audit (between Step 2 and close)
+
+- **CI gate:** pass.
+- **Migration safety:** pass — nullable columns; pre-existing rows untouched; reversible by dropping columns.
+- **Admin UI round-trip:** pass — Plans and Knowledge forms tested end-to-end via vitest.
+- **Telemetry persistence:** pass — search, fetch, orchestrate paths all write `modeUsed` and `bytesReturned`.
+- **Skill regression:** pass — `mode = "section"` parser default keeps existing skills working without the new `mode` arg.
+- **Docs aligned:** pass — CHANGELOG / SESSION-HANDOFF / DATA-MODEL / TEST-PLAN updated in this slice.
+
+### Risks / residuals
+
+- Live per-event truth becomes observable in `knowledge_retrieval_events.mode_used` / `bytes_returned` only **after** the migration applies on dev; old rows remain `NULL` by design.
+- Step 2 deploy must include `api` so the migration runs; `web`-only deploy is not sufficient because the Admin Knowledge save calls into the updated API service.
+
+---
+
+## 2026-05-13 — ADR-094 Step 1: smart `knowledge_search` and flexible `knowledge_fetch` (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **Smart `knowledge_search`.** `ReadAssistantKnowledgeService.searchKnowledge` now applies a server-side smart branch on the 1-hit case: short doc (`documentChars ≤ smartSearchShortDocChars`) → `inlinedDocument` attached to the hit; medium doc → `inlinedSection`; long doc → `inlinedSection` + `documentSummary` capped by `smartSearchLongDocSummaryChars`. Multi-hit results are unchanged. `KNOWLEDGE_SEARCH_SNIPPET_MAX_CHARS` continues to apply only to the snippet field.
+
+2. **Flexible `knowledge_fetch`.** Required `mode` enum (`short` | `section` | `full`) with optional `radius`. `mode = "section"` is the permanent default applied at runtime tool parse time. `mode = "full"` is bounded by `min(plan.fetchFullModeMaxChars, admin.fetchFullModeAbsoluteMaxChars)` for documents and `min(plan.fetchFullModeMaxChatMessages, admin.fetchFullModeAbsoluteMaxChatMessages)` for chat. Over-cap responses set `truncated: true` and include a structured `truncationMarker`.
+
+3. **Chat is a first-class source.** `mode = "section"` for chat returns `chatSectionDefaultRadius` (tens of messages) assembled chronologically with timestamp-aware joining, not the prior `± 1` chunk window. `mode = "full"` returns the whole thread up to the per-tier `fetchFullModeMaxChatMessages` cap (and the admin absolute cap above it).
+
+4. **Orchestrated path stays smart.** `OrchestrateRuntimeRetrievalService` applies the same length-based inlining to the `# Retrieved Knowledge Context` block: a single ready short doc lands whole; longer docs land as section + summary. The legacy in-file `MAX_ITEM_CHARS` / `MAX_CONTEXT_ITEMS` literals are replaced by policy-derived limits.
+
+5. **Per-plan volume + admin hard ceilings split.** `billingHints.retrievalPolicy` gained five additive keys: `smartSearchShortDocChars`, `smartSearchMediumDocChars`, `chatSectionDefaultRadius`, `fetchFullModeMaxChars`, `fetchFullModeMaxChatMessages`. `PlatformRuntimeProviderSettings.adminKnowledgeRetrievalPolicy` gained four global ceilings: `smartSearchEnabled`, `smartSearchLongDocSummaryChars`, `fetchFullModeAbsoluteMaxChars`, `fetchFullModeAbsoluteMaxChatMessages`. Admin-owned ceilings cap any per-plan value.
+
+6. **Default shape moved off Free-grade.** `DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY` is now Start-tier-grade. Existing plan rows without `retrievalPolicy` overrides become a reasonable paid baseline instead of inheriting the prior Free-grade shape. Free is now expected to be an explicit override.
+
+7. **Tool descriptors updated.** `bootstrap-preset-data.ts` `description` and `usage_guidance` for `knowledge_search` and `knowledge_fetch` were rewritten so the model uses the smart-search inline payloads and chooses `mode` correctly.
+
+8. **Runtime contract end to end.** `packages/runtime-contract` extended with the new optional response fields and the `mode` / `radius` arguments. `RuntimeKnowledgeToolService`, `PersaiInternalApiClientService.fetchKnowledge`, and `internal-runtime-knowledge.controller.ts` all plumb the new shape with enum validation. ADR-094 published as Accepted at [`docs/ADR/094-smart-knowledge-search-and-flexible-fetch.md`](ADR/094-smart-knowledge-search-and-flexible-fetch.md).
+
+### Verification
+
+- `corepack pnpm run format:check` — green.
+- `corepack pnpm run lint -r` — green.
+- `corepack pnpm run typecheck` — green (full workspace, including `apps/api`, `apps/runtime`, `apps/web`, `apps/provider-gateway`, `apps/sandbox`, `packages/*`, `scripts/smoke`).
+- `corepack pnpm run test` — green (full workspace test suite).
+- Targeted ADR-094 audit suites that pass:
+  - `apps/api/test/read-assistant-knowledge.service.test.ts`
+  - `apps/api/test/orchestrate-runtime-retrieval.service.test.ts`
+  - `apps/api/test/manage-admin-plans.service.test.ts`
+  - `apps/runtime/test/runtime-knowledge-tool.service.test.ts`
+- "No legacy" code search: no remaining `MAX_ITEM_CHARS` / `MAX_CONTEXT_ITEMS` literals in the orchestrated path; no hard-coded `radius = 1` in retrieval services. `MAX_ITEM_CHARS` in `apps/runtime/src/modules/turns/shared-compaction-state.ts` is unrelated (compaction context truncation, not KB retrieval).
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** because the runtime knowledge contract behavior changes in `apps/api` and `apps/runtime`. The contract is **additive on response, mandatory on request `mode` with a parser-applied default `mode = "section"` for back-compat**, so callers without `mode` continue to work.
+- No Prisma migration in this slice (telemetry columns deferred to Step 2). The `api-migrate` PreSync hook will not flag this slice.
+- No Helm change in this slice.
+
+### Recommended per-tier values for admin to apply via `/admin/plans` JSON billing-hints (HISTORICAL — pre–Step 2 snapshot; Step 2 has since landed admin form fields; see the 2026-05-13 Step 2 section above)
+
+| Field                          |   Free |  Start |   Plus | Premium | Pro/Biz |
+| ------------------------------ | -----: | -----: | -----: | ------: | ------: |
+| `defaultMaxResults`            |      5 |      6 |      7 |       8 |      10 |
+| `maxMaxResults`                |      8 |     10 |     12 |      15 |      20 |
+| `knowledgeFetchWindowRadius`   |      2 |      3 |      4 |       5 |       6 |
+| `chatFetchWindowRadius`        |      5 |     10 |     15 |      20 |      30 |
+| `fetchMaxChars`                |  4 000 |  8 000 | 14 000 |  25 000 |  40 000 |
+| `helperEnabled`                |  false |   true |   true |    true |    true |
+| `smartSearchShortDocChars`     |  1 500 |  2 000 |  2 500 |   3 000 |   4 000 |
+| `smartSearchMediumDocChars`    |  5 000 |  8 000 | 10 000 |  14 000 |  20 000 |
+| `chatSectionDefaultRadius`     |     10 |     15 |     20 |      30 |      50 |
+| `fetchFullModeMaxChars`        | 12 000 | 25 000 | 40 000 |  60 000 | 100 000 |
+| `fetchFullModeMaxChatMessages` |     80 |    150 |    250 |     400 |     800 |
+
+Admin Knowledge global ceilings (apply once via `/admin/knowledge`): `smartSearchEnabled = true`, `smartSearchLongDocSummaryChars = 800`, `fetchFullModeAbsoluteMaxChars = 100 000`, `fetchFullModeAbsoluteMaxChatMessages = 800`.
+
+### ADR-094 audit outcomes (intermediate audit between Step 1 and Step 2)
+
+- **CI gate:** pass. `format:check`, `lint -r`, `typecheck`, `test` all green.
+- **Skill-base contract:** pass. `runtime-knowledge-tool.service.test.ts` covers `mode = "section"` defaulting; existing `seed-base-skills.ts` Skills do not embed tool calls and the `knowledge_fetch` callers without `mode` keep working through the parser default.
+- **Smart-search end-to-end:** pass. Focused fixture covers short / medium / long doc inline branches.
+- **Flexible fetch end-to-end:** pass. Under-cap and over-cap fixtures verify full content vs `truncated: true` + marker.
+- **Chat fetch:** pass. Section fixture verifies tens of ordered messages.
+- **Orchestrated path:** pass. `orchestrate-runtime-retrieval.service.test.ts` confirms single-ready-short-doc inline.
+- **Per-tier reachability:** pass. `manage-admin-plans.service.test.ts` confirms parser accepts the additive keys; `resolveAssistantRetrievalPolicy` returns resolved values per plan.
+- **No legacy:** pass. Search confirmed clean.
+- **Smoke (manual, on dev):** PENDING after deploy — operator should run one short-doc smart search, one `mode = "full"` fetch on a known doc, and one `mode = "section"` chat fetch in dev.
+
+### Step 2 (HISTORICAL — was deferred at Step 1 landing; has since landed in the 2026-05-13 Step 2 session above)
+
+Per ADR-094 §"Step 2 — Admin UI + telemetry persistence" the original Step-2 scope was:
+
+- Admin Plans UI extension with form fields + tooltips + tier-aware placeholder hints (`apps/web/app/admin/plans/page.tsx`). **Landed in Step 2.**
+- Admin Knowledge UI extension with a "Smart Retrieval Limits" section (`apps/web/app/admin/knowledge/page.tsx`). **Landed in Step 2.**
+- Prisma migration extending `KnowledgeRetrievalEvent` with `modeUsed` and `bytesReturned` (additive, nullable). **Landed in Step 2 as `VARCHAR(32)` to fit the longest current tag without truncation.**
+- `KnowledgeRetrievalObservabilityService.recordSearch` / `recordFetch` write both new fields (the Step-1 plan referenced a fictional `KnowledgeRetrievalEventService.record(...)`; the real call site is the observability service). **Landed in Step 2.**
+- Web tests: `app/admin/plans/page.test.tsx`, `app/admin/knowledge/page.test.tsx`. **Landed in Step 2.**
+
+Per ADR-094 final-audit gate, Step 2 started only after Step 1 passed the intermediate audit (above) — it did. Step 2 was a separate session (separate commit, separate deploy, separate audit) per ADR-093 clean-PROD discipline.
+
+### Risks / residuals (HISTORICAL — Step-1-era snapshot; superseded by the Step 2 section above)
+
+- **(Historical)** Mode/byte telemetry was log-only at Step-1 landing. Step 2 lands the additive Prisma migration and durable per-event truth.
+- **(Historical)** Admin edited the new per-plan keys via the existing JSON billing-hints surface at Step-1 landing. Step 2 lands the form fields.
+- **(Historical)** The "smoke (manual, on dev)" row of the Step-1 audit is marked PENDING — the three-call dev smoke must still run after the combined Step-1 + Step-2 deploy.
+- Working tree before this session contained no other unrelated dirty files; the entire ADR-094 Step 1 surface was one coherent slice.
+
+---
+
 ## 2026-05-11 — ADR-093 Session 1: observability, measurement truth, and hot-path tracing (LOCAL LANDED, DEPLOY REQUIRED)
 
 ### What landed in this session

@@ -67,6 +67,11 @@ export type AdminPlanToolBudgets = {
 
 export type AdminPlanContextPolicy = RuntimeContextHydrationConfig;
 
+/**
+ * ADR-094 — admin-editable per-plan retrieval policy. Mirrors the runtime
+ * `KnowledgeRetrievalPolicy` shape; the five `smart…` / `chatSection…` /
+ * `fetchFullMode…` fields are additive against the pre-ADR-094 contract.
+ */
 export type AdminPlanRetrievalPolicy = {
   defaultMaxResults: number;
   maxMaxResults: number;
@@ -79,6 +84,11 @@ export type AdminPlanRetrievalPolicy = {
   helperCandidateLimit: number;
   helperMaxOutputTokens: number;
   embeddingSearchEnabled: boolean;
+  smartSearchShortDocChars: number;
+  smartSearchMediumDocChars: number;
+  chatSectionDefaultRadius: number;
+  fetchFullModeMaxChars: number;
+  fetchFullModeMaxChatMessages: number;
 };
 
 export type AdminPlanSandboxPolicy = RuntimeSandboxPolicy;

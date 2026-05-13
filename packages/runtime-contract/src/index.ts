@@ -710,6 +710,23 @@ export interface RuntimeKnowledgeSearchHit {
   snippet: string | null;
   score: number | null;
   metadata: Record<string, unknown> | null;
+  /**
+   * ADR-094 — present when smart search inlined the whole document for this
+   * hit (single-hit short-doc branch). Multi-hit and chat/memory hits keep
+   * `inlinedDocument` undefined and rely on `snippet`.
+   */
+  inlinedDocument?: RuntimeKnowledgeInlinedDocument;
+  /**
+   * ADR-094 — present when smart search inlined an extended section for this
+   * hit (single-hit medium/long-doc branch).
+   */
+  inlinedSection?: RuntimeKnowledgeInlinedSection;
+  /**
+   * ADR-094 — present alongside `inlinedSection` for long documents. Holds a
+   * heading-level summary of the rest of the document so the model can decide
+   * whether to call `knowledge_fetch(mode = "full")` for more context.
+   */
+  documentSummary?: RuntimeKnowledgeDocumentSummary;
 }
 
 export interface RuntimeKnowledgeSearchResult {
@@ -719,10 +736,52 @@ export interface RuntimeKnowledgeSearchResult {
   hits: RuntimeKnowledgeSearchHit[];
 }
 
+/**
+ * ADR-094 — modes for the flexible `knowledge_fetch` tool. The model picks
+ * the volume it actually needs:
+ *   - "short"   — single chunk / short excerpt (cheap)
+ *   - "section" — extended window of surrounding chunks or messages (default)
+ *   - "full"    — entire document / entire chat thread, capped by plan policy
+ * The default in the runtime tool layer is "section" — that is the permanent
+ * contract default, not a legacy alias.
+ */
+export const PERSAI_RUNTIME_KNOWLEDGE_FETCH_MODES = ["short", "section", "full"] as const;
+
+export type PersaiRuntimeKnowledgeFetchMode = (typeof PERSAI_RUNTIME_KNOWLEDGE_FETCH_MODES)[number];
+
 export interface RuntimeKnowledgeFetchRequest {
   toolCode: "knowledge_fetch";
   source: PersaiRuntimeKnowledgeSource;
   referenceId: string;
+  /** ADR-094 — required at the runtime layer; default supplied by the tool parser. */
+  mode: PersaiRuntimeKnowledgeFetchMode;
+  /** ADR-094 — only meaningful for `mode = "section"`. Plan policy clamps the value. */
+  radius: number | null;
+}
+
+/**
+ * ADR-094 — when the smart `knowledge_search` decides to inline content for
+ * a single short hit, it fills `inlinedDocument`. When it inlines a section,
+ * it fills `inlinedSection`. For long documents the search additionally fills
+ * `documentSummary` so the model still sees the rest of the document as
+ * heading bullets, capped by admin `smartSearchLongDocSummaryChars`.
+ */
+export interface RuntimeKnowledgeInlinedDocument {
+  text: string;
+  chars: number;
+  truncated: boolean;
+}
+
+export interface RuntimeKnowledgeInlinedSection {
+  text: string;
+  chars: number;
+  radius: number;
+  truncated: boolean;
+}
+
+export interface RuntimeKnowledgeDocumentSummary {
+  text: string;
+  chars: number;
 }
 
 export interface RuntimeKnowledgeDocument {
@@ -733,6 +792,10 @@ export interface RuntimeKnowledgeDocument {
   content: string;
   snippet: string | null;
   metadata: Record<string, unknown> | null;
+  /** ADR-094 — present when the fetch returned content under the configured cap. */
+  modeUsed?: PersaiRuntimeKnowledgeFetchMode;
+  /** ADR-094 — true when the fetched volume was clamped by the cap. */
+  truncated?: boolean;
 }
 
 export interface RuntimeKnowledgeFetchResult {

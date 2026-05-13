@@ -255,13 +255,13 @@ export const HIDDEN_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
   [buildSyntheticToolMetadataPromptTemplateId("quota_status", "usage_guidance")]:
     'Use this as the single source for current plan, public plan comparison, remaining usage, quota-governed capability availability, and checkout-link creation. For plan prices, prefer `visiblePlans[].priceLabel` or `amountMajor`; treat `amountMinor` as minor currency units only. For image/video/edit quota questions, read `monthlyMediaQuotas` instead of `dailyCallLimit`. A `create_checkout` request may either return `action="checkout_created"` with a payment page or `action="subscription_updated"` when the requested paid downgrade/FREE change was scheduled at period end instead of opening checkout. Prefer this tool over knowledge retrieval for live plan and quota facts.',
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_search", "description")]:
-    "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets.",
+    "Search assistant-owned or PersAI-owned knowledge and return references. When a single short or medium document matches, the response inlines the document or its relevant section directly in the hit so a follow-up fetch is not required.",
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_search", "usage_guidance")]:
-    "Use this before fetching any excerpt when you need facts from uploaded documents, prior chats, subscription state, or global product knowledge.",
+    "Call this whenever you need facts from uploaded documents, prior chats, subscription state, or global product knowledge. Read the inline payload first: `inlinedDocument.text` carries the full document for short matches, `inlinedSection.text` carries the relevant section for medium matches, and `documentSummary.text` lists the headings of remaining sections for long matches. Use those directly in your answer. If only `snippet` is present (multi-hit results, or chat/memory sources), pick the best reference and call `knowledge_fetch` with the right `mode`.",
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "description")]:
-    "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search.",
+    'Fetch knowledge content by referenceId returned from knowledge_search. The `mode` argument controls the volume: "short" returns a tight excerpt, "section" returns an extended window with surrounding context, and "full" returns the entire document or chat thread (capped by plan and admin policy).',
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "usage_guidance")]:
-    "Use this to inspect the exact source passage instead of asking for whole documents, full chat histories, or full config dumps."
+    'Always set `mode` explicitly. Use `mode = "full"` when you need the complete article or a large chat slice (the response sets `truncated: true` only when the cap was hit). Use `mode = "section"` when you need the surrounding context around the search hit; pass `radius` only for `"section"` to widen or narrow the window from the per-plan default. Use `mode = "short"` when a brief excerpt is enough. Never ask the user to wait while you fetch and re-fetch: pick the right mode the first time. If you omit `mode`, the runtime treats it as `"section"`.'
 };
 
 export const PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {

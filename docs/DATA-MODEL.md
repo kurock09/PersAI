@@ -76,9 +76,9 @@ Current active knowledge/retrieval persistence includes:
 - first-class platform-catalog `Skill` / `SkillDocument` / `SkillKnowledgeCard` rows plus assistant-scoped `AssistantSkillAssignment` rows for ADR-079 professional Skills; Skill ownership/visibility is not derived from tenant workspace, and `Skill.category` currently stores the admin-selected Skill group key
 - `KnowledgeIndexingJob` rows for pending source processing, including `skill_document` sources
 - `KnowledgeVectorChunk` rows as the pgvector-backed normalized vector index boundary. Platform sources use source type/id/version/chunk/model and optional `skillId`; `workspaceId` is reserved for assistant-private sources and may be `NULL` for shared KB sources.
-- workspace-scoped `KnowledgeRetrievalEvent` rows for individual search/fetch telemetry
+- workspace-scoped `KnowledgeRetrievalEvent` rows for individual search/fetch telemetry; ADR-094 extends this row with two nullable columns — `mode_used VARCHAR(32)` (the inline branch the seam picked: `smart_inline_full`, `smart_inline_section`, `smart_inline_summary`, `snippet_only` for search; `short`, `section`, `full` for fetch; `orchestrate_inline` for the orchestrator's own per-source skill fetches and `snippet_only` on its aggregate per-stage signal) and `bytes_returned INTEGER` (chars actually returned to the caller in that event; `0` on snippet-only / aggregate stage rows). The migration is additive and reversible — pre-ADR-094 rows simply keep both columns `NULL`
 - workspace-scoped `KnowledgeRetrievalRollup` rows for durable aggregated retrieval metrics
-- `PlatformRuntimeProviderSettings.adminKnowledgeRetrievalPolicy` as the admin-owned Product/Skill KB retrieval and authoring model policy (`embeddingModelKey`, `retrievalModelKey`, `authoringModelKey`)
+- `PlatformRuntimeProviderSettings.adminKnowledgeRetrievalPolicy` as the admin-owned Product/Skill KB retrieval and authoring model policy (`embeddingModelKey`, `retrievalModelKey`, `authoringModelKey`); ADR-094 extends this row with admin-controlled smart-retrieval hard ceilings (`smartSearchEnabled`, `smartSearchLongDocSummaryChars`, `fetchFullModeAbsoluteMaxChars`, `fetchFullModeAbsoluteMaxChatMessages`) that no plan can override
 
 ADR-079 indexing is DB-backed for current source types: `assistant_knowledge_source`, `global_knowledge_source`, `skill_document`, `skill_knowledge_card`, and `product_knowledge_text_entry`. Upload/reindex writes source metadata and a pending `KnowledgeIndexingJob`; assistant-private jobs keep a workspace owner, while shared platform KB jobs have no tenant workspace owner. The API worker claims jobs with token/expiry fields, records attempt/retry/failure state, processes normalized source content, persists source provider/processor/quality/error state, writes legacy chunk rows, and replaces pgvector rows through `KnowledgeVectorChunk` when embeddings are available. `needs_review` is an indexing quality state and does not imply ADR-080 lifecycle governance.
 
@@ -88,7 +88,7 @@ Runtime router Skill planning is also bundle-derived state. The materialized run
 
 Orchestrated retrieval context is transient runtime turn state. ADR-079 does not add a persisted retrieval-plan table: the API validates the per-turn plan, reads existing platform Skill chunks, assistant knowledge, memory/chat, and Product/subscription sources, then returns a bounded source-aware context block to the runtime. Skill references are derived from ready Skill documents/cards for currently active assistant Skill assignments and are constrained by selected Skill ids, not by the consuming assistant workspace. Product KB/global retrieval reads active/ready platform rows; assistant uploads, memory, chat, files, and telemetry remain assistant/workspace-scoped. Source-level orchestration observability reuses `KnowledgeRetrievalEvent` / `KnowledgeRetrievalRollup` for `skill`, `document`, `product`, and `web` plan classes, storing latency/result/empty/error signals rather than full prompts or chunks. The `KnowledgeRetrievalEventSource` enum carries `document`, `global`, `product`, `skill`, `memory`, `chat`, `subscription`, and `web`; the previous `preset` enum value was dropped in 2026-05-04 because prompt presets are not a model-facing knowledge source. The retrieval observability `policyState` field records whether each search ran under the active-Skill policy (`skill_only`, `escalated_to_user`, `escalated_to_web`, `escalated_to_product`) or under the ordinary-turn priority policy (`ordinary_personal_first`, `ordinary_product_first`, `ordinary_web_first`, `ordinary_mixed_ambiguous`).
 
-The active retrieval-policy contract is plan-managed rather than hard-coded for user-uploaded assistant knowledge. Retrieval limits, helper toggles, fetch windows, and embedding-search enablement resolve from plan billing hints and materialize into active runtime/control-plane behavior. Admin-owned Product KB and Skill documents use the platform admin knowledge retrieval policy for model slots so admin KB indexing/rerank can be tuned independently from user plans.
+The active retrieval-policy contract is plan-managed rather than hard-coded for user-uploaded assistant knowledge. Retrieval limits, helper toggles, fetch windows, and embedding-search enablement resolve from plan billing hints and materialize into active runtime/control-plane behavior. Admin-owned Product KB and Skill documents use the platform admin knowledge retrieval policy for model slots so admin KB indexing/rerank can be tuned independently from user plans. ADR-094 extends `billingHints.retrievalPolicy` with five additive per-plan keys (`smartSearchShortDocChars`, `smartSearchMediumDocChars`, `chatSectionDefaultRadius`, `fetchFullModeMaxChars`, `fetchFullModeMaxChatMessages`) so each tier can be tuned independently for the smart `knowledge_search` and the flexible `knowledge_fetch`. The `KnowledgeRetrievalPolicy` reading path now defaults to a Start-tier-grade shape (not the prior Free-tier shape), so an existing plan row without `retrievalPolicy` overrides becomes a reasonable paid baseline; Free is now expected to be an explicit override in `billingHints.retrievalPolicy`, not the implicit baseline.
 
 ADR-080 adds the target-state authoring layer for Skill and Product KB knowledge. Authored Skill knowledge cards and Product KB text entries are Knowledge sources, not Files. They carry admin lifecycle state (`draft`, `active`, `stale`, `archived`) separately from ADR-079 processing/indexing state (`processing`, `ready`, `failed`, `needs_review`). Draft and archived authored entries must not be injected into runtime retrieval; active entries enqueue or refresh normal ADR-079 indexing jobs.
 
@@ -180,33 +180,33 @@ ADR-088 Slice 1 introduced the unified notification platform tables; ADR-088 Sli
 
 Active enum values (Prisma source of truth):
 
-| Enum | Values |
-|---|---|
-| `NotificationSource` | `idle_reengagement`, `quota_advisory`, `reminder`, `background_task_push`, `billing_lifecycle`, `admin_system`, `system_event` |
-| `NotificationClass` | `conversational`, `transactional`, `operational`, `administrative` |
-| `NotificationPriority` | `immediate`, `scheduled`, `digest`, `skippable` |
-| `NotificationLifecycleStatus` | `pending`, `claimed`, `delivered`, `failed`, `dead_letter`, `skipped`, `deferred_quiet_hours`, `deferred_rate_limit` |
-| `NotificationRenderStrategy` | `grounded_llm`, `template`, `static_fallback` |
-| `NotificationDeliveryAttemptStatus` | `pending`, `sent`, `delivered`, `failed`, `bounced`, `complaint`, `escalated` |
-| `NotificationChannelType` | `telegram_thread`, `web_thread`, `web_notification_center`, `email`, `admin_webhook`, `web_push`, `mobile_push` |
-| `NotificationChannelHealth` | `healthy`, `degraded`, `down`, `unconfigured` |
-| `NotificationQuietHoursTimezoneMode` | `workspace_default`, `per_user_resolved` |
+| Enum                                 | Values                                                                                                                         |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `NotificationSource`                 | `idle_reengagement`, `quota_advisory`, `reminder`, `background_task_push`, `billing_lifecycle`, `admin_system`, `system_event` |
+| `NotificationClass`                  | `conversational`, `transactional`, `operational`, `administrative`                                                             |
+| `NotificationPriority`               | `immediate`, `scheduled`, `digest`, `skippable`                                                                                |
+| `NotificationLifecycleStatus`        | `pending`, `claimed`, `delivered`, `failed`, `dead_letter`, `skipped`, `deferred_quiet_hours`, `deferred_rate_limit`           |
+| `NotificationRenderStrategy`         | `grounded_llm`, `template`, `static_fallback`                                                                                  |
+| `NotificationDeliveryAttemptStatus`  | `pending`, `sent`, `delivered`, `failed`, `bounced`, `complaint`, `escalated`                                                  |
+| `NotificationChannelType`            | `telegram_thread`, `web_thread`, `web_notification_center`, `email`, `admin_webhook`, `web_push`, `mobile_push`                |
+| `NotificationChannelHealth`          | `healthy`, `degraded`, `down`, `unconfigured`                                                                                  |
+| `NotificationQuietHoursTimezoneMode` | `workspace_default`, `per_user_resolved`                                                                                       |
 
 Legacy notification tables retired in Slices 2 and 3 (dropped 2026-05-08):
 
-| Legacy table | Retired by |
-|---|---|
-| `assistant_notification_outbox` | Slice 2 |
-| `assistant_quota_advisory_states` | Slice 2 |
-| `workspace_notification_policies` (idle + quota rows) | Slice 2 |
-| `billing_lifecycle_notification_jobs` | Slice 3 |
+| Legacy table                                          | Retired by |
+| ----------------------------------------------------- | ---------- |
+| `assistant_notification_outbox`                       | Slice 2    |
+| `assistant_quota_advisory_states`                     | Slice 2    |
+| `workspace_notification_policies` (idle + quota rows) | Slice 2    |
+| `billing_lifecycle_notification_jobs`                 | Slice 3    |
 
 Remaining legacy notification tables still **transitional** until Slice 4:
 
-| Legacy table | Owning producer | Retiring slice |
-|---|---|---|
-| `workspace_admin_notification_channels` | legacy admin webhook config | Slice 4 |
-| `admin_notification_deliveries` | legacy admin webhook log | Slice 4 |
+| Legacy table                            | Owning producer             | Retiring slice |
+| --------------------------------------- | --------------------------- | -------------- |
+| `workspace_admin_notification_channels` | legacy admin webhook config | Slice 4        |
+| `admin_notification_deliveries`         | legacy admin webhook log    | Slice 4        |
 
 ADR-082 Slice 3 makes these provider/model profiles the active token quota-weight truth for completed native turns. `WorkspaceQuotaUsageEvent.dimension=token_budget` records one weighted Credits delta per completed turn where runtime `usageAccounting.entries` are available, with metadata carrying raw input/cached-input/output token totals, applied weights, rounded Credits, and whether any entry fell back to neutral default weights. Plans continue to own token budget limits; provider/model weights remain global Admin Runtime policy.
 

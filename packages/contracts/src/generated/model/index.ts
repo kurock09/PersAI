@@ -6,6 +6,7 @@
  */
 
 export * from "./abuseSurface";
+export * from "./adminAbuseAssistantLookupItem";
 export * from "./adminAbuseUnblockRequest";
 export * from "./adminAbuseUnblockRequestSurface";
 export * from "./adminAbuseUnblockState";
@@ -364,6 +365,8 @@ export * from "./errorEnvelope";
 export * from "./errorObject";
 export * from "./errorObjectCategory";
 export * from "./errorObjectDetails";
+export * from "./getAdminAbuseAssistantsResponse";
+export * from "./getAdminAbuseControlsAssistantsParams";
 export * from "./getAdminBillingLifecycleSettingsResponse";
 export * from "./getAdminBillingProviderCredentialsResponse";
 export * from "./getAdminBusinessCockpitResponse";
@@ -616,6 +619,3 @@ export * from "./userPlanVisibilityState";
 export * from "./workspaceSummary";
 export * from "./workspaceSummaryRole";
 export * from "./workspaceSummaryStatus";
-export * from "./adminAbuseAssistantLookupItem";
-export * from "./getAdminAbuseAssistantsResponse";
-export * from "./getAdminAbuseControlsAssistantsParams";

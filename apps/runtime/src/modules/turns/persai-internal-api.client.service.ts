@@ -9,6 +9,7 @@ import {
 import type { RuntimeConfig } from "@persai/config";
 import type {
   PersaiRuntimeChannel,
+  PersaiRuntimeKnowledgeFetchMode,
   PersaiRuntimeMemoryWriteKind,
   PersaiRuntimeKnowledgeSource,
   PersaiRuntimeTier,
@@ -247,6 +248,9 @@ export type InternalKnowledgeFetchInput = {
   assistantId: string;
   source: PersaiRuntimeKnowledgeSource;
   referenceId: string;
+  /** ADR-094 — required at this layer; runtime tool default is "section". */
+  mode: PersaiRuntimeKnowledgeFetchMode;
+  radius: number | null;
 };
 
 export type InternalOrchestrateRetrievalInput = {

@@ -353,6 +353,10 @@ export class KnowledgeRetrievalObservabilityService {
     policyState?: string | null;
     outcome?: KnowledgeRetrievalOutcome;
     errorCode?: string | null;
+    /** ADR-094 — short tag for the response shape this search returned. */
+    modeUsed?: string | null;
+    /** ADR-094 — chars actually returned to the caller (inline content, if any). */
+    bytesReturned?: number | null;
   }): Promise<void> {
     const outcome =
       input.outcome ?? (input.resultCount > 0 ? "success" : ("empty" as KnowledgeRetrievalOutcome));
@@ -387,7 +391,9 @@ export class KnowledgeRetrievalObservabilityService {
       helperOutputTokens: input.helperOutputTokens ?? null,
       helperTotalTokens: input.helperTotalTokens ?? null,
       errorCode: input.errorCode ?? null,
-      durationMs: input.durationMs
+      durationMs: input.durationMs,
+      modeUsed: input.modeUsed ?? null,
+      bytesReturned: input.bytesReturned ?? null
     });
   }
 
@@ -402,6 +408,10 @@ export class KnowledgeRetrievalObservabilityService {
     embeddingModelKey: string | null;
     outcome?: KnowledgeRetrievalOutcome;
     errorCode?: string | null;
+    /** ADR-094 — `short` | `section` | `full` for fetch paths, `orchestrate_inline_*` for orchestrate. */
+    modeUsed?: string | null;
+    /** ADR-094 — chars actually returned to the caller. */
+    bytesReturned?: number | null;
   }): Promise<void> {
     const outcome =
       input.outcome ??
@@ -434,7 +444,9 @@ export class KnowledgeRetrievalObservabilityService {
       helperOutputTokens: null,
       helperTotalTokens: null,
       errorCode: input.errorCode ?? null,
-      durationMs: input.durationMs
+      durationMs: input.durationMs,
+      modeUsed: input.modeUsed ?? null,
+      bytesReturned: input.bytesReturned ?? input.fetchedChars
     });
   }
 
@@ -503,6 +515,8 @@ export class KnowledgeRetrievalObservabilityService {
     helperTotalTokens: number | null;
     errorCode: string | null;
     durationMs: number;
+    modeUsed: string | null;
+    bytesReturned: number | null;
   }): Promise<void> {
     const countsTowardSkillDecisionMode = input.eventKind === "search" && input.source === "skill";
     const { decisionMode: baseDecisionMode } = decodeDecisionMode(input.decisionMode);
@@ -536,7 +550,9 @@ export class KnowledgeRetrievalObservabilityService {
           helperOutputTokens: input.helperOutputTokens,
           helperTotalTokens: input.helperTotalTokens,
           errorCode: input.errorCode,
-          durationMs: Math.max(0, input.durationMs)
+          durationMs: Math.max(0, input.durationMs),
+          modeUsed: input.modeUsed === null ? null : input.modeUsed.slice(0, 32),
+          bytesReturned: input.bytesReturned === null ? null : Math.max(0, input.bytesReturned)
         }
       });
 

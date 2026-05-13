@@ -91,7 +91,12 @@ function createPlanState(): AdminPlanState {
       helperEnabled: true,
       helperCandidateLimit: 6,
       helperMaxOutputTokens: 220,
-      embeddingSearchEnabled: true
+      embeddingSearchEnabled: true,
+      smartSearchShortDocChars: 2000,
+      smartSearchMediumDocChars: 8000,
+      chatSectionDefaultRadius: 15,
+      fetchFullModeMaxChars: 25000,
+      fetchFullModeMaxChatMessages: 150
     },
     sandboxPolicy: {
       enabled: true,
@@ -259,6 +264,38 @@ describe("admin plans page helpers", () => {
         videoGenerateFallbackModelKey: ""
       }).videoGenerateFallbackModelKey
     ).toBeNull();
+  });
+
+  it("round-trips ADR-094 smart-retrieval per-plan keys through planToDraft/draftToPayload", () => {
+    const draft = planToDraft(createPlanState());
+    expect(draft.retrievalSmartSearchShortDocChars).toBe("2000");
+    expect(draft.retrievalSmartSearchMediumDocChars).toBe("8000");
+    expect(draft.retrievalChatSectionDefaultRadius).toBe("15");
+    expect(draft.retrievalFetchFullModeMaxChars).toBe("25000");
+    expect(draft.retrievalFetchFullModeMaxChatMessages).toBe("150");
+
+    const edited = {
+      ...draft,
+      retrievalSmartSearchShortDocChars: "4000",
+      retrievalSmartSearchMediumDocChars: "20000",
+      retrievalChatSectionDefaultRadius: "50",
+      retrievalFetchFullModeMaxChars: "100000",
+      retrievalFetchFullModeMaxChatMessages: "800"
+    };
+    const payload = draftToPayload(edited);
+    expect(payload.retrievalPolicy.smartSearchShortDocChars).toBe(4000);
+    expect(payload.retrievalPolicy.smartSearchMediumDocChars).toBe(20000);
+    expect(payload.retrievalPolicy.chatSectionDefaultRadius).toBe(50);
+    expect(payload.retrievalPolicy.fetchFullModeMaxChars).toBe(100000);
+    expect(payload.retrievalPolicy.fetchFullModeMaxChatMessages).toBe(800);
+
+    expect(
+      validatePlanDraft({ ...edited, retrievalFetchFullModeMaxChars: "" })
+        .retrievalFetchFullModeMaxChars
+    ).toMatch(/required/);
+    expect(() => draftToPayload({ ...edited, retrievalChatSectionDefaultRadius: "abc" })).toThrow(
+      /Chat section default radius/
+    );
   });
 
   it("flags invalid numeric draft values instead of silently defaulting", () => {

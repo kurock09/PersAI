@@ -17,4 +17,47 @@ export interface AdminPlanRetrievalPolicy {
   helperCandidateLimit: number;
   helperMaxOutputTokens: number;
   embeddingSearchEnabled: boolean;
+  /**
+   * ADR-094 — per-plan cap on document length for the smart-search
+"inline whole document" branch. 1-hit search returns
+`inlinedDocument` when the matched document is at or below this
+length.
+
+   * @minimum 1
+   */
+  smartSearchShortDocChars: number;
+  /**
+   * ADR-094 — per-plan cap on document length for the smart-search
+"inline section + heading summary" branch. 1-hit search returns
+`inlinedSection` plus an optional `documentSummary` when the
+matched document is above `smartSearchShortDocChars` and at or
+below this length.
+
+   * @minimum 1
+   */
+  smartSearchMediumDocChars: number;
+  /**
+   * ADR-094 — default number of surrounding chat messages assembled
+chronologically for `knowledge_fetch` with `mode = "section"` on
+a chat hit.
+
+   * @minimum 1
+   */
+  chatSectionDefaultRadius: number;
+  /**
+   * ADR-094 — per-plan cap on chars returned by `knowledge_fetch`
+with `mode = "full"` for documents. Effective cap is
+`min(plan, admin)`.
+
+   * @minimum 1
+   */
+  fetchFullModeMaxChars: number;
+  /**
+   * ADR-094 — per-plan cap on messages returned by
+`knowledge_fetch` with `mode = "full"` for a chat thread.
+Effective cap is `min(plan, admin)`.
+
+   * @minimum 1
+   */
+  fetchFullModeMaxChatMessages: number;
 }

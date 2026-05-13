@@ -1789,16 +1789,16 @@ export function AssistantSettings({
       >
         <div className="flex flex-col gap-3">
           <div className="rounded-2xl border border-border/70 bg-surface p-4">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-center">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_14rem] lg:items-center">
               <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setEmojiPickerOpen((o) => !o)}
-                  className="flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl transition-colors hover:bg-accent/25"
+                  className="flex h-20 w-20 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl transition-colors hover:bg-accent/25"
                   title={t("changeAvatar")}
                 >
                   {avatarUploading ? (
-                    <Loader2 className="h-6 w-6 animate-spin text-accent" />
+                    <Loader2 className="h-7 w-7 animate-spin text-accent" />
                   ) : avatarPreviewBlobUrl ? (
                     <img
                       src={avatarPreviewBlobUrl}
@@ -1812,7 +1812,7 @@ export function AssistantSettings({
                       className="h-full w-full rounded-2xl"
                     />
                   ) : (
-                    draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />
+                    draftAvatarEmoji || <Sparkles className="h-8 w-8 text-accent" />
                   )}
                 </button>
                 <div className="min-w-0">
@@ -1829,21 +1829,21 @@ export function AssistantSettings({
                   </div>
                 </div>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+              <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-1">
                 <ActionButton
                   icon={<Rocket className="h-3.5 w-3.5" />}
                   label={t("save")}
                   onClick={() => void handleSaveAndApply()}
                   busy={saving}
                   variant="primary"
-                  className="min-h-10 min-w-0 justify-center text-sm"
+                  className="h-9 min-w-0 justify-center"
                 />
                 <ActionButton
                   icon={<Sparkles className="h-3.5 w-3.5" />}
                   label={editingPersonality ? t("hidePersonality") : t("editPersonality")}
                   onClick={() => setEditingPersonality(!editingPersonality)}
                   busy={false}
-                  className="min-h-10 min-w-0 justify-center text-sm"
+                  className="h-9 min-w-0 justify-center"
                 />
               </div>
             </div>

@@ -44,7 +44,12 @@ async function run(): Promise<void> {
     helperEnabled: true,
     helperCandidateLimit: 6,
     helperMaxOutputTokens: 220,
-    embeddingSearchEnabled: true
+    embeddingSearchEnabled: true,
+    smartSearchShortDocChars: 2_000,
+    smartSearchMediumDocChars: 8_000,
+    chatSectionDefaultRadius: 15,
+    fetchFullModeMaxChars: 25_000,
+    fetchFullModeMaxChatMessages: 150
   };
 
   const parsed = service.parseUpdateInput({
@@ -670,6 +675,38 @@ async function run(): Promise<void> {
       }
     ).retrievalPolicy?.defaultMaxResults,
     retrievalPolicyForTest.defaultMaxResults
+  );
+  const persistedRetrievalPolicy = (
+    updatedWriteInput?.billingProviderHints as {
+      retrievalPolicy?: {
+        smartSearchShortDocChars?: number;
+        smartSearchMediumDocChars?: number;
+        chatSectionDefaultRadius?: number;
+        fetchFullModeMaxChars?: number;
+        fetchFullModeMaxChatMessages?: number;
+      };
+    }
+  ).retrievalPolicy;
+  assert.equal(
+    persistedRetrievalPolicy?.smartSearchShortDocChars,
+    retrievalPolicyForTest.smartSearchShortDocChars,
+    "ADR-094: smartSearchShortDocChars must round-trip through plan billing hints"
+  );
+  assert.equal(
+    persistedRetrievalPolicy?.smartSearchMediumDocChars,
+    retrievalPolicyForTest.smartSearchMediumDocChars
+  );
+  assert.equal(
+    persistedRetrievalPolicy?.chatSectionDefaultRadius,
+    retrievalPolicyForTest.chatSectionDefaultRadius
+  );
+  assert.equal(
+    persistedRetrievalPolicy?.fetchFullModeMaxChars,
+    retrievalPolicyForTest.fetchFullModeMaxChars
+  );
+  assert.equal(
+    persistedRetrievalPolicy?.fetchFullModeMaxChatMessages,
+    retrievalPolicyForTest.fetchFullModeMaxChatMessages
   );
   assert.equal(
     (

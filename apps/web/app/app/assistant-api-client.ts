@@ -3890,6 +3890,16 @@ export type AdminKnowledgeRetrievalPolicyState = {
   embeddingModelKey: string | null;
   retrievalModelKey: string | null;
   authoringModelKey: string | null;
+  /**
+   * ADR-094 — admin-owned hard ceilings and the "form of response" toggle for
+   * the smart `knowledge_search` and the flexible `knowledge_fetch`. Per-plan
+   * volume values live separately in `billingHints.retrievalPolicy` and are
+   * capped by these ceilings at runtime.
+   */
+  smartSearchEnabled: boolean;
+  smartSearchLongDocSummaryChars: number;
+  fetchFullModeAbsoluteMaxChars: number;
+  fetchFullModeAbsoluteMaxChatMessages: number;
   notes: string[];
 };
 
@@ -4288,6 +4298,10 @@ export async function getAdminKnowledgeRetrievalPolicy(
       embeddingModelKey: null,
       retrievalModelKey: null,
       authoringModelKey: null,
+      smartSearchEnabled: true,
+      smartSearchLongDocSummaryChars: 800,
+      fetchFullModeAbsoluteMaxChars: 100_000,
+      fetchFullModeAbsoluteMaxChatMessages: 800,
       notes: []
     }
   );
@@ -4299,6 +4313,10 @@ export async function updateAdminKnowledgeRetrievalPolicy(
     embeddingModelKey: string | null;
     retrievalModelKey: string | null;
     authoringModelKey: string | null;
+    smartSearchEnabled: boolean;
+    smartSearchLongDocSummaryChars: number;
+    fetchFullModeAbsoluteMaxChars: number;
+    fetchFullModeAbsoluteMaxChatMessages: number;
   }
 ): Promise<AdminKnowledgeRetrievalPolicyState> {
   const base = getApiBaseUrl();

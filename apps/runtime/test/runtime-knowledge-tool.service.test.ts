@@ -339,6 +339,72 @@ async function run(): Promise<void> {
   assert.equal(fetched.payload.action, "fetched");
   assert.equal(fetched.payload.document?.referenceId, "source-1:1:1");
   assert.equal(fetched.isError, false);
+  assert.equal(
+    internalApi.fetchCalls.at(-1)?.mode,
+    "section",
+    "ADR-094: omitted mode must default to 'section' at the runtime tool boundary"
+  );
+  assert.equal(internalApi.fetchCalls.at(-1)?.radius, null);
+
+  const fetchedFull = await service.executeFetchToolCall({
+    bundle,
+    toolCall: createToolCall("knowledge_fetch", {
+      source: "document",
+      referenceId: "source-1:1:1",
+      mode: "full"
+    }),
+    allowedSources: projection.knowledgeFetchSources
+  });
+  assert.equal(fetchedFull.isError, false);
+  assert.equal(internalApi.fetchCalls.at(-1)?.mode, "full");
+  assert.equal(internalApi.fetchCalls.at(-1)?.radius, null);
+
+  const fetchedSectionRadius = await service.executeFetchToolCall({
+    bundle,
+    toolCall: createToolCall("knowledge_fetch", {
+      source: "document",
+      referenceId: "source-1:1:1",
+      mode: "section",
+      radius: 12
+    }),
+    allowedSources: projection.knowledgeFetchSources
+  });
+  assert.equal(fetchedSectionRadius.isError, false);
+  assert.equal(internalApi.fetchCalls.at(-1)?.mode, "section");
+  assert.equal(internalApi.fetchCalls.at(-1)?.radius, 12);
+
+  const invalidMode = await service.executeFetchToolCall({
+    bundle,
+    toolCall: createToolCall("knowledge_fetch", {
+      source: "document",
+      referenceId: "source-1:1:1",
+      mode: "everything"
+    }),
+    allowedSources: projection.knowledgeFetchSources
+  });
+  assert.equal(
+    invalidMode.payload.reason,
+    "invalid_arguments",
+    "ADR-094: unknown mode must surface invalid_arguments, not silent fallback"
+  );
+  assert.equal(invalidMode.isError, true);
+
+  const radiusOnFull = await service.executeFetchToolCall({
+    bundle,
+    toolCall: createToolCall("knowledge_fetch", {
+      source: "document",
+      referenceId: "source-1:1:1",
+      mode: "full",
+      radius: 5
+    }),
+    allowedSources: projection.knowledgeFetchSources
+  });
+  assert.equal(
+    radiusOnFull.payload.reason,
+    "invalid_arguments",
+    "ADR-094: radius is only valid for mode='section'"
+  );
+  assert.equal(radiusOnFull.isError, true);
 
   internalApi.fetchedDocument = null;
   const missingFetch = await service.executeFetchToolCall({

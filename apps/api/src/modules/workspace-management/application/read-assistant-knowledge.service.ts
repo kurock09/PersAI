@@ -1,5 +1,14 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import type { RuntimeKnowledgeDocument, RuntimeKnowledgeSearchHit } from "@persai/runtime-contract";
+import {
+  PERSAI_RUNTIME_KNOWLEDGE_FETCH_MODES,
+  type PersaiRuntimeKnowledgeFetchMode,
+  type RuntimeKnowledgeDocument,
+  type RuntimeKnowledgeDocumentSummary,
+  type RuntimeKnowledgeInlinedDocument,
+  type RuntimeKnowledgeInlinedSection,
+  type RuntimeKnowledgeSearchHit
+} from "@persai/runtime-contract";
+import { type AdminKnowledgeRetrievalPolicyState } from "./admin-knowledge-retrieval-policy";
 import { KnowledgeEmbeddingService } from "./knowledge-embedding.service";
 import { KnowledgeModelPolicyService } from "./knowledge-model-policy.service";
 import { KnowledgeRetrievalObservabilityService } from "./knowledge-retrieval-observability.service";
@@ -196,6 +205,234 @@ function normalizeWhitespace(value: string): string {
 
 function normalizeSearchText(value: string): string {
   return normalizeWhitespace(value).toLowerCase();
+}
+
+/**
+ * ADR-094 — knowledge_fetch mode parsing. The default is `"section"`. That
+ * default is part of the permanent contract (matches pre-ADR-094 behaviour
+ * shape so existing skill calls keep working without explicit `mode`), not a
+ * legacy fallback that ever needs to be removed.
+ */
+function parseKnowledgeFetchMode(value: unknown): PersaiRuntimeKnowledgeFetchMode {
+  if (value === undefined || value === null) {
+    return "section";
+  }
+  if (typeof value !== "string") {
+    throw new BadRequestException(
+      'mode must be one of "short", "section", or "full" when provided.'
+    );
+  }
+  const normalized = value.trim().toLowerCase();
+  if ((PERSAI_RUNTIME_KNOWLEDGE_FETCH_MODES as readonly string[]).includes(normalized)) {
+    return normalized as PersaiRuntimeKnowledgeFetchMode;
+  }
+  throw new BadRequestException('mode must be one of "short", "section", or "full" when provided.');
+}
+
+/**
+ * ADR-094 — optional radius for `mode = "section"`. Rejects 0 and negatives.
+ * Positive values are clamped against the plan policy in
+ * `resolveDocumentFetchPlan` / `resolveChatFetchPlan`.
+ */
+function parseKnowledgeFetchRadius(value: unknown): number | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new BadRequestException("radius must be a positive integer when provided.");
+  }
+  return value;
+}
+
+const SHORT_MODE_DOC_RADIUS = 0;
+const SHORT_MODE_CHAT_RADIUS = 3;
+/** Hard upper bound on radius to keep query fan-out predictable. */
+const MAX_DOCUMENT_FETCH_RADIUS = 32;
+const MAX_CHAT_FETCH_RADIUS = 200;
+const TRUNCATION_MARKER = "\n\n[... content truncated due to plan / admin cap ...]";
+
+type DocumentFetchPlan = {
+  radius: number;
+  charLimit: number;
+  modeUsed: PersaiRuntimeKnowledgeFetchMode;
+  isFull: boolean;
+};
+
+type ChatFetchPlan = {
+  radius: number;
+  messageLimit: number;
+  charLimit: number;
+  modeUsed: PersaiRuntimeKnowledgeFetchMode;
+  isFull: boolean;
+};
+
+type RetrievalPolicySnapshot = {
+  knowledgeFetchWindowRadius: number;
+  chatFetchWindowRadius: number;
+  chatSectionDefaultRadius: number;
+  fetchMaxChars: number;
+  fetchFullModeMaxChars: number;
+  fetchFullModeMaxChatMessages: number;
+};
+
+type AdminSmartLimitsSnapshot = {
+  fetchFullModeAbsoluteMaxChars: number;
+  fetchFullModeAbsoluteMaxChatMessages: number;
+};
+
+function resolveDocumentFetchPlan(
+  mode: PersaiRuntimeKnowledgeFetchMode,
+  radiusInput: number | null,
+  retrievalPolicy: RetrievalPolicySnapshot,
+  adminLimits: AdminSmartLimitsSnapshot
+): DocumentFetchPlan {
+  if (mode === "short") {
+    return {
+      radius: SHORT_MODE_DOC_RADIUS,
+      charLimit: retrievalPolicy.fetchMaxChars,
+      modeUsed: "short",
+      isFull: false
+    };
+  }
+  if (mode === "full") {
+    const charLimit = Math.min(
+      retrievalPolicy.fetchFullModeMaxChars,
+      adminLimits.fetchFullModeAbsoluteMaxChars
+    );
+    return {
+      radius: MAX_DOCUMENT_FETCH_RADIUS,
+      charLimit,
+      modeUsed: "full",
+      isFull: true
+    };
+  }
+  const requested = radiusInput ?? retrievalPolicy.knowledgeFetchWindowRadius;
+  return {
+    radius: Math.min(Math.max(requested, 1), MAX_DOCUMENT_FETCH_RADIUS),
+    charLimit: retrievalPolicy.fetchMaxChars,
+    modeUsed: "section",
+    isFull: false
+  };
+}
+
+function resolveChatFetchPlan(
+  mode: PersaiRuntimeKnowledgeFetchMode,
+  radiusInput: number | null,
+  retrievalPolicy: RetrievalPolicySnapshot,
+  adminLimits: AdminSmartLimitsSnapshot
+): ChatFetchPlan {
+  if (mode === "short") {
+    return {
+      radius: SHORT_MODE_CHAT_RADIUS,
+      messageLimit: SHORT_MODE_CHAT_RADIUS * 2 + 1,
+      charLimit: retrievalPolicy.fetchMaxChars,
+      modeUsed: "short",
+      isFull: false
+    };
+  }
+  if (mode === "full") {
+    const messageLimit = Math.min(
+      retrievalPolicy.fetchFullModeMaxChatMessages,
+      adminLimits.fetchFullModeAbsoluteMaxChatMessages
+    );
+    const charLimit = Math.min(
+      retrievalPolicy.fetchFullModeMaxChars,
+      adminLimits.fetchFullModeAbsoluteMaxChars
+    );
+    return {
+      radius: MAX_CHAT_FETCH_RADIUS,
+      messageLimit,
+      charLimit,
+      modeUsed: "full",
+      isFull: true
+    };
+  }
+  const requested = radiusInput ?? retrievalPolicy.chatSectionDefaultRadius;
+  const radius = Math.min(Math.max(requested, 1), MAX_CHAT_FETCH_RADIUS);
+  return {
+    radius,
+    messageLimit: radius * 2 + 1,
+    charLimit: retrievalPolicy.fetchMaxChars,
+    modeUsed: "section",
+    isFull: false
+  };
+}
+
+/**
+ * Plan-bundled and admin-curated text documents are stored whole (no chunk
+ * window). The plan therefore reduces to "how many chars to keep before we
+ * mark the doc as truncated".
+ */
+function resolveTextDocumentFetchPlan(
+  mode: PersaiRuntimeKnowledgeFetchMode,
+  retrievalPolicy: RetrievalPolicySnapshot,
+  adminLimits: AdminSmartLimitsSnapshot
+): { charLimit: number; modeUsed: PersaiRuntimeKnowledgeFetchMode } {
+  if (mode === "short") {
+    return {
+      charLimit: Math.min(retrievalPolicy.fetchMaxChars, 1_500),
+      modeUsed: "short"
+    };
+  }
+  if (mode === "full") {
+    return {
+      charLimit: Math.min(
+        retrievalPolicy.fetchFullModeMaxChars,
+        adminLimits.fetchFullModeAbsoluteMaxChars
+      ),
+      modeUsed: "full"
+    };
+  }
+  return {
+    charLimit: retrievalPolicy.fetchMaxChars,
+    modeUsed: "section"
+  };
+}
+
+function applyTruncationMarker(
+  content: string,
+  charLimit: number
+): { content: string; truncated: boolean } {
+  if (content.length <= charLimit) {
+    return { content, truncated: false };
+  }
+  const reserveForMarker = TRUNCATION_MARKER.length;
+  const head = content.slice(0, Math.max(0, charLimit - reserveForMarker));
+  return {
+    content: `${head}${TRUNCATION_MARKER}`,
+    truncated: true
+  };
+}
+
+/**
+ * ADR-094 — classify a search response for the durable
+ * `KnowledgeRetrievalEvent.modeUsed` / `bytesReturned` columns. Returns the
+ * inline branch that actually fired (or `snippet_only` when no inline content
+ * was attached) so operators can see which smart-search shape served each
+ * search request.
+ */
+function resolveSmartSearchTelemetry(hits: RuntimeKnowledgeSearchHit[]): {
+  modeUsed: string;
+  bytesReturned: number;
+} {
+  if (hits.length !== 1) {
+    return { modeUsed: "snippet_only", bytesReturned: 0 };
+  }
+  const hit = hits[0]!;
+  if (hit.inlinedDocument !== undefined) {
+    return { modeUsed: "smart_inline_full", bytesReturned: hit.inlinedDocument.chars };
+  }
+  if (hit.inlinedSection !== undefined) {
+    const sectionChars = hit.inlinedSection.chars;
+    if (hit.documentSummary !== undefined) {
+      return {
+        modeUsed: "smart_inline_summary",
+        bytesReturned: sectionChars + hit.documentSummary.chars
+      };
+    }
+    return { modeUsed: "smart_inline_section", bytesReturned: sectionChars };
+  }
+  return { modeUsed: "snippet_only", bytesReturned: 0 };
 }
 
 function tokenizeWords(query: string): string[] {
@@ -906,16 +1143,25 @@ function isSupportedKnowledgeSource(
 
 function toTextKnowledgeDocument(
   row: TextKnowledgeDocumentRow,
-  maxChars = KNOWLEDGE_FETCH_MAX_CHARS
+  maxChars = KNOWLEDGE_FETCH_MAX_CHARS,
+  modeUsed: PersaiRuntimeKnowledgeFetchMode = "section"
 ): RuntimeKnowledgeDocument {
+  const { content, truncated } = applyTruncationMarker(row.content, maxChars);
+  const baseMetadata: Record<string, unknown> = {
+    ...(row.metadata ?? {}),
+    modeUsed,
+    truncated
+  };
   return {
     referenceId: row.referenceId,
     source: row.source,
     title: row.title,
     locator: row.locator,
-    content: row.content.slice(0, maxChars),
+    content,
     snippet: buildSnippet(row.content, [row.title, row.locator ?? "", row.content.slice(0, 80)]),
-    metadata: row.metadata
+    modeUsed,
+    truncated,
+    metadata: baseMetadata
   };
 }
 
@@ -989,6 +1235,8 @@ export class ReadAssistantKnowledgeService {
     assistantId: string;
     source: (typeof SUPPORTED_KNOWLEDGE_SOURCES)[number];
     referenceId: string;
+    mode: PersaiRuntimeKnowledgeFetchMode;
+    radius: number | null;
   } {
     const row = this.asObject(body);
     const assistantId = this.readRequiredString(row.assistantId, "assistantId");
@@ -999,11 +1247,15 @@ export class ReadAssistantKnowledgeService {
         "Only document, memory, chat, subscription, and Product KB knowledge fetch are currently available."
       );
     }
+    const mode = parseKnowledgeFetchMode(row.mode);
+    const radius = parseKnowledgeFetchRadius(row.radius);
 
     return {
       assistantId,
       source,
-      referenceId
+      referenceId,
+      mode,
+      radius
     };
   }
 
@@ -1032,6 +1284,8 @@ export class ReadAssistantKnowledgeService {
     assistantId: string;
     source: (typeof SUPPORTED_KNOWLEDGE_SOURCES)[number];
     referenceId: string;
+    mode: PersaiRuntimeKnowledgeFetchMode;
+    radius: number | null;
   }): Promise<RuntimeKnowledgeDocument | null> {
     if (input.source === "document") {
       return this.fetchDocument(input);
@@ -1046,6 +1300,185 @@ export class ReadAssistantKnowledgeService {
       return this.fetchSubscription(input);
     }
     return this.fetchGlobal(input);
+  }
+
+  /**
+   * ADR-094 — single read of (per-plan retrieval policy, admin smart-limit
+   * ceilings) used by every sub-fetch method to compute the effective fetch
+   * plan. Both reads are independent so we run them in parallel.
+   */
+  private async resolveFetchEnvelope(assistantId: string): Promise<{
+    retrievalPolicy: Awaited<
+      ReturnType<KnowledgeModelPolicyService["resolveAssistantRetrievalPolicy"]>
+    >;
+    adminLimits: AdminSmartLimitsSnapshot;
+    adminPolicy: AdminKnowledgeRetrievalPolicyState;
+  }> {
+    const [retrievalPolicy, adminPolicy] = await Promise.all([
+      this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(assistantId),
+      this.knowledgeModelPolicyService.resolveAdminKnowledgeRetrievalPolicy()
+    ]);
+    return {
+      retrievalPolicy,
+      adminLimits: {
+        fetchFullModeAbsoluteMaxChars: adminPolicy.fetchFullModeAbsoluteMaxChars,
+        fetchFullModeAbsoluteMaxChatMessages: adminPolicy.fetchFullModeAbsoluteMaxChatMessages
+      },
+      adminPolicy
+    };
+  }
+
+  /**
+   * ADR-094 — entry point for `searchDocuments`. Applies smart inline only
+   * to single-hit results to avoid loading the full text for every candidate
+   * in a multi-hit search.
+   */
+  private async enrichDocumentHitsWithSmartInline(args: {
+    assistantId: string;
+    hits: RuntimeKnowledgeSearchHit[];
+    selected: Array<RankedSearchCandidate<SearchSourceRow>>;
+  }): Promise<RuntimeKnowledgeSearchHit[]> {
+    if (args.hits.length !== 1 || args.selected.length !== 1) {
+      return args.hits;
+    }
+    const targetCandidate = args.selected[0];
+    if (targetCandidate === undefined) {
+      return args.hits;
+    }
+    const targetHit = args.hits[0];
+    if (targetHit === undefined) {
+      return args.hits;
+    }
+    const { retrievalPolicy, adminPolicy } = await this.resolveFetchEnvelope(args.assistantId);
+    if (!adminPolicy.smartSearchEnabled) {
+      return args.hits;
+    }
+    const documentChunks = await this.prisma.assistantKnowledgeSourceChunk.findMany({
+      where: {
+        assistantId: args.assistantId,
+        knowledgeSourceId: targetCandidate.row.knowledgeSourceId,
+        sourceVersion: targetCandidate.row.sourceVersion,
+        knowledgeSource: {
+          assistantId: args.assistantId,
+          namespace: "assistant_user_workspace",
+          status: "ready"
+        }
+      },
+      select: { chunkIndex: true, content: true, locator: true },
+      orderBy: [{ chunkIndex: "asc" }]
+    });
+    const enriched = await this.enrichWithSmartInline({
+      hit: targetHit,
+      documentChunks,
+      centerChunkIndex: targetCandidate.row.chunkIndex,
+      retrievalPolicy,
+      adminPolicy
+    });
+    return [enriched];
+  }
+
+  /**
+   * ADR-094 — for a single-hit document search, decide whether to inline the
+   * whole document, an extended section, or a section plus a heading summary.
+   * The decision is purely based on the target document's total length and
+   * the per-plan / admin smart-search bands. Returns the original hit unchanged
+   * if the smart branch is disabled or the document context cannot be loaded.
+   */
+  private async enrichWithSmartInline(args: {
+    hit: RuntimeKnowledgeSearchHit;
+    documentChunks: Array<{ chunkIndex: number; content: string; locator: string | null }>;
+    centerChunkIndex: number;
+    retrievalPolicy: Awaited<
+      ReturnType<KnowledgeModelPolicyService["resolveAssistantRetrievalPolicy"]>
+    >;
+    adminPolicy: AdminKnowledgeRetrievalPolicyState;
+  }): Promise<RuntimeKnowledgeSearchHit> {
+    const { hit, documentChunks, centerChunkIndex, retrievalPolicy, adminPolicy } = args;
+    if (!adminPolicy.smartSearchEnabled || documentChunks.length === 0) {
+      return hit;
+    }
+
+    const ordered = [...documentChunks].sort((a, b) => a.chunkIndex - b.chunkIndex);
+    const fullText = ordered
+      .map((row) => row.content.trim())
+      .filter((row) => row.length > 0)
+      .join("\n\n---\n\n");
+    const totalChars = fullText.length;
+    if (totalChars === 0) {
+      return hit;
+    }
+
+    if (totalChars <= retrievalPolicy.smartSearchShortDocChars) {
+      const fullCap = Math.min(
+        retrievalPolicy.fetchFullModeMaxChars,
+        adminPolicy.fetchFullModeAbsoluteMaxChars
+      );
+      const { content: inlinedText, truncated } = applyTruncationMarker(fullText, fullCap);
+      const inlinedDocument: RuntimeKnowledgeInlinedDocument = {
+        text: inlinedText,
+        chars: inlinedText.length,
+        truncated
+      };
+      return { ...hit, inlinedDocument };
+    }
+
+    const sectionRadius =
+      totalChars <= retrievalPolicy.smartSearchMediumDocChars
+        ? Math.min(
+            Math.max(retrievalPolicy.knowledgeFetchWindowRadius * 2, 2),
+            MAX_DOCUMENT_FETCH_RADIUS
+          )
+        : Math.min(retrievalPolicy.knowledgeFetchWindowRadius, MAX_DOCUMENT_FETCH_RADIUS);
+    const sectionStart = Math.max(0, centerChunkIndex - sectionRadius);
+    const sectionEnd = centerChunkIndex + sectionRadius;
+    const sectionRows = ordered.filter(
+      (row) => row.chunkIndex >= sectionStart && row.chunkIndex <= sectionEnd
+    );
+    const sectionTextRaw = sectionRows
+      .map((row) => row.content.trim())
+      .filter((row) => row.length > 0)
+      .join("\n\n---\n\n");
+    const { content: sectionText, truncated: sectionTruncated } = applyTruncationMarker(
+      sectionTextRaw,
+      retrievalPolicy.fetchMaxChars
+    );
+    const inlinedSection: RuntimeKnowledgeInlinedSection = {
+      text: sectionText,
+      chars: sectionText.length,
+      radius: sectionRadius,
+      truncated: sectionTruncated
+    };
+
+    if (totalChars <= retrievalPolicy.smartSearchMediumDocChars) {
+      return { ...hit, inlinedSection };
+    }
+
+    const summaryLines: string[] = [];
+    for (const row of ordered) {
+      if (row.chunkIndex >= sectionStart && row.chunkIndex <= sectionEnd) {
+        continue;
+      }
+      const firstLine = row.content
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .find((line) => line.length > 0);
+      if (firstLine === undefined) {
+        continue;
+      }
+      const locatorPrefix =
+        row.locator !== null && row.locator.length > 0 ? `${row.locator}: ` : "";
+      summaryLines.push(`${locatorPrefix}${firstLine}`);
+    }
+    const summaryRaw = summaryLines.join("\n");
+    const { content: summaryText } = applyTruncationMarker(
+      summaryRaw,
+      adminPolicy.smartSearchLongDocSummaryChars
+    );
+    const documentSummary: RuntimeKnowledgeDocumentSummary | undefined =
+      summaryText.length > 0 ? { text: summaryText, chars: summaryText.length } : undefined;
+    return documentSummary === undefined
+      ? { ...hit, inlinedSection }
+      : { ...hit, inlinedSection, documentSummary };
   }
 
   async searchDocuments(input: {
@@ -1317,7 +1750,7 @@ export class ReadAssistantKnowledgeService {
         });
       }
 
-      const hits: RuntimeKnowledgeSearchHit[] = selected.map(({ row, score }) => ({
+      const baseHits: RuntimeKnowledgeSearchHit[] = selected.map(({ row, score }) => ({
         referenceId: buildDocumentReferenceId({
           knowledgeSourceId: row.knowledgeSourceId,
           sourceVersion: row.sourceVersion,
@@ -1338,6 +1771,12 @@ export class ReadAssistantKnowledgeService {
           retrievalMode
         }
       }));
+      const hits = await this.enrichDocumentHitsWithSmartInline({
+        assistantId: input.assistantId,
+        hits: baseHits,
+        selected
+      });
+      const smartTelemetry = resolveSmartSearchTelemetry(hits);
       await this.recordSearchObservability({
         assistantId: input.assistantId,
         source: "document",
@@ -1352,7 +1791,9 @@ export class ReadAssistantKnowledgeService {
         helperProviderKey: helperRanking?.providerKey ?? null,
         helperInputTokens: helperRanking?.usage?.inputTokens ?? null,
         helperOutputTokens: helperRanking?.usage?.outputTokens ?? null,
-        helperTotalTokens: helperRanking?.usage?.totalTokens ?? null
+        helperTotalTokens: helperRanking?.usage?.totalTokens ?? null,
+        modeUsed: smartTelemetry.modeUsed,
+        bytesReturned: smartTelemetry.bytesReturned
       });
       return hits;
     } catch (error) {
@@ -1498,7 +1939,9 @@ export class ReadAssistantKnowledgeService {
         lexicalCandidateCount,
         vectorCandidateCount: 0,
         helperApplied: false,
-        embeddingModelKey: null
+        embeddingModelKey: null,
+        modeUsed: "snippet_only",
+        bytesReturned: 0
       });
       return hits;
     } catch (error) {
@@ -1647,7 +2090,9 @@ export class ReadAssistantKnowledgeService {
         lexicalCandidateCount,
         vectorCandidateCount: 0,
         helperApplied: false,
-        embeddingModelKey: null
+        embeddingModelKey: null,
+        modeUsed: "snippet_only",
+        bytesReturned: 0
       });
       return hits;
     } catch (error) {
@@ -1695,7 +2140,9 @@ export class ReadAssistantKnowledgeService {
         lexicalCandidateCount: documents.length,
         vectorCandidateCount: 0,
         helperApplied: false,
-        embeddingModelKey: null
+        embeddingModelKey: null,
+        modeUsed: "snippet_only",
+        bytesReturned: 0
       });
       return hits;
     } catch (error) {
@@ -1804,7 +2251,9 @@ export class ReadAssistantKnowledgeService {
         helperProviderKey: helperRanking?.providerKey ?? null,
         helperInputTokens: helperRanking?.usage?.inputTokens ?? null,
         helperOutputTokens: helperRanking?.usage?.outputTokens ?? null,
-        helperTotalTokens: helperRanking?.usage?.totalTokens ?? null
+        helperTotalTokens: helperRanking?.usage?.totalTokens ?? null,
+        modeUsed: "snippet_only",
+        bytesReturned: 0
       });
       return hits;
     } catch (error) {
@@ -1828,11 +2277,12 @@ export class ReadAssistantKnowledgeService {
   async fetchDocument(input: {
     assistantId: string;
     referenceId: string;
+    mode: PersaiRuntimeKnowledgeFetchMode;
+    radius: number | null;
   }): Promise<RuntimeKnowledgeDocument | null> {
     const startedAt = Date.now();
-    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
-      input.assistantId
-    );
+    const { retrievalPolicy, adminLimits } = await this.resolveFetchEnvelope(input.assistantId);
+    const plan = resolveDocumentFetchPlan(input.mode, input.radius, retrievalPolicy, adminLimits);
     try {
       const reference = parseDocumentReferenceId(input.referenceId.trim());
       if (reference === null) {
@@ -1883,19 +2333,23 @@ export class ReadAssistantKnowledgeService {
           assistantId: input.assistantId,
           knowledgeSourceId: reference.knowledgeSourceId,
           sourceVersion: reference.sourceVersion,
-          chunkIndex: {
-            gte: Math.max(0, reference.chunkIndex - retrievalPolicy.knowledgeFetchWindowRadius),
-            lte: reference.chunkIndex + retrievalPolicy.knowledgeFetchWindowRadius
-          }
+          ...(plan.isFull
+            ? {}
+            : {
+                chunkIndex: {
+                  gte: Math.max(0, reference.chunkIndex - plan.radius),
+                  lte: reference.chunkIndex + plan.radius
+                }
+              })
         },
         orderBy: [{ chunkIndex: "asc" }]
       });
 
-      const content = surroundingRows
+      const joined = surroundingRows
         .map((row) => row.content.trim())
         .filter((row) => row.length > 0)
-        .join("\n\n---\n\n")
-        .slice(0, retrievalPolicy.fetchMaxChars);
+        .join("\n\n---\n\n");
+      const { content, truncated } = applyTruncationMarker(joined, plan.charLimit);
 
       const document = {
         referenceId: buildDocumentReferenceId(reference),
@@ -1904,6 +2358,8 @@ export class ReadAssistantKnowledgeService {
         locator: centerRow.locator,
         content,
         snippet: buildSnippet(centerRow.content, [centerRow.content.slice(0, 80)]),
+        modeUsed: plan.modeUsed,
+        truncated,
         metadata: {
           knowledgeSourceId: centerRow.knowledgeSource.id,
           namespace: centerRow.knowledgeSource.namespace,
@@ -1913,7 +2369,9 @@ export class ReadAssistantKnowledgeService {
           chunkIndex: centerRow.chunkIndex,
           windowStartChunkIndex: surroundingRows[0]?.chunkIndex ?? centerRow.chunkIndex,
           windowEndChunkIndex:
-            surroundingRows[surroundingRows.length - 1]?.chunkIndex ?? centerRow.chunkIndex
+            surroundingRows[surroundingRows.length - 1]?.chunkIndex ?? centerRow.chunkIndex,
+          modeUsed: plan.modeUsed,
+          truncated
         }
       } satisfies RuntimeKnowledgeDocument;
       await this.recordFetchObservability({
@@ -1923,7 +2381,9 @@ export class ReadAssistantKnowledgeService {
         durationMs: Date.now() - startedAt,
         fetchDepth: surroundingRows.length,
         fetchedChars: content.length,
-        embeddingModelKey: centerRow.embeddingModelKey ?? null
+        embeddingModelKey: centerRow.embeddingModelKey ?? null,
+        modeUsed: plan.modeUsed,
+        bytesReturned: content.length
       });
       return document;
     } catch (error) {
@@ -1945,6 +2405,8 @@ export class ReadAssistantKnowledgeService {
   async fetchMemory(input: {
     assistantId: string;
     referenceId: string;
+    mode: PersaiRuntimeKnowledgeFetchMode;
+    radius: number | null;
   }): Promise<RuntimeKnowledgeDocument | null> {
     const startedAt = Date.now();
     try {
@@ -1999,7 +2461,9 @@ export class ReadAssistantKnowledgeService {
         durationMs: Date.now() - startedAt,
         fetchDepth: 1,
         fetchedChars: row.summary.length,
-        embeddingModelKey: null
+        embeddingModelKey: null,
+        modeUsed: input.mode,
+        bytesReturned: row.summary.length
       });
       return document;
     } catch (error) {
@@ -2021,11 +2485,12 @@ export class ReadAssistantKnowledgeService {
   async fetchChat(input: {
     assistantId: string;
     referenceId: string;
+    mode: PersaiRuntimeKnowledgeFetchMode;
+    radius: number | null;
   }): Promise<RuntimeKnowledgeDocument | null> {
     const startedAt = Date.now();
-    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
-      input.assistantId
-    );
+    const { retrievalPolicy, adminLimits } = await this.resolveFetchEnvelope(input.assistantId);
+    const plan = resolveChatFetchPlan(input.mode, input.radius, retrievalPolicy, adminLimits);
     try {
       const reference = parseChatReferenceId(input.referenceId.trim());
       if (reference === null) {
@@ -2099,7 +2564,7 @@ export class ReadAssistantKnowledgeService {
             createdAt: true
           },
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          take: retrievalPolicy.chatFetchWindowRadius
+          take: plan.radius
         }),
         this.prisma.assistantChatMessage.findMany({
           where: {
@@ -2131,12 +2596,21 @@ export class ReadAssistantKnowledgeService {
             createdAt: true
           },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          take: retrievalPolicy.chatFetchWindowRadius
+          take: plan.radius
         })
       ])) as [ChatMessageWindowRow[], ChatMessageWindowRow[]];
 
-      const windowRows: ChatMessageWindowRow[] = [...beforeRows.reverse(), centerRow, ...afterRows];
-      const content = buildChatWindowContent(windowRows, retrievalPolicy.fetchMaxChars);
+      const allRows: ChatMessageWindowRow[] = [...beforeRows.reverse(), centerRow, ...afterRows];
+      const messageLimited =
+        allRows.length > plan.messageLimit ? allRows.slice(0, plan.messageLimit) : allRows;
+      const messageTruncated = messageLimited.length < allRows.length;
+      const rawContent = buildChatWindowContent(messageLimited, plan.charLimit);
+      const charTruncated = rawContent.length >= plan.charLimit;
+      const truncated = messageTruncated || charTruncated;
+      const content =
+        truncated && !rawContent.endsWith(TRUNCATION_MARKER)
+          ? `${rawContent}${TRUNCATION_MARKER}`
+          : rawContent;
       const document = {
         referenceId: buildChatReferenceId(reference),
         source: "chat",
@@ -2146,6 +2620,8 @@ export class ReadAssistantKnowledgeService {
         snippet:
           buildSnippet(centerRow.content, [centerRow.content.slice(0, 80)]) ??
           centerRow.content.trim(),
+        modeUsed: plan.modeUsed,
+        truncated,
         metadata: {
           chatId: centerRow.chatId,
           messageId: centerRow.id,
@@ -2154,8 +2630,11 @@ export class ReadAssistantKnowledgeService {
           surfaceThreadKey: centerRow.chat.surfaceThreadKey,
           archivedAt: centerRow.chat.archivedAt?.toISOString() ?? null,
           createdAt: centerRow.createdAt.toISOString(),
-          windowStartMessageId: windowRows[0]?.id ?? centerRow.id,
-          windowEndMessageId: windowRows[windowRows.length - 1]?.id ?? centerRow.id
+          windowStartMessageId: messageLimited[0]?.id ?? centerRow.id,
+          windowEndMessageId: messageLimited[messageLimited.length - 1]?.id ?? centerRow.id,
+          messageCount: messageLimited.length,
+          modeUsed: plan.modeUsed,
+          truncated
         }
       } satisfies RuntimeKnowledgeDocument;
       await this.recordFetchObservability({
@@ -2163,9 +2642,11 @@ export class ReadAssistantKnowledgeService {
         source: "chat",
         retrievalMode: "lexical",
         durationMs: Date.now() - startedAt,
-        fetchDepth: windowRows.length,
+        fetchDepth: messageLimited.length,
         fetchedChars: content.length,
-        embeddingModelKey: null
+        embeddingModelKey: null,
+        modeUsed: plan.modeUsed,
+        bytesReturned: content.length
       });
       return document;
     } catch (error) {
@@ -2187,11 +2668,12 @@ export class ReadAssistantKnowledgeService {
   async fetchSubscription(input: {
     assistantId: string;
     referenceId: string;
+    mode: PersaiRuntimeKnowledgeFetchMode;
+    radius: number | null;
   }): Promise<RuntimeKnowledgeDocument | null> {
     const startedAt = Date.now();
-    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
-      input.assistantId
-    );
+    const { retrievalPolicy, adminLimits } = await this.resolveFetchEnvelope(input.assistantId);
+    const textPlan = resolveTextDocumentFetchPlan(input.mode, retrievalPolicy, adminLimits);
     try {
       const referenceId = input.referenceId.trim();
       const document = (await this.loadSubscriptionKnowledgeDocuments(input.assistantId)).find(
@@ -2200,7 +2682,7 @@ export class ReadAssistantKnowledgeService {
       const resolved =
         document === undefined
           ? null
-          : toTextKnowledgeDocument(document, retrievalPolicy.fetchMaxChars);
+          : toTextKnowledgeDocument(document, textPlan.charLimit, textPlan.modeUsed);
       await this.recordFetchObservability({
         assistantId: input.assistantId,
         source: "subscription",
@@ -2209,7 +2691,9 @@ export class ReadAssistantKnowledgeService {
         fetchDepth: resolved === null ? 0 : 1,
         fetchedChars: resolved?.content.length ?? 0,
         embeddingModelKey: null,
-        outcome: resolved === null ? "empty" : "success"
+        outcome: resolved === null ? "empty" : "success",
+        modeUsed: textPlan.modeUsed,
+        bytesReturned: resolved?.content.length ?? 0
       });
       return resolved;
     } catch (error) {
@@ -2231,14 +2715,20 @@ export class ReadAssistantKnowledgeService {
   async fetchGlobal(input: {
     assistantId: string;
     referenceId: string;
+    mode: PersaiRuntimeKnowledgeFetchMode;
+    radius: number | null;
   }): Promise<RuntimeKnowledgeDocument | null> {
     const startedAt = Date.now();
-    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
-      input.assistantId
-    );
+    const { retrievalPolicy, adminLimits } = await this.resolveFetchEnvelope(input.assistantId);
+    const textPlan = resolveTextDocumentFetchPlan(input.mode, retrievalPolicy, adminLimits);
     try {
       const referenceId = input.referenceId.trim();
-      const uploaded = await this.fetchUploadedGlobalDocument(referenceId, input.assistantId);
+      const uploaded = await this.fetchUploadedGlobalDocument(
+        referenceId,
+        input.assistantId,
+        input.mode,
+        input.radius
+      );
       if (uploaded !== null) {
         const metadata =
           uploaded.metadata !== null &&
@@ -2255,7 +2745,9 @@ export class ReadAssistantKnowledgeService {
             typeof metadata?.windowChunkCount === "number" ? metadata.windowChunkCount : 1,
           fetchedChars: uploaded.content.length,
           embeddingModelKey:
-            typeof metadata?.embeddingModelKey === "string" ? metadata.embeddingModelKey : null
+            typeof metadata?.embeddingModelKey === "string" ? metadata.embeddingModelKey : null,
+          modeUsed: input.mode,
+          bytesReturned: uploaded.content.length
         });
         return uploaded;
       }
@@ -2265,7 +2757,7 @@ export class ReadAssistantKnowledgeService {
       const resolved =
         document === undefined
           ? null
-          : toTextKnowledgeDocument(document, retrievalPolicy.fetchMaxChars);
+          : toTextKnowledgeDocument(document, textPlan.charLimit, textPlan.modeUsed);
       await this.recordFetchObservability({
         assistantId: input.assistantId,
         source: "global",
@@ -2274,7 +2766,9 @@ export class ReadAssistantKnowledgeService {
         fetchDepth: resolved === null ? 0 : 1,
         fetchedChars: resolved?.content.length ?? 0,
         embeddingModelKey: null,
-        outcome: resolved === null ? "empty" : "success"
+        outcome: resolved === null ? "empty" : "success",
+        modeUsed: textPlan.modeUsed,
+        bytesReturned: resolved?.content.length ?? 0
       });
       return resolved;
     } catch (error) {
@@ -2652,17 +3146,19 @@ export class ReadAssistantKnowledgeService {
 
   private async fetchUploadedGlobalDocument(
     referenceId: string,
-    assistantId: string
+    assistantId: string,
+    mode: PersaiRuntimeKnowledgeFetchMode,
+    radius: number | null
   ): Promise<RuntimeKnowledgeDocument | null> {
-    const retrievalPolicy =
-      await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(assistantId);
+    const { retrievalPolicy, adminLimits } = await this.resolveFetchEnvelope(assistantId);
+    const plan = resolveDocumentFetchPlan(mode, radius, retrievalPolicy, adminLimits);
     const textEntryReference = parseProductTextEntryReferenceId(referenceId);
     if (textEntryReference !== null) {
       return this.fetchProductKnowledgeTextEntryDocument(
         referenceId,
         assistantId,
         textEntryReference,
-        retrievalPolicy
+        plan
       );
     }
     const reference = parseGlobalUploadedReferenceId(referenceId);
@@ -2700,18 +3196,22 @@ export class ReadAssistantKnowledgeService {
       where: {
         globalKnowledgeSourceId: reference.globalKnowledgeSourceId,
         sourceVersion: reference.sourceVersion,
-        chunkIndex: {
-          gte: Math.max(0, reference.chunkIndex - retrievalPolicy.knowledgeFetchWindowRadius),
-          lte: reference.chunkIndex + retrievalPolicy.knowledgeFetchWindowRadius
-        }
+        ...(plan.isFull
+          ? {}
+          : {
+              chunkIndex: {
+                gte: Math.max(0, reference.chunkIndex - plan.radius),
+                lte: reference.chunkIndex + plan.radius
+              }
+            })
       },
       orderBy: [{ chunkIndex: "asc" }]
     });
-    const content = surroundingRows
+    const joined = surroundingRows
       .map((row) => row.content.trim())
       .filter((row) => row.length > 0)
-      .join("\n\n---\n\n")
-      .slice(0, retrievalPolicy.fetchMaxChars);
+      .join("\n\n---\n\n");
+    const { content, truncated } = applyTruncationMarker(joined, plan.charLimit);
     return {
       referenceId,
       source: "global",
@@ -2721,6 +3221,8 @@ export class ReadAssistantKnowledgeService {
       locator: centerRow.locator,
       content,
       snippet: buildSnippet(centerRow.content, [centerRow.content.slice(0, 80)]),
+      modeUsed: plan.modeUsed,
+      truncated,
       metadata: {
         knowledgeSourceId: centerRow.globalKnowledgeSource.id,
         scope: centerRow.scope,
@@ -2731,7 +3233,9 @@ export class ReadAssistantKnowledgeService {
         embeddingModelKey: centerRow.embeddingModelKey,
         retrievalMode: centerRow.embeddingModelKey === null ? "lexical" : "hybrid",
         windowChunkCount: surroundingRows.length,
-        kind: "global_uploaded"
+        kind: "global_uploaded",
+        modeUsed: plan.modeUsed,
+        truncated
       }
     };
   }
@@ -2740,9 +3244,7 @@ export class ReadAssistantKnowledgeService {
     referenceId: string,
     assistantId: string,
     reference: { textEntryId: string; sourceVersion: number; chunkIndex: number },
-    retrievalPolicy: Awaited<
-      ReturnType<KnowledgeModelPolicyService["resolveAssistantRetrievalPolicy"]>
-    >
+    plan: DocumentFetchPlan
   ): Promise<RuntimeKnowledgeDocument | null> {
     const assistant = await this.resolveAssistantKnowledgeContext(assistantId);
     if (assistant === null) {
@@ -2776,10 +3278,14 @@ export class ReadAssistantKnowledgeService {
       where: {
         textEntryId: reference.textEntryId,
         sourceVersion: reference.sourceVersion,
-        chunkIndex: {
-          gte: Math.max(0, reference.chunkIndex - retrievalPolicy.knowledgeFetchWindowRadius),
-          lte: reference.chunkIndex + retrievalPolicy.knowledgeFetchWindowRadius
-        },
+        ...(plan.isFull
+          ? {}
+          : {
+              chunkIndex: {
+                gte: Math.max(0, reference.chunkIndex - plan.radius),
+                lte: reference.chunkIndex + plan.radius
+              }
+            }),
         textEntry: {
           status: "ready",
           lifecycleStatus: "active"
@@ -2787,11 +3293,11 @@ export class ReadAssistantKnowledgeService {
       },
       orderBy: [{ chunkIndex: "asc" }]
     });
-    const content = surroundingRows
+    const joined = surroundingRows
       .map((row) => row.content.trim())
       .filter((row) => row.length > 0)
-      .join("\n\n---\n\n")
-      .slice(0, retrievalPolicy.fetchMaxChars);
+      .join("\n\n---\n\n");
+    const { content, truncated } = applyTruncationMarker(joined, plan.charLimit);
     return {
       referenceId,
       source: "global",
@@ -2799,6 +3305,8 @@ export class ReadAssistantKnowledgeService {
       locator: centerRow.locator,
       content,
       snippet: buildSnippet(centerRow.content, [centerRow.content.slice(0, 80)]),
+      modeUsed: plan.modeUsed,
+      truncated,
       metadata: {
         textEntryId: centerRow.textEntry.id,
         scope: "product",
@@ -2809,7 +3317,9 @@ export class ReadAssistantKnowledgeService {
         windowChunkCount: surroundingRows.length,
         category: centerRow.textEntry.category,
         locale: centerRow.textEntry.locale,
-        kind: "product_text_entry"
+        kind: "product_text_entry",
+        modeUsed: plan.modeUsed,
+        truncated
       }
     };
   }
@@ -3037,6 +3547,10 @@ export class ReadAssistantKnowledgeService {
     helperTotalTokens?: number | null;
     outcome?: "success" | "empty" | "error";
     errorCode?: string | null;
+    /** ADR-094 — short tag for the chosen response shape. */
+    modeUsed?: string | null;
+    /** ADR-094 — chars actually returned (inline payload, if any). */
+    bytesReturned?: number | null;
   }): Promise<void> {
     const assistant = await this.resolveAssistantKnowledgeContext(params.assistantId);
     if (assistant === null) {
@@ -3059,7 +3573,9 @@ export class ReadAssistantKnowledgeService {
       helperOutputTokens: params.helperOutputTokens ?? null,
       helperTotalTokens: params.helperTotalTokens ?? null,
       ...(params.outcome === undefined ? {} : { outcome: params.outcome }),
-      ...(params.errorCode === undefined ? {} : { errorCode: params.errorCode ?? null })
+      ...(params.errorCode === undefined ? {} : { errorCode: params.errorCode ?? null }),
+      ...(params.modeUsed === undefined ? {} : { modeUsed: params.modeUsed }),
+      ...(params.bytesReturned === undefined ? {} : { bytesReturned: params.bytesReturned })
     });
   }
 
@@ -3073,6 +3589,10 @@ export class ReadAssistantKnowledgeService {
     embeddingModelKey: string | null;
     outcome?: "success" | "empty" | "error";
     errorCode?: string | null;
+    /** ADR-094 — short tag for the fetch mode applied (`short`/`section`/`full`). */
+    modeUsed?: string | null;
+    /** ADR-094 — chars actually returned to the caller. */
+    bytesReturned?: number | null;
   }): Promise<void> {
     const assistant = await this.resolveAssistantKnowledgeContext(params.assistantId);
     if (assistant === null) {
@@ -3088,7 +3608,9 @@ export class ReadAssistantKnowledgeService {
       fetchedChars: params.fetchedChars,
       embeddingModelKey: params.embeddingModelKey,
       ...(params.outcome === undefined ? {} : { outcome: params.outcome }),
-      ...(params.errorCode === undefined ? {} : { errorCode: params.errorCode ?? null })
+      ...(params.errorCode === undefined ? {} : { errorCode: params.errorCode ?? null }),
+      ...(params.modeUsed === undefined ? {} : { modeUsed: params.modeUsed }),
+      ...(params.bytesReturned === undefined ? {} : { bytesReturned: params.bytesReturned })
     });
   }
 

@@ -186,10 +186,26 @@ async function run(): Promise<void> {
         helperEnabled: true,
         helperCandidateLimit: 6,
         helperMaxOutputTokens: 220,
-        embeddingSearchEnabled: true
+        embeddingSearchEnabled: true,
+        smartSearchShortDocChars: 2_000,
+        smartSearchMediumDocChars: 8_000,
+        chatSectionDefaultRadius: 15,
+        fetchFullModeMaxChars: 25_000,
+        fetchFullModeMaxChatMessages: 150
       }),
       resolveAdminKnowledgeEmbeddingModelKey: async () => "text-embedding-3-small",
-      resolveAdminKnowledgeRetrievalModelKey: async () => null
+      resolveAdminKnowledgeRetrievalModelKey: async () => null,
+      resolveAdminKnowledgeRetrievalPolicy: async () => ({
+        schema: "persai.adminKnowledgeRetrievalPolicy.v1",
+        embeddingModelKey: null,
+        retrievalModelKey: null,
+        authoringModelKey: null,
+        smartSearchEnabled: true,
+        smartSearchLongDocSummaryChars: 800,
+        fetchFullModeAbsoluteMaxChars: 100_000,
+        fetchFullModeAbsoluteMaxChatMessages: 800,
+        notes: []
+      })
     } as never,
     { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
     { rerankCandidates: async () => null } as never,
@@ -331,13 +347,17 @@ async function run(): Promise<void> {
     helperInputTokens: null,
     helperOutputTokens: null,
     helperTotalTokens: null,
-    policyState: "skill_only"
+    policyState: "skill_only",
+    modeUsed: "snippet_only",
+    bytesReturned: 0
   });
   assert.equal(observability.fetches.length, 1);
   assert.equal(observability.fetches[0]?.source, "skill");
   assert.equal(observability.fetches[0]?.retrievalMode, "hybrid");
   assert.equal(observability.fetches[0]?.fetchDepth, 3);
   assert.ok(Number(observability.fetches[0]?.fetchedChars) > 120);
+  assert.equal(observability.fetches[0]?.modeUsed, "orchestrate_inline");
+  assert.equal(observability.fetches[0]?.bytesReturned, observability.fetches[0]?.fetchedChars);
 
   const originalSkillChunks = [...skillChunks];
   skillChunks.splice(0, skillChunks.length);
@@ -425,10 +445,26 @@ async function run(): Promise<void> {
         helperEnabled: true,
         helperCandidateLimit: 6,
         helperMaxOutputTokens: 220,
-        embeddingSearchEnabled: true
+        embeddingSearchEnabled: true,
+        smartSearchShortDocChars: 2_000,
+        smartSearchMediumDocChars: 8_000,
+        chatSectionDefaultRadius: 15,
+        fetchFullModeMaxChars: 25_000,
+        fetchFullModeMaxChatMessages: 150
       }),
       resolveAdminKnowledgeEmbeddingModelKey: async () => "text-embedding-3-small",
-      resolveAdminKnowledgeRetrievalModelKey: async () => null
+      resolveAdminKnowledgeRetrievalModelKey: async () => null,
+      resolveAdminKnowledgeRetrievalPolicy: async () => ({
+        schema: "persai.adminKnowledgeRetrievalPolicy.v1",
+        embeddingModelKey: null,
+        retrievalModelKey: null,
+        authoringModelKey: null,
+        smartSearchEnabled: true,
+        smartSearchLongDocSummaryChars: 800,
+        fetchFullModeAbsoluteMaxChars: 100_000,
+        fetchFullModeAbsoluteMaxChatMessages: 800,
+        notes: []
+      })
     } as never,
     { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
     { rerankCandidates: async () => null } as never,
@@ -514,10 +550,26 @@ async function runOrdinaryStagedRetrievalCases(): Promise<void> {
         helperEnabled: false,
         helperCandidateLimit: 6,
         helperMaxOutputTokens: 220,
-        embeddingSearchEnabled: true
+        embeddingSearchEnabled: true,
+        smartSearchShortDocChars: 2_000,
+        smartSearchMediumDocChars: 8_000,
+        chatSectionDefaultRadius: 15,
+        fetchFullModeMaxChars: 25_000,
+        fetchFullModeMaxChatMessages: 150
       }),
       resolveAdminKnowledgeEmbeddingModelKey: async () => "text-embedding-3-small",
-      resolveAdminKnowledgeRetrievalModelKey: async () => null
+      resolveAdminKnowledgeRetrievalModelKey: async () => null,
+      resolveAdminKnowledgeRetrievalPolicy: async () => ({
+        schema: "persai.adminKnowledgeRetrievalPolicy.v1",
+        embeddingModelKey: null,
+        retrievalModelKey: null,
+        authoringModelKey: null,
+        smartSearchEnabled: true,
+        smartSearchLongDocSummaryChars: 800,
+        fetchFullModeAbsoluteMaxChars: 100_000,
+        fetchFullModeAbsoluteMaxChatMessages: 800,
+        notes: []
+      })
     } as never,
     { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
     { rerankCandidates: async () => null } as never,

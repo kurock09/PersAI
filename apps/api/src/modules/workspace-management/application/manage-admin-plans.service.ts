@@ -187,6 +187,23 @@ function parseRequiredPositiveInt(value: unknown, fieldName: string): number {
   return value;
 }
 
+/**
+ * Same shape as `parseRequiredPositiveInt`, but accepts `undefined`/`null`
+ * and falls back to the supplied default. Used by ADR-094 retrieval-policy
+ * keys where the JSON document may legitimately omit a key (UI sends it
+ * explicitly; legacy-shaped rows fall back to the runtime default).
+ */
+function parsePositiveIntWithDefault(
+  value: unknown,
+  fieldName: string,
+  defaultValue: number
+): number {
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+  return parseRequiredPositiveInt(value, fieldName);
+}
+
 function parseObject(value: unknown, fieldName: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new BadRequestException(`${fieldName} must be an object.`);
@@ -406,7 +423,32 @@ function parseAdminPlanRetrievalPolicy(value: unknown): AdminPlanRetrievalPolicy
     embeddingSearchEnabled:
       typeof parsed.embeddingSearchEnabled === "boolean"
         ? parsed.embeddingSearchEnabled
-        : DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.embeddingSearchEnabled
+        : DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.embeddingSearchEnabled,
+    smartSearchShortDocChars: parsePositiveIntWithDefault(
+      parsed.smartSearchShortDocChars,
+      "retrievalPolicy.smartSearchShortDocChars",
+      DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.smartSearchShortDocChars
+    ),
+    smartSearchMediumDocChars: parsePositiveIntWithDefault(
+      parsed.smartSearchMediumDocChars,
+      "retrievalPolicy.smartSearchMediumDocChars",
+      DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.smartSearchMediumDocChars
+    ),
+    chatSectionDefaultRadius: parsePositiveIntWithDefault(
+      parsed.chatSectionDefaultRadius,
+      "retrievalPolicy.chatSectionDefaultRadius",
+      DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.chatSectionDefaultRadius
+    ),
+    fetchFullModeMaxChars: parsePositiveIntWithDefault(
+      parsed.fetchFullModeMaxChars,
+      "retrievalPolicy.fetchFullModeMaxChars",
+      DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.fetchFullModeMaxChars
+    ),
+    fetchFullModeMaxChatMessages: parsePositiveIntWithDefault(
+      parsed.fetchFullModeMaxChatMessages,
+      "retrievalPolicy.fetchFullModeMaxChatMessages",
+      DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.fetchFullModeMaxChatMessages
+    )
   };
 }
 

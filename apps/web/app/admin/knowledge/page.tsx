@@ -288,6 +288,13 @@ export default function AdminKnowledgePage() {
   const [embeddingModelDraft, setEmbeddingModelDraft] = useState("");
   const [retrievalModelDraft, setRetrievalModelDraft] = useState("");
   const [authoringModelDraft, setAuthoringModelDraft] = useState("");
+  const [smartSearchEnabledDraft, setSmartSearchEnabledDraft] = useState(true);
+  const [smartSearchLongDocSummaryCharsDraft, setSmartSearchLongDocSummaryCharsDraft] =
+    useState("800");
+  const [fetchFullModeAbsoluteMaxCharsDraft, setFetchFullModeAbsoluteMaxCharsDraft] =
+    useState("100000");
+  const [fetchFullModeAbsoluteMaxChatMessagesDraft, setFetchFullModeAbsoluteMaxChatMessagesDraft] =
+    useState("800");
   const [availableModelKeys, setAvailableModelKeys] = useState<ModelOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -336,6 +343,16 @@ export default function AdminKnowledgePage() {
       setEmbeddingModelDraft(nextRetrievalPolicy.embeddingModelKey ?? "");
       setRetrievalModelDraft(nextRetrievalPolicy.retrievalModelKey ?? "");
       setAuthoringModelDraft(nextRetrievalPolicy.authoringModelKey ?? "");
+      setSmartSearchEnabledDraft(nextRetrievalPolicy.smartSearchEnabled);
+      setSmartSearchLongDocSummaryCharsDraft(
+        String(nextRetrievalPolicy.smartSearchLongDocSummaryChars)
+      );
+      setFetchFullModeAbsoluteMaxCharsDraft(
+        String(nextRetrievalPolicy.fetchFullModeAbsoluteMaxChars)
+      );
+      setFetchFullModeAbsoluteMaxChatMessagesDraft(
+        String(nextRetrievalPolicy.fetchFullModeAbsoluteMaxChatMessages)
+      );
       setAvailableModelKeys(flattenAvailableTextModelOptions(runtimeSettings));
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to load knowledge sources.");
@@ -516,15 +533,40 @@ export default function AdminKnowledgePage() {
     setSavingPolicy(true);
     setFeedback(null);
     try {
+      const summaryChars = Number.parseInt(smartSearchLongDocSummaryCharsDraft.trim(), 10);
+      const fullModeChars = Number.parseInt(fetchFullModeAbsoluteMaxCharsDraft.trim(), 10);
+      const fullModeMessages = Number.parseInt(
+        fetchFullModeAbsoluteMaxChatMessagesDraft.trim(),
+        10
+      );
+      if (!Number.isInteger(summaryChars) || summaryChars <= 0) {
+        throw new Error("Long-doc summary chars must be a positive integer.");
+      }
+      if (!Number.isInteger(fullModeChars) || fullModeChars <= 0) {
+        throw new Error("Fetch full mode absolute max chars must be a positive integer.");
+      }
+      if (!Number.isInteger(fullModeMessages) || fullModeMessages <= 0) {
+        throw new Error("Fetch full mode absolute max chat messages must be a positive integer.");
+      }
       const nextPolicy = await updateAdminKnowledgeRetrievalPolicy(token, {
         embeddingModelKey: embeddingModelDraft.trim() || null,
         retrievalModelKey: retrievalModelDraft.trim() || null,
-        authoringModelKey: authoringModelDraft.trim() || null
+        authoringModelKey: authoringModelDraft.trim() || null,
+        smartSearchEnabled: smartSearchEnabledDraft,
+        smartSearchLongDocSummaryChars: summaryChars,
+        fetchFullModeAbsoluteMaxChars: fullModeChars,
+        fetchFullModeAbsoluteMaxChatMessages: fullModeMessages
       });
       setRetrievalPolicy(nextPolicy);
       setEmbeddingModelDraft(nextPolicy.embeddingModelKey ?? "");
       setRetrievalModelDraft(nextPolicy.retrievalModelKey ?? "");
       setAuthoringModelDraft(nextPolicy.authoringModelKey ?? "");
+      setSmartSearchEnabledDraft(nextPolicy.smartSearchEnabled);
+      setSmartSearchLongDocSummaryCharsDraft(String(nextPolicy.smartSearchLongDocSummaryChars));
+      setFetchFullModeAbsoluteMaxCharsDraft(String(nextPolicy.fetchFullModeAbsoluteMaxChars));
+      setFetchFullModeAbsoluteMaxChatMessagesDraft(
+        String(nextPolicy.fetchFullModeAbsoluteMaxChatMessages)
+      );
       setFeedback(
         "Admin retrieval policy saved. Reindex Product KB and Skill documents to refresh embeddings."
       );
@@ -532,7 +574,16 @@ export default function AdminKnowledgePage() {
       setFeedback(error instanceof Error ? error.message : "Failed to save retrieval policy.");
     }
     setSavingPolicy(false);
-  }, [authoringModelDraft, embeddingModelDraft, getToken, retrievalModelDraft]);
+  }, [
+    authoringModelDraft,
+    embeddingModelDraft,
+    fetchFullModeAbsoluteMaxCharsDraft,
+    fetchFullModeAbsoluteMaxChatMessagesDraft,
+    getToken,
+    retrievalModelDraft,
+    smartSearchEnabledDraft,
+    smartSearchLongDocSummaryCharsDraft
+  ]);
 
   return (
     <div className="mx-auto max-w-5xl space-y-3 pb-24">
@@ -644,6 +695,85 @@ export default function AdminKnowledgePage() {
             ))}
           </div>
         ) : null}
+      </div>
+
+      <div className="rounded-xl border border-border/70 bg-surface p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-text">Smart Retrieval Limits</h2>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-text-muted">
+              Admin-owned hard ceilings for smart <code>knowledge_search</code> inline branches and
+              the flexible <code>knowledge_fetch</code> with <code>mode=&quot;full&quot;</code>.
+              These cap any per-plan value above them: the effective limit is{" "}
+              <code>min(plan, admin)</code>.
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-background px-3 py-2 text-xs text-text">
+            <span className="flex flex-col">
+              <span className="font-medium">Smart search enabled</span>
+              <span className="mt-0.5 text-[11px] text-text-muted">
+                When off, knowledge_search returns snippets only and the model must call
+                knowledge_fetch for any content.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={smartSearchEnabledDraft}
+              onChange={(event) => setSmartSearchEnabledDraft(event.target.checked)}
+              className="h-4 w-4 rounded border-border"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
+              Long-doc summary cap (chars)
+            </span>
+            <input
+              type="number"
+              min={1}
+              value={smartSearchLongDocSummaryCharsDraft}
+              onChange={(event) => setSmartSearchLongDocSummaryCharsDraft(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-border/70 bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent"
+              placeholder="800"
+            />
+            <span className="mt-1 block text-[11px] text-text-muted">
+              Max chars for the heading summary inlined alongside a section for long docs.
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
+              Fetch full mode max chars
+            </span>
+            <input
+              type="number"
+              min={1}
+              value={fetchFullModeAbsoluteMaxCharsDraft}
+              onChange={(event) => setFetchFullModeAbsoluteMaxCharsDraft(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-border/70 bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent"
+              placeholder="100000"
+            />
+            <span className="mt-1 block text-[11px] text-text-muted">
+              Absolute ceiling for knowledge_fetch(mode=&quot;full&quot;) document responses.
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
+              Fetch full mode max chat messages
+            </span>
+            <input
+              type="number"
+              min={1}
+              value={fetchFullModeAbsoluteMaxChatMessagesDraft}
+              onChange={(event) => setFetchFullModeAbsoluteMaxChatMessagesDraft(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-border/70 bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent"
+              placeholder="800"
+            />
+            <span className="mt-1 block text-[11px] text-text-muted">
+              Absolute ceiling for knowledge_fetch(mode=&quot;full&quot;) chat-thread responses.
+            </span>
+          </label>
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">

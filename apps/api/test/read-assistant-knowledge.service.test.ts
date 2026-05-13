@@ -1330,6 +1330,17 @@ async function run(): Promise<void> {
       resolveAssistantRetrievalModelKey: async () => null,
       resolveAdminKnowledgeEmbeddingModelKey: async () => null,
       resolveAdminKnowledgeRetrievalModelKey: async () => null,
+      resolveAdminKnowledgeRetrievalPolicy: async () => ({
+        schema: "persai.adminKnowledgeRetrievalPolicy.v1",
+        embeddingModelKey: null,
+        retrievalModelKey: null,
+        authoringModelKey: null,
+        smartSearchEnabled: true,
+        smartSearchLongDocSummaryChars: 800,
+        fetchFullModeAbsoluteMaxChars: 100_000,
+        fetchFullModeAbsoluteMaxChatMessages: 800,
+        notes: []
+      }),
       resolveAssistantRetrievalPolicy: async () => ({
         defaultMaxResults: 5,
         maxMaxResults: 8,
@@ -1341,7 +1352,12 @@ async function run(): Promise<void> {
         helperEnabled: true,
         helperCandidateLimit: 6,
         helperMaxOutputTokens: 220,
-        embeddingSearchEnabled: true
+        embeddingSearchEnabled: true,
+        smartSearchShortDocChars: 2_000,
+        smartSearchMediumDocChars: 8_000,
+        chatSectionDefaultRadius: 15,
+        fetchFullModeMaxChars: 25_000,
+        fetchFullModeMaxChatMessages: 150
       })
     } as never,
     {
@@ -1556,9 +1572,100 @@ async function run(): Promise<void> {
 
   const missing = await service.fetchDocument({
     assistantId: "assistant-1",
-    referenceId: "source-1:9:9"
+    referenceId: "source-1:9:9",
+    mode: "section",
+    radius: null
   });
   assert.equal(missing, null);
+
+  const smartSingleHits = await service.searchDocuments({
+    assistantId: "assistant-1",
+    query: "reset assistant uploaded",
+    maxResults: 3
+  });
+  const resetHit = smartSingleHits.find(
+    (hit) =>
+      (hit.metadata as { knowledgeSourceId?: string } | null)?.knowledgeSourceId === "source-2"
+  );
+  assert.ok(resetHit, "ADR-094: short single-hit document must be present in search hits");
+  assert.equal(
+    smartSingleHits.length,
+    1,
+    "ADR-094: query that matches one document must yield a single hit"
+  );
+  assert.ok(
+    resetHit?.inlinedDocument,
+    "ADR-094: smart search must inline short single-hit document"
+  );
+  assert.equal(resetHit?.inlinedDocument?.truncated, false);
+  assert.ok(
+    (resetHit?.inlinedDocument?.text ?? "").toLowerCase().includes("reset assistant"),
+    "ADR-094: inlined document text must contain the source content"
+  );
+  assert.equal(
+    resetHit?.inlinedSection,
+    undefined,
+    "ADR-094: short-doc branch must not also fill inlinedSection"
+  );
+  assert.equal(
+    resetHit?.documentSummary,
+    undefined,
+    "ADR-094: short-doc branch must not include document summary"
+  );
+
+  const multiHitSearch = await service.searchDocuments({
+    assistantId: "assistant-1",
+    query: "appendix pricing",
+    maxResults: 3
+  });
+  const inlinedAcrossMulti = multiHitSearch.filter(
+    (hit) => Boolean(hit.inlinedDocument) || Boolean(hit.inlinedSection)
+  );
+  assert.equal(inlinedAcrossMulti.length, 0, "ADR-094: multi-hit search must not inline content");
+
+  const fetchedFull = await service.fetchDocument({
+    assistantId: "assistant-1",
+    referenceId: "source-1:1:0",
+    mode: "full",
+    radius: null
+  });
+  assert.ok(fetchedFull);
+  assert.equal(fetchedFull?.modeUsed, "full");
+  assert.equal(fetchedFull?.truncated, false);
+  assert.ok((fetchedFull?.content ?? "").includes("PersAI pricing overview"));
+  assert.ok((fetchedFull?.content ?? "").includes("knowledge storage"));
+
+  const fetchedShort = await service.fetchDocument({
+    assistantId: "assistant-1",
+    referenceId: "source-1:1:0",
+    mode: "short",
+    radius: null
+  });
+  assert.ok(fetchedShort);
+  assert.equal(fetchedShort?.modeUsed, "short");
+
+  const chatFetchedFull = await service.fetchChat({
+    assistantId: "assistant-1",
+    referenceId: "chat:chat-1:message:message-2",
+    mode: "full",
+    radius: null
+  });
+  assert.ok(chatFetchedFull);
+  assert.equal(chatFetchedFull?.modeUsed, "full");
+  assert.ok((chatFetchedFull?.content ?? "").includes("We should explain PersAI quota limits"));
+  assert.ok(
+    (chatFetchedFull?.content ?? "").includes("Telegram onboarding checklist"),
+    "ADR-094: full chat fetch must include later messages, not only ±1 around the hit"
+  );
+
+  const chatFetchedSection = await service.fetchChat({
+    assistantId: "assistant-1",
+    referenceId: "chat:chat-1:message:message-2",
+    mode: "section",
+    radius: 1
+  });
+  assert.ok(chatFetchedSection);
+  assert.equal(chatFetchedSection?.modeUsed, "section");
 
   const parsedMemorySearch = service.parseSearchInput({
     assistantId: "assistant-1",

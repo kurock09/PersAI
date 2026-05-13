@@ -2232,6 +2232,18 @@ model KnowledgeRetrievalEvent {
   helperTotalTokens     Int?                          @map("helper_total_tokens")
   errorCode             String?                       @map("error_code") @db.VarChar(128)
   durationMs            Int                           @map("duration_ms")
+  /// ADR-094 — short tag for the response shape the retrieval seam chose for
+  /// this event (e.g. "smart_inline_full" / "smart_inline_section" /
+  /// "smart_inline_summary" / "snippet_only" for search, "short" / "section" /
+  /// "full" for fetch, "orchestrate_inline" for orchestrate). Null on
+  /// pre-ADR-094 rows. Column is VARCHAR(32) so the longest current tag fits
+  /// without silent truncation; the persistence layer still slices defensively
+  /// to 32 chars.
+  modeUsed              String?                       @map("mode_used") @db.VarChar(32)
+  /// ADR-094 — actual chars the seam returned to the caller (full inlined doc
+  /// content, section content, fetch content, or orchestrate KB block). Null
+  /// on pre-ADR-094 rows; distinct from `fetched_chars` which is fetch-only.
+  bytesReturned         Int?                          @map("bytes_returned")
   createdAt             DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
   workspace             Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   assistant             Assistant?                    @relation(fields: [assistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)

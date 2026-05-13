@@ -73,6 +73,10 @@ export class ManageAdminKnowledgeRetrievalPolicyService {
         embeddingModelKey: policy.embeddingModelKey,
         retrievalModelKey: policy.retrievalModelKey,
         authoringModelKey: policy.authoringModelKey,
+        smartSearchEnabled: policy.smartSearchEnabled,
+        smartSearchLongDocSummaryChars: policy.smartSearchLongDocSummaryChars,
+        fetchFullModeAbsoluteMaxChars: policy.fetchFullModeAbsoluteMaxChars,
+        fetchFullModeAbsoluteMaxChatMessages: policy.fetchFullModeAbsoluteMaxChatMessages,
         embeddingBackfill: backfill
       }
     });

@@ -4,6 +4,14 @@ import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-su
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID } from "./platform-runtime-provider-settings";
 
+/**
+ * ADR-094 Step 1 — per-plan knowledge retrieval policy. The five `smart…` /
+ * `chatSection…` / `fetchFullMode…` keys below are ADDITIVE against the
+ * pre-ADR-094 contract: they describe how much volume a plan is allowed to
+ * pull through the smart `knowledge_search` and the flexible `knowledge_fetch`
+ * tool. Hard ceilings live in admin-knowledge-retrieval-policy.ts; the
+ * effective per-call limit is `min(plan.field, admin.field)`.
+ */
 export type KnowledgeRetrievalPolicy = {
   defaultMaxResults: number;
   maxMaxResults: number;
@@ -16,20 +24,41 @@ export type KnowledgeRetrievalPolicy = {
   helperCandidateLimit: number;
   helperMaxOutputTokens: number;
   embeddingSearchEnabled: boolean;
+  /** ADR-094 — documents up to this length are inlined whole by smart search. */
+  smartSearchShortDocChars: number;
+  /** ADR-094 — documents up to this length are inlined as an extended section. */
+  smartSearchMediumDocChars: number;
+  /** ADR-094 — default radius (in messages) for chat `mode = "section"` fetch. */
+  chatSectionDefaultRadius: number;
+  /** ADR-094 — plan cap on chars returned by `knowledge_fetch` with `mode = "full"`. */
+  fetchFullModeMaxChars: number;
+  /** ADR-094 — plan cap on messages returned by chat `knowledge_fetch` with `mode = "full"`. */
+  fetchFullModeMaxChatMessages: number;
 };
 
+/**
+ * ADR-094 — the default sits at Start-tier shape (1 paid step above Free).
+ * Free is now an EXPLICIT override in `billingHints.retrievalPolicy`, not the
+ * implicit baseline. This removes the long-standing problem of every plan
+ * silently inheriting Free-grade limits because admin never customised them.
+ */
 export const DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY: KnowledgeRetrievalPolicy = {
-  defaultMaxResults: 5,
-  maxMaxResults: 8,
+  defaultMaxResults: 6,
+  maxMaxResults: 10,
   lexicalCandidateLimit: 60,
   vectorCandidateLimit: 240,
-  knowledgeFetchWindowRadius: 1,
-  chatFetchWindowRadius: 2,
-  fetchMaxChars: 6_000,
+  knowledgeFetchWindowRadius: 3,
+  chatFetchWindowRadius: 10,
+  fetchMaxChars: 8_000,
   helperEnabled: true,
   helperCandidateLimit: 6,
   helperMaxOutputTokens: 220,
-  embeddingSearchEnabled: true
+  embeddingSearchEnabled: true,
+  smartSearchShortDocChars: 2_000,
+  smartSearchMediumDocChars: 8_000,
+  chatSectionDefaultRadius: 15,
+  fetchFullModeMaxChars: 25_000,
+  fetchFullModeMaxChatMessages: 150
 };
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -117,7 +146,22 @@ export class KnowledgeModelPolicyService {
         DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.helperMaxOutputTokens,
       embeddingSearchEnabled:
         toNullableBoolean(retrievalPolicy?.embeddingSearchEnabled) ??
-        DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.embeddingSearchEnabled
+        DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.embeddingSearchEnabled,
+      smartSearchShortDocChars:
+        toNullablePositiveInt(retrievalPolicy?.smartSearchShortDocChars) ??
+        DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.smartSearchShortDocChars,
+      smartSearchMediumDocChars:
+        toNullablePositiveInt(retrievalPolicy?.smartSearchMediumDocChars) ??
+        DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.smartSearchMediumDocChars,
+      chatSectionDefaultRadius:
+        toNullablePositiveInt(retrievalPolicy?.chatSectionDefaultRadius) ??
+        DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.chatSectionDefaultRadius,
+      fetchFullModeMaxChars:
+        toNullablePositiveInt(retrievalPolicy?.fetchFullModeMaxChars) ??
+        DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.fetchFullModeMaxChars,
+      fetchFullModeMaxChatMessages:
+        toNullablePositiveInt(retrievalPolicy?.fetchFullModeMaxChatMessages) ??
+        DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.fetchFullModeMaxChatMessages
     };
   }
 
@@ -160,7 +204,12 @@ export class KnowledgeModelPolicyService {
     return asObject(plan?.billingProviderHints ?? null);
   }
 
-  private async resolveAdminKnowledgeRetrievalPolicy() {
+  /**
+   * ADR-094 — exposed so `ReadAssistantKnowledgeService` and
+   * `OrchestrateRuntimeRetrievalService` can read the admin-controlled smart
+   * retrieval ceilings (smart-search summary char cap, full-mode hard caps).
+   */
+  async resolveAdminKnowledgeRetrievalPolicy() {
     const row = await this.prisma.platformRuntimeProviderSettings.findUnique({
       where: { id: PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID },
       select: { adminKnowledgeRetrievalPolicy: true }
