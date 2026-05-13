@@ -33,7 +33,6 @@ import { AssistantAvatar } from "./assistant-avatar";
 import type { AppData, AssistantStatus } from "./use-app-data";
 import type { AssistantWebChatListItemState } from "@persai/contracts";
 import { useTheme } from "./use-theme";
-import { useClerkAvatar } from "./use-clerk-avatar";
 import { useNetworkOnline } from "./use-network-online";
 import { resolveBillingSummaryCopy } from "./billing-summary";
 import { AndroidAppDownloadBanner } from "../../_components/android-app-download-banner";
@@ -409,12 +408,6 @@ function AccountFooter({
   const [signingOut, setSigningOut] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const logoutInFlightRef = useRef(false);
-  const {
-    imageSrc: avatarUrl,
-    broken: avatarBroken,
-    onError: handleAvatarError
-  } = useClerkAvatar();
-
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -495,19 +488,8 @@ function AccountFooter({
         aria-expanded={open}
         className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-surface-hover"
       >
-        <span className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent/20 text-xs font-semibold text-accent">
-          {avatarUrl && !avatarBroken ? (
-            <img
-              src={avatarUrl}
-              alt=""
-              className="h-full w-full object-cover"
-              onError={handleAvatarError}
-              referrerPolicy="no-referrer"
-              loading="eager"
-            />
-          ) : (
-            initials
-          )}
+        <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-surface-raised text-[13px] font-semibold text-text-subtle shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          {initials}
           {telegramConnected && (
             <span
               aria-hidden
@@ -521,7 +503,7 @@ function AccountFooter({
             {planName} · {tokenUsage}%{paidLightModeActive ? ` · ${t("lightModeBadge")}` : ""}
           </span>
         </span>
-        <MoreHorizontal className="h-4 w-4 shrink-0 text-text-subtle" />
+        <Settings className="h-4 w-4 shrink-0 text-text-subtle" />
       </button>
 
       <AnimatePresence>
