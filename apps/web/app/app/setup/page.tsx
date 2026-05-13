@@ -268,6 +268,7 @@ export default function SetupWizardPage() {
   );
   const currentAvatarPreviewUrl =
     customAvatarPreviewUrl ?? persistedAvatarUrl ?? selectedAvatarPreset?.imagePath ?? null;
+  const isUsingCustomAvatar = selectedAvatarPresetId === null && currentAvatarPreviewUrl !== null;
   const setupVoiceProfile = useMemo(
     () =>
       resolveSetupVoiceProfile({
@@ -838,36 +839,29 @@ export default function SetupWizardPage() {
                       onClick={() => handleSelectAvatarPreset(av.id)}
                       aria-label={av.label}
                       className={cn(
-                        "group flex cursor-pointer flex-col items-center gap-2.5 rounded-[22px] border p-3.5 text-center transition-all duration-200",
+                        "group relative aspect-[0.83] cursor-pointer overflow-hidden rounded-[24px] border text-left transition-all duration-200",
                         selectedAvatarPresetId === av.id && customAvatarPreviewUrl === null
                           ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.18),rgba(191,148,84,0.08))] shadow-[0_0_0_1px_rgba(191,148,84,0.25),0_18px_40px_rgba(0,0,0,0.22)]"
                           : "border-border/70 bg-surface-raised/80 shadow-[0_10px_28px_rgba(0,0,0,0.16)] hover:border-border-strong hover:bg-surface-hover hover:shadow-[0_16px_36px_rgba(0,0,0,0.22)]"
                       )}
                     >
-                      <div
-                        className={cn(
-                          "overflow-hidden rounded-[18px] border border-white/10 bg-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
-                          selectedAvatarPresetId === av.id && customAvatarPreviewUrl === null
-                            ? "ring-1 ring-accent/30"
-                            : ""
-                        )}
-                      >
-                        <img
-                          src={av.imagePath}
-                          alt=""
-                          className="h-16 w-16 object-cover sm:h-[72px] sm:w-[72px]"
-                        />
+                      <img
+                        src={av.imagePath}
+                        alt=""
+                        className="absolute inset-0 h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                      />
+                      <div className="absolute inset-x-0 bottom-0 bg-[linear-gradient(180deg,rgba(12,12,12,0)_0%,rgba(12,12,12,0.62)_52%,rgba(12,12,12,0.9)_100%)] px-3 py-3">
+                        <span
+                          className={cn(
+                            "block rounded-[14px] border px-2.5 py-1.5 text-center text-[11px] font-semibold tracking-[0.01em] backdrop-blur-sm",
+                            selectedAvatarPresetId === av.id && customAvatarPreviewUrl === null
+                              ? "border-accent/35 bg-[rgba(191,148,84,0.18)] text-white"
+                              : "border-white/10 bg-[rgba(18,18,18,0.42)] text-white/92"
+                          )}
+                        >
+                          {av.label}
+                        </span>
                       </div>
-                      <span
-                        className={cn(
-                          "text-[11px] font-semibold tracking-[0.01em]",
-                          selectedAvatarPresetId === av.id && customAvatarPreviewUrl === null
-                            ? "text-text"
-                            : "text-text-muted"
-                        )}
-                      >
-                        {av.label}
-                      </span>
                     </button>
                   ))}
 
@@ -875,30 +869,39 @@ export default function SetupWizardPage() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    aria-label={currentAvatarPreviewUrl ? t("yours") : t("upload")}
+                    aria-label={isUsingCustomAvatar ? t("yours") : t("upload")}
                     className={cn(
-                      "group flex cursor-pointer flex-col items-center justify-center gap-2.5 rounded-[22px] border border-dashed p-3.5 text-center transition-all duration-200",
-                      currentAvatarPreviewUrl
+                      "group relative aspect-[0.83] cursor-pointer overflow-hidden rounded-[24px] border border-dashed text-left transition-all duration-200",
+                      isUsingCustomAvatar
                         ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.18),rgba(191,148,84,0.08))] shadow-[0_0_0_1px_rgba(191,148,84,0.25),0_18px_40px_rgba(0,0,0,0.22)]"
                         : "border-border-strong bg-surface-raised/80 shadow-[0_10px_28px_rgba(0,0,0,0.16)] hover:border-accent/50 hover:bg-surface-hover hover:shadow-[0_16px_36px_rgba(0,0,0,0.22)]"
                     )}
                   >
-                    {currentAvatarPreviewUrl ? (
-                      <div className="overflow-hidden rounded-[18px] border border-white/10 bg-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-                        <img
-                          src={currentAvatarPreviewUrl}
-                          alt=""
-                          className="h-16 w-16 object-cover sm:h-[72px] sm:w-[72px]"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex h-16 w-16 items-center justify-center rounded-[18px] border border-border/80 bg-surface text-text-subtle sm:h-[72px] sm:w-[72px]">
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_28%,rgba(255,255,255,0.08),rgba(255,255,255,0)_58%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div
+                        className={cn(
+                          "flex h-16 w-16 items-center justify-center rounded-[20px] border backdrop-blur-sm sm:h-[72px] sm:w-[72px]",
+                          isUsingCustomAvatar
+                            ? "border-accent/35 bg-[rgba(191,148,84,0.16)] text-white"
+                            : "border-border/80 bg-surface/88 text-text-subtle"
+                        )}
+                      >
                         <Upload className="h-5 w-5" />
                       </div>
-                    )}
-                    <span className="text-[11px] font-semibold tracking-[0.01em] text-text-muted">
-                      {currentAvatarPreviewUrl ? t("yours") : t("upload")}
-                    </span>
+                    </div>
+                    <div className="absolute inset-x-0 bottom-0 px-3 py-3">
+                      <span
+                        className={cn(
+                          "block rounded-[14px] border px-2.5 py-1.5 text-center text-[11px] font-semibold tracking-[0.01em] backdrop-blur-sm",
+                          isUsingCustomAvatar
+                            ? "border-accent/35 bg-[rgba(191,148,84,0.18)] text-white"
+                            : "border-white/10 bg-[rgba(18,18,18,0.42)] text-white/92"
+                        )}
+                      >
+                        {isUsingCustomAvatar ? t("yours") : t("upload")}
+                      </span>
+                    </div>
                   </button>
                 </div>
 
