@@ -522,15 +522,13 @@ function isSafeMarkdownHref(href: unknown): href is string {
 export type InternalChatCtaMeta = {
   kind: "pricing" | "packages" | "payment";
   href: string;
-  label: string;
 };
 
 const USER_MEDIA_BUBBLE_RADIUS_CLASS = "rounded-[18px] rounded-br-md";
 const USER_MEDIA_CARD_RADIUS_CLASS = "rounded-[14px] rounded-br-[10px]";
 
-export function resolveInternalChatCta(href: string, text: string): InternalChatCtaMeta | null {
+export function resolveInternalChatCta(href: string): InternalChatCtaMeta | null {
   const normalizedHref = href.trim();
-  const safeText = stripInlineMarkdown(text).trim();
   if (!normalizedHref) return null;
 
   const normalizedPath = (() => {
@@ -553,20 +551,25 @@ export function resolveInternalChatCta(href: string, text: string): InternalChat
   const pathOnly = normalizedPath.split("?")[0] ?? normalizedPath;
 
   if (pathOnly === "/app/pricing") {
-    return { kind: "pricing", href: normalizedPath, label: safeText || "Тарифы" };
+    return { kind: "pricing", href: normalizedPath };
   }
   if (pathOnly === "/app/packages") {
-    return { kind: "packages", href: normalizedPath, label: safeText || "Медиа пакеты" };
+    return { kind: "packages", href: normalizedPath };
   }
   if (pathOnly.startsWith("/app/billing/checkout/")) {
-    return { kind: "payment", href: normalizedPath, label: safeText || "Оплатить" };
+    return { kind: "payment", href: normalizedPath };
   }
   return null;
 }
 
 function InternalChatCtaLink({ meta }: { meta: InternalChatCtaMeta }) {
+  const t = useTranslations("chat");
   const icon =
-    meta.kind === "pricing" ? CreditCard : meta.kind === "packages" ? Package2 : ReceiptText;
+    meta.kind === "pricing"
+      ? CreditCard
+      : meta.kind === "packages"
+        ? Package2
+        : ReceiptText;
   const Icon = icon;
   return (
     <Link
@@ -576,7 +579,13 @@ function InternalChatCtaLink({ meta }: { meta: InternalChatCtaMeta }) {
       <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-bg text-text-muted">
         <Icon className="h-4 w-4" />
       </span>
-      <span>{meta.label}</span>
+      <span>
+        {meta.kind === "pricing"
+          ? t("internalCtaPricing")
+          : meta.kind === "packages"
+            ? t("internalCtaPackages")
+            : t("internalCtaCheckout")}
+      </span>
     </Link>
   );
 }
@@ -623,14 +632,8 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
     </td>
   ),
   a: ({ children, href, ...props }: React.ComponentPropsWithoutRef<"a">) => {
-    const text =
-      typeof children === "string"
-        ? children
-        : Array.isArray(children)
-          ? children.join("").trim()
-          : "";
     if (isSafeMarkdownHref(href)) {
-      const internalCta = resolveInternalChatCta(href, text);
+      const internalCta = resolveInternalChatCta(href);
       if (internalCta) {
         return <InternalChatCtaLink meta={internalCta} />;
       }

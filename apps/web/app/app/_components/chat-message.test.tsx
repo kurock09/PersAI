@@ -478,32 +478,27 @@ describe("ChatMessageBubble — pre-response status", () => {
 
 describe("resolveInternalChatCta", () => {
   it("recognizes internal pricing links", () => {
-    expect(resolveInternalChatCta("/app/pricing", "Тарифы")).toEqual({
+    expect(resolveInternalChatCta("/app/pricing")).toEqual({
       kind: "pricing",
-      href: "/app/pricing",
-      label: "Тарифы"
+      href: "/app/pricing"
     });
   });
 
   it("recognizes internal packages links", () => {
-    expect(resolveInternalChatCta("https://persai.dev/app/packages", "Медиа пакеты")).toEqual({
+    expect(resolveInternalChatCta("https://persai.dev/app/packages")).toEqual({
       kind: "packages",
-      href: "/app/packages",
-      label: "Медиа пакеты"
+      href: "/app/packages"
     });
   });
 
   it("recognizes internal checkout links", () => {
-    expect(
-      resolveInternalChatCta("https://persai.dev/app/billing/checkout/pi_123", "Оплатить")
-    ).toEqual({
+    expect(resolveInternalChatCta("https://persai.dev/app/billing/checkout/pi_123")).toEqual({
       kind: "payment",
-      href: "/app/billing/checkout/pi_123",
-      label: "Оплатить"
+      href: "/app/billing/checkout/pi_123"
     });
   });
 
   it("ignores external non-PersAI links", () => {
-    expect(resolveInternalChatCta("https://example.com/app/pricing", "Тарифы")).toBeNull();
+    expect(resolveInternalChatCta("https://example.com/app/pricing")).toBeNull();
   });
 });
