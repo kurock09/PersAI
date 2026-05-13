@@ -1820,7 +1820,7 @@ export function AssistantSettings({
               </div>
             </div>
             {avatarPickerOpen && (
-              <div className="mt-3 grid grid-cols-4 gap-1.5 rounded-[20px] border border-border/80 bg-surface/95 p-2 shadow-[0_14px_32px_rgba(0,0,0,0.16)]">
+              <div className="mt-3 grid grid-cols-4 gap-1.5 rounded-[20px] border border-border/80 bg-surface/95 p-2 shadow-[0_14px_32px_rgba(0,0,0,0.16)] md:flex md:flex-nowrap md:gap-2 md:overflow-x-hidden md:p-2.5">
                 {ASSISTANT_AVATAR_PRESETS.map((preset) => (
                   <button
                     key={preset.id}
@@ -1830,7 +1830,7 @@ export function AssistantSettings({
                       setAvatarPickerOpen(false);
                     }}
                     className={cn(
-                      "flex aspect-square min-w-0 cursor-pointer items-center justify-center rounded-[15px] border bg-surface-raised/85 p-1 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
+                      "flex aspect-square min-w-0 cursor-pointer items-center justify-center rounded-[15px] border bg-surface-raised/85 p-1 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)] md:h-[72px] md:w-[72px] md:shrink md:basis-0",
                       findAssistantAvatarPresetByUrl(draftAvatarUrl)?.id === preset.id
                         ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.16),rgba(191,148,84,0.07))] ring-1 ring-accent/45 shadow-[0_0_0_1px_rgba(191,148,84,0.18),0_12px_24px_rgba(0,0,0,0.18)]"
                         : "border-border/70 hover:border-border-strong hover:bg-surface-hover hover:shadow-[0_10px_22px_rgba(0,0,0,0.16)]"
@@ -1848,14 +1848,14 @@ export function AssistantSettings({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className={cn(
-                    "flex aspect-square min-w-0 cursor-pointer items-center justify-center rounded-[15px] border border-dashed bg-surface-raised/70 p-1 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
+                    "flex aspect-square min-w-0 cursor-pointer items-center justify-center rounded-[15px] border border-dashed bg-surface-raised/70 p-1 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)] md:h-[72px] md:w-[72px] md:shrink md:basis-0",
                     draftAvatarUrl && findAssistantAvatarPresetByUrl(draftAvatarUrl) === null
                       ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.16),rgba(191,148,84,0.07))] shadow-[0_0_0_1px_rgba(191,148,84,0.18),0_12px_24px_rgba(0,0,0,0.18)]"
                       : "border-border-strong text-text-subtle hover:bg-surface-hover hover:shadow-[0_10px_22px_rgba(0,0,0,0.16)]"
                   )}
                   title={t("uploadImage")}
                 >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-[12px] border border-border/70 bg-surface text-text-subtle">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-[12px] border border-border/70 bg-surface text-text-subtle md:h-7 md:w-7">
                     <Upload className="h-4 w-4" />
                   </div>
                 </button>

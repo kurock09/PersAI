@@ -488,14 +488,8 @@ function AccountFooter({
         aria-expanded={open}
         className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-surface-hover"
       >
-        <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-surface-raised text-[13px] font-semibold text-text-subtle shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-surface-raised text-[13px] font-semibold text-text-subtle shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
           {initials}
-          {telegramConnected && (
-            <span
-              aria-hidden
-              className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full bg-success ring-2 ring-surface"
-            />
-          )}
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-text">{displayName}</span>
