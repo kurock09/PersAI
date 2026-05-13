@@ -565,11 +565,7 @@ export function resolveInternalChatCta(href: string): InternalChatCtaMeta | null
 function InternalChatCtaLink({ meta }: { meta: InternalChatCtaMeta }) {
   const t = useTranslations("chat");
   const icon =
-    meta.kind === "pricing"
-      ? CreditCard
-      : meta.kind === "packages"
-        ? Package2
-        : ReceiptText;
+    meta.kind === "pricing" ? CreditCard : meta.kind === "packages" ? Package2 : ReceiptText;
   const Icon = icon;
   return (
     <Link
