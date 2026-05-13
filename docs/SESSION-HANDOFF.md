@@ -6,6 +6,49 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 
 ---
 
+## 2026-05-13 — ADR-094 smart-inline backfill + long-doc path (LOCAL LANDED, FULL TEST STILL RUNNING)
+
+### What landed in this session
+
+1. **Top-hit smart-inline is now shared across `document`, `global`, and `subscription`.** `ReadAssistantKnowledgeService` no longer has a document-only helper. The new shared top-hit path applies the existing short/medium/long length bands to the first ranked hit, so Product KB/global docs and subscription docs can inline directly in search results.
+
+2. **Multi-hit no longer means forced snippet-only.** Search now evaluates the top hit even when `hits.length > 1`; the first hit may carry `inlinedDocument` / `inlinedSection` / `documentSummary`, while all remaining hits stay snippet-only. Telemetry classification now reads the actual top-hit shape instead of hard-returning `snippet_only` whenever there are multiple hits.
+
+3. **Tool guidance was tightened for real prod behavior.** `bootstrap-preset-data.ts` now tells the model that inline payload may come from any source, that instruction/quote/more-text requests must not be answered from snippets alone, and that long-document/full-thread requests should switch to `knowledge_fetch(mode="full")`.
+
+4. **Long-doc path 3a landed.** Admin hard ceiling in `admin-knowledge-retrieval-policy.ts` is now `fetchFullModeAbsoluteMaxChars = 500_000`. New script `.cursor-tmp/apply-long-doc-policy.mjs` updates the five active plan rows to the agreed caps (`free 20k`, `basic 60k`, `pro 200k`, `starter_trial 200k`, `ultima 400k`; chat caps `50/100/200/200/400`).
+
+5. **Minimal Document Inspector shipped on the assistant-private knowledge UI.** `GET /api/v1/assistant/knowledge-sources/:sourceId/inspect` returns source size, chunk count, extracted text chars, processor/quality metadata, first-chunk preview, and the first 20 chunk previews with a lightweight `looksLikeTocHeadingOnly` flag. `assistant-knowledge-manager.tsx` exposes this as an inline expandable details panel on each document row. Assistant knowledge-source list/get/reindex responses now also expose `processorProviderKey`, `processorMode`, and `processingQuality`.
+
+6. **Chat flexible fetch was hardened toward the prod contract.** Chat fetch rendering now includes ISO timestamps in the returned content, `mode="full"` reads the thread chronologically up to the actual plan/admin caps instead of a hidden fixed radius slice, and `metadata.truncationMarker` now carries omitted message/char counts when truncation happens. Top-level contract remains additive (`truncated` + marker string still present).
+
+7. **Focused retrieval regression tests were updated and pass.** `read-assistant-knowledge.service.test.ts` now checks global/subscription smart-inline, top-hit multi-hit inline, and the tightened chat-fetch shape. `orchestrate-runtime-retrieval.service.test.ts` still passes against the new retrieval behavior.
+
+### Verification status
+
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts` — green.
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts` — green.
+- `corepack pnpm -w typecheck` — green.
+- `corepack pnpm -w lint -r` — green.
+- `corepack pnpm format:check` — green.
+- `corepack pnpm -w test` — **STARTED, NOT YET OBSERVED TO COMPLETION IN THIS SESSION**. Check the final result before claiming the CI gate is fully green, pushing, or deploying.
+
+### Still pending before true closeout
+
+1. Observe the full workspace `pnpm -w test` to completion and fix anything red.
+2. If green, run the dev smoke from the ADR-094 blocker list:
+   - Product KB Telegram question -> expect `source=global` smart-inline on the new event
+   - long private document -> inspector shows real size/text/chunk truth
+   - chat fetch -> timestamps and wider/full thread behavior visible
+3. Then do Phase C skill audit (readonly only, no skill-file edits in this session).
+4. Only after that: one commit, push, and optional deploy steps.
+
+### Prior ADR-094 entries
+
+- The two older `2026-05-13` ADR-094 Step 1 / Step 2 entries below remain historically correct, but this backfill slice supersedes them for the current prod-readiness truth.
+
+---
+
 ## 2026-05-13 — ADR-094 Step 2: admin UI + retrieval-policy contract + telemetry persistence (LOCAL LANDED, DEPLOY REQUIRED)
 
 ### What landed in this session
@@ -91,19 +134,19 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 
 ### Recommended per-tier values for admin to apply via `/admin/plans` JSON billing-hints (HISTORICAL — pre–Step 2 snapshot; Step 2 has since landed admin form fields; see the 2026-05-13 Step 2 section above)
 
-| Field                          |   Free |  Start |   Plus | Premium | Pro/Biz |
-| ------------------------------ | -----: | -----: | -----: | ------: | ------: |
-| `defaultMaxResults`            |      5 |      6 |      7 |       8 |      10 |
-| `maxMaxResults`                |      8 |     10 |     12 |      15 |      20 |
-| `knowledgeFetchWindowRadius`   |      2 |      3 |      4 |       5 |       6 |
-| `chatFetchWindowRadius`        |      5 |     10 |     15 |      20 |      30 |
-| `fetchMaxChars`                |  4 000 |  8 000 | 14 000 |  25 000 |  40 000 |
-| `helperEnabled`                |  false |   true |   true |    true |    true |
-| `smartSearchShortDocChars`     |  1 500 |  2 000 |  2 500 |   3 000 |   4 000 |
-| `smartSearchMediumDocChars`    |  5 000 |  8 000 | 10 000 |  14 000 |  20 000 |
-| `chatSectionDefaultRadius`     |     10 |     15 |     20 |      30 |      50 |
-| `fetchFullModeMaxChars`        | 12 000 | 25 000 | 40 000 |  60 000 | 100 000 |
-| `fetchFullModeMaxChatMessages` |     80 |    150 |    250 |     400 |     800 |
+| Field | Free | Start | Plus | Premium | Pro/Biz |
+|---|---:|---:|---:|---:|---:|
+| `defaultMaxResults` | 5 | 6 | 7 | 8 | 10 |
+| `maxMaxResults` | 8 | 10 | 12 | 15 | 20 |
+| `knowledgeFetchWindowRadius` | 2 | 3 | 4 | 5 | 6 |
+| `chatFetchWindowRadius` | 5 | 10 | 15 | 20 | 30 |
+| `fetchMaxChars` | 4 000 | 8 000 | 14 000 | 25 000 | 40 000 |
+| `helperEnabled` | false | true | true | true | true |
+| `smartSearchShortDocChars` | 1 500 | 2 000 | 2 500 | 3 000 | 4 000 |
+| `smartSearchMediumDocChars` | 5 000 | 8 000 | 10 000 | 14 000 | 20 000 |
+| `chatSectionDefaultRadius` | 10 | 15 | 20 | 30 | 50 |
+| `fetchFullModeMaxChars` | 12 000 | 25 000 | 40 000 | 60 000 | 100 000 |
+| `fetchFullModeMaxChatMessages` | 80 | 150 | 250 | 400 | 800 |
 
 Admin Knowledge global ceilings (apply once via `/admin/knowledge`): `smartSearchEnabled = true`, `smartSearchLongDocSummaryChars = 800`, `fetchFullModeAbsoluteMaxChars = 100 000`, `fetchFullModeAbsoluteMaxChatMessages = 800`.
 

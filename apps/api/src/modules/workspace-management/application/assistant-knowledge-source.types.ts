@@ -17,12 +17,34 @@ export type AssistantKnowledgeSourceState = {
   status: AssistantKnowledgeSourceStatus;
   currentVersion: number;
   chunkCount: number;
+  processorProviderKey: string | null;
+  processorMode: "auto" | "local" | "default_provider" | "high_quality_fallback" | null;
+  processingQuality: Record<string, unknown> | null;
   lastIndexedAt: string | null;
   lastReindexRequestedAt: string | null;
   lastErrorCode: string | null;
   lastErrorMessage: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AssistantKnowledgeSourceInspectChunkState = {
+  chunkIndex: number;
+  contentPreview: string;
+  looksLikeTocHeadingOnly: boolean;
+};
+
+export type AssistantKnowledgeSourceInspectState = {
+  sourceId: string;
+  originalFilename: string;
+  sizeBytes: number;
+  chunkCount: number;
+  textChars: number;
+  firstChunkPreview: string | null;
+  processorProviderKey: string | null;
+  processorMode: "auto" | "local" | "default_provider" | "high_quality_fallback" | null;
+  processingQuality: Record<string, unknown> | null;
+  chunks: AssistantKnowledgeSourceInspectChunkState[];
 };
 
 export type AssistantKnowledgeQuotaState = {

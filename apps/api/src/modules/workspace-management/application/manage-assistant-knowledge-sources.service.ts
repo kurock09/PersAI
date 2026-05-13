@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from "@nes
 import type { AssistantKnowledgeSource as PrismaAssistantKnowledgeSource } from "@prisma/client";
 import { createKnowledgeStorageQuotaExceededError } from "./assistant-inbound-error";
 import type {
+  AssistantKnowledgeSourceInspectState,
   AssistantKnowledgeQuotaState,
   AssistantKnowledgeSourceState
 } from "./assistant-knowledge-source.types";
@@ -180,6 +181,56 @@ export class ManageAssistantKnowledgeSourcesService {
     return this.toState(row);
   }
 
+  async inspect(userId: string, sourceId: string): Promise<AssistantKnowledgeSourceInspectState> {
+    const assistant = await this.resolveAssistant(userId);
+    const row = await this.prisma.assistantKnowledgeSource.findFirst({
+      where: { id: sourceId, assistantId: assistant.id }
+    });
+    if (row === null) {
+      throw new NotFoundException("Knowledge source not found.");
+    }
+    const chunks = await this.prisma.assistantKnowledgeSourceChunk.findMany({
+      where: {
+        knowledgeSourceId: row.id,
+        sourceVersion: row.currentVersion
+      },
+      select: {
+        chunkIndex: true,
+        content: true
+      },
+      orderBy: [{ chunkIndex: "asc" }],
+      take: 20
+    });
+    const processingQuality =
+      row.processingQuality !== null &&
+      typeof row.processingQuality === "object" &&
+      !Array.isArray(row.processingQuality)
+        ? (row.processingQuality as Record<string, unknown>)
+        : null;
+    const textChars =
+      typeof processingQuality?.textChars === "number" ? processingQuality.textChars : 0;
+    const firstChunkPreview =
+      chunks[0]?.content.trim().slice(0, 200) && chunks[0]?.content.trim().length > 0
+        ? chunks[0]!.content.trim().slice(0, 200)
+        : null;
+    return {
+      sourceId: row.id,
+      originalFilename: row.originalFilename,
+      sizeBytes: Number(row.sizeBytes),
+      chunkCount: row.chunkCount,
+      textChars,
+      firstChunkPreview,
+      processorProviderKey: row.processorProviderKey,
+      processorMode: row.processorMode,
+      processingQuality,
+      chunks: chunks.map((chunk) => ({
+        chunkIndex: chunk.chunkIndex,
+        contentPreview: chunk.content.trim().slice(0, 200),
+        looksLikeTocHeadingOnly: this.looksLikeTocHeadingOnly(chunk.content)
+      }))
+    };
+  }
+
   async delete(userId: string, sourceId: string): Promise<void> {
     const assistant = await this.resolveAssistant(userId);
     const source = await this.prisma.assistantKnowledgeSource.findFirst({
@@ -252,6 +303,12 @@ export class ManageAssistantKnowledgeSourcesService {
   }
 
   private toState(row: PrismaAssistantKnowledgeSource): AssistantKnowledgeSourceState {
+    const processingQuality =
+      row.processingQuality !== null &&
+      typeof row.processingQuality === "object" &&
+      !Array.isArray(row.processingQuality)
+        ? (row.processingQuality as Record<string, unknown>)
+        : null;
     return {
       id: row.id,
       namespace: row.namespace,
@@ -263,6 +320,9 @@ export class ManageAssistantKnowledgeSourcesService {
       status: row.status,
       currentVersion: row.currentVersion,
       chunkCount: row.chunkCount,
+      processorProviderKey: row.processorProviderKey,
+      processorMode: row.processorMode,
+      processingQuality,
       lastIndexedAt: row.lastIndexedAt?.toISOString() ?? null,
       lastReindexRequestedAt: row.lastReindexRequestedAt?.toISOString() ?? null,
       lastErrorCode: row.lastErrorCode,
@@ -270,6 +330,18 @@ export class ManageAssistantKnowledgeSourcesService {
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString()
     };
+  }
+
+  private looksLikeTocHeadingOnly(content: string): boolean {
+    const normalized = content.replace(/\s+/g, " ").trim();
+    if (normalized.length === 0 || normalized.length >= 250) {
+      return false;
+    }
+    return (
+      /(^|\s)\d+(?:\.\d+)+(?:\.|\s)/u.test(normalized) ||
+      /\b\.{3,}\s*\d+\s*$/u.test(normalized) ||
+      /^\d+(?:\.\d+)+\s+/u.test(normalized)
+    );
   }
 
   private isKnowledgeDocumentMime(mimeType: string): boolean {

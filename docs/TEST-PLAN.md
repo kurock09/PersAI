@@ -27,6 +27,26 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
+## ADR-094 backfill + long-doc path focused checks
+
+When a change touches smart-inline backfill across non-document sources, multi-hit top-hit inline behavior, document-inspector visibility, or long-document/full-chat fetch behavior, add these focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. `knowledge_search` smart-inline must not be limited to assistant-private documents; top-hit inline should also work for Product KB/global and subscription text when the top hit is short/medium enough.
+2. Multi-hit search must not regress to forced snippet-only if the top hit is clearly short enough to inline; only non-top hits should remain snippet-only.
+3. Long-document path 3a is configuration truth, not paginated fetch truth: verify raised caps and real truncation behavior before proposing ADR-095/3b.
+4. Minimal document inspection must show what the system actually extracted/indexed (`sizeBytes`, `textChars`, `chunkCount`, processor/quality, first/chunk previews), not just what the user originally uploaded.
+5. Chat `mode="section"` / `mode="full"` checks must confirm chronological output with timestamps and a real thread-wide/full-path read up to the configured caps.
+
 ## CI verification lanes
 
 Current CI is intentionally split into three lanes:

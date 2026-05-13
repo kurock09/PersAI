@@ -3792,6 +3792,9 @@ export type UploadedKnowledgeSource = {
   status: "processing" | "ready" | "failed" | "needs_review";
   currentVersion: number;
   chunkCount: number;
+  processorProviderKey?: string | null;
+  processorMode?: "auto" | "local" | "default_provider" | "high_quality_fallback" | null;
+  processingQuality?: Record<string, unknown> | null;
   lastIndexedAt: string | null;
   lastReindexRequestedAt: string | null;
   lastErrorCode: string | null;
@@ -3806,6 +3809,23 @@ export type AssistantKnowledgeSourceListState = {
     limitBytes: number | null;
   };
   sources: UploadedKnowledgeSource[];
+};
+
+export type AssistantKnowledgeSourceInspectState = {
+  sourceId: string;
+  originalFilename: string;
+  sizeBytes: number;
+  chunkCount: number;
+  textChars: number;
+  firstChunkPreview: string | null;
+  processorProviderKey: string | null;
+  processorMode: "auto" | "local" | "default_provider" | "high_quality_fallback" | null;
+  processingQuality: Record<string, unknown> | null;
+  chunks: Array<{
+    chunkIndex: number;
+    contentPreview: string;
+    looksLikeTocHeadingOnly: boolean;
+  }>;
 };
 
 export type AdminKnowledgeSourceState = {
@@ -4215,6 +4235,27 @@ export async function reindexAssistantKnowledgeSource(
     throw new Error("Knowledge source reindex returned an unexpected response.");
   }
   return data.source;
+}
+
+export async function inspectAssistantKnowledgeSource(
+  token: string,
+  sourceId: string
+): Promise<AssistantKnowledgeSourceInspectState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/assistant/knowledge-sources/${encodeURIComponent(sourceId)}/inspect`,
+    {
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to inspect knowledge source."));
+  }
+  const data = (await res.json()) as { inspect?: AssistantKnowledgeSourceInspectState };
+  if (!data.inspect) {
+    throw new Error("Knowledge source inspect returned an unexpected response.");
+  }
+  return data.inspect;
 }
 
 export async function getAdminKnowledgeSources(

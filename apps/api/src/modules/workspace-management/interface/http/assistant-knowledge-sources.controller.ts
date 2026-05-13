@@ -14,6 +14,7 @@ import {
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import type {
+  AssistantKnowledgeSourceInspectState,
   AssistantKnowledgeQuotaState,
   AssistantKnowledgeSourceState
 } from "../../application/assistant-knowledge-source.types";
@@ -76,6 +77,19 @@ export class AssistantKnowledgeSourcesController {
     return {
       requestId: req.requestId ?? null,
       source
+    };
+  }
+
+  @Get("assistant/knowledge-sources/:sourceId/inspect")
+  async inspect(
+    @Req() req: RequestWithPlatformContext,
+    @Param("sourceId") sourceId: string
+  ): Promise<{ requestId: string | null; inspect: AssistantKnowledgeSourceInspectState }> {
+    const userId = this.resolveRequestUserId(req);
+    const inspect = await this.manageAssistantKnowledgeSourcesService.inspect(userId, sourceId);
+    return {
+      requestId: req.requestId ?? null,
+      inspect
     };
   }
 

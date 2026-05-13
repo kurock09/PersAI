@@ -1497,6 +1497,10 @@ async function run(): Promise<void> {
   });
   assert.equal(subscriptionHits[0]?.source, "subscription");
   assert.equal(subscriptionHits[0]?.referenceId, "subscription:current");
+  assert.ok(
+    subscriptionHits[0]?.inlinedDocument ?? subscriptionHits[0]?.inlinedSection,
+    "subscription top hit should smart-inline when the document is short enough"
+  );
 
   const subscriptionFetched = await service.fetch({
     assistantId: "assistant-1",
@@ -1516,6 +1520,10 @@ async function run(): Promise<void> {
   assert.equal(globalHits[0]?.source, "global");
   assert.equal(globalHits[0]?.referenceId, "product-text-entry:product-text-1:1:0");
   assert.equal(globalHits[0]?.title, "PersAI Product Overview");
+  assert.ok(
+    globalHits[0]?.inlinedDocument ?? globalHits[0]?.inlinedSection,
+    "global top hit should smart-inline when the document is short enough"
+  );
 
   const globalPlanHits = await service.search({
     assistantId: "assistant-1",
@@ -1618,10 +1626,17 @@ async function run(): Promise<void> {
     query: "appendix pricing",
     maxResults: 3
   });
-  const inlinedAcrossMulti = multiHitSearch.filter(
-    (hit) => Boolean(hit.inlinedDocument) || Boolean(hit.inlinedSection)
+  assert.ok(
+    multiHitSearch[0]?.inlinedDocument ?? multiHitSearch[0]?.inlinedSection,
+    "multi-hit search should smart-inline the top hit when it is short enough"
   );
-  assert.equal(inlinedAcrossMulti.length, 0, "ADR-094: multi-hit search must not inline content");
+  assert.equal(
+    multiHitSearch
+      .slice(1)
+      .some((hit) => Boolean(hit.inlinedDocument) || Boolean(hit.inlinedSection)),
+    false,
+    "multi-hit search should keep non-top hits as snippets"
+  );
 
   const fetchedFull = await service.fetchDocument({
     assistantId: "assistant-1",
@@ -1653,9 +1668,14 @@ async function run(): Promise<void> {
   assert.ok(chatFetchedFull);
   assert.equal(chatFetchedFull?.modeUsed, "full");
   assert.ok((chatFetchedFull?.content ?? "").includes("We should explain PersAI quota limits"));
+  assert.ok((chatFetchedFull?.content ?? "").includes("[2026-04-14T10:00:00.000Z] User:"));
   assert.ok(
     (chatFetchedFull?.content ?? "").includes("Telegram onboarding checklist"),
     "ADR-094: full chat fetch must include later messages, not only ±1 around the hit"
+  );
+  assert.equal(
+    typeof (chatFetchedFull?.metadata as { truncationMarker?: unknown } | null)?.truncationMarker,
+    "object"
   );
 
   const chatFetchedSection = await service.fetchChat({
@@ -1666,6 +1686,7 @@ async function run(): Promise<void> {
   });
   assert.ok(chatFetchedSection);
   assert.equal(chatFetchedSection?.modeUsed, "section");
+  assert.ok((chatFetchedSection?.content ?? "").includes("[2026-04-14T10:00:00.000Z]"));
 
   const parsedMemorySearch = service.parseSearchInput({
     assistantId: "assistant-1",

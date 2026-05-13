@@ -6,8 +6,10 @@ import { useTranslations } from "next-intl";
 import {
   deleteAssistantKnowledgeSource,
   getAssistantKnowledgeSources,
+  inspectAssistantKnowledgeSource,
   reindexAssistantKnowledgeSource,
   uploadAssistantKnowledgeSource,
+  type AssistantKnowledgeSourceInspectState,
   type AssistantKnowledgeSourceListState,
   type UploadedKnowledgeSource
 } from "../assistant-api-client";
@@ -37,6 +39,11 @@ export function AssistantKnowledgeManager(props: {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [inspectLoadingId, setInspectLoadingId] = useState<string | null>(null);
+  const [inspectById, setInspectById] = useState<
+    Record<string, AssistantKnowledgeSourceInspectState>
+  >({});
 
   const load = useCallback(async () => {
     const token = await props.getToken();
@@ -139,6 +146,13 @@ export function AssistantKnowledgeManager(props: {
 
   const renderRow = (source: UploadedKnowledgeSource) => {
     const isBusy = busyId === source.id;
+    const inspect = inspectById[source.id];
+    const quality =
+      inspect?.processingQuality !== null && inspect?.processingQuality !== undefined
+        ? inspect.processingQuality
+        : (source.processingQuality ?? null);
+    const qualityStatus = typeof quality?.status === "string" ? quality.status : null;
+    const qualityScore = typeof quality?.score === "number" ? quality.score : null;
     return (
       <li key={source.id} className="rounded-xl border border-border/70 bg-surface-raised p-3">
         <div className="flex items-start justify-between gap-3">
@@ -156,9 +170,94 @@ export function AssistantKnowledgeManager(props: {
               <span className="rounded-full bg-background px-2 py-0.5 text-text-muted">
                 {t("knowledgeChunks", { count: source.chunkCount })}
               </span>
+              {qualityStatus ? (
+                <span className="rounded-full bg-background px-2 py-0.5 text-text-muted">
+                  {t("knowledgeInspectorQualityBadge", {
+                    status: qualityStatus,
+                    score: qualityScore === null ? "-" : qualityScore.toFixed(1)
+                  })}
+                </span>
+              ) : null}
             </div>
             {source.lastErrorMessage ? (
               <p className="mt-2 text-[11px] text-destructive">{source.lastErrorMessage}</p>
+            ) : null}
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const nextExpanded = expandedId === source.id ? null : source.id;
+                  setExpandedId(nextExpanded);
+                  if (nextExpanded === source.id && !inspectById[source.id]) {
+                    void (async () => {
+                      const token = await props.getToken();
+                      if (!token) {
+                        return;
+                      }
+                      setInspectLoadingId(source.id);
+                      try {
+                        const inspectState = await inspectAssistantKnowledgeSource(
+                          token,
+                          source.id
+                        );
+                        setInspectById((current) => ({ ...current, [source.id]: inspectState }));
+                      } catch (error) {
+                        setFeedback(
+                          error instanceof Error ? error.message : t("knowledgeInspectorLoadFailed")
+                        );
+                      }
+                      setInspectLoadingId(null);
+                    })();
+                  }
+                }}
+                className="text-[11px] text-text-muted underline-offset-2 hover:text-text hover:underline"
+              >
+                {expandedId === source.id
+                  ? t("knowledgeInspectorHide")
+                  : t("knowledgeInspectorShow")}
+              </button>
+            </div>
+            {expandedId === source.id ? (
+              <div className="mt-3 rounded-lg border border-border/70 bg-background p-3 text-[11px] text-text-muted">
+                {inspectLoadingId === source.id ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>{t("knowledgeInspectorLoading")}</span>
+                  </div>
+                ) : inspect ? (
+                  <div className="space-y-2">
+                    <p>
+                      {t("knowledgeInspectorStats", {
+                        size: formatBytes(inspect.sizeBytes),
+                        textChars: inspect.textChars,
+                        chunkCount: inspect.chunkCount
+                      })}
+                    </p>
+                    <p>
+                      {t("knowledgeInspectorProcessor", {
+                        processor: inspect.processorProviderKey ?? "-",
+                        mode: inspect.processorMode ?? "-"
+                      })}
+                    </p>
+                    {inspect.firstChunkPreview ? (
+                      <p>
+                        {t("knowledgeInspectorFirstChunk")}{" "}
+                        <span className="text-text">"{inspect.firstChunkPreview}"</span>
+                      </p>
+                    ) : null}
+                    <div className="space-y-1">
+                      {inspect.chunks.map((chunk) => (
+                        <p key={chunk.chunkIndex}>
+                          #{chunk.chunkIndex} "{chunk.contentPreview}"
+                          {chunk.looksLikeTocHeadingOnly
+                            ? ` ${t("knowledgeInspectorTocOnly")}`
+                            : ""}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
           <div className="flex shrink-0 gap-1.5">

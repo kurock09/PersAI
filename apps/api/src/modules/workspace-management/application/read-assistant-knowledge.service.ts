@@ -133,6 +133,12 @@ type TextKnowledgeDocumentRow = {
   metadata: Record<string, unknown> | null;
 };
 
+type SmartInlineSectionRow = {
+  chunkIndex: number;
+  locator: string | null;
+  content: string;
+};
+
 type AssistantKnowledgeContextRow = {
   id: string;
   userId: string;
@@ -415,7 +421,7 @@ function resolveSmartSearchTelemetry(hits: RuntimeKnowledgeSearchHit[]): {
   modeUsed: string;
   bytesReturned: number;
 } {
-  if (hits.length !== 1) {
+  if (hits.length === 0) {
     return { modeUsed: "snippet_only", bytesReturned: 0 };
   }
   const hit = hits[0]!;
@@ -1120,13 +1126,15 @@ function resolveChatAuthorLabel(author: ChatMessageRow["author"]): string {
 }
 
 function buildChatWindowContent(
-  rows: Array<Pick<ChatMessageRow, "author" | "content">>,
+  rows: Array<Pick<ChatMessageRow, "author" | "content" | "createdAt">>,
   maxChars = KNOWLEDGE_FETCH_MAX_CHARS
 ): string {
   return rows
     .map((row) => {
       const content = row.content.trim();
-      return content.length > 0 ? `${resolveChatAuthorLabel(row.author)}: ${content}` : null;
+      return content.length > 0
+        ? `[${row.createdAt.toISOString()}] ${resolveChatAuthorLabel(row.author)}: ${content}`
+        : null;
     })
     .filter((row): row is string => row !== null)
     .join("\n\n")
@@ -1328,21 +1336,15 @@ export class ReadAssistantKnowledgeService {
     };
   }
 
-  /**
-   * ADR-094 — entry point for `searchDocuments`. Applies smart inline only
-   * to single-hit results to avoid loading the full text for every candidate
-   * in a multi-hit search.
-   */
-  private async enrichDocumentHitsWithSmartInline(args: {
+  private async enrichKnowledgeHitsWithSmartInline(args: {
     assistantId: string;
     hits: RuntimeKnowledgeSearchHit[];
-    selected: Array<RankedSearchCandidate<SearchSourceRow>>;
+    loadSectionsForHit: (hit: RuntimeKnowledgeSearchHit) => Promise<{
+      centerChunkIndex: number;
+      rows: SmartInlineSectionRow[];
+    } | null>;
   }): Promise<RuntimeKnowledgeSearchHit[]> {
-    if (args.hits.length !== 1 || args.selected.length !== 1) {
-      return args.hits;
-    }
-    const targetCandidate = args.selected[0];
-    if (targetCandidate === undefined) {
+    if (args.hits.length === 0) {
       return args.hits;
     }
     const targetHit = args.hits[0];
@@ -1353,28 +1355,18 @@ export class ReadAssistantKnowledgeService {
     if (!adminPolicy.smartSearchEnabled) {
       return args.hits;
     }
-    const documentChunks = await this.prisma.assistantKnowledgeSourceChunk.findMany({
-      where: {
-        assistantId: args.assistantId,
-        knowledgeSourceId: targetCandidate.row.knowledgeSourceId,
-        sourceVersion: targetCandidate.row.sourceVersion,
-        knowledgeSource: {
-          assistantId: args.assistantId,
-          namespace: "assistant_user_workspace",
-          status: "ready"
-        }
-      },
-      select: { chunkIndex: true, content: true, locator: true },
-      orderBy: [{ chunkIndex: "asc" }]
-    });
+    const loaded = await args.loadSectionsForHit(targetHit);
+    if (loaded === null || loaded.rows.length === 0) {
+      return args.hits;
+    }
     const enriched = await this.enrichWithSmartInline({
       hit: targetHit,
-      documentChunks,
-      centerChunkIndex: targetCandidate.row.chunkIndex,
+      documentChunks: loaded.rows,
+      centerChunkIndex: loaded.centerChunkIndex,
       retrievalPolicy,
       adminPolicy
     });
-    return [enriched];
+    return [enriched, ...args.hits.slice(1)];
   }
 
   /**
@@ -1386,7 +1378,7 @@ export class ReadAssistantKnowledgeService {
    */
   private async enrichWithSmartInline(args: {
     hit: RuntimeKnowledgeSearchHit;
-    documentChunks: Array<{ chunkIndex: number; content: string; locator: string | null }>;
+    documentChunks: SmartInlineSectionRow[];
     centerChunkIndex: number;
     retrievalPolicy: Awaited<
       ReturnType<KnowledgeModelPolicyService["resolveAssistantRetrievalPolicy"]>
@@ -1479,6 +1471,117 @@ export class ReadAssistantKnowledgeService {
     return documentSummary === undefined
       ? { ...hit, inlinedSection }
       : { ...hit, inlinedSection, documentSummary };
+  }
+
+  private async loadAssistantDocumentSectionsForHit(
+    assistantId: string,
+    hit: RuntimeKnowledgeSearchHit
+  ): Promise<{ centerChunkIndex: number; rows: SmartInlineSectionRow[] } | null> {
+    const reference = parseDocumentReferenceId(hit.referenceId);
+    if (reference === null) {
+      return null;
+    }
+    const rows = await this.prisma.assistantKnowledgeSourceChunk.findMany({
+      where: {
+        assistantId,
+        knowledgeSourceId: reference.knowledgeSourceId,
+        sourceVersion: reference.sourceVersion,
+        knowledgeSource: {
+          assistantId,
+          namespace: "assistant_user_workspace",
+          status: "ready"
+        }
+      },
+      select: { chunkIndex: true, content: true, locator: true },
+      orderBy: [{ chunkIndex: "asc" }]
+    });
+    return {
+      centerChunkIndex: reference.chunkIndex,
+      rows
+    };
+  }
+
+  private async loadGlobalSectionsForHit(
+    assistantId: string,
+    hit: RuntimeKnowledgeSearchHit
+  ): Promise<{ centerChunkIndex: number; rows: SmartInlineSectionRow[] } | null> {
+    const productReference = parseProductTextEntryReferenceId(hit.referenceId);
+    if (productReference !== null) {
+      const rows = await this.prisma.productKnowledgeTextEntryChunk.findMany({
+        where: {
+          textEntryId: productReference.textEntryId,
+          sourceVersion: productReference.sourceVersion,
+          textEntry: {
+            status: "ready",
+            lifecycleStatus: "active"
+          }
+        },
+        select: { chunkIndex: true, content: true, locator: true },
+        orderBy: [{ chunkIndex: "asc" }]
+      });
+      return {
+        centerChunkIndex: productReference.chunkIndex,
+        rows
+      };
+    }
+
+    const uploadedReference = parseGlobalUploadedReferenceId(hit.referenceId);
+    if (uploadedReference !== null) {
+      const rows = await this.prisma.globalKnowledgeSourceChunk.findMany({
+        where: {
+          globalKnowledgeSourceId: uploadedReference.globalKnowledgeSourceId,
+          sourceVersion: uploadedReference.sourceVersion,
+          globalKnowledgeSource: {
+            status: "ready"
+          }
+        },
+        select: { chunkIndex: true, content: true, locator: true },
+        orderBy: [{ chunkIndex: "asc" }]
+      });
+      return {
+        centerChunkIndex: uploadedReference.chunkIndex,
+        rows
+      };
+    }
+
+    const textDocument = (await this.loadGlobalKnowledgeDocuments(assistantId)).find(
+      (row) => row.referenceId === hit.referenceId
+    );
+    if (textDocument === undefined) {
+      return null;
+    }
+    return {
+      centerChunkIndex: 0,
+      rows: [
+        {
+          chunkIndex: 0,
+          locator: textDocument.locator,
+          content: textDocument.content
+        }
+      ]
+    };
+  }
+
+  private async loadSubscriptionSectionsForHit(
+    assistantId: string,
+    hit: RuntimeKnowledgeSearchHit
+  ): Promise<{ centerChunkIndex: number; rows: SmartInlineSectionRow[] } | null> {
+    const textDocument = (await this.loadSubscriptionKnowledgeDocuments(assistantId)).find(
+      (row) => row.referenceId === hit.referenceId
+    );
+    if (textDocument === undefined) {
+      return null;
+    }
+    return {
+      centerChunkIndex: 0,
+      rows: [
+        {
+          chunkIndex: 0,
+          locator: textDocument.locator,
+          content: textDocument.content
+        }
+      ]
+    };
   }
 
   async searchDocuments(input: {
@@ -1771,10 +1874,11 @@ export class ReadAssistantKnowledgeService {
           retrievalMode
         }
       }));
-      const hits = await this.enrichDocumentHitsWithSmartInline({
+      const hits = await this.enrichKnowledgeHitsWithSmartInline({
         assistantId: input.assistantId,
         hits: baseHits,
-        selected
+        loadSectionsForHit: async (hit) =>
+          this.loadAssistantDocumentSectionsForHit(input.assistantId, hit)
       });
       const smartTelemetry = resolveSmartSearchTelemetry(hits);
       await this.recordSearchObservability({
@@ -2124,13 +2228,20 @@ export class ReadAssistantKnowledgeService {
     );
     try {
       const documents = await this.loadSubscriptionKnowledgeDocuments(input.assistantId);
-      const hits = searchTextKnowledgeDocuments({
+      const baseHits = searchTextKnowledgeDocuments({
         documents,
         query: input.query,
         maxResults: input.maxResults,
         defaultMaxResults: retrievalPolicy.defaultMaxResults,
         maxMaxResults: retrievalPolicy.maxMaxResults
       });
+      const hits = await this.enrichKnowledgeHitsWithSmartInline({
+        assistantId: input.assistantId,
+        hits: baseHits,
+        loadSectionsForHit: async (hit) =>
+          this.loadSubscriptionSectionsForHit(input.assistantId, hit)
+      });
+      const smartTelemetry = resolveSmartSearchTelemetry(hits);
       await this.recordSearchObservability({
         assistantId: input.assistantId,
         source: "subscription",
@@ -2141,8 +2252,8 @@ export class ReadAssistantKnowledgeService {
         vectorCandidateCount: 0,
         helperApplied: false,
         embeddingModelKey: null,
-        modeUsed: "snippet_only",
-        bytesReturned: 0
+        modeUsed: smartTelemetry.modeUsed,
+        bytesReturned: smartTelemetry.bytesReturned
       });
       return hits;
     } catch (error) {
@@ -2236,6 +2347,12 @@ export class ReadAssistantKnowledgeService {
           return (right.score ?? 0) - (left.score ?? 0);
         });
       }
+      hits = await this.enrichKnowledgeHitsWithSmartInline({
+        assistantId: input.assistantId,
+        hits,
+        loadSectionsForHit: async (hit) => this.loadGlobalSectionsForHit(input.assistantId, hit)
+      });
+      const smartTelemetry = resolveSmartSearchTelemetry(hits);
 
       await this.recordSearchObservability({
         assistantId: input.assistantId,
@@ -2252,8 +2369,8 @@ export class ReadAssistantKnowledgeService {
         helperInputTokens: helperRanking?.usage?.inputTokens ?? null,
         helperOutputTokens: helperRanking?.usage?.outputTokens ?? null,
         helperTotalTokens: helperRanking?.usage?.totalTokens ?? null,
-        modeUsed: "snippet_only",
-        bytesReturned: 0
+        modeUsed: smartTelemetry.modeUsed,
+        bytesReturned: smartTelemetry.bytesReturned
       });
       return hits;
     } catch (error) {
@@ -2533,77 +2650,39 @@ export class ReadAssistantKnowledgeService {
         return null;
       }
 
-      const [beforeRows, afterRows] = (await Promise.all([
-        this.prisma.assistantChatMessage.findMany({
-          where: {
-            assistantId: input.assistantId,
-            chatId: centerRow.chatId,
-            author: {
-              in: ["user", "assistant"]
-            },
-            OR: [
-              {
-                createdAt: {
-                  lt: centerRow.createdAt
-                }
-              },
-              {
-                createdAt: {
-                  equals: centerRow.createdAt
-                },
-                id: {
-                  lt: centerRow.id
-                }
-              }
-            ]
-          },
-          select: {
-            id: true,
-            author: true,
-            content: true,
-            createdAt: true
-          },
-          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          take: plan.radius
-        }),
-        this.prisma.assistantChatMessage.findMany({
-          where: {
-            assistantId: input.assistantId,
-            chatId: centerRow.chatId,
-            author: {
-              in: ["user", "assistant"]
-            },
-            OR: [
-              {
-                createdAt: {
-                  gt: centerRow.createdAt
-                }
-              },
-              {
-                createdAt: {
-                  equals: centerRow.createdAt
-                },
-                id: {
-                  gt: centerRow.id
-                }
-              }
-            ]
-          },
-          select: {
-            id: true,
-            author: true,
-            content: true,
-            createdAt: true
-          },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          take: plan.radius
-        })
-      ])) as [ChatMessageWindowRow[], ChatMessageWindowRow[]];
-
-      const allRows: ChatMessageWindowRow[] = [...beforeRows.reverse(), centerRow, ...afterRows];
+      const allRows = (await this.prisma.assistantChatMessage.findMany({
+        where: {
+          assistantId: input.assistantId,
+          chatId: centerRow.chatId,
+          author: {
+            in: ["user", "assistant"]
+          }
+        },
+        select: {
+          id: true,
+          author: true,
+          content: true,
+          createdAt: true
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }]
+      })) as ChatMessageWindowRow[];
+      const centerIndex = allRows.findIndex((row) => row.id === centerRow.id);
+      if (centerIndex < 0) {
+        throw new BadRequestException("referenceId is invalid.");
+      }
+      const selectedRows = plan.isFull
+        ? allRows
+        : allRows.slice(
+            Math.max(0, centerIndex - plan.radius),
+            Math.min(allRows.length, centerIndex + plan.radius + 1)
+          );
       const messageLimited =
-        allRows.length > plan.messageLimit ? allRows.slice(0, plan.messageLimit) : allRows;
-      const messageTruncated = messageLimited.length < allRows.length;
+        selectedRows.length > plan.messageLimit
+          ? selectedRows.slice(0, plan.messageLimit)
+          : selectedRows;
+      const messageTruncated =
+        messageLimited.length < selectedRows.length || selectedRows.length < allRows.length;
+      const omittedMessages = Math.max(0, allRows.length - messageLimited.length);
       const rawContent = buildChatWindowContent(messageLimited, plan.charLimit);
       const charTruncated = rawContent.length >= plan.charLimit;
       const truncated = messageTruncated || charTruncated;
@@ -2633,6 +2712,12 @@ export class ReadAssistantKnowledgeService {
           windowStartMessageId: messageLimited[0]?.id ?? centerRow.id,
           windowEndMessageId: messageLimited[messageLimited.length - 1]?.id ?? centerRow.id,
           messageCount: messageLimited.length,
+          truncationMarker: truncated
+            ? {
+                messagesOmitted: omittedMessages,
+                charsOmitted: Math.max(0, rawContent.length - content.length)
+              }
+            : null,
           modeUsed: plan.modeUsed,
           truncated
         }

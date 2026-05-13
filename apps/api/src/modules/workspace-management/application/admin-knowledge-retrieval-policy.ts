@@ -11,7 +11,7 @@ const MAX_MODEL_KEY_LENGTH = 255;
 export const DEFAULT_ADMIN_KNOWLEDGE_SMART_RETRIEVAL_LIMITS = {
   smartSearchEnabled: true,
   smartSearchLongDocSummaryChars: 800,
-  fetchFullModeAbsoluteMaxChars: 100_000,
+  fetchFullModeAbsoluteMaxChars: 500_000,
   fetchFullModeAbsoluteMaxChatMessages: 800
 } as const;
 
