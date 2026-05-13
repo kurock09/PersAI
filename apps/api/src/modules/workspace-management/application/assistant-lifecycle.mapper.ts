@@ -28,7 +28,9 @@ function sanitizeAvatarUrl(rawAvatarUrl: string | null): string | null {
   if (rawAvatarUrl === null) {
     return null;
   }
-  return rawAvatarUrl.startsWith("/api/avatar/") ? rawAvatarUrl : null;
+  return rawAvatarUrl.startsWith("/api/avatar/") || rawAvatarUrl.startsWith("/avatar-presets/")
+    ? rawAvatarUrl
+    : null;
 }
 
 export function toAssistantPublishedVersionState(

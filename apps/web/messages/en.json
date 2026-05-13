@@ -478,7 +478,7 @@
     "confirmReset": "Confirm recreate",
     "resettingAssistant": "Recreating assistant...",
     "resetClearing": "Recreating assistant state: chats, memory, tasks, published versions, materialized runtime bundles/specs, and media artifacts are being cleared. This may take a few seconds.",
-    "resetScopeWarning": "Recreate is destructive: current chats, memory, tasks, published versions, materialized runtime bundles/specs, and media artifacts will be removed before setup starts again.",
+    "resetScopeWarning": "Recreate will delete chats, memory, and assistant settings.",
     "resetFailed": "Reset failed.",
     "cancel": "Cancel",
     "knowledge": "Knowledge",

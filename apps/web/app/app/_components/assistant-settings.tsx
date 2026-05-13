@@ -86,6 +86,10 @@ import {
   YANDEX_VOICE_OPTIONS,
   type VoiceOption
 } from "./assistant-voice-options";
+import {
+  ASSISTANT_AVATAR_PRESETS,
+  findAssistantAvatarPresetByUrl
+} from "./assistant-avatar-presets";
 import { AssistantKnowledgeManager } from "./assistant-knowledge-manager";
 import { AssistantFilesManager } from "./assistant-files-manager";
 import { AssistantSkillsManager } from "./assistant-skills-manager";
@@ -313,8 +317,6 @@ function hasPaidBillingSettings(
 function isZeroPriceEffectivePlan(plan: UserPlanVisibilityState["effectivePlan"] | null): boolean {
   return plan?.price.amount === 0;
 }
-
-const AVATAR_EMOJIS = ["🌟", "🧠", "⚡", "🧘", "🤖", "🌙", "🔥", "🔮", "🌊", "💎", "✨", "🪐"];
 
 function ActionButton({
   icon,
@@ -731,9 +733,6 @@ export function AssistantSettings({
   const [draftTraits, setDraftTraits] = useState<Record<string, number>>(
     (assistant?.draft.traits as Record<string, number> | null) ?? DEFAULT_TRAITS
   );
-  const [draftAvatarEmoji, setDraftAvatarEmoji] = useState<string | null>(
-    assistant?.draft.avatarEmoji ?? null
-  );
   const [draftAvatarUrl, setDraftAvatarUrl] = useState<string | null>(
     assistant?.draft.avatarUrl ?? null
   );
@@ -748,7 +747,7 @@ export function AssistantSettings({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
 
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   const [resetFb, setResetFb] = useState<ActionFeedback>(null);
@@ -1298,7 +1297,6 @@ export function AssistantSettings({
     const traits = assistant?.draft.traits as Record<string, number> | null | undefined;
     if (traits) setDraftTraits(traits);
     else setDraftTraits(DEFAULT_TRAITS);
-    setDraftAvatarEmoji(assistant?.draft.avatarEmoji ?? null);
     setDraftAvatarUrl(assistant?.draft.avatarUrl ?? null);
     setDraftAssistantGender(normalizeAssistantGender(assistant?.draft.assistantGender));
     setDraftVoiceProfile(normalizeVoiceProfile(assistant?.draft.voiceProfile));
@@ -1542,7 +1540,7 @@ export function AssistantSettings({
         displayName: draftName || null,
         instructions: draftInstructions || null,
         traits: draftTraits,
-        avatarEmoji: draftAvatarEmoji,
+        avatarEmoji: null,
         avatarUrl: draftAvatarUrl,
         assistantGender: draftAssistantGender,
         voiceProfile: {
@@ -1569,7 +1567,6 @@ export function AssistantSettings({
     draftName,
     draftInstructions,
     draftTraits,
-    draftAvatarEmoji,
     draftAvatarUrl,
     draftAssistantGender,
     draftVoiceProfile,
@@ -1753,7 +1750,7 @@ export function AssistantSettings({
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full min-h-full flex-col">
       {/* 1. Character — hero */}
       <Section
         icon={<Sparkles className="h-4 w-4" />}
@@ -1768,7 +1765,7 @@ export function AssistantSettings({
               <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setEmojiPickerOpen((o) => !o)}
+                  onClick={() => setAvatarPickerOpen((o) => !o)}
                   className="flex h-20 w-20 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl transition-colors hover:bg-accent/25"
                   title={t("changeAvatar")}
                 >
@@ -1787,7 +1784,7 @@ export function AssistantSettings({
                       className="h-full w-full rounded-2xl"
                     />
                   ) : (
-                    draftAvatarEmoji || <Sparkles className="h-8 w-8 text-accent" />
+                    <Sparkles className="h-8 w-8 text-accent" />
                   )}
                 </button>
                 <div className="min-w-0">
@@ -1822,39 +1819,41 @@ export function AssistantSettings({
                 />
               </div>
             </div>
-            {emojiPickerOpen && (
-              <div className="mt-3 grid grid-cols-6 gap-1 rounded-lg border border-border bg-surface p-2">
-                {AVATAR_EMOJIS.map((em) => (
+            {avatarPickerOpen && (
+              <div className="mt-3 grid grid-cols-4 gap-2 rounded-[20px] border border-border/80 bg-surface/95 p-2.5 shadow-[0_14px_32px_rgba(0,0,0,0.16)]">
+                {ASSISTANT_AVATAR_PRESETS.map((preset) => (
                   <button
-                    key={em}
+                    key={preset.id}
                     type="button"
                     onClick={() => {
-                      setDraftAvatarEmoji(em);
-                      setDraftAvatarUrl(null);
-                      setEmojiPickerOpen(false);
+                      setDraftAvatarUrl(preset.imagePath);
+                      setAvatarPickerOpen(false);
                     }}
                     className={cn(
-                      "flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-xl transition-colors",
-                      draftAvatarEmoji === em && !draftAvatarUrl
-                        ? "bg-accent/20 ring-1 ring-accent"
-                        : "hover:bg-surface-hover"
+                      "flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-[16px] border bg-surface-raised/85 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
+                      findAssistantAvatarPresetByUrl(draftAvatarUrl)?.id === preset.id
+                        ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.16),rgba(191,148,84,0.07))] ring-1 ring-accent/45 shadow-[0_0_0_1px_rgba(191,148,84,0.18),0_12px_24px_rgba(0,0,0,0.18)]"
+                        : "border-border/70 hover:border-border-strong hover:bg-surface-hover hover:shadow-[0_10px_22px_rgba(0,0,0,0.16)]"
                     )}
+                    aria-label={preset.label}
                   >
-                    {em}
+                    <img src={preset.imagePath} alt="" className="h-full w-full object-cover" />
                   </button>
                 ))}
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className={cn(
-                    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg transition-colors",
-                    draftAvatarUrl
-                      ? "bg-accent/20 ring-1 ring-accent"
-                      : "text-text-subtle hover:bg-surface-hover"
+                    "flex aspect-square cursor-pointer items-center justify-center rounded-[16px] border border-dashed bg-surface-raised/70 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
+                    draftAvatarUrl && findAssistantAvatarPresetByUrl(draftAvatarUrl) === null
+                      ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.16),rgba(191,148,84,0.07))] shadow-[0_0_0_1px_rgba(191,148,84,0.18),0_12px_24px_rgba(0,0,0,0.18)]"
+                      : "border-border-strong text-text-subtle hover:bg-surface-hover hover:shadow-[0_10px_22px_rgba(0,0,0,0.16)]"
                   )}
                   title={t("uploadImage")}
                 >
-                  <Upload className="h-4 w-4" />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-[14px] border border-border/70 bg-surface text-text-subtle">
+                    <Upload className="h-4 w-4" />
+                  </div>
                 </button>
               </div>
             )}
@@ -1870,8 +1869,7 @@ export function AssistantSettings({
             if (!file || !file.type.startsWith("image/")) return;
             const localBlob = URL.createObjectURL(file);
             setAvatarPreviewBlobUrl(localBlob);
-            setDraftAvatarEmoji(null);
-            setEmojiPickerOpen(false);
+            setAvatarPickerOpen(false);
             setAvatarUploading(true);
             void (async () => {
               try {
@@ -2901,7 +2899,7 @@ export function AssistantSettings({
         )}
       </Section>
 
-      <div className="order-9 flex justify-center px-5 pt-10 pb-12">
+      <div className="order-9 mt-auto flex justify-center px-5 pt-8 pb-4">
         <AndroidAppDownloadBanner
           className="min-w-[11.5rem]"
           copy={{

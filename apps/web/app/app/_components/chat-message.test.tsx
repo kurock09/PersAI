@@ -313,6 +313,32 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
     expect(image.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("keeps user image preview radii aligned with the media bubble shell", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
+          attachments: [
+            {
+              ...makeImageAttachment("att-rounded"),
+              localPreviewUrl: "blob:test-rounded-image"
+            }
+          ]
+        })}
+      />
+    );
+
+    const bubble = container.querySelector("div.bg-accent\\/15.p-1");
+    const previewButton = container.querySelector(
+      'button[disabled="false"], button:not([disabled])'
+    );
+
+    expect(bubble?.className).toContain("rounded-[18px]");
+    expect(bubble?.className).toContain("rounded-br-md");
+    expect(previewButton?.className).toContain("rounded-[14px]");
+    expect(previewButton?.className).toContain("rounded-br-[10px]");
+  });
+
   it("renders the placeholder text verbatim when there are no attachments (defensive — should never happen in production)", () => {
     render(
       <ChatMessageBubble

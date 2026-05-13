@@ -57,22 +57,11 @@ import {
   YANDEX_VOICE_OPTIONS
 } from "../_components/assistant-voice-options";
 import { AssistantSkillsManager } from "../_components/assistant-skills-manager";
+import {
+  ASSISTANT_AVATAR_PRESETS,
+  findAssistantAvatarPresetByUrl
+} from "../_components/assistant-avatar-presets";
 import { useHistoryBackToClose } from "../_components/use-history-back-to-close";
-
-const AVATARS = [
-  { id: "nova", emoji: "🌟", label: "Nova" },
-  { id: "sage", emoji: "🧠", label: "Sage" },
-  { id: "spark", emoji: "⚡", label: "Spark" },
-  { id: "zen", emoji: "🧘", label: "Zen" },
-  { id: "pixel", emoji: "🤖", label: "Pixel" },
-  { id: "luna", emoji: "🌙", label: "Luna" },
-  { id: "blaze", emoji: "🔥", label: "Blaze" },
-  { id: "echo", emoji: "🔮", label: "Echo" },
-  { id: "drift", emoji: "🌊", label: "Drift" },
-  { id: "prism", emoji: "💎", label: "Prism" },
-  { id: "flux", emoji: "✨", label: "Flux" },
-  { id: "orbit", emoji: "🪐", label: "Orbit" }
-];
 
 type Gender = "male" | "female" | "other" | null;
 type SetupMode = "create" | "recover" | "recreate";
@@ -141,11 +130,6 @@ function toTraitRecord(
     initiative: traits?.initiative ?? DEFAULT_TRAITS.initiative,
     warmth: traits?.warmth ?? DEFAULT_TRAITS.warmth
   };
-}
-
-function findAvatarIdByEmoji(emoji: string | null | undefined): string | null {
-  if (!emoji) return null;
-  return AVATARS.find((avatar) => avatar.emoji === emoji)?.id ?? null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -239,10 +223,13 @@ export default function SetupWizardPage() {
 
   // Step 1 — assistant identity
   const [assistantName, setAssistantName] = useState("");
-  const [selectedAvatar, setSelectedAvatar] = useState<string | null>(null);
+  const [selectedAvatarPresetId, setSelectedAvatarPresetId] = useState<string | null>(
+    ASSISTANT_AVATAR_PRESETS[0]?.id ?? null
+  );
   const [customAvatarFile, setCustomAvatarFile] = useState<File | null>(null);
   const [customAvatarPreviewUrl, setCustomAvatarPreviewUrl] = useState<string | null>(null);
   const [persistedAvatarUrl, setPersistedAvatarUrl] = useState<string | null>(null);
+  const [assistantNameTouched, setAssistantNameTouched] = useState(false);
   const [assistantGender, setAssistantGender] = useState<AssistantGender>("neutral");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -275,7 +262,12 @@ export default function SetupWizardPage() {
     body: string;
   } | null>(null);
   const reloadAppDataRef = useRef(appData.reload);
-  const currentAvatarPreviewUrl = customAvatarPreviewUrl ?? persistedAvatarUrl;
+  const selectedAvatarPreset = useMemo(
+    () => ASSISTANT_AVATAR_PRESETS.find((avatar) => avatar.id === selectedAvatarPresetId) ?? null,
+    [selectedAvatarPresetId]
+  );
+  const currentAvatarPreviewUrl =
+    customAvatarPreviewUrl ?? persistedAvatarUrl ?? selectedAvatarPreset?.imagePath ?? null;
   const setupVoiceProfile = useMemo(
     () =>
       resolveSetupVoiceProfile({
@@ -314,6 +306,7 @@ export default function SetupWizardPage() {
         }
         if (existing?.draft.displayName) {
           setAssistantName(existing.draft.displayName);
+          setAssistantNameTouched(true);
         }
         if (existing?.draft.instructions) {
           setAssistantNotes(existing.draft.instructions);
@@ -327,11 +320,14 @@ export default function SetupWizardPage() {
         if (existing?.draft.assistantGender) {
           setAssistantGender(existing.draft.assistantGender as AssistantGender);
         }
-        if (existing?.draft.avatarEmoji) {
-          setSelectedAvatar(findAvatarIdByEmoji(existing.draft.avatarEmoji));
-        }
         if (existing?.draft.avatarUrl) {
           setPersistedAvatarUrl(existing.draft.avatarUrl);
+          setSelectedAvatarPresetId(
+            findAssistantAvatarPresetByUrl(existing.draft.avatarUrl)?.id ?? null
+          );
+        } else if (!existing?.draft.displayName && setupMode !== "recover") {
+          setSelectedAvatarPresetId(ASSISTANT_AVATAR_PRESETS[0]?.id ?? null);
+          setAssistantName(ASSISTANT_AVATAR_PRESETS[0]?.defaultName ?? "");
         }
         try {
           const nextVoiceSettings = await getAssistantVoiceSettings(token);
@@ -350,7 +346,22 @@ export default function SetupWizardPage() {
         // Pre-fill is best-effort; ignore errors.
       }
     })();
-  }, [getToken, router]);
+  }, [getToken, router, setupMode]);
+
+  useEffect(() => {
+    if (setupMode === "recover") {
+      return;
+    }
+    if (assistantNameTouched || assistantName.trim().length > 0) {
+      return;
+    }
+    const defaultPreset = ASSISTANT_AVATAR_PRESETS[0];
+    if (!defaultPreset) {
+      return;
+    }
+    setSelectedAvatarPresetId((current) => current ?? defaultPreset.id);
+    setAssistantName(defaultPreset.defaultName);
+  }, [assistantName, assistantNameTouched, setupMode]);
 
   useEffect(() => {
     if (setupMode === "create") {
@@ -396,12 +407,18 @@ export default function SetupWizardPage() {
     if (step === 1)
       return (
         assistantName.trim().length >= 2 &&
-        (selectedAvatar !== null || currentAvatarPreviewUrl !== null)
+        (selectedAvatarPresetId !== null || currentAvatarPreviewUrl !== null)
       );
     return true;
-  }, [step, userName, gender, timezone, assistantName, selectedAvatar, currentAvatarPreviewUrl]);
-
-  const avatarObj = useMemo(() => AVATARS.find((a) => a.id === selectedAvatar), [selectedAvatar]);
+  }, [
+    step,
+    userName,
+    gender,
+    timezone,
+    assistantName,
+    selectedAvatarPresetId,
+    currentAvatarPreviewUrl
+  ]);
 
   const handleFileUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -413,9 +430,35 @@ export default function SetupWizardPage() {
       setCustomAvatarFile(file);
       setCustomAvatarPreviewUrl(URL.createObjectURL(file));
       setPersistedAvatarUrl(null);
-      setSelectedAvatar(null);
+      setSelectedAvatarPresetId(null);
     },
     [customAvatarPreviewUrl]
+  );
+
+  const handleSelectAvatarPreset = useCallback(
+    (presetId: string) => {
+      const nextPreset = ASSISTANT_AVATAR_PRESETS.find((preset) => preset.id === presetId);
+      const currentPreset = ASSISTANT_AVATAR_PRESETS.find(
+        (preset) => preset.id === selectedAvatarPresetId
+      );
+      const currentName = assistantName.trim();
+      setSelectedAvatarPresetId(presetId);
+      setPersistedAvatarUrl(nextPreset?.imagePath ?? null);
+      if (customAvatarPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(customAvatarPreviewUrl);
+      }
+      setCustomAvatarFile(null);
+      setCustomAvatarPreviewUrl(null);
+      if (
+        nextPreset &&
+        (!assistantNameTouched ||
+          currentName.length === 0 ||
+          currentName === currentPreset?.defaultName)
+      ) {
+        setAssistantName(nextPreset.defaultName);
+      }
+    },
+    [assistantName, assistantNameTouched, customAvatarPreviewUrl, selectedAvatarPresetId]
   );
 
   const updateTrait = useCallback((key: TraitKey, value: number) => {
@@ -482,8 +525,8 @@ export default function SetupWizardPage() {
       displayName: assistantName.trim(),
       instructions: trimToNull(assistantNotes),
       traits,
-      avatarEmoji: customAvatarFile ? null : (avatarObj?.emoji ?? null),
-      avatarUrl: customAvatarFile ? null : avatarObj?.emoji ? null : persistedAvatarUrl,
+      avatarEmoji: null,
+      avatarUrl: customAvatarFile ? null : persistedAvatarUrl,
       assistantGender,
       voiceProfile: setupVoiceProfile,
       archetypeKey: archetypeKeyForDraft
@@ -493,7 +536,6 @@ export default function SetupWizardPage() {
     assistantGender,
     assistantName,
     assistantNotes,
-    avatarObj,
     buildOnboardingPayload,
     customAvatarFile,
     existingAssistant,
@@ -777,7 +819,10 @@ export default function SetupWizardPage() {
                 <input
                   type="text"
                   value={assistantName}
-                  onChange={(e) => setAssistantName(e.target.value)}
+                  onChange={(e) => {
+                    setAssistantNameTouched(true);
+                    setAssistantName(e.target.value);
+                  }}
                   placeholder={t("assistantNamePlaceholder")}
                   maxLength={40}
                   autoFocus
@@ -785,29 +830,44 @@ export default function SetupWizardPage() {
                 />
 
                 {/* Avatars */}
-                <div className="mt-6 grid grid-cols-4 gap-2.5 sm:grid-cols-7">
-                  {AVATARS.map((av) => (
+                <div className="mt-6 grid w-full max-w-2xl grid-cols-4 gap-3 sm:gap-3.5">
+                  {ASSISTANT_AVATAR_PRESETS.map((av) => (
                     <button
                       key={av.id}
                       type="button"
-                      onClick={() => {
-                        setSelectedAvatar(av.id);
-                        setPersistedAvatarUrl(null);
-                        if (customAvatarPreviewUrl?.startsWith("blob:")) {
-                          URL.revokeObjectURL(customAvatarPreviewUrl);
-                        }
-                        setCustomAvatarFile(null);
-                        setCustomAvatarPreviewUrl(null);
-                      }}
+                      onClick={() => handleSelectAvatarPreset(av.id)}
+                      aria-label={av.label}
                       className={cn(
-                        "flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 p-2.5 transition-all",
-                        selectedAvatar === av.id && customAvatarPreviewUrl === null
-                          ? "border-accent bg-accent/10 scale-105"
-                          : "border-transparent bg-surface-raised hover:bg-surface-hover hover:border-border-strong"
+                        "group flex cursor-pointer flex-col items-center gap-2.5 rounded-[22px] border p-3.5 text-center transition-all duration-200",
+                        selectedAvatarPresetId === av.id && customAvatarPreviewUrl === null
+                          ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.18),rgba(191,148,84,0.08))] shadow-[0_0_0_1px_rgba(191,148,84,0.25),0_18px_40px_rgba(0,0,0,0.22)]"
+                          : "border-border/70 bg-surface-raised/80 shadow-[0_10px_28px_rgba(0,0,0,0.16)] hover:border-border-strong hover:bg-surface-hover hover:shadow-[0_16px_36px_rgba(0,0,0,0.22)]"
                       )}
                     >
-                      <span className="text-2xl">{av.emoji}</span>
-                      <span className="text-[9px] font-medium text-text-muted">{av.label}</span>
+                      <div
+                        className={cn(
+                          "overflow-hidden rounded-[18px] border border-white/10 bg-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
+                          selectedAvatarPresetId === av.id && customAvatarPreviewUrl === null
+                            ? "ring-1 ring-accent/30"
+                            : ""
+                        )}
+                      >
+                        <img
+                          src={av.imagePath}
+                          alt=""
+                          className="h-16 w-16 object-cover sm:h-[72px] sm:w-[72px]"
+                        />
+                      </div>
+                      <span
+                        className={cn(
+                          "text-[11px] font-semibold tracking-[0.01em]",
+                          selectedAvatarPresetId === av.id && customAvatarPreviewUrl === null
+                            ? "text-text"
+                            : "text-text-muted"
+                        )}
+                      >
+                        {av.label}
+                      </span>
                     </button>
                   ))}
 
@@ -815,23 +875,28 @@ export default function SetupWizardPage() {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
+                    aria-label={currentAvatarPreviewUrl ? t("yours") : t("upload")}
                     className={cn(
-                      "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed p-2.5 transition-all",
+                      "group flex cursor-pointer flex-col items-center justify-center gap-2.5 rounded-[22px] border border-dashed p-3.5 text-center transition-all duration-200",
                       currentAvatarPreviewUrl
-                        ? "border-accent bg-accent/10"
-                        : "border-border-strong bg-surface-raised hover:bg-surface-hover hover:border-accent/50"
+                        ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.18),rgba(191,148,84,0.08))] shadow-[0_0_0_1px_rgba(191,148,84,0.25),0_18px_40px_rgba(0,0,0,0.22)]"
+                        : "border-border-strong bg-surface-raised/80 shadow-[0_10px_28px_rgba(0,0,0,0.16)] hover:border-accent/50 hover:bg-surface-hover hover:shadow-[0_16px_36px_rgba(0,0,0,0.22)]"
                     )}
                   >
                     {currentAvatarPreviewUrl ? (
-                      <img
-                        src={currentAvatarPreviewUrl}
-                        alt="Custom"
-                        className="h-7 w-7 rounded-full object-cover"
-                      />
+                      <div className="overflow-hidden rounded-[18px] border border-white/10 bg-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+                        <img
+                          src={currentAvatarPreviewUrl}
+                          alt=""
+                          className="h-16 w-16 object-cover sm:h-[72px] sm:w-[72px]"
+                        />
+                      </div>
                     ) : (
-                      <Upload className="h-5 w-5 text-text-subtle" />
+                      <div className="flex h-16 w-16 items-center justify-center rounded-[18px] border border-border/80 bg-surface text-text-subtle sm:h-[72px] sm:w-[72px]">
+                        <Upload className="h-5 w-5" />
+                      </div>
                     )}
-                    <span className="text-[9px] font-medium text-text-muted">
+                    <span className="text-[11px] font-semibold tracking-[0.01em] text-text-muted">
                       {currentAvatarPreviewUrl ? t("yours") : t("upload")}
                     </span>
                   </button>
@@ -885,7 +950,14 @@ export default function SetupWizardPage() {
                               className="h-full w-full object-cover"
                             />
                           ) : (
-                            <span>{avatarObj?.emoji ?? "🤖"}</span>
+                            <img
+                              src={
+                                selectedAvatarPreset?.imagePath ??
+                                ASSISTANT_AVATAR_PRESETS[0]?.imagePath
+                              }
+                              alt={assistantName}
+                              className="h-full w-full object-cover"
+                            />
                           )}
                         </div>
                         <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-bg bg-accent sm:h-5 sm:w-5">
@@ -1053,7 +1125,14 @@ export default function SetupWizardPage() {
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <span>{avatarObj?.emoji ?? "🤖"}</span>
+                        <img
+                          src={
+                            selectedAvatarPreset?.imagePath ??
+                            ASSISTANT_AVATAR_PRESETS[0]?.imagePath
+                          }
+                          alt={assistantName}
+                          className="h-full w-full object-cover"
+                        />
                       )}
                     </div>
                     <div className="min-w-0">

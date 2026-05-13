@@ -429,6 +429,17 @@ describe("AssistantSettings character CTA", () => {
     expect(screen.getByRole("button", { name: "Customize" })).toBeInTheDocument();
   }, 10000);
 
+  it("shows avatar presets without visible name labels in assistant settings", () => {
+    renderSettings(makeAppData(), "character");
+
+    fireEvent.click(screen.getByRole("button", { name: /change avatar/i }));
+
+    expect(screen.getByRole("button", { name: "PersAI" })).toBeInTheDocument();
+    expect(screen.queryByText("PersAI")).toBeNull();
+    expect(screen.queryByText("Luma")).toBeNull();
+    expect(screen.queryByText("Theo")).toBeNull();
+  });
+
   it("shows the Android release download banner in settings", () => {
     renderSettings(makeAppData(), "character");
 

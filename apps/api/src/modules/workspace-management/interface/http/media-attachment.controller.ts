@@ -345,7 +345,7 @@ export class MediaAttachmentController {
   }
 
   private buildContentDisposition(filename: string, mode: "attachment" | "inline"): string {
-    const sanitizedFilename = filename.replace(/["\r\n]/g, "_");
+    const sanitizedFilename = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\r\n]/g, "_");
     const encodedFilename = encodeURIComponent(filename);
     return `${mode}; filename="${sanitizedFilename}"; filename*=UTF-8''${encodedFilename}`;
   }

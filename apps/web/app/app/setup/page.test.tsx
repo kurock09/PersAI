@@ -570,16 +570,10 @@ describe("SetupWizardPage", () => {
     fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
 
     fireEvent.change(screen.getByPlaceholderText(/name — e\.g\./i), {
-      target: { value: "Nova" }
+      target: { value: "Theo" }
     });
     fireEvent.click(screen.getAllByRole("button", { name: "Female" }).at(-1)!);
-    fireEvent.click(
-      screen
-        .getAllByRole("button")
-        .find(
-          (button) => button.textContent?.includes("Nova") && button.textContent?.includes("🌟")
-        )!
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Theo" }));
 
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
@@ -642,6 +636,7 @@ describe("SetupWizardPage", () => {
 
     expect(assistantApiMocks.postAssistantCreate).not.toHaveBeenCalled();
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
+    expect(assistantApiMocks.uploadAssistantAvatar).not.toHaveBeenCalled();
     expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledWith(
       expect.any(String),
       {
@@ -669,16 +664,10 @@ describe("SetupWizardPage", () => {
     fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
 
     fireEvent.change(screen.getByPlaceholderText(/name — e\.g\./i), {
-      target: { value: "Nova Rebuilt" }
+      target: { value: "Vera Rebuilt" }
     });
     fireEvent.click(screen.getAllByRole("button", { name: "Female" }).at(-1)!);
-    fireEvent.click(
-      screen
-        .getAllByRole("button")
-        .find(
-          (button) => button.textContent?.includes("Nova") && button.textContent?.includes("🌟")
-        )!
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Vera" }));
 
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
@@ -695,6 +684,7 @@ describe("SetupWizardPage", () => {
 
     expect(assistantApiMocks.postAssistantCreate).not.toHaveBeenCalled();
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
+    expect(assistantApiMocks.uploadAssistantAvatar).not.toHaveBeenCalled();
     expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledWith(
       expect.any(String),
       {
@@ -703,6 +693,15 @@ describe("SetupWizardPage", () => {
     );
     expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
+  });
+
+  it("defaults create and recreate identity step to PersAI with PERSAI name", async () => {
+    renderWithIntl(<SetupWizardPage />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
+
+    expect(await screen.findByDisplayValue("PERSAI")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "PersAI" })).toBeInTheDocument();
   });
 });
 

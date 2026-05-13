@@ -51,7 +51,7 @@ async function run(): Promise<void> {
   assert.equal(downloadResponse.headers.get("Content-Type"), "text/markdown; charset=utf-8");
   assert.equal(
     downloadResponse.headers.get("Content-Disposition"),
-    "attachment; filename=\"рекомендации.md\"; filename*=UTF-8''%D1%80%D0%B5%D0%BA%D0%BE%D0%BC%D0%B5%D0%BD%D0%B4%D0%B0%D1%86%D0%B8%D0%B8.md"
+    "attachment; filename=\"____________.md\"; filename*=UTF-8''%D1%80%D0%B5%D0%BA%D0%BE%D0%BC%D0%B5%D0%BD%D0%B4%D0%B0%D1%86%D0%B8%D0%B8.md"
   );
   assert.deepEqual([...downloadResponse.body!.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
   assert.equal(downloadResponse.body!.subarray(3).toString("utf8"), "Привет\n");
@@ -64,6 +64,10 @@ async function run(): Promise<void> {
     undefined
   );
   assert.equal(inlineResponse.headers.get("Content-Type"), "text/markdown; charset=utf-8");
+  assert.equal(
+    inlineResponse.headers.get("Content-Disposition"),
+    "inline; filename=\"____________.md\"; filename*=UTF-8''%D1%80%D0%B5%D0%BA%D0%BE%D0%BC%D0%B5%D0%BD%D0%B4%D0%B0%D1%86%D0%B8%D0%B8.md"
+  );
   assert.equal(inlineResponse.body!.toString("utf8"), "Привет\n");
 }
 

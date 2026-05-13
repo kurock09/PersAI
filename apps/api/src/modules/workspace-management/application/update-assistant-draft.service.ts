@@ -75,6 +75,7 @@ function normalizeOptionalDraftField(value: unknown, fieldName: string): string 
 }
 
 const CONTENT_ADDRESSED_AVATAR_URL_PATTERN = /^\/api\/avatar\/[a-f0-9]{8,64}(?:\.[a-z0-9]{2,8})?$/i;
+const STATIC_PRESET_AVATAR_URL_PATTERN = /^\/avatar-presets\/[a-z0-9-]+\.(?:png|jpg|jpeg|webp)$/i;
 
 /**
  * ADR-076 Slice 4 — assistant avatars are stored content-addressed under
@@ -85,12 +86,15 @@ const CONTENT_ADDRESSED_AVATAR_URL_PATTERN = /^\/api\/avatar\/[a-f0-9]{8,64}(?:\
  * URLs continue to require https:// for defense in depth.
  */
 function validateAvatarUrl(url: string): void {
-  if (CONTENT_ADDRESSED_AVATAR_URL_PATTERN.test(url)) {
+  if (
+    CONTENT_ADDRESSED_AVATAR_URL_PATTERN.test(url) ||
+    STATIC_PRESET_AVATAR_URL_PATTERN.test(url)
+  ) {
     return;
   }
   if (!url.startsWith("https://")) {
     throw new BadRequestException(
-      "avatarUrl must be a server-issued /api/avatar/<hash>.<ext> path or use the https:// scheme."
+      "avatarUrl must be a server-issued /api/avatar/<hash>.<ext> path, a /avatar-presets/<name> asset, or use the https:// scheme."
     );
   }
   try {

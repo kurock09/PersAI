@@ -525,6 +525,9 @@ export type InternalChatCtaMeta = {
   label: string;
 };
 
+const USER_MEDIA_BUBBLE_RADIUS_CLASS = "rounded-[18px] rounded-br-md";
+const USER_MEDIA_CARD_RADIUS_CLASS = "rounded-[14px] rounded-br-[10px]";
+
 export function resolveInternalChatCta(href: string, text: string): InternalChatCtaMeta | null {
   const normalizedHref = href.trim();
   const safeText = stripInlineMarkdown(text).trim();
@@ -905,7 +908,7 @@ function VideoAttachmentPreview({
         className={cn(
           "group relative block overflow-hidden transition focus:ring-2 focus:ring-accent focus:outline-none",
           variant === "user-media"
-            ? "rounded-lg bg-transparent"
+            ? `${USER_MEDIA_CARD_RADIUS_CLASS} bg-transparent`
             : "rounded-[14px] border border-border hover:border-border-strong"
         )}
       >
@@ -1002,7 +1005,7 @@ function AttachmentStrip({
                   className={cn(
                     "block overflow-hidden transition focus:ring-2 focus:ring-accent focus:outline-none",
                     variant === "user-media"
-                      ? "rounded-lg bg-transparent"
+                      ? `${USER_MEDIA_CARD_RADIUS_CLASS} bg-transparent`
                       : "rounded-[14px] border border-border hover:border-border-strong"
                   )}
                 >
@@ -1031,7 +1034,12 @@ function AttachmentStrip({
                 />
               )}
               {isPending && (
-                <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/10 backdrop-blur-[1px]">
+                <div
+                  className={cn(
+                    "absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px]",
+                    variant === "user-media" ? USER_MEDIA_CARD_RADIUS_CLASS : "rounded-lg"
+                  )}
+                >
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-raised/85 px-2 py-1 text-[10px] font-medium text-text-muted shadow-sm">
                     <Loader2 className="h-3 w-3 animate-spin text-accent" />
                     {progressLabel}
@@ -1039,7 +1047,12 @@ function AttachmentStrip({
                 </div>
               )}
               {isFailed && (
-                <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-destructive/10">
+                <div
+                  className={cn(
+                    "absolute inset-0 flex items-center justify-center bg-destructive/10",
+                    variant === "user-media" ? USER_MEDIA_CARD_RADIUS_CLASS : "rounded-lg"
+                  )}
+                >
                   <span className="text-[10px] font-medium text-destructive">
                     {t("uploadFailed")}
                   </span>
@@ -1243,7 +1256,8 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               <div className="flex w-full flex-col items-end gap-2">
                 <div
                   className={cn(
-                    "inline-flex min-w-0 max-w-[min(100%,28rem)] flex-col overflow-hidden rounded-2xl rounded-br-md bg-accent/15 p-1 text-text",
+                    "inline-flex min-w-0 max-w-[min(100%,28rem)] flex-col overflow-hidden bg-accent/15 p-1 text-text",
+                    USER_MEDIA_BUBBLE_RADIUS_CLASS,
                     isUserSendFailed && "opacity-80"
                   )}
                 >
