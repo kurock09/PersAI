@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; the controlled rollout foundation, dashboard replacement, automatic producers, billing/system producers, failed-item operator controls, and hard-critical inbound freshness blocking are landed in repo. ADR closeout is still pending on the remaining next-turn freshness semantics for bounded wait/boost behavior and softer no-stampede turn-path handling.
+Accepted and completed. The controlled rollout foundation, dashboard replacement, automatic producers, billing/system producers, failed-item operator controls, and assistant-local hard-critical inbound freshness blocking are landed in repo and are the active product truth.
 
 Current continuation state:
 
@@ -136,7 +136,7 @@ Rollouts carry criticality:
 - `soft`: system prompt/copy/routing hints where brief old-bundle use may be acceptable
 - `maintenance`: manual/admin reapply, cleanup, non-user-facing refresh
 
-Hard-critical changes must not allow the next paid-sensitive turn to proceed with stale plan/tool/security truth. The turn may wait briefly, enqueue/boost its rollout item, or return a clear "settings are activating" state.
+Hard-critical changes must not allow the next paid-sensitive turn to proceed with stale plan/tool/security truth. The accepted product behavior is assistant-local gating: if the assistant's own hard-critical rollout item is still pending/running or has failed, the turn returns a clear activation / failed-activation state instead of proceeding on stale truth. A bounded wait or boost remains an optional future optimization, not a requirement for this ADR to be considered complete.
 
 Soft changes should still be queued and visible, but should not overload the system by forcing all inactive assistants to refresh instantly.
 
@@ -177,10 +177,10 @@ Runtime bundle warmup should also be controlled. Warming recent/active assistant
 The existing `EnsureAssistantMaterializedSpecCurrentService` style of freshness check remains valuable, but target behavior changes:
 
 1. If the assistant already has a fresh-enough spec, use it.
-2. If a rollout item is pending/running, the turn may wait briefly within a bounded timeout.
-3. If the change is hard critical and freshness is still missing, block or return a clear activation/retry state.
+2. If a rollout item is pending/running, the system may optionally wait briefly within a bounded timeout, but this is not required for correctness.
+3. If the change is hard critical and freshness is still missing, block or return a clear activation/retry state for that assistant instead of proceeding on stale truth.
 4. If the change is soft and the current spec is acceptable, the turn may proceed while the rollout remains visible.
-5. The turn path may enqueue or boost a missing item, but must not start an unbounded materialization storm.
+5. The turn path may enqueue or boost a missing item, but it must not start an unbounded materialization storm.
 
 ## Data model direction
 
@@ -269,7 +269,7 @@ Implement in production-grade slices.
 | 3. Controlled worker and queue semantics                | Completed | Process materialization jobs safely.                                                               | API workers/scheduler, materialization service, runtime bundle warmup                  | Queue uses concurrency limits, per-assistant locks, retry/backoff, idempotency, skip-if-fresh, and does not run all assistants synchronously in request path.   |
 | 4. Automatic rollout creation from global config change | Completed | Replace hidden lazy-storm behavior with visible system rollouts.                                   | Admin Plans, Runtime settings, prompt/system config, tool/Skill policy writers         | Global changes bump generation and create scoped rollout jobs with reason/scope/criticality.                                                                    |
 | 5. Admin Rollouts dashboard replacement                 | Completed | Replace old JSON patch UI with operational rollout dashboard.                                      | `apps/web/app/admin/rollouts`, admin APIs/contracts                                    | Dashboard shows active/completed rollouts, progress bars, statuses, failed items, retry/cancel, and manual reapply as queued jobs.                              |
-| 6. Next-turn freshness gate                             | In progress | Prevent stale hard-critical turns without causing stampedes.                                       | inbound runtime context, materialization freshness checks, runtime error/copy handling | Hard-critical stale state blocks/waits/activates clearly; soft changes can proceed when allowed; turn path can enqueue/boost but not unboundedly rematerialize. |
+| 6. Next-turn freshness gate                             | Completed | Prevent stale hard-critical turns without causing stampedes.                                       | inbound runtime context, materialization freshness checks, runtime error/copy handling | Hard-critical stale state now blocks with assistant-local activation truth instead of silent inline rematerialization; soft changes remain rollout-visible and do not require a synchronous user-turn rematerialization path. |
 | 7. Remove obsolete legacy paths                         | Completed | Delete old active JSON governance rollout and synchronous force-reapply-all product paths cleanly. | old rollout services/controllers/contracts/UI, runtime admin endpoint                  | No active UI/API exposes raw JSON governance patch rollout or synchronous all-assistant reapply as product behavior; migrations/docs explain replacement.       |
 
 ### Execution rules

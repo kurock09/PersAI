@@ -90,7 +90,7 @@ export default function AdminBillingSettingsPage() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6 text-text">
+    <main className="flex w-full flex-col gap-4 p-6 text-text">
       <header>
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-text-subtle">Admin</p>
         <h1 className="text-2xl font-semibold">Billing Settings</h1>

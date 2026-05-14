@@ -586,7 +586,7 @@ export default function AdminKnowledgePage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-3 pb-24">
+    <div className="w-full space-y-3 pb-24">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Library className="h-4 w-4 text-accent" />

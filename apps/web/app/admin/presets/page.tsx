@@ -1310,7 +1310,7 @@ export default function AdminPresetsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="w-full space-y-6">
       <div className="flex items-center gap-2">
         <FileText className="h-5 w-5 text-accent" />
         <h1 className="text-base font-bold text-text">Prompt Constructor</h1>

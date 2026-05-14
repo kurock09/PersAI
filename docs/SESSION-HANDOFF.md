@@ -12,6 +12,34 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 
 ---
 
+## 2026-05-14 — ADR-085 closed: controlled materialization rollouts are now the accepted active truth
+
+### What changed
+
+1. **ADR-085 is now marked completed in repo truth.** The rollout foundation, dashboard, automatic producers, billing/system producers, failed-item controls, and hard-critical inbound freshness gate are all landed and now define the active product path.
+
+2. **Hard-critical freshness semantics are now explicitly accepted as assistant-local activation gating.** The final ADR truth is that a blocked assistant returns a clear activation / failed-activation state while its own hard-critical rollout item is pending/running/failed. This is assistant-scoped, not a global barrier on the full rollout.
+
+3. **Bounded wait/boost is no longer treated as a completion blocker for this ADR.** It may still be explored later as an optimization, but it is not required for correctness or closure of the controlled rollout system.
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Deploy truth
+
+- **No deploy required** for this closure entry by itself; it is doc-truth alignment on top of already-pushed code.
+- Active hard-critical behavior remains assistant-local activation gating, not whole-rollout waiting.
+
+### Next recommended step
+
+ADR-085 itself is closed. Any future work here should be framed as a separate optimization or follow-up ADR/slice rather than as unfinished ADR-085 core scope.
+
+---
+
 ## 2026-05-14 — ADR-085 follow-up: hard-critical inbound freshness is rollout-aware, and rollout items now have operator controls (LOCAL LANDED, DEPLOY REQUIRED)
 
 ### What landed in this session
@@ -40,11 +68,7 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 
 ### Next recommended step
 
-Continue ADR-085 with the final remaining freshness semantics:
-
-1. add bounded wait/boost behavior for eligible pending rollout items instead of only immediate block-or-pass behavior
-2. define and implement the intended soft-change turn semantics so stale-soft paths do not create a user-turn rematerialization storm
-3. only after that, decide whether ADR-085 can be moved from accepted/in-progress implementation to fully closed
+Deploy the already-landed code if not yet deployed, then treat any bounded wait/boost exploration as a separate optimization slice rather than a blocker for ADR-085 closure.
 
 ---
 
@@ -54,7 +78,7 @@ Continue ADR-085 with the final remaining freshness semantics:
 
 1. **Manual reapply now lives on the rollout dashboard where operators already watch rollout state.** `Admin > Rollouts` now owns the queued `Force reapply all` action and shows the immediate queue summary after enqueue, while `Admin > Plans` no longer carries that operational control.
 
-2. **ADR/doc truth was aligned with the actual repo state.** The legacy active JSON-rollout and synchronous all-assistant reapply cleanup slice is now complete, but ADR-085 itself is still not fully closed because the rollout-aware next-turn freshness gate and failed-item operator controls are not implemented yet.
+2. **ADR/doc truth was aligned with the actual repo state.** The legacy active JSON-rollout and synchronous all-assistant reapply cleanup slice is now complete.
 
 3. **Focused UI coverage was added for the moved control.** The rollouts page now has a targeted test that proves the page can queue the manual rollout and refresh the list.
 
@@ -74,11 +98,7 @@ Continue ADR-085 with the final remaining freshness semantics:
 
 ### Next recommended step
 
-Continue ADR-085 with the actual remaining product/runtime slice:
-
-1. make `EnsureAssistantMaterializedSpecCurrentService` and the inbound runtime freshness path rollout-aware instead of directly rematerializing inline on stale state
-2. add failed-item inspection plus retry/cancel controls to the admin rollout surface and API
-3. only after those land, move ADR-085 from accepted/in-progress implementation to truly closed
+This slice is now historical context only; the remaining rollout-aware freshness gate and failed-item controls have already landed.
 
 ---
 

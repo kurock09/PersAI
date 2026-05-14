@@ -155,7 +155,7 @@ export default function AdminBusinessPage() {
     );
 
   return (
-    <div className="mx-auto max-w-5xl space-y-2.5 px-1">
+    <div className="w-full space-y-2.5 px-1">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">

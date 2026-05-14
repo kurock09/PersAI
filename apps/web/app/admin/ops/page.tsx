@@ -276,14 +276,24 @@ function PreflightDot({ ok, label }: { ok: boolean; label: string }) {
 function CardShell({
   title,
   icon: Icon,
-  children
+  children,
+  tone = "default",
+  compact = false
 }: {
   title: string;
   icon: ComponentType<{ className?: string }>;
   children: ReactNode;
+  tone?: "default" | "muted";
+  compact?: boolean;
 }) {
   return (
-    <section className="rounded border border-border/50 bg-surface p-2.5">
+    <section
+      className={cn(
+        "rounded border",
+        tone === "muted" ? "border-border/35 bg-surface/70" : "border-border/50 bg-surface",
+        compact ? "p-2" : "p-2.5"
+      )}
+    >
       <div className="mb-2 flex items-center gap-1.5">
         <Icon className="h-3 w-3 text-accent" />
         <h2 className="text-[10px] font-bold uppercase tracking-widest text-text-muted">{title}</h2>
@@ -341,6 +351,32 @@ function CopyableDetailRow({
           </button>
         ) : null}
       </span>
+    </div>
+  );
+}
+
+function SummaryPill({
+  label,
+  value,
+  tone = "default"
+}: {
+  label: string;
+  value: ReactNode;
+  tone?: "default" | "success" | "warning" | "danger" | "muted";
+}) {
+  return (
+    <div
+      className={cn(
+        "inline-flex min-w-[120px] items-center gap-2 rounded border px-2 py-1 text-[10px]",
+        tone === "success" && "border-success/25 bg-success/10 text-success",
+        tone === "warning" && "border-warning/25 bg-warning/10 text-warning",
+        tone === "danger" && "border-destructive/25 bg-destructive/10 text-destructive",
+        tone === "muted" && "border-border/45 bg-surface-raised text-text-muted",
+        tone === "default" && "border-border/45 bg-surface-raised text-text"
+      )}
+    >
+      <span className="uppercase tracking-wide text-text-subtle">{label}</span>
+      <span className="min-w-0 truncate font-semibold">{value}</span>
     </div>
   );
 }
@@ -660,7 +696,7 @@ function formatActivationSourceLabel(
 /*  Users Directory                                                    */
 /* ------------------------------------------------------------------ */
 
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 10;
 
 function UsersDirectory({
   getToken,
@@ -792,13 +828,21 @@ function UsersDirectory({
 
   return (
     <section className="rounded border border-border/50 bg-surface p-2.5">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <Users className="h-3 w-3 text-accent" />
-          <h2 className="text-[10px] font-bold uppercase tracking-widest text-text-muted">
-            User Directory
-          </h2>
-          <span className="text-[9px] text-text-subtle">{total}</span>
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <Users className="h-3 w-3 text-accent" />
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-text-muted">
+              User Directory
+            </h2>
+            <span className="rounded bg-surface-raised px-1.5 py-px text-[9px] text-text-subtle">
+              {total}
+            </span>
+          </div>
+          <p className="mt-1 text-[10px] text-text-subtle">
+            Primary operator surface. Select a user to inspect billing truth, runtime state, and
+            support actions.
+          </p>
         </div>
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-text-subtle" />
@@ -806,8 +850,8 @@ function UsersDirectory({
             type="text"
             value={search}
             onChange={(e) => onSearch(e.target.value)}
-            placeholder="Search…"
-            className="h-6 w-40 rounded border border-border/50 bg-surface-raised pl-6 pr-2 text-[10px] text-text placeholder:text-text-subtle focus:border-accent/50 focus:outline-none"
+            placeholder="Email or name"
+            className="h-7 w-44 rounded border border-border/50 bg-surface-raised pl-6 pr-2 text-[10px] text-text placeholder:text-text-subtle focus:border-accent/50 focus:outline-none"
           />
         </div>
       </div>
@@ -821,15 +865,15 @@ function UsersDirectory({
       ) : (
         <>
           <div className="overflow-x-auto">
-            <table className="w-full text-[11px]">
+            <table className="w-full min-w-[760px] table-fixed text-[10px]">
               <thead>
                 <tr className="border-b border-border text-left text-text-muted">
-                  <th className="pb-1.5 pr-2 font-medium">Email</th>
+                  <th className="pb-1.5 pr-2 font-medium">User</th>
                   <th className="pb-1.5 pr-2 font-medium">Plan</th>
-                  <th className="pb-1.5 pr-2 font-medium">Billing status</th>
+                  <th className="pb-1.5 pr-2 font-medium">Billing</th>
                   <th className="pb-1.5 pr-2 font-medium">Next date</th>
-                  <th className="pb-1.5 pr-2 font-medium">Usage risk</th>
-                  <th className="pb-1.5 pr-2 font-medium">Actions</th>
+                  <th className="pb-1.5 pr-2 font-medium">Usage</th>
+                  <th className="pb-1.5 pr-2 font-medium">Assistant</th>
                   <th className="pb-1.5 font-medium" />
                 </tr>
               </thead>
@@ -843,10 +887,19 @@ function UsersDirectory({
                       selectedUserId === u.userId && "bg-accent/10 hover:bg-accent/15"
                     )}
                   >
-                    <td className="max-w-[160px] truncate py-1.5 pr-2 font-mono text-text">
-                      {u.email}
+                    <td className="max-w-[250px] truncate py-1.5 pr-2 text-text">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "h-1.5 w-1.5 shrink-0 rounded-full",
+                            u.assistant ? "bg-success" : "bg-text-subtle/40"
+                          )}
+                          aria-hidden
+                        />
+                        <span className="min-w-0 truncate font-mono">{u.email}</span>
+                      </div>
                       {u.displayName ? (
-                        <span className="ml-1 block truncate font-sans text-[9px] text-text-subtle">
+                        <span className="ml-3 inline-block max-w-full truncate text-[9px] text-text-subtle">
                           {u.displayName}
                         </span>
                       ) : null}
@@ -875,65 +928,88 @@ function UsersDirectory({
                         {u.billing.usageRisk}
                       </span>
                     </td>
-                    <td className="py-1.5 text-right">
-                      {u.assistant && (
-                        <button
-                          type="button"
-                          disabled={reapplyingId === u.userId}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void onReapply(u.userId);
-                          }}
-                          className="inline-flex cursor-pointer items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[9px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-40"
-                        >
-                          {reapplyingId === u.userId ? (
-                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                          ) : (
-                            <RotateCcw className="h-2.5 w-2.5" />
-                          )}
-                          Reapply
-                        </button>
-                      )}
-                      {confirmDeleteId === u.userId ? (
-                        <span className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            disabled={deletingId === u.userId}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void onDelete(u.userId);
-                            }}
-                            className="rounded bg-destructive/90 px-1.5 py-0.5 text-[9px] font-semibold text-white transition-colors hover:bg-destructive disabled:opacity-40"
-                          >
-                            {deletingId === u.userId ? (
-                              <Loader2 className="inline h-2.5 w-2.5 animate-spin" />
-                            ) : (
-                              "Yes"
+                    <td className="py-1.5 pr-2">
+                      {u.assistant ? (
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={cn(
+                              "inline-block rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase",
+                              applyStatusBorderTone(u.assistant.applyStatus as ApplyStatus)
                             )}
+                          >
+                            {u.assistant.applyStatus.replace(/_/g, " ")}
+                          </span>
+                          {u.assistant.latestPublishedVersion !== null ? (
+                            <span className="text-[9px] text-text-subtle">
+                              v{u.assistant.latestPublishedVersion}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-[9px] text-text-subtle">No assistant</span>
+                      )}
+                    </td>
+                    <td className="py-1.5 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {u.assistant && (
+                          <button
+                            type="button"
+                            disabled={reapplyingId === u.userId}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void onReapply(u.userId);
+                            }}
+                            className="inline-flex cursor-pointer items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[9px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-40"
+                          >
+                            {reapplyingId === u.userId ? (
+                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-2.5 w-2.5" />
+                            )}
+                            Reapply
                           </button>
+                        )}
+                        {confirmDeleteId === u.userId ? (
+                          <span className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={deletingId === u.userId}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void onDelete(u.userId);
+                              }}
+                              className="rounded bg-destructive/90 px-1.5 py-0.5 text-[9px] font-semibold text-white transition-colors hover:bg-destructive disabled:opacity-40"
+                            >
+                              {deletingId === u.userId ? (
+                                <Loader2 className="inline h-2.5 w-2.5 animate-spin" />
+                              ) : (
+                                "Yes"
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmDeleteId(null);
+                              }}
+                              className="rounded border border-border px-1.5 py-0.5 text-[9px] text-text-muted hover:text-text"
+                            >
+                              No
+                            </button>
+                          </span>
+                        ) : (
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setConfirmDeleteId(null);
+                              setConfirmDeleteId(u.userId);
                             }}
-                            className="rounded border border-border px-1.5 py-0.5 text-[9px] text-text-muted hover:text-text"
+                            className="inline-flex cursor-pointer items-center gap-1 rounded border border-destructive/30 px-1.5 py-0.5 text-[9px] font-medium text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
                           >
-                            No
+                            <Trash2 className="h-2.5 w-2.5" />
                           </button>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setConfirmDeleteId(u.userId);
-                          }}
-                          className="inline-flex cursor-pointer items-center gap-1 rounded border border-destructive/30 px-1.5 py-0.5 text-[9px] font-medium text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          <Trash2 className="h-2.5 w-2.5" />
-                        </button>
-                      )}
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1029,6 +1105,48 @@ export default function AdminOpsPage() {
     () => manualPaidPlanOptions.find((plan) => plan.code === manualPaymentPlanCode) ?? null,
     [manualPaidPlanOptions, manualPaymentPlanCode]
   );
+  const billingSupport = useMemo(() => {
+    if (cockpit === null) return null;
+    const raw = cockpit as unknown as Record<string, unknown>;
+    return (raw.billingSupport as BillingSupportData | null | undefined) ?? null;
+  }, [cockpit]);
+  const quotaUsage = useMemo(() => {
+    if (cockpit === null) return null;
+    const raw = cockpit as unknown as Record<string, unknown>;
+    return (raw.quotaUsage as QuotaUsageData | null | undefined) ?? null;
+  }, [cockpit]);
+  const chatStats = useMemo(() => {
+    if (cockpit === null) return null;
+    const raw = cockpit as unknown as Record<string, unknown>;
+    return (
+      (raw.chatStats as
+        | { totalChats: number; activeWebChats: number; archivedWebChats: number }
+        | null
+        | undefined) ?? null
+    );
+  }, [cockpit]);
+  const channelBindings = useMemo(() => {
+    if (cockpit === null) return [];
+    const raw = cockpit as unknown as Record<string, unknown>;
+    return (
+      (raw.channels as
+        | Array<{ provider: string; surface: string; state: string }>
+        | null
+        | undefined) ?? []
+    );
+  }, [cockpit]);
+  const supportActions = useMemo(
+    () =>
+      billingSupport
+        ? resolveBillingSupportActions(billingSupport, cockpit?.assistant.effectivePlan.source)
+        : [],
+    [billingSupport, cockpit?.assistant.effectivePlan.source]
+  );
+  const signalCount = cockpit?.incidentSignals.length ?? 0;
+  const elevatedSignalCount =
+    cockpit?.incidentSignals.filter(
+      (signal) => signal.severity !== AdminOpsIncidentSignalSeverity.info
+    ).length ?? 0;
 
   const load = useCallback(
     async (targetUserId?: string) => {
@@ -1252,7 +1370,7 @@ export default function AdminOpsPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1700px] space-y-2.5 px-2">
+    <div className="w-full space-y-2.5 px-2">
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Activity className="h-4 w-4 text-accent" />
@@ -1313,153 +1431,79 @@ export default function AdminOpsPage() {
 
       {cockpit && (
         <>
-          {/* --- Row 1: four balanced columns --- */}
-          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-4">
-            {/* Col 1: Assistant identity */}
-            <CardShell title="Assistant" icon={Bot}>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-text-muted">Exists</span>
-                <span
-                  className={cn(
-                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                    cockpit.assistant.exists
-                      ? "bg-success/15 text-success"
-                      : "bg-surface text-text-muted ring-1 ring-border"
-                  )}
-                >
-                  {cockpit.assistant.exists ? "Yes" : "No"}
-                </span>
-              </div>
-              <CopyableDetailRow
-                label="ID"
-                value={truncateId(cockpit.assistant.assistantId)}
-                copyValue={cockpit.assistant.assistantId}
+          <section className="rounded border border-border/40 bg-surface/75 px-2.5 py-2">
+            <div className="flex flex-wrap gap-2">
+              <SummaryPill
+                label="Plan"
+                value={formatNullable(cockpit.assistant.effectivePlan.code)}
+                tone="default"
               />
-              <CopyableDetailRow
-                label="Workspace"
-                value={truncateId(cockpit.assistant.workspaceId)}
-                copyValue={cockpit.assistant.workspaceId}
+              <SummaryPill
+                label="Billing"
+                value={(billingSupport?.subscription.status ?? "unknown").replace(/_/g, " ")}
+                tone={
+                  billingSupport?.subscription.status === "active" ||
+                  billingSupport?.subscription.status === "trialing"
+                    ? "success"
+                    : billingSupport?.subscription.status === "grace_period" ||
+                        billingSupport?.subscription.status === "past_due"
+                      ? "warning"
+                      : billingSupport?.subscription.status
+                        ? "danger"
+                        : "muted"
+                }
               />
-              <div className="border-t border-border pt-2">
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                  Effective plan
-                </p>
-                <DetailRow
-                  label="Plan"
-                  value={formatNullable(cockpit.assistant.effectivePlan.code)}
-                />
-                <DetailRow
-                  label="Source"
-                  value={cockpit.assistant.effectivePlan.source.replaceAll("_", " ")}
-                />
-                <DetailRow
-                  label="Override"
-                  value={formatNullable(cockpit.assistant.effectivePlan.assistantPlanOverrideCode)}
-                />
-                <DetailRow
-                  label="Fallback"
-                  value={formatNullable(cockpit.assistant.effectivePlan.quotaPlanCode)}
-                />
-              </div>
-              <div className="border-t border-border pt-2">
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                  Published
-                </p>
-                <DetailRow
-                  label="Version"
-                  value={formatNullable(cockpit.assistant.latestPublishedVersion.version)}
-                />
-                <DetailRow
-                  label="At"
-                  value={formatTs(cockpit.assistant.latestPublishedVersion.publishedAt)}
-                />
-              </div>
-            </CardShell>
-
-            {/* Col 2: Apply status */}
-            <CardShell title="Apply" icon={RotateCcw}>
-              {cockpit.assistant.runtimeApply === null ? (
-                <p className="text-xs text-text-muted">No apply state</p>
-              ) : (
-                <>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-text-muted">Status</span>
-                    <span
-                      className={cn(
-                        "rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                        applyStatusBorderTone(cockpit.assistant.runtimeApply.status)
-                      )}
-                    >
-                      {cockpit.assistant.runtimeApply.status.replace(/_/g, " ")}
-                    </span>
-                  </div>
-                  <CopyableDetailRow
-                    label="Target"
-                    value={truncateId(cockpit.assistant.runtimeApply.targetPublishedVersionId)}
-                    copyValue={cockpit.assistant.runtimeApply.targetPublishedVersionId}
-                  />
-                  <CopyableDetailRow
-                    label="Applied"
-                    value={truncateId(cockpit.assistant.runtimeApply.appliedPublishedVersionId)}
-                    copyValue={cockpit.assistant.runtimeApply.appliedPublishedVersionId}
-                  />
-                  <DetailRow
-                    label="Requested"
-                    value={formatTs(cockpit.assistant.runtimeApply.requestedAt)}
-                  />
-                  <DetailRow
-                    label="Finished"
-                    value={formatTs(cockpit.assistant.runtimeApply.finishedAt)}
-                  />
-                  {cockpit.assistant.runtimeApply.error && (
-                    <div className="mt-1 rounded border border-destructive/25 bg-destructive/5 p-1.5 text-[10px] text-destructive">
-                      <span className="font-mono font-semibold">
-                        {formatNullable(cockpit.assistant.runtimeApply.error.code)}
-                      </span>
-                      {cockpit.assistant.runtimeApply.error.message && (
-                        <p className="mt-0.5 text-text-muted">
-                          {cockpit.assistant.runtimeApply.error.message}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </CardShell>
-
-            {/* Col 3: Runtime */}
-            <CardShell title="Runtime" icon={Server}>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-text-muted">Adapter</span>
-                <span
-                  className={cn(
-                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                    cockpit.runtime.adapterEnabled
-                      ? "bg-success/15 text-success"
-                      : "bg-surface text-text-muted ring-1 ring-border"
-                  )}
-                >
-                  {cockpit.runtime.adapterEnabled ? "Enabled" : "Disabled"}
-                </span>
-              </div>
-              <DetailRow label="Runtime tier" value={formatNullable(cockpit.runtime.runtimeTier)} />
-              <DetailRow
-                label="Runtime endpoint"
-                value={formatNullable(cockpit.runtime.runtimeEndpointHost)}
+              <SummaryPill
+                label="Apply"
+                value={
+                  cockpit.assistant.runtimeApply
+                    ? cockpit.assistant.runtimeApply.status.replace(/_/g, " ")
+                    : "no state"
+                }
+                tone={
+                  cockpit.assistant.runtimeApply?.status === AssistantRuntimeApplyStatus.succeeded
+                    ? "success"
+                    : cockpit.assistant.runtimeApply?.status === AssistantRuntimeApplyStatus.failed
+                      ? "danger"
+                      : cockpit.assistant.runtimeApply?.status ===
+                            AssistantRuntimeApplyStatus.in_progress ||
+                          cockpit.assistant.runtimeApply?.status ===
+                            AssistantRuntimeApplyStatus.degraded
+                        ? "warning"
+                        : "muted"
+                }
               />
-              <div className="border-t border-border pt-2">
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                  Preflight
-                </p>
-                <PreflightDot ok={cockpit.runtime.preflight.live} label="Live" />
-                <PreflightDot ok={cockpit.runtime.preflight.ready} label="Ready" />
-                <DetailRow label="Checked" value={formatTs(cockpit.runtime.preflight.checkedAt)} />
-              </div>
-            </CardShell>
+              <SummaryPill
+                label="Runtime"
+                value={
+                  cockpit.runtime.preflight.live && cockpit.runtime.preflight.ready
+                    ? "ready"
+                    : "attention"
+                }
+                tone={
+                  cockpit.runtime.preflight.live && cockpit.runtime.preflight.ready
+                    ? "success"
+                    : "danger"
+                }
+              />
+              <SummaryPill
+                label="Signals"
+                value={signalCount}
+                tone={signalCount === 0 ? "success" : elevatedSignalCount > 0 ? "warning" : "muted"}
+              />
+            </div>
+          </section>
 
+          {actionMessage && (
+            <p className="rounded border border-border/60 bg-surface px-2.5 py-1.5 text-[11px] text-text-muted">
+              {actionMessage}
+            </p>
+          )}
+
+          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,0.9fr)]">
             <CardShell title="Plan Control" icon={Users}>
               <p className="text-[11px] leading-relaxed text-text-muted">
-                Use assistant-level override only for tester/manual routing. `Reset to normal`
+                Use assistant-level override only for tester and support routing. `Reset to normal`
                 returns resolution to the regular subscription chain.
               </p>
               <label className="flex flex-col gap-1 text-[11px] text-text-muted">
@@ -1471,7 +1515,7 @@ export default function AdminOpsPage() {
                     setPlanSelectionDirty(true);
                   }}
                   disabled={!selectedUserId || planOverrideBusy}
-                  className="h-9 rounded border border-border bg-bg px-2 text-sm text-text focus:border-accent/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-8 rounded border border-border bg-bg px-2 text-[11px] text-text focus:border-accent/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="">Choose plan…</option>
                   {planControlOptions.map((plan) => (
@@ -1533,608 +1577,150 @@ export default function AdminOpsPage() {
                   Reset to normal
                 </button>
               </div>
-              {actionMessage && (
-                <p className="rounded border border-border/60 bg-surface px-2 py-1.5 text-[10px] text-text-muted">
-                  {actionMessage}
-                </p>
-              )}
             </CardShell>
-          </div>
 
-          {/* --- Row 1.5: Quota & Usage --- */}
-          {(() => {
-            const raw = cockpit as unknown as Record<string, unknown>;
-            const billing = raw.billingSupport as BillingSupportData | null | undefined;
-            if (!billing) return null;
-            const supportActions = resolveBillingSupportActions(
-              billing,
-              cockpit.assistant.effectivePlan.source
-            );
-            return (
-              <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,0.95fr)_minmax(0,1.25fr)]">
-                <CardShell title="Billing Support" icon={Gauge}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-text-muted">Status</span>
-                    <span
-                      className={cn(
-                        "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                        billingStatusTone(billing.subscription.status)
-                      )}
-                    >
-                      {(billing.subscription.status ?? "unknown").replace(/_/g, " ")}
-                    </span>
-                  </div>
-                  <CopyableDetailRow
-                    label="Subscription"
-                    value={truncateId(billing.subscription.id)}
-                    copyValue={billing.subscription.id}
-                  />
-                  <DetailRow label="Plan" value={formatNullable(billing.subscription.planCode)} />
-                  <DetailRow
-                    label="Trial"
-                    value={
-                      billing.subscription.status === "trialing"
-                        ? formatPeriodWindow(
-                            billing.subscription.trialStartedAt,
-                            billing.subscription.trialEndsAt
-                          )
-                        : "—"
-                    }
-                  />
-                  <DetailRow
-                    label="Grace"
-                    value={
-                      billing.subscription.status === "grace_period"
-                        ? formatPeriodWindow(
-                            billing.subscription.graceStartedAt,
-                            billing.subscription.graceEndsAt
-                          )
-                        : "—"
-                    }
-                  />
-                  <DetailRow
-                    label="Paid period"
-                    value={formatPeriodWindow(
-                      billing.subscription.currentPeriodStartedAt,
-                      billing.subscription.currentPeriodEndsAt
-                    )}
-                  />
-                  <DetailRow
-                    label="Latest paid activation"
-                    value={
-                      billing.latestPaidActivation
-                        ? `${formatActivationSourceLabel(
-                            billing.latestPaidActivation.source,
-                            billing.latestPaidActivation.adminAction
-                          )} · ${billing.latestPaidActivation.planCode ?? "—"} · ${formatTs(
-                            billing.latestPaidActivation.periodStartedAt
-                          )} → ${formatTs(billing.latestPaidActivation.periodEndsAt)}`
-                        : "—"
-                    }
-                  />
-                  <DetailRow
-                    label="Quota period"
-                    value={`${formatTs(billing.quotaPeriod.startedAt)} → ${formatTs(billing.quotaPeriod.endsAt)} (${billing.quotaPeriod.source ?? "unknown"})`}
-                  />
-                  <DetailRow
-                    label="Cancel at period end"
-                    value={
-                      billing.subscription.cancelAtPeriodEnd === null
-                        ? "—"
-                        : billing.subscription.cancelAtPeriodEnd
-                          ? "Yes"
-                          : "No"
-                    }
-                  />
-                  <CopyableDetailRow
-                    label="Provider customer"
-                    value={truncateId(billing.subscription.providerCustomerRef)}
-                    copyValue={billing.subscription.providerCustomerRef}
-                  />
-                  <CopyableDetailRow
-                    label="Provider subscription"
-                    value={truncateId(billing.subscription.providerSubscriptionRef)}
-                    copyValue={billing.subscription.providerSubscriptionRef}
-                  />
-                </CardShell>
-
-                <CardShell title="Support Actions" icon={AlertTriangle}>
-                  <p className="text-[11px] leading-relaxed text-text-muted">
-                    These actions write through PersAI lifecycle truth and refresh the selected
-                    detail after success. `Reset to normal` above still handles assistant override
-                    reset only.
-                  </p>
-                  <div className="grid grid-cols-1 gap-2">
-                    {supportActions.map((supportAction) => (
-                      <button
-                        key={supportAction.action}
-                        type="button"
-                        disabled={!selectedUserId || billingSupportBusy !== null}
-                        onClick={() => {
-                          setActionMessage(null);
-                          if (supportAction.action === "activate_paid_manually") {
-                            const firstPlan = manualPaidPlanOptions[0] ?? null;
-                            setManualPaymentPlanCode(
-                              (currentValue) => currentValue || firstPlan?.code || ""
-                            );
-                            setManualPaymentBillingPeriod(
-                              firstPlan?.defaultBillingPeriod ?? "month"
-                            );
-                          }
-                          setPendingBillingSupportAction(supportAction);
-                        }}
-                        className={cn(
-                          "rounded border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-                          supportAction.tone === "danger"
-                            ? "border-destructive/25 bg-destructive/5 hover:bg-destructive/10"
-                            : "border-border/60 bg-surface-raised hover:bg-surface-hover"
-                        )}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-semibold text-text">
-                            {supportAction.label}
-                          </span>
-                          {billingSupportBusy === supportAction.action ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />
-                          ) : null}
-                        </div>
-                        <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
-                          {supportAction.preview}
-                        </p>
-                      </button>
-                    ))}
-                    {supportActions.length === 0 && (
-                      <p className="text-[11px] text-text-muted">
-                        No lifecycle-native support action is available for the current billing
-                        state.
-                      </p>
-                    )}
-                  </div>
-                  {pendingBillingSupportAction && (
-                    <div
-                      className={cn(
-                        "rounded border px-3 py-2",
-                        pendingBillingSupportAction.tone === "danger"
-                          ? "border-destructive/30 bg-destructive/5"
-                          : "border-accent/25 bg-accent/5"
-                      )}
-                    >
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-text-subtle">
-                        Confirm action
-                      </p>
-                      <p className="mt-1 text-[11px] font-semibold text-text">
-                        {pendingBillingSupportAction.label}
-                      </p>
-                      <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
-                        {pendingBillingSupportAction.preview}
-                      </p>
-                      {pendingBillingSupportAction.requiresManualPayment && (
-                        <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                          <label className="space-y-1">
-                            <span className="text-[10px] font-medium uppercase tracking-wide text-text-subtle">
-                              Paid plan
-                            </span>
-                            <select
-                              value={manualPaymentPlanCode}
-                              onChange={(event) => setManualPaymentPlanCode(event.target.value)}
-                              disabled={billingSupportBusy !== null}
-                              className="w-full rounded border border-border bg-surface px-2 py-1.5 text-[11px] text-text outline-none transition-colors focus:border-accent/40"
-                            >
-                              <option value="">Choose paid plan…</option>
-                              {manualPaidPlanOptions.map((plan) => (
-                                <option key={plan.code} value={plan.code}>
-                                  {plan.displayName}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="space-y-1">
-                            <span className="text-[10px] font-medium uppercase tracking-wide text-text-subtle">
-                              Billing period
-                            </span>
-                            <select
-                              value={manualPaymentBillingPeriod}
-                              onChange={(event) =>
-                                setManualPaymentBillingPeriod(
-                                  event.target.value as ManualPaidBillingPeriod
-                                )
-                              }
-                              disabled={billingSupportBusy !== null}
-                              className="w-full rounded border border-border bg-surface px-2 py-1.5 text-[11px] text-text outline-none transition-colors focus:border-accent/40"
-                            >
-                              <option value="month">{formatBillingPeriodLabel("month")}</option>
-                              <option value="year">{formatBillingPeriodLabel("year")}</option>
-                            </select>
-                          </label>
-                        </div>
-                      )}
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={
-                            !selectedUserId ||
-                            billingSupportBusy !== null ||
-                            (pendingBillingSupportAction.requiresManualPayment &&
-                              manualPaymentPlanCode.length === 0)
-                          }
-                          onClick={() => void onRunBillingSupportAction()}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-                            pendingBillingSupportAction.tone === "danger"
-                              ? "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15"
-                              : "border-accent/30 bg-accent/10 text-accent hover:bg-accent/15"
-                          )}
-                        >
-                          {billingSupportBusy === pendingBillingSupportAction.action ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : null}
-                          {pendingBillingSupportAction.confirmLabel}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={billingSupportBusy !== null}
-                          onClick={() => setPendingBillingSupportAction(null)}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium text-text-muted transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </CardShell>
-
-                <CardShell title="Lifecycle & Notifications" icon={Activity}>
-                  <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                        Latest events
-                      </p>
-                      {billing.latestLifecycleEvents.length === 0 ? (
-                        <p className="text-[11px] text-text-muted">No lifecycle events yet.</p>
-                      ) : (
-                        billing.latestLifecycleEvents.slice(0, 4).map((event) => (
-                          <div
-                            key={event.id}
-                            className="rounded border border-border/60 bg-surface-raised px-2 py-1.5"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono text-[10px] font-semibold text-text">
-                                {event.eventCode}
-                              </span>
-                              <span className="text-[9px] text-text-subtle">
-                                {formatShortDate(event.createdAt)}
-                              </span>
-                            </div>
-                            <p className="mt-0.5 text-[9px] text-text-muted">
-                              {formatActivationSourceLabel(event.source, null)} ·{" "}
-                              {event.previousStatus ?? "—"} → {event.nextStatus ?? "—"} ·{" "}
-                              {event.previousPlanCode ?? "—"} → {event.nextPlanCode ?? "—"}
-                            </p>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                        Notification delivery
-                      </p>
-                      <p className="text-[11px] text-text-muted">
-                        Billing notification delivery history is now in{" "}
-                        <a href="/admin/notifications" className="underline hover:text-text">
-                          Admin &rsaquo; Notifications
-                        </a>{" "}
-                        (source: billing_lifecycle).
-                      </p>
-                    </div>
-                  </div>
-                </CardShell>
-              </div>
-            );
-          })()}
-
-          {(() => {
-            const raw = cockpit as unknown as Record<string, unknown>;
-            const qu = raw.quotaUsage as QuotaUsageData | null | undefined;
-            if (!qu) return null;
-            return (
-              <CardShell title="Quota & Usage" icon={Gauge}>
-                <div className="space-y-3">
-                  <QuotaBar
-                    label="Token Budget"
-                    used={qu.tokenBudgetUsed}
-                    limit={qu.tokenBudgetLimit}
-                    formatValue={formatTokens}
-                  />
-                  <QuotaBar
-                    label="Media Storage"
-                    used={qu.mediaStorageBytesUsed}
-                    limit={qu.mediaStorageBytesLimit}
-                    formatValue={formatStorageMb}
-                  />
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                      Media limits
-                    </p>
-                    <div className="space-y-1.5">
-                      {qu.monthlyMediaTools.map((tool) => (
-                        <div
-                          key={tool.toolCode}
-                          className="flex items-center justify-between rounded border border-border/60 bg-surface-raised px-2 py-1.5 text-[10px]"
-                        >
-                          <span className="text-text-muted">{tool.displayName}</span>
-                          <span className="font-medium tabular-nums text-text">
-                            {tool.usedUnits} / {formatQuotaCount(tool.limitUnits)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </CardShell>
-            );
-          })()}
-
-          {/* --- Row 1.6: Chat Stats + Channels --- */}
-          {(() => {
-            const raw = cockpit as unknown as Record<string, unknown>;
-            const cs = raw.chatStats as
-              | { totalChats: number; activeWebChats: number; archivedWebChats: number }
-              | null
-              | undefined;
-            const ch = raw.channels as
-              | Array<{ provider: string; surface: string; state: string }>
-              | null
-              | undefined;
-            if (!cs && (!ch || ch.length === 0)) return null;
-            return (
-              <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-2">
-                {cs && (
-                  <CardShell title="Chat Stats" icon={Activity}>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div>
-                        <p className="text-lg font-bold tabular-nums text-text">{cs.totalChats}</p>
-                        <p className="text-[10px] text-text-muted">Total</p>
-                      </div>
-                      <div>
-                        <p className="text-lg font-bold tabular-nums text-text">
-                          {cs.activeWebChats}
-                        </p>
-                        <p className="text-[10px] text-text-muted">Active Web</p>
-                      </div>
-                      <div>
-                        <p className="text-lg font-bold tabular-nums text-text">
-                          {cs.archivedWebChats}
-                        </p>
-                        <p className="text-[10px] text-text-muted">Archived</p>
-                      </div>
-                    </div>
-                  </CardShell>
-                )}
-
-                {ch && ch.length > 0 && (
-                  <CardShell title="Channels" icon={Server}>
-                    <div className="space-y-1.5">
-                      {ch.map((c, i) => (
-                        <div
-                          key={`${c.provider}-${c.surface}-${i}`}
-                          className="flex items-center justify-between rounded-md border border-border bg-surface px-2.5 py-1.5"
-                        >
-                          <span className="text-xs font-medium text-text">
-                            {c.provider} / {c.surface}
-                          </span>
-                          <span
-                            className={cn(
-                              "rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                              c.state === "active"
-                                ? "bg-success/15 text-success"
-                                : c.state === "inactive"
-                                  ? "bg-warning/15 text-warning"
-                                  : "bg-muted/15 text-text-muted"
-                            )}
-                          >
-                            {c.state}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardShell>
-                )}
-              </div>
-            );
-          })()}
-
-          {cockpit.sandbox && (
-            <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <CardShell title="Sandbox Limits" icon={Gauge}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-text-muted">Sandbox</span>
-                  <span
+            <CardShell title="Billing Actions" icon={AlertTriangle}>
+              <p className="text-[11px] leading-relaxed text-text-muted">
+                These actions write through PersAI lifecycle truth and refresh the selected detail
+                after success.
+              </p>
+              <div className="grid grid-cols-1 gap-2">
+                {supportActions.map((supportAction) => (
+                  <button
+                    key={supportAction.action}
+                    type="button"
+                    disabled={!selectedUserId || billingSupportBusy !== null}
+                    onClick={() => {
+                      setActionMessage(null);
+                      if (supportAction.action === "activate_paid_manually") {
+                        const firstPlan = manualPaidPlanOptions[0] ?? null;
+                        setManualPaymentPlanCode(
+                          (currentValue) => currentValue || firstPlan?.code || ""
+                        );
+                        setManualPaymentBillingPeriod(firstPlan?.defaultBillingPeriod ?? "month");
+                      }
+                      setPendingBillingSupportAction(supportAction);
+                    }}
                     className={cn(
-                      "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                      cockpit.sandbox.effectivePolicy.enabled
-                        ? "bg-success/15 text-success"
-                        : "bg-surface text-text-muted ring-1 ring-border"
+                      "rounded border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45",
+                      supportAction.tone === "danger"
+                        ? "border-destructive/25 bg-destructive/5 hover:bg-destructive/10"
+                        : "border-border/60 bg-surface-raised hover:bg-surface-hover"
                     )}
                   >
-                    {cockpit.sandbox.effectivePolicy.enabled ? "Enabled" : "Disabled"}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 rounded border border-border/50 bg-surface-raised px-2 py-1.5 text-center">
-                  <div>
-                    <p className="text-base font-bold tabular-nums text-text">
-                      {cockpit.sandbox.usage.activeJobs}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-text">
+                        {supportAction.label}
+                      </span>
+                      {billingSupportBusy === supportAction.action ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
+                      {supportAction.preview}
                     </p>
-                    <p className="text-[9px] uppercase tracking-wide text-text-subtle">Active</p>
-                  </div>
-                  <div>
-                    <p className="text-base font-bold tabular-nums text-text">
-                      {cockpit.sandbox.usage.jobsStartedToday}
-                    </p>
-                    <p className="text-[9px] uppercase tracking-wide text-text-subtle">
-                      Started Today
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-base font-bold tabular-nums text-text">
-                      {cockpit.sandbox.usage.remainingJobsToday ?? "∞"}
-                    </p>
-                    <p className="text-[9px] uppercase tracking-wide text-text-subtle">
-                      Remaining Today
-                    </p>
-                  </div>
-                </div>
-
-                <div className="border-t border-border pt-2">
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                    Daily Usage
-                  </p>
-                  <DetailRow
-                    label="Daily limit"
-                    value={formatNullable(cockpit.sandbox.usage.dailyLimit ?? "Unlimited")}
-                  />
-                  <DetailRow
-                    label="Completed / blocked / failed"
-                    value={`${cockpit.sandbox.usage.completedToday} / ${cockpit.sandbox.usage.blockedToday} / ${cockpit.sandbox.usage.failedToday}`}
-                  />
-                </div>
-
-                <div className="border-t border-border pt-2">
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                    Process Guardrails
-                  </p>
-                  <DetailRow
-                    label="Runtime cap"
-                    value={formatDurationMs(cockpit.sandbox.effectivePolicy.maxProcessRuntimeMs)}
-                  />
-                  <DetailRow
-                    label="CPU cap"
-                    value={formatDurationMs(cockpit.sandbox.effectivePolicy.maxCpuMsPerJob)}
-                  />
-                  <DetailRow
-                    label="Memory cap"
-                    value={formatBytesCompact(cockpit.sandbox.effectivePolicy.maxMemoryBytesPerJob)}
-                  />
-                  <DetailRow
-                    label="Max processes"
-                    value={cockpit.sandbox.effectivePolicy.maxConcurrentProcesses}
-                  />
-                </div>
-
-                <div className="border-t border-border pt-2">
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                    Files And Delivery
-                  </p>
-                  <DetailRow
-                    label="Single changed file / workspace growth"
-                    value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxSingleFileWriteBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxWorkspaceBytesPerJob)}`}
-                  />
-                  <DetailRow
-                    label="New files / new dirs / persisted changes"
-                    value={`${cockpit.sandbox.effectivePolicy.maxFileCountPerJob} / ${cockpit.sandbox.effectivePolicy.maxDirectoryCountPerJob} / ${cockpit.sandbox.effectivePolicy.maxPersistedArtifactsPerJob}`}
-                  />
-                  <DetailRow
-                    label="Delivered files per turn"
-                    value={cockpit.sandbox.effectivePolicy.maxArtifactSendCountPerTurn}
-                  />
-                  <DetailRow
-                    label="Web / Telegram delivery bytes"
-                    value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.webMaxOutboundBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.telegramMaxOutboundBytes)}`}
-                  />
-                  <DetailRow
-                    label="Stdout / stderr cap"
-                    value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxStdoutBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxStderrBytes)}`}
-                  />
-                  <DetailRow
-                    label="Network / mime allowlist"
-                    value={`${cockpit.sandbox.effectivePolicy.networkAccessEnabled ? "On" : "Off"} / ${cockpit.sandbox.effectivePolicy.artifactMimeAllowlist.length}`}
-                  />
-                </div>
-              </CardShell>
-
-              <CardShell title="Recent Sandbox Jobs" icon={Activity}>
-                {cockpit.sandbox.recentJobs.length === 0 ? (
+                  </button>
+                ))}
+                {supportActions.length === 0 && (
                   <p className="text-[11px] text-text-muted">
-                    No sandbox jobs recorded for this assistant yet.
+                    No lifecycle-native support action is available for the current billing state.
                   </p>
-                ) : (
-                  <div className="space-y-2">
-                    {cockpit.sandbox.recentJobs.map((job) => (
-                      <div
-                        key={job.id}
-                        className="rounded border border-border/60 bg-surface-raised px-2.5 py-2"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-semibold text-text">{job.toolCode}</p>
-                            <p className="text-[9px] font-mono text-text-subtle">
-                              {truncateId(job.id)}
-                              {job.relativeWorkspace ? ` • ${job.relativeWorkspace}` : ""}
-                            </p>
-                          </div>
-                          <span
-                            className={cn(
-                              "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-                              sandboxJobTone(job.status)
-                            )}
-                          >
-                            {job.status.replace(/_/g, " ")}
-                          </span>
-                        </div>
-
-                        <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-text-muted">
-                          <span>Created: {formatTs(job.createdAt)}</span>
-                          <span className="text-right">Done: {formatTs(job.completedAt)}</span>
-                        </div>
-
-                        <p className="mt-1 text-[10px] text-text-muted">
-                          {job.violationCode ? (
-                            <>
-                              <span className="font-mono font-semibold text-destructive">
-                                {job.violationCode}
-                              </span>
-                              {job.violationMessage ? ` • ${job.violationMessage}` : ""}
-                            </>
-                          ) : job.resultWarning ? (
-                            job.resultWarning
-                          ) : job.resultReason ? (
-                            job.resultReason
-                          ) : (
-                            "No warning or violation recorded."
-                          )}
-                        </p>
-
-                        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[9px] text-text-subtle">
-                          <span className="rounded border border-border px-1.5 py-0.5">
-                            Files {job.persistedFileCount}
-                          </span>
-                          <span className="rounded border border-border px-1.5 py-0.5">
-                            Workspace {formatBytesCompact(job.resourceUsage?.workspaceBytes)}
-                          </span>
-                          <span className="rounded border border-border px-1.5 py-0.5">
-                            CPU {formatDurationMs(job.resourceUsage?.peakCpuMs)}
-                          </span>
-                          <span className="rounded border border-border px-1.5 py-0.5">
-                            Mem {formatBytesCompact(job.resourceUsage?.peakMemoryBytes)}
-                          </span>
-                          <span className="rounded border border-border px-1.5 py-0.5">
-                            Proc {formatNullable(job.resourceUsage?.peakProcessCount)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 )}
-              </CardShell>
-            </div>
-          )}
+              </div>
+              {pendingBillingSupportAction && (
+                <div
+                  className={cn(
+                    "rounded border px-3 py-2",
+                    pendingBillingSupportAction.tone === "danger"
+                      ? "border-destructive/30 bg-destructive/5"
+                      : "border-accent/25 bg-accent/5"
+                  )}
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-text-subtle">
+                    Confirm action
+                  </p>
+                  <p className="mt-1 text-[11px] font-semibold text-text">
+                    {pendingBillingSupportAction.label}
+                  </p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
+                    {pendingBillingSupportAction.preview}
+                  </p>
+                  {pendingBillingSupportAction.requiresManualPayment && (
+                    <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                      <label className="space-y-1">
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-text-subtle">
+                          Paid plan
+                        </span>
+                        <select
+                          value={manualPaymentPlanCode}
+                          onChange={(event) => setManualPaymentPlanCode(event.target.value)}
+                          disabled={billingSupportBusy !== null}
+                          className="w-full rounded border border-border bg-surface px-2 py-1.5 text-[11px] text-text outline-none transition-colors focus:border-accent/40"
+                        >
+                          <option value="">Choose paid plan…</option>
+                          {manualPaidPlanOptions.map((plan) => (
+                            <option key={plan.code} value={plan.code}>
+                              {plan.displayName}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[10px] font-medium uppercase tracking-wide text-text-subtle">
+                          Billing period
+                        </span>
+                        <select
+                          value={manualPaymentBillingPeriod}
+                          onChange={(event) =>
+                            setManualPaymentBillingPeriod(
+                              event.target.value as ManualPaidBillingPeriod
+                            )
+                          }
+                          disabled={billingSupportBusy !== null}
+                          className="w-full rounded border border-border bg-surface px-2 py-1.5 text-[11px] text-text outline-none transition-colors focus:border-accent/40"
+                        >
+                          <option value="month">{formatBillingPeriodLabel("month")}</option>
+                          <option value="year">{formatBillingPeriodLabel("year")}</option>
+                        </select>
+                      </label>
+                    </div>
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={
+                        !selectedUserId ||
+                        billingSupportBusy !== null ||
+                        (pendingBillingSupportAction.requiresManualPayment &&
+                          manualPaymentPlanCode.length === 0)
+                      }
+                      onClick={() => void onRunBillingSupportAction()}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45",
+                        pendingBillingSupportAction.tone === "danger"
+                          ? "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15"
+                          : "border-accent/30 bg-accent/10 text-accent hover:bg-accent/15"
+                      )}
+                    >
+                      {billingSupportBusy === pendingBillingSupportAction.action ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : null}
+                      {pendingBillingSupportAction.confirmLabel}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={billingSupportBusy !== null}
+                      onClick={() => setPendingBillingSupportAction(null)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium text-text-muted transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </CardShell>
 
-          {/* --- Row 2: Controls + Incidents side by side --- */}
-          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-            <section className="rounded border border-border/50 bg-surface p-2.5">
-              <h2 className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-text-muted">
-                Controls
-              </h2>
+            <CardShell title="Controls & Signals" icon={Activity}>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -2165,42 +1751,592 @@ export default function AdminOpsPage() {
                   Restart
                 </button>
               </div>
-            </section>
-
-            <section className="rounded border border-border/50 bg-surface p-2.5">
-              <h2 className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-text-muted">
-                <AlertTriangle className="h-3 w-3" />
-                Incidents
-              </h2>
-              {cockpit.incidentSignals.length === 0 ? (
-                <p className="text-[11px] text-text-muted">No active signals.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {cockpit.incidentSignals.map((signal, i) => (
-                    <li
-                      key={`${i}-${signal.code}-${signal.severity}`}
-                      className={cn(
-                        "rounded-md border px-2 py-1.5 text-[10px]",
-                        incidentSeverityTone(signal.severity)
-                      )}
-                    >
-                      <div className="flex items-start gap-1.5">
-                        {signal.severity === AdminOpsIncidentSignalSeverity.info ? (
-                          <Info className="mt-0.5 h-3 w-3 shrink-0 opacity-80" />
-                        ) : (
-                          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 opacity-80" />
+              <div className="border-t border-border pt-2">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                    Incident signals
+                  </p>
+                  <span className="text-[9px] text-text-subtle">{signalCount}</span>
+                </div>
+                {cockpit.incidentSignals.length === 0 ? (
+                  <p className="text-[11px] text-text-muted">No active signals.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {cockpit.incidentSignals.slice(0, 4).map((signal, i) => (
+                      <li
+                        key={`${i}-${signal.code}-${signal.severity}`}
+                        className={cn(
+                          "rounded-md border px-2 py-1.5 text-[10px]",
+                          incidentSeverityTone(signal.severity)
                         )}
-                        <div className="min-w-0">
-                          <span className="font-mono font-semibold">{signal.code}</span>
-                          <span className="ml-1.5 opacity-80">{signal.message}</span>
+                      >
+                        <div className="flex items-start gap-1.5">
+                          {signal.severity === AdminOpsIncidentSignalSeverity.info ? (
+                            <Info className="mt-0.5 h-3 w-3 shrink-0 opacity-80" />
+                          ) : (
+                            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 opacity-80" />
+                          )}
+                          <div className="min-w-0">
+                            <span className="font-mono font-semibold">{signal.code}</span>
+                            <span className="ml-1.5 opacity-80">{signal.message}</span>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </CardShell>
+          </div>
+
+          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1.2fr)]">
+            <CardShell title="Assistant" icon={Bot} tone="muted" compact>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-text-muted">Exists</span>
+                <span
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    cockpit.assistant.exists
+                      ? "bg-success/15 text-success"
+                      : "bg-surface text-text-muted ring-1 ring-border"
+                  )}
+                >
+                  {cockpit.assistant.exists ? "Yes" : "No"}
+                </span>
+              </div>
+              <CopyableDetailRow
+                label="ID"
+                value={truncateId(cockpit.assistant.assistantId)}
+                copyValue={cockpit.assistant.assistantId}
+              />
+              <CopyableDetailRow
+                label="Workspace"
+                value={truncateId(cockpit.assistant.workspaceId)}
+                copyValue={cockpit.assistant.workspaceId}
+              />
+              <div className="border-t border-border pt-2">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Effective plan
+                </p>
+                <DetailRow
+                  label="Plan"
+                  value={formatNullable(cockpit.assistant.effectivePlan.code)}
+                />
+                <DetailRow
+                  label="Source"
+                  value={cockpit.assistant.effectivePlan.source.replaceAll("_", " ")}
+                />
+                <DetailRow
+                  label="Override"
+                  value={formatNullable(cockpit.assistant.effectivePlan.assistantPlanOverrideCode)}
+                />
+                <DetailRow
+                  label="Fallback"
+                  value={formatNullable(cockpit.assistant.effectivePlan.quotaPlanCode)}
+                />
+              </div>
+              <div className="border-t border-border pt-2">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Published
+                </p>
+                <DetailRow
+                  label="Version"
+                  value={formatNullable(cockpit.assistant.latestPublishedVersion.version)}
+                />
+                <DetailRow
+                  label="At"
+                  value={formatTs(cockpit.assistant.latestPublishedVersion.publishedAt)}
+                />
+              </div>
+            </CardShell>
+
+            <CardShell title="Runtime" icon={Server} tone="muted" compact>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-text-muted">Adapter</span>
+                <span
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    cockpit.runtime.adapterEnabled
+                      ? "bg-success/15 text-success"
+                      : "bg-surface text-text-muted ring-1 ring-border"
+                  )}
+                >
+                  {cockpit.runtime.adapterEnabled ? "Enabled" : "Disabled"}
+                </span>
+              </div>
+              <DetailRow label="Runtime tier" value={formatNullable(cockpit.runtime.runtimeTier)} />
+              <DetailRow
+                label="Runtime endpoint"
+                value={formatNullable(cockpit.runtime.runtimeEndpointHost)}
+              />
+              <div className="border-t border-border pt-2">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Preflight
+                </p>
+                <PreflightDot ok={cockpit.runtime.preflight.live} label="Live" />
+                <PreflightDot ok={cockpit.runtime.preflight.ready} label="Ready" />
+                <DetailRow label="Checked" value={formatTs(cockpit.runtime.preflight.checkedAt)} />
+              </div>
+            </CardShell>
+
+            <CardShell title="Billing" icon={Gauge} tone="muted" compact>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-text-muted">Status</span>
+                <span
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    billingStatusTone(billingSupport?.subscription.status)
+                  )}
+                >
+                  {(billingSupport?.subscription.status ?? "unknown").replace(/_/g, " ")}
+                </span>
+              </div>
+              <CopyableDetailRow
+                label="Subscription"
+                value={truncateId(billingSupport?.subscription.id)}
+                copyValue={billingSupport?.subscription.id}
+              />
+              <DetailRow
+                label="Plan"
+                value={formatNullable(billingSupport?.subscription.planCode)}
+              />
+              <DetailRow
+                label="Trial"
+                value={
+                  billingSupport?.subscription.status === "trialing"
+                    ? formatPeriodWindow(
+                        billingSupport.subscription.trialStartedAt,
+                        billingSupport.subscription.trialEndsAt
+                      )
+                    : "—"
+                }
+              />
+              <DetailRow
+                label="Grace"
+                value={
+                  billingSupport?.subscription.status === "grace_period"
+                    ? formatPeriodWindow(
+                        billingSupport.subscription.graceStartedAt,
+                        billingSupport.subscription.graceEndsAt
+                      )
+                    : "—"
+                }
+              />
+              <DetailRow
+                label="Paid period"
+                value={formatPeriodWindow(
+                  billingSupport?.subscription.currentPeriodStartedAt,
+                  billingSupport?.subscription.currentPeriodEndsAt
+                )}
+              />
+              <DetailRow
+                label="Quota period"
+                value={`${formatTs(billingSupport?.quotaPeriod.startedAt)} → ${formatTs(billingSupport?.quotaPeriod.endsAt)} (${billingSupport?.quotaPeriod.source ?? "unknown"})`}
+              />
+            </CardShell>
+
+            <CardShell title="Lifecycle & Notifications" icon={Activity} tone="muted" compact>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Latest paid activation
+                </p>
+                <p className="text-[10px] text-text-muted">
+                  {billingSupport?.latestPaidActivation
+                    ? `${formatActivationSourceLabel(
+                        billingSupport.latestPaidActivation.source,
+                        billingSupport.latestPaidActivation.adminAction
+                      )} · ${billingSupport.latestPaidActivation.planCode ?? "—"} · ${formatTs(
+                        billingSupport.latestPaidActivation.periodStartedAt
+                      )} → ${formatTs(billingSupport.latestPaidActivation.periodEndsAt)}`
+                    : "—"}
+                </p>
+              </div>
+              <div className="space-y-1.5 border-t border-border pt-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Latest events
+                </p>
+                {!billingSupport || billingSupport.latestLifecycleEvents.length === 0 ? (
+                  <p className="text-[11px] text-text-muted">No lifecycle events yet.</p>
+                ) : (
+                  billingSupport.latestLifecycleEvents.slice(0, 4).map((event) => (
+                    <div
+                      key={event.id}
+                      className="rounded border border-border/50 bg-surface-raised px-2 py-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[10px] font-semibold text-text">
+                          {event.eventCode}
+                        </span>
+                        <span className="text-[9px] text-text-subtle">
+                          {formatShortDate(event.createdAt)}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-[9px] text-text-muted">
+                        {formatActivationSourceLabel(event.source, null)} ·{" "}
+                        {event.previousStatus ?? "—"} → {event.nextStatus ?? "—"} ·{" "}
+                        {event.previousPlanCode ?? "—"} → {event.nextPlanCode ?? "—"}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="rounded border border-border/50 bg-surface-raised px-2 py-1.5 text-[10px] text-text-muted">
+                Billing notification delivery history is in{" "}
+                <a href="/admin/notifications" className="underline hover:text-text">
+                  Admin &rsaquo; Notifications
+                </a>{" "}
+                (`billing_lifecycle`).
+              </div>
+            </CardShell>
+          </div>
+
+          {(quotaUsage || chatStats || channelBindings.length > 0) && (
+            <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
+              {quotaUsage && (
+                <CardShell title="Quota & Usage" icon={Gauge}>
+                  <div className="space-y-3">
+                    <QuotaBar
+                      label="Token Budget"
+                      used={quotaUsage.tokenBudgetUsed}
+                      limit={quotaUsage.tokenBudgetLimit}
+                      formatValue={formatTokens}
+                    />
+                    <QuotaBar
+                      label="Media Storage"
+                      used={quotaUsage.mediaStorageBytesUsed}
+                      limit={quotaUsage.mediaStorageBytesLimit}
+                      formatValue={formatStorageMb}
+                    />
+                    <div className="grid grid-cols-2 gap-2 rounded border border-border/50 bg-surface-raised px-2 py-1.5 text-center">
+                      <div>
+                        <p className="text-base font-bold tabular-nums text-text">
+                          {quotaUsage.activeWebChats}
+                        </p>
+                        <p className="text-[9px] uppercase tracking-wide text-text-subtle">
+                          Active Web Chats
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-base font-bold tabular-nums text-text">
+                          {formatQuotaCount(quotaUsage.activeWebChatsLimit)}
+                        </p>
+                        <p className="text-[9px] uppercase tracking-wide text-text-subtle">
+                          Chat Cap
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                        Monthly media
+                      </p>
+                      <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3">
+                        {quotaUsage.monthlyMediaTools.map((tool) => (
+                          <div
+                            key={tool.toolCode}
+                            className="flex items-center justify-between rounded border border-border/60 bg-surface-raised px-2 py-1.5 text-[10px]"
+                          >
+                            <span className="text-text-muted">{tool.displayName}</span>
+                            <span className="font-medium tabular-nums text-text">
+                              {tool.usedUnits} / {formatQuotaCount(tool.limitUnits)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </CardShell>
+              )}
+
+              <div className="grid grid-cols-1 gap-1.5">
+                {chatStats && (
+                  <CardShell title="Chat Stats" icon={Activity} tone="muted" compact>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <p className="text-lg font-bold tabular-nums text-text">
+                          {chatStats.totalChats}
+                        </p>
+                        <p className="text-[10px] text-text-muted">Total</p>
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold tabular-nums text-text">
+                          {chatStats.activeWebChats}
+                        </p>
+                        <p className="text-[10px] text-text-muted">Active Web</p>
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold tabular-nums text-text">
+                          {chatStats.archivedWebChats}
+                        </p>
+                        <p className="text-[10px] text-text-muted">Archived</p>
+                      </div>
+                    </div>
+                  </CardShell>
+                )}
+
+                {channelBindings.length > 0 && (
+                  <CardShell title="Channels" icon={Server} tone="muted" compact>
+                    <div className="space-y-1.5">
+                      {channelBindings.map((channel, i) => (
+                        <div
+                          key={`${channel.provider}-${channel.surface}-${i}`}
+                          className="flex items-center justify-between rounded-md border border-border bg-surface px-2 py-1.5"
+                        >
+                          <span className="text-[11px] font-medium text-text">
+                            {channel.provider} / {channel.surface}
+                          </span>
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                              channel.state === "active"
+                                ? "bg-success/15 text-success"
+                                : channel.state === "inactive"
+                                  ? "bg-warning/15 text-warning"
+                                  : "bg-muted/15 text-text-muted"
+                            )}
+                          >
+                            {channel.state}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardShell>
+                )}
+              </div>
+            </div>
+          )}
+
+          {cockpit.sandbox && (
+            <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+              <CardShell title="Sandbox Overview" icon={Gauge} tone="muted" compact>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-text-muted">Sandbox</span>
+                  <span
+                    className={cn(
+                      "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                      cockpit.sandbox.effectivePolicy.enabled
+                        ? "bg-success/15 text-success"
+                        : "bg-surface text-text-muted ring-1 ring-border"
+                    )}
+                  >
+                    {cockpit.sandbox.effectivePolicy.enabled ? "Enabled" : "Disabled"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 rounded border border-border/50 bg-surface-raised px-2 py-1.5 text-center">
+                  <div>
+                    <p className="text-base font-bold tabular-nums text-text">
+                      {cockpit.sandbox.usage.activeJobs}
+                    </p>
+                    <p className="text-[9px] uppercase tracking-wide text-text-subtle">Active</p>
+                  </div>
+                  <div>
+                    <p className="text-base font-bold tabular-nums text-text">
+                      {cockpit.sandbox.usage.jobsStartedToday}
+                    </p>
+                    <p className="text-[9px] uppercase tracking-wide text-text-subtle">
+                      Started Today
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-base font-bold tabular-nums text-text">
+                      {cockpit.sandbox.usage.remainingJobsToday ?? "∞"}
+                    </p>
+                    <p className="text-[9px] uppercase tracking-wide text-text-subtle">Remaining</p>
+                  </div>
+                </div>
+                <DetailRow
+                  label="Daily limit"
+                  value={formatNullable(cockpit.sandbox.usage.dailyLimit ?? "Unlimited")}
+                />
+                <DetailRow
+                  label="Completed / blocked / failed"
+                  value={`${cockpit.sandbox.usage.completedToday} / ${cockpit.sandbox.usage.blockedToday} / ${cockpit.sandbox.usage.failedToday}`}
+                />
+                <details className="rounded border border-border/50 bg-surface-raised px-2 py-1.5">
+                  <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                    More limits
+                  </summary>
+                  <div className="mt-2 space-y-2">
+                    <div>
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                        Process
+                      </p>
+                      <DetailRow
+                        label="Runtime cap"
+                        value={formatDurationMs(
+                          cockpit.sandbox.effectivePolicy.maxProcessRuntimeMs
+                        )}
+                      />
+                      <DetailRow
+                        label="CPU cap"
+                        value={formatDurationMs(cockpit.sandbox.effectivePolicy.maxCpuMsPerJob)}
+                      />
+                      <DetailRow
+                        label="Memory cap"
+                        value={formatBytesCompact(
+                          cockpit.sandbox.effectivePolicy.maxMemoryBytesPerJob
+                        )}
+                      />
+                      <DetailRow
+                        label="Max processes"
+                        value={cockpit.sandbox.effectivePolicy.maxConcurrentProcesses}
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                        Files & Delivery
+                      </p>
+                      <DetailRow
+                        label="Single file / workspace growth"
+                        value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxSingleFileWriteBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxWorkspaceBytesPerJob)}`}
+                      />
+                      <DetailRow
+                        label="New files / dirs / persisted"
+                        value={`${cockpit.sandbox.effectivePolicy.maxFileCountPerJob} / ${cockpit.sandbox.effectivePolicy.maxDirectoryCountPerJob} / ${cockpit.sandbox.effectivePolicy.maxPersistedArtifactsPerJob}`}
+                      />
+                      <DetailRow
+                        label="Delivered files per turn"
+                        value={cockpit.sandbox.effectivePolicy.maxArtifactSendCountPerTurn}
+                      />
+                      <DetailRow
+                        label="Web / Telegram bytes"
+                        value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.webMaxOutboundBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.telegramMaxOutboundBytes)}`}
+                      />
+                      <DetailRow
+                        label="Stdout / stderr cap"
+                        value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxStdoutBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxStderrBytes)}`}
+                      />
+                      <DetailRow
+                        label="Network / mime allowlist"
+                        value={`${cockpit.sandbox.effectivePolicy.networkAccessEnabled ? "On" : "Off"} / ${cockpit.sandbox.effectivePolicy.artifactMimeAllowlist.length}`}
+                      />
+                    </div>
+                  </div>
+                </details>
+              </CardShell>
+
+              <CardShell title="Recent Sandbox Jobs" icon={Activity} tone="muted" compact>
+                {cockpit.sandbox.recentJobs.length === 0 ? (
+                  <p className="text-[11px] text-text-muted">
+                    No sandbox jobs recorded for this assistant yet.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {cockpit.sandbox.recentJobs.map((job) => (
+                      <div
+                        key={job.id}
+                        className="rounded border border-border/50 bg-surface-raised px-2 py-1.5"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-semibold text-text">{job.toolCode}</p>
+                            <p className="text-[9px] font-mono text-text-subtle">
+                              {truncateId(job.id)}
+                              {job.relativeWorkspace ? ` • ${job.relativeWorkspace}` : ""}
+                            </p>
+                          </div>
+                          <span
+                            className={cn(
+                              "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                              sandboxJobTone(job.status)
+                            )}
+                          >
+                            {job.status.replace(/_/g, " ")}
+                          </span>
+                        </div>
+                        <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-text-muted">
+                          <span>Created: {formatTs(job.createdAt)}</span>
+                          <span className="text-right">Done: {formatTs(job.completedAt)}</span>
+                        </div>
+                        <p className="mt-1 text-[10px] text-text-muted">
+                          {job.violationCode ? (
+                            <>
+                              <span className="font-mono font-semibold text-destructive">
+                                {job.violationCode}
+                              </span>
+                              {job.violationMessage ? ` • ${job.violationMessage}` : ""}
+                            </>
+                          ) : job.resultWarning ? (
+                            job.resultWarning
+                          ) : job.resultReason ? (
+                            job.resultReason
+                          ) : (
+                            "No warning or violation recorded."
+                          )}
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[9px] text-text-subtle">
+                          <span className="rounded border border-border px-1.5 py-0.5">
+                            Files {job.persistedFileCount}
+                          </span>
+                          <span className="rounded border border-border px-1.5 py-0.5">
+                            Workspace {formatBytesCompact(job.resourceUsage?.workspaceBytes)}
+                          </span>
+                          <span className="rounded border border-border px-1.5 py-0.5">
+                            CPU {formatDurationMs(job.resourceUsage?.peakCpuMs)}
+                          </span>
+                          <span className="rounded border border-border px-1.5 py-0.5">
+                            Mem {formatBytesCompact(job.resourceUsage?.peakMemoryBytes)}
+                          </span>
+                          <span className="rounded border border-border px-1.5 py-0.5">
+                            Proc {formatNullable(job.resourceUsage?.peakProcessCount)}
+                          </span>
                         </div>
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
+                    ))}
+                  </div>
+                )}
+              </CardShell>
+            </div>
+          )}
+
+          <CardShell title="Apply Details" icon={RotateCcw} tone="muted" compact>
+            {cockpit.assistant.runtimeApply === null ? (
+              <p className="text-xs text-text-muted">No apply state</p>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-text-muted">Status</span>
+                  <span
+                    className={cn(
+                      "rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                      applyStatusBorderTone(cockpit.assistant.runtimeApply.status)
+                    )}
+                  >
+                    {cockpit.assistant.runtimeApply.status.replace(/_/g, " ")}
+                  </span>
+                </div>
+                <CopyableDetailRow
+                  label="Target"
+                  value={truncateId(cockpit.assistant.runtimeApply.targetPublishedVersionId)}
+                  copyValue={cockpit.assistant.runtimeApply.targetPublishedVersionId}
+                />
+                <CopyableDetailRow
+                  label="Applied"
+                  value={truncateId(cockpit.assistant.runtimeApply.appliedPublishedVersionId)}
+                  copyValue={cockpit.assistant.runtimeApply.appliedPublishedVersionId}
+                />
+                <DetailRow
+                  label="Requested"
+                  value={formatTs(cockpit.assistant.runtimeApply.requestedAt)}
+                />
+                <DetailRow
+                  label="Finished"
+                  value={formatTs(cockpit.assistant.runtimeApply.finishedAt)}
+                />
+                {cockpit.assistant.runtimeApply.error && (
+                  <div className="mt-1 rounded border border-destructive/25 bg-destructive/5 p-1.5 text-[10px] text-destructive">
+                    <span className="font-mono font-semibold">
+                      {formatNullable(cockpit.assistant.runtimeApply.error.code)}
+                    </span>
+                    {cockpit.assistant.runtimeApply.error.message && (
+                      <p className="mt-0.5 text-text-muted">
+                        {cockpit.assistant.runtimeApply.error.message}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </CardShell>
 
           <p className="pt-0.5 text-center text-[9px] tabular-nums text-text-subtle/50">
             {formatTs(cockpit.updatedAt)}

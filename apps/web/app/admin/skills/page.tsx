@@ -856,7 +856,7 @@ export default function AdminSkillsPage() {
   const knowledgeCardCount = skills.reduce((sum, skill) => sum + skill.knowledgeCards.length, 0);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-3 pb-24">
+    <div className="w-full space-y-3 pb-24">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-accent" />
