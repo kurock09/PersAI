@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { basename, extname, resolve } from "node:path";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { DEFAULT_ARCHETYPE_KEY } from "../../../../prisma/persona-archetype-data";
 import { ManagePersonaArchetypesService } from "./manage-persona-archetypes.service";
@@ -176,20 +178,63 @@ export class PublishAssistantDraftService {
       }
 
       if (avatarUrl !== null) {
-        const avatar = await this.mediaObjectStorage.downloadObject(
-          `${this.mediaObjectStorage.buildAssistantPrefix(assistantId)}avatar/current`
-        );
+        const avatar = await this.resolveTelegramProfilePhoto(assistantId, avatarUrl);
         if (avatar !== null) {
           await this.telegramBotClientService.setBotProfilePhoto({
             botToken: runtimeConfig.botToken,
             buffer: avatar.buffer,
-            filename: this.resolveTelegramAvatarFilename(avatar.contentType)
+            filename: avatar.filename
           });
         }
       }
     } catch (err) {
       console.warn("[publish] Non-fatal: failed to sync Telegram binding metadata:", err);
     }
+  }
+
+  private async resolveTelegramProfilePhoto(
+    assistantId: string,
+    avatarUrl: string
+  ): Promise<{ buffer: Buffer; filename: string } | null> {
+    if (avatarUrl.startsWith("/avatar-presets/")) {
+      return this.loadPresetAvatar(avatarUrl);
+    }
+
+    const avatar = await this.mediaObjectStorage.downloadObject(
+      `${this.mediaObjectStorage.buildAssistantPrefix(assistantId)}avatar/current`
+    );
+    if (avatar === null) {
+      return null;
+    }
+
+    return {
+      buffer: avatar.buffer,
+      filename: this.resolveTelegramAvatarFilename(avatar.contentType)
+    };
+  }
+
+  private async loadPresetAvatar(
+    avatarUrl: string
+  ): Promise<{ buffer: Buffer; filename: string } | null> {
+    const relativePresetPath = avatarUrl.replace(/^\/+/, "");
+    const candidatePaths = [
+      resolve(process.cwd(), "..", "web", "public", relativePresetPath),
+      resolve(process.cwd(), "apps", "web", "public", relativePresetPath)
+    ];
+
+    for (const candidatePath of candidatePaths) {
+      try {
+        const buffer = await readFile(candidatePath);
+        return {
+          buffer,
+          filename: `assistant-avatar${extname(basename(candidatePath)).toLowerCase() || ".png"}`
+        };
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
   }
 
   private toSnapshotVoiceDna(
