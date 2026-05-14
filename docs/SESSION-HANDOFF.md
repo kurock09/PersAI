@@ -12,6 +12,42 @@ Large-session hardening for **clean PROD launch with test users** (concurrency, 
 
 ---
 
+## 2026-05-14 — ADR-085 follow-up: hard-critical inbound freshness is rollout-aware, and rollout items now have operator controls (LOCAL LANDED, DEPLOY REQUIRED)
+
+### What landed in this session
+
+1. **Hard-critical inbound freshness no longer silently bypasses the rollout queue.** `EnsureAssistantMaterializedSpecCurrentService` now supports a rollout-aware mode, and `ResolveAssistantInboundRuntimeContextService` uses it for inbound/live turn preparation. If a newer hard-critical rollout item is already pending/running or has failed for an assistant, the inbound path now blocks with a clear activation/failed-activation conflict instead of inline-rematerializing through the old lazy path.
+
+2. **Rollout items now have minimal but real operator controls.** `GET /api/v1/admin/platform-rollouts/:rolloutId/failed-items`, `POST /api/v1/admin/platform-rollouts/:rolloutId/retry-failed`, and `POST /api/v1/admin/platform-rollouts/:rolloutId/cancel-pending` are now live, and `Admin > Rollouts` exposes those actions in a compact per-rollout operator block.
+
+3. **Contracts and focused coverage were extended to match the new operational truth.** Generated admin contract types now include rollout item views and the new endpoints, API focused tests cover rollout-aware freshness blocking and retry/cancel behavior, and the web rollouts page test covers failed-item inspection plus retry/cancel controls.
+
+### Verification
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/ensure-assistant-materialized-spec-current.service.test.ts test/materialization-rollout.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/rollouts/page.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Deploy truth
+
+- **DEPLOY REQUIRED** for `api`, `web`, and regenerated contracts follow-through.
+- No schema migration in this slice.
+- Hard-critical inbound drift is now queue-aware and blocked at the API boundary instead of being silently rematerialized inline.
+
+### Next recommended step
+
+Continue ADR-085 with the final remaining freshness semantics:
+
+1. add bounded wait/boost behavior for eligible pending rollout items instead of only immediate block-or-pass behavior
+2. define and implement the intended soft-change turn semantics so stale-soft paths do not create a user-turn rematerialization storm
+3. only after that, decide whether ADR-085 can be moved from accepted/in-progress implementation to fully closed
+
+---
+
 ## 2026-05-14 — ADR-085 follow-up: reapply action moved to Rollouts, and ADR truth was aligned (LOCAL LANDED, DEPLOY REQUIRED)
 
 ### What landed in this session

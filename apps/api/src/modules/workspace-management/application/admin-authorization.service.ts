@@ -65,6 +65,9 @@ function requiredRolesForDangerousAction(action: DangerousAdminActionCode): Supp
   if (action === "admin.tool_credentials.update") {
     return ["ops_admin", "super_admin"];
   }
+  if (action === "admin.force_reapply_all") {
+    return ["ops_admin", "business_admin", "super_admin"];
+  }
   return ["business_admin", "super_admin"];
 }
 

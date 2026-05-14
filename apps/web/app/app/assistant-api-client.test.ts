@@ -1067,4 +1067,30 @@ describe("toWebChatUxIssue", () => {
       guidance: "Wait a moment, then retry the same thread."
     });
   });
+
+  it("maps assistant activating to a dedicated activation issue", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "assistant_activating",
+        message: "Assistant settings are still activating."
+      })
+    ).toEqual({
+      classId: "assistant_activating",
+      message: "Your assistant settings are still activating.",
+      guidance: "Wait a moment, then retry in the same thread."
+    });
+  });
+
+  it("maps assistant activation failure to admin rollout guidance", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "assistant_activation_failed",
+        message: "Assistant settings activation failed."
+      })
+    ).toEqual({
+      classId: "assistant_activation_failed",
+      message: "Assistant settings activation failed.",
+      guidance: "Retry the rollout in Admin > Rollouts, then try again."
+    });
+  });
 });

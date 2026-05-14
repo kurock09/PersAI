@@ -58,6 +58,7 @@ import type {
   GetAdminOpsUsersResponse,
   GetAdminPlanVisibilityResponse,
   GetAdminPlansResponse,
+  GetAdminPlatformRolloutFailedItemsResponse,
   GetAdminPlatformRolloutsResponse,
   GetAdminPromptTemplatesResponse,
   GetAdminRuntimeProviderSettingsResponse,
@@ -118,6 +119,8 @@ import type {
   PostAdminOpsUserBillingSupportActionResponse,
   PostAdminOpsUserPlanOverrideParams,
   PostAdminPlanResponse,
+  PostAdminPlatformRolloutCancelPendingResponse,
+  PostAdminPlatformRolloutRetryFailedResponse,
   PostAdminSkillAuthoringDraftResponse,
   PostAdminSkillDocumentReindexResponse,
   PostAdminSkillDocumentUploadBody,
@@ -7221,6 +7224,174 @@ export const getAdminPlatformRollouts = async (
     ...options,
     method: "GET"
   });
+};
+
+/**
+ * @summary List failed items for one materialization rollout
+ */
+export type getAdminPlatformRolloutFailedItemsResponse200 = {
+  data: GetAdminPlatformRolloutFailedItemsResponse;
+  status: 200;
+};
+
+export type getAdminPlatformRolloutFailedItemsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminPlatformRolloutFailedItemsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminPlatformRolloutFailedItemsResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAdminPlatformRolloutFailedItemsResponseSuccess =
+  getAdminPlatformRolloutFailedItemsResponse200 & {
+    headers: Headers;
+  };
+export type getAdminPlatformRolloutFailedItemsResponseError = (
+  | getAdminPlatformRolloutFailedItemsResponse401
+  | getAdminPlatformRolloutFailedItemsResponse403
+  | getAdminPlatformRolloutFailedItemsResponse404
+) & {
+  headers: Headers;
+};
+
+export type getAdminPlatformRolloutFailedItemsResponse =
+  | getAdminPlatformRolloutFailedItemsResponseSuccess
+  | getAdminPlatformRolloutFailedItemsResponseError;
+
+export const getGetAdminPlatformRolloutFailedItemsUrl = (rolloutId: string) => {
+  return `/admin/platform-rollouts/${rolloutId}/failed-items`;
+};
+
+export const getAdminPlatformRolloutFailedItems = async (
+  rolloutId: string,
+  options?: RequestInit
+): Promise<getAdminPlatformRolloutFailedItemsResponse> => {
+  return customFetch<getAdminPlatformRolloutFailedItemsResponse>(
+    getGetAdminPlatformRolloutFailedItemsUrl(rolloutId),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Retry failed items for one materialization rollout
+ */
+export type postAdminPlatformRolloutRetryFailedResponse200 = {
+  data: PostAdminPlatformRolloutRetryFailedResponse;
+  status: 200;
+};
+
+export type postAdminPlatformRolloutRetryFailedResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminPlatformRolloutRetryFailedResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminPlatformRolloutRetryFailedResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminPlatformRolloutRetryFailedResponseSuccess =
+  postAdminPlatformRolloutRetryFailedResponse200 & {
+    headers: Headers;
+  };
+export type postAdminPlatformRolloutRetryFailedResponseError = (
+  | postAdminPlatformRolloutRetryFailedResponse401
+  | postAdminPlatformRolloutRetryFailedResponse403
+  | postAdminPlatformRolloutRetryFailedResponse404
+) & {
+  headers: Headers;
+};
+
+export type postAdminPlatformRolloutRetryFailedResponse =
+  | postAdminPlatformRolloutRetryFailedResponseSuccess
+  | postAdminPlatformRolloutRetryFailedResponseError;
+
+export const getPostAdminPlatformRolloutRetryFailedUrl = (rolloutId: string) => {
+  return `/admin/platform-rollouts/${rolloutId}/retry-failed`;
+};
+
+export const postAdminPlatformRolloutRetryFailed = async (
+  rolloutId: string,
+  options?: RequestInit
+): Promise<postAdminPlatformRolloutRetryFailedResponse> => {
+  return customFetch<postAdminPlatformRolloutRetryFailedResponse>(
+    getPostAdminPlatformRolloutRetryFailedUrl(rolloutId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
+
+/**
+ * @summary Cancel pending items for one materialization rollout
+ */
+export type postAdminPlatformRolloutCancelPendingResponse200 = {
+  data: PostAdminPlatformRolloutCancelPendingResponse;
+  status: 200;
+};
+
+export type postAdminPlatformRolloutCancelPendingResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminPlatformRolloutCancelPendingResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminPlatformRolloutCancelPendingResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminPlatformRolloutCancelPendingResponseSuccess =
+  postAdminPlatformRolloutCancelPendingResponse200 & {
+    headers: Headers;
+  };
+export type postAdminPlatformRolloutCancelPendingResponseError = (
+  | postAdminPlatformRolloutCancelPendingResponse401
+  | postAdminPlatformRolloutCancelPendingResponse403
+  | postAdminPlatformRolloutCancelPendingResponse404
+) & {
+  headers: Headers;
+};
+
+export type postAdminPlatformRolloutCancelPendingResponse =
+  | postAdminPlatformRolloutCancelPendingResponseSuccess
+  | postAdminPlatformRolloutCancelPendingResponseError;
+
+export const getPostAdminPlatformRolloutCancelPendingUrl = (rolloutId: string) => {
+  return `/admin/platform-rollouts/${rolloutId}/cancel-pending`;
+};
+
+export const postAdminPlatformRolloutCancelPending = async (
+  rolloutId: string,
+  options?: RequestInit
+): Promise<postAdminPlatformRolloutCancelPendingResponse> => {
+  return customFetch<postAdminPlatformRolloutCancelPendingResponse>(
+    getPostAdminPlatformRolloutCancelPendingUrl(rolloutId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
 };
 
 /**

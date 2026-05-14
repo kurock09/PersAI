@@ -241,6 +241,8 @@ function shouldSurfacePreHeaderIssueAsBanner(issue: WebChatUxIssue): boolean {
     issue.classId === "knowledge_storage_full" ||
     issue.classId === "workspace_storage_full" ||
     issue.classId === "assistant_not_live" ||
+    issue.classId === "assistant_activating" ||
+    issue.classId === "assistant_activation_failed" ||
     issue.classId === "feature_unavailable" ||
     issue.classId === "auth_session"
   );

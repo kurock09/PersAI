@@ -2,7 +2,9 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
   Prisma,
   type MaterializationRolloutCriticality,
+  type MaterializationRolloutItem,
   type MaterializationRolloutItemStatus,
+  type MaterializationRolloutStatus,
   type MaterializationRolloutScopeType,
   type MaterializationRolloutTriggerSource,
   type MaterializationRolloutType
@@ -31,6 +33,29 @@ export type MaterializationRolloutQueueSummary = {
   status: string;
   startedAt: string | null;
   finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MaterializationRolloutItemView = {
+  id: string;
+  rolloutId: string;
+  assistantId: string;
+  workspaceId: string;
+  userId: string;
+  targetGeneration: number;
+  priority: number;
+  status: string;
+  attempts: number;
+  nextRetryAt: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  claimedAt: string | null;
+  materializedSpecId: string | null;
+  materializedContentHash: string | null;
+  runtimeBundleHash: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -159,6 +184,156 @@ export class MaterializationRolloutService {
     return this.mapSummary(rollout);
   }
 
+  async listFailedItems(
+    userId: string,
+    rolloutId: string
+  ): Promise<{
+    rollout: MaterializationRolloutQueueSummary;
+    items: MaterializationRolloutItemView[];
+  }> {
+    const context = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const rollout = await this.prisma.materializationRollout.findFirst({
+      where: { id: rolloutId, workspaceId: context.workspaceId }
+    });
+    if (rollout === null) {
+      throw new NotFoundException("Materialization rollout not found.");
+    }
+    const items = await this.prisma.materializationRolloutItem.findMany({
+      where: {
+        rolloutId,
+        workspaceId: context.workspaceId,
+        status: "failed"
+      },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }]
+    });
+    return {
+      rollout: this.mapSummary(rollout),
+      items: items.map((item) => this.mapItem(item))
+    };
+  }
+
+  async retryFailedItems(
+    userId: string,
+    rolloutId: string,
+    stepUpToken: string | null
+  ): Promise<{
+    rollout: MaterializationRolloutQueueSummary;
+    retriedCount: number;
+  }> {
+    const context = await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      userId,
+      "admin.force_reapply_all",
+      stepUpToken
+    );
+    const retriedCount = await this.prisma.$transaction(async (tx) => {
+      const rollout = await tx.materializationRollout.findFirst({
+        where: { id: rolloutId, workspaceId: context.workspaceId }
+      });
+      if (rollout === null) {
+        throw new NotFoundException("Materialization rollout not found.");
+      }
+      const result = await tx.materializationRolloutItem.updateMany({
+        where: {
+          rolloutId,
+          workspaceId: context.workspaceId,
+          status: "failed"
+        },
+        data: {
+          status: "pending",
+          nextRetryAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          startedAt: null,
+          finishedAt: null,
+          claimedAt: null
+        }
+      });
+      if (result.count > 0) {
+        await tx.materializationRollout.update({
+          where: { id: rolloutId },
+          data: {
+            status: "pending",
+            finishedAt: null
+          }
+        });
+      }
+      return result.count;
+    });
+    await this.refreshRolloutSummary(rolloutId);
+    if (retriedCount > 0) {
+      await this.appendAssistantAuditEventService.execute({
+        workspaceId: context.workspaceId,
+        assistantId: null,
+        actorUserId: userId,
+        eventCategory: "admin_action",
+        eventCode: "admin.materialization_rollout_retry_failed",
+        summary: "Admin retried failed materialization rollout items.",
+        details: {
+          rolloutId,
+          retriedCount
+        }
+      });
+    }
+    return {
+      rollout: await this.getRolloutOrThrow(rolloutId),
+      retriedCount
+    };
+  }
+
+  async cancelPendingItems(
+    userId: string,
+    rolloutId: string,
+    stepUpToken: string | null
+  ): Promise<{
+    rollout: MaterializationRolloutQueueSummary;
+    cancelledCount: number;
+  }> {
+    const context = await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      userId,
+      "admin.force_reapply_all",
+      stepUpToken
+    );
+    const cancelledCount = await this.prisma.$transaction(async (tx) => {
+      const rollout = await tx.materializationRollout.findFirst({
+        where: { id: rolloutId, workspaceId: context.workspaceId }
+      });
+      if (rollout === null) {
+        throw new NotFoundException("Materialization rollout not found.");
+      }
+      const result = await tx.materializationRolloutItem.updateMany({
+        where: {
+          rolloutId,
+          workspaceId: context.workspaceId,
+          status: "pending"
+        },
+        data: {
+          status: "cancelled",
+          finishedAt: new Date()
+        }
+      });
+      return result.count;
+    });
+    await this.refreshRolloutSummary(rolloutId);
+    if (cancelledCount > 0) {
+      await this.appendAssistantAuditEventService.execute({
+        workspaceId: context.workspaceId,
+        assistantId: null,
+        actorUserId: userId,
+        eventCategory: "admin_action",
+        eventCode: "admin.materialization_rollout_cancel_pending",
+        summary: "Admin cancelled pending materialization rollout items.",
+        details: {
+          rolloutId,
+          cancelledCount
+        }
+      });
+    }
+    return {
+      rollout: await this.getRolloutOrThrow(rolloutId),
+      cancelledCount
+    };
+  }
+
   private async listPublishedAssistantTargets(workspaceId: string): Promise<ManualReapplyTarget[]> {
     const assistants = await this.prisma.assistant.findMany({
       where: { workspaceId },
@@ -264,5 +439,77 @@ export class MaterializationRolloutService {
       createdAt: rollout.createdAt.toISOString(),
       updatedAt: rollout.updatedAt.toISOString()
     };
+  }
+
+  private mapItem(item: MaterializationRolloutItem): MaterializationRolloutItemView {
+    return {
+      id: item.id,
+      rolloutId: item.rolloutId,
+      assistantId: item.assistantId,
+      workspaceId: item.workspaceId,
+      userId: item.userId,
+      targetGeneration: item.targetGeneration,
+      priority: item.priority,
+      status: item.status,
+      attempts: item.attempts,
+      nextRetryAt: item.nextRetryAt?.toISOString() ?? null,
+      lastErrorCode: item.lastErrorCode,
+      lastErrorMessage: item.lastErrorMessage,
+      startedAt: item.startedAt?.toISOString() ?? null,
+      finishedAt: item.finishedAt?.toISOString() ?? null,
+      claimedAt: item.claimedAt?.toISOString() ?? null,
+      materializedSpecId: item.materializedSpecId,
+      materializedContentHash: item.materializedContentHash,
+      runtimeBundleHash: item.runtimeBundleHash,
+      createdAt: item.createdAt.toISOString(),
+      updatedAt: item.updatedAt.toISOString()
+    };
+  }
+
+  private async refreshRolloutSummary(rolloutId: string): Promise<void> {
+    const grouped = await this.prisma.materializationRolloutItem.groupBy({
+      by: ["status"],
+      where: { rolloutId },
+      _count: { _all: true }
+    });
+    const counts: Record<MaterializationRolloutItemStatus, number> = {
+      pending: 0,
+      running: 0,
+      succeeded: 0,
+      degraded: 0,
+      failed: 0,
+      skipped: 0,
+      cancelled: 0
+    };
+    for (const row of grouped) {
+      counts[row.status] = row._count._all;
+    }
+    const hasActive = counts.pending > 0 || counts.running > 0;
+    const nextStatus: MaterializationRolloutStatus = hasActive
+      ? counts.running > 0
+        ? "running"
+        : "pending"
+      : counts.failed > 0
+        ? "failed"
+        : counts.cancelled > 0 &&
+            counts.succeeded === 0 &&
+            counts.degraded === 0 &&
+            counts.skipped === 0
+          ? "cancelled"
+          : "succeeded";
+    await this.prisma.materializationRollout.update({
+      where: { id: rolloutId },
+      data: {
+        status: nextStatus,
+        pendingCount: counts.pending,
+        runningCount: counts.running,
+        succeededCount: counts.succeeded,
+        degradedCount: counts.degraded,
+        failedCount: counts.failed,
+        skippedCount: counts.skipped,
+        cancelledCount: counts.cancelled,
+        finishedAt: hasActive ? null : new Date()
+      }
+    });
   }
 }

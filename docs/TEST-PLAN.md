@@ -504,7 +504,7 @@ corepack pnpm --filter @persai/web run typecheck
 
 Interpretation rules:
 
-1. `Admin > Plans > Force reapply all` must enqueue a `manual_reapply` rollout job instead of synchronously looping every assistant in the request/response path.
+1. `Admin > Rollouts > Force reapply all` must enqueue a `manual_reapply` rollout job instead of synchronously looping every assistant in the request/response path.
 2. The rollout worker must skip assistants that already have a fresh-enough materialized spec for the target generation.
 3. Rollout processing must continue to use the existing safe apply/materialize/warmup path rather than inventing a parallel partial apply seam.
 4. The old JSON governance `/admin/rollouts` product path must not be silently treated as equivalent truth to the new materialization rollout path during the migration.

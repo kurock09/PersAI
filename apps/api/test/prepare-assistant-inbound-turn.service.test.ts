@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { PrepareAssistantInboundTurnService } from "../src/modules/workspace-management/application/prepare-assistant-inbound-turn.service";
 
 async function run(): Promise<void> {
@@ -317,6 +318,37 @@ async function run(): Promise<void> {
       error.errorObject !== null &&
       "code" in error.errorObject &&
       error.errorObject.code === "chat_message_limit_reached"
+  );
+
+  await assert.rejects(
+    () =>
+      new PrepareAssistantInboundTurnService(
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {
+          async resolveByUserId() {
+            throw new ApiErrorHttpException(409, {
+              code: "assistant_activating",
+              category: "conflict",
+              message: "Assistant settings are still activating."
+            });
+          }
+        } as never,
+        {} as never,
+        {} as never
+      ).execute({
+        userId: "user-1",
+        surface: "web_chat",
+        surfaceThreadKey: "thread-3",
+        message: "blocked by activation"
+      }),
+    (error: unknown) =>
+      error instanceof ApiErrorHttpException &&
+      error.errorObject.code === "assistant_activating" &&
+      error.errorObject.message === "Assistant settings are still activating."
   );
 }
 

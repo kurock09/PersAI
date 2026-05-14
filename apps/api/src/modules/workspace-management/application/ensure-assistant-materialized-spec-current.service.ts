@@ -1,4 +1,8 @@
 import { forwardRef, Inject, Injectable } from "@nestjs/common";
+import type {
+  MaterializationRolloutItemStatus,
+  MaterializationRolloutStatus
+} from "@prisma/client";
 import {
   ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
   type AssistantMaterializedSpecRepository
@@ -10,8 +14,19 @@ import {
 import type { AssistantMaterializedSpec } from "../domain/assistant-materialized-spec.entity";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import type { Assistant } from "../domain/assistant.entity";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
+
+type FreshnessResolveMode = "inline_refresh" | "rollout_aware";
+
+export type AssistantMaterializationActivationBlock = {
+  rolloutId: string;
+  rolloutStatus: MaterializationRolloutStatus;
+  itemStatus: MaterializationRolloutItemStatus;
+  targetGeneration: number;
+  reason: "hard_rollout_pending" | "hard_rollout_failed";
+};
 
 export type AssistantMaterializedSpecFreshness = {
   currentGeneration: number;
@@ -20,6 +35,11 @@ export type AssistantMaterializedSpecFreshness = {
   refreshed: boolean;
   stale: boolean;
   specGeneration: number;
+  activationBlock: AssistantMaterializationActivationBlock | null;
+};
+
+type ResolveFreshnessOptions = {
+  mode?: FreshnessResolveMode;
 };
 
 @Injectable()
@@ -31,20 +51,23 @@ export class EnsureAssistantMaterializedSpecCurrentService {
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
     @Inject(forwardRef(() => MaterializeAssistantPublishedVersionService))
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
-    private readonly bumpConfigGenerationService: BumpConfigGenerationService
+    private readonly bumpConfigGenerationService: BumpConfigGenerationService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   async resolveCurrent(
     assistant: Assistant,
-    latestPublishedVersion?: AssistantPublishedVersion | null
+    latestPublishedVersion?: AssistantPublishedVersion | null,
+    options?: ResolveFreshnessOptions
   ): Promise<AssistantMaterializedSpec | null> {
-    const freshness = await this.resolveFreshness(assistant, latestPublishedVersion);
+    const freshness = await this.resolveFreshness(assistant, latestPublishedVersion, options);
     return freshness.materializedSpec;
   }
 
   async resolveFreshness(
     assistant: Assistant,
-    latestPublishedVersion?: AssistantPublishedVersion | null
+    latestPublishedVersion?: AssistantPublishedVersion | null,
+    options?: ResolveFreshnessOptions
   ): Promise<AssistantMaterializedSpecFreshness> {
     const [currentGeneration, resolvedPublishedVersion, existingSpec] = await Promise.all([
       this.bumpConfigGenerationService.current(),
@@ -61,10 +84,12 @@ export class EnsureAssistantMaterializedSpecCurrentService {
         materializedSpec: existingSpec,
         refreshed: false,
         stale: false,
-        specGeneration: existingSpec?.materializedAtConfigGeneration ?? 0
+        specGeneration: existingSpec?.materializedAtConfigGeneration ?? 0,
+        activationBlock: null
       };
     }
 
+    const specGeneration = existingSpec?.materializedAtConfigGeneration ?? 0;
     const stale = this.isStale({
       assistant,
       currentGeneration,
@@ -78,8 +103,27 @@ export class EnsureAssistantMaterializedSpecCurrentService {
         materializedSpec: existingSpec,
         refreshed: false,
         stale: false,
-        specGeneration: existingSpec.materializedAtConfigGeneration
+        specGeneration: existingSpec.materializedAtConfigGeneration,
+        activationBlock: null
       };
+    }
+
+    if (options?.mode === "rollout_aware") {
+      const activationBlock = await this.findHardActivationBlock({
+        assistantId: assistant.id,
+        specGeneration
+      });
+      if (activationBlock !== null) {
+        return {
+          currentGeneration,
+          latestPublishedVersion: resolvedPublishedVersion,
+          materializedSpec: existingSpec,
+          refreshed: false,
+          stale,
+          specGeneration,
+          activationBlock
+        };
+      }
     }
 
     await this.materializeAssistantPublishedVersionService.execute(
@@ -97,7 +141,50 @@ export class EnsureAssistantMaterializedSpecCurrentService {
       materializedSpec: refreshedSpec,
       refreshed: true,
       stale,
-      specGeneration: refreshedSpec?.materializedAtConfigGeneration ?? currentGeneration
+      specGeneration: refreshedSpec?.materializedAtConfigGeneration ?? currentGeneration,
+      activationBlock: null
+    };
+  }
+
+  private async findHardActivationBlock(input: {
+    assistantId: string;
+    specGeneration: number;
+  }): Promise<AssistantMaterializationActivationBlock | null> {
+    const row = await this.prisma.materializationRolloutItem.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        targetGeneration: { gt: input.specGeneration },
+        status: {
+          in: ["pending", "running", "failed"]
+        },
+        rollout: {
+          criticality: "hard",
+          status: {
+            in: ["pending", "running", "failed"]
+          }
+        }
+      },
+      orderBy: [{ targetGeneration: "desc" }, { createdAt: "desc" }],
+      select: {
+        rolloutId: true,
+        targetGeneration: true,
+        status: true,
+        rollout: {
+          select: {
+            status: true
+          }
+        }
+      }
+    });
+    if (row === null) {
+      return null;
+    }
+    return {
+      rolloutId: row.rolloutId,
+      rolloutStatus: row.rollout.status,
+      itemStatus: row.status,
+      targetGeneration: row.targetGeneration,
+      reason: row.status === "failed" ? "hard_rollout_failed" : "hard_rollout_pending"
     };
   }
 

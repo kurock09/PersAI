@@ -23,6 +23,16 @@ async function run(): Promise<void> {
     service.renderError("reminder_callback", "runtime_unreachable", "fallback").text,
     "Reminder delivery is temporarily unavailable."
   );
+
+  assert.equal(
+    service.renderError("telegram", "assistant_activating", "fallback").text,
+    "Assistant settings are still activating. Please wait a moment and try again."
+  );
+
+  assert.equal(
+    service.renderError("reminder_callback", "assistant_activation_failed", "fallback").text,
+    "Reminder delivery is blocked until assistant settings activation is retried."
+  );
 }
 
 void run();

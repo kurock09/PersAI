@@ -7,6 +7,7 @@ import type { AssistantMaterializedSpecRepository } from "../src/modules/workspa
 import type { AssistantPublishedVersionRepository } from "../src/modules/workspace-management/domain/assistant-published-version.repository";
 import type { MaterializeAssistantPublishedVersionService } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
 import type { BumpConfigGenerationService } from "../src/modules/workspace-management/application/bump-config-generation.service";
+import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 
 function createAssistant(overrides?: Partial<Assistant>): Assistant {
   return {
@@ -107,7 +108,12 @@ export async function runEnsureAssistantMaterializedSpecCurrentServiceTest(): Pr
       async current() {
         return 6;
       }
-    } as BumpConfigGenerationService
+    } as BumpConfigGenerationService,
+    {
+      materializationRolloutItem: {
+        findFirst: async () => null
+      }
+    } as never as WorkspaceManagementPrismaService
   );
 
   const staleAssistant = createAssistant();
@@ -129,6 +135,54 @@ export async function runEnsureAssistantMaterializedSpecCurrentServiceTest(): Pr
   assert.equal(dirtyResult.refreshed, true);
   assert.equal(materializeCalls, 2);
   assert.equal(dirtyResult.materializedSpec?.publishedVersionId, latestPublished.id);
+
+  const rolloutAwareService = new EnsureAssistantMaterializedSpecCurrentService(
+    {
+      async findLatestByAssistantId() {
+        return createMaterializedSpec();
+      },
+      async findByPublishedVersionId() {
+        return createMaterializedSpec();
+      }
+    } as AssistantMaterializedSpecRepository,
+    {
+      async findLatestByAssistantId() {
+        return latestPublished;
+      }
+    } as AssistantPublishedVersionRepository,
+    {
+      async execute() {
+        materializeCalls += 1;
+      }
+    } as unknown as MaterializeAssistantPublishedVersionService,
+    {
+      async current() {
+        return 6;
+      }
+    } as BumpConfigGenerationService,
+    {
+      materializationRolloutItem: {
+        findFirst: async () => ({
+          rolloutId: "rollout-1",
+          targetGeneration: 6,
+          status: "pending",
+          rollout: {
+            status: "running"
+          }
+        })
+      }
+    } as never as WorkspaceManagementPrismaService
+  );
+  const rolloutAwareResult = await rolloutAwareService.resolveFreshness(
+    staleAssistant,
+    latestPublished,
+    {
+      mode: "rollout_aware"
+    }
+  );
+  assert.equal(rolloutAwareResult.refreshed, false);
+  assert.equal(rolloutAwareResult.activationBlock?.rolloutId, "rollout-1");
+  assert.equal(rolloutAwareResult.activationBlock?.reason, "hard_rollout_pending");
 }
 
 void runEnsureAssistantMaterializedSpecCurrentServiceTest();

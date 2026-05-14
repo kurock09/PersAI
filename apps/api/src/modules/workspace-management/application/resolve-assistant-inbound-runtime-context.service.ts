@@ -131,11 +131,28 @@ export class ResolveAssistantInboundRuntimeContextService {
       );
     }
 
-    const materializedSpec =
-      await this.ensureAssistantMaterializedSpecCurrentService.resolveCurrent(
-        assistant,
-        latestPublishedVersion
+    const freshness = await this.ensureAssistantMaterializedSpecCurrentService.resolveFreshness(
+      assistant,
+      latestPublishedVersion,
+      { mode: "rollout_aware" }
+    );
+    if (freshness.activationBlock !== null) {
+      throw createAssistantInboundConflict(
+        freshness.activationBlock.reason === "hard_rollout_failed"
+          ? "assistant_activation_failed"
+          : "assistant_activating",
+        freshness.activationBlock.reason === "hard_rollout_failed"
+          ? "Assistant settings activation failed. Retry the rollout from Admin > Rollouts before accepting new turns."
+          : "Assistant settings are still activating. Please wait a moment and try again.",
+        {
+          rolloutId: freshness.activationBlock.rolloutId,
+          rolloutStatus: freshness.activationBlock.rolloutStatus,
+          itemStatus: freshness.activationBlock.itemStatus,
+          targetGeneration: freshness.activationBlock.targetGeneration
+        }
       );
+    }
+    const materializedSpec = freshness.materializedSpec;
     const runtimeAssignment = readRuntimeAssignmentStateFromMaterializedLayers(
       materializedSpec?.layers ?? null
     );

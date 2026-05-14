@@ -4,9 +4,13 @@ import {
   type AdminRuntimeProviderSettingsState,
   type AdminBillingLifecycleSettingsRequest,
   type AdminBillingLifecycleSettingsState,
+  type GetAdminPlatformRolloutFailedItemsResponse,
   type PutAdminBillingLifecycleSettingsResponse,
   type AssistantSkillCatalogItemState,
+  type MaterializationRolloutItemView,
   type MaterializationRolloutView,
+  type PostAdminPlatformRolloutCancelPendingResponse,
+  type PostAdminPlatformRolloutRetryFailedResponse,
   type AdminSkillState,
   type AdminSkillUpsertRequest,
   type GetAssistantSkillsResponse,
@@ -347,6 +351,8 @@ export type WebChatUxIssueClass =
   | "input_validation"
   | "voice_transcription_empty"
   | "assistant_not_live"
+  | "assistant_activating"
+  | "assistant_activation_failed"
   | "active_chat_cap"
   | "chat_message_limit"
   | "quota_limit_reached"
@@ -507,6 +513,22 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
       classId: "assistant_not_live",
       message: "Chat is unavailable until your assistant is live on the latest publish.",
       guidance: "Publish/apply the assistant first, then retry."
+    };
+  }
+
+  if (code === "assistant_activating") {
+    return {
+      classId: "assistant_activating",
+      message: "Your assistant settings are still activating.",
+      guidance: "Wait a moment, then retry in the same thread."
+    };
+  }
+
+  if (code === "assistant_activation_failed") {
+    return {
+      classId: "assistant_activation_failed",
+      message: "Assistant settings activation failed.",
+      guidance: "Retry the rollout in Admin > Rollouts, then try again."
     };
   }
 
@@ -759,6 +781,22 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
       classId: "assistant_not_live",
       message: "Chat is unavailable until your assistant is live on the latest publish.",
       guidance: "Publish/apply the assistant first, then retry."
+    };
+  }
+
+  if (normalized.includes("settings are still activating")) {
+    return {
+      classId: "assistant_activating",
+      message: "Your assistant settings are still activating.",
+      guidance: "Wait a moment, then retry in the same thread."
+    };
+  }
+
+  if (normalized.includes("settings activation failed")) {
+    return {
+      classId: "assistant_activation_failed",
+      message: "Assistant settings activation failed.",
+      guidance: "Retry the rollout in Admin > Rollouts, then try again."
     };
   }
 
@@ -2169,7 +2207,7 @@ export async function compactChat(
 export type { AdminPlanState, AdminPlanCreateRequest, AdminPlanUpdateRequest };
 export type { AdminBusinessCockpitState };
 export type { AdminOpsCockpitState };
-export type { MaterializationRolloutView };
+export type { MaterializationRolloutView, MaterializationRolloutItemView };
 export type { UserPlanVisibilityState, AdminPlanVisibilityState };
 export type { TelegramIntegrationState, AssistantTelegramConfigUpdateRequest };
 
@@ -2877,6 +2915,94 @@ export async function getAdminPlatformRollouts(
       throw new Error("Unexpected non-success response for GET /admin/platform-rollouts.");
     }
     return response.data.rollouts;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAdminPlatformRolloutFailedItems(
+  token: string,
+  rolloutId: string
+): Promise<GetAdminPlatformRolloutFailedItemsResponse> {
+  try {
+    const base = getApiBaseUrl();
+    const res = await fetch(
+      `${base}/admin/platform-rollouts/${encodeURIComponent(rolloutId)}/failed-items`,
+      {
+        headers: getAuthHeaders(token)
+      }
+    );
+    if (!res.ok) {
+      throw new Error(
+        await readJsonErrorMessage(
+          res,
+          `Failed to load failed rollout items (${String(res.status)}).`
+        )
+      );
+    }
+    return (await res.json()) as GetAdminPlatformRolloutFailedItemsResponse;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminPlatformRolloutRetryFailed(
+  token: string,
+  rolloutId: string
+): Promise<PostAdminPlatformRolloutRetryFailedResponse> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.force_reapply_all");
+    const base = getApiBaseUrl();
+    const res = await fetch(
+      `${base}/admin/platform-rollouts/${encodeURIComponent(rolloutId)}/retry-failed`,
+      {
+        method: "POST",
+        headers: {
+          ...getAuthHeaders(token),
+          "x-persai-step-up-token": stepUpToken
+        }
+      }
+    );
+    if (!res.ok) {
+      throw new Error(
+        await readJsonErrorMessage(
+          res,
+          `Retry failed rollout items failed (${String(res.status)}).`
+        )
+      );
+    }
+    return (await res.json()) as PostAdminPlatformRolloutRetryFailedResponse;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminPlatformRolloutCancelPending(
+  token: string,
+  rolloutId: string
+): Promise<PostAdminPlatformRolloutCancelPendingResponse> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.force_reapply_all");
+    const base = getApiBaseUrl();
+    const res = await fetch(
+      `${base}/admin/platform-rollouts/${encodeURIComponent(rolloutId)}/cancel-pending`,
+      {
+        method: "POST",
+        headers: {
+          ...getAuthHeaders(token),
+          "x-persai-step-up-token": stepUpToken
+        }
+      }
+    );
+    if (!res.ok) {
+      throw new Error(
+        await readJsonErrorMessage(
+          res,
+          `Cancel pending rollout items failed (${String(res.status)}).`
+        )
+      );
+    }
+    return (await res.json()) as PostAdminPlatformRolloutCancelPendingResponse;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

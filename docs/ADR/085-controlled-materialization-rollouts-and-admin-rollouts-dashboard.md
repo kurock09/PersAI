@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; the controlled rollout foundation, dashboard replacement, automatic producers, and billing/system producers are landed in repo. ADR closeout is still pending on the rollout-aware next-turn freshness gate and the operator controls for failed-item inspection/retry/cancel.
+Accepted; the controlled rollout foundation, dashboard replacement, automatic producers, billing/system producers, failed-item operator controls, and hard-critical inbound freshness blocking are landed in repo. ADR closeout is still pending on the remaining next-turn freshness semantics for bounded wait/boost behavior and softer no-stampede turn-path handling.
 
 Current continuation state:
 
@@ -269,7 +269,7 @@ Implement in production-grade slices.
 | 3. Controlled worker and queue semantics                | Completed | Process materialization jobs safely.                                                               | API workers/scheduler, materialization service, runtime bundle warmup                  | Queue uses concurrency limits, per-assistant locks, retry/backoff, idempotency, skip-if-fresh, and does not run all assistants synchronously in request path.   |
 | 4. Automatic rollout creation from global config change | Completed | Replace hidden lazy-storm behavior with visible system rollouts.                                   | Admin Plans, Runtime settings, prompt/system config, tool/Skill policy writers         | Global changes bump generation and create scoped rollout jobs with reason/scope/criticality.                                                                    |
 | 5. Admin Rollouts dashboard replacement                 | Completed | Replace old JSON patch UI with operational rollout dashboard.                                      | `apps/web/app/admin/rollouts`, admin APIs/contracts                                    | Dashboard shows active/completed rollouts, progress bars, statuses, failed items, retry/cancel, and manual reapply as queued jobs.                              |
-| 6. Next-turn freshness gate                             | Pending   | Prevent stale hard-critical turns without causing stampedes.                                       | inbound runtime context, materialization freshness checks, runtime error/copy handling | Hard-critical stale state blocks/waits/activates clearly; soft changes can proceed when allowed; turn path can enqueue/boost but not unboundedly rematerialize. |
+| 6. Next-turn freshness gate                             | In progress | Prevent stale hard-critical turns without causing stampedes.                                       | inbound runtime context, materialization freshness checks, runtime error/copy handling | Hard-critical stale state blocks/waits/activates clearly; soft changes can proceed when allowed; turn path can enqueue/boost but not unboundedly rematerialize. |
 | 7. Remove obsolete legacy paths                         | Completed | Delete old active JSON governance rollout and synchronous force-reapply-all product paths cleanly. | old rollout services/controllers/contracts/UI, runtime admin endpoint                  | No active UI/API exposes raw JSON governance patch rollout or synchronous all-assistant reapply as product behavior; migrations/docs explain replacement.       |
 
 ### Execution rules

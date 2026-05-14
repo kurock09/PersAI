@@ -37,6 +37,10 @@ export class RenderAssistantInboundSurfaceMessageService {
     switch (code) {
       case "assistant_not_live":
         return "Assistant is not live yet. Please publish/apply the latest version first.";
+      case "assistant_activating":
+        return "Assistant settings are still activating. Please wait a moment and try again.";
+      case "assistant_activation_failed":
+        return "Assistant settings activation failed. Retry the rollout from Admin > Rollouts, then try again.";
       case "plan_feature_unavailable":
         return "This channel is not available on the current plan.";
       case "media_storage_quota_exceeded":
@@ -69,6 +73,10 @@ export class RenderAssistantInboundSurfaceMessageService {
 
   private renderReminderError(code: string, fallbackMessage: string): string {
     switch (code) {
+      case "assistant_activating":
+        return "Reminder delivery is waiting for assistant settings activation.";
+      case "assistant_activation_failed":
+        return "Reminder delivery is blocked until assistant settings activation is retried.";
       case "plan_feature_unavailable":
         return "Reminder delivery is unavailable on the current plan.";
       case "quota_limit_reached":

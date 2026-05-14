@@ -4942,6 +4942,130 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/platform-rollouts/{rolloutId}/failed-items:
+    get:
+      operationId: getAdminPlatformRolloutFailedItems
+      summary: List failed items for one materialization rollout
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: rolloutId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Failed rollout items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminPlatformRolloutFailedItemsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Rollout not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/platform-rollouts/{rolloutId}/retry-failed:
+    post:
+      operationId: postAdminPlatformRolloutRetryFailed
+      summary: Retry failed items for one materialization rollout
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: rolloutId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Failed rollout items moved back to pending
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminPlatformRolloutRetryFailedResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Rollout not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/platform-rollouts/{rolloutId}/cancel-pending:
+    post:
+      operationId: postAdminPlatformRolloutCancelPending
+      summary: Cancel pending items for one materialization rollout
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: rolloutId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pending rollout items cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminPlatformRolloutCancelPendingResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Rollout not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /public/plans/pricing:
     get:
       operationId: getPublicPricingPlans
@@ -13005,6 +13129,98 @@ components:
         updatedAt:
           type: string
           format: date-time
+    MaterializationRolloutItemView:
+      type: object
+      required:
+        - id
+        - rolloutId
+        - assistantId
+        - workspaceId
+        - userId
+        - targetGeneration
+        - priority
+        - status
+        - attempts
+        - nextRetryAt
+        - lastErrorCode
+        - lastErrorMessage
+        - startedAt
+        - finishedAt
+        - claimedAt
+        - materializedSpecId
+        - materializedContentHash
+        - runtimeBundleHash
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        rolloutId:
+          type: string
+          format: uuid
+        assistantId:
+          type: string
+          format: uuid
+        workspaceId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        targetGeneration:
+          type: integer
+        priority:
+          type: integer
+        status:
+          type: string
+          enum:
+            - pending
+            - running
+            - succeeded
+            - degraded
+            - failed
+            - skipped
+            - cancelled
+        attempts:
+          type: integer
+        nextRetryAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastErrorCode:
+          type: string
+          nullable: true
+        lastErrorMessage:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        claimedAt:
+          type: string
+          format: date-time
+          nullable: true
+        materializedSpecId:
+          type: string
+          nullable: true
+        materializedContentHash:
+          type: string
+          nullable: true
+        runtimeBundleHash:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
     GetAdminPlatformRolloutsResponse:
       type: object
       required:
@@ -13017,6 +13233,47 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MaterializationRolloutView"
+    GetAdminPlatformRolloutFailedItemsResponse:
+      type: object
+      required:
+        - rollout
+        - items
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        rollout:
+          $ref: "#/components/schemas/MaterializationRolloutView"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MaterializationRolloutItemView"
+    PostAdminPlatformRolloutRetryFailedResponse:
+      type: object
+      required:
+        - rollout
+        - retriedCount
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        rollout:
+          $ref: "#/components/schemas/MaterializationRolloutView"
+        retriedCount:
+          type: integer
+    PostAdminPlatformRolloutCancelPendingResponse:
+      type: object
+      required:
+        - rollout
+        - cancelledCount
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        rollout:
+          $ref: "#/components/schemas/MaterializationRolloutView"
+        cancelledCount:
+          type: integer
     AdminAbuseUnblockRequest:
       type: object
       required:

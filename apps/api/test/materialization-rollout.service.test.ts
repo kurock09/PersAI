@@ -42,13 +42,71 @@ class FakePrisma {
     },
     findUnique: async ({ where }: { where: { id: string } }) =>
       this.rollouts.find((entry) => entry.id === where.id) ?? null,
+    findFirst: async ({ where }: { where: { id: string; workspaceId: string } }) =>
+      this.rollouts.find(
+        (entry) => entry.id === where.id && entry.workspaceId === where.workspaceId
+      ) ?? null,
     findMany: async () => [...this.rollouts].reverse()
   };
 
   materializationRolloutItem = {
     createMany: async ({ data }: { data: Array<Record<string, unknown>> }) => {
-      this.items.push(...data);
+      this.items.push(
+        ...data.map((row, index) => ({
+          id: `item-${this.items.length + index + 1}`,
+          attempts: 0,
+          nextRetryAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          startedAt: null,
+          finishedAt: null,
+          claimedAt: null,
+          materializedSpecId: null,
+          materializedContentHash: null,
+          runtimeBundleHash: null,
+          createdAt: new Date("2026-05-14T07:00:00.000Z"),
+          updatedAt: new Date("2026-05-14T07:00:00.000Z"),
+          ...row
+        }))
+      );
       return { count: data.length };
+    },
+    findMany: async ({ where }: { where: Record<string, unknown> }) =>
+      this.items.filter((item) => {
+        if (where.rolloutId !== undefined && item.rolloutId !== where.rolloutId) return false;
+        if (where.workspaceId !== undefined && item.workspaceId !== where.workspaceId) return false;
+        if (where.status !== undefined && item.status !== where.status) return false;
+        return true;
+      }),
+    updateMany: async ({
+      where,
+      data
+    }: {
+      where: Record<string, unknown>;
+      data: Record<string, unknown>;
+    }) => {
+      let count = 0;
+      for (const item of this.items) {
+        const matches =
+          (where.rolloutId === undefined || item.rolloutId === where.rolloutId) &&
+          (where.workspaceId === undefined || item.workspaceId === where.workspaceId) &&
+          (where.status === undefined || item.status === where.status);
+        if (matches) {
+          Object.assign(item, data, { updatedAt: new Date("2026-05-14T07:10:00.000Z") });
+          count += 1;
+        }
+      }
+      return { count };
+    },
+    groupBy: async ({ where }: { where: { rolloutId: string } }) => {
+      const counts = new Map<string, number>();
+      for (const item of this.items.filter((entry) => entry.rolloutId === where.rolloutId)) {
+        counts.set(String(item.status), (counts.get(String(item.status)) ?? 0) + 1);
+      }
+      return Array.from(counts.entries()).map(([status, count]) => ({
+        status,
+        _count: { _all: count }
+      }));
     }
   };
 
@@ -113,6 +171,46 @@ async function run(): Promise<void> {
     assert.equal(listed.length, 1);
     assert.equal(listed[0]?.id, first.id);
     console.log("✓ materialization rollouts list returns recent rollouts");
+  }
+
+  {
+    const { prisma, service } = createService();
+    await service.createManualReapplyRollout("admin-1", "stepup");
+    prisma.items[0] = {
+      ...prisma.items[0],
+      status: "failed",
+      lastErrorCode: "apply_exception",
+      lastErrorMessage: "Apply failed."
+    };
+    prisma.items[1] = {
+      ...prisma.items[1],
+      status: "pending"
+    };
+
+    const failed = await service.listFailedItems("admin-1", "rollout-1");
+    assert.equal(failed.items.length, 1);
+    assert.equal(failed.items[0]?.lastErrorCode, "apply_exception");
+
+    const retried = await service.retryFailedItems("admin-1", "rollout-1", "stepup");
+    assert.equal(retried.retriedCount, 1);
+    assert.equal(prisma.items[0]?.status, "pending");
+    assert.equal(
+      prisma.auditEvents.some(
+        (event) => event.eventCode === "admin.materialization_rollout_retry_failed"
+      ),
+      true
+    );
+
+    const cancelled = await service.cancelPendingItems("admin-1", "rollout-1", "stepup");
+    assert.equal(cancelled.cancelledCount, 2);
+    assert.equal(prisma.rollouts[0]?.cancelledCount, 2);
+    assert.equal(
+      prisma.auditEvents.some(
+        (event) => event.eventCode === "admin.materialization_rollout_cancel_pending"
+      ),
+      true
+    );
+    console.log("✓ rollout service exposes failed items and retry/cancel controls");
   }
 }
 
