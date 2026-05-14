@@ -424,8 +424,6 @@ function AccountFooter({
   const tokenBucket =
     data.plan?.limits.quotaBuckets.find((bucket) => bucket.bucketCode === "token_budget") ?? null;
   const tokenUsage = tokenBucket?.percent ?? 0;
-  const tokenUsed = tokenBucket?.used ?? 0;
-  const tokenLimit = tokenBucket?.limit ?? null;
   const paidLightModeActive = data.plan?.advisories?.tokenBudget?.paidLightModeActive ?? false;
   const billingSummary = resolveBillingSummaryCopy(data.plan?.effectivePlan, locale);
 
@@ -504,13 +502,13 @@ function AccountFooter({
         {open && (
           <motion.div
             role="menu"
-            className="absolute right-0 bottom-full left-0 z-50 mb-2 rounded-xl border border-border-strong bg-surface-raised p-1.5 shadow-xl"
+            className="absolute right-0 bottom-full left-0 z-50 mb-2 rounded-2xl border border-border-strong bg-surface-raised/95 p-2 shadow-[0_20px_48px_rgba(0,0,0,0.28)] backdrop-blur-md"
             initial={{ opacity: 0, y: 6, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.98 }}
             transition={{ duration: 0.16, ease: "easeOut" }}
           >
-            <div className="border-b border-border px-2.5 py-2">
+            <div className="border-b border-border/80 px-3 py-2.5">
               <p className="truncate text-xs font-medium text-text">
                 {user?.fullName ?? displayName}
               </p>
@@ -525,17 +523,20 @@ function AccountFooter({
                 setOpen(false);
                 onLimitsClick?.();
               }}
-              className="mt-1 block w-full cursor-pointer rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-hover"
+              className="mt-1.5 block w-full cursor-pointer rounded-xl border border-border/55 bg-bg/30 px-3 py-2.5 text-left transition-colors hover:border-border/80 hover:bg-surface-hover/60"
             >
               <div className="flex items-center justify-between gap-3 text-[11px]">
                 <span className="text-text-muted">{t("tokenUsage")}</span>
-                <span className="text-text-subtle">
-                  {tokenLimit === null
-                    ? t("tokensUsedOnly", { used: tokenUsed })
-                    : t("tokensUsageValue", { used: tokenUsed, limit: tokenLimit })}
+                <span className="flex items-center gap-1.5 text-text-subtle">
+                  <span>{ts("tokenPercentCompact", { pct: tokenUsage })}</span>
+                  {paidLightModeActive ? (
+                    <span className="rounded-full border border-border/70 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-warning">
+                      {t("lightModeBadge")}
+                    </span>
+                  ) : null}
                 </span>
               </div>
-              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface">
+              <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-surface">
                 <div
                   className={cn(
                     "h-full rounded-full transition-all",
@@ -544,25 +545,22 @@ function AccountFooter({
                   style={{ width: `${Math.min(tokenUsage, 100)}%` }}
                 />
               </div>
-              <div className="mt-1 flex items-center justify-between text-[11px]">
+              <div className="mt-2 flex items-center justify-between gap-3 text-[11px]">
                 <span className="max-w-[160px] truncate text-text-muted">{planName}</span>
-                <span className="flex items-center gap-1.5 text-text-subtle">
-                  <span>{ts("tokenPercentCompact", { pct: tokenUsage })}</span>
-                  {paidLightModeActive ? (
-                    <span className="rounded-full border border-border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-warning">
-                      {t("lightModeBadge")}
-                    </span>
-                  ) : null}
-                </span>
+                {paidLightModeActive ? (
+                  <span className="rounded-full border border-border/70 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-warning">
+                    {t("lightModeBadge")}
+                  </span>
+                ) : null}
               </div>
               {billingSummary.dateKey && billingSummary.dateLabel ? (
-                <p className="mt-1 text-[10px] text-text-subtle">
+                <p className="mt-1.5 text-[10px] text-text-subtle">
                   {ts(billingSummary.dateKey, { date: billingSummary.dateLabel })}
                 </p>
               ) : null}
             </button>
 
-            <div className="my-1 border-t border-border" />
+            <div className="my-1.5 border-t border-border/80" />
 
             <button
               type="button"
@@ -570,7 +568,7 @@ function AccountFooter({
                 setOpen(false);
                 onTelegramClick?.();
               }}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-surface-hover"
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors hover:bg-surface-hover/70"
             >
               <Send className="h-3.5 w-3.5 text-text-muted" />
               <span className="min-w-0 flex-1 truncate text-xs text-text">{t("telegram")}</span>
@@ -584,69 +582,71 @@ function AccountFooter({
                 {telegramStatusLabel}
               </span>
             </button>
-            <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 opacity-50">
+            <div className="flex items-center gap-2.5 rounded-xl px-3 py-2 opacity-50">
               <Smartphone className="h-3.5 w-3.5 text-text-muted" />
               <span className="min-w-0 flex-1 truncate text-xs text-text">{t("whatsApp")}</span>
               <span className="text-[10px] text-text-subtle">{t("comingSoon")}</span>
             </div>
-            <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 opacity-50">
+            <div className="flex items-center gap-2.5 rounded-xl px-3 py-2 opacity-50">
               <MessageCircle className="h-3.5 w-3.5 text-text-muted" />
               <span className="min-w-0 flex-1 truncate text-xs text-text">{t("max")}</span>
               <span className="text-[10px] text-text-subtle">{t("comingSoon")}</span>
             </div>
 
-            <div className="my-1 border-t border-border" />
+            <div className="my-1.5 border-t border-border/80" />
 
-            {/* Theme — segmented row */}
-            <div className="flex items-center gap-2 px-2.5 py-1.5">
-              <span className="min-w-0 flex-1 text-[11px] text-text-muted">{t("theme")}</span>
-              <div className="flex items-center rounded-lg bg-surface p-0.5">
-                {themeOptions.map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setTheme(opt.id)}
-                    title={opt.label}
-                    aria-label={opt.label}
-                    className={cn(
-                      "rounded-md p-1.5 transition-colors",
-                      theme === opt.id
-                        ? "bg-surface-raised text-text"
-                        : "text-text-subtle hover:text-text"
-                    )}
-                  >
-                    {opt.icon}
-                  </button>
-                ))}
+            <div className="rounded-xl border border-border/55 bg-bg/25 px-3 py-2.5">
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex flex-1 items-center gap-2">
+                  <span className="text-[11px] text-text-muted">{t("theme")}</span>
+                  <div className="flex items-center rounded-xl border border-border/60 bg-surface/70 p-0.5">
+                    {themeOptions.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setTheme(opt.id)}
+                        title={opt.label}
+                        aria-label={opt.label}
+                        className={cn(
+                          "rounded-lg p-1.5 transition-colors",
+                          theme === opt.id
+                            ? "bg-surface-raised text-text"
+                            : "text-text-subtle hover:text-text"
+                        )}
+                      >
+                        {opt.icon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="h-6 w-px shrink-0 bg-border/80" aria-hidden="true" />
+                <div className="min-w-0 flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                    <Globe className="h-3 w-3" />
+                    {t("language")}
+                  </span>
+                  <div className="flex items-center rounded-xl border border-border/60 bg-surface/70 p-0.5">
+                    {LOCALES.map((loc) => (
+                      <button
+                        key={loc.code}
+                        type="button"
+                        onClick={() => switchLocale(loc.code)}
+                        className={cn(
+                          "rounded-lg px-2 py-1 text-[11px] font-medium transition-colors",
+                          currentLocale === loc.code
+                            ? "bg-surface-raised text-text"
+                            : "text-text-subtle hover:text-text"
+                        )}
+                      >
+                        {loc.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Language — segmented row */}
-            <div className="flex items-center gap-2 px-2.5 py-1.5">
-              <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] text-text-muted">
-                <Globe className="h-3 w-3" />
-                {t("language")}
-              </span>
-              <div className="flex items-center rounded-lg bg-surface p-0.5">
-                {LOCALES.map((loc) => (
-                  <button
-                    key={loc.code}
-                    type="button"
-                    onClick={() => switchLocale(loc.code)}
-                    className={cn(
-                      "rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
-                      currentLocale === loc.code
-                        ? "bg-surface-raised text-text"
-                        : "text-text-subtle hover:text-text"
-                    )}
-                  >
-                    {loc.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="my-1 border-t border-border" />
+            <div className="my-1.5 border-t border-border/80" />
 
             {data.isAdmin && (
               <button
@@ -658,7 +658,7 @@ function AccountFooter({
                     router.push("/admin" as Route);
                   });
                 }}
-                className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover/70 hover:text-text"
               >
                 <Shield className="h-3.5 w-3.5" />
                 {t("adminPanel")}
@@ -674,7 +674,7 @@ function AccountFooter({
                   router.push("/app/profile" as Route);
                 });
               }}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover/70 hover:text-text"
             >
               <Settings className="h-3.5 w-3.5" />
               {t("accountSettings")}
@@ -696,7 +696,7 @@ function AccountFooter({
               disabled={signingOut}
               aria-busy={signingOut}
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-destructive/10",
+                "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-destructive transition-colors hover:bg-destructive/10",
                 signingOut ? "cursor-wait opacity-70" : "cursor-pointer"
               )}
             >

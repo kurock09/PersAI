@@ -193,8 +193,8 @@ function PackageChoiceRow({
       disabled={disabled}
       aria-pressed={selected}
       className={cn(
-        "group relative flex w-full items-center justify-between gap-3 overflow-hidden rounded-2xl border px-4 py-3 text-left transition-all",
-        "border-border/80 bg-bg/55 text-text hover:border-border hover:bg-surface-hover/70",
+        "group relative flex w-full items-center justify-between gap-3 overflow-hidden rounded-xl border px-3.5 py-2.5 text-left transition-all",
+        "border-border/70 bg-bg/35 text-text hover:border-border/90 hover:bg-surface-hover/55",
         // User selection: quiet accent border on top of the default surface.
         selected && "border-accent/60 bg-accent/5 hover:border-accent/70",
         disabled && "cursor-not-allowed opacity-45 hover:border-border/80 hover:bg-bg/55"
@@ -207,14 +207,14 @@ function PackageChoiceRow({
       {highlighted ? (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-2 left-0 w-[3px] rounded-full bg-gradient-to-b from-[rgba(214,170,70,0.95)] via-[rgba(255,226,150,0.95)] to-[rgba(176,132,33,0.95)]"
+          className="pointer-events-none absolute inset-y-2 left-0 w-[2px] rounded-full bg-[color:rgba(200,165,87,0.9)]"
         />
       ) : null}
       <div className="flex min-w-0 items-start gap-3">
         <span
           aria-hidden="true"
           className={cn(
-            "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors",
+            "mt-0.5 inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full border transition-colors",
             selected
               ? "border-accent bg-accent text-white"
               : "border-border/80 bg-surface text-transparent group-hover:border-border"
@@ -223,15 +223,15 @@ function PackageChoiceRow({
           <Check className="h-3 w-3" strokeWidth={3} />
         </span>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-text">{formatPackageLabel(locale, item)}</p>
+          <p className="text-[13px] font-semibold text-text">{formatPackageLabel(locale, item)}</p>
           {subtitle.length > 0 ? (
-            <p className="mt-0.5 text-xs text-text-subtle">{subtitle}</p>
+            <p className="mt-0.5 text-[11px] text-text-subtle">{subtitle}</p>
           ) : null}
         </div>
       </div>
       <span
         className={cn(
-          "shrink-0 text-sm font-semibold tabular-nums",
+          "shrink-0 text-[13px] font-semibold tabular-nums",
           highlighted ? "text-[rgba(140,98,18,1)] dark:text-[rgba(232,196,118,1)]" : "text-text"
         )}
       >
@@ -260,27 +260,19 @@ function PackageTypeCard({
   const toolEnabled = toolState?.offerableNow === true;
 
   return (
-    <section className="relative flex h-full flex-col overflow-hidden rounded-[32px] border border-border/80 bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-6">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-text/10 to-transparent"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-full bg-white/10 blur-3xl"
-      />
+    <section className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-border/70 bg-surface/78 p-4 shadow-[0_12px_32px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-5">
       <div className="relative z-10">
         <p className="text-[10px] font-semibold uppercase leading-4 tracking-[0.22em] text-text-subtle">
           {pickMetaText(locale, meta.eyebrow)}
         </p>
-        <h2 className="mt-1.5 text-xl font-semibold tracking-[-0.01em] text-text">
+        <h2 className="mt-1 text-lg font-semibold tracking-[-0.01em] text-text">
           {pickMetaText(locale, meta.headline)}
         </h2>
-        <div className="mt-4 h-px w-full bg-gradient-to-r from-border/80 via-border/40 to-transparent" />
+        <div className="mt-3 h-px w-full bg-border/60" />
       </div>
-      <div className="mt-6 flex-1 space-y-3">
+      <div className="mt-4 flex-1 space-y-2.5">
         {items.length === 0 ? (
-          <div className="rounded-2xl border border-border/80 bg-bg/50 px-4 py-4 text-sm text-text-muted">
+          <div className="rounded-xl border border-border/70 bg-bg/35 px-4 py-4 text-sm text-text-muted">
             {pickMetaText(locale, meta.emptyHint)}
           </div>
         ) : (
@@ -297,12 +289,12 @@ function PackageTypeCard({
         )}
       </div>
       {!toolEnabled ? (
-        <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-text-muted">
+        <div className="mt-4 rounded-xl border border-amber-500/18 bg-amber-500/7 px-4 py-3 text-sm leading-6 text-text-muted">
           {resolveDisabledHint(locale, type, toolState)}
         </div>
       ) : null}
       <div
-        className="mt-5 flex items-start gap-2 border-t border-border/40 pt-4 text-xs leading-relaxed text-text-subtle"
+        className="mt-4 flex items-start gap-2 border-t border-border/35 pt-3.5 text-[11px] leading-relaxed text-text-subtle"
         title={pickMetaText(locale, meta.info)}
       >
         <Info className="mt-0.5 h-3 w-3 shrink-0 opacity-60" aria-hidden="true" />
@@ -351,19 +343,15 @@ function SummaryBlock({
       : formatPrice(totalAmountMinor, currency, locale);
 
   return (
-    <section className="relative overflow-hidden rounded-[32px] border border-border/80 bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-6">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-text/10 to-transparent"
-      />
+    <section className="relative overflow-hidden rounded-3xl border border-border/70 bg-surface/78 p-4 shadow-[0_12px_32px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-5">
       <div className="relative z-10">
         <p className="text-[10px] font-semibold uppercase leading-4 tracking-[0.22em] text-text-subtle">
           {locale === "ru" ? "Ваш выбор" : "Your selection"}
         </p>
-        <div className="mt-4 h-px w-full bg-gradient-to-r from-border/80 via-border/40 to-transparent" />
+        <div className="mt-3 h-px w-full bg-border/60" />
       </div>
 
-      <div className="mt-6 flex flex-col gap-6 lg:flex-row lg:items-stretch">
+      <div className="mt-5 flex flex-col gap-5 lg:flex-row lg:items-stretch">
         <div className="flex-1">
           {!hasSelection ? (
             <p className="text-sm text-text-muted">
@@ -396,12 +384,12 @@ function SummaryBlock({
           )}
         </div>
 
-        <div className="flex flex-col items-stretch gap-4 lg:w-[300px] lg:shrink-0 lg:border-l lg:border-border/40 lg:pl-6">
+        <div className="flex flex-col items-stretch gap-4 lg:w-[280px] lg:shrink-0 lg:border-l lg:border-border/35 lg:pl-5">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-subtle">
               {locale === "ru" ? "Сумма" : "Total"}
             </p>
-            <p className="mt-1.5 text-2xl font-semibold tracking-[-0.03em] text-text">
+            <p className="mt-1.5 text-[28px] font-semibold tracking-[-0.03em] text-text">
               {totalLabel}
             </p>
             <p className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-relaxed text-text-subtle">
@@ -414,10 +402,10 @@ function SummaryBlock({
             onClick={onPurchase}
             disabled={buyDisabled}
             className={cn(
-              "inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl px-5 text-sm font-semibold transition-all",
+              "inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold transition-all",
               buyDisabled
                 ? "cursor-not-allowed border border-border/80 bg-surface/60 text-text-subtle"
-                : "bg-accent text-white shadow-[0_0_36px_var(--accent-glow)] hover:bg-accent-hover"
+                : "bg-accent text-white hover:bg-accent-hover"
             )}
           >
             {purchasing ? (
@@ -638,7 +626,7 @@ export default function PackagesPage() {
         {!loading &&
         !error &&
         Object.values(packagesByType).every((items) => items.length === 0) ? (
-          <div className="mx-auto mt-10 w-full max-w-2xl rounded-3xl border border-border/80 bg-surface/70 p-6 text-center">
+          <div className="mx-auto mt-10 w-full max-w-2xl rounded-3xl border border-border/70 bg-surface/70 p-6 text-center">
             <p className="text-lg font-medium text-text">
               {locale === "ru"
                 ? "Пакеты временно недоступны."
@@ -648,8 +636,8 @@ export default function PackagesPage() {
         ) : null}
 
         {!loading && !error && Object.values(packagesByType).some((items) => items.length > 0) ? (
-          <div className="mt-10 space-y-5">
-            <div className="grid items-stretch gap-5 lg:grid-cols-3">
+          <div className="mt-10 space-y-4">
+            <div className="grid items-stretch gap-4 lg:grid-cols-3">
               {PACKAGE_TYPE_ORDER.map((type) => (
                 <PackageTypeCard
                   key={type}

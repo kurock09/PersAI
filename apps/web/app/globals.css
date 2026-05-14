@@ -222,41 +222,34 @@
   select {
     appearance: none;
     color-scheme: dark;
-    min-height: 2.75rem;
-    border-radius: 0.95rem;
-    border: 1px solid var(--border);
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--surface-raised) 94%, transparent),
-        color-mix(in srgb, var(--surface) 86%, transparent)
-      ),
-      var(--surface-raised);
-    padding: 0.7rem 2.75rem 0.7rem 0.95rem;
+    min-height: 2.45rem;
+    border-radius: 0.8rem;
+    border: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
+    background: color-mix(in srgb, var(--surface-raised) 92%, var(--surface) 8%);
+    padding: 0.58rem 2.4rem 0.58rem 0.85rem;
     color: var(--text);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.03),
-      0 10px 24px rgba(0, 0, 0, 0.08);
     background-image:
       linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--surface-raised) 94%, transparent),
-        color-mix(in srgb, var(--surface) 86%, transparent)
+        45deg,
+        transparent 50%,
+        color-mix(in srgb, var(--text-muted) 82%, transparent) 50%
       ),
-      linear-gradient(45deg, transparent 50%, var(--text-subtle) 50%),
-      linear-gradient(135deg, var(--text-subtle) 50%, transparent 50%);
+      linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--text-muted) 82%, transparent) 50%,
+        transparent 50%
+      );
     background-position:
-      0 0,
-      calc(100% - 1.15rem) calc(50% - 0.12rem),
-      calc(100% - 0.8rem) calc(50% - 0.12rem);
+      calc(100% - 1rem) calc(50% - 0.09rem),
+      calc(100% - 0.68rem) calc(50% - 0.09rem);
     background-size:
-      auto,
-      0.45rem 0.45rem,
-      0.45rem 0.45rem;
+      0.42rem 0.42rem,
+      0.42rem 0.42rem;
     background-repeat: no-repeat;
+    font-size: 0.875rem;
+    line-height: 1.2;
     transition:
       border-color 160ms ease,
-      box-shadow 160ms ease,
       background-color 160ms ease;
   }
 
@@ -267,10 +260,7 @@
   select:focus {
     outline: none;
     border-color: color-mix(in srgb, var(--accent) 46%, var(--border-strong) 54%);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.04),
-      0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent),
-      0 10px 26px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
   }
 
   select:disabled {
@@ -298,23 +288,11 @@
 
   :root.light select {
     color-scheme: light;
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--surface-raised) 98%, transparent),
-        color-mix(in srgb, var(--surface) 92%, transparent)
-      ),
-      var(--surface-raised);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.75),
-      0 8px 20px rgba(31, 26, 18, 0.05);
+    background: color-mix(in srgb, var(--surface-raised) 94%, var(--surface) 6%);
   }
 
   :root.light select:focus {
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.85),
-      0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent),
-      0 10px 24px rgba(31, 26, 18, 0.07);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
   }
 
   :root.light select option,
@@ -330,7 +308,7 @@
 }
 
 .persai-select {
-  min-height: 2.875rem;
+  min-height: 2.45rem;
 }
 ::-webkit-scrollbar {
   width: 6px;
