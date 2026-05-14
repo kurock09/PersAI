@@ -17,6 +17,9 @@ export type AdminOpsCockpitQuotaUsage = {
     displayName: string;
     usedUnits: number;
     limitUnits: number | null;
+    bonusLimitUnits: number;
+    effectiveLimitUnits: number | null;
+    bonusExpiresAt: string | null;
   }>;
 };
 

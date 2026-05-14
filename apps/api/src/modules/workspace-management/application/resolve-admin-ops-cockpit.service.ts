@@ -289,7 +289,10 @@ export class ResolveAdminOpsCockpitService {
         toolCode: tool.toolCode,
         displayName: tool.displayName,
         usedUnits: tool.usedUnits,
-        limitUnits: tool.limitUnits
+        limitUnits: tool.limitUnits,
+        bonusLimitUnits: tool.bonusLimitUnits,
+        effectiveLimitUnits: tool.effectiveLimitUnits,
+        bonusExpiresAt: tool.bonusExpiresAt
       }))
     };
   }

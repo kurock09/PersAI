@@ -88,6 +88,9 @@ type QuotaUsageData = {
     displayName: string;
     usedUnits: number;
     limitUnits: number | null;
+    bonusLimitUnits: number;
+    effectiveLimitUnits: number | null;
+    bonusExpiresAt?: string | null;
   }>;
 };
 
@@ -378,6 +381,46 @@ function SummaryPill({
       <span className="uppercase tracking-wide text-text-subtle">{label}</span>
       <span className="min-w-0 truncate font-semibold">{value}</span>
     </div>
+  );
+}
+
+function CopyableInlineValue({
+  value,
+  copyValue,
+  label
+}: {
+  value: ReactNode;
+  copyValue: string | null | undefined;
+  label: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    if (!copyValue) return;
+    try {
+      await navigator.clipboard.writeText(copyValue);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  }, [copyValue]);
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="font-mono text-text">{value}</span>
+      {copyValue ? (
+        <button
+          type="button"
+          onClick={() => void handleCopy()}
+          className="inline-flex cursor-pointer items-center justify-center rounded border border-border p-1 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          aria-label={`Copy ${label}`}
+          title={`Copy ${label}`}
+        >
+          {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+        </button>
+      ) : null}
+    </span>
   );
 }
 
@@ -898,11 +941,6 @@ function UsersDirectory({
                         />
                         <span className="min-w-0 truncate font-mono">{u.email}</span>
                       </div>
-                      {u.displayName ? (
-                        <span className="ml-3 inline-block max-w-full truncate text-[9px] text-text-subtle">
-                          {u.displayName}
-                        </span>
-                      ) : null}
                     </td>
                     <td className="py-1.5 pr-2 font-mono text-text">{u.billing.planCode ?? "—"}</td>
                     <td className="py-1.5 pr-2">
@@ -1432,65 +1470,78 @@ export default function AdminOpsPage() {
       {cockpit && (
         <>
           <section className="rounded border border-border/40 bg-surface/75 px-2.5 py-2">
-            <div className="flex flex-wrap gap-2">
-              <SummaryPill
-                label="Plan"
-                value={formatNullable(cockpit.assistant.effectivePlan.code)}
-                tone="default"
-              />
-              <SummaryPill
-                label="Billing"
-                value={(billingSupport?.subscription.status ?? "unknown").replace(/_/g, " ")}
-                tone={
-                  billingSupport?.subscription.status === "active" ||
-                  billingSupport?.subscription.status === "trialing"
-                    ? "success"
-                    : billingSupport?.subscription.status === "grace_period" ||
-                        billingSupport?.subscription.status === "past_due"
-                      ? "warning"
-                      : billingSupport?.subscription.status
-                        ? "danger"
-                        : "muted"
-                }
-              />
-              <SummaryPill
-                label="Apply"
-                value={
-                  cockpit.assistant.runtimeApply
-                    ? cockpit.assistant.runtimeApply.status.replace(/_/g, " ")
-                    : "no state"
-                }
-                tone={
-                  cockpit.assistant.runtimeApply?.status === AssistantRuntimeApplyStatus.succeeded
-                    ? "success"
-                    : cockpit.assistant.runtimeApply?.status === AssistantRuntimeApplyStatus.failed
-                      ? "danger"
-                      : cockpit.assistant.runtimeApply?.status ===
-                            AssistantRuntimeApplyStatus.in_progress ||
-                          cockpit.assistant.runtimeApply?.status ===
-                            AssistantRuntimeApplyStatus.degraded
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                <SummaryPill
+                  label="Plan"
+                  value={formatNullable(cockpit.assistant.effectivePlan.code)}
+                  tone="default"
+                />
+                <SummaryPill
+                  label="Billing"
+                  value={(billingSupport?.subscription.status ?? "unknown").replace(/_/g, " ")}
+                  tone={
+                    billingSupport?.subscription.status === "active" ||
+                    billingSupport?.subscription.status === "trialing"
+                      ? "success"
+                      : billingSupport?.subscription.status === "grace_period" ||
+                          billingSupport?.subscription.status === "past_due"
                         ? "warning"
-                        : "muted"
-                }
-              />
-              <SummaryPill
-                label="Runtime"
-                value={
-                  cockpit.runtime.preflight.live && cockpit.runtime.preflight.ready
-                    ? "ready"
-                    : "attention"
-                }
-                tone={
-                  cockpit.runtime.preflight.live && cockpit.runtime.preflight.ready
-                    ? "success"
-                    : "danger"
-                }
-              />
-              <SummaryPill
-                label="Signals"
-                value={signalCount}
-                tone={signalCount === 0 ? "success" : elevatedSignalCount > 0 ? "warning" : "muted"}
-              />
+                        : billingSupport?.subscription.status
+                          ? "danger"
+                          : "muted"
+                  }
+                />
+                <SummaryPill
+                  label="Apply"
+                  value={
+                    cockpit.assistant.runtimeApply
+                      ? cockpit.assistant.runtimeApply.status.replace(/_/g, " ")
+                      : "no state"
+                  }
+                  tone={
+                    cockpit.assistant.runtimeApply?.status === AssistantRuntimeApplyStatus.succeeded
+                      ? "success"
+                      : cockpit.assistant.runtimeApply?.status ===
+                          AssistantRuntimeApplyStatus.failed
+                        ? "danger"
+                        : cockpit.assistant.runtimeApply?.status ===
+                              AssistantRuntimeApplyStatus.in_progress ||
+                            cockpit.assistant.runtimeApply?.status ===
+                              AssistantRuntimeApplyStatus.degraded
+                          ? "warning"
+                          : "muted"
+                  }
+                />
+                <SummaryPill
+                  label="Runtime"
+                  value={
+                    cockpit.runtime.preflight.live && cockpit.runtime.preflight.ready
+                      ? "ready"
+                      : "attention"
+                  }
+                  tone={
+                    cockpit.runtime.preflight.live && cockpit.runtime.preflight.ready
+                      ? "success"
+                      : "danger"
+                  }
+                />
+                <SummaryPill
+                  label="Signals"
+                  value={signalCount}
+                  tone={
+                    signalCount === 0 ? "success" : elevatedSignalCount > 0 ? "warning" : "muted"
+                  }
+                />
+              </div>
+              <div className="flex min-w-0 items-center gap-2 rounded border border-border/45 bg-surface-raised px-2 py-1 text-[10px]">
+                <span className="uppercase tracking-wide text-text-subtle">Assistant ID</span>
+                <CopyableInlineValue
+                  label="Assistant ID"
+                  value={truncateId(cockpit.assistant.assistantId)}
+                  copyValue={cockpit.assistant.assistantId}
+                />
+              </div>
             </div>
           </section>
 
@@ -1500,85 +1551,141 @@ export default function AdminOpsPage() {
             </p>
           )}
 
-          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,0.9fr)]">
-            <CardShell title="Plan Control" icon={Users}>
-              <p className="text-[11px] leading-relaxed text-text-muted">
-                Use assistant-level override only for tester and support routing. `Reset to normal`
-                returns resolution to the regular subscription chain.
-              </p>
-              <label className="flex flex-col gap-1 text-[11px] text-text-muted">
-                <span>Tester override plan</span>
-                <select
-                  value={selectedPlanCode}
-                  onChange={(e) => {
-                    setSelectedPlanCode(e.target.value);
-                    setPlanSelectionDirty(true);
-                  }}
-                  disabled={!selectedUserId || planOverrideBusy}
-                  className="h-8 rounded border border-border bg-bg px-2 text-[11px] text-text focus:border-accent/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="">Choose plan…</option>
-                  {planControlOptions.map((plan) => (
-                    <option key={plan.code} value={plan.code}>
-                      {plan.code} - {plan.displayName}
-                      {plan.selectedInactive ? " (inactive current override)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {planControlOptions.length === 0 && (
-                <p className="text-[10px] text-text-subtle">
-                  No active plans are currently available for tester override.
-                </p>
+          {(quotaUsage || chatStats || channelBindings.length > 0) && (
+            <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,0.9fr)]">
+              {quotaUsage && (
+                <CardShell title="Quota & Usage" icon={Gauge}>
+                  <div className="space-y-3">
+                    <QuotaBar
+                      label="Token Budget"
+                      used={quotaUsage.tokenBudgetUsed}
+                      limit={quotaUsage.tokenBudgetLimit}
+                      formatValue={formatTokens}
+                    />
+                    <QuotaBar
+                      label="Media Storage"
+                      used={quotaUsage.mediaStorageBytesUsed}
+                      limit={quotaUsage.mediaStorageBytesLimit}
+                      formatValue={formatStorageMb}
+                    />
+                    <div className="grid grid-cols-2 gap-2 rounded border border-border/30 bg-surface-raised/60 px-2 py-1 text-center">
+                      <div>
+                        <p className="text-sm font-semibold tabular-nums text-text">
+                          {quotaUsage.activeWebChats}
+                        </p>
+                        <p className="text-[9px] uppercase tracking-wide text-text-subtle">
+                          Active Web Chats
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold tabular-nums text-text">
+                          {formatQuotaCount(quotaUsage.activeWebChatsLimit)}
+                        </p>
+                        <p className="text-[9px] uppercase tracking-wide text-text-subtle">
+                          Chat Cap
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                        Monthly media
+                      </p>
+                      <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3">
+                        {quotaUsage.monthlyMediaTools.map((tool) => (
+                          <div
+                            key={tool.toolCode}
+                            className="rounded border border-border/60 bg-surface-raised px-2 py-1.5 text-[10px]"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-text-muted">{tool.displayName}</span>
+                              <span className="font-medium tabular-nums text-text">
+                                {tool.usedUnits} / {formatQuotaCount(tool.effectiveLimitUnits)}
+                              </span>
+                            </div>
+                            {tool.bonusLimitUnits > 0 ? (
+                              <p className="mt-1 text-[9px] text-accent">
+                                Package bonus: +{tool.bonusLimitUnits}
+                                {tool.limitUnits !== null ? ` over base ${tool.limitUnits}` : ""}
+                                {tool.bonusExpiresAt
+                                  ? ` until ${formatShortDate(tool.bonusExpiresAt)}`
+                                  : ""}
+                              </p>
+                            ) : tool.limitUnits !== null ? (
+                              <p className="mt-1 text-[9px] text-text-subtle">
+                                Base limit: {tool.limitUnits}
+                              </p>
+                            ) : (
+                              <p className="mt-1 text-[9px] text-text-subtle">
+                                Base limit: unlimited
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </CardShell>
               )}
-              {selectedPlanOption?.selectedInactive && (
-                <p className="text-[10px] text-warning">
-                  The current override points to an inactive legacy plan. Reset it or choose an
-                  active plan before applying.
-                </p>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={
-                    !selectedUserId ||
-                    !selectedPlanCode ||
-                    selectedPlanOption?.status !== "active" ||
-                    !cockpit.controls.assistantPlanOverrideSupported ||
-                    planOverrideBusy
-                  }
-                  onClick={() => void onApplyPlanOverride()}
-                  className={cn(
-                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
-                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
-                  )}
-                >
-                  {planOverrideBusy ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Users className="h-3 w-3" />
-                  )}
-                  Apply test plan
-                </button>
-                <button
-                  type="button"
-                  disabled={
-                    !selectedUserId ||
-                    !cockpit.controls.assistantPlanResetSupported ||
-                    planOverrideBusy
-                  }
-                  onClick={() => void onResetPlanOverride()}
-                  className={cn(
-                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
-                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
-                  )}
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  Reset to normal
-                </button>
-              </div>
-            </CardShell>
 
+              <div className="grid grid-cols-1 gap-1.5">
+                {chatStats && (
+                  <CardShell title="Chat Stats" icon={Activity} tone="muted" compact>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <p className="text-lg font-bold tabular-nums text-text">
+                          {chatStats.totalChats}
+                        </p>
+                        <p className="text-[10px] text-text-muted">Total</p>
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold tabular-nums text-text">
+                          {chatStats.activeWebChats}
+                        </p>
+                        <p className="text-[10px] text-text-muted">Active Web</p>
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold tabular-nums text-text">
+                          {chatStats.archivedWebChats}
+                        </p>
+                        <p className="text-[10px] text-text-muted">Archived</p>
+                      </div>
+                    </div>
+                  </CardShell>
+                )}
+
+                {channelBindings.length > 0 && (
+                  <CardShell title="Channels" icon={Server} tone="muted" compact>
+                    <div className="space-y-1.5">
+                      {channelBindings.map((channel, i) => (
+                        <div
+                          key={`${channel.provider}-${channel.surface}-${i}`}
+                          className="flex items-center justify-between rounded-md border border-border bg-surface px-2 py-1.5"
+                        >
+                          <span className="text-[11px] font-medium text-text">
+                            {channel.provider} / {channel.surface}
+                          </span>
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                              channel.state === "active"
+                                ? "bg-success/15 text-success"
+                                : channel.state === "inactive"
+                                  ? "bg-warning/15 text-warning"
+                                  : "bg-muted/15 text-text-muted"
+                            )}
+                          >
+                            {channel.state}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardShell>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <CardShell title="Billing Actions" icon={AlertTriangle}>
               <p className="text-[11px] leading-relaxed text-text-muted">
                 These actions write through PersAI lifecycle truth and refresh the selected detail
@@ -1719,8 +1826,88 @@ export default function AdminOpsPage() {
                 </div>
               )}
             </CardShell>
+          </div>
 
-            <CardShell title="Controls & Signals" icon={Activity}>
+          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1fr)]">
+            <CardShell title="Plan Control" icon={Users} tone="muted" compact>
+              <p className="text-[11px] leading-relaxed text-text-muted">
+                Use assistant-level override only for tester and support routing. `Reset to normal`
+                returns resolution to the regular subscription chain.
+              </p>
+              <label className="flex flex-col gap-1 text-[11px] text-text-muted">
+                <span>Tester override plan</span>
+                <select
+                  value={selectedPlanCode}
+                  onChange={(e) => {
+                    setSelectedPlanCode(e.target.value);
+                    setPlanSelectionDirty(true);
+                  }}
+                  disabled={!selectedUserId || planOverrideBusy}
+                  className="h-8 rounded border border-border bg-bg px-2 text-[11px] text-text focus:border-accent/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">Choose plan…</option>
+                  {planControlOptions.map((plan) => (
+                    <option key={plan.code} value={plan.code}>
+                      {plan.code} - {plan.displayName}
+                      {plan.selectedInactive ? " (inactive current override)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {planControlOptions.length === 0 && (
+                <p className="text-[10px] text-text-subtle">
+                  No active plans are currently available for tester override.
+                </p>
+              )}
+              {selectedPlanOption?.selectedInactive && (
+                <p className="text-[10px] text-warning">
+                  The current override points to an inactive legacy plan. Reset it or choose an
+                  active plan before applying.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={
+                    !selectedUserId ||
+                    !selectedPlanCode ||
+                    selectedPlanOption?.status !== "active" ||
+                    !cockpit.controls.assistantPlanOverrideSupported ||
+                    planOverrideBusy
+                  }
+                  onClick={() => void onApplyPlanOverride()}
+                  className={cn(
+                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                  )}
+                >
+                  {planOverrideBusy ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Users className="h-3 w-3" />
+                  )}
+                  Apply test plan
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    !selectedUserId ||
+                    !cockpit.controls.assistantPlanResetSupported ||
+                    planOverrideBusy
+                  }
+                  onClick={() => void onResetPlanOverride()}
+                  className={cn(
+                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                  )}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Reset to normal
+                </button>
+              </div>
+            </CardShell>
+
+            <CardShell title="Runtime & Signals" icon={Activity} tone="muted" compact>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -1787,9 +1974,7 @@ export default function AdminOpsPage() {
                 )}
               </div>
             </CardShell>
-          </div>
 
-          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1.2fr)]">
             <CardShell title="Assistant" icon={Bot} tone="muted" compact>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-text-muted">Exists</span>
@@ -2220,68 +2405,123 @@ export default function AdminOpsPage() {
                     No sandbox jobs recorded for this assistant yet.
                   </p>
                 ) : (
-                  <div className="space-y-1.5">
-                    {cockpit.sandbox.recentJobs.map((job) => (
-                      <div
-                        key={job.id}
-                        className="rounded border border-border/50 bg-surface-raised px-2 py-1.5"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-semibold text-text">{job.toolCode}</p>
-                            <p className="text-[9px] font-mono text-text-subtle">
-                              {truncateId(job.id)}
-                              {job.relativeWorkspace ? ` • ${job.relativeWorkspace}` : ""}
-                            </p>
-                          </div>
-                          <span
-                            className={cn(
-                              "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-                              sandboxJobTone(job.status)
-                            )}
-                          >
-                            {job.status.replace(/_/g, " ")}
-                          </span>
-                        </div>
-                        <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-text-muted">
-                          <span>Created: {formatTs(job.createdAt)}</span>
-                          <span className="text-right">Done: {formatTs(job.completedAt)}</span>
-                        </div>
-                        <p className="mt-1 text-[10px] text-text-muted">
-                          {job.violationCode ? (
-                            <>
-                              <span className="font-mono font-semibold text-destructive">
-                                {job.violationCode}
+                  <div className="space-y-2">
+                    {(() => {
+                      const [latestJob, ...olderJobs] = cockpit.sandbox.recentJobs;
+                      if (!latestJob) {
+                        return null;
+                      }
+                      return (
+                        <>
+                          <div className="rounded border border-border/50 bg-surface-raised px-2 py-1.5">
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                                Latest status
+                              </p>
+                              <span
+                                className={cn(
+                                  "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                                  sandboxJobTone(latestJob.status)
+                                )}
+                              >
+                                {latestJob.status.replace(/_/g, " ")}
                               </span>
-                              {job.violationMessage ? ` • ${job.violationMessage}` : ""}
-                            </>
-                          ) : job.resultWarning ? (
-                            job.resultWarning
-                          ) : job.resultReason ? (
-                            job.resultReason
-                          ) : (
-                            "No warning or violation recorded."
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-semibold text-text">
+                                {latestJob.toolCode}
+                              </p>
+                              <p className="text-[9px] font-mono text-text-subtle">
+                                {truncateId(latestJob.id)}
+                                {latestJob.relativeWorkspace
+                                  ? ` • ${latestJob.relativeWorkspace}`
+                                  : ""}
+                              </p>
+                            </div>
+                            <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-text-muted">
+                              <span>Created: {formatTs(latestJob.createdAt)}</span>
+                              <span className="text-right">
+                                Done: {formatTs(latestJob.completedAt)}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[10px] text-text-muted">
+                              {latestJob.violationCode ? (
+                                <>
+                                  <span className="font-mono font-semibold text-destructive">
+                                    {latestJob.violationCode}
+                                  </span>
+                                  {latestJob.violationMessage
+                                    ? ` • ${latestJob.violationMessage}`
+                                    : ""}
+                                </>
+                              ) : latestJob.resultWarning ? (
+                                latestJob.resultWarning
+                              ) : latestJob.resultReason ? (
+                                latestJob.resultReason
+                              ) : (
+                                "No warning or violation recorded."
+                              )}
+                            </p>
+                            <div className="mt-1.5 flex flex-wrap gap-1.5 text-[9px] text-text-subtle">
+                              <span className="rounded border border-border px-1.5 py-0.5">
+                                Files {latestJob.persistedFileCount}
+                              </span>
+                              <span className="rounded border border-border px-1.5 py-0.5">
+                                Workspace{" "}
+                                {formatBytesCompact(latestJob.resourceUsage?.workspaceBytes)}
+                              </span>
+                              <span className="rounded border border-border px-1.5 py-0.5">
+                                CPU {formatDurationMs(latestJob.resourceUsage?.peakCpuMs)}
+                              </span>
+                              <span className="rounded border border-border px-1.5 py-0.5">
+                                Mem {formatBytesCompact(latestJob.resourceUsage?.peakMemoryBytes)}
+                              </span>
+                              <span className="rounded border border-border px-1.5 py-0.5">
+                                Proc {formatNullable(latestJob.resourceUsage?.peakProcessCount)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {olderJobs.length > 0 && (
+                            <details className="rounded border border-border/50 bg-surface-raised px-2 py-1.5">
+                              <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                                Older statuses ({olderJobs.length})
+                              </summary>
+                              <div className="mt-2 space-y-1.5">
+                                {olderJobs.map((job) => (
+                                  <div
+                                    key={job.id}
+                                    className="rounded border border-border/50 bg-surface px-2 py-1.5"
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <p className="text-[11px] font-semibold text-text">
+                                          {job.toolCode}
+                                        </p>
+                                        <p className="text-[9px] font-mono text-text-subtle">
+                                          {truncateId(job.id)}
+                                          {job.relativeWorkspace
+                                            ? ` • ${job.relativeWorkspace}`
+                                            : ""}
+                                        </p>
+                                      </div>
+                                      <span
+                                        className={cn(
+                                          "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                                          sandboxJobTone(job.status)
+                                        )}
+                                      >
+                                        {job.status.replace(/_/g, " ")}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
                           )}
-                        </p>
-                        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[9px] text-text-subtle">
-                          <span className="rounded border border-border px-1.5 py-0.5">
-                            Files {job.persistedFileCount}
-                          </span>
-                          <span className="rounded border border-border px-1.5 py-0.5">
-                            Workspace {formatBytesCompact(job.resourceUsage?.workspaceBytes)}
-                          </span>
-                          <span className="rounded border border-border px-1.5 py-0.5">
-                            CPU {formatDurationMs(job.resourceUsage?.peakCpuMs)}
-                          </span>
-                          <span className="rounded border border-border px-1.5 py-0.5">
-                            Mem {formatBytesCompact(job.resourceUsage?.peakMemoryBytes)}
-                          </span>
-                          <span className="rounded border border-border px-1.5 py-0.5">
-                            Proc {formatNullable(job.resourceUsage?.peakProcessCount)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
               </CardShell>
