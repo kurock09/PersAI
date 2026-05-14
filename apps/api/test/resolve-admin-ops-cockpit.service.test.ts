@@ -144,6 +144,9 @@ function createService(prisma: WorkspaceManagementPrismaService): ResolveAdminOp
               releasedUnits: 0,
               reconciliationRequiredUnits: 0,
               limitUnits: 20,
+              bonusLimitUnits: 0,
+              effectiveLimitUnits: 20,
+              bonusExpiresAt: null,
               remainingUnits: 16,
               usageAvailable: true,
               status: "ok" as const
@@ -157,6 +160,9 @@ function createService(prisma: WorkspaceManagementPrismaService): ResolveAdminOp
               releasedUnits: 0,
               reconciliationRequiredUnits: 0,
               limitUnits: 10,
+              bonusLimitUnits: 0,
+              effectiveLimitUnits: 10,
+              bonusExpiresAt: null,
               remainingUnits: 8,
               usageAvailable: true,
               status: "ok" as const
@@ -170,6 +176,9 @@ function createService(prisma: WorkspaceManagementPrismaService): ResolveAdminOp
               releasedUnits: 0,
               reconciliationRequiredUnits: 0,
               limitUnits: 5,
+              bonusLimitUnits: 0,
+              effectiveLimitUnits: 5,
+              bonusExpiresAt: null,
               remainingUnits: 4,
               usageAvailable: true,
               status: "ok" as const
@@ -413,19 +422,28 @@ async function run(): Promise<void> {
         toolCode: "image_generate",
         displayName: "Image generation",
         usedUnits: 4,
-        limitUnits: 20
+        limitUnits: 20,
+        bonusLimitUnits: 0,
+        effectiveLimitUnits: 20,
+        bonusExpiresAt: null
       },
       {
         toolCode: "image_edit",
         displayName: "Image editing",
         usedUnits: 2,
-        limitUnits: 10
+        limitUnits: 10,
+        bonusLimitUnits: 0,
+        effectiveLimitUnits: 10,
+        bonusExpiresAt: null
       },
       {
         toolCode: "video_generate",
         displayName: "Video generation",
         usedUnits: 1,
-        limitUnits: 5
+        limitUnits: 5,
+        bonusLimitUnits: 0,
+        effectiveLimitUnits: 5,
+        bonusExpiresAt: null
       }
     ]);
     assert.equal(result.billingSupport?.subscription.status, "grace_period");

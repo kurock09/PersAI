@@ -1685,7 +1685,7 @@ export default function AdminOpsPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-3">
             <CardShell title="Billing Actions" icon={AlertTriangle}>
               <p className="text-[11px] leading-relaxed text-text-muted">
                 These actions write through PersAI lifecycle truth and refresh the selected detail
@@ -1826,243 +1826,6 @@ export default function AdminOpsPage() {
                 </div>
               )}
             </CardShell>
-          </div>
-
-          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1fr)]">
-            <CardShell title="Plan Control" icon={Users} tone="muted" compact>
-              <p className="text-[11px] leading-relaxed text-text-muted">
-                Use assistant-level override only for tester and support routing. `Reset to normal`
-                returns resolution to the regular subscription chain.
-              </p>
-              <label className="flex flex-col gap-1 text-[11px] text-text-muted">
-                <span>Tester override plan</span>
-                <select
-                  value={selectedPlanCode}
-                  onChange={(e) => {
-                    setSelectedPlanCode(e.target.value);
-                    setPlanSelectionDirty(true);
-                  }}
-                  disabled={!selectedUserId || planOverrideBusy}
-                  className="h-8 rounded border border-border bg-bg px-2 text-[11px] text-text focus:border-accent/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="">Choose plan…</option>
-                  {planControlOptions.map((plan) => (
-                    <option key={plan.code} value={plan.code}>
-                      {plan.code} - {plan.displayName}
-                      {plan.selectedInactive ? " (inactive current override)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {planControlOptions.length === 0 && (
-                <p className="text-[10px] text-text-subtle">
-                  No active plans are currently available for tester override.
-                </p>
-              )}
-              {selectedPlanOption?.selectedInactive && (
-                <p className="text-[10px] text-warning">
-                  The current override points to an inactive legacy plan. Reset it or choose an
-                  active plan before applying.
-                </p>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={
-                    !selectedUserId ||
-                    !selectedPlanCode ||
-                    selectedPlanOption?.status !== "active" ||
-                    !cockpit.controls.assistantPlanOverrideSupported ||
-                    planOverrideBusy
-                  }
-                  onClick={() => void onApplyPlanOverride()}
-                  className={cn(
-                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
-                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
-                  )}
-                >
-                  {planOverrideBusy ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Users className="h-3 w-3" />
-                  )}
-                  Apply test plan
-                </button>
-                <button
-                  type="button"
-                  disabled={
-                    !selectedUserId ||
-                    !cockpit.controls.assistantPlanResetSupported ||
-                    planOverrideBusy
-                  }
-                  onClick={() => void onResetPlanOverride()}
-                  className={cn(
-                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
-                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
-                  )}
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  Reset to normal
-                </button>
-              </div>
-            </CardShell>
-
-            <CardShell title="Runtime & Signals" icon={Activity} tone="muted" compact>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={!cockpit.controls.reapplySupported || reapplyBusy}
-                  onClick={() => void onReapply()}
-                  className={cn(
-                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
-                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
-                  )}
-                >
-                  {reapplyBusy ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <RotateCcw className="h-3 w-3" />
-                  )}
-                  Reapply{selectedUserId ? "" : " (self)"}
-                </button>
-                <button
-                  type="button"
-                  disabled={!cockpit.controls.restartSupported}
-                  onClick={onRestart}
-                  className={cn(
-                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
-                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
-                  )}
-                >
-                  <RefreshCw className="h-3 w-3" />
-                  Restart
-                </button>
-              </div>
-              <div className="border-t border-border pt-2">
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                    Incident signals
-                  </p>
-                  <span className="text-[9px] text-text-subtle">{signalCount}</span>
-                </div>
-                {cockpit.incidentSignals.length === 0 ? (
-                  <p className="text-[11px] text-text-muted">No active signals.</p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {cockpit.incidentSignals.slice(0, 4).map((signal, i) => (
-                      <li
-                        key={`${i}-${signal.code}-${signal.severity}`}
-                        className={cn(
-                          "rounded-md border px-2 py-1.5 text-[10px]",
-                          incidentSeverityTone(signal.severity)
-                        )}
-                      >
-                        <div className="flex items-start gap-1.5">
-                          {signal.severity === AdminOpsIncidentSignalSeverity.info ? (
-                            <Info className="mt-0.5 h-3 w-3 shrink-0 opacity-80" />
-                          ) : (
-                            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 opacity-80" />
-                          )}
-                          <div className="min-w-0">
-                            <span className="font-mono font-semibold">{signal.code}</span>
-                            <span className="ml-1.5 opacity-80">{signal.message}</span>
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </CardShell>
-
-            <CardShell title="Assistant" icon={Bot} tone="muted" compact>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-text-muted">Exists</span>
-                <span
-                  className={cn(
-                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                    cockpit.assistant.exists
-                      ? "bg-success/15 text-success"
-                      : "bg-surface text-text-muted ring-1 ring-border"
-                  )}
-                >
-                  {cockpit.assistant.exists ? "Yes" : "No"}
-                </span>
-              </div>
-              <CopyableDetailRow
-                label="ID"
-                value={truncateId(cockpit.assistant.assistantId)}
-                copyValue={cockpit.assistant.assistantId}
-              />
-              <CopyableDetailRow
-                label="Workspace"
-                value={truncateId(cockpit.assistant.workspaceId)}
-                copyValue={cockpit.assistant.workspaceId}
-              />
-              <div className="border-t border-border pt-2">
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                  Effective plan
-                </p>
-                <DetailRow
-                  label="Plan"
-                  value={formatNullable(cockpit.assistant.effectivePlan.code)}
-                />
-                <DetailRow
-                  label="Source"
-                  value={cockpit.assistant.effectivePlan.source.replaceAll("_", " ")}
-                />
-                <DetailRow
-                  label="Override"
-                  value={formatNullable(cockpit.assistant.effectivePlan.assistantPlanOverrideCode)}
-                />
-                <DetailRow
-                  label="Fallback"
-                  value={formatNullable(cockpit.assistant.effectivePlan.quotaPlanCode)}
-                />
-              </div>
-              <div className="border-t border-border pt-2">
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                  Published
-                </p>
-                <DetailRow
-                  label="Version"
-                  value={formatNullable(cockpit.assistant.latestPublishedVersion.version)}
-                />
-                <DetailRow
-                  label="At"
-                  value={formatTs(cockpit.assistant.latestPublishedVersion.publishedAt)}
-                />
-              </div>
-            </CardShell>
-
-            <CardShell title="Runtime" icon={Server} tone="muted" compact>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-text-muted">Adapter</span>
-                <span
-                  className={cn(
-                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                    cockpit.runtime.adapterEnabled
-                      ? "bg-success/15 text-success"
-                      : "bg-surface text-text-muted ring-1 ring-border"
-                  )}
-                >
-                  {cockpit.runtime.adapterEnabled ? "Enabled" : "Disabled"}
-                </span>
-              </div>
-              <DetailRow label="Runtime tier" value={formatNullable(cockpit.runtime.runtimeTier)} />
-              <DetailRow
-                label="Runtime endpoint"
-                value={formatNullable(cockpit.runtime.runtimeEndpointHost)}
-              />
-              <div className="border-t border-border pt-2">
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                  Preflight
-                </p>
-                <PreflightDot ok={cockpit.runtime.preflight.live} label="Live" />
-                <PreflightDot ok={cockpit.runtime.preflight.ready} label="Ready" />
-                <DetailRow label="Checked" value={formatTs(cockpit.runtime.preflight.checkedAt)} />
-              </div>
-            </CardShell>
 
             <CardShell title="Billing" icon={Gauge} tone="muted" compact>
               <div className="flex items-center justify-between gap-2">
@@ -2175,120 +1938,244 @@ export default function AdminOpsPage() {
             </CardShell>
           </div>
 
-          {(quotaUsage || chatStats || channelBindings.length > 0) && (
-            <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
-              {quotaUsage && (
-                <CardShell title="Quota & Usage" icon={Gauge}>
-                  <div className="space-y-3">
-                    <QuotaBar
-                      label="Token Budget"
-                      used={quotaUsage.tokenBudgetUsed}
-                      limit={quotaUsage.tokenBudgetLimit}
-                      formatValue={formatTokens}
-                    />
-                    <QuotaBar
-                      label="Media Storage"
-                      used={quotaUsage.mediaStorageBytesUsed}
-                      limit={quotaUsage.mediaStorageBytesLimit}
-                      formatValue={formatStorageMb}
-                    />
-                    <div className="grid grid-cols-2 gap-2 rounded border border-border/50 bg-surface-raised px-2 py-1.5 text-center">
-                      <div>
-                        <p className="text-base font-bold tabular-nums text-text">
-                          {quotaUsage.activeWebChats}
-                        </p>
-                        <p className="text-[9px] uppercase tracking-wide text-text-subtle">
-                          Active Web Chats
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-base font-bold tabular-nums text-text">
-                          {formatQuotaCount(quotaUsage.activeWebChatsLimit)}
-                        </p>
-                        <p className="text-[9px] uppercase tracking-wide text-text-subtle">
-                          Chat Cap
-                        </p>
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                        Monthly media
-                      </p>
-                      <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3">
-                        {quotaUsage.monthlyMediaTools.map((tool) => (
-                          <div
-                            key={tool.toolCode}
-                            className="flex items-center justify-between rounded border border-border/60 bg-surface-raised px-2 py-1.5 text-[10px]"
-                          >
-                            <span className="text-text-muted">{tool.displayName}</span>
-                            <span className="font-medium tabular-nums text-text">
-                              {tool.usedUnits} / {formatQuotaCount(tool.limitUnits)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </CardShell>
+          <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1fr)]">
+            <CardShell title="Plan Control" icon={Users} tone="muted" compact>
+              <p className="text-[11px] leading-relaxed text-text-muted">
+                Use assistant-level override only for tester and support routing. `Reset to normal`
+                returns resolution to the regular subscription chain.
+              </p>
+              <label className="flex flex-col gap-1 text-[11px] text-text-muted">
+                <span>Tester override plan</span>
+                <select
+                  value={selectedPlanCode}
+                  onChange={(e) => {
+                    setSelectedPlanCode(e.target.value);
+                    setPlanSelectionDirty(true);
+                  }}
+                  disabled={!selectedUserId || planOverrideBusy}
+                  className="h-8 rounded border border-border bg-bg px-2 text-[11px] text-text focus:border-accent/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">Choose plan…</option>
+                  {planControlOptions.map((plan) => (
+                    <option key={plan.code} value={plan.code}>
+                      {plan.code} - {plan.displayName}
+                      {plan.selectedInactive ? " (inactive current override)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {planControlOptions.length === 0 && (
+                <p className="text-[10px] text-text-subtle">
+                  No active plans are currently available for tester override.
+                </p>
               )}
+              {selectedPlanOption?.selectedInactive && (
+                <p className="text-[10px] text-warning">
+                  The current override points to an inactive legacy plan. Reset it or choose an
+                  active plan before applying.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={
+                    !selectedUserId ||
+                    !selectedPlanCode ||
+                    selectedPlanOption?.status !== "active" ||
+                    !cockpit.controls.assistantPlanOverrideSupported ||
+                    planOverrideBusy
+                  }
+                  onClick={() => void onApplyPlanOverride()}
+                  className={cn(
+                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                  )}
+                >
+                  {planOverrideBusy ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Users className="h-3 w-3" />
+                  )}
+                  Apply test plan
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    !selectedUserId ||
+                    !cockpit.controls.assistantPlanResetSupported ||
+                    planOverrideBusy
+                  }
+                  onClick={() => void onResetPlanOverride()}
+                  className={cn(
+                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                  )}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Reset to normal
+                </button>
+              </div>
+            </CardShell>
 
-              <div className="grid grid-cols-1 gap-1.5">
-                {chatStats && (
-                  <CardShell title="Chat Stats" icon={Activity} tone="muted" compact>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div>
-                        <p className="text-lg font-bold tabular-nums text-text">
-                          {chatStats.totalChats}
-                        </p>
-                        <p className="text-[10px] text-text-muted">Total</p>
-                      </div>
-                      <div>
-                        <p className="text-lg font-bold tabular-nums text-text">
-                          {chatStats.activeWebChats}
-                        </p>
-                        <p className="text-[10px] text-text-muted">Active Web</p>
-                      </div>
-                      <div>
-                        <p className="text-lg font-bold tabular-nums text-text">
-                          {chatStats.archivedWebChats}
-                        </p>
-                        <p className="text-[10px] text-text-muted">Archived</p>
-                      </div>
-                    </div>
-                  </CardShell>
-                )}
+            <CardShell title="Assistant" icon={Bot} tone="muted" compact>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-text-muted">Exists</span>
+                <span
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    cockpit.assistant.exists
+                      ? "bg-success/15 text-success"
+                      : "bg-surface text-text-muted ring-1 ring-border"
+                  )}
+                >
+                  {cockpit.assistant.exists ? "Yes" : "No"}
+                </span>
+              </div>
+              <CopyableDetailRow
+                label="ID"
+                value={truncateId(cockpit.assistant.assistantId)}
+                copyValue={cockpit.assistant.assistantId}
+              />
+              <CopyableDetailRow
+                label="Workspace"
+                value={truncateId(cockpit.assistant.workspaceId)}
+                copyValue={cockpit.assistant.workspaceId}
+              />
+              <div className="border-t border-border pt-2">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Effective plan
+                </p>
+                <DetailRow
+                  label="Plan"
+                  value={formatNullable(cockpit.assistant.effectivePlan.code)}
+                />
+                <DetailRow
+                  label="Source"
+                  value={cockpit.assistant.effectivePlan.source.replaceAll("_", " ")}
+                />
+                <DetailRow
+                  label="Override"
+                  value={formatNullable(cockpit.assistant.effectivePlan.assistantPlanOverrideCode)}
+                />
+                <DetailRow
+                  label="Fallback"
+                  value={formatNullable(cockpit.assistant.effectivePlan.quotaPlanCode)}
+                />
+              </div>
+              <div className="border-t border-border pt-2">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Published
+                </p>
+                <DetailRow
+                  label="Version"
+                  value={formatNullable(cockpit.assistant.latestPublishedVersion.version)}
+                />
+                <DetailRow
+                  label="At"
+                  value={formatTs(cockpit.assistant.latestPublishedVersion.publishedAt)}
+                />
+              </div>
+            </CardShell>
 
-                {channelBindings.length > 0 && (
-                  <CardShell title="Channels" icon={Server} tone="muted" compact>
-                    <div className="space-y-1.5">
-                      {channelBindings.map((channel, i) => (
-                        <div
-                          key={`${channel.provider}-${channel.surface}-${i}`}
-                          className="flex items-center justify-between rounded-md border border-border bg-surface px-2 py-1.5"
-                        >
-                          <span className="text-[11px] font-medium text-text">
-                            {channel.provider} / {channel.surface}
-                          </span>
-                          <span
-                            className={cn(
-                              "rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                              channel.state === "active"
-                                ? "bg-success/15 text-success"
-                                : channel.state === "inactive"
-                                  ? "bg-warning/15 text-warning"
-                                  : "bg-muted/15 text-text-muted"
-                            )}
-                          >
-                            {channel.state}
-                          </span>
+            <CardShell title="Runtime" icon={Server} tone="muted" compact>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-text-muted">Adapter</span>
+                <span
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    cockpit.runtime.adapterEnabled
+                      ? "bg-success/15 text-success"
+                      : "bg-surface text-text-muted ring-1 ring-border"
+                  )}
+                >
+                  {cockpit.runtime.adapterEnabled ? "Enabled" : "Disabled"}
+                </span>
+              </div>
+              <DetailRow label="Runtime tier" value={formatNullable(cockpit.runtime.runtimeTier)} />
+              <DetailRow
+                label="Runtime endpoint"
+                value={formatNullable(cockpit.runtime.runtimeEndpointHost)}
+              />
+              <div className="border-t border-border pt-2">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Preflight
+                </p>
+                <PreflightDot ok={cockpit.runtime.preflight.live} label="Live" />
+                <PreflightDot ok={cockpit.runtime.preflight.ready} label="Ready" />
+                <DetailRow label="Checked" value={formatTs(cockpit.runtime.preflight.checkedAt)} />
+              </div>
+              <div className="border-t border-border pt-2">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Runtime actions
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={!cockpit.controls.reapplySupported || reapplyBusy}
+                    onClick={() => void onReapply()}
+                    className={cn(
+                      "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                    )}
+                  >
+                    {reapplyBusy ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-3 w-3" />
+                    )}
+                    Reapply{selectedUserId ? "" : " (self)"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!cockpit.controls.restartSupported}
+                    onClick={onRestart}
+                    className={cn(
+                      "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                    )}
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Restart
+                  </button>
+                </div>
+              </div>
+              <div className="border-t border-border pt-2">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                    Incident signals
+                  </p>
+                  <span className="text-[9px] text-text-subtle">{signalCount}</span>
+                </div>
+                {cockpit.incidentSignals.length === 0 ? (
+                  <p className="text-[11px] text-text-muted">No active signals.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {cockpit.incidentSignals.slice(0, 4).map((signal, i) => (
+                      <li
+                        key={`${i}-${signal.code}-${signal.severity}`}
+                        className={cn(
+                          "rounded-md border px-2 py-1.5 text-[10px]",
+                          incidentSeverityTone(signal.severity)
+                        )}
+                      >
+                        <div className="flex items-start gap-1.5">
+                          {signal.severity === AdminOpsIncidentSignalSeverity.info ? (
+                            <Info className="mt-0.5 h-3 w-3 shrink-0 opacity-80" />
+                          ) : (
+                            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 opacity-80" />
+                          )}
+                          <div className="min-w-0">
+                            <span className="font-mono font-semibold">{signal.code}</span>
+                            <span className="ml-1.5 opacity-80">{signal.message}</span>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  </CardShell>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
-            </div>
-          )}
+            </CardShell>
+          </div>
 
           {cockpit.sandbox && (
             <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
