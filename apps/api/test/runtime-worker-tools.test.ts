@@ -137,7 +137,7 @@ async function run(): Promise<void> {
         toolCode: "video_generate",
         family: "media_generation",
         outcomeKind: "artifact_refs",
-        timeoutMs: 300000,
+        timeoutMs: 600000,
         confirmationRule: "none",
         supportsProviderRouting: true,
         failureBehavior: "surface_error"

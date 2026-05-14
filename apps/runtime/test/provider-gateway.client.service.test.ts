@@ -591,7 +591,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       timeoutMs: 300000
     });
     const videoGenerate = await service.generateVideo(createVideoGenerateRequest(), {
-      timeoutMs: 180000
+      timeoutMs: 600000
     });
     const speechGenerate = await service.generateSpeech(createSpeechGenerateRequest());
     const webFetch = await service.webFetch(createWebFetchRequest());

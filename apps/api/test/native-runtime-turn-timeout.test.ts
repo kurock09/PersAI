@@ -32,14 +32,14 @@ describe("resolveNativeRuntimeTurnTimeoutMs", () => {
             workerTools: {
               tools: [
                 { toolCode: "image_generate", timeoutMs: 180_000 },
-                { toolCode: "video_generate", timeoutMs: 300_000 }
+                { toolCode: "video_generate", timeoutMs: 600_000 }
               ]
             }
           }
         },
         90_000
       ),
-      315_000
+      615_000
     );
   });
 });

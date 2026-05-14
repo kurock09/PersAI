@@ -22,8 +22,7 @@ import {
   Moon,
   Monitor,
   LogOut,
-  Settings,
-  Globe
+  Settings
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
@@ -527,13 +526,8 @@ function AccountFooter({
             >
               <div className="flex items-center justify-between gap-3 text-[11px]">
                 <span className="text-text-muted">{t("tokenUsage")}</span>
-                <span className="flex items-center gap-1.5 text-text-subtle">
-                  <span>{ts("tokenPercentCompact", { pct: tokenUsage })}</span>
-                  {paidLightModeActive ? (
-                    <span className="rounded-full border border-border/70 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-warning">
-                      {t("lightModeBadge")}
-                    </span>
-                  ) : null}
+                <span className="text-text-subtle">
+                  {ts("tokenPercentCompact", { pct: tokenUsage })}
                 </span>
               </div>
               <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-surface">
@@ -596,9 +590,8 @@ function AccountFooter({
             <div className="my-1.5 border-t border-border/80" />
 
             <div className="rounded-xl border border-border/55 bg-bg/25 px-3 py-2.5">
-              <div className="flex items-center gap-3">
-                <div className="min-w-0 flex flex-1 items-center gap-2">
-                  <span className="text-[11px] text-text-muted">{t("theme")}</span>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col items-start gap-1.5">
                   <div className="flex items-center rounded-xl border border-border/60 bg-surface/70 p-0.5">
                     {themeOptions.map((opt) => (
                       <button
@@ -618,13 +611,11 @@ function AccountFooter({
                       </button>
                     ))}
                   </div>
-                </div>
-                <div className="h-6 w-px shrink-0 bg-border/80" aria-hidden="true" />
-                <div className="min-w-0 flex items-center gap-2">
-                  <span className="flex items-center gap-1.5 text-[11px] text-text-muted">
-                    <Globe className="h-3 w-3" />
-                    {t("language")}
+                  <span className="pl-0.5 text-[10px] tracking-[0.02em] text-text-subtle">
+                    {t("theme")}
                   </span>
+                </div>
+                <div className="flex flex-col items-start gap-1.5">
                   <div className="flex items-center rounded-xl border border-border/60 bg-surface/70 p-0.5">
                     {LOCALES.map((loc) => (
                       <button
@@ -642,6 +633,9 @@ function AccountFooter({
                       </button>
                     ))}
                   </div>
+                  <span className="pl-0.5 text-[10px] tracking-[0.02em] text-text-subtle">
+                    {t("language")}
+                  </span>
                 </div>
               </div>
             </div>

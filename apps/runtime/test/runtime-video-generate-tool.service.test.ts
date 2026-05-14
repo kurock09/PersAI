@@ -32,7 +32,7 @@ const WORKER_TOOLS_CONFIG = {
       toolCode: "video_generate",
       family: "media_generation",
       outcomeKind: "artifact_refs",
-      timeoutMs: 300000,
+      timeoutMs: 600000,
       confirmationRule: "none",
       supportsProviderRouting: true,
       failureBehavior: "surface_error"
@@ -445,7 +445,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       }
     },
     options: {
-      timeoutMs: 300000
+      timeoutMs: 600000
     }
   });
   assert.deepEqual(providerGatewayClientService.videoCalls[1], {
@@ -462,7 +462,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       }
     },
     options: {
-      timeoutMs: 300000
+      timeoutMs: 600000
     }
   });
 

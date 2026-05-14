@@ -26,7 +26,7 @@ import { selectMediaModelForRequest } from "./media-model-routing";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
 const VIDEO_GENERATE_TOOL_CODE = "video_generate" as const;
-const DEFAULT_VIDEO_GENERATE_TIMEOUT_MS = 300_000;
+const DEFAULT_VIDEO_GENERATE_TIMEOUT_MS = 600_000;
 const SUPPORTED_VIDEO_REFERENCE_IMAGE_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",

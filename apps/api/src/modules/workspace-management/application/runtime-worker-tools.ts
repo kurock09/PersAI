@@ -32,7 +32,7 @@ const WORKER_TOOL_BASELINES: Record<string, Omit<RuntimeWorkerToolConfig, "toolC
   video_generate: {
     family: "media_generation",
     outcomeKind: "artifact_refs",
-    timeoutMs: 300_000,
+    timeoutMs: 600_000,
     confirmationRule: "none",
     supportsProviderRouting: true,
     failureBehavior: "surface_error"
