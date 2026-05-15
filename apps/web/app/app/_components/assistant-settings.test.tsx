@@ -855,7 +855,7 @@ describe("AssistantSettings limits", () => {
     expect(() =>
       renderSettings(
         makeAppData({
-          plan: ({
+          plan: {
             effectivePlan: {
               code: "pro",
               displayName: "Pro",
@@ -899,7 +899,7 @@ describe("AssistantSettings limits", () => {
             advisories: [],
             packageOffers: [],
             updatedAt: "2026-05-16T00:00:00.000Z"
-          } as unknown as NonNullable<AppData["plan"]>)
+          } as unknown as NonNullable<AppData["plan"]>
         }),
         "limits"
       )

@@ -79,6 +79,7 @@ const SAFE_MIME_BY_EXTENSION: Record<string, string> = {
   ".ogg": "audio/ogg",
   ".opus": "audio/opus",
   ".pdf": "application/pdf",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   ".png": "image/png",
   ".txt": "text/plain",
   ".wav": "audio/wav",
@@ -93,6 +94,7 @@ const ALLOWED_MEDIA_MIMES = new Set([
   "application/msword",
   "application/pdf",
   "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "audio/aac",
@@ -123,6 +125,7 @@ const ALLOWED_MEDIA_MIMES = new Set([
 const OFFICE_DOCUMENT_MIMES = new Set([
   "application/msword",
   "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ]);

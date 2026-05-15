@@ -22,6 +22,18 @@ async function run(): Promise<void> {
   });
   assert.equal(repairedFilename.originalFilename, "Самокат.png");
 
+  const pptxLikeBuffer = Buffer.from("PK\x03\x04pptx");
+  const allowedPptx = await validatePersaiMediaFile({
+    buffer: pptxLikeBuffer,
+    mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    originalFilename: "deck.pptx",
+    surface: "tool_output_persist"
+  });
+  assert.equal(
+    allowedPptx.effectiveMimeType,
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  );
+
   await assert.rejects(
     () =>
       validatePersaiMediaFile({
