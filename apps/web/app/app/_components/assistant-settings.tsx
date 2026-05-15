@@ -657,8 +657,9 @@ export function AssistantSettings({
   );
   const isMonthlyMediaQuotaToolAvailable = (tool: MonthlyMediaQuotaToolState): boolean =>
     mediaToolActiveByCode.get(tool.toolCode) ?? true;
+  const monthlyMediaQuotaTools = data.plan?.limits.monthlyMediaQuotas?.tools ?? [];
   const visibleMonthlyMediaQuotas =
-    data.plan?.limits.monthlyMediaQuotas.tools.filter(
+    monthlyMediaQuotaTools.filter(
       (tool) =>
         (tool.effectiveLimitUnits !== null && tool.effectiveLimitUnits > 0) ||
         (tool.limitUnits !== null && tool.limitUnits > 0)

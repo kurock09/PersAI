@@ -851,6 +851,61 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
 });
 
 describe("AssistantSettings limits", () => {
+  it("does not crash when monthly media quotas are absent from the plan payload", async () => {
+    expect(() =>
+      renderSettings(
+        makeAppData({
+          plan: ({
+            effectivePlan: {
+              code: "pro",
+              displayName: "Pro",
+              status: "active",
+              source: "plan",
+              subscriptionStatus: "active",
+              trialEndsAt: null,
+              graceStartedAt: null,
+              graceEndsAt: null,
+              currentPeriodEndsAt: "2026-05-31T00:00:00.000Z",
+              currentPeriodStartedAt: "2026-05-01T00:00:00.000Z",
+              isTrialPlan: false,
+              trialFallbackPlanCode: null,
+              paidFallbackPlanCode: null,
+              price: {
+                amount: 9900,
+                currency: "RUB",
+                billingPeriod: "month"
+              }
+            },
+            status: {
+              active: true,
+              trial: false,
+              expiresAt: null,
+              renewsAt: null,
+              autoRenew: true,
+              max: false
+            },
+            limits: {
+              quotaBuckets: [],
+              toolDailyLimits: []
+            } as unknown as NonNullable<AppData["plan"]>["limits"],
+            entitlements: {
+              channelsAndSurfaces: {
+                webChat: true,
+                telegram: true,
+                whatsapp: false,
+                max: false
+              }
+            },
+            advisories: [],
+            packageOffers: [],
+            updatedAt: "2026-05-16T00:00:00.000Z"
+          } as unknown as NonNullable<AppData["plan"]>)
+        }),
+        "limits"
+      )
+    ).not.toThrow();
+  });
+
   it("prioritizes token budget, hides disabled monthly media, and keeps tool limits collapsed by default", () => {
     const openPricingPage = vi.fn();
     const openPackagesPage = vi.fn();

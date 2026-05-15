@@ -91,6 +91,7 @@ const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
   "image_generate",
   "image_edit",
   "video_generate",
+  "document",
   "tts",
   "scheduled_action",
   "background_task",

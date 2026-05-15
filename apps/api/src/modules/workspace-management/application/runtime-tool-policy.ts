@@ -188,6 +188,20 @@ function supportsCurrentNativeTtsProvider(
   );
 }
 
+function supportsCurrentNativeDocumentProvider(
+  credential: AssistantRuntimeBundleToolCredentialRef | null
+): boolean {
+  if (!credential) {
+    return false;
+  }
+  const candidates = [credential, ...(credential.fallbacks ?? [])];
+  return candidates.some(
+    (entry) =>
+      entry.configured === true &&
+      (entry.providerId === "pdfmonkey" || entry.providerId === "gamma")
+  );
+}
+
 function hasNativeModelExecution(
   runtimeToolCode: string,
   params: {
@@ -247,6 +261,11 @@ function hasNativeModelExecution(
   if (runtimeToolCode === "tts") {
     return supportsCurrentNativeTtsProvider(
       hasConfiguredCredential(params.toolCredentialRefs, "tts")
+    );
+  }
+  if (runtimeToolCode === "document") {
+    return supportsCurrentNativeDocumentProvider(
+      hasConfiguredCredential(params.toolCredentialRefs, "document")
     );
   }
   if (runtimeToolCode === "files" || runtimeToolCode === "exec" || runtimeToolCode === "shell") {

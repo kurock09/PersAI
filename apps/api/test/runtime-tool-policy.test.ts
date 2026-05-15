@@ -77,6 +77,20 @@ const tools = [
     visibleInPlanEditor: true
   },
   {
+    code: "document",
+    displayName: "Document",
+    description: "Create and revise documents.",
+    modelDescription: null,
+    modelUsageGuidance: null,
+    capabilityGroup: "workspace_ops",
+    toolClass: "cost_driving",
+    policyClass: "plan_managed",
+    catalogStatus: "active",
+    planActivationStatus: "active",
+    effectiveActivation: "active",
+    visibleInPlanEditor: true
+  },
+  {
     code: "files",
     displayName: "Files",
     description: "Unified assistant file tool.",
@@ -149,6 +163,20 @@ async function run(): Promise<void> {
         secretRef: { source: "env", provider: "firecrawl", id: "tool_web_fetch" },
         configured: true,
         providerId: "firecrawl"
+      },
+      document: {
+        refKey: "tool_document_pdfmonkey",
+        secretRef: { source: "env", provider: "pdfmonkey", id: "tool_document_pdfmonkey" },
+        configured: true,
+        providerId: "pdfmonkey",
+        fallbacks: [
+          {
+            refKey: "tool_document_gamma",
+            secretRef: { source: "env", provider: "gamma", id: "tool_document_gamma" },
+            configured: true,
+            providerId: "gamma"
+          }
+        ]
       }
     },
     knowledgeAccessEnabled: true,
@@ -166,6 +194,7 @@ async function run(): Promise<void> {
       (tool) => tool.toolCode === "web_search" && tool.enabled && tool.dailyCallLimit === 20
     )
   );
+  assert.ok(toolPolicies.some((tool) => tool.toolCode === "document" && tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "scheduled_action" && tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "files" && tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "image_generate" && !tool.enabled));
@@ -212,6 +241,7 @@ async function run(): Promise<void> {
     /\*\*`knowledge_search`\*\*\nSearch assistant-owned or PersAI-owned knowledge/
   );
   assert.match(markdown, /\*\*`web_search`\*\*\nSearch the public web\./);
+  assert.match(markdown, /\*\*`document`\*\*\nCreate and revise documents\./);
   assert.match(
     markdown,
     /\*\*`scheduled_action`\*\*\nCreate and manage user reminders or hidden assistant actions\./
