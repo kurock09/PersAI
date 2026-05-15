@@ -53,6 +53,7 @@ import {
   type CadenceWatchdogStallReport
 } from "./cadence-watchdog";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
+import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
@@ -191,6 +192,7 @@ export class StreamWebChatTurnService {
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly autoSkillRoutingStateService: AutoSkillRoutingStateService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
+    private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
     private readonly notificationDeliveryWorkerService: NotificationDeliveryWorkerService,
     @Optional()
     private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
@@ -591,6 +593,11 @@ export class StreamWebChatTurnService {
         userId: prepared.userId,
         chatId: prepared.chat.id
       });
+      const activeDocumentJobs = await this.assistantDocumentJobReadService.listOpenJobsForWebChat({
+        assistantId: prepared.assistantId,
+        userId: prepared.userId,
+        chatId: prepared.chat.id
+      });
 
       const delivered = await this.mediaDeliveryService.deliver({
         artifacts: collectedMedia,
@@ -827,6 +834,7 @@ export class StreamWebChatTurnService {
           },
           ...(followUpAssistantMessage === null ? {} : { followUpAssistantMessage }),
           activeMediaJobs,
+          activeDocumentJobs,
           runtime: {
             respondedAt: respondedAt ?? new Date().toISOString(),
             degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
@@ -1486,6 +1494,11 @@ export class StreamWebChatTurnService {
       userId: chat.userId,
       chatId: chat.id
     });
+    const activeDocumentJobs = await this.assistantDocumentJobReadService.listOpenJobsForWebChat({
+      assistantId,
+      userId: chat.userId,
+      chatId: chat.id
+    });
 
     return {
       chat: {
@@ -1534,6 +1547,7 @@ export class StreamWebChatTurnService {
             }
           }),
       activeMediaJobs,
+      activeDocumentJobs,
       runtime: {
         respondedAt: state.respondedAt,
         degradedByQuotaFallback: state.degradedByQuotaFallback,

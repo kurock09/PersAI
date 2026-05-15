@@ -17,6 +17,8 @@ export class QuotaGroundedLimitCopyService {
     code:
       | "monthly_media_quota_exceeded"
       | "monthly_media_quota_rejected"
+      | "monthly_tool_quota_exceeded"
+      | "monthly_tool_quota_rejected"
       | "tool_daily_limit_reached"
       | "media_storage_quota_exceeded"
       | "knowledge_storage_quota_exceeded"
@@ -29,7 +31,9 @@ export class QuotaGroundedLimitCopyService {
     switch (input.code) {
       case "monthly_media_quota_exceeded":
       case "monthly_media_quota_rejected":
-        return this.buildMonthlyMediaCopy(quotaStatus, input.details, input.code);
+      case "monthly_tool_quota_exceeded":
+      case "monthly_tool_quota_rejected":
+        return this.buildMonthlyToolCopy(quotaStatus, input.details, input.code);
       case "tool_daily_limit_reached":
         return this.buildToolDailyCopy(quotaStatus, input.details);
       case "media_storage_quota_exceeded":
@@ -43,19 +47,23 @@ export class QuotaGroundedLimitCopyService {
     }
   }
 
-  private buildMonthlyMediaCopy(
+  private buildMonthlyToolCopy(
     quotaStatus: Awaited<ReturnType<ReadInternalRuntimeQuotaStatusService["execute"]>>,
     details: Record<string, unknown> | undefined,
-    code: "monthly_media_quota_exceeded" | "monthly_media_quota_rejected"
+    code:
+      | "monthly_media_quota_exceeded"
+      | "monthly_media_quota_rejected"
+      | "monthly_tool_quota_exceeded"
+      | "monthly_tool_quota_rejected"
   ): QuotaGroundedLimitCopy | null {
     const toolCode = typeof details?.toolCode === "string" ? details.toolCode : null;
     if (toolCode === null) {
       return null;
     }
     const tool =
-      quotaStatus.monthlyMediaQuotas.tools.find((row) => row.toolCode === toolCode) ?? null;
+      quotaStatus.monthlyToolQuotas.tools.find((row) => row.toolCode === toolCode) ?? null;
     const displayName = tool?.displayName ?? toolCode.replace(/_/g, " ");
-    if (code === "monthly_media_quota_rejected") {
+    if (code === "monthly_media_quota_rejected" || code === "monthly_tool_quota_rejected") {
       return {
         message: `${displayName} is not active on the current plan.`,
         guidance: this.buildInactiveToolGuidance(quotaStatus, toolCode)
@@ -78,7 +86,11 @@ export class QuotaGroundedLimitCopyService {
     const resetAt =
       typeof details?.periodEndsAt === "string"
         ? details.periodEndsAt
-        : quotaStatus.monthlyMediaQuotas.periodEndsAt;
+        : quotaStatus.monthlyToolQuotas.periodEndsAt;
+    const baseGuidance =
+      toolCode === "document"
+        ? "Use a request that does not need document generation."
+        : "Use a request that does not need media generation.";
     return {
       message: [
         `${displayName} is exhausted for the current monthly period`,
@@ -90,11 +102,7 @@ export class QuotaGroundedLimitCopyService {
         .filter((part): part is string => part !== null)
         .join(". ")
         .replace(/\.\sIt resets/, ". It resets"),
-      guidance: this.buildMediaUpgradeGuidance(
-        quotaStatus,
-        toolCode,
-        "Use a request that does not need media generation."
-      )
+      guidance: this.buildMonthlyToolUpgradeGuidance(quotaStatus, toolCode, baseGuidance)
     };
   }
 
@@ -182,7 +190,7 @@ export class QuotaGroundedLimitCopyService {
     return "Switch to a request that does not need this capability.";
   }
 
-  private buildMediaUpgradeGuidance(
+  private buildMonthlyToolUpgradeGuidance(
     quotaStatus: Awaited<ReturnType<ReadInternalRuntimeQuotaStatusService["execute"]>>,
     toolCode: string,
     baseGuidance: string

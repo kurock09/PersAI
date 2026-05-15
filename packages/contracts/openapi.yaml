@@ -9747,6 +9747,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantWebChatActiveMediaJobState"
+        activeDocumentJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatActiveDocumentJobState"
         runtime:
           $ref: "#/components/schemas/AssistantWebChatRuntimeState"
     AssistantWebChatTurnCurrentActivityState:
@@ -9859,6 +9863,49 @@ components:
             - queued
             - running
             - completion_pending
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+    AssistantWebChatActiveDocumentJobState:
+      type: object
+      required:
+        - id
+        - documentType
+        - descriptorMode
+        - status
+        - createdAt
+        - startedAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        documentType:
+          type: string
+          enum:
+            - pdf_document
+            - presentation
+        descriptorMode:
+          type: string
+          enum:
+            - create_pdf_document
+            - create_presentation
+            - revise_document
+            - export_or_redeliver
+        status:
+          type: string
+          enum:
+            - queued
+            - running
+            - provider_processing
+            - fetching_output
+            - ready_for_delivery
         createdAt:
           type: string
           format: date-time
@@ -10038,6 +10085,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantWebChatActiveMediaJobState"
+        activeDocumentJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatActiveDocumentJobState"
     AssistantWebChatRenameRequest:
       type: object
       minProperties: 1
@@ -10290,6 +10341,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantWebChatActiveMediaJobState"
+        activeDocumentJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatActiveDocumentJobState"
     GetAssistantWebChatListItemResponse:
       type: object
       required:
@@ -10354,6 +10409,9 @@ components:
           type: integer
           nullable: true
         videoGenerateMonthlyUnitsLimit:
+          type: integer
+          nullable: true
+        documentMonthlyUnitsLimit:
           type: integer
           nullable: true
         mediaStorageBytesLimit:

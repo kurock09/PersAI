@@ -185,10 +185,13 @@ Current active internal service endpoints are served by `apps/runtime`:
 - `GET /ready`
 - `POST /api/v1/turns/create`
 - `POST /api/v1/turns/stream`
+- `POST /api/v1/internal/runtime/document-jobs/run`
 
 These are internal runtime-service boundaries, not a public legacy gateway surface.
 
 Runtime turn results may include compact `turnRouting.retrievalPlan` diagnostics. On the active runtime path, the router plan feeds the internal API retrieval boundary when Skill, user, Product, or web grounding is requested.
+
+ADR-097 adds one more internal runtime execution seam for the backend document worker. `POST /api/v1/internal/runtime/document-jobs/run` is an API-owned background-worker boundary: API sends persisted document job truth plus the current materialized runtime bundle, runtime executes the provider-specific document path, and runtime returns worker-only result truth (`artifacts`, optional `assistantText`, and provider-status metadata). The current active scope is still intentionally narrow and async-first: `create_pdf_document` may execute through PDFMonkey only when the operator-owned template prerequisite is configured in `Admin > Tools` and present in the materialized runtime bundle; `create_presentation` may execute through Gamma and returns a persisted PPTX artifact through the same `AssistantFile` delivery seam; `revise_document` creates a new persisted version and runs through the same async worker lane; and `export_or_redeliver` now supports honest same-format redelivery/re-render on existing PersAI documents while cross-format export remains intentionally unsupported. The model-visible `document` tool is projected through the native runtime as an async/deferred tool surface; the final PDF/PPTX is still delivered later through the background document job lane rather than inline in the same model reply.
 
 ADR-079 Steps 11-12 add an internal runtime-to-API retrieval execution boundary: `POST /api/v1/internal/runtime/knowledge/orchestrate`. The runtime sends the current query and validated router plan, and the API returns a bounded source-aware `Retrieved Knowledge Context` block for executable Skill/user/Product sources. The API owns source policy, Skill assignment revalidation, ready-document enforcement, context shaping, and durable source-level retrieval observability. Web grounding is not fabricated by orchestration; `useWeb` is recorded honestly when not executed and real web work remains on the `web_search` / `web_fetch` tool path. Runtime web streams may emit compact retrieval activity events for source classes that actually contributed context; users do not see the internal plan. Heavy grounded Skill turns that also use user KB/files are raised to at least the configured `premium_reply` slot before generation, and runtime replans injected retrieved context under the plan-managed context hydration budget. Provider context-window overflow is surfaced as a distinct runtime context-window failure instead of generic runtime unreachable. This endpoint is internal only and does not expose old admin `scope=skill` or a public `skill` knowledge-search source.
 
@@ -240,6 +243,9 @@ Current active internal service endpoints are served by `apps/provider-gateway`:
 - `GET /health`
 - `GET /ready`
 - provider text generation/streaming endpoints consumed by `apps/runtime`
+- `POST /api/v1/providers/generate-document`
+
+ADR-097's current document-provider boundary is `POST /api/v1/providers/generate-document`. It is internal-only and consumed by the runtime document worker. The active narrow path is PDFMonkey-first: provider-gateway resolves the encrypted PDFMonkey secret through PersAI internal secret resolution, sends the provider request, downloads the returned PDF, and returns the PDF bytes plus provider operational metadata to runtime. Deterministic provider/config/auth/template 4xx failures now return explicit non-retryable error truth with provider-status metadata; they are not active-path transient retry semantics.
 
 ## Secret and credential flow
 

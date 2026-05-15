@@ -27,6 +27,7 @@ PersAI is the source of truth for:
 - durable quota-advisory threshold/dedupe state for active-surface warning delivery
 - durable notification control-plane state across assistant outbox delivery, billing lifecycle notification jobs, admin notification channels, delivery attempts, and workspace notification policy rows, with ADR-088 defining the target-state convergence of these currently split models
 - integration state such as Telegram binding/config
+- ADR-097 document-domain persistence (`assistant_documents`, `assistant_document_versions`, `assistant_document_render_jobs`, `assistant_document_provider_mappings`, `assistant_document_delivered_files`, `assistant_document_revision_logs`) for stable `doc_id`, version graph, render-job lifecycle, provider reconciliation metadata, delivery linkage, and revision history
 
 ## Runtime-plane ownership
 
@@ -37,6 +38,24 @@ The native runtime path uses PersAI-owned runtime state models for:
 - turn receipts and idempotency state
 - session compaction metadata
 - web compaction banner state and background compaction notice classification read `runtime_session*` state together with the current materialized runtime-bundle compaction config; persisted bundle truth may arrive as either a materialized object or a JSON document string and both shapes are valid current-state storage forms
+
+## Document render-job truth
+
+ADR-097 adds a document-domain async execution model separate from `assistant_media_jobs`:
+
+- `assistant_documents` is the canonical persisted document identity (`doc_id`) and high-level lifecycle owner
+- `assistant_document_versions` stores the version graph plus the normalized source/request snapshot used to render a concrete version
+- `assistant_document_render_jobs` is the durable async worker registry for document rendering and delivery, including claim/retry state, terminal error state, and worker/provider status JSON
+- `assistant_document_provider_mappings` stores provider reconciliation identifiers plus the latest provider operational metadata for a version/provider pair
+- `assistant_document_delivered_files` links the canonical delivered `AssistantFile` row back to document/version/render-job truth
+- `assistant_document_revision_logs` is the append-only revision/audit trail for future existing-document flows
+
+Current active truth for the narrow PDFMonkey-first rollout:
+
+- PersAI remains the source of truth for `doc_id`, version graph, render-job lifecycle, quota settlement, and delivered-file truth
+- provider-side ids/status are reconciliation metadata only; they are persisted on both success and terminal failure and must not replace PersAI job truth
+- `AssistantDocumentDeliveredFile` + canonical `assistant_files` remain the only delivered-file path; provider URLs are operational metadata, not product truth
+- no document-domain row may be reinterpreted through `assistant_media_jobs`; the media lane remains a separate model for image/audio/video work
 
 ## Web chat send reliability
 

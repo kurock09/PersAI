@@ -479,7 +479,15 @@ describe("AssistantSettings Files", () => {
         sizeBytes: 1024 + index,
         logicalSizeBytes: 1024 + index,
         fileBucket:
-          index % 3 === 0 ? "user_files" : index % 3 === 1 ? "assistant_created" : "media_uploads",
+          index === 2
+            ? "media_uploads"
+            : index % 4 === 0
+              ? "user_files"
+              : index % 4 === 1
+                ? "assistant_created"
+                : index % 4 === 2
+                  ? "documents"
+                  : "media_uploads",
         cleanupEligible: false,
         cleanupReason: null,
         createdAt: "2026-05-02T00:00:00.000Z"
@@ -497,10 +505,14 @@ describe("AssistantSettings Files", () => {
     });
     expect(screen.getByText("Assistant files")).toBeInTheDocument();
     const mediaBucket = screen.getByText("Media");
+    const documentsBucket = screen.getByText("Documents");
     const assistantBucket = screen.getByText("Created by assistant");
     const userBucket = screen.getByText("User files");
     expect(
-      mediaBucket.compareDocumentPosition(assistantBucket) & Node.DOCUMENT_POSITION_FOLLOWING
+      mediaBucket.compareDocumentPosition(documentsBucket) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      documentsBucket.compareDocumentPosition(assistantBucket) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(
       assistantBucket.compareDocumentPosition(userBucket) & Node.DOCUMENT_POSITION_FOLLOWING

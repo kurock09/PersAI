@@ -111,6 +111,7 @@ function createChat(
     messages,
     chatId: options?.chatId ?? "chat-1",
     activeMediaJobs: [],
+    activeDocumentJobs: [],
     isStreaming,
     historyLoading: false,
     hasOlderMessages: options?.hasOlderMessages ?? false,

@@ -23,6 +23,7 @@ import { PersaiMediaObjectStorageService } from "./media/persai-media-object-sto
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
 import type {
   AssistantWebChatActiveTurnState,
+  AssistantWebChatActiveDocumentJobState,
   AssistantWebChatActiveMediaJobState,
   AssistantWebChatCompactionResult,
   AssistantWebChatCompactionState,
@@ -31,6 +32,7 @@ import type {
   AssistantWebChatMessageState
 } from "./web-chat.types";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
+import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
@@ -101,6 +103,7 @@ export class ManageWebChatListService {
     private readonly compactNativeWebChatSessionService: CompactNativeWebChatSessionService,
     private readonly resolveNativeWebChatSessionStateService: ResolveNativeWebChatSessionStateService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
+    private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
     private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
@@ -183,6 +186,11 @@ export class ManageWebChatListService {
             assistantId: assistant.id,
             userId,
             chatId: chat.id
+          }),
+          activeDocumentJobs: await this.assistantDocumentJobReadService.listOpenJobsForWebChat({
+            assistantId: assistant.id,
+            userId,
+            chatId: chat.id
           })
         };
       })
@@ -226,6 +234,11 @@ export class ManageWebChatListService {
         assistantId: assistant.id,
         userId,
         chatId
+      }),
+      activeDocumentJobs: await this.assistantDocumentJobReadService.listOpenJobsForWebChat({
+        assistantId: assistant.id,
+        userId,
+        chatId
       })
     };
   }
@@ -262,7 +275,8 @@ export class ManageWebChatListService {
       messageCount: metadata.messageCount,
       lastMessagePreview: metadata.lastMessagePreview,
       activeTurn: null,
-      activeMediaJobs: []
+      activeMediaJobs: [],
+      activeDocumentJobs: []
     };
   }
 
@@ -275,6 +289,7 @@ export class ManageWebChatListService {
     nextCursor: string | null;
     activeTurn: AssistantWebChatActiveTurnState | null;
     activeMediaJobs: AssistantWebChatActiveMediaJobState[];
+    activeDocumentJobs: AssistantWebChatActiveDocumentJobState[];
   }> {
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {
@@ -339,8 +354,13 @@ export class ManageWebChatListService {
       userId,
       chatId
     });
+    const activeDocumentJobs = await this.assistantDocumentJobReadService.listOpenJobsForWebChat({
+      assistantId: assistant.id,
+      userId,
+      chatId
+    });
 
-    return { messages: page, nextCursor, activeTurn, activeMediaJobs };
+    return { messages: page, nextCursor, activeTurn, activeMediaJobs, activeDocumentJobs };
   }
 
   private async getCompactActiveTurn(input: {

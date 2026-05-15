@@ -86,6 +86,7 @@ export interface AssistantWebChatTurnState {
   assistantMessage: AssistantWebChatMessageState;
   followUpAssistantMessage?: AssistantWebChatMessageState;
   activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
+  activeDocumentJobs?: AssistantWebChatActiveDocumentJobState[];
   runtime: {
     respondedAt: string;
     degradedByQuotaFallback: boolean;
@@ -142,6 +143,27 @@ export interface AssistantWebChatActiveMediaJobState {
   updatedAt: string;
 }
 
+export type AssistantWebChatActiveDocumentJobStatus =
+  | "queued"
+  | "running"
+  | "provider_processing"
+  | "fetching_output"
+  | "ready_for_delivery";
+
+export interface AssistantWebChatActiveDocumentJobState {
+  id: string;
+  documentType: "pdf_document" | "presentation";
+  descriptorMode:
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver";
+  status: AssistantWebChatActiveDocumentJobStatus;
+  createdAt: string;
+  startedAt: string | null;
+  updatedAt: string;
+}
+
 export interface AssistantWebChatCompactionState {
   available: boolean;
   suggested: boolean;
@@ -172,4 +194,5 @@ export interface AssistantWebChatListItemState {
   lastMessagePreview: string | null;
   activeTurn: AssistantWebChatCompactActiveTurnState | null;
   activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
+  activeDocumentJobs?: AssistantWebChatActiveDocumentJobState[];
 }

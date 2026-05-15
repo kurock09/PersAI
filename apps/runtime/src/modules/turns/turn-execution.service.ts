@@ -31,6 +31,7 @@ import {
   type RuntimeMemoryWriteToolResult,
   type RuntimeQuotaStatusToolResult,
   type RuntimeBrowserToolResult,
+  type RuntimeDocumentToolResult,
   type RuntimeFilesToolResult,
   type RuntimeImageEditToolResult,
   type RuntimeImageGenerateToolResult,
@@ -40,6 +41,7 @@ import {
   type RuntimeScheduledActionToolResult,
   type RuntimeBackgroundTaskToolResult,
   type RuntimeDeferredMediaJobSummary,
+  type RuntimeDeferredDocumentJobSummary,
   type RuntimeSharedCompactionToolResult,
   type RuntimeTtsToolResult,
   type RuntimeVideoGenerateToolResult,
@@ -75,6 +77,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
+import { RuntimeDocumentToolService } from "./runtime-document-tool.service";
 import { stringifyToolResultPayloadForModel } from "./sanitize-tool-result-for-model";
 import { RuntimeFilesToolService } from "./runtime-files-tool.service";
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
@@ -174,6 +177,7 @@ type TurnExecutionState = {
   usageEntries: RuntimeUsageAccountingEntry[];
   toolInvocations: RuntimeTurnToolInvocation[];
   deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
+  deferredDocumentJobs: RuntimeDeferredDocumentJobSummary[];
   closedOpenLoopRefs: string[];
 };
 
@@ -186,6 +190,7 @@ type ToolExecutionOutcome = {
     | RuntimeMemoryWriteToolResult
     | RuntimeQuotaStatusToolResult
     | RuntimeBrowserToolResult
+    | RuntimeDocumentToolResult
     | RuntimeFilesToolResult
     | RuntimeImageEditToolResult
     | RuntimeImageGenerateToolResult
@@ -256,6 +261,7 @@ const MEMORY_WRITE_TOOL_CODE = "memory_write";
 const QUOTA_STATUS_TOOL_CODE = "quota_status";
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
 const BACKGROUND_TASK_TOOL_CODE = "background_task";
+const DOCUMENT_TOOL_CODE = "document";
 const IMAGE_EDIT_TOOL_CODE = "image_edit";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
 const VIDEO_GENERATE_TOOL_CODE = "video_generate";
@@ -290,7 +296,8 @@ type DeveloperInstructionSectionKey =
   | "open_media_jobs"
   | "presence"
   | "tool_follow_up"
-  | "deferred_media_follow_up";
+  | "deferred_media_follow_up"
+  | "deferred_document_follow_up";
 
 type DeveloperInstructionSection = {
   key: DeveloperInstructionSectionKey;
@@ -320,6 +327,7 @@ export class TurnExecutionService {
     private readonly turnFinalizationService: TurnFinalizationService,
     private readonly sessionCompactionService: SessionCompactionService,
     private readonly runtimeBrowserToolService: RuntimeBrowserToolService,
+    private readonly runtimeDocumentToolService: RuntimeDocumentToolService,
     private readonly runtimeFilesToolService: RuntimeFilesToolService,
     private readonly runtimeImageEditToolService: RuntimeImageEditToolService,
     private readonly runtimeImageGenerateToolService: RuntimeImageGenerateToolService,
@@ -1166,6 +1174,7 @@ export class TurnExecutionService {
                 assistantText: completedProviderResult.text ?? "",
                 artifacts: turnState.artifacts,
                 deferredMediaJobs: turnState.deferredMediaJobs,
+                deferredDocumentJobs: turnState.deferredDocumentJobs,
                 locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
               });
               if (correctedAssistantText !== (completedProviderResult.text ?? "")) {
@@ -1467,7 +1476,10 @@ export class TurnExecutionService {
         : { toolInvocations: [...turnState.toolInvocations] }),
       ...(turnState.deferredMediaJobs.length === 0
         ? {}
-        : { deferredMediaJobs: [...turnState.deferredMediaJobs] })
+        : { deferredMediaJobs: [...turnState.deferredMediaJobs] }),
+      ...(turnState.deferredDocumentJobs.length === 0
+        ? {}
+        : { deferredDocumentJobs: [...turnState.deferredDocumentJobs] })
     };
     if (trace !== undefined) {
       this.runtimeObservabilityService.recordStreamTurn(trace);
@@ -2167,6 +2179,7 @@ export class TurnExecutionService {
             closedOpenLoopRefs: turnState.closedOpenLoopRefs,
             forceFinalTextOnly,
             deferredMediaJobs: turnState.deferredMediaJobs,
+            deferredDocumentJobs: turnState.deferredDocumentJobs,
             requestMetadata: this.createTurnProviderRequestMetadata({
               acceptedTurn,
               classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
@@ -2211,6 +2224,7 @@ export class TurnExecutionService {
             assistantText: accumulatedText,
             artifacts: turnState.artifacts,
             deferredMediaJobs: turnState.deferredMediaJobs,
+            deferredDocumentJobs: turnState.deferredDocumentJobs,
             locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
           })
         );
@@ -2535,6 +2549,23 @@ export class TurnExecutionService {
           toolCall
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
+      case DOCUMENT_TOOL_CODE: {
+        const result = await this.runtimeDocumentToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          deferToAsyncDocumentJob: {
+            sourceUserMessageId: input.idempotencyKey,
+            sourceUserMessageText: input.message.text
+          }
+        });
+        return this.createToolExecutionOutcome(
+          toolCall,
+          result.payload,
+          result.isError,
+          undefined,
+          result.artifacts
+        );
       }
       case IMAGE_EDIT_TOOL_CODE: {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
@@ -2984,6 +3015,7 @@ export class TurnExecutionService {
       | RuntimeMemoryWriteToolResult
       | RuntimeQuotaStatusToolResult
       | RuntimeBrowserToolResult
+      | RuntimeDocumentToolResult
       | RuntimeFilesToolResult
       | RuntimeImageEditToolResult
       | RuntimeImageGenerateToolResult
@@ -3033,6 +3065,7 @@ export class TurnExecutionService {
       closedOpenLoopRefs: string[];
       forceFinalTextOnly?: boolean;
       deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
+      deferredDocumentJobs?: TurnExecutionState["deferredDocumentJobs"];
       requestMetadata: ProviderGatewayRequestMetadata;
     }
   ): ProviderGatewayTextGenerateRequest {
@@ -3043,7 +3076,8 @@ export class TurnExecutionService {
       input.closedOpenLoopRefs,
       input.toolHistory.length > 0,
       input.forceFinalTextOnly === true,
-      input.deferredMediaJobs ?? []
+      input.deferredMediaJobs ?? [],
+      input.deferredDocumentJobs ?? []
     );
     return {
       ...baseRequest,
@@ -3088,7 +3122,8 @@ export class TurnExecutionService {
     closedOpenLoopRefs: string[],
     hasToolHistory: boolean,
     forceFinalTextOnly: boolean,
-    deferredMediaJobs: RuntimeDeferredMediaJobSummary[]
+    deferredMediaJobs: RuntimeDeferredMediaJobSummary[],
+    deferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"]
   ): string | null {
     let sections = this.replaceDeveloperInstructionSection(
       baseSections,
@@ -3118,6 +3153,13 @@ export class TurnExecutionService {
       "deferred_media_follow_up",
       deferredMediaJobs.length > 0
         ? this.buildDeferredMediaFollowUpInstruction(deferredMediaJobs)
+        : null
+    );
+    sections = this.replaceDeveloperInstructionSection(
+      sections,
+      "deferred_document_follow_up",
+      deferredDocumentJobs.length > 0
+        ? this.buildDeferredDocumentFollowUpInstruction(deferredDocumentJobs)
         : null
     );
     return this.renderDeveloperInstructionSections(sections);
@@ -3260,6 +3302,7 @@ export class TurnExecutionService {
     assistantText: string;
     artifacts: RuntimeOutputArtifact[];
     deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
+    deferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"];
     locale: string | null;
   }): string {
     const normalizedText = this.normalizeOptionalText(input.assistantText) ?? "";
@@ -3269,8 +3312,14 @@ export class TurnExecutionService {
       input.deferredMediaJobs,
       input.locale
     );
-    return this.applyUndeliveredAttachmentCorrection(
+    const deferredDocumentCorrected = this.applyDeferredDocumentAcknowledgementCorrection(
       deferredCorrected,
+      input.artifacts,
+      input.deferredDocumentJobs,
+      input.locale
+    );
+    return this.applyUndeliveredAttachmentCorrection(
+      deferredDocumentCorrected,
       input.artifacts,
       input.locale
     );
@@ -3305,6 +3354,19 @@ export class TurnExecutionService {
       return normalizedText;
     }
     return this.buildDeferredMediaAcknowledgement(locale, deferredMediaJobs);
+  }
+
+  private applyDeferredDocumentAcknowledgementCorrection(
+    assistantText: string,
+    artifacts: RuntimeOutputArtifact[],
+    deferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"],
+    locale: string | null
+  ): string {
+    const normalizedText = this.normalizeOptionalText(assistantText) ?? "";
+    if (deferredDocumentJobs.length === 0 || artifacts.length > 0) {
+      return normalizedText;
+    }
+    return this.buildDeferredDocumentAcknowledgement(locale, deferredDocumentJobs);
   }
 
   private claimsAttachmentDelivery(assistantText: string): boolean {
@@ -3352,6 +3414,46 @@ export class TurnExecutionService {
     }
   }
 
+  private buildDeferredDocumentAcknowledgement(
+    locale: string | null,
+    deferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"]
+  ): string {
+    const primaryDescriptorMode = deferredDocumentJobs[0]?.descriptorMode ?? null;
+    const hasMixedModes = deferredDocumentJobs.some(
+      (job) => job.descriptorMode !== primaryDescriptorMode
+    );
+    if (locale?.toLowerCase().startsWith("ru")) {
+      if (hasMixedModes || primaryDescriptorMode === null) {
+        return "Запрос принят. Готовлю документ и пришлю его отдельно, когда он будет готов.";
+      }
+      switch (primaryDescriptorMode) {
+        case "create_presentation":
+          return "Запрос принят. Готовлю презентацию и пришлю её отдельно, когда она будет готова.";
+        case "revise_document":
+          return "Запрос принят. Обновляю документ и пришлю новую версию отдельно, когда она будет готова.";
+        case "export_or_redeliver":
+          return "Запрос принят. Готовлю документ и пришлю его отдельно, когда он будет готов.";
+        case "create_pdf_document":
+        default:
+          return "Запрос принят. Готовлю документ и пришлю его отдельно, когда он будет готов.";
+      }
+    }
+    if (hasMixedModes || primaryDescriptorMode === null) {
+      return "Request accepted. I am preparing the document and will send it separately when it is ready.";
+    }
+    switch (primaryDescriptorMode) {
+      case "create_presentation":
+        return "Request accepted. I am preparing the presentation and will send it separately when it is ready.";
+      case "revise_document":
+        return "Request accepted. I am revising the document and will send the updated version separately when it is ready.";
+      case "export_or_redeliver":
+        return "Request accepted. I am preparing the document and will send it separately when it is ready.";
+      case "create_pdf_document":
+      default:
+        return "Request accepted. I am preparing the document and will send it separately when it is ready.";
+    }
+  }
+
   private buildDeferredMediaFollowUpInstruction(
     deferredMediaJobs: RuntimeDeferredMediaJobSummary[]
   ): string {
@@ -3367,6 +3469,25 @@ export class TurnExecutionService {
       `${subject} from this same turn was accepted for async background processing.`,
       "Do not describe the final media as already generated, ready, visible in chat, attached, uploaded, or sent.",
       "Write only a brief acknowledgement that the request is in progress and the final media will arrive separately when ready.",
+      "Do not print raw tool JSON, job ids, filenames, or imagined result details."
+    ].join(" ");
+  }
+
+  private buildDeferredDocumentFollowUpInstruction(
+    deferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"]
+  ): string {
+    const subject =
+      deferredDocumentJobs.length === 1
+        ? deferredDocumentJobs[0]?.descriptorMode === "create_presentation"
+          ? "The presentation request"
+          : deferredDocumentJobs[0]?.descriptorMode === "revise_document"
+            ? "The document revision"
+            : "The document request"
+        : "The document requests";
+    return [
+      `${subject} from this same turn was accepted for async background processing.`,
+      "Do not describe the final document as already generated, ready, visible in chat, attached, uploaded, or sent.",
+      "Write only a brief acknowledgement that the request is in progress and the final document will arrive separately when ready.",
       "Do not print raw tool JSON, job ids, filenames, or imagined result details."
     ].join(" ");
   }
@@ -3694,6 +3815,7 @@ export class TurnExecutionService {
       usageEntries: [],
       toolInvocations: [],
       deferredMediaJobs: [],
+      deferredDocumentJobs: [],
       closedOpenLoopRefs: []
     };
   }
@@ -3771,11 +3893,19 @@ export class TurnExecutionService {
       if (deferredMediaJob !== null) {
         turnState.deferredMediaJobs.push(deferredMediaJob);
       }
+      const deferredDocumentJob = this.extractDeferredDocumentJob(outcome.payload);
+      if (deferredDocumentJob !== null) {
+        turnState.deferredDocumentJobs.push(deferredDocumentJob);
+      }
       return;
     }
     const deferredMediaJob = this.extractDeferredMediaJob(outcome.payload);
     if (deferredMediaJob !== null) {
       turnState.deferredMediaJobs.push(deferredMediaJob);
+    }
+    const deferredDocumentJob = this.extractDeferredDocumentJob(outcome.payload);
+    if (deferredDocumentJob !== null) {
+      turnState.deferredDocumentJobs.push(deferredDocumentJob);
     }
     turnState.sharedCompaction.invoked = true;
     turnState.sharedCompaction.durableStatePersisted =
@@ -3838,6 +3968,45 @@ export class TurnExecutionService {
       jobId: row.jobId,
       toolCode: row.toolCode,
       kind: row.toolCode === VIDEO_GENERATE_TOOL_CODE ? "video" : "image"
+    };
+  }
+
+  private extractDeferredDocumentJob(
+    payload: ToolExecutionOutcome["payload"]
+  ): TurnExecutionState["deferredDocumentJobs"][number] | null {
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+      return null;
+    }
+    const row = payload as {
+      action?: unknown;
+      jobId?: unknown;
+      toolCode?: unknown;
+      descriptorMode?: unknown;
+      documentType?: unknown;
+    };
+    if (
+      row.action !== "deferred" ||
+      typeof row.jobId !== "string" ||
+      row.toolCode !== DOCUMENT_TOOL_CODE
+    ) {
+      return null;
+    }
+    if (
+      row.descriptorMode !== "create_pdf_document" &&
+      row.descriptorMode !== "create_presentation" &&
+      row.descriptorMode !== "revise_document" &&
+      row.descriptorMode !== "export_or_redeliver"
+    ) {
+      return null;
+    }
+    if (row.documentType !== "pdf_document" && row.documentType !== "presentation") {
+      return null;
+    }
+    return {
+      jobId: row.jobId,
+      toolCode: "document",
+      descriptorMode: row.descriptorMode,
+      documentType: row.documentType
     };
   }
 

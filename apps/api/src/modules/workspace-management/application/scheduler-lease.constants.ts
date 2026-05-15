@@ -7,6 +7,7 @@ export const SCHEDULER_KEYS = [
   "background_task",
   "background_compaction",
   "media_job",
+  "document_job",
   "materialization_rollout"
 ] as const;
 

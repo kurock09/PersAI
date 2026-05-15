@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { ManageAdminPlansService } from "./manage-admin-plans.service";
 import type {
-  AssistantMonthlyMediaQuotaSnapshot,
+  AssistantMonthlyToolQuotaSnapshot,
   AssistantQuotaBucketSnapshot
 } from "./track-workspace-quota-usage.service";
 import {
@@ -33,7 +33,12 @@ export type QuotaAdvisoryCandidateState = {
   deliveredAt: string | null;
 };
 
-const MONTHLY_MEDIA_QUOTA_TOOL_CODES = new Set(["image_generate", "image_edit", "video_generate"]);
+const MONTHLY_TOOL_QUOTA_TOOL_CODES = new Set([
+  "image_generate",
+  "image_edit",
+  "video_generate",
+  "document"
+]);
 
 function toMajorCurrencyUnits(amountMinor: number | null): number | null {
   if (typeof amountMinor !== "number" || !Number.isFinite(amountMinor)) {
@@ -230,11 +235,12 @@ export class ReadInternalRuntimeQuotaStatusService {
         imageGenerateMonthlyUnitsLimit: number | null;
         imageEditMonthlyUnitsLimit: number | null;
         videoGenerateMonthlyUnitsLimit: number | null;
+        documentMonthlyUnitsLimit: number | null;
       };
     }>;
     tools: ToolDailyQuotaStatusRow[];
     buckets: AssistantQuotaBucketSnapshot[];
-    monthlyMediaQuotas: AssistantMonthlyMediaQuotaSnapshot;
+    monthlyToolQuotas: AssistantMonthlyToolQuotaSnapshot;
     packagesAvailableByTool: Record<string, boolean>;
     packageOffers: QuotaOfferState;
     advisories: UserPlanVisibilityState["advisories"];
@@ -257,9 +263,9 @@ export class ReadInternalRuntimeQuotaStatusService {
       if (act.activationStatus === "active") {
         activeToolCodes.add(act.toolCode);
       }
-      if (MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(act.toolCode)) {
-        // ADR-082: media paid-usage truth is monthly and delivery-confirmed, so
-        // quota_status should expose those tools only via monthlyMediaQuotas.
+      if (MONTHLY_TOOL_QUOTA_TOOL_CODES.has(act.toolCode)) {
+        // Monthly-limited tools are exposed through the monthly tool quota block,
+        // not the daily counters.
         continue;
       }
       const dailyCallLimit = act.dailyCallLimit;
@@ -316,13 +322,13 @@ export class ReadInternalRuntimeQuotaStatusService {
       await this.trackWorkspaceQuotaUsageService.resolveAssistantTokenBudgetQuotaSnapshot(
         resolved.assistant
       );
-    const monthlyMediaQuotasRaw =
-      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
+    const monthlyToolQuotasRaw =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyToolQuotaSnapshot(
         resolved.assistant
       );
-    const monthlyMediaQuotas = {
-      ...monthlyMediaQuotasRaw,
-      tools: monthlyMediaQuotasRaw.tools.filter((tool) => activeToolCodes.has(tool.toolCode))
+    const monthlyToolQuotas = {
+      ...monthlyToolQuotasRaw,
+      tools: monthlyToolQuotasRaw.tools.filter((tool) => activeToolCodes.has(tool.toolCode))
     };
     const visiblePlans = await this.manageAdminPlansService.listPublicPricingPlans();
     const currentVisiblePlan = visiblePlans.find((plan) => plan.code === resolved.planCode) ?? null;
@@ -368,7 +374,8 @@ export class ReadInternalRuntimeQuotaStatusService {
         limits: {
           imageGenerateMonthlyUnitsLimit: plan.quotaLimits.imageGenerateMonthlyUnitsLimit,
           imageEditMonthlyUnitsLimit: plan.quotaLimits.imageEditMonthlyUnitsLimit,
-          videoGenerateMonthlyUnitsLimit: plan.quotaLimits.videoGenerateMonthlyUnitsLimit
+          videoGenerateMonthlyUnitsLimit: plan.quotaLimits.videoGenerateMonthlyUnitsLimit,
+          documentMonthlyUnitsLimit: plan.quotaLimits.documentMonthlyUnitsLimit
         }
       })),
       currentActiveToolCodes: activeToolCodes,
@@ -387,7 +394,7 @@ export class ReadInternalRuntimeQuotaStatusService {
         periodEndsAt: tokenBudget.periodEndsAt,
         periodSource: tokenBudget.periodSource
       },
-      monthlyMediaQuotas
+      monthlyToolQuotas
     });
 
     return {
@@ -445,13 +452,16 @@ export class ReadInternalRuntimeQuotaStatusService {
               : null,
             videoGenerateMonthlyUnitsLimit: plan.enabledToolCodes.includes("video_generate")
               ? plan.quotaLimits.videoGenerateMonthlyUnitsLimit
+              : null,
+            documentMonthlyUnitsLimit: plan.enabledToolCodes.includes("document")
+              ? plan.quotaLimits.documentMonthlyUnitsLimit
               : null
           }
         };
       }),
       tools,
       buckets: snapshot.buckets,
-      monthlyMediaQuotas,
+      monthlyToolQuotas,
       packagesAvailableByTool,
       packageOffers,
       advisories,
@@ -469,7 +479,7 @@ export class ReadInternalRuntimeQuotaStatusService {
       periodEndsAt: string;
       periodSource: string;
     };
-    monthlyMediaQuotas: AssistantMonthlyMediaQuotaSnapshot;
+    monthlyToolQuotas: AssistantMonthlyToolQuotaSnapshot;
   }): Promise<QuotaAdvisoryCandidateState[]> {
     const threadPrefix =
       input.channel && input.externalThreadKey
@@ -496,21 +506,21 @@ export class ReadInternalRuntimeQuotaStatusService {
       });
     }
 
-    for (const tool of input.monthlyMediaQuotas.tools) {
+    for (const tool of input.monthlyToolQuotas.tools) {
       if (!tool.finiteLimit) continue;
       if (!tool.warningThresholdReached || tool.status === "limit_reached") continue;
       rawCandidates.push({
-        dedupeKey: `quota_advisory:${threadPrefix}:monthly_media:${tool.toolCode}:warning_90_percent:${input.monthlyMediaQuotas.periodStartedAt}:${input.monthlyMediaQuotas.periodEndsAt}`,
-        limitCode: `monthly_media:${tool.toolCode}`,
+        dedupeKey: `quota_advisory:${threadPrefix}:monthly_tool:${tool.toolCode}:warning_90_percent:${input.monthlyToolQuotas.periodStartedAt}:${input.monthlyToolQuotas.periodEndsAt}`,
+        limitCode: `monthly_tool:${tool.toolCode}`,
         displayName: tool.displayName,
         thresholdCode: "warning_90_percent",
         warningThresholdPercent:
           tool.warningThresholdPercent ?? QUOTA_ADVISORY_WARNING_THRESHOLD_PERCENT,
         currentPercent: tool.percent,
         finiteLimit: tool.finiteLimit,
-        periodStartedAt: input.monthlyMediaQuotas.periodStartedAt,
-        periodEndsAt: input.monthlyMediaQuotas.periodEndsAt,
-        periodSource: input.monthlyMediaQuotas.periodSource
+        periodStartedAt: input.monthlyToolQuotas.periodStartedAt,
+        periodEndsAt: input.monthlyToolQuotas.periodEndsAt,
+        periodSource: input.monthlyToolQuotas.periodSource
       });
     }
 

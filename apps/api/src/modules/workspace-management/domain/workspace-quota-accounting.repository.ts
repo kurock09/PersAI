@@ -16,11 +16,15 @@ export type WorkspaceQuotaLimitsInput = {
   workspaceStorageBytesLimit: bigint | null;
 };
 
-export type WorkspaceMonthlyMediaQuotaToolCode = "image_generate" | "image_edit" | "video_generate";
+export type WorkspaceMonthlyToolQuotaToolCode =
+  | "image_generate"
+  | "image_edit"
+  | "video_generate"
+  | "document";
 
-export type WorkspaceMonthlyMediaQuotaCounter = {
+export type WorkspaceMonthlyToolQuotaCounter = {
   workspaceId: string;
-  toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+  toolCode: WorkspaceMonthlyToolQuotaToolCode;
   periodStartedAt: Date;
   periodEndsAt: Date;
   reservedUnits: number;
@@ -48,14 +52,14 @@ export type FindTokenBudgetPeriodCounterInput = {
 
 export type FindMonthlyMediaQuotaCounterInput = {
   workspaceId: string;
-  toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+  toolCode: WorkspaceMonthlyToolQuotaToolCode;
   periodStartedAt: Date;
   periodEndsAt: Date;
 };
 
 export type MonthlyMediaQuotaMutationInput = {
   workspaceId: string;
-  toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+  toolCode: WorkspaceMonthlyToolQuotaToolCode;
   periodStartedAt: Date;
   periodEndsAt: Date;
   units: number;
@@ -66,7 +70,7 @@ export type ReserveMonthlyMediaQuotaResult = {
   allowed: boolean;
   currentUsedUnits: number;
   limitUnits: number | null;
-  counter: WorkspaceMonthlyMediaQuotaCounter;
+  counter: WorkspaceMonthlyToolQuotaCounter;
 };
 
 export type IncrementWorkspaceQuotaUsageInput = {
@@ -177,19 +181,22 @@ export interface WorkspaceQuotaAccountingRepository {
   ): Promise<WorkspaceTokenBudgetPeriodCounter | null>;
   findMonthlyMediaQuotaCounter(
     input: FindMonthlyMediaQuotaCounterInput
-  ): Promise<WorkspaceMonthlyMediaQuotaCounter | null>;
+  ): Promise<WorkspaceMonthlyToolQuotaCounter | null>;
   reserveMonthlyMediaQuota(
     input: MonthlyMediaQuotaMutationInput
   ): Promise<ReserveMonthlyMediaQuotaResult>;
   settleMonthlyMediaQuota(
     input: MonthlyMediaQuotaMutationInput
-  ): Promise<WorkspaceMonthlyMediaQuotaCounter>;
+  ): Promise<WorkspaceMonthlyToolQuotaCounter>;
+  consumeMonthlyToolQuotaSuccessOnly(
+    input: MonthlyMediaQuotaMutationInput
+  ): Promise<WorkspaceMonthlyToolQuotaCounter>;
   releaseMonthlyMediaQuota(
     input: MonthlyMediaQuotaMutationInput
-  ): Promise<WorkspaceMonthlyMediaQuotaCounter>;
+  ): Promise<WorkspaceMonthlyToolQuotaCounter>;
   markMonthlyMediaQuotaReconciliationRequired(
     input: MonthlyMediaQuotaMutationInput
-  ): Promise<WorkspaceMonthlyMediaQuotaCounter>;
+  ): Promise<WorkspaceMonthlyToolQuotaCounter>;
   incrementUsage(input: IncrementWorkspaceQuotaUsageInput): Promise<WorkspaceQuotaAccountingState>;
   applyTokenBudgetUsage(input: ApplyTokenBudgetUsageInput): Promise<ApplyTokenBudgetUsageResult>;
   applyMediaStorageUsage(input: ApplyMediaStorageUsageInput): Promise<ApplyMediaStorageUsageResult>;

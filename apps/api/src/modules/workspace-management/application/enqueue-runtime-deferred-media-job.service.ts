@@ -180,9 +180,9 @@ export class EnqueueRuntimeDeferredMediaJobService {
 
     const status = await this.readInternalRuntimeQuotaStatusService.execute({ assistantId });
     const quotaRow =
-      status.monthlyMediaQuotas === null
+      status.monthlyToolQuotas === null
         ? null
-        : (status.monthlyMediaQuotas.tools.find((entry) => entry.toolCode === toolCode) ?? null);
+        : (status.monthlyToolQuotas.tools.find((entry) => entry.toolCode === toolCode) ?? null);
     if (quotaRow?.status === "limit_reached" || quotaRow?.remainingUnits === 0) {
       const copy = await this.quotaGroundedLimitCopyService.build({
         assistantId,
@@ -195,9 +195,9 @@ export class EnqueueRuntimeDeferredMediaJobService {
               ? quotaRow.effectiveLimitUnits
               : quotaRow.limitUnits,
           requestedUnits: 1,
-          periodStartedAt: status.monthlyMediaQuotas?.periodStartedAt ?? null,
-          periodEndsAt: status.monthlyMediaQuotas?.periodEndsAt ?? null,
-          periodSource: status.monthlyMediaQuotas?.periodSource ?? null
+          periodStartedAt: status.monthlyToolQuotas?.periodStartedAt ?? null,
+          periodEndsAt: status.monthlyToolQuotas?.periodEndsAt ?? null,
+          periodSource: status.monthlyToolQuotas?.periodSource ?? null
         }
       });
       return {

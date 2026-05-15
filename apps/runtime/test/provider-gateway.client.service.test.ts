@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { RuntimeConfig } from "@persai/config";
 import type {
+  ProviderGatewayDocumentGenerateRequest,
   ProviderGatewayBrowserActionRequest,
   ProviderGatewaySpeechGenerateRequest,
   ProviderGatewayWebSearchRequest,
@@ -183,6 +184,22 @@ function createSpeechGenerateRequest(): ProviderGatewaySpeechGenerateRequest {
       toolCode: "tts",
       secretId: "secret-1",
       providerId: "openai"
+    }
+  };
+}
+
+function createDocumentGenerateRequest(): ProviderGatewayDocumentGenerateRequest {
+  return {
+    htmlContent: "<!DOCTYPE html><html><body><h1>Brief</h1></body></html>",
+    filename: "brief.pdf",
+    credential: {
+      toolCode: "document",
+      secretId: "secret-1",
+      providerId: "pdfmonkey"
+    },
+    providerOptions: {
+      pdfmonkeyTemplateId: "template-123",
+      outputFormat: "pdf"
     }
   };
 }
@@ -427,6 +444,41 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       );
     }
 
+    if (url.endsWith("/api/v1/providers/generate-document")) {
+      return new Response(
+        JSON.stringify({
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          documentId: "pdf-doc-1",
+          templateId: "template-123",
+          filename: "brief.pdf",
+          bytesBase64: "JVBERi0xLjQK",
+          mimeType: "application/pdf",
+          respondedAt: "2026-05-15T18:00:01.000Z",
+          warning: null,
+          providerStatus: {
+            provider: "pdfmonkey",
+            state: "success",
+            documentId: "pdf-doc-1",
+            documentTemplateId: "template-123",
+            downloadUrl: "https://example.com/document.pdf",
+            previewUrl: "https://example.com/preview",
+            failureCause: null,
+            filename: "brief.pdf",
+            outputType: "pdf",
+            status: "success",
+            updatedAt: "2026-05-15T18:00:01.000Z"
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+
     if (url.endsWith("/api/v1/providers/web-fetch")) {
       return new Response(
         JSON.stringify({
@@ -594,6 +646,8 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       timeoutMs: 600000
     });
     const speechGenerate = await service.generateSpeech(createSpeechGenerateRequest());
+    const documentGenerate = await service.generateDocument(createDocumentGenerateRequest());
+    const documentFailure = await service.generateDocumentOutcome(createDocumentGenerateRequest());
     const webFetch = await service.webFetch(createWebFetchRequest());
     const webSearch = await service.webSearch(createWebSearchRequest());
     const browserAction = await service.browserAction(createBrowserActionRequest(), {
@@ -611,10 +665,13 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(videoGenerate.video.mimeType, "video/mp4");
     assert.equal(speechGenerate.model, "gpt-4o-mini-tts");
     assert.equal(speechGenerate.mimeType, "audio/ogg");
+    assert.equal(documentGenerate.provider, "pdfmonkey");
+    assert.equal(documentGenerate.mimeType, "application/pdf");
+    assert.equal(documentFailure.ok, true);
     assert.equal(webFetch.provider, "firecrawl");
     assert.equal(webSearch.provider, "tavily");
     assert.equal(browserAction.provider, "browserless");
-    assert.equal(requests.length, 11);
+    assert.equal(requests.length, 13);
     assert.equal(requests[0]?.url, "http://provider-gateway.local/ready");
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
@@ -651,15 +708,25 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       "http://provider-gateway.local/api/v1/providers/generate-speech"
     );
     assert.equal(requests[7]?.init?.method, "POST");
-    assert.equal(requests[8]?.url, "http://provider-gateway.local/api/v1/providers/web-fetch");
-    assert.equal(requests[8]?.init?.method, "POST");
-    assert.equal(requests[9]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
-    assert.equal(requests[9]?.init?.method, "POST");
     assert.equal(
-      requests[10]?.url,
+      requests[8]?.url,
+      "http://provider-gateway.local/api/v1/providers/generate-document"
+    );
+    assert.equal(requests[8]?.init?.method, "POST");
+    assert.equal(
+      requests[9]?.url,
+      "http://provider-gateway.local/api/v1/providers/generate-document"
+    );
+    assert.equal(requests[9]?.init?.method, "POST");
+    assert.equal(requests[10]?.url, "http://provider-gateway.local/api/v1/providers/web-fetch");
+    assert.equal(requests[10]?.init?.method, "POST");
+    assert.equal(requests[11]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
+    assert.equal(requests[11]?.init?.method, "POST");
+    assert.equal(
+      requests[12]?.url,
       "http://provider-gateway.local/api/v1/providers/browser-action"
     );
-    assert.equal(requests[10]?.init?.method, "POST");
+    assert.equal(requests[12]?.init?.method, "POST");
 
     const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();
@@ -689,6 +756,10 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     );
     await assert.rejects(
       () => unconfiguredService.generateSpeech(createSpeechGenerateRequest()),
+      /base URL is not configured/
+    );
+    await assert.rejects(
+      () => unconfiguredService.generateDocument(createDocumentGenerateRequest()),
       /base URL is not configured/
     );
     await assert.rejects(
@@ -723,6 +794,52 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       delayedKeepaliveEvents.map((event) => event.type),
       ["keepalive", "completed"]
     );
+
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/api/v1/providers/generate-document")) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "pdfmonkey_auth_failed",
+              message: "PDFMonkey rejected the configured credential.",
+              retryable: false,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "failed",
+                status: "http_401",
+                httpStatus: 401,
+                retryable: false
+              }
+            }
+          }),
+          {
+            status: 401,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const failureOutcome = await service.generateDocumentOutcome(createDocumentGenerateRequest());
+    assert.deepEqual(failureOutcome, {
+      ok: false,
+      status: 401,
+      code: "pdfmonkey_auth_failed",
+      message: "PDFMonkey rejected the configured credential.",
+      retryable: false,
+      providerStatus: {
+        provider: "pdfmonkey",
+        state: "failed",
+        status: "http_401",
+        httpStatus: 401,
+        retryable: false
+      }
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

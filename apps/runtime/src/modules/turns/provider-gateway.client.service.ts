@@ -11,6 +11,8 @@ import type {
   ProviderGatewayBrowserActionRequest,
   ProviderGatewayBrowserActionResult,
   ProviderGatewayAudioTranscriptionResult,
+  ProviderGatewayDocumentGenerateRequest,
+  ProviderGatewayDocumentGenerateResult,
   ProviderGatewayImageEditRequest,
   ProviderGatewayImageEditResult,
   ProviderGatewayImageGenerateRequest,
@@ -33,6 +35,20 @@ export interface ProviderGatewayDependencyReadiness {
   ready: boolean;
   providerCacheReady: boolean;
 }
+
+export type ProviderGatewayDocumentGenerateOutcome =
+  | {
+      ok: true;
+      result: ProviderGatewayDocumentGenerateResult;
+    }
+  | {
+      ok: false;
+      status: number;
+      message: string;
+      retryable: boolean;
+      code: string | null;
+      providerStatus: Record<string, unknown> | null;
+    };
 
 interface JsonResponse {
   ok: boolean;
@@ -147,6 +163,78 @@ export class ProviderGatewayClientService {
     }
 
     return response.body;
+  }
+
+  async generateDocument(
+    input: ProviderGatewayDocumentGenerateRequest,
+    options?: { timeoutMs?: number }
+  ): Promise<ProviderGatewayDocumentGenerateResult> {
+    const outcome = await this.generateDocumentOutcome(input, options);
+    if (!outcome.ok) {
+      throw this.toGatewayException({
+        ok: false,
+        status: outcome.status,
+        body: {
+          error: {
+            code: outcome.code,
+            message: outcome.message,
+            retryable: outcome.retryable,
+            providerStatus: outcome.providerStatus
+          }
+        }
+      });
+    }
+    return outcome.result;
+  }
+
+  async generateDocumentOutcome(
+    input: ProviderGatewayDocumentGenerateRequest,
+    options?: { timeoutMs?: number }
+  ): Promise<ProviderGatewayDocumentGenerateOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
+    }
+
+    const response = await this.fetchJson(
+      this.buildUrl("/api/v1/providers/generate-document"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          ...input,
+          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs })
+        })
+      },
+      options?.timeoutMs ?? this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+    );
+    if (!response.ok) {
+      const extracted = this.extractStructuredError(response.body);
+      return {
+        ok: false,
+        status: response.status,
+        message:
+          extracted.message ??
+          `Provider gateway rejected the document request with status ${response.status}.`,
+        retryable:
+          typeof extracted.retryable === "boolean"
+            ? extracted.retryable
+            : response.status >= 500 || response.status === 408 || response.status === 429,
+        code: extracted.code,
+        providerStatus: extracted.providerStatus
+      };
+    }
+    if (!this.isDocumentGenerateResult(response.body)) {
+      throw new BadGatewayException(
+        "Provider gateway returned an invalid document generation response."
+      );
+    }
+
+    return {
+      ok: true,
+      result: response.body
+    };
   }
 
   async generateImage(
@@ -602,6 +690,30 @@ export class ProviderGatewayClientService {
     return null;
   }
 
+  private extractStructuredError(body: unknown): {
+    code: string | null;
+    message: string | null;
+    retryable: boolean | null;
+    providerStatus: Record<string, unknown> | null;
+  } {
+    if (typeof body === "string" && body.trim().length > 0) {
+      return {
+        code: null,
+        message: body.trim(),
+        retryable: null,
+        providerStatus: null
+      };
+    }
+    const row = this.asObject(body);
+    const error = this.asObject(row?.error);
+    return {
+      code: typeof error?.code === "string" ? error.code : null,
+      message: typeof error?.message === "string" ? error.message : null,
+      retryable: typeof error?.retryable === "boolean" ? error.retryable : null,
+      providerStatus: this.asObject(error?.providerStatus)
+    };
+  }
+
   private isPayloadTooLargeFailure(status: number, message: string | null): boolean {
     if (status === 413) {
       return true;
@@ -683,6 +795,44 @@ export class ProviderGatewayClientService {
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage))) &&
       (typeof row.warning === "string" || row.warning === null)
+    );
+  }
+
+  private isDocumentGenerateResult(value: unknown): value is ProviderGatewayDocumentGenerateResult {
+    const row = this.asObject(value);
+    const providerStatus = this.asObject(row?.providerStatus);
+    return (
+      (row?.provider === "pdfmonkey" || row?.provider === "gamma") &&
+      (row.outputFormat === "pdf" || row.outputFormat === "pptx") &&
+      typeof row.documentId === "string" &&
+      (typeof row.templateId === "string" || row.templateId === null) &&
+      (row.filename === null || typeof row.filename === "string") &&
+      typeof row.bytesBase64 === "string" &&
+      typeof row.mimeType === "string" &&
+      typeof row.respondedAt === "string" &&
+      (row.warning === null || typeof row.warning === "string") &&
+      providerStatus !== null &&
+      (providerStatus.provider === "pdfmonkey" || providerStatus.provider === "gamma") &&
+      providerStatus.state === "success" &&
+      ((providerStatus.provider === "pdfmonkey" &&
+        typeof providerStatus.documentId === "string" &&
+        typeof providerStatus.documentTemplateId === "string" &&
+        typeof providerStatus.downloadUrl === "string" &&
+        (providerStatus.previewUrl === null || typeof providerStatus.previewUrl === "string") &&
+        (providerStatus.failureCause === null || typeof providerStatus.failureCause === "string") &&
+        (providerStatus.filename === null || typeof providerStatus.filename === "string") &&
+        providerStatus.outputType === "pdf" &&
+        providerStatus.status === "success" &&
+        (providerStatus.updatedAt === null || typeof providerStatus.updatedAt === "string")) ||
+        (providerStatus.provider === "gamma" &&
+          typeof providerStatus.generationId === "string" &&
+          typeof providerStatus.gammaId === "string" &&
+          typeof providerStatus.gammaUrl === "string" &&
+          typeof providerStatus.exportUrl === "string" &&
+          (providerStatus.filename === null || typeof providerStatus.filename === "string") &&
+          providerStatus.outputType === "pptx" &&
+          providerStatus.status === "completed" &&
+          (providerStatus.updatedAt === null || typeof providerStatus.updatedAt === "string")))
     );
   }
 

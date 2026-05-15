@@ -10,7 +10,7 @@ import {
 } from "../../domain/assistant-chat-message-attachment.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../../domain/assistant.repository";
 import type { Assistant } from "../../domain/assistant.entity";
-import type { WorkspaceMonthlyMediaQuotaToolCode } from "../../domain/workspace-quota-accounting.repository";
+import type { WorkspaceMonthlyToolQuotaToolCode } from "../../domain/workspace-quota-accounting.repository";
 import type { AssistantWebChatMessageAttachmentState } from "../web-chat.types";
 import {
   CHANNEL_MEDIA_ADAPTERS,
@@ -123,7 +123,7 @@ export class MediaDeliveryService {
       return;
     }
 
-    const unitsByToolCode = new Map<WorkspaceMonthlyMediaQuotaToolCode, number>();
+    const unitsByToolCode = new Map<WorkspaceMonthlyToolQuotaToolCode, number>();
     for (const artifact of params.artifacts) {
       const toolCode = this.resolveMonthlyMediaQuotaToolCode(artifact);
       if (toolCode === null) {
@@ -167,7 +167,7 @@ export class MediaDeliveryService {
       return;
     }
 
-    const unitsByToolCode = new Map<WorkspaceMonthlyMediaQuotaToolCode, number>();
+    const unitsByToolCode = new Map<WorkspaceMonthlyToolQuotaToolCode, number>();
     for (const artifact of params.artifacts) {
       const toolCode = this.resolveMonthlyMediaQuotaToolCode(artifact);
       if (toolCode === null) {
@@ -195,7 +195,7 @@ export class MediaDeliveryService {
 
   private resolveMonthlyMediaQuotaToolCode(
     artifact: MediaArtifact
-  ): WorkspaceMonthlyMediaQuotaToolCode | null {
+  ): WorkspaceMonthlyToolQuotaToolCode | null {
     if (
       artifact.sourceToolCode === "image_generate" ||
       artifact.sourceToolCode === "image_edit" ||
@@ -208,7 +208,7 @@ export class MediaDeliveryService {
 
   private async settleMonthlyMediaQuotaBestEffort(params: {
     assistant: Assistant | null;
-    toolCode: WorkspaceMonthlyMediaQuotaToolCode | null;
+    toolCode: WorkspaceMonthlyToolQuotaToolCode | null;
   }): Promise<void> {
     if (params.assistant === null || params.toolCode === null) {
       return;
@@ -228,7 +228,7 @@ export class MediaDeliveryService {
 
   private async markMonthlyMediaQuotaReconciliationBestEffort(params: {
     assistant: Assistant | null;
-    toolCode: WorkspaceMonthlyMediaQuotaToolCode | null;
+    toolCode: WorkspaceMonthlyToolQuotaToolCode | null;
   }): Promise<void> {
     if (params.assistant === null || params.toolCode === null) {
       return;

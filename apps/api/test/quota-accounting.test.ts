@@ -539,7 +539,7 @@ async function run(): Promise<void> {
     toolCode: "web_search",
     dailyCallLimit: 3
   });
-  const monthlyMediaQuota = await service.resolveAssistantMonthlyMediaQuotaSnapshot(assistant);
+  const monthlyToolQuota = await service.resolveAssistantMonthlyToolQuotaSnapshot(assistant);
   const tokenBudgetQuota = await service.resolveAssistantTokenBudgetQuotaSnapshot(assistant);
   const reservedMonthlyMediaQuota = await service.reserveAssistantMonthlyMediaQuota({
     assistant,
@@ -593,37 +593,37 @@ async function run(): Promise<void> {
     currentCount: 3,
     limit: 3
   });
-  assert.equal(monthlyMediaQuota.periodSource, "calendar_month_fallback");
+  assert.equal(monthlyToolQuota.periodSource, "calendar_month_fallback");
   assert.equal(tokenBudgetQuota.periodSource, "calendar_month_fallback");
   assert.equal(tokenBudgetQuota.usedCredits, BigInt(17));
   assert.equal(tokenBudgetQuota.limitCredits, BigInt(120000));
   assert.equal(
-    monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_generate")?.usedUnits,
+    monthlyToolQuota.tools.find((tool) => tool.toolCode === "image_generate")?.usedUnits,
     4
   );
   assert.equal(
-    monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_generate")
+    monthlyToolQuota.tools.find((tool) => tool.toolCode === "image_generate")
       ?.reconciliationRequiredUnits,
     2
   );
   assert.equal(
-    monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_generate")?.remainingUnits,
+    monthlyToolQuota.tools.find((tool) => tool.toolCode === "image_generate")?.remainingUnits,
     8
   );
   assert.equal(
-    monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_generate")?.limitUnits,
+    monthlyToolQuota.tools.find((tool) => tool.toolCode === "image_generate")?.limitUnits,
     12
   );
   assert.equal(
-    monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_edit")?.limitUnits,
+    monthlyToolQuota.tools.find((tool) => tool.toolCode === "image_edit")?.limitUnits,
     6
   );
   assert.deepEqual(reservedMonthlyMediaQuota, {
     allowed: true,
     currentUsedUnits: 6,
     limitUnits: 12,
-    periodStartedAt: monthlyMediaQuota.periodStartedAt,
-    periodEndsAt: monthlyMediaQuota.periodEndsAt,
+    periodStartedAt: monthlyToolQuota.periodStartedAt,
+    periodEndsAt: monthlyToolQuota.periodEndsAt,
     periodSource: "calendar_month_fallback"
   });
   assert.deepEqual(
@@ -670,13 +670,13 @@ async function run(): Promise<void> {
     currentPeriodEndsAt: "2026-06-03T00:00:00.000Z",
     cancelAtPeriodEnd: false
   };
-  const recoveredPeriodMediaQuota =
-    await service.resolveAssistantMonthlyMediaQuotaSnapshot(assistant);
+  const recoveredPeriodToolQuota =
+    await service.resolveAssistantMonthlyToolQuotaSnapshot(assistant);
   const recoveredPeriodTokenBudget =
     await service.resolveAssistantTokenBudgetQuotaSnapshot(assistant);
-  assert.equal(recoveredPeriodMediaQuota.periodSource, "subscription_period");
-  assert.equal(recoveredPeriodMediaQuota.periodStartedAt, "2026-05-03T00:00:00.000Z");
-  assert.equal(recoveredPeriodMediaQuota.periodEndsAt, "2026-06-03T00:00:00.000Z");
+  assert.equal(recoveredPeriodToolQuota.periodSource, "subscription_period");
+  assert.equal(recoveredPeriodToolQuota.periodStartedAt, "2026-05-03T00:00:00.000Z");
+  assert.equal(recoveredPeriodToolQuota.periodEndsAt, "2026-06-03T00:00:00.000Z");
   assert.equal(recoveredPeriodTokenBudget.periodSource, "subscription_period");
   assert.equal(recoveredPeriodTokenBudget.periodStartedAt, "2026-05-03T00:00:00.000Z");
   assert.equal(recoveredPeriodTokenBudget.periodEndsAt, "2026-06-03T00:00:00.000Z");

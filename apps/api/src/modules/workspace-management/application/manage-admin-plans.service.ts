@@ -856,6 +856,7 @@ export class ManageAdminPlansService {
         videoGenerateMonthlyUnitsLimit: toNullablePositiveInt(
           quotaLimitsRaw.videoGenerateMonthlyUnitsLimit
         ),
+        documentMonthlyUnitsLimit: toNullablePositiveInt(quotaLimitsRaw.documentMonthlyUnitsLimit),
         mediaStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.mediaStorageBytesLimit),
         knowledgeStorageBytesLimit: toNullablePositiveInt(
           quotaLimitsRaw.knowledgeStorageBytesLimit
@@ -984,6 +985,9 @@ export class ManageAdminPlansService {
     if (input.quotaLimits.videoGenerateMonthlyUnitsLimit !== null) {
       quotaAccounting.videoGenerateMonthlyUnitsLimit =
         input.quotaLimits.videoGenerateMonthlyUnitsLimit;
+    }
+    if (input.quotaLimits.documentMonthlyUnitsLimit !== null) {
+      quotaAccounting.documentMonthlyUnitsLimit = input.quotaLimits.documentMonthlyUnitsLimit;
     }
     if (input.quotaLimits.mediaStorageBytesLimit !== null) {
       quotaAccounting.mediaStorageBytesLimit = input.quotaLimits.mediaStorageBytesLimit;
@@ -1320,6 +1324,9 @@ export class ManageAdminPlansService {
         ),
         videoGenerateMonthlyUnitsLimit: toNullablePositiveInt(
           quotaAccountingRaw.videoGenerateMonthlyUnitsLimit
+        ),
+        documentMonthlyUnitsLimit: toNullablePositiveInt(
+          quotaAccountingRaw.documentMonthlyUnitsLimit
         ),
         mediaStorageBytesLimit: toNullablePositiveInt(quotaAccountingRaw.mediaStorageBytesLimit),
         knowledgeStorageBytesLimit: toNullablePositiveInt(

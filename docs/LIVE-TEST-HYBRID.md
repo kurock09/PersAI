@@ -90,6 +90,29 @@ With a signed-in browser session:
 5. Check `/api/v1/assistant/runtime/preflight` from the same session and confirm `live=true` and `ready=true`
 6. If you are validating the post-rollout bundle-recovery fix, tail fresh `runtime` logs during the turn and confirm no new `runtime_bundle_hash_mismatch` appears
 
+## ADR-097 document checks
+
+When validating the native `document` tool path, confirm these preconditions before the first turn:
+
+1. `Admin > Tools` has a valid PDFMonkey credential, a valid Gamma credential, and a configured PDFMonkey template id.
+2. The target assistant plan has the `document` tool enabled with a non-zero monthly document quota.
+3. `api`, `runtime`, and `provider-gateway` are all deployed on the same ADR-097 code level, and the document-domain Prisma migration is already applied.
+
+Bounded first-pass validation should cover:
+
+1. `create_pdf_document`
+2. `create_presentation`
+3. `revise_document` against an existing `docId`
+4. same-format `export_or_redeliver`
+5. intentional cross-format export rejection
+
+Expected product truth for the current rollout:
+
+- the model may call `document` in chat
+- the assistant should acknowledge deferred work honestly
+- the final PDF/PPTX arrives later through the background document job lane
+- cross-format export remains intentionally unsupported
+
 The active path truth is:
 
 - web sync uses PersAI native runtime

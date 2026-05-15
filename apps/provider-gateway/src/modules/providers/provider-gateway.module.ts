@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ProviderAudioTranscriptionController } from "./interface/http/provider-audio-transcription.controller";
 import { ProviderBrowserController } from "./interface/http/provider-browser.controller";
 import { ProviderCatalogController } from "./interface/http/provider-catalog.controller";
+import { ProviderDocumentGenerationController } from "./interface/http/provider-document-generation.controller";
 import { ProviderImageGenerationController } from "./interface/http/provider-image-generation.controller";
 import { ProviderSpeechGenerationController } from "./interface/http/provider-speech-generation.controller";
 import { ProviderTextGenerationController } from "./interface/http/provider-text-generation.controller";
@@ -16,6 +17,7 @@ import { PersaiInternalApiClientService } from "./persai-internal-api.client.ser
 import { ProviderAudioTranscriptionService } from "./provider-audio-transcription.service";
 import { ProviderBrowserService } from "./provider-browser.service";
 import { ProviderCatalogService } from "./provider-catalog.service";
+import { ProviderDocumentGenerationService } from "./provider-document-generation.service";
 import { ProviderImageGenerationService } from "./provider-image-generation.service";
 import { ProviderSpeechGenerationService } from "./provider-speech-generation.service";
 import { ProviderTextGenerationService } from "./provider-text-generation.service";
@@ -25,12 +27,15 @@ import { ProviderWebSearchService } from "./provider-web-search.service";
 import { ProviderStreamObservabilityService } from "./provider-stream-observability.service";
 import { ProviderWarmupService } from "./provider-warmup.service";
 import { YandexProviderClient } from "./yandex/yandex-provider.client";
+import { PdfMonkeyProviderClient } from "./pdfmonkey/pdfmonkey-provider.client";
+import { GammaProviderClient } from "./gamma/gamma-provider.client";
 
 @Module({
   controllers: [
     ProviderAudioTranscriptionController,
     ProviderBrowserController,
     ProviderCatalogController,
+    ProviderDocumentGenerationController,
     ProviderImageGenerationController,
     ProviderSpeechGenerationController,
     ProviderVideoGenerationController,
@@ -44,11 +49,14 @@ import { YandexProviderClient } from "./yandex/yandex-provider.client";
     OpenAIProviderClient,
     AnthropicProviderClient,
     YandexProviderClient,
+    PdfMonkeyProviderClient,
+    GammaProviderClient,
     PersaiInternalApiClientService,
     ProviderCatalogService,
     ProviderWarmupService,
     ProviderAudioTranscriptionService,
     ProviderBrowserService,
+    ProviderDocumentGenerationService,
     ProviderImageGenerationService,
     ProviderSpeechGenerationService,
     ProviderVideoGenerationService,
@@ -61,6 +69,7 @@ import { YandexProviderClient } from "./yandex/yandex-provider.client";
     ProviderCatalogService,
     ProviderWarmupService,
     ProviderAudioTranscriptionService,
+    ProviderDocumentGenerationService,
     ProviderImageGenerationService,
     ProviderVideoGenerationService,
     ProviderSpeechGenerationService,

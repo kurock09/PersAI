@@ -55,6 +55,7 @@ import type {
   PersaiInternalApiClientService
 } from "../src/modules/turns/persai-internal-api.client.service";
 import { RuntimeBrowserToolService } from "../src/modules/turns/runtime-browser-tool.service";
+import { RuntimeDocumentToolService } from "../src/modules/turns/runtime-document-tool.service";
 import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { RuntimeKnowledgeToolService } from "../src/modules/turns/runtime-knowledge-tool.service";
@@ -1289,7 +1290,8 @@ class FakePersaiInternalApiClientService {
           messagesPerChat: null,
           imageGenerateMonthlyUnitsLimit: 30,
           imageEditMonthlyUnitsLimit: 10,
-          videoGenerateMonthlyUnitsLimit: 5
+          videoGenerateMonthlyUnitsLimit: 5,
+          documentMonthlyUnitsLimit: null
         }
       }
     ],
@@ -1356,7 +1358,7 @@ class FakePersaiInternalApiClientService {
         status: "ok"
       }
     ],
-    monthlyMediaQuotas: null,
+    monthlyToolQuotas: null,
     packagesAvailableByTool: {
       image_generate: true,
       image_edit: true,
@@ -2191,6 +2193,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     mediaObjectStorage as never,
     fakeRuntimeAssistantFileRegistryService as never
   );
+  const runtimeDocumentToolService = new RuntimeDocumentToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
   const runtimeKnowledgeToolService = new RuntimeKnowledgeToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
@@ -2246,6 +2251,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
     runtimeBrowserToolService,
+    runtimeDocumentToolService,
     runtimeFilesToolService as never,
     runtimeImageEditToolService,
     runtimeImageGenerateToolService,
@@ -2365,6 +2371,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
     runtimeBrowserToolService,
+    runtimeDocumentToolService,
     runtimeFilesToolService as never,
     runtimeImageEditToolService,
     runtimeImageGenerateToolService,
@@ -2437,6 +2444,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
     runtimeBrowserToolService,
+    runtimeDocumentToolService,
     runtimeFilesToolService as never,
     runtimeImageEditToolService,
     runtimeImageGenerateToolService,

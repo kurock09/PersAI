@@ -10,6 +10,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 export type AssistantFileBucket =
   | "user_files"
   | "assistant_created"
+  | "documents"
   | "media_uploads"
   | "cache_history";
 
@@ -395,6 +396,13 @@ export class AssistantFileRegistryService {
       };
     }
     if (input.origin === "runtime_output" || input.origin === "sandbox_output") {
+      if (this.isDocumentMime(input.mimeType)) {
+        return {
+          fileBucket: "documents",
+          cleanupEligible: false,
+          cleanupReason: null
+        };
+      }
       return {
         fileBucket: "assistant_created",
         cleanupEligible: false,
@@ -417,6 +425,13 @@ export class AssistantFileRegistryService {
 
   private isMediaMime(mimeType: string): boolean {
     return mimeType.startsWith("image/") || mimeType.startsWith("video/");
+  }
+
+  private isDocumentMime(mimeType: string): boolean {
+    return (
+      mimeType === "application/pdf" ||
+      mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    );
   }
 
   private isVoiceUploadCache(input: {

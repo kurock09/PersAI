@@ -260,8 +260,8 @@ export class ResolveAdminOpsCockpitService {
       await this.trackWorkspaceQuotaUsageService.resolveAssistantTokenBudgetQuotaSnapshot(
         assistant
       );
-    const monthlyMediaQuotas =
-      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
+    const monthlyToolQuotas =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyToolQuotaSnapshot(
         assistant
       );
 
@@ -285,15 +285,23 @@ export class ResolveAdminOpsCockpitService {
         limits.activeWebChatsLimit !== null && limits.activeWebChatsLimit !== undefined
           ? limits.activeWebChatsLimit
           : null,
-      monthlyMediaTools: monthlyMediaQuotas.tools.map((tool) => ({
-        toolCode: tool.toolCode,
-        displayName: tool.displayName,
-        usedUnits: tool.usedUnits,
-        limitUnits: tool.limitUnits,
-        bonusLimitUnits: tool.bonusLimitUnits,
-        effectiveLimitUnits: tool.effectiveLimitUnits,
-        bonusExpiresAt: tool.bonusExpiresAt
-      }))
+      monthlyMediaTools: monthlyToolQuotas.tools
+        .filter(
+          (
+            tool
+          ): tool is (typeof monthlyToolQuotas.tools)[number] & {
+            toolCode: "image_generate" | "image_edit" | "video_generate";
+          } => tool.toolCode !== "document"
+        )
+        .map((tool) => ({
+          toolCode: tool.toolCode,
+          displayName: tool.displayName,
+          usedUnits: tool.usedUnits,
+          limitUnits: tool.limitUnits,
+          bonusLimitUnits: tool.bonusLimitUnits,
+          effectiveLimitUnits: tool.effectiveLimitUnits,
+          bonusExpiresAt: tool.bonusExpiresAt
+        }))
     };
   }
 

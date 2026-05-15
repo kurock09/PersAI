@@ -5,6 +5,8 @@ export const TOOL_CREDENTIAL_IDS = {
   tool_web_search: "tool/web_search/api-key",
   tool_web_fetch: "tool/web_fetch/api-key",
   tool_image_generate: "tool/image_generate/api-key",
+  tool_document_pdfmonkey: "tool/document/pdfmonkey/api-key",
+  tool_document_gamma: "tool/document/gamma/api-key",
   tool_browser: "tool/browser/api-key",
   tool_tts_elevenlabs: "tool/tts/elevenlabs/api-key",
   tool_tts_yandex: "tool/tts/yandex/api-key",
@@ -14,6 +16,10 @@ export const TOOL_CREDENTIAL_IDS = {
   // so the existing tool-credential save endpoint can store and expose them).
   notification_email_postmark: "notification/email/postmark/api-key",
   notification_email_postmark_webhook: "notification/email/postmark/webhook-token"
+} as const;
+
+export const DOCUMENT_PROVIDER_CONFIG_KEYS = {
+  pdfmonkeyTemplateId: "tool/document/pdfmonkey/template-id"
 } as const;
 
 /** Notification-platform specific credentials — canonical path aliases used by adapters. */
@@ -33,6 +39,8 @@ export const TOOL_CODE_BY_CREDENTIAL_KEY: Record<ToolCredentialKey, string> = {
   tool_web_search: "web_search",
   tool_web_fetch: "web_fetch",
   tool_image_generate: "image_generate",
+  tool_document_pdfmonkey: "document",
+  tool_document_gamma: "document",
   tool_browser: "browser",
   tool_tts_elevenlabs: "tts",
   tool_tts_yandex: "tts",
@@ -72,11 +80,15 @@ export const TOOL_PROVIDER_OPTIONS: Partial<Record<ToolCredentialKey, ToolProvid
     { id: "perplexity", label: "Perplexity", envVar: "PERPLEXITY_API_KEY" },
     { id: "google", label: "Google (Gemini)", envVar: "GEMINI_API_KEY" }
   ],
+  tool_document_pdfmonkey: [{ id: "pdfmonkey", label: "PDFMonkey", envVar: "PDFMONKEY_API_KEY" }],
+  tool_document_gamma: [{ id: "gamma", label: "Gamma", envVar: "GAMMA_API_KEY" }],
   tool_browser: [{ id: "browserless", label: "Browserless", envVar: "BROWSERLESS_API_KEY" }]
 };
 
 export const TOOL_DEFAULT_PROVIDER: Partial<Record<ToolCredentialKey, string>> = {
   tool_web_search: "tavily",
+  tool_document_pdfmonkey: "pdfmonkey",
+  tool_document_gamma: "gamma",
   tool_browser: "browserless"
 };
 
@@ -101,9 +113,17 @@ export type ToolCredentialStatus = {
   providerOptions: ToolProviderOption[] | null;
 };
 
+export type DocumentProviderConfigStatus = {
+  providerId: "pdfmonkey";
+  templateIdConfigured: boolean;
+  templateIdLastFour: string | null;
+  templateIdUpdatedAt: string | null;
+};
+
 export type AdminToolCredentialsState = {
-  schema: "persai.adminToolCredentials.v1";
+  schema: "persai.adminToolCredentials.v2";
   credentials: ToolCredentialStatus[];
+  documentProviderConfigs: DocumentProviderConfigStatus[];
   ttsPrimaryProviderId: PersaiRuntimeTtsProviderId;
   ttsPrimaryProviderOptions: ToolProviderOption[];
   notes: string[];
@@ -112,6 +132,7 @@ export type AdminToolCredentialsState = {
 export type UpdateToolCredentialsInput = {
   keys: Partial<Record<ToolCredentialKey, string>>;
   providers: Partial<Record<ToolCredentialKey, string>>;
+  documentProviderTemplateIds: Partial<Record<"pdfmonkey", string>>;
   ttsPrimaryProviderId?: PersaiRuntimeTtsProviderId;
 };
 
@@ -188,6 +209,31 @@ export function parseUpdateToolCredentialsInput(body: unknown): UpdateToolCreden
     }
   }
 
+  const documentProviderTemplateIds: Partial<Record<"pdfmonkey", string>> = {};
+  const templateIdsRaw = body.documentProviderTemplateIds;
+  if (isObject(templateIdsRaw)) {
+    const value = templateIdsRaw.pdfmonkey;
+    if (value !== undefined && value !== null) {
+      if (typeof value !== "string") {
+        throw new Error("documentProviderTemplateIds.pdfmonkey must be a string.");
+      }
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        if (trimmed.length > MAX_KEY_LENGTH) {
+          throw new Error(
+            `documentProviderTemplateIds.pdfmonkey must be at most ${String(MAX_KEY_LENGTH)} characters.`
+          );
+        }
+        if (containsControlCharacters(trimmed)) {
+          throw new Error(
+            "documentProviderTemplateIds.pdfmonkey contains invalid control characters."
+          );
+        }
+        documentProviderTemplateIds.pdfmonkey = trimmed;
+      }
+    }
+  }
+
   const ttsPrimaryProviderIdRaw = body.ttsPrimaryProviderId;
   const ttsPrimaryProviderId =
     typeof ttsPrimaryProviderIdRaw === "string" && ttsPrimaryProviderIdRaw.trim().length > 0
@@ -205,6 +251,7 @@ export function parseUpdateToolCredentialsInput(body: unknown): UpdateToolCreden
   return {
     keys,
     providers,
+    documentProviderTemplateIds,
     ...(ttsPrimaryProviderId === undefined
       ? {}
       : { ttsPrimaryProviderId: ttsPrimaryProviderId as PersaiRuntimeTtsProviderId })
@@ -229,12 +276,20 @@ export function buildToolCredentialSecretRef(credentialKey: ToolCredentialKey): 
 export function buildAdminToolCredentialsState(params: {
   keyMetadata: Record<ToolCredentialKey, PlatformRuntimeProviderKeyMetadata>;
   providerSelections: Partial<Record<ToolCredentialKey, string>>;
+  documentProviderConfigMetadata: Record<"pdfmonkey", PlatformRuntimeProviderKeyMetadata>;
   ttsPrimaryProviderId?: PersaiRuntimeTtsProviderId | null;
 }): AdminToolCredentialsState {
+  const EMPTY_METADATA: PlatformRuntimeProviderKeyMetadata = {
+    configured: false,
+    lastFour: null,
+    updatedAt: null
+  };
   const DISPLAY_NAMES: Record<ToolCredentialKey, string> = {
     tool_web_search: "Web Search API Key",
     tool_web_fetch: "Web Fetch (Firecrawl) API Key",
     tool_image_generate: "Image/Video Generation API Key",
+    tool_document_pdfmonkey: "Document Tool API Key (PDFMonkey)",
+    tool_document_gamma: "Document Tool API Key (Gamma)",
     tool_browser: "Browser (Browserless) API Key",
     tool_tts_elevenlabs: "Text-to-Speech API Key (ElevenLabs)",
     tool_tts_yandex: "Text-to-Speech API Key (Yandex SpeechKit)",
@@ -245,23 +300,36 @@ export function buildAdminToolCredentialsState(params: {
   };
 
   return {
-    schema: "persai.adminToolCredentials.v1",
-    credentials: ALL_TOOL_CREDENTIAL_KEYS.map((credentialKey) => ({
-      credentialKey,
-      toolCode: TOOL_CODE_BY_CREDENTIAL_KEY[credentialKey],
-      displayName: DISPLAY_NAMES[credentialKey],
-      configured: params.keyMetadata[credentialKey].configured,
-      lastFour: params.keyMetadata[credentialKey].lastFour,
-      updatedAt: params.keyMetadata[credentialKey].updatedAt,
-      providerId:
-        params.providerSelections[credentialKey] ?? TOOL_DEFAULT_PROVIDER[credentialKey] ?? null,
-      providerOptions: TOOL_PROVIDER_OPTIONS[credentialKey] ?? null
-    })),
+    schema: "persai.adminToolCredentials.v2",
+    credentials: ALL_TOOL_CREDENTIAL_KEYS.map((credentialKey) => {
+      const metadata = params.keyMetadata[credentialKey] ?? EMPTY_METADATA;
+      return {
+        credentialKey,
+        toolCode: TOOL_CODE_BY_CREDENTIAL_KEY[credentialKey],
+        displayName: DISPLAY_NAMES[credentialKey],
+        configured: metadata.configured,
+        lastFour: metadata.lastFour,
+        updatedAt: metadata.updatedAt,
+        providerId:
+          params.providerSelections[credentialKey] ?? TOOL_DEFAULT_PROVIDER[credentialKey] ?? null,
+        providerOptions: TOOL_PROVIDER_OPTIONS[credentialKey] ?? null
+      };
+    }),
+    documentProviderConfigs: [
+      {
+        providerId: "pdfmonkey",
+        templateIdConfigured: params.documentProviderConfigMetadata.pdfmonkey.configured,
+        templateIdLastFour: params.documentProviderConfigMetadata.pdfmonkey.lastFour,
+        templateIdUpdatedAt: params.documentProviderConfigMetadata.pdfmonkey.updatedAt
+      }
+    ],
     ttsPrimaryProviderId: params.ttsPrimaryProviderId ?? DEFAULT_TTS_PRIMARY_PROVIDER,
     ttsPrimaryProviderOptions: TTS_PRIMARY_PROVIDER_OPTIONS,
     notes: [
       "Tool credentials are managed globally for all assistants.",
       "Image generation, image edit, and video generation share the same global media-provider credential slot.",
+      "Document generation stores provider-specific keys for PDFMonkey and Gamma as global admin-managed credentials.",
+      "PDFMonkey template selection is persisted as operator-owned Admin > Tools configuration and materialized into the runtime bundle for document jobs.",
       "TTS stores provider-specific keys plus one global primary-provider selection.",
       "Raw keys are write-only and stored encrypted in PersAI."
     ]

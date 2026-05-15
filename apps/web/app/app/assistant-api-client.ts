@@ -2144,6 +2144,7 @@ export async function getChatMessages(
   nextCursor: string | null;
   activeTurn?: WebChatActiveTurnState | null;
   activeMediaJobs?: WebChatActiveMediaJobState[];
+  activeDocumentJobs?: WebChatActiveDocumentJobState[];
 }> {
   const base = getApiBaseUrl();
   const params = new URLSearchParams();
@@ -2158,6 +2159,7 @@ export async function getChatMessages(
     nextCursor: string | null;
     activeTurn?: WebChatActiveTurnState | null;
     activeMediaJobs?: WebChatActiveMediaJobState[];
+    activeDocumentJobs?: WebChatActiveDocumentJobState[];
   };
 }
 
@@ -3842,6 +3844,20 @@ export type WebChatActiveTurnState = {
 
 export type WebChatActiveMediaJobState = AssistantWebChatActiveMediaJobState;
 
+export type WebChatActiveDocumentJobState = {
+  id: string;
+  documentType: "pdf_document" | "presentation";
+  descriptorMode:
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver";
+  status: "queued" | "running" | "provider_processing" | "fetching_output" | "ready_for_delivery";
+  createdAt: string;
+  startedAt: string | null;
+  updatedAt: string;
+};
+
 export type WebChatTurnCurrentActivityState = {
   type: "tool_use";
   toolName: string;
@@ -4020,7 +4036,7 @@ export type AssistantFileState = {
   mimeType: string;
   sizeBytes: number;
   logicalSizeBytes: number | null;
-  fileBucket: "user_files" | "assistant_created" | "media_uploads" | "cache_history";
+  fileBucket: "user_files" | "assistant_created" | "documents" | "media_uploads" | "cache_history";
   cleanupEligible: boolean;
   cleanupReason: "voice_upload_cache" | null;
   createdAt: string;

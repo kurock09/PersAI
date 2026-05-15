@@ -74,7 +74,7 @@ async function run(): Promise<void> {
               status: "ok"
             }
           ],
-          monthlyMediaQuotas: {
+          monthlyToolQuotas: {
             planCode: "pro",
             periodStartedAt: "2026-05-01T00:00:00.000Z",
             periodEndsAt: "2026-06-01T00:00:00.000Z",
@@ -118,9 +118,9 @@ async function run(): Promise<void> {
   assert.equal(check.tools[0]?.toolCode, "web_search");
   assert.equal(check.buckets[0]?.bucketCode, "token_budget");
   assert.equal(check.buckets.length, 1);
-  assert.equal(check.monthlyMediaQuotas.tools[0]?.toolCode, "image_generate");
-  assert.equal(check.monthlyMediaQuotas.tools[0]?.usedUnits, 3);
-  assert.equal(check.monthlyMediaQuotas.tools[0]?.limitUnits, 30);
+  assert.equal(check.monthlyToolQuotas.tools[0]?.toolCode, "image_generate");
+  assert.equal(check.monthlyToolQuotas.tools[0]?.usedUnits, 3);
+  assert.equal(check.monthlyToolQuotas.tools[0]?.limitUnits, 30);
 
   const reserve = await successController.reserveMonthlyMediaQuota(
     { headers: { authorization: "Bearer gateway-token" } },
@@ -191,7 +191,7 @@ async function run(): Promise<void> {
           planCode: null,
           tools: [],
           buckets: [],
-          monthlyMediaQuotas: {
+          monthlyToolQuotas: {
             planCode: null,
             periodStartedAt: "2026-05-01T00:00:00.000Z",
             periodEndsAt: "2026-06-01T00:00:00.000Z",

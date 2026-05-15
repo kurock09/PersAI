@@ -37,6 +37,7 @@ import {
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
+import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
@@ -156,6 +157,7 @@ export class SendWebChatTurnService {
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
+    private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
@@ -372,6 +374,11 @@ export class SendWebChatTurnService {
         userId: prepared.userId,
         chatId: prepared.chat.id
       });
+      const activeDocumentJobs = await this.assistantDocumentJobReadService.listOpenJobsForWebChat({
+        assistantId: prepared.assistantId,
+        userId: prepared.userId,
+        chatId: prepared.chat.id
+      });
 
       const delivered = await this.mediaDeliveryService.deliver({
         artifacts: runtimeResponse.media,
@@ -575,6 +582,7 @@ export class SendWebChatTurnService {
         },
         ...(followUpAssistantMessage === null ? {} : { followUpAssistantMessage }),
         activeMediaJobs,
+        activeDocumentJobs,
         runtime: {
           respondedAt: runtimeResponse.respondedAt,
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
@@ -731,6 +739,11 @@ export class SendWebChatTurnService {
       userId: chat.userId,
       chatId: chat.id
     });
+    const activeDocumentJobs = await this.assistantDocumentJobReadService.listOpenJobsForWebChat({
+      assistantId,
+      userId: chat.userId,
+      chatId: chat.id
+    });
 
     return {
       chat: {
@@ -779,6 +792,7 @@ export class SendWebChatTurnService {
             }
           }),
       activeMediaJobs,
+      activeDocumentJobs,
       runtime: {
         respondedAt: state.respondedAt,
         degradedByQuotaFallback: state.degradedByQuotaFallback,

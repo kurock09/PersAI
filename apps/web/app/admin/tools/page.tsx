@@ -24,6 +24,12 @@ type ToolCredentialStatus = {
 type AdminToolCredentialsState = {
   schema: string;
   credentials: ToolCredentialStatus[];
+  documentProviderConfigs: Array<{
+    providerId: "pdfmonkey";
+    templateIdConfigured: boolean;
+    templateIdLastFour: string | null;
+    templateIdUpdatedAt: string | null;
+  }>;
   ttsPrimaryProviderId: string;
   ttsPrimaryProviderOptions: ProviderOption[];
   notes: string[];
@@ -100,6 +106,9 @@ export default function AdminToolsPage() {
     cloudpaymentsPublicTerminalId?: string;
   }>({});
   const [providerInputs, setProviderInputs] = useState<Record<string, string>>({});
+  const [documentProviderTemplateInputs, setDocumentProviderTemplateInputs] = useState<
+    Record<string, string>
+  >({});
   const [ttsPrimaryProviderInput, setTtsPrimaryProviderInput] = useState<string | null>(null);
   const [documentProcessingPolicyInput, setDocumentProcessingPolicyInput] =
     useState<DocumentProcessingPolicyState | null>(null);
@@ -187,11 +196,19 @@ export default function AdminToolsPage() {
       if (
         Object.keys(keysToSend).length === 0 &&
         Object.keys(providersToSend).length === 0 &&
+        Object.keys(documentProviderTemplateInputs).every(
+          (key) => (documentProviderTemplateInputs[key] ?? "").trim().length === 0
+        ) &&
         nextTtsPrimaryProviderId === undefined
       ) {
         setFeedback("No changes to save.");
         setSaving(false);
         return;
+      }
+
+      const documentProviderTemplateIdsToSend: Record<string, string> = {};
+      for (const [providerId, value] of Object.entries(documentProviderTemplateInputs)) {
+        if (value.trim()) documentProviderTemplateIdsToSend[providerId] = value.trim();
       }
 
       const res = await fetch("/api/v1/admin/runtime/tool-credentials", {
@@ -204,6 +221,7 @@ export default function AdminToolsPage() {
         body: JSON.stringify({
           keys: keysToSend,
           providers: providersToSend,
+          documentProviderTemplateIds: documentProviderTemplateIdsToSend,
           ...(nextTtsPrimaryProviderId === undefined
             ? {}
             : { ttsPrimaryProviderId: nextTtsPrimaryProviderId })
@@ -216,6 +234,7 @@ export default function AdminToolsPage() {
       setFeedback("Saved successfully.");
       setKeyInputs({});
       setProviderInputs({});
+      setDocumentProviderTemplateInputs({});
       setTtsPrimaryProviderInput(null);
       await load();
     } catch (e) {
@@ -834,6 +853,56 @@ export default function AdminToolsPage() {
               </select>
             </div>
           )}
+          {state?.documentProviderConfigs.map((config) => (
+            <div
+              key={config.providerId}
+              className="rounded-lg border border-border bg-surface-raised p-4"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-sm font-medium text-text">Document Template (PDFMonkey)</p>
+                  <p className="text-[11px] text-text-muted">
+                    Operator-owned template id materialized into the runtime bundle for
+                    `create_pdf_document`.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {config.templateIdConfigured ? (
+                    <>
+                      <CheckCircle className="h-3.5 w-3.5 text-success" />
+                      <span className="text-[11px] text-success">Configured</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-3.5 w-3.5 text-text-subtle" />
+                      <span className="text-[11px] text-text-subtle">Not set</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <input
+                type="password"
+                value={documentProviderTemplateInputs[config.providerId] ?? ""}
+                onChange={(e) =>
+                  setDocumentProviderTemplateInputs((prev) => ({
+                    ...prev,
+                    [config.providerId]: e.target.value
+                  }))
+                }
+                placeholder={
+                  config.templateIdConfigured
+                    ? `••••${config.templateIdLastFour ?? ""}`
+                    : "Enter template id..."
+                }
+                className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+              />
+              {config.templateIdUpdatedAt && (
+                <p className="mt-1 text-[10px] text-text-muted">
+                  Last updated: {new Date(config.templateIdUpdatedAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+          ))}
           {state?.credentials
             .filter((c) => c.toolCode !== "notifications")
             .map((cred) => (

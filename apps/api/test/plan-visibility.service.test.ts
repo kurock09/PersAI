@@ -306,7 +306,7 @@ async function run(): Promise<void> {
           periodSource: "subscription_period" as const
         };
       },
-      async resolveAssistantMonthlyMediaQuotaSnapshot(assistant: {
+      async resolveAssistantMonthlyToolQuotaSnapshot(assistant: {
         id: string;
         workspaceId: string;
       }) {
@@ -541,7 +541,7 @@ async function run(): Promise<void> {
   assert.equal(visibility.packageOffers.tools[0]?.preferredUpgradePlanCode, "max");
   assert.equal(visibility.packageOffers.tools[0]?.offers[0]?.id, "pkg-image-1");
   assert.equal(visibility.limits.toolDailyLimits.length, 2);
-  assert.equal(visibility.limits.monthlyMediaQuotas.tools[0]?.toolCode, "image_generate");
+  assert.equal(visibility.limits.monthlyToolQuotas.tools[0]?.toolCode, "image_generate");
   assert.deepEqual(visibility.limits.toolDailyLimits[0], {
     toolCode: "memory_search",
     displayName: "Memory Search",

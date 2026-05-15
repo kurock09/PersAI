@@ -26,6 +26,9 @@ async function run(): Promise<void> {
     },
     providers: {
       tool_browser: "browserless"
+    },
+    documentProviderTemplateIds: {
+      pdfmonkey: "  template-123  "
     }
   });
 
@@ -35,6 +38,9 @@ async function run(): Promise<void> {
     },
     providers: {
       tool_browser: "browserless"
+    },
+    documentProviderTemplateIds: {
+      pdfmonkey: "template-123"
     }
   });
 
@@ -58,11 +64,26 @@ async function run(): Promise<void> {
     },
     providerSelections: {
       tool_browser: "browserless"
+    },
+    documentProviderConfigMetadata: {
+      pdfmonkey: {
+        configured: true,
+        lastFour: "e123",
+        updatedAt: "2026-05-15T12:00:00.000Z"
+      }
     }
   });
 
-  assert.equal(state.credentials.length, 10); // 8 tool credentials + 2 notification credentials
+  assert.equal(state.credentials.length, 12); // 10 tool credentials + 2 notification credentials
   assert.equal(state.ttsPrimaryProviderId, "elevenlabs");
+  assert.deepEqual(state.documentProviderConfigs, [
+    {
+      providerId: "pdfmonkey",
+      templateIdConfigured: true,
+      templateIdLastFour: "e123",
+      templateIdUpdatedAt: "2026-05-15T12:00:00.000Z"
+    }
+  ]);
   assert.deepEqual(
     state.credentials.find((credential) => credential.credentialKey === "tool_browser"),
     {

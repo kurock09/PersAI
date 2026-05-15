@@ -5,11 +5,11 @@ import { RuntimeExecutionAdmissionService } from "../src/modules/turns/runtime-e
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 
 function createBareTurnExecutionService(): TurnExecutionService {
-  const deps = Array.from({ length: 24 }, () => ({})) as unknown as ConstructorParameters<
+  const deps = Array.from({ length: 25 }, () => ({})) as unknown as ConstructorParameters<
     typeof TurnExecutionService
   >;
-  deps[22] = new RuntimeObservabilityService() as never;
-  deps[23] = new RuntimeExecutionAdmissionService(new RuntimeObservabilityService()) as never;
+  deps[23] = new RuntimeObservabilityService() as never;
+  deps[24] = new RuntimeExecutionAdmissionService(new RuntimeObservabilityService()) as never;
   return new TurnExecutionService(...deps);
 }
 

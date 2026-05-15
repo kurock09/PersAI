@@ -76,6 +76,20 @@ function createSkillStatePersistenceServiceMock() {
   };
 }
 
+function createAssistantDocumentJobReadServiceMock() {
+  return {
+    listOpenJobsForWebChat: async () => []
+  };
+}
+
+function createNotificationDeliveryWorkerServiceMock() {
+  return {
+    deliverIntentNow: async () => ({
+      providerRef: null
+    })
+  };
+}
+
 function captureProcessStdoutSync<T>(action: () => Promise<T>): Promise<{
   result: T;
   captured: string;
@@ -231,6 +245,7 @@ describe("StreamWebChatTurnService", () => {
         }
       } as never,
       {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
           attachments: [
             {
@@ -253,7 +268,9 @@ describe("StreamWebChatTurnService", () => {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
-      } as never
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -449,6 +466,7 @@ describe("StreamWebChatTurnService", () => {
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
       } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
       {
         deliverIntentNow: async (intentId: string) => {
           deliveredIntentIds.push(intentId);
@@ -626,6 +644,7 @@ describe("StreamWebChatTurnService", () => {
         }
       } as never,
       {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
           attachments: []
         })
@@ -638,7 +657,9 @@ describe("StreamWebChatTurnService", () => {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
-      } as never
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -797,6 +818,7 @@ describe("StreamWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
@@ -830,7 +852,9 @@ describe("StreamWebChatTurnService", () => {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
-      } as never
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -982,6 +1006,7 @@ describe("StreamWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
           attachments: []
         })
@@ -1004,7 +1029,9 @@ describe("StreamWebChatTurnService", () => {
           }
         ],
         listOpenJobsForWebChat: async () => []
-      } as never
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -1173,6 +1200,7 @@ describe("StreamWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
           attachments: []
         })
@@ -1186,6 +1214,7 @@ describe("StreamWebChatTurnService", () => {
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
       } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
       {
         deliverIntentNow: async () => undefined
       } as never,
@@ -1315,6 +1344,7 @@ describe("StreamWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
@@ -1325,7 +1355,9 @@ describe("StreamWebChatTurnService", () => {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
-      } as never
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -1444,7 +1476,10 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       {} as never,
       {} as never,
-      {} as never,
+      {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
+        deliver: async () => ({ attachments: [] })
+      } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createPlatformHttpMetricsServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
@@ -1453,7 +1488,9 @@ describe("StreamWebChatTurnService", () => {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
-      } as never
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never
     );
 
     const preparation = await service.prepare("user-1", {
@@ -1611,6 +1648,7 @@ function buildToolStreamingServiceForTraceTest(options: {
       recordWebChatTurnUsage: async () => undefined
     } as never,
     {
+      markUndeliveredArtifactsReconciliationRequired: async () => undefined,
       deliver: async () => ({ attachments: [] })
     } as never,
     createOverviewLatencyTraceServiceMock({ enabled: options.traceEnabled }) as never,
@@ -1621,7 +1659,9 @@ function buildToolStreamingServiceForTraceTest(options: {
       attachAcknowledgementMessageId: async () => 0,
       listOpenJobsForChatContext: async () => [],
       listOpenJobsForWebChat: async () => []
-    } as never
+    } as never,
+    createAssistantDocumentJobReadServiceMock() as never,
+    createNotificationDeliveryWorkerServiceMock() as never
   );
 }
 

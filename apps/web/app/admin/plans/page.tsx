@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type {
   AdminPlanCreateRequest,
+  AdminPlanQuotaLimits,
   AdminPlanState,
   AdminPlanToolActivation,
   AdminPlanUpdateRequest
@@ -51,6 +52,9 @@ type ToolActivationDraft = {
 
 type ContextPolicyPresetDraft = AdminPlanState["contextPolicy"]["preset"];
 type ContextPolicyPresetWithDefaults = Exclude<ContextPolicyPresetDraft, "custom">;
+type PlanQuotaLimitsDraftShape = AdminPlanQuotaLimits & {
+  documentMonthlyUnitsLimit?: number | null;
+};
 
 export type PlanDraft = {
   displayName: string;
@@ -95,6 +99,7 @@ export type PlanDraft = {
   imageGenerateMonthlyUnitsLimit: string;
   imageEditMonthlyUnitsLimit: string;
   videoGenerateMonthlyUnitsLimit: string;
+  documentMonthlyUnitsLimit: string;
   mediaStorageMb: string;
   knowledgeStorageMb: string;
   workspaceStorageMb: string;
@@ -183,6 +188,7 @@ type NumericDraftField =
   | "imageGenerateMonthlyUnitsLimit"
   | "imageEditMonthlyUnitsLimit"
   | "videoGenerateMonthlyUnitsLimit"
+  | "documentMonthlyUnitsLimit"
   | "mediaStorageMb"
   | "knowledgeStorageMb"
   | "workspaceStorageMb"
@@ -470,6 +476,12 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
     min: 1,
     allowBlank: true
   },
+  {
+    field: "documentMonthlyUnitsLimit",
+    label: "Monthly document generations",
+    min: 1,
+    allowBlank: true
+  },
   { field: "mediaStorageMb", label: "Media upload budget (MB)", min: 1, allowBlank: true },
   { field: "knowledgeStorageMb", label: "Knowledge storage (MB)", min: 1, allowBlank: true },
   { field: "maxEnabledSkills", label: "Max enabled Skills", min: 0, allowBlank: true },
@@ -681,6 +693,7 @@ function emptyDraft(): PlanDraft {
     imageGenerateMonthlyUnitsLimit: "",
     imageEditMonthlyUnitsLimit: "",
     videoGenerateMonthlyUnitsLimit: "",
+    documentMonthlyUnitsLimit: "",
     mediaStorageMb: "",
     knowledgeStorageMb: "",
     workspaceStorageMb: "",
@@ -787,6 +800,10 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     imageEditMonthlyUnitsLimit: plan.quotaLimits?.imageEditMonthlyUnitsLimit?.toString() ?? "",
     videoGenerateMonthlyUnitsLimit:
       plan.quotaLimits?.videoGenerateMonthlyUnitsLimit?.toString() ?? "",
+    documentMonthlyUnitsLimit:
+      (
+        plan.quotaLimits as PlanQuotaLimitsDraftShape | undefined
+      )?.documentMonthlyUnitsLimit?.toString() ?? "",
     mediaStorageMb:
       plan.quotaLimits?.mediaStorageBytesLimit != null
         ? String(Math.round(plan.quotaLimits.mediaStorageBytesLimit / 1048576))
@@ -946,6 +963,11 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       allowBlank: true
     }
   );
+  const documentMonthlyUnitsLimit = parseStrictIntegerDraft(draft.documentMonthlyUnitsLimit, {
+    label: "Monthly document generations",
+    min: 1,
+    allowBlank: true
+  });
   const mediaStorageMb = parseStrictIntegerDraft(draft.mediaStorageMb, {
     label: "Media upload budget (MB)",
     min: 1,
@@ -1050,10 +1072,11 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       imageGenerateMonthlyUnitsLimit,
       imageEditMonthlyUnitsLimit,
       videoGenerateMonthlyUnitsLimit,
+      documentMonthlyUnitsLimit,
       mediaStorageBytesLimit: mediaStorageMb === null ? null : mediaStorageMb * 1048576,
       knowledgeStorageBytesLimit: knowledgeStorageMb === null ? null : knowledgeStorageMb * 1048576,
       workspaceStorageBytesLimit: workspaceStorageMb === null ? null : workspaceStorageMb * 1048576
-    },
+    } as PlanQuotaLimitsDraftShape,
     skillPolicy: {
       maxEnabledSkills
     },
@@ -2458,6 +2481,25 @@ function PlanForm({
                   />
                 </label>
                 <FieldError message={validationErrors.videoGenerateMonthlyUnitsLimit} />
+                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                  <span title="Monthly document generation units for the subscription period. Blank = unlimited. Count one successful document tool result as one used unit.">
+                    Monthly document generations
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.documentMonthlyUnitsLimit}
+                    onChange={(e) => onPatch({ documentMonthlyUnitsLimit: e.target.value })}
+                    placeholder="unlimited"
+                    className={cn(
+                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                      validationErrors.documentMonthlyUnitsLimit
+                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                        : "border-border focus:border-accent focus:ring-accent/50"
+                    )}
+                  />
+                </label>
+                <FieldError message={validationErrors.documentMonthlyUnitsLimit} />
                 <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
                   <span title="User upload budget — max MB users can upload through chat (images, voice, docs). Tracked by PersAI API.">
                     Media upload budget (MB)

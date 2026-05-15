@@ -128,7 +128,7 @@ function createService(prisma: WorkspaceManagementPrismaService): ResolveAdminOp
           periodSource: "subscription_period"
         };
       },
-      async resolveAssistantMonthlyMediaQuotaSnapshot() {
+      async resolveAssistantMonthlyToolQuotaSnapshot() {
         return {
           planCode: "pro",
           periodStartedAt: "2026-05-01T00:00:00.000Z",
@@ -190,7 +190,7 @@ function createService(prisma: WorkspaceManagementPrismaService): ResolveAdminOp
       TrackWorkspaceQuotaUsageService,
       | "resolveEffectiveLimitsForAssistant"
       | "resolveAssistantTokenBudgetQuotaSnapshot"
-      | "resolveAssistantMonthlyMediaQuotaSnapshot"
+      | "resolveAssistantMonthlyToolQuotaSnapshot"
     > as TrackWorkspaceQuotaUsageService,
     prisma
   );

@@ -86,6 +86,20 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     policyClass: "plan_managed"
   },
   {
+    id: "18181818-1818-1818-1818-181818181818",
+    code: "document",
+    displayName: "Document",
+    description:
+      "Create and revise user-ready PDF documents and presentations through async document providers.",
+    modelDescription:
+      "Create or revise user-ready business documents, reports, proposals, and slide decks through the unified document tool.",
+    modelUsageGuidance:
+      "Use this when the user explicitly wants a generated document, presentation, deck, proposal, report, or a revision to an existing generated document. Do not improvise provider-specific behavior in normal chat. If document generation later runs asynchronously, describe it as in progress until the delivered file actually arrives.",
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "cost_driving" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
+  },
+  {
     id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
     code: "tts",
     displayName: "Text to Speech",
@@ -264,6 +278,7 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   image_generate: { active: false, dailyCallLimit: null, perTurnCap: null },
   image_edit: { active: false, dailyCallLimit: null, perTurnCap: null },
   video_generate: { active: false, dailyCallLimit: null, perTurnCap: null },
+  document: { active: false, dailyCallLimit: null, perTurnCap: null },
   tts: { active: false, dailyCallLimit: null, perTurnCap: null },
   browser: { active: false, dailyCallLimit: null, perTurnCap: null },
   memory_search: { active: true, dailyCallLimit: null, perTurnCap: null },

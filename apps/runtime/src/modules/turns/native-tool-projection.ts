@@ -15,6 +15,7 @@ import {
   PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
+  PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS,
   PERSAI_RUNTIME_TTS_DELIVERY_KINDS,
   PERSAI_RUNTIME_TTS_TONE_TAGS,
   PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
@@ -220,6 +221,15 @@ export function projectRuntimeNativeTools(
     supportsCurrentNativeTtsProvider(ttsCredential)
   ) {
     projectedTools.push(createTtsToolDefinition(ttsPolicy));
+  }
+  const documentPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "document", "worker");
+  const documentCredential = resolveConfiguredCredentialRef(bundle, "document");
+  if (
+    documentPolicy !== null &&
+    documentCredential !== null &&
+    supportsCurrentNativeDocumentProvider(documentCredential)
+  ) {
+    projectedTools.push(createDocumentToolDefinition(documentPolicy));
   }
   const scheduledActionPolicy = resolveAllowedModelVisibleToolPolicy(
     bundle,
@@ -847,6 +857,70 @@ function createTtsToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTool
   };
 }
 
+function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  return {
+    name: "document",
+    description: resolveToolDefinitionDescription(
+      policy,
+      [
+        "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
+        "Use create_pdf_document for PDF-first documents, create_presentation for PPTX slide decks, revise_document to create a new version of an existing PersAI document, and export_or_redeliver to resend or re-render an existing document when supported.",
+        "If the tool returns action='deferred', acknowledge only that the document is being prepared and will arrive separately when ready.",
+        "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and call quota_status if the user needs concrete package or upgrade options."
+      ].join(" ")
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["descriptorMode", "prompt"],
+      properties: {
+        descriptorMode: {
+          type: "string",
+          enum: [
+            "create_pdf_document",
+            "create_presentation",
+            "revise_document",
+            "export_or_redeliver"
+          ],
+          description: "Document operation mode."
+        },
+        prompt: {
+          type: "string",
+          description:
+            "Main document intent or revision/export request. For revise_document and export_or_redeliver, keep this focused on the requested change or resend."
+        },
+        instructions: {
+          type: "string",
+          description: "Optional additional document instructions."
+        },
+        outputFormat: {
+          type: "string",
+          enum: ["pdf", "pptx"],
+          description:
+            "Optional requested output format. Use only when the requested document type/output is explicit."
+        },
+        docId: {
+          type: "string",
+          description:
+            "Required for revise_document and export_or_redeliver when targeting an existing PersAI document."
+        },
+        requestedName: {
+          type: "string",
+          description: "Optional filename/title hint for the generated document."
+        },
+        outline: {
+          description: "Optional document outline or structured content seed."
+        },
+        metadata: {
+          type: "object",
+          additionalProperties: true,
+          description: "Optional structured metadata for document generation."
+        }
+      }
+    }
+  };
+}
+
 function createScheduledActionToolDefinition(
   policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
@@ -1234,5 +1308,18 @@ function supportsCurrentNativeTtsProvider(
       (entry.providerId === "elevenlabs" ||
         entry.providerId === "yandex" ||
         entry.providerId === "openai")
+  );
+}
+
+function supportsCurrentNativeDocumentProvider(
+  credential: AssistantRuntimeBundleToolCredentialRef
+): boolean {
+  const candidates = [credential, ...(credential.fallbacks ?? [])];
+  return candidates.some(
+    (entry) =>
+      entry.configured === true &&
+      entry.providerId !== undefined &&
+      entry.providerId !== null &&
+      (PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS as readonly string[]).includes(entry.providerId)
   );
 }

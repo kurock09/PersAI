@@ -19,6 +19,8 @@ export interface AdminPlanQuotaLimits {
   /** @nullable */
   videoGenerateMonthlyUnitsLimit?: number | null;
   /** @nullable */
+  documentMonthlyUnitsLimit?: number | null;
+  /** @nullable */
   mediaStorageBytesLimit?: number | null;
   /** @nullable */
   knowledgeStorageBytesLimit?: number | null;

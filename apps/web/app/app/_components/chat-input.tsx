@@ -31,7 +31,10 @@ import {
   isAcceptedChatFile,
   isKnowledgeEligibleFile
 } from "../chat-file-policy";
-import type { WebChatActiveMediaJobState } from "../assistant-api-client";
+import type {
+  WebChatActiveDocumentJobState,
+  WebChatActiveMediaJobState
+} from "../assistant-api-client";
 import { useTouchDevice } from "./use-touch-device";
 import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
 
@@ -106,6 +109,34 @@ function resolveMediaJobElapsedSeconds(job: WebChatActiveMediaJobState, nowMs: n
   return Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
 }
 
+function resolveDocumentJobLabel(
+  t: ReturnType<typeof useTranslations>,
+  job: WebChatActiveDocumentJobState
+): string {
+  switch (job.descriptorMode) {
+    case "revise_document":
+      return t("documentJobRevise");
+    case "export_or_redeliver":
+      return t("documentJobRedeliver");
+    case "create_presentation":
+      return t("documentJobPresentation");
+    case "create_pdf_document":
+    default:
+      return t("documentJobPdf");
+  }
+}
+
+function resolveDocumentJobElapsedSeconds(
+  job: WebChatActiveDocumentJobState,
+  nowMs: number
+): number {
+  const startedAtMs = Date.parse(job.startedAt ?? job.createdAt);
+  if (Number.isNaN(startedAtMs)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+}
+
 function collectAcceptedFiles(files: Iterable<File>, existingCount: number): File[] {
   const accepted: File[] = [];
   for (const file of files) {
@@ -144,6 +175,7 @@ interface ChatInputProps {
     | "send_failed_confirmed"
     | null;
   activeMediaJobs?: WebChatActiveMediaJobState[];
+  activeDocumentJobs?: WebChatActiveDocumentJobState[];
 }
 
 export interface ChatInputHandle {
@@ -164,7 +196,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     isStreaming,
     disabled,
     pendingSendStatus = null,
-    activeMediaJobs = []
+    activeMediaJobs = [],
+    activeDocumentJobs = []
   }: ChatInputProps,
   ref
 ) {
@@ -233,7 +266,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   }, [isStreaming, pendingSendStatus, isTouchDevice]);
 
   useEffect(() => {
-    if (activeMediaJobs.length === 0) {
+    if (activeMediaJobs.length === 0 && activeDocumentJobs.length === 0) {
       return;
     }
     setMediaJobNowMs(Date.now());
@@ -241,7 +274,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       setMediaJobNowMs(Date.now());
     }, 1_000);
     return () => window.clearInterval(timer);
-  }, [activeMediaJobs]);
+  }, [activeDocumentJobs, activeMediaJobs]);
 
   const stopCameraPreview = useCallback(() => {
     cameraPreviewStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -447,6 +480,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const hasKnowledgeEligibleFiles = pendingFiles.some((file) => isKnowledgeEligibleFile(file));
   const visibleMediaJobs = activeMediaJobs.slice(0, 2);
   const showCollapsedMediaJobs = activeMediaJobs.length > 2;
+  const visibleDocumentJobs = activeDocumentJobs.slice(0, 2);
+  const showCollapsedDocumentJobs = activeDocumentJobs.length > 2;
 
   useEffect(() => {
     if (!hasKnowledgeEligibleFiles) {
@@ -864,32 +899,55 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         )}
 
         <div className="relative">
-          {activeMediaJobs.length > 0 && (
+          {(activeMediaJobs.length > 0 || activeDocumentJobs.length > 0) && (
             <div
               aria-live="polite"
-              className="pointer-events-none absolute inset-x-0 bottom-full z-10 mb-2 flex justify-center md:inset-x-auto md:right-0 md:justify-end"
+              className="pointer-events-none absolute inset-x-0 bottom-full z-10 mb-2 flex flex-col items-center gap-2 md:inset-x-auto md:right-0 md:items-end"
             >
-              {showCollapsedMediaJobs ? (
-                <div className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm pointer-events-auto">
-                  <span className="truncate">
-                    {t("mediaJobsInProgress", { count: activeMediaJobs.length })}
-                  </span>
-                </div>
-              ) : (
-                <div className="flex max-w-full justify-center gap-2 overflow-x-auto pb-0.5 pointer-events-auto md:justify-end">
-                  {visibleMediaJobs.map((job) => (
-                    <div
-                      key={job.id}
-                      className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm"
-                    >
-                      <span className="whitespace-nowrap">
-                        {resolveMediaJobLabel(t, job)}{" "}
-                        {formatDuration(resolveMediaJobElapsedSeconds(job, mediaJobNowMs))}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {activeMediaJobs.length > 0 &&
+                (showCollapsedMediaJobs ? (
+                  <div className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm pointer-events-auto">
+                    <span className="truncate">
+                      {t("mediaJobsInProgress", { count: activeMediaJobs.length })}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex max-w-full justify-center gap-2 overflow-x-auto pb-0.5 pointer-events-auto md:justify-end">
+                    {visibleMediaJobs.map((job) => (
+                      <div
+                        key={job.id}
+                        className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm"
+                      >
+                        <span className="whitespace-nowrap">
+                          {resolveMediaJobLabel(t, job)}{" "}
+                          {formatDuration(resolveMediaJobElapsedSeconds(job, mediaJobNowMs))}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              {activeDocumentJobs.length > 0 &&
+                (showCollapsedDocumentJobs ? (
+                  <div className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm pointer-events-auto">
+                    <span className="truncate">
+                      {t("documentJobsInProgress", { count: activeDocumentJobs.length })}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex max-w-full justify-center gap-2 overflow-x-auto pb-0.5 pointer-events-auto md:justify-end">
+                    {visibleDocumentJobs.map((job) => (
+                      <div
+                        key={job.id}
+                        className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm"
+                      >
+                        <span className="whitespace-nowrap">
+                          {resolveDocumentJobLabel(t, job)}{" "}
+                          {formatDuration(resolveDocumentJobElapsedSeconds(job, mediaJobNowMs))}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
             </div>
           )}
 

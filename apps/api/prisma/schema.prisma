@@ -60,6 +60,57 @@ enum AssistantMediaJobStatus {
   expired
 }
 
+enum AssistantDocumentType {
+  pdf_document
+  presentation
+}
+
+enum AssistantDocumentStatus {
+  drafting
+  rendering
+  ready
+  failed
+  archived
+}
+
+enum AssistantDocumentDescriptorMode {
+  create_pdf_document
+  create_presentation
+  revise_document
+  export_or_redeliver
+}
+
+enum AssistantDocumentVersionStatus {
+  draft
+  render_requested
+  rendering
+  ready
+  failed
+  superseded
+}
+
+enum AssistantDocumentRenderProvider {
+  pdfmonkey
+  gamma
+}
+
+enum AssistantDocumentOutputFormat {
+  pdf
+  pptx
+}
+
+enum AssistantDocumentRenderJobStatus {
+  queued
+  running
+  provider_processing
+  fetching_output
+  ready_for_delivery
+  delivered
+  failed
+  expired
+  canceled
+}
+
 enum AssistantChatMessageAuthor {
   user
   assistant
@@ -594,6 +645,12 @@ model Workspace {
   subscriptionBillingEvents         WorkspaceSubscriptionBillingEvent[]
   paymentIntents                    WorkspacePaymentIntent[]
   mediaJobs                         AssistantMediaJob[]
+  documents                         AssistantDocument[]
+  documentVersions                  AssistantDocumentVersion[]
+  documentRenderJobs                AssistantDocumentRenderJob[]
+  documentProviderMappings          AssistantDocumentProviderMapping[]
+  documentDeliveredFiles            AssistantDocumentDeliveredFile[]
+  documentRevisionLogs              AssistantDocumentRevisionLog[]
   notificationIntents               NotificationIntent[]            @relation("NotificationIntentWorkspace")
   materializationRollouts           MaterializationRollout[]
   materializationRolloutItems       MaterializationRolloutItem[]
@@ -696,6 +753,9 @@ model Assistant {
   backgroundCompactionJobs             AssistantBackgroundCompactionJob[]
   webChatTurnAttempts                  AssistantWebChatTurnAttempt[]
   mediaJobs                            AssistantMediaJob[]
+  documents                            AssistantDocument[]
+  documentVersions                     AssistantDocumentVersion[]
+  documentRenderJobs                   AssistantDocumentRenderJob[]
   notificationIntents                  NotificationIntent[]          @relation("NotificationIntentAssistant")
 
   @@unique([workspaceId, userId])
@@ -1605,6 +1665,7 @@ model AssistantFile {
   workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   sandboxJob       SandboxJob?       @relation(fields: [sandboxJobId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   chatAttachments  AssistantChatMessageAttachment[]
+  documentDeliveredFiles AssistantDocumentDeliveredFile[]
 
   @@unique([assistantId, workspaceId, origin, objectKey])
   @@index([assistantId, createdAt(sort: Desc)])
@@ -1637,6 +1698,8 @@ model AssistantChat {
   attachments                 AssistantChatMessageAttachment[]
   webTurnAttempts             AssistantWebChatTurnAttempt[]
   mediaJobs                   AssistantMediaJob[]
+  documents                   AssistantDocument[]
+  documentRenderJobs          AssistantDocumentRenderJob[]
 
   @@unique([assistantId, surface, surfaceThreadKey])
   @@unique([id, assistantId])
@@ -1769,6 +1832,182 @@ model AssistantMediaJob {
   @@index([workspaceId, status, updatedAt])
   @@index([status, updatedAt])
   @@map("assistant_media_jobs")
+}
+
+model AssistantDocument {
+  id               String                 @id @default(dbgenerated("gen_random_uuid()")) @map("doc_id") @db.Uuid
+  assistantId      String                 @map("assistant_id") @db.Uuid
+  userId           String                 @map("user_id") @db.Uuid
+  workspaceId      String                 @map("workspace_id") @db.Uuid
+  chatId           String                 @map("chat_id") @db.Uuid
+  documentType     AssistantDocumentType  @map("document_type")
+  currentVersionId String?                @unique @map("current_version_id") @db.Uuid
+  status           AssistantDocumentStatus
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant        Assistant              @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace        Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chat             AssistantChat          @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  currentVersion   AssistantDocumentVersion? @relation("AssistantDocumentCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  versions         AssistantDocumentVersion[]
+  renderJobs       AssistantDocumentRenderJob[]
+  providerMappings AssistantDocumentProviderMapping[]
+  deliveredFiles   AssistantDocumentDeliveredFile[]
+  revisionLogs     AssistantDocumentRevisionLog[]
+
+  @@index([assistantId, status, updatedAt])
+  @@index([chatId, updatedAt])
+  @@index([workspaceId, updatedAt])
+  @@map("assistant_documents")
+}
+
+model AssistantDocumentVersion {
+  id                String                          @id @default(dbgenerated("gen_random_uuid()")) @map("version_id") @db.Uuid
+  docId             String                          @map("doc_id") @db.Uuid
+  assistantId       String                          @map("assistant_id") @db.Uuid
+  workspaceId       String                          @map("workspace_id") @db.Uuid
+  versionNumber     Int                             @map("version_number")
+  parentVersionId   String?                         @map("parent_version_id") @db.Uuid
+  descriptorMode    AssistantDocumentDescriptorMode @map("descriptor_mode")
+  sourceJson        Json                            @map("source_json") @db.JsonB
+  providerInputJson Json?                           @map("provider_input_json") @db.JsonB
+  sourceSummaryText String?                         @map("source_summary_text") @db.Text
+  sourceOutlineJson Json?                           @map("source_outline_json") @db.JsonB
+  status            AssistantDocumentVersionStatus
+  createdAt         DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  document          AssistantDocument               @relation(fields: [docId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  currentForDocument AssistantDocument?             @relation("AssistantDocumentCurrentVersion")
+  parentVersion     AssistantDocumentVersion?       @relation("AssistantDocumentVersionLineage", fields: [parentVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  childVersions     AssistantDocumentVersion[]      @relation("AssistantDocumentVersionLineage")
+  assistant         Assistant                       @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace         Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  renderJobs        AssistantDocumentRenderJob[]
+  providerMappings  AssistantDocumentProviderMapping[]
+  deliveredFiles    AssistantDocumentDeliveredFile[]
+  previousRevisionLogs AssistantDocumentRevisionLog[] @relation("AssistantDocumentRevisionLogPreviousVersion")
+  newRevisionLogs   AssistantDocumentRevisionLog[]  @relation("AssistantDocumentRevisionLogNewVersion")
+
+  @@unique([docId, versionNumber], map: "assistant_document_versions_doc_version_number_key")
+  @@index([assistantId, createdAt(sort: Desc)])
+  @@index([docId, createdAt(sort: Desc)])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@map("assistant_document_versions")
+}
+
+model AssistantDocumentRenderJob {
+  id                                String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  docId                             String                           @map("doc_id") @db.Uuid
+  versionId                         String                           @map("version_id") @db.Uuid
+  assistantId                       String                           @map("assistant_id") @db.Uuid
+  userId                            String                           @map("user_id") @db.Uuid
+  workspaceId                       String                           @map("workspace_id") @db.Uuid
+  chatId                            String                           @map("chat_id") @db.Uuid
+  surface                           AssistantChatSurface
+  provider                          AssistantDocumentRenderProvider
+  outputFormat                      AssistantDocumentOutputFormat    @map("output_format")
+  status                            AssistantDocumentRenderJobStatus
+  sourceUserMessageId               String?                          @map("source_user_message_id") @db.Uuid
+  requestJson                       Json?                            @map("request_json") @db.JsonB
+  providerStatusJson                Json?                            @map("provider_status_json") @db.JsonB
+  lastErrorCode                     String?                          @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage                  String?                          @map("last_error_message") @db.Text
+  attemptCount                      Int                              @default(0) @map("attempt_count")
+  maxAttempts                       Int                              @default(5) @map("max_attempts")
+  nextRetryAt                       DateTime?                        @map("next_retry_at") @db.Timestamptz(6)
+  schedulerClaimToken               String?                          @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimedAt                DateTime?                        @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt           DateTime?                        @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  startedAt                         DateTime?                        @map("started_at") @db.Timestamptz(6)
+  completedAt                       DateTime?                        @map("completed_at") @db.Timestamptz(6)
+  deliveredAt                       DateTime?                        @map("delivered_at") @db.Timestamptz(6)
+  failedAt                          DateTime?                        @map("failed_at") @db.Timestamptz(6)
+  createdAt                         DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                         DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  document                          AssistantDocument                @relation(fields: [docId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  version                           AssistantDocumentVersion         @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  assistant                         Assistant                        @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace                         Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chat                              AssistantChat                    @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  deliveredFiles                    AssistantDocumentDeliveredFile[]
+
+  @@index([assistantId, status, updatedAt])
+  @@index([chatId, status, updatedAt])
+  @@index([workspaceId, status, updatedAt])
+  @@index([docId, createdAt(sort: Desc)])
+  @@index([status, updatedAt])
+  @@map("assistant_document_render_jobs")
+}
+
+model AssistantDocumentProviderMapping {
+  id                   String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  docId                String                        @map("doc_id") @db.Uuid
+  versionId            String                        @map("version_id") @db.Uuid
+  workspaceId          String                        @map("workspace_id") @db.Uuid
+  provider             AssistantDocumentRenderProvider
+  externalDocumentId   String?                       @map("external_document_id") @db.VarChar(255)
+  externalRenderId     String?                       @map("external_render_id") @db.VarChar(255)
+  latestProviderStatus String?                       @map("latest_provider_status") @db.VarChar(128)
+  providerMetadataJson Json?                         @map("provider_metadata_json") @db.JsonB
+  createdAt            DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  document             AssistantDocument             @relation(fields: [docId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  version              AssistantDocumentVersion      @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  workspace            Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([docId, provider, updatedAt])
+  @@index([versionId, provider])
+  @@index([workspaceId, provider, updatedAt])
+  @@map("assistant_document_provider_mappings")
+}
+
+model AssistantDocumentDeliveredFile {
+  id                           String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  docId                        String                    @map("doc_id") @db.Uuid
+  versionId                    String                    @map("version_id") @db.Uuid
+  renderJobId                  String                    @map("render_job_id") @db.Uuid
+  workspaceId                  String                    @map("workspace_id") @db.Uuid
+  assistantFileId              String                    @map("assistant_file_id") @db.Uuid
+  outputMimeType               String                    @map("output_mime_type") @db.VarChar(255)
+  completionAssistantMessageId String?                   @map("completion_assistant_message_id") @db.Uuid
+  deliveredAt                  DateTime                  @map("delivered_at") @db.Timestamptz(6)
+  isCurrentOutput              Boolean                   @default(true) @map("is_current_output")
+  createdAt                    DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                    DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  document                     AssistantDocument         @relation(fields: [docId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  version                      AssistantDocumentVersion  @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  renderJob                    AssistantDocumentRenderJob @relation(fields: [renderJobId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  workspace                    Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistantFile                AssistantFile             @relation(fields: [assistantFileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([docId, deliveredAt(sort: Desc)])
+  @@index([versionId, deliveredAt(sort: Desc)])
+  @@index([assistantFileId])
+  @@index([workspaceId, deliveredAt(sort: Desc)])
+  @@map("assistant_document_delivered_files")
+}
+
+model AssistantDocumentRevisionLog {
+  id                       String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  docId                    String      @map("doc_id") @db.Uuid
+  workspaceId              String      @map("workspace_id") @db.Uuid
+  previousVersionId        String?     @map("previous_version_id") @db.Uuid
+  newVersionId             String      @map("new_version_id") @db.Uuid
+  userRevisionRequestText  String?     @map("user_revision_request_text") @db.Text
+  interpretedPatchIntent   String?     @map("interpreted_patch_intent") @db.Text
+  structuredPatchJson      Json?       @map("structured_patch_json") @db.JsonB
+  providerEditRef          String?     @map("provider_edit_ref") @db.VarChar(255)
+  runtimeProvenanceJson    Json?       @map("runtime_provenance_json") @db.JsonB
+  createdAt                DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  document                 AssistantDocument @relation(fields: [docId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  previousVersion          AssistantDocumentVersion? @relation("AssistantDocumentRevisionLogPreviousVersion", fields: [previousVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  newVersion               AssistantDocumentVersion  @relation("AssistantDocumentRevisionLogNewVersion", fields: [newVersionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  workspace                Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([docId, createdAt(sort: Desc)])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@map("assistant_document_revision_logs")
 }
 
 model AssistantMemoryRegistryItem {

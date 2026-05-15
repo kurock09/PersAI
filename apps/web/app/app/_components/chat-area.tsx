@@ -831,6 +831,7 @@ export function ChatArea({
         disabled={!assistantReady}
         pendingSendStatus={chat.pendingSendStatus}
         activeMediaJobs={chat.activeMediaJobs}
+        activeDocumentJobs={chat.activeDocumentJobs}
       />
     </div>
   );

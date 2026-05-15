@@ -21,9 +21,9 @@ import type {
   ReserveMonthlyMediaQuotaResult,
   IncrementWorkspaceQuotaUsageInput,
   WorkspaceQuotaAccountingRepository,
-  WorkspaceMonthlyMediaQuotaCounter,
+  WorkspaceMonthlyToolQuotaCounter,
   WorkspaceTokenBudgetPeriodCounter,
-  WorkspaceMonthlyMediaQuotaToolCode
+  WorkspaceMonthlyToolQuotaToolCode
 } from "../../domain/workspace-quota-accounting.repository";
 import type { WorkspaceQuotaAccountingState } from "../../domain/workspace-quota-accounting.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
@@ -60,7 +60,7 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
 
   async findMonthlyMediaQuotaCounter(
     input: FindMonthlyMediaQuotaCounterInput
-  ): Promise<WorkspaceMonthlyMediaQuotaCounter | null> {
+  ): Promise<WorkspaceMonthlyToolQuotaCounter | null> {
     const counter = await this.prisma.workspaceMediaMonthlyQuotaCounter.findUnique({
       where: {
         workspaceId_toolCode_periodStartedAt_periodEndsAt: {
@@ -119,16 +119,38 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
 
   async settleMonthlyMediaQuota(
     input: MonthlyMediaQuotaMutationInput
-  ): Promise<WorkspaceMonthlyMediaQuotaCounter> {
+  ): Promise<WorkspaceMonthlyToolQuotaCounter> {
     return this.mutateMonthlyMediaQuota(input, (units) => ({
       reservedUnits: { decrement: units },
       settledUnits: { increment: units }
     }));
   }
 
+  async consumeMonthlyToolQuotaSuccessOnly(
+    input: MonthlyMediaQuotaMutationInput
+  ): Promise<WorkspaceMonthlyToolQuotaCounter> {
+    return this.withSerializableRetry("consume monthly tool quota success-only", async () =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const counter = await this.upsertMonthlyMediaQuotaCounter(tx, input);
+          const updated = await tx.workspaceMediaMonthlyQuotaCounter.update({
+            where: { id: counter.id },
+            data: {
+              settledUnits: { increment: input.units },
+              limitUnits: input.limitUnits,
+              lastComputedAt: new Date()
+            }
+          });
+          return this.mapMonthlyMediaQuotaCounter(updated);
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      )
+    );
+  }
+
   async releaseMonthlyMediaQuota(
     input: MonthlyMediaQuotaMutationInput
-  ): Promise<WorkspaceMonthlyMediaQuotaCounter> {
+  ): Promise<WorkspaceMonthlyToolQuotaCounter> {
     return this.mutateMonthlyMediaQuota(input, (units) => ({
       reservedUnits: { decrement: units },
       releasedUnits: { increment: units }
@@ -137,7 +159,7 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
 
   async markMonthlyMediaQuotaReconciliationRequired(
     input: MonthlyMediaQuotaMutationInput
-  ): Promise<WorkspaceMonthlyMediaQuotaCounter> {
+  ): Promise<WorkspaceMonthlyToolQuotaCounter> {
     return this.mutateMonthlyMediaQuota(input, (units) => ({
       reservedUnits: { decrement: units },
       reconciliationRequiredUnits: { increment: units }
@@ -147,7 +169,7 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
   private async mutateMonthlyMediaQuota(
     input: MonthlyMediaQuotaMutationInput,
     dataForUnits: (units: number) => Prisma.WorkspaceMediaMonthlyQuotaCounterUpdateInput
-  ): Promise<WorkspaceMonthlyMediaQuotaCounter> {
+  ): Promise<WorkspaceMonthlyToolQuotaCounter> {
     return this.withSerializableRetry("mutate monthly media quota", async () =>
       this.prisma.$transaction(
         async (tx) => {
@@ -210,7 +232,7 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     reconciliationRequiredUnits: number;
     limitUnits: number | null;
     lastComputedAt: Date;
-  }): WorkspaceMonthlyMediaQuotaCounter {
+  }): WorkspaceMonthlyToolQuotaCounter {
     return {
       workspaceId: counter.workspaceId,
       toolCode: this.toMonthlyMediaQuotaToolCode(counter.toolCode),
@@ -260,11 +282,12 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     throw new Error(`Failed to ${label} after serialization retries.`);
   }
 
-  private toMonthlyMediaQuotaToolCode(toolCode: string): WorkspaceMonthlyMediaQuotaToolCode {
+  private toMonthlyMediaQuotaToolCode(toolCode: string): WorkspaceMonthlyToolQuotaToolCode {
     if (
       toolCode === "image_generate" ||
       toolCode === "image_edit" ||
-      toolCode === "video_generate"
+      toolCode === "video_generate" ||
+      toolCode === "document"
     ) {
       return toolCode;
     }

@@ -128,6 +128,28 @@ async function run(): Promise<void> {
           configured: true,
           providerId: "openai",
           modelKey: "gpt-image-1.5"
+        },
+        document: {
+          refKey: "persai:persai-runtime:tool/document/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/document/api-key"
+          },
+          configured: true,
+          providerId: "pdfmonkey",
+          fallbacks: [
+            {
+              refKey: "persai:persai-runtime:tool/document/gamma-api-key",
+              secretRef: {
+                source: "persai",
+                provider: "persai-runtime",
+                id: "tool/document/gamma-api-key"
+              },
+              configured: true,
+              providerId: "gamma"
+            }
+          ]
         }
       },
       toolPolicies: [
@@ -165,6 +187,20 @@ async function run(): Promise<void> {
           description: "Edit a current-turn image.",
           usageGuidance:
             'Set background="transparent" when the user asks to remove the background.',
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: 10
+        },
+        {
+          toolCode: "document",
+          displayName: "Document",
+          description: "Create and revise assistant documents.",
+          usageGuidance:
+            "Use revise_document and export_or_redeliver only for existing PersAI document ids.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -278,6 +314,7 @@ async function run(): Promise<void> {
   const shell = projected.tools.find((tool) => tool.name === "shell");
   const imageGenerate = projected.tools.find((tool) => tool.name === "image_generate");
   const imageEdit = projected.tools.find((tool) => tool.name === "image_edit");
+  const document = projected.tools.find((tool) => tool.name === "document");
   const scheduledAction = projected.tools.find((tool) => tool.name === "scheduled_action");
   const routeControl = projected.tools.find((tool) => tool.name === "route_control");
 
@@ -350,6 +387,26 @@ async function run(): Promise<void> {
   assert.match(imageEdit?.description ?? "", /actually called image_edit/);
   assert.deepEqual(imageEditBackground?.enum, ["auto", "transparent", "opaque"]);
   assert.match(imageEditBackground?.description ?? "", /remove background/);
+  assert.ok(document, "document should be projected when enabled and configured");
+  const documentProperties = (
+    document?.inputSchema as {
+      properties?: {
+        descriptorMode?: { enum?: unknown[] };
+        docId?: { description?: string };
+      };
+    }
+  )?.properties;
+  assert.deepEqual(documentProperties?.descriptorMode?.enum, [
+    "create_pdf_document",
+    "create_presentation",
+    "revise_document",
+    "export_or_redeliver"
+  ]);
+  assert.match(document?.description ?? "", /existing PersAI document ids/);
+  assert.match(
+    documentProperties?.docId?.description ?? "",
+    /revise_document and export_or_redeliver/
+  );
   const scheduledActionKindDescription = (
     scheduledAction?.inputSchema as {
       properties?: {

@@ -6,6 +6,7 @@ import { RuntimeStateModule } from "../runtime-state/runtime-state.module";
 import { TurnsController } from "./interface/http/turns.controller";
 import { InternalRuntimeSessionsController } from "./interface/http/internal-runtime-sessions.controller";
 import { InternalRuntimeBackgroundTasksController } from "./interface/http/internal-runtime-background-tasks.controller";
+import { InternalRuntimeDocumentJobsController } from "./interface/http/internal-runtime-document-jobs.controller";
 import { InternalRuntimeMediaJobsController } from "./interface/http/internal-runtime-media-jobs.controller";
 import { AutoExtractToMemoryService } from "./auto-extract-to-memory.service";
 import { IdempotencyService } from "./idempotency.service";
@@ -22,6 +23,9 @@ import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.servi
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
 import { RuntimeBackgroundTaskEvaluationService } from "./runtime-background-task-evaluation.service";
+import { RuntimeDocumentProviderAdapterService } from "./runtime-document-provider-adapter.service";
+import { RuntimeDocumentJobRunService } from "./runtime-document-job-run.service";
+import { RuntimeDocumentToolService } from "./runtime-document-tool.service";
 import { RuntimeMediaJobCompletionService } from "./runtime-media-job-completion.service";
 import { RuntimeMediaJobRunService } from "./runtime-media-job-run.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
@@ -46,12 +50,16 @@ import { TurnRoutingService } from "./turn-routing.service";
     TurnsController,
     InternalRuntimeSessionsController,
     InternalRuntimeBackgroundTasksController,
+    InternalRuntimeDocumentJobsController,
     InternalRuntimeMediaJobsController
   ],
   providers: [
     PersaiInternalApiClientService,
     ProviderGatewayClientService,
     RuntimeBrowserToolService,
+    RuntimeDocumentToolService,
+    RuntimeDocumentProviderAdapterService,
+    RuntimeDocumentJobRunService,
     RuntimeAssistantFileRegistryService,
     RuntimeFilesToolService,
     RuntimeImageEditToolService,
@@ -86,6 +94,9 @@ import { TurnRoutingService } from "./turn-routing.service";
     PersaiInternalApiClientService,
     ProviderGatewayClientService,
     RuntimeBrowserToolService,
+    RuntimeDocumentToolService,
+    RuntimeDocumentProviderAdapterService,
+    RuntimeDocumentJobRunService,
     RuntimeAssistantFileRegistryService,
     RuntimeFilesToolService,
     RuntimeImageEditToolService,

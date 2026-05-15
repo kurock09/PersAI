@@ -46,7 +46,7 @@ async function run(): Promise<void> {
       async execute() {
         return {
           planCode: "pro",
-          monthlyMediaQuotas: {
+          monthlyToolQuotas: {
             planCode: "pro",
             periodStartedAt: "2026-05-01T00:00:00.000Z",
             periodEndsAt: "2026-06-01T00:00:00.000Z",

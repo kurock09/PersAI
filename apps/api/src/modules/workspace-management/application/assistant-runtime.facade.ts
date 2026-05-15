@@ -69,7 +69,7 @@ export interface RuntimeUrlMediaArtifact {
   source: "runtime_url";
   url: string;
   type: RuntimeMediaArtifactType;
-  sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | null;
+  sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | "document" | null;
   audioAsVoice?: boolean;
   caption?: string;
 }
@@ -79,7 +79,7 @@ export interface PersaiObjectStorageRuntimeMediaArtifact {
   fileRef?: string | null;
   objectKey: string;
   type: RuntimeMediaArtifactType;
-  sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | null;
+  sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | "document" | null;
   mimeType: string;
   filename: string | null;
   sizeBytes: number | null;

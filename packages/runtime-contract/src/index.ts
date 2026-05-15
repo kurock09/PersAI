@@ -94,7 +94,7 @@ export interface RuntimeOutputArtifact {
   fileRef: string;
   file: RuntimeFileRef;
   kind: PersaiRuntimeAttachmentKind;
-  sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | null;
+  sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | "document" | null;
   objectKey: string;
   mimeType: string;
   filename: string | null;
@@ -880,8 +880,8 @@ export interface RuntimeQuotaStatusBucket {
   status: "ok" | "limit_reached" | "usage_unavailable";
 }
 
-export interface RuntimeMonthlyMediaQuotaStatusToolRow {
-  toolCode: "image_generate" | "image_edit" | "video_generate";
+export interface RuntimeMonthlyToolQuotaStatusToolRow {
+  toolCode: "image_generate" | "image_edit" | "video_generate" | "document";
   displayName: string;
   usedUnits: number;
   reservedUnits: number;
@@ -898,12 +898,12 @@ export interface RuntimeMonthlyMediaQuotaStatusToolRow {
   status: "ok" | "limit_reached" | "usage_unavailable";
 }
 
-export interface RuntimeMonthlyMediaQuotaStatus {
+export interface RuntimeMonthlyToolQuotaStatus {
   planCode: string | null;
   periodStartedAt: IsoTimestamp;
   periodEndsAt: IsoTimestamp;
   periodSource: "subscription_period" | "calendar_month_fallback";
-  tools: RuntimeMonthlyMediaQuotaStatusToolRow[];
+  tools: RuntimeMonthlyToolQuotaStatusToolRow[];
 }
 
 export interface RuntimeQuotaStatusCurrentPlan {
@@ -992,6 +992,7 @@ export interface RuntimeQuotaStatusVisiblePlanLimits {
   imageGenerateMonthlyUnitsLimit: number | null;
   imageEditMonthlyUnitsLimit: number | null;
   videoGenerateMonthlyUnitsLimit: number | null;
+  documentMonthlyUnitsLimit: number | null;
 }
 
 export interface RuntimeQuotaStatusVisiblePlan {
@@ -1047,7 +1048,7 @@ export interface RuntimeQuotaStatusToolResult {
   advisoryCandidates: RuntimeQuotaAdvisoryCandidate[];
   tools: RuntimeQuotaStatusToolRow[];
   buckets: RuntimeQuotaStatusBucket[];
-  monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
+  monthlyToolQuotas: RuntimeMonthlyToolQuotaStatus | null;
   packagesAvailableByTool: Record<string, boolean>;
   packageOffers: RuntimeQuotaStatusPackageOffers;
   /**
@@ -1398,9 +1399,37 @@ export interface RuntimeVideoGenerateToolResult {
   jobId?: string | null;
 }
 
+export interface RuntimeDocumentToolResult {
+  toolCode: "document";
+  executionMode: "worker";
+  descriptorMode:
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver"
+    | null;
+  documentType: "pdf_document" | "presentation" | null;
+  provider: PersaiRuntimeDocumentProviderId | null;
+  prompt: string | null;
+  outputFormat: "pdf" | "pptx" | null;
+  docId: string | null;
+  requestedName: string | null;
+  artifacts: RuntimeOutputArtifact[];
+  usage: RuntimeUsageSnapshot | null;
+  action: "generated" | "skipped" | "deferred";
+  reason: string | null;
+  warning: string | null;
+  guidance?: string | null;
+  jobId?: string | null;
+}
+
 export const PERSAI_RUNTIME_TTS_PROVIDER_IDS = ["elevenlabs", "yandex", "openai"] as const;
 
 export type PersaiRuntimeTtsProviderId = (typeof PERSAI_RUNTIME_TTS_PROVIDER_IDS)[number];
+
+export const PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS = ["pdfmonkey", "gamma"] as const;
+
+export type PersaiRuntimeDocumentProviderId = (typeof PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS)[number];
 
 export const PERSAI_RUNTIME_TTS_DELIVERY_KINDS = ["voice_note", "audio"] as const;
 
@@ -1877,6 +1906,51 @@ export interface RuntimeMediaJobRunResult {
   rawText: string | null;
 }
 
+export interface RuntimeDocumentJobRunRequest {
+  assistantId: string;
+  workspaceId: string;
+  runtimeTier: PersaiRuntimeTier;
+  runtimeBundleDocument: string;
+  job: {
+    id: string;
+    docId: string;
+    versionId: string;
+    surface: "web" | "telegram";
+    chatId: string;
+    provider: "pdfmonkey" | "gamma";
+    outputFormat: "pdf" | "pptx";
+    sourceUserMessageId: string;
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+  };
+  directToolExecution: {
+    toolCode: "document";
+    descriptorMode:
+      | "create_pdf_document"
+      | "create_presentation"
+      | "revise_document"
+      | "export_or_redeliver";
+    request: {
+      prompt: string;
+      instructions?: string | null;
+      outputFormat?: "pdf" | "pptx" | null;
+      docId?: string | null;
+      requestedName?: string | null;
+      outline?: unknown;
+      metadata?: Record<string, unknown> | null;
+    };
+  };
+}
+
+export interface RuntimeDocumentJobRunResult {
+  assistantText: string | null;
+  artifacts: RuntimeOutputArtifact[];
+  usage: RuntimeUsageAccounting | RuntimeUsageSnapshot | null;
+  toolInvocations: RuntimeTurnToolInvocation[];
+  rawText: string | null;
+  providerStatus?: Record<string, unknown> | null;
+}
+
 export interface RuntimeMediaJobCompletionRequest {
   assistantId: string;
   workspaceId: string;
@@ -1966,6 +2040,17 @@ export interface RuntimeDeferredMediaJobSummary {
   kind: "image" | "video";
 }
 
+export interface RuntimeDeferredDocumentJobSummary {
+  jobId: string;
+  toolCode: "document";
+  descriptorMode:
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver";
+  documentType: "pdf_document" | "presentation";
+}
+
 export interface RuntimeTurnResult {
   requestId: string;
   sessionId: string;
@@ -1979,6 +2064,7 @@ export interface RuntimeTurnResult {
   autoCompaction?: RuntimeTurnAutoCompactionState;
   toolInvocations?: RuntimeTurnToolInvocation[];
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
+  deferredDocumentJobs?: RuntimeDeferredDocumentJobSummary[];
 }
 
 export interface RuntimeSkillStateCheckResult {
@@ -2164,6 +2250,74 @@ export interface ProviderGatewaySpeechGenerateResult {
   usage: RuntimeUsageSnapshot | null;
   warning: string | null;
 }
+
+export interface ProviderGatewayDocumentGenerateRequest {
+  htmlContent: string;
+  filename: string | null;
+  timeoutMs?: number | null;
+  credential: {
+    toolCode: "document";
+    secretId: string;
+    providerId: PersaiRuntimeDocumentProviderId | null;
+  };
+  providerOptions:
+    | {
+        pdfmonkeyTemplateId: string;
+        outputFormat: "pdf";
+      }
+    | {
+        outputFormat: "pptx";
+      };
+}
+
+export type ProviderGatewayDocumentGenerateResult =
+  | {
+      provider: "pdfmonkey";
+      outputFormat: "pdf";
+      documentId: string;
+      templateId: string;
+      filename: string | null;
+      bytesBase64: string;
+      mimeType: string;
+      respondedAt: IsoTimestamp;
+      warning: string | null;
+      providerStatus: {
+        provider: "pdfmonkey";
+        state: "success";
+        documentId: string;
+        documentTemplateId: string;
+        downloadUrl: string;
+        previewUrl: string | null;
+        failureCause: string | null;
+        filename: string | null;
+        outputType: "pdf";
+        status: "success";
+        updatedAt: IsoTimestamp | null;
+      };
+    }
+  | {
+      provider: "gamma";
+      outputFormat: "pptx";
+      documentId: string;
+      templateId: null;
+      filename: string | null;
+      bytesBase64: string;
+      mimeType: string;
+      respondedAt: IsoTimestamp;
+      warning: string | null;
+      providerStatus: {
+        provider: "gamma";
+        state: "success";
+        generationId: string;
+        gammaId: string;
+        gammaUrl: string;
+        exportUrl: string;
+        filename: string | null;
+        outputType: "pptx";
+        status: "completed";
+        updatedAt: IsoTimestamp | null;
+      };
+    };
 
 export interface ProviderGatewayImageGenerateRequest {
   prompt: string;

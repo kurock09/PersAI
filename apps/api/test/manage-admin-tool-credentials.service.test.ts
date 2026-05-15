@@ -41,6 +41,9 @@ async function run(): Promise<void> {
       providers: {
         tool_browser: "browserless"
       },
+      documentProviderTemplateIds: {
+        pdfmonkey: "template-123"
+      },
       ttsPrimaryProviderId: "openai"
     },
     "step-up"
@@ -65,6 +68,7 @@ async function run(): Promise<void> {
           providerId: "browserless"
         }
       ],
+      updatedDocumentProviderTemplateIds: ["pdfmonkey"],
       ttsPrimaryProviderId: "openai"
     },
     auditEventCode: "admin.materialization_rollout_created",

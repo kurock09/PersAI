@@ -20,7 +20,7 @@ import {
   type ApplyTokenBudgetUsageResult,
   type WorkspaceQuotaAccountingRepository,
   type WorkspaceQuotaLimitsInput,
-  type WorkspaceMonthlyMediaQuotaToolCode
+  type WorkspaceMonthlyToolQuotaToolCode
 } from "../domain/workspace-quota-accounting.repository";
 import {
   WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY,
@@ -45,6 +45,7 @@ type PlanQuotaHints = {
   imageGenerateMonthlyUnitsLimit: number | null;
   imageEditMonthlyUnitsLimit: number | null;
   videoGenerateMonthlyUnitsLimit: number | null;
+  documentMonthlyUnitsLimit: number | null;
   mediaStorageBytesLimit: bigint | null;
   knowledgeStorageBytesLimit: bigint | null;
   workspaceStorageBytesLimit: bigint | null;
@@ -111,8 +112,8 @@ export type AssistantTokenBudgetQuotaSnapshot = {
   periodSource: RecurringQuotaPeriod["periodSource"];
 };
 
-export type AssistantMonthlyMediaQuotaToolSnapshot = {
-  toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+export type AssistantMonthlyToolQuotaToolSnapshot = {
+  toolCode: WorkspaceMonthlyToolQuotaToolCode;
   displayName: string;
   usedUnits: number;
   reservedUnits: number;
@@ -136,12 +137,12 @@ export type AssistantMonthlyMediaQuotaToolSnapshot = {
   status: "ok" | "limit_reached" | "usage_unavailable";
 };
 
-export type AssistantMonthlyMediaQuotaSnapshot = {
+export type AssistantMonthlyToolQuotaSnapshot = {
   planCode: string | null;
   periodStartedAt: string;
   periodEndsAt: string;
   periodSource: "subscription_period" | "calendar_month_fallback";
-  tools: AssistantMonthlyMediaQuotaToolSnapshot[];
+  tools: AssistantMonthlyToolQuotaToolSnapshot[];
 };
 
 export type ReserveAssistantMonthlyMediaQuotaResult = {
@@ -150,7 +151,7 @@ export type ReserveAssistantMonthlyMediaQuotaResult = {
   limitUnits: number | null;
   periodStartedAt: string;
   periodEndsAt: string;
-  periodSource: AssistantMonthlyMediaQuotaSnapshot["periodSource"];
+  periodSource: AssistantMonthlyToolQuotaSnapshot["periodSource"];
 };
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -271,6 +272,10 @@ function parsePlanQuotaHints(
     asPositiveInteger(quotaHints?.videoGenerateMonthlyUnitsLimit) ??
     readQuotaHintFromLimitsPermissions(limitsPermissions, "video_generate_monthly_units_limit");
 
+  const documentMonthlyUnitsLimit =
+    asPositiveInteger(quotaHints?.documentMonthlyUnitsLimit) ??
+    readQuotaHintFromLimitsPermissions(limitsPermissions, "document_monthly_units_limit");
+
   const mediaStorageLimit =
     asPositiveInteger(quotaHints?.mediaStorageBytesLimit) ??
     readQuotaHintFromLimitsPermissions(limitsPermissions, "media_storage_bytes_limit");
@@ -291,6 +296,7 @@ function parsePlanQuotaHints(
     imageGenerateMonthlyUnitsLimit,
     imageEditMonthlyUnitsLimit,
     videoGenerateMonthlyUnitsLimit,
+    documentMonthlyUnitsLimit,
     mediaStorageBytesLimit: mediaStorageLimit === null ? null : BigInt(mediaStorageLimit),
     knowledgeStorageBytesLimit:
       knowledgeStorageLimit === null ? null : BigInt(knowledgeStorageLimit),
@@ -326,30 +332,39 @@ function defaultTokenWeights(): Pick<
   };
 }
 
-const MONTHLY_MEDIA_QUOTA_TOOLS: Array<{
-  toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+const MONTHLY_TOOL_QUOTA_TOOLS: Array<{
+  toolCode: WorkspaceMonthlyToolQuotaToolCode;
   displayName: string;
-  limitKey: keyof Pick<
-    PlanQuotaHints,
+  limitKey:
     | "imageGenerateMonthlyUnitsLimit"
     | "imageEditMonthlyUnitsLimit"
     | "videoGenerateMonthlyUnitsLimit"
-  >;
+    | "documentMonthlyUnitsLimit";
+  packageBonusEligible: boolean;
 }> = [
   {
     toolCode: "image_generate",
     displayName: "Image generation",
-    limitKey: "imageGenerateMonthlyUnitsLimit"
+    limitKey: "imageGenerateMonthlyUnitsLimit",
+    packageBonusEligible: true
   },
   {
     toolCode: "image_edit",
     displayName: "Image editing",
-    limitKey: "imageEditMonthlyUnitsLimit"
+    limitKey: "imageEditMonthlyUnitsLimit",
+    packageBonusEligible: true
   },
   {
     toolCode: "video_generate",
     displayName: "Video generation",
-    limitKey: "videoGenerateMonthlyUnitsLimit"
+    limitKey: "videoGenerateMonthlyUnitsLimit",
+    packageBonusEligible: true
+  },
+  {
+    toolCode: "document",
+    displayName: "Document generation",
+    limitKey: "documentMonthlyUnitsLimit",
+    packageBonusEligible: false
   }
 ];
 
@@ -1038,9 +1053,9 @@ export class TrackWorkspaceQuotaUsageService {
     };
   }
 
-  async resolveAssistantMonthlyMediaQuotaSnapshot(
+  async resolveAssistantMonthlyToolQuotaSnapshot(
     assistant: Assistant
-  ): Promise<AssistantMonthlyMediaQuotaSnapshot> {
+  ): Promise<AssistantMonthlyToolQuotaSnapshot> {
     const governance = await this.resolveGovernance(assistant.id);
     const quotaContext = await this.resolveQuotaContext(assistant, governance);
     const period = resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
@@ -1048,11 +1063,11 @@ export class TrackWorkspaceQuotaUsageService {
       assistant.workspaceId,
       period
     );
-    const tools: AssistantMonthlyMediaQuotaToolSnapshot[] = [];
+    const tools: AssistantMonthlyToolQuotaToolSnapshot[] = [];
 
-    for (const tool of MONTHLY_MEDIA_QUOTA_TOOLS) {
+    for (const tool of MONTHLY_TOOL_QUOTA_TOOLS) {
       const baseLimitUnits = quotaContext.planQuotaHints[tool.limitKey];
-      const bonus = bonuses[tool.toolCode];
+      const bonus = tool.packageBonusEligible ? bonuses[tool.toolCode] : undefined;
       const bonusUnits = bonus?.bonusUnits ?? 0;
       const effectiveLimitUnits = baseLimitUnits === null ? null : baseLimitUnits + bonusUnits;
       const counter = await this.workspaceQuotaAccountingRepository.findMonthlyMediaQuotaCounter({
@@ -1107,7 +1122,7 @@ export class TrackWorkspaceQuotaUsageService {
 
   async reserveAssistantMonthlyMediaQuota(params: {
     assistant: Assistant;
-    toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+    toolCode: WorkspaceMonthlyToolQuotaToolCode;
     units: number;
   }): Promise<ReserveAssistantMonthlyMediaQuotaResult> {
     if (params.units <= 0) {
@@ -1137,7 +1152,7 @@ export class TrackWorkspaceQuotaUsageService {
 
   async settleAssistantMonthlyMediaQuota(params: {
     assistant: Assistant;
-    toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+    toolCode: WorkspaceMonthlyToolQuotaToolCode;
     units: number;
   }): Promise<void> {
     if (params.units <= 0) {
@@ -1157,9 +1172,31 @@ export class TrackWorkspaceQuotaUsageService {
     });
   }
 
+  async consumeAssistantMonthlyToolQuotaSuccessOnly(params: {
+    assistant: Assistant;
+    toolCode: WorkspaceMonthlyToolQuotaToolCode;
+    units: number;
+  }): Promise<void> {
+    if (params.units <= 0) {
+      return;
+    }
+    const context = await this.resolveMonthlyMediaQuotaAccountingContext(
+      params.assistant,
+      params.toolCode
+    );
+    await this.workspaceQuotaAccountingRepository.consumeMonthlyToolQuotaSuccessOnly({
+      workspaceId: params.assistant.workspaceId,
+      toolCode: params.toolCode,
+      periodStartedAt: context.period.periodStartedAt,
+      periodEndsAt: context.period.periodEndsAt,
+      units: params.units,
+      limitUnits: context.limitUnits
+    });
+  }
+
   async releaseAssistantMonthlyMediaQuota(params: {
     assistant: Assistant;
-    toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+    toolCode: WorkspaceMonthlyToolQuotaToolCode;
     units: number;
   }): Promise<void> {
     if (params.units <= 0) {
@@ -1181,7 +1218,7 @@ export class TrackWorkspaceQuotaUsageService {
 
   async markAssistantMonthlyMediaQuotaReconciliationRequired(params: {
     assistant: Assistant;
-    toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+    toolCode: WorkspaceMonthlyToolQuotaToolCode;
     units: number;
   }): Promise<void> {
     if (params.units <= 0) {
@@ -1232,14 +1269,14 @@ export class TrackWorkspaceQuotaUsageService {
 
   private async resolveMonthlyMediaQuotaAccountingContext(
     assistant: Assistant,
-    toolCode: WorkspaceMonthlyMediaQuotaToolCode
+    toolCode: WorkspaceMonthlyToolQuotaToolCode
   ): Promise<{
     period: RecurringQuotaPeriod;
     limitUnits: number | null;
   }> {
     const governance = await this.resolveGovernance(assistant.id);
     const quotaContext = await this.resolveQuotaContext(assistant, governance);
-    const tool = MONTHLY_MEDIA_QUOTA_TOOLS.find((entry) => entry.toolCode === toolCode);
+    const tool = MONTHLY_TOOL_QUOTA_TOOLS.find((entry) => entry.toolCode === toolCode);
     if (tool === undefined) {
       throw new Error(`Unsupported monthly media quota tool code "${toolCode}".`);
     }
@@ -1248,11 +1285,13 @@ export class TrackWorkspaceQuotaUsageService {
     if (baseLimitUnits === null) {
       return { period, limitUnits: null };
     }
-    const bonus = await this.manageMediaPackagePurchaseService.resolveActiveBonus(
-      assistant.workspaceId,
-      toolCode,
-      period
-    );
+    const bonus = tool.packageBonusEligible
+      ? await this.manageMediaPackagePurchaseService.resolveActiveBonus(
+          assistant.workspaceId,
+          toolCode,
+          period
+        )
+      : { bonusUnits: 0 };
     return {
       period,
       limitUnits: baseLimitUnits + bonus.bonusUnits

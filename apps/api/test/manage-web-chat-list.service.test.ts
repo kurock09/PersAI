@@ -360,6 +360,9 @@ function createService(overrides?: {
       listOpenJobsForWebChat: async () => overrides?.mediaJobs ?? []
     } as never,
     {
+      listOpenJobsForWebChat: async () => []
+    } as never,
+    {
       getActiveTurnForChat: async () => null
     } as never,
     {

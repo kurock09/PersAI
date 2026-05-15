@@ -46,6 +46,7 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   image_generate: "worker",
   image_edit: "worker",
   video_generate: "worker",
+  document: "worker",
   tts: "worker",
   memory_search: "inline",
   memory_get: "inline",

@@ -13,6 +13,7 @@ import { runProviderTextGenerationServiceTest } from "./provider-text-generation
 import { runProviderWebFetchServiceTest } from "./provider-web-fetch.service.test";
 import { runProviderWebSearchServiceTest } from "./provider-web-search.service.test";
 import { runProviderWarmupServiceTest } from "./provider-warmup.service.test";
+import { runPdfMonkeyProviderClientTest } from "./pdfmonkey-provider.client.test";
 import { runYandexProviderClientTest } from "./yandex-provider.client.test";
 
 async function run(): Promise<void> {
@@ -22,6 +23,7 @@ async function run(): Promise<void> {
   await runOpenAIProviderClientTest();
   await runOpenAIEmptyCompletionTest();
   await runYandexProviderClientTest();
+  await runPdfMonkeyProviderClientTest();
   await runProviderAudioTranscriptionServiceTest();
   await runProviderBrowserServiceTest();
   await runProviderImageGenerationServiceTest();

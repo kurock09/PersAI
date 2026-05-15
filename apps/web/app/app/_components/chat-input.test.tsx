@@ -336,7 +336,7 @@ describe("ChatInput", () => {
     expect(screen.getByText("mediaJobVideoGenerate 0:38")).toBeInTheDocument();
     expect(
       screen.getByText("mediaJobImageGenerate 1:42").closest('[aria-live="polite"]')
-    ).toHaveClass("inset-x-0", "justify-center", "md:right-0", "md:justify-end");
+    ).toHaveClass("inset-x-0", "items-center", "md:right-0", "md:items-end");
   });
 
   it("falls back to createdAt when a media job is still queued", () => {
@@ -364,6 +364,33 @@ describe("ChatInput", () => {
     );
 
     expect(screen.getByText("mediaJobImageEdit 1:42")).toBeInTheDocument();
+  });
+
+  it("shows active document job chips with elapsed time", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-05T12:02:00Z"));
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+        activeDocumentJobs={[
+          {
+            id: "doc-job-1",
+            documentType: "pdf_document",
+            descriptorMode: "export_or_redeliver",
+            status: "ready_for_delivery",
+            createdAt: "2026-05-05T12:00:00Z",
+            startedAt: "2026-05-05T12:00:18Z",
+            updatedAt: "2026-05-05T12:01:50Z"
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("documentJobRedeliver 1:42")).toBeInTheDocument();
   });
 
   it("shows a live camera preview in the mobile camera tile", async () => {

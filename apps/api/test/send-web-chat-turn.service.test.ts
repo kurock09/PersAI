@@ -61,6 +61,20 @@ function createQuotaAdvisoryFollowUpServiceMock() {
   };
 }
 
+function createAssistantDocumentJobReadServiceMock() {
+  return {
+    listOpenJobsForWebChat: async () => []
+  };
+}
+
+function createNotificationDeliveryWorkerServiceMock() {
+  return {
+    deliverIntentNow: async () => ({
+      providerRef: null
+    })
+  };
+}
+
 describe("SendWebChatTurnService", () => {
   test("replays duplicate clientTurnId without starting a second sync runtime turn", async () => {
     let nativeRuntimeCalls = 0;
@@ -137,10 +151,12 @@ describe("SendWebChatTurnService", () => {
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
       } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
       {} as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
       createQuotaAdvisoryFollowUpServiceMock() as never
     );
 
@@ -263,12 +279,14 @@ describe("SendWebChatTurnService", () => {
         ],
         listOpenJobsForWebChat: async () => []
       } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
       {
         deliver: async () => ({ attachments: [] })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
       createQuotaAdvisoryFollowUpServiceMock() as never
     );
 
@@ -395,6 +413,7 @@ describe("SendWebChatTurnService", () => {
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
       } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
       {
         deliver: async () => ({ attachments: [] })
       } as never,
@@ -423,7 +442,9 @@ describe("SendWebChatTurnService", () => {
         runBackgroundCheck: (input: { execute: () => Promise<unknown> }) => {
           backgroundCheckPromise = input.execute();
         }
-      } as never
+      } as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never
     );
 
     await service.execute("user-1", {
@@ -526,12 +547,14 @@ describe("SendWebChatTurnService", () => {
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
       } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
       {
         deliver: async () => ({ attachments: [] })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
       createQuotaAdvisoryFollowUpServiceMock() as never
     );
 
@@ -657,6 +680,7 @@ describe("SendWebChatTurnService", () => {
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
       } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
       {
         deliver: async (input: Record<string, unknown>) => {
           deliverInput = input;
@@ -666,6 +690,7 @@ describe("SendWebChatTurnService", () => {
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
       createQuotaAdvisoryFollowUpServiceMock() as never
     );
 
@@ -801,12 +826,14 @@ describe("SendWebChatTurnService", () => {
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
       } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
       {
         deliver: async () => ({ attachments: [] })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       createSkillStatePersistenceServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
       createQuotaAdvisoryFollowUpServiceMock() as never
     );
 
@@ -922,6 +949,7 @@ describe("SendWebChatTurnService", () => {
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
       } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
       {
         deliver: async () => ({ attachments: [] })
       } as never,
@@ -1035,6 +1063,7 @@ describe("SendWebChatTurnService", () => {
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
       } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
       {
         deliver: async () => ({ attachments: [] })
       } as never,

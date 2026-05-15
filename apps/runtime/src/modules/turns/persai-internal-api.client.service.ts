@@ -9,6 +9,7 @@ import {
 import type { RuntimeConfig } from "@persai/config";
 import type {
   PersaiRuntimeChannel,
+  RuntimeDocumentJobRunRequest,
   PersaiRuntimeKnowledgeFetchMode,
   PersaiRuntimeMemoryWriteKind,
   PersaiRuntimeKnowledgeSource,
@@ -18,7 +19,7 @@ import type {
   RuntimeRetrievalPlan,
   RuntimeKnowledgeSearchHit,
   RuntimeMemoryWriteItem,
-  RuntimeMonthlyMediaQuotaStatus,
+  RuntimeMonthlyToolQuotaStatus,
   RuntimeQuotaAdvisoryCandidate,
   RuntimeQuotaStatusAdvisories,
   RuntimeQuotaStatusSubscriptionUpdate,
@@ -129,13 +130,14 @@ export type InternalQuotaStatusOutcome = {
       imageGenerateMonthlyUnitsLimit: number | null;
       imageEditMonthlyUnitsLimit: number | null;
       videoGenerateMonthlyUnitsLimit: number | null;
+      documentMonthlyUnitsLimit: number | null;
     };
   }>;
   advisories: RuntimeQuotaStatusAdvisories;
   advisoryCandidates: RuntimeQuotaAdvisoryCandidate[];
   tools: RuntimeQuotaStatusToolRow[];
   buckets: RuntimeQuotaStatusBucket[];
-  monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
+  monthlyToolQuotas: RuntimeMonthlyToolQuotaStatus | null;
   packagesAvailableByTool: Record<string, boolean>;
   packageOffers: RuntimeQuotaStatusPackageOffers;
 };
@@ -355,6 +357,21 @@ export type InternalEnqueueDeferredMediaJobInput = {
       };
 };
 
+export type InternalEnqueueDeferredDocumentJobInput = {
+  assistantId: string;
+  sourceUserMessageId: string;
+  sourceUserMessageText: string;
+  directToolExecution: {
+    toolCode: "document";
+    descriptorMode:
+      | "create_pdf_document"
+      | "create_presentation"
+      | "revise_document"
+      | "export_or_redeliver";
+    request: RuntimeDocumentJobRunRequest["directToolExecution"]["request"];
+  };
+};
+
 // ADR-074 Slice M3 — opt-in explicit close of an active open-loop entry,
 // driven by the model setting `closeOpenLoop: true` on `memory_write`.
 export type InternalCloseMostSimilarOpenLoopInput = {
@@ -543,6 +560,73 @@ export class PersaiInternalApiClientService {
     }
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected deferred media enqueue."
+    );
+  }
+
+  async enqueueDeferredDocumentJob(input: InternalEnqueueDeferredDocumentJobInput): Promise<
+    | {
+        accepted: true;
+        jobId: string;
+        documentType: "pdf_document" | "presentation";
+      }
+    | {
+        accepted: false;
+        code: string;
+        message: string;
+        guidance: string | null;
+      }
+  > {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/document-jobs/enqueue", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    const payload = this.asObject(response.body);
+    if (response.ok) {
+      if (
+        payload?.ok === true &&
+        payload.accepted === true &&
+        typeof payload.renderJobId === "string" &&
+        (payload.documentType === "pdf_document" || payload.documentType === "presentation")
+      ) {
+        return {
+          accepted: true,
+          jobId: payload.renderJobId,
+          documentType: payload.documentType
+        };
+      }
+      if (
+        payload?.ok === true &&
+        payload.accepted === false &&
+        typeof payload.code === "string" &&
+        typeof payload.message === "string"
+      ) {
+        return {
+          accepted: false,
+          code: payload.code,
+          message: payload.message,
+          guidance: typeof payload.guidance === "string" ? payload.guidance : null
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid deferred document enqueue response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API deferred document enqueue failed."
+      );
+    }
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected deferred document enqueue."
     );
   }
 
@@ -787,7 +871,7 @@ export class PersaiInternalApiClientService {
       const payload = this.asObject(response.body);
       const tools = payload?.tools;
       const buckets = payload?.buckets;
-      const monthlyMediaQuotas = payload?.monthlyMediaQuotas;
+      const monthlyToolQuotas = payload?.monthlyToolQuotas;
       const packagesAvailableByTool = payload?.packagesAvailableByTool;
       const packageOffers = payload?.packageOffers;
       const visiblePlans = payload?.visiblePlans;
@@ -806,7 +890,7 @@ export class PersaiInternalApiClientService {
         tools.every((tool) => this.isQuotaStatusToolRow(tool)) &&
         Array.isArray(buckets) &&
         buckets.every((bucket) => this.isQuotaStatusBucket(bucket)) &&
-        (monthlyMediaQuotas === null || this.isMonthlyMediaQuotaStatus(monthlyMediaQuotas)) &&
+        (monthlyToolQuotas === null || this.isMonthlyToolQuotaStatus(monthlyToolQuotas)) &&
         this.isPackagesAvailableByTool(packagesAvailableByTool) &&
         this.isQuotaStatusPackageOffers(packageOffers)
       ) {
@@ -818,7 +902,7 @@ export class PersaiInternalApiClientService {
           advisoryCandidates: advisoryCandidates as RuntimeQuotaAdvisoryCandidate[],
           tools: tools as RuntimeQuotaStatusToolRow[],
           buckets: buckets as RuntimeQuotaStatusBucket[],
-          monthlyMediaQuotas: (monthlyMediaQuotas as RuntimeMonthlyMediaQuotaStatus | null) ?? null,
+          monthlyToolQuotas: (monthlyToolQuotas as RuntimeMonthlyToolQuotaStatus | null) ?? null,
           packagesAvailableByTool: packagesAvailableByTool as Record<string, boolean>,
           packageOffers: packageOffers as RuntimeQuotaStatusPackageOffers
         };
@@ -2055,11 +2139,13 @@ export class PersaiInternalApiClientService {
       (limits.imageEditMonthlyUnitsLimit === null ||
         this.isNonNegativeInteger(limits.imageEditMonthlyUnitsLimit)) &&
       (limits.videoGenerateMonthlyUnitsLimit === null ||
-        this.isNonNegativeInteger(limits.videoGenerateMonthlyUnitsLimit))
+        this.isNonNegativeInteger(limits.videoGenerateMonthlyUnitsLimit)) &&
+      (limits.documentMonthlyUnitsLimit === null ||
+        this.isNonNegativeInteger(limits.documentMonthlyUnitsLimit))
     );
   }
 
-  private isMonthlyMediaQuotaStatus(value: unknown): value is RuntimeMonthlyMediaQuotaStatus {
+  private isMonthlyToolQuotaStatus(value: unknown): value is RuntimeMonthlyToolQuotaStatus {
     const row = this.asObject(value);
     return (
       row !== null &&
@@ -2069,19 +2155,20 @@ export class PersaiInternalApiClientService {
       (row.periodSource === "subscription_period" ||
         row.periodSource === "calendar_month_fallback") &&
       Array.isArray(row.tools) &&
-      row.tools.every((tool) => this.isMonthlyMediaQuotaStatusTool(tool))
+      row.tools.every((tool) => this.isMonthlyToolQuotaStatusTool(tool))
     );
   }
 
-  private isMonthlyMediaQuotaStatusTool(
+  private isMonthlyToolQuotaStatusTool(
     value: unknown
-  ): value is RuntimeMonthlyMediaQuotaStatus["tools"][number] {
+  ): value is RuntimeMonthlyToolQuotaStatus["tools"][number] {
     const row = this.asObject(value);
     return (
       row !== null &&
       (row.toolCode === "image_generate" ||
         row.toolCode === "image_edit" ||
-        row.toolCode === "video_generate") &&
+        row.toolCode === "video_generate" ||
+        row.toolCode === "document") &&
       typeof row.displayName === "string" &&
       this.isNonNegativeInteger(row.usedUnits) &&
       this.isNonNegativeInteger(row.reservedUnits) &&

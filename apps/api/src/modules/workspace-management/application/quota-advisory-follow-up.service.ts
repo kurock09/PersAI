@@ -240,7 +240,7 @@ export class QuotaAdvisoryFollowUpService {
         advisoryCandidates: input.quotaStatus.advisoryCandidates,
         visiblePlans: input.quotaStatus.visiblePlans,
         packageOffers: input.quotaStatus.packageOffers,
-        monthlyMediaQuotas: input.quotaStatus.monthlyMediaQuotas,
+        monthlyToolQuotas: input.quotaStatus.monthlyToolQuotas,
         tools: input.quotaStatus.tools,
         buckets: input.quotaStatus.buckets
       },

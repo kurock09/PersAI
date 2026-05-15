@@ -31,11 +31,17 @@ import { useHistoryBackToClose } from "./use-history-back-to-close";
 
 type FileBucket = AssistantFileState["fileBucket"];
 
-const FILE_BUCKETS: FileBucket[] = ["media_uploads", "assistant_created", "user_files"];
+const FILE_BUCKETS: FileBucket[] = [
+  "media_uploads",
+  "documents",
+  "assistant_created",
+  "user_files"
+];
 
 const DEFAULT_EXPANDED_BUCKETS: Record<FileBucket, boolean> = {
   user_files: false,
   assistant_created: false,
+  documents: false,
   media_uploads: false,
   cache_history: false
 };
@@ -94,6 +100,7 @@ function bucketLabel(
     key:
       | "filesBucket_user_files"
       | "filesBucket_assistant_created"
+      | "filesBucket_documents"
       | "filesBucket_media_uploads"
       | "filesBucket_cache_history"
   ) => string
@@ -103,6 +110,8 @@ function bucketLabel(
       return t("filesBucket_user_files");
     case "assistant_created":
       return t("filesBucket_assistant_created");
+    case "documents":
+      return t("filesBucket_documents");
     case "media_uploads":
       return t("filesBucket_media_uploads");
     case "cache_history":

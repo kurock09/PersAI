@@ -81,7 +81,7 @@ async function run(): Promise<void> {
           periodSource: "subscription_period" as const
         };
       },
-      async resolveAssistantMonthlyMediaQuotaSnapshot() {
+      async resolveAssistantMonthlyToolQuotaSnapshot() {
         return {
           planCode: "pro",
           periodStartedAt: "2026-05-01T00:00:00.000Z",
@@ -269,10 +269,10 @@ async function run(): Promise<void> {
     result.tools.some((tool) => tool.toolCode === "video_generate"),
     false
   );
-  assert.equal(result.monthlyMediaQuotas.tools[0]?.toolCode, "image_generate");
-  assert.equal(result.monthlyMediaQuotas.tools[0]?.usedUnits, 3);
-  assert.equal(result.monthlyMediaQuotas.tools[0]?.limitUnits, 30);
-  assert.equal(result.monthlyMediaQuotas.tools[1], undefined);
+  assert.equal(result.monthlyToolQuotas.tools[0]?.toolCode, "image_generate");
+  assert.equal(result.monthlyToolQuotas.tools[0]?.usedUnits, 3);
+  assert.equal(result.monthlyToolQuotas.tools[0]?.limitUnits, 30);
+  assert.equal(result.monthlyToolQuotas.tools[1], undefined);
   assert.equal(result.packagesAvailableByTool.image_generate, true);
   assert.equal(result.packagesAvailableByTool.image_edit, false);
   assert.equal(result.packageOffers.packagesPurchase?.path, "/app/packages");
@@ -320,7 +320,7 @@ async function run(): Promise<void> {
           periodSource: "subscription_period" as const
         };
       },
-      async resolveAssistantMonthlyMediaQuotaSnapshot() {
+      async resolveAssistantMonthlyToolQuotaSnapshot() {
         return {
           planCode: "hidden_free",
           periodStartedAt: "2026-05-01T00:00:00.000Z",
@@ -446,7 +446,7 @@ async function run(): Promise<void> {
           periodSource: "subscription_period" as const
         };
       },
-      async resolveAssistantMonthlyMediaQuotaSnapshot() {
+      async resolveAssistantMonthlyToolQuotaSnapshot() {
         return {
           planCode: "pro",
           periodStartedAt: "2026-05-01T00:00:00.000Z",

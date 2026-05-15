@@ -257,7 +257,8 @@ class FakePersaiInternalApiClientService {
           messagesPerChat: 40,
           imageGenerateMonthlyUnitsLimit: 0,
           imageEditMonthlyUnitsLimit: 0,
-          videoGenerateMonthlyUnitsLimit: 0
+          videoGenerateMonthlyUnitsLimit: 0,
+          documentMonthlyUnitsLimit: null
         }
       },
       {
@@ -287,7 +288,8 @@ class FakePersaiInternalApiClientService {
           messagesPerChat: null,
           imageGenerateMonthlyUnitsLimit: 30,
           imageEditMonthlyUnitsLimit: 10,
-          videoGenerateMonthlyUnitsLimit: 5
+          videoGenerateMonthlyUnitsLimit: 5,
+          documentMonthlyUnitsLimit: null
         }
       }
     ],
@@ -354,7 +356,7 @@ class FakePersaiInternalApiClientService {
         status: "ok"
       }
     ],
-    monthlyMediaQuotas: {
+    monthlyToolQuotas: {
       planCode: "paid",
       periodStartedAt: "2026-05-01T00:00:00.000Z",
       periodEndsAt: "2026-06-01T00:00:00.000Z",
@@ -513,9 +515,9 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.tools[0]?.toolCode, "web_search");
   assert.equal(success.payload.buckets[0]?.bucketCode, "token_budget");
   assert.equal(success.payload.buckets.length, 1);
-  assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.toolCode, "image_generate");
-  assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.usedUnits, 3);
-  assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.limitUnits, 30);
+  assert.equal(success.payload.monthlyToolQuotas?.tools[0]?.toolCode, "image_generate");
+  assert.equal(success.payload.monthlyToolQuotas?.tools[0]?.usedUnits, 3);
+  assert.equal(success.payload.monthlyToolQuotas?.tools[0]?.limitUnits, 30);
   assert.equal(success.payload.packagesAvailableByTool.image_generate, true);
   assert.equal(success.payload.packagesAvailableByTool.video_generate, false);
   assert.equal(success.payload.packageOffers.tools[0]?.offers[0]?.id, "pkg-image-1");
@@ -579,7 +581,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(failed.payload.reason, "quota_status_failed");
   assert.equal(failed.payload.warning, "internal quota error");
   assert.deepEqual(failed.payload.buckets, []);
-  assert.equal(failed.payload.monthlyMediaQuotas, null);
+  assert.equal(failed.payload.monthlyToolQuotas, null);
   assert.deepEqual(failed.payload.packagesAvailableByTool, {});
   assert.deepEqual(failed.payload.packageOffers, { packagesPurchase: null, tools: [] });
   assert.equal(failed.payload.packagesPurchase, null);

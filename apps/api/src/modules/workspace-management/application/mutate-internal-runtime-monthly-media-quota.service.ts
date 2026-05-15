@@ -1,18 +1,19 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
-import type { WorkspaceMonthlyMediaQuotaToolCode } from "../domain/workspace-quota-accounting.repository";
+import type { WorkspaceMonthlyToolQuotaToolCode } from "../domain/workspace-quota-accounting.repository";
 
 export interface MutateInternalRuntimeMonthlyMediaQuotaRequest {
   assistantId: string;
-  toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+  toolCode: WorkspaceMonthlyToolQuotaToolCode;
   units: number;
 }
 
 const MONTHLY_MEDIA_QUOTA_TOOL_CODES = new Set<string>([
   "image_generate",
   "image_edit",
-  "video_generate"
+  "video_generate",
+  "document"
 ]);
 
 function normalizeRequiredString(value: unknown, fieldName: string): string {
@@ -22,13 +23,13 @@ function normalizeRequiredString(value: unknown, fieldName: string): string {
   return value.trim();
 }
 
-function normalizeMonthlyMediaToolCode(value: unknown): WorkspaceMonthlyMediaQuotaToolCode {
+function normalizeMonthlyMediaToolCode(value: unknown): WorkspaceMonthlyToolQuotaToolCode {
   const toolCode = normalizeRequiredString(value, "toolCode");
   if (MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(toolCode)) {
-    return toolCode as WorkspaceMonthlyMediaQuotaToolCode;
+    return toolCode as WorkspaceMonthlyToolQuotaToolCode;
   }
   throw new BadRequestException(
-    "toolCode must be one of image_generate, image_edit, video_generate."
+    "toolCode must be one of image_generate, image_edit, video_generate, document."
   );
 }
 

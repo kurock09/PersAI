@@ -33,7 +33,12 @@ function indexQuotaBuckets(
   >;
 }
 
-const MONTHLY_MEDIA_QUOTA_TOOL_CODES = new Set(["image_generate", "image_edit", "video_generate"]);
+const MONTHLY_TOOL_QUOTA_TOOL_CODES = new Set([
+  "image_generate",
+  "image_edit",
+  "video_generate",
+  "document"
+]);
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -195,8 +200,8 @@ export class ResolvePlanVisibilityService {
       await this.trackWorkspaceQuotaUsageService.resolveAssistantTokenBudgetQuotaSnapshot(
         assistant
       );
-    const monthlyMediaQuotas =
-      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
+    const monthlyToolQuotas =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyToolQuotaSnapshot(
         assistant
       );
     const publicPricingPlans = await this.manageAdminPlansService.listPublicPricingPlans();
@@ -235,7 +240,7 @@ export class ResolvePlanVisibilityService {
       }),
       limits: {
         quotaBuckets: quotaSnapshot.buckets,
-        monthlyMediaQuotas,
+        monthlyToolQuotas,
         toolDailyLimits: await this.resolveToolDailyLimitsWithUsage(
           assistant.workspaceId,
           plan?.toolActivations ?? []
@@ -254,7 +259,8 @@ export class ResolvePlanVisibilityService {
           limits: {
             imageGenerateMonthlyUnitsLimit: visiblePlan.quotaLimits.imageGenerateMonthlyUnitsLimit,
             imageEditMonthlyUnitsLimit: visiblePlan.quotaLimits.imageEditMonthlyUnitsLimit,
-            videoGenerateMonthlyUnitsLimit: visiblePlan.quotaLimits.videoGenerateMonthlyUnitsLimit
+            videoGenerateMonthlyUnitsLimit: visiblePlan.quotaLimits.videoGenerateMonthlyUnitsLimit,
+            documentMonthlyUnitsLimit: visiblePlan.quotaLimits.documentMonthlyUnitsLimit
           }
         })),
         currentActiveToolCodes: new Set(
@@ -303,8 +309,8 @@ export class ResolvePlanVisibilityService {
     });
     const quotaSnapshot =
       await this.trackWorkspaceQuotaUsageService.resolveAssistantQuotaSnapshot(assistant);
-    const monthlyMediaQuotas =
-      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
+    const monthlyToolQuotas =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyToolQuotaSnapshot(
         assistant
       );
     const bucketsByCode = indexQuotaBuckets(quotaSnapshot.buckets);
@@ -334,7 +340,7 @@ export class ResolvePlanVisibilityService {
         pressureLevel
       },
       quotaBuckets: quotaSnapshot.buckets,
-      monthlyMediaQuotas,
+      monthlyToolQuotas,
       effectiveEntitlements: {
         toolClasses: {
           costDrivingAllowed: effectiveCapabilities.toolClasses.costDriving.allowed,
@@ -381,7 +387,7 @@ export class ResolvePlanVisibilityService {
       visiblePlanManagedTools.map(async (tool) => {
         const isActive = tool.activationStatus === "active";
         const shouldResolveDailyUsage =
-          isActive && !MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(tool.toolCode);
+          isActive && !MONTHLY_TOOL_QUOTA_TOOL_CODES.has(tool.toolCode);
         const check = shouldResolveDailyUsage
           ? await this.trackWorkspaceQuotaUsageService.checkToolDailyLimit({
               workspaceId,

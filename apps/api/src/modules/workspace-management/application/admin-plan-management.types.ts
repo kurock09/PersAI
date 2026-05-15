@@ -146,6 +146,7 @@ export type AdminPlanInput = {
     imageGenerateMonthlyUnitsLimit: number | null;
     imageEditMonthlyUnitsLimit: number | null;
     videoGenerateMonthlyUnitsLimit: number | null;
+    documentMonthlyUnitsLimit: number | null;
     mediaStorageBytesLimit: number | null;
     knowledgeStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;
@@ -207,6 +208,7 @@ export type AdminPlanState = {
     imageGenerateMonthlyUnitsLimit: number | null;
     imageEditMonthlyUnitsLimit: number | null;
     videoGenerateMonthlyUnitsLimit: number | null;
+    documentMonthlyUnitsLimit: number | null;
     mediaStorageBytesLimit: number | null;
     knowledgeStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;

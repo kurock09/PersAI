@@ -1,7 +1,11 @@
 import { createHash, createHmac } from "node:crypto";
 import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
-import { compileAssistantRuntimeBundle, type AssistantRuntimeBundle } from "@persai/runtime-bundle";
+import {
+  compileAssistantRuntimeBundle,
+  type AssistantRuntimeBundle,
+  type AssistantRuntimeBundleToolCredentialRef
+} from "@persai/runtime-bundle";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
 import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";
@@ -44,6 +48,7 @@ import { buildRuntimeWorkerToolsConfig } from "./runtime-worker-tools";
 import { buildRuntimeSharedCompactionConfig } from "./runtime-shared-compaction";
 import {
   ALL_TOOL_CREDENTIAL_KEYS,
+  DOCUMENT_PROVIDER_CONFIG_KEYS,
   DEFAULT_TTS_PRIMARY_PROVIDER,
   TTS_PRIMARY_PROVIDER_STORAGE_KEY,
   TTS_PROVIDER_TO_CREDENTIAL_KEY,
@@ -103,6 +108,10 @@ export interface AssistantRuntimeArtifacts {
   assistantWorkspaceDocument: string;
   contentHash: string;
 }
+
+type MaterializedDocumentProviderConfig = {
+  pdfmonkeyTemplateId: string | null;
+};
 
 function sortKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -512,6 +521,7 @@ export class MaterializeAssistantPublishedVersionService {
       videoGenerateModelKey: planVideoGenerateModelKey,
       videoGenerateFallbackModelKey: planVideoGenerateFallbackModelKey
     });
+    const documentProviderConfig = await this.resolveDocumentProviderConfig();
     const planToolQuotaPolicy = await this.resolveToolQuotaPolicy(effectivePlanCode);
     const promptTemplateRows = await this.loadPromptTemplateRows();
     const runtimeToolQuotaPolicy = this.resolveRuntimeToolQuotaPolicy(
@@ -687,6 +697,7 @@ export class MaterializeAssistantPublishedVersionService {
         memoryControl,
         tasksControl,
         toolCredentialRefs,
+        documentProviderConfig,
         toolPolicies,
         quota: {
           planCode: effectivePlanCode,
@@ -779,6 +790,7 @@ export class MaterializeAssistantPublishedVersionService {
       ALL_TOOL_CREDENTIAL_KEYS as unknown as string[]
     );
     const refs: AssistantRuntimeBundle["governance"]["toolCredentialRefs"] = {};
+    const documentProviderRefs: AssistantRuntimeBundleToolCredentialRef[] = [];
     for (const credentialKey of ALL_TOOL_CREDENTIAL_KEYS) {
       const toolCode = TOOL_CODE_BY_CREDENTIAL_KEY[credentialKey];
       if (toolCode === "tts") {
@@ -795,11 +807,29 @@ export class MaterializeAssistantPublishedVersionService {
         providerId = stored ?? TOOL_DEFAULT_PROVIDER[credentialKey] ?? undefined;
       }
 
-      refs[toolCode] = {
+      const ref: AssistantRuntimeBundleToolCredentialRef = {
         ...secretRef,
         configured: keyMetadata[credentialKey]?.configured ?? false,
         ...(providerId ? { providerId } : {})
       };
+      if (toolCode === "document") {
+        documentProviderRefs.push(ref);
+        continue;
+      }
+      refs[toolCode] = ref;
+    }
+    if (documentProviderRefs.length > 0) {
+      const [primary, ...fallbacks] = documentProviderRefs;
+      if (primary === undefined) {
+        throw new Error("Document credential refs are missing a primary provider entry.");
+      }
+      const documentRef: AssistantRuntimeBundleToolCredentialRef = {
+        ...primary
+      };
+      if (fallbacks.length > 0) {
+        documentRef.fallbacks = fallbacks.map((fallback) => this.cloneToolCredentialRef(fallback));
+      }
+      refs.document = documentRef;
     }
     const imageCredentialRef = refs.image_generate;
     if (imageCredentialRef) {
@@ -831,6 +861,19 @@ export class MaterializeAssistantPublishedVersionService {
       input.voiceProfile
     );
     return refs;
+  }
+
+  private async resolveDocumentProviderConfig(): Promise<MaterializedDocumentProviderConfig> {
+    const pdfmonkeyTemplateId =
+      await this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
+        DOCUMENT_PROVIDER_CONFIG_KEYS.pdfmonkeyTemplateId
+      );
+    return {
+      pdfmonkeyTemplateId:
+        pdfmonkeyTemplateId === null || pdfmonkeyTemplateId.trim().length === 0
+          ? null
+          : pdfmonkeyTemplateId.trim()
+    };
   }
 
   private cloneToolCredentialRef(
