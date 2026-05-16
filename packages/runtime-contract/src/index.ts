@@ -1951,6 +1951,48 @@ export interface RuntimeDocumentJobRunResult {
   providerStatus?: Record<string, unknown> | null;
 }
 
+export interface RuntimeDocumentJobCompletionRequest {
+  assistantId: string;
+  workspaceId: string;
+  runtimeTier: PersaiRuntimeTier;
+  runtimeBundleDocument: string;
+  job: {
+    id: string;
+    docId: string;
+    versionId: string;
+    surface: "web" | "telegram";
+    chatId: string;
+    outputFormat: "pdf" | "pptx";
+    descriptorMode:
+      | "create_pdf_document"
+      | "create_presentation"
+      | "revise_document"
+      | "export_or_redeliver";
+    sourceUserMessageId: string;
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+  };
+  currentHistory: Array<{
+    author: "user" | "assistant" | "system";
+    content: string;
+    createdAt: IsoTimestamp;
+  }>;
+  workerResult: {
+    assistantText: string | null;
+    artifacts: Array<{
+      type: RuntimeOutputArtifact["kind"];
+      filename: string | null;
+      fileRef: string | null;
+    }>;
+  };
+}
+
+export interface RuntimeDocumentJobCompletionResult {
+  assistantText: string | null;
+  usage: RuntimeUsageAccounting | RuntimeUsageSnapshot | null;
+  rawText: string | null;
+}
+
 export interface RuntimeMediaJobCompletionRequest {
   assistantId: string;
   workspaceId: string;

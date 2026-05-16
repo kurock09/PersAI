@@ -15,6 +15,23 @@ function createBundle() {
       timezone: "UTC"
     },
     runtime: {
+      runtimeProviderRouting: {
+        primaryPath: {
+          active: true,
+          providerKey: "openai",
+          modelKey: "gpt-4.1-mini"
+        },
+        modelSlots: {
+          premiumReply: {
+            providerKey: "openai",
+            modelKey: "gpt-4.1-mini"
+          },
+          normalReply: {
+            providerKey: "openai",
+            modelKey: "gpt-4.1-mini"
+          }
+        }
+      },
       workerTools: {
         tools: [
           {
@@ -52,6 +69,21 @@ function createBundle() {
       documentProviderConfig: {
         pdfmonkeyTemplateId: "template-123"
       }
+    },
+    promptConstructor: {
+      ordinary: {
+        systemPrompt: "You are PersAI.",
+        sections: {
+          heartbeat: "Stay grounded."
+        }
+      }
+    },
+    persona: {
+      displayName: "PersAI"
+    },
+    userContext: {
+      locale: "en",
+      timezone: "UTC"
     }
   } as never;
 }
@@ -63,6 +95,25 @@ describe("RuntimeDocumentProviderAdapterService", () => {
 
     const service = new RuntimeDocumentProviderAdapterService(
       {
+        async generateText(input: { outputSchema?: { name?: string } }) {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text:
+              input.outputSchema?.name === "document_job_completion"
+                ? JSON.stringify({
+                    assistantText: "Your document draft is ready for review."
+                  })
+                : JSON.stringify({
+                    htmlContent:
+                      "<!DOCTYPE html><html><body><h1>Business Brief</h1><p>Create a concise business brief with customer-ready content and actionable recommendations for leadership.</p></body></html>"
+                  }),
+            respondedAt: "2026-05-15T18:29:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
         async generateDocumentOutcome(
           input: ProviderGatewayDocumentGenerateRequest
         ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
@@ -215,12 +266,28 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.equal(result.artifacts.length, 1);
     assert.equal(result.artifacts[0]!.kind, "file");
     assert.equal(result.artifacts[0]!.mimeType, "application/pdf");
+    assert.equal(result.assistantText, "Your document draft is ready for review.");
     assert.equal(result.providerStatus?.state, "success");
   });
 
   test("returns honest template_not_configured status when materialized PDFMonkey template is missing", async () => {
     const service = new RuntimeDocumentProviderAdapterService(
-      {} as never,
+      {
+        async generateText() {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: JSON.stringify({
+              htmlContent:
+                "<!DOCTYPE html><html><body><h1>Business Brief</h1><p>Quarterly update with customer-ready content.</p></body></html>"
+            }),
+            respondedAt: "2026-05-15T18:29:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        }
+      } as never,
       {} as never,
       {
         toRuntimeFileRef() {
@@ -283,6 +350,20 @@ describe("RuntimeDocumentProviderAdapterService", () => {
   test("maps deterministic provider failures into terminal non-retryable provider status", async () => {
     const service = new RuntimeDocumentProviderAdapterService(
       {
+        async generateText() {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: JSON.stringify({
+              htmlContent:
+                "<!DOCTYPE html><html><body><h1>Business Brief</h1><p>Quarterly update with customer-ready content.</p></body></html>"
+            }),
+            respondedAt: "2026-05-15T18:29:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
         async generateDocumentOutcome() {
           return {
             ok: false as const,
@@ -364,6 +445,25 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     const savedObjects: Array<{ objectKey: string; mimeType: string; bytes: Buffer }> = [];
     const service = new RuntimeDocumentProviderAdapterService(
       {
+        async generateText(input: { outputSchema?: { name?: string } }) {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text:
+              input.outputSchema?.name === "document_job_completion"
+                ? JSON.stringify({
+                    assistantText: "Your document draft is ready for review."
+                  })
+                : JSON.stringify({
+                    htmlContent:
+                      "<!DOCTYPE html><html><body><h1>PersAI Deck</h1><p>Create an investor presentation about PersAI with traction, product vision, and funding needs.</p></body></html>"
+                  }),
+            respondedAt: "2026-05-15T18:39:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
         async generateDocumentOutcome(
           input: ProviderGatewayDocumentGenerateRequest
         ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
@@ -510,6 +610,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       result.artifacts[0]!.mimeType,
       "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     );
+    assert.equal(result.assistantText, "Your document draft is ready for review.");
     assert.equal(result.providerStatus?.state, "success");
   });
 });

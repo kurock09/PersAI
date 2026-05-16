@@ -11,10 +11,12 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { runtimeOutputArtifactsToMediaArtifacts } from "./assistant-runtime.facade";
+import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-channel-runtime-config.service";
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import { AssistantDocumentJobCompletionTurnService } from "./assistant-document-job-completion-turn.service";
 
 const DOCUMENT_DELIVERY_LAST_ERROR_MAX_CHARS = 1_000;
 const DOCUMENT_JOB_CLAIM_TTL_MS = 10 * 60 * 1000;
@@ -33,6 +35,15 @@ type ClaimedReadyDocumentJob = {
 };
 
 type PersistedDeliveryPayload = {
+  descriptorMode?:
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver";
+  outputFormat?: "pdf" | "pptx";
+  sourceUserMessageId?: string;
+  sourceUserMessageText?: string;
+  sourceUserMessageCreatedAt?: string;
   artifacts: RuntimeOutputArtifact[];
   assistantText: string | null;
   externalDeliveryCommitted?: boolean;
@@ -60,7 +71,8 @@ export class AssistantDocumentJobDeliveryService {
     private readonly assistantRepository: AssistantRepository,
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly assistantDocumentJobCompletionTurnService: AssistantDocumentJobCompletionTurnService
   ) {}
 
   async deliverReadyJob(job: ClaimedReadyDocumentJob): Promise<void> {
@@ -119,6 +131,10 @@ export class AssistantDocumentJobDeliveryService {
         };
       }
 
+      const completionAssistantText = await this.resolveCompletionAssistantText({
+        job,
+        payload: currentPayload
+      });
       const deliveredAttachments = await this.ensureDeliveredAttachments({
         job,
         payload: currentPayload,
@@ -201,12 +217,16 @@ export class AssistantDocumentJobDeliveryService {
         return;
       }
 
+      const finalAssistantText = completionAssistantText.trim();
+      const finalText = applyFinalDeliveryHonestyCorrection({
+        assistantText:
+          finalAssistantText.length > 0 ? finalAssistantText : "Your document is ready.",
+        attemptedArtifactCount: finalPayload.artifacts.length,
+        deliveredAttachmentCount: deliveredAttachments.length,
+        deliveredAttachmentFilenames: []
+      });
       await this.assistantChatRepository
-        .updateMessageContent(
-          completionAssistantMessageId,
-          job.assistantId,
-          finalPayload.assistantText?.trim() || "Your document is ready."
-        )
+        .updateMessageContent(completionAssistantMessageId, job.assistantId, finalText)
         .catch((error) => {
           this.logger.warn(
             `Document delivery finalized for ${job.id}, but success text update failed: ${
@@ -271,7 +291,7 @@ export class AssistantDocumentJobDeliveryService {
     if (!Array.isArray(row.artifacts)) {
       return null;
     }
-    return {
+    const payload: PersistedDeliveryPayload = {
       artifacts: row.artifacts as RuntimeOutputArtifact[],
       assistantText: typeof row.assistantText === "string" ? row.assistantText : null,
       externalDeliveryCommitted: row.externalDeliveryCommitted === true,
@@ -282,6 +302,27 @@ export class AssistantDocumentJobDeliveryService {
           ? row.completionAssistantMessageId
           : null
     };
+    if (
+      row.descriptorMode === "create_pdf_document" ||
+      row.descriptorMode === "create_presentation" ||
+      row.descriptorMode === "revise_document" ||
+      row.descriptorMode === "export_or_redeliver"
+    ) {
+      payload.descriptorMode = row.descriptorMode;
+    }
+    if (row.outputFormat === "pdf" || row.outputFormat === "pptx") {
+      payload.outputFormat = row.outputFormat;
+    }
+    if (typeof row.sourceUserMessageId === "string") {
+      payload.sourceUserMessageId = row.sourceUserMessageId;
+    }
+    if (typeof row.sourceUserMessageText === "string") {
+      payload.sourceUserMessageText = row.sourceUserMessageText;
+    }
+    if (typeof row.sourceUserMessageCreatedAt === "string") {
+      payload.sourceUserMessageCreatedAt = row.sourceUserMessageCreatedAt;
+    }
+    return payload;
   }
 
   private async rememberCompletionMessage(
@@ -398,6 +439,66 @@ export class AssistantDocumentJobDeliveryService {
       return null;
     }
     return normalized;
+  }
+
+  private async resolveCompletionAssistantText(input: {
+    job: ClaimedReadyDocumentJob;
+    payload: PersistedDeliveryPayload;
+  }): Promise<string> {
+    const rawAssistantText = input.payload.assistantText?.trim() ?? "";
+    const completionService = this.assistantDocumentJobCompletionTurnService as
+      | AssistantDocumentJobCompletionTurnService
+      | undefined;
+    const framed =
+      (await completionService?.maybeFrame({
+        id: input.job.id,
+        docId: input.job.docId,
+        versionId: input.job.versionId,
+        assistantId: input.job.assistantId,
+        workspaceId: input.job.workspaceId,
+        chatId: input.job.chatId,
+        surface: input.job.surface,
+        outputFormat: this.readOutputFormat(input.payload),
+        descriptorMode: this.readDescriptorMode(input.payload),
+        sourceUserMessageId: this.readSourceUserMessageId(input.payload),
+        sourceUserMessageText: this.readSourceUserMessageText(input.payload),
+        sourceUserMessageCreatedAt: this.readSourceUserMessageCreatedAt(input.payload),
+        resultText: rawAssistantText,
+        artifacts: input.payload.artifacts
+      })) ?? rawAssistantText;
+    return framed.length > 0 ? framed : "Your document is ready.";
+  }
+
+  private readDescriptorMode(
+    payload: PersistedDeliveryPayload
+  ): "create_pdf_document" | "create_presentation" | "revise_document" | "export_or_redeliver" {
+    const row = payload as unknown as Record<string, unknown>;
+    const descriptorMode = row.descriptorMode;
+    if (
+      descriptorMode === "create_pdf_document" ||
+      descriptorMode === "create_presentation" ||
+      descriptorMode === "revise_document" ||
+      descriptorMode === "export_or_redeliver"
+    ) {
+      return descriptorMode;
+    }
+    return "create_pdf_document";
+  }
+
+  private readOutputFormat(payload: PersistedDeliveryPayload): "pdf" | "pptx" {
+    return payload.outputFormat === "pptx" ? "pptx" : "pdf";
+  }
+
+  private readSourceUserMessageId(payload: PersistedDeliveryPayload): string {
+    return payload.sourceUserMessageId ?? "unknown";
+  }
+
+  private readSourceUserMessageText(payload: PersistedDeliveryPayload): string {
+    return payload.sourceUserMessageText ?? "";
+  }
+
+  private readSourceUserMessageCreatedAt(payload: PersistedDeliveryPayload): string {
+    return payload.sourceUserMessageCreatedAt ?? new Date(0).toISOString();
   }
 
   private async listCanonicalDeliveredAttachments(

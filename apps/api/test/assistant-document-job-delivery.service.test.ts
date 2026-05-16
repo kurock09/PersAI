@@ -105,6 +105,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async consumeAssistantMonthlyToolQuotaSuccessOnly() {
           quotaConsumeCalls += 1;
         }
+      } as never,
+      {
+        async maybeFrame() {
+          return null;
+        }
       } as never
     );
 
@@ -248,6 +253,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
       {
         async consumeAssistantMonthlyToolQuotaSuccessOnly() {
           quotaConsumeCalls += 1;
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return null;
         }
       } as never
     );
@@ -403,6 +413,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
       } as never,
       {
         async consumeAssistantMonthlyToolQuotaSuccessOnly() {}
+      } as never,
+      {
+        async maybeFrame() {
+          return null;
+        }
       } as never
     );
 
@@ -492,7 +507,12 @@ describe("AssistantDocumentJobDeliveryService", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never
+      {} as never,
+      {
+        async maybeFrame() {
+          return null;
+        }
+      } as never
     );
 
     await (
@@ -629,6 +649,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async consumeAssistantMonthlyToolQuotaSuccessOnly() {
           quotaConsumeCalls += 1;
         }
+      } as never,
+      {
+        async maybeFrame() {
+          return null;
+        }
       } as never
     );
 
@@ -756,6 +781,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
       {
         async consumeAssistantMonthlyToolQuotaSuccessOnly() {
           quotaConsumeCalls += 1;
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return null;
         }
       } as never
     );
@@ -897,6 +927,11 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async consumeAssistantMonthlyToolQuotaSuccessOnly() {
           quotaConsumeCalls += 1;
         }
+      } as never,
+      {
+        async maybeFrame() {
+          return null;
+        }
       } as never
     );
 
@@ -931,6 +966,155 @@ describe("AssistantDocumentJobDeliveryService", () => {
         (input) => input.data?.lastErrorCode === "document_quota_settlement_ambiguous"
       ),
       true
+    );
+  });
+
+  test("prefers LLM completion framing over persisted worker fallback text", async () => {
+    const renderJobUpdates: Array<Record<string, unknown>> = [];
+    const messageUpdates: Array<Record<string, unknown>> = [];
+    let quotaConsumeCalls = 0;
+
+    const service = new AssistantDocumentJobDeliveryService(
+      {
+        assistantDocumentRenderJob: {
+          updateMany: async (input: Record<string, unknown>) => {
+            renderJobUpdates.push(input);
+            return { count: 1 };
+          }
+        },
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              updateMany: async (input: Record<string, unknown>) => {
+                renderJobUpdates.push(input);
+                return { count: 1 };
+              }
+            },
+            assistantDocumentDeliveredFile: {
+              updateMany: async () => ({ count: 0 }),
+              findMany: async () => [],
+              update: async () => undefined,
+              create: async () => undefined
+            },
+            assistantDocumentVersion: {
+              update: async () => undefined
+            },
+            assistantDocument: {
+              findUnique: async () => ({
+                currentVersionId: "version-1"
+              }),
+              update: async () => undefined
+            }
+          })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        createMessage: async () => ({
+          id: "assistant-message-llm-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "Preparing your document...",
+          createdAt: new Date("2026-05-15T16:00:00.000Z")
+        }),
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
+          messageUpdates.push({ messageId, assistantId, content });
+          return null;
+        },
+        deleteMessage: async () => true
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: [
+            {
+              id: "attachment-llm-1",
+              fileRef: "file-llm-1",
+              mimeType: "application/pdf",
+              originalFilename: "brief.pdf"
+            }
+          ]
+        })
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram resolution should not run for web jobs");
+        }
+      } as never,
+      {
+        async consumeAssistantMonthlyToolQuotaSuccessOnly() {
+          quotaConsumeCalls += 1;
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return "Fresh LLM completion framing.";
+        }
+      } as never
+    );
+
+    await service.deliverReadyJob({
+      id: "job-llm-framing-1",
+      docId: "doc-1",
+      versionId: "version-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      schedulerClaimToken: "llm-claim-1",
+      providerStatusJson: {
+        descriptorMode: "create_pdf_document",
+        outputFormat: "pdf",
+        sourceUserMessageId: "message-1",
+        sourceUserMessageText: "Create a PDF brief",
+        sourceUserMessageCreatedAt: "2026-05-15T12:00:00.000Z",
+        artifacts: [
+          {
+            kind: "file",
+            fileRef: "file-llm-1",
+            mimeType: "application/pdf",
+            filename: "brief.pdf"
+          }
+        ],
+        assistantText: "Your document is ready."
+      }
+    });
+
+    assert.equal(quotaConsumeCalls, 1);
+    assert.equal(
+      messageUpdates.some((entry) => entry.content === "Fresh LLM completion framing."),
+      true
+    );
+    assert.equal(
+      messageUpdates.some(
+        (entry) =>
+          entry.content === "Your document is ready." &&
+          !String(entry.messageId).includes("assistant-message-llm-1")
+      ),
+      false
     );
   });
 });

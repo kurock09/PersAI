@@ -479,6 +479,13 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
             schedulerClaimedAt: null,
             schedulerClaimExpiresAt: null,
             providerStatusJson: {
+              descriptorMode:
+                requestPayload.descriptorMode ??
+                (job.provider === "pdfmonkey" ? "create_pdf_document" : "create_presentation"),
+              outputFormat: job.outputFormat,
+              sourceUserMessageId: job.sourceUserMessageId,
+              sourceUserMessageText: requestPayload.sourceUserMessageText,
+              sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt,
               artifacts: outcome.result.artifacts,
               assistantText: outcome.result.assistantText,
               providerStatus: outcome.result.providerStatus ?? null

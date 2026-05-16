@@ -459,6 +459,13 @@ Sandbox may be reconsidered later for:
 - preserve the previous ready current version when a non-current revision fails during scheduler terminal-failure handling or delivery finalization instead of incorrectly collapsing the whole document to failed
 - keep rollout honesty explicit: `export_or_redeliver` and model-visible `document` execution are still intentionally closed
 
+### 2026-05-16 — Live follow-up hardening for real PDF content and completion truth landed locally
+
+- replaced the PDFMonkey debug-draft path in runtime with a bounded content-generation step: `create_pdf_document` no longer sends a technical HTML page that dumps prompt/instructions/source-message truth, and now generates real user-facing HTML content before calling PDFMonkey
+- added an explicit invalid-output gate on the returned PDF path: empty, debug-only, or obviously junk/service PDFs now fail the render job honestly instead of being persisted and delivered as if they were successful document outputs
+- added a dedicated runtime/API document completion-framing seam so final document-job delivery text can be LLM-authored from bounded current chat context instead of defaulting to the generic `Your document is ready.` fallback
+- kept ADR-097 async ownership intact: the worker still owns render execution, delivery still happens later through the persisted document-job lane, and the completion-framing turn does not become the source of truth for job state, quota, or file delivery
+
 ## Non-goals
 
 - no user-facing template editor

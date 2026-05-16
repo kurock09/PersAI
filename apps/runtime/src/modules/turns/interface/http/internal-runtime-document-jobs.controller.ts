@@ -3,10 +3,13 @@ import type { RuntimeConfig } from "@persai/config";
 import {
   PERSAI_RUNTIME_TIERS,
   type PersaiRuntimeTier,
+  type RuntimeDocumentJobCompletionRequest,
+  type RuntimeDocumentJobCompletionResult,
   type RuntimeDocumentJobRunRequest,
   type RuntimeDocumentJobRunResult
 } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../../../runtime-config";
+import { RuntimeDocumentJobCompletionService } from "../../runtime-document-job-completion.service";
 import { RuntimeDocumentJobRunService } from "../../runtime-document-job-run.service";
 import {
   assertRuntimeInternalApiAuthorized,
@@ -17,6 +20,7 @@ import {
 export class InternalRuntimeDocumentJobsController {
   constructor(
     private readonly runtimeDocumentJobRunService: RuntimeDocumentJobRunService,
+    private readonly runtimeDocumentJobCompletionService: RuntimeDocumentJobCompletionService,
     @Inject(RUNTIME_CONFIG) private readonly config: RuntimeConfig
   ) {}
 
@@ -28,6 +32,16 @@ export class InternalRuntimeDocumentJobsController {
   ): Promise<RuntimeDocumentJobRunResult> {
     this.assertAuthorized(req);
     return this.runtimeDocumentJobRunService.run(this.parseInput(body));
+  }
+
+  @HttpCode(200)
+  @Post("complete")
+  async complete(
+    @Req() req: RuntimeInternalRequestLike,
+    @Body() body: unknown
+  ): Promise<RuntimeDocumentJobCompletionResult> {
+    this.assertAuthorized(req);
+    return this.runtimeDocumentJobCompletionService.complete(this.parseCompletionInput(body));
   }
 
   private assertAuthorized(req: RuntimeInternalRequestLike): void {
@@ -111,6 +125,53 @@ export class InternalRuntimeDocumentJobsController {
     };
   }
 
+  private parseCompletionInput(body: unknown): RuntimeDocumentJobCompletionRequest {
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      throw new BadRequestException("Document-job completion request must be a JSON object.");
+    }
+    const row = body as Record<string, unknown>;
+    const job = this.objectField(row.job, "job");
+    const workerResult = this.objectField(row.workerResult, "workerResult");
+    return {
+      assistantId: this.requiredString(row.assistantId, "assistantId"),
+      workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
+      runtimeTier: this.runtimeTier(row.runtimeTier),
+      runtimeBundleDocument: this.requiredString(
+        row.runtimeBundleDocument,
+        "runtimeBundleDocument"
+      ),
+      job: {
+        id: this.requiredString(job.id, "job.id"),
+        docId: this.requiredString(job.docId, "job.docId"),
+        versionId: this.requiredString(job.versionId, "job.versionId"),
+        surface: this.jobSurface(job.surface),
+        chatId: this.requiredString(job.chatId, "job.chatId"),
+        outputFormat: this.outputFormat(job.outputFormat),
+        descriptorMode: this.descriptorMode(job.descriptorMode),
+        sourceUserMessageId: this.requiredString(
+          job.sourceUserMessageId,
+          "job.sourceUserMessageId"
+        ),
+        sourceUserMessageText: this.requiredString(
+          job.sourceUserMessageText,
+          "job.sourceUserMessageText"
+        ),
+        sourceUserMessageCreatedAt: this.requiredString(
+          job.sourceUserMessageCreatedAt,
+          "job.sourceUserMessageCreatedAt"
+        )
+      },
+      currentHistory: this.currentHistory(row.currentHistory),
+      workerResult: {
+        assistantText:
+          workerResult.assistantText === null || workerResult.assistantText === undefined
+            ? null
+            : this.stringValue(workerResult.assistantText, "workerResult.assistantText"),
+        artifacts: this.completionArtifacts(workerResult.artifacts)
+      }
+    };
+  }
+
   private requiredString(value: unknown, fieldName: string): string {
     if (typeof value !== "string" || value.trim().length === 0) {
       throw new BadRequestException(`${fieldName} must be a non-empty string.`);
@@ -179,5 +240,53 @@ export class InternalRuntimeDocumentJobsController {
       return value;
     }
     throw new BadRequestException("directToolExecution.descriptorMode is invalid.");
+  }
+
+  private currentHistory(value: unknown): RuntimeDocumentJobCompletionRequest["currentHistory"] {
+    if (!Array.isArray(value)) {
+      throw new BadRequestException("currentHistory must be an array.");
+    }
+    return value.map((entry, index) => {
+      const row = this.objectField(entry, `currentHistory[${index}]`);
+      const author = row.author;
+      if (author !== "user" && author !== "assistant" && author !== "system") {
+        throw new BadRequestException(
+          `currentHistory[${index}].author must be one of user, assistant, or system.`
+        );
+      }
+      return {
+        author,
+        content: this.stringValue(row.content, `currentHistory[${index}].content`),
+        createdAt: this.requiredString(row.createdAt, `currentHistory[${index}].createdAt`)
+      };
+    });
+  }
+
+  private completionArtifacts(
+    value: unknown
+  ): NonNullable<RuntimeDocumentJobCompletionRequest["workerResult"]>["artifacts"] {
+    if (!Array.isArray(value)) {
+      throw new BadRequestException("workerResult.artifacts must be an array.");
+    }
+    return value.map((entry, index) => {
+      const row = this.objectField(entry, `workerResult.artifacts[${index}]`);
+      const type = row.type;
+      if (type !== "file" && type !== "image" && type !== "audio" && type !== "video") {
+        throw new BadRequestException(
+          `workerResult.artifacts[${index}].type must be a valid runtime artifact kind.`
+        );
+      }
+      return {
+        type,
+        filename:
+          row.filename === null || row.filename === undefined
+            ? null
+            : this.stringValue(row.filename, `workerResult.artifacts[${index}].filename`),
+        fileRef:
+          row.fileRef === null || row.fileRef === undefined
+            ? null
+            : this.stringValue(row.fileRef, `workerResult.artifacts[${index}].fileRef`)
+      };
+    });
   }
 }

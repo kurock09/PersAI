@@ -188,6 +188,7 @@ import { StreamNativeWebChatTurnService } from "./application/stream-native-web-
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
 import { AssistantMediaJobCompletionTurnService } from "./application/assistant-media-job-completion-turn.service";
 import { AssistantMediaJobCompletionDeliveryService } from "./application/assistant-media-job-completion-delivery.service";
+import { AssistantDocumentJobCompletionTurnService } from "./application/assistant-document-job-completion-turn.service";
 import { AssistantDocumentJobDeliveryService } from "./application/assistant-document-job-delivery.service";
 import { AssistantDocumentJobSchedulerService } from "./application/assistant-document-job-scheduler.service";
 import { AssistantMediaJobSchedulerService } from "./application/assistant-media-job-scheduler.service";
@@ -554,6 +555,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     StreamWebChatTurnService,
     AssistantMediaJobCompletionTurnService,
     AssistantMediaJobCompletionDeliveryService,
+    AssistantDocumentJobCompletionTurnService,
     AssistantDocumentJobDeliveryService,
     AssistantMediaJobSchedulerService,
     AssistantDocumentJobSchedulerService,

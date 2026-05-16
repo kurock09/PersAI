@@ -24,6 +24,7 @@ import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.servi
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
 import { RuntimeBackgroundTaskEvaluationService } from "./runtime-background-task-evaluation.service";
 import { RuntimeDocumentProviderAdapterService } from "./runtime-document-provider-adapter.service";
+import { RuntimeDocumentJobCompletionService } from "./runtime-document-job-completion.service";
 import { RuntimeDocumentJobRunService } from "./runtime-document-job-run.service";
 import { RuntimeDocumentToolService } from "./runtime-document-tool.service";
 import { RuntimeMediaJobCompletionService } from "./runtime-media-job-completion.service";
@@ -59,6 +60,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeBrowserToolService,
     RuntimeDocumentToolService,
     RuntimeDocumentProviderAdapterService,
+    RuntimeDocumentJobCompletionService,
     RuntimeDocumentJobRunService,
     RuntimeAssistantFileRegistryService,
     RuntimeFilesToolService,
@@ -96,6 +98,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeBrowserToolService,
     RuntimeDocumentToolService,
     RuntimeDocumentProviderAdapterService,
+    RuntimeDocumentJobCompletionService,
     RuntimeDocumentJobRunService,
     RuntimeAssistantFileRegistryService,
     RuntimeFilesToolService,
