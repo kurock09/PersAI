@@ -908,6 +908,29 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           type: "string",
           description: "Optional filename/title hint for the generated document."
         },
+        visualStyle: {
+          type: "string",
+          enum: [
+            "professional_modern",
+            "bold_editorial",
+            "minimal_clean",
+            "illustrated_storytelling"
+          ],
+          description:
+            "Optional presentation-only visual style for create_presentation. Use this to steer the deck's overall look and image style."
+        },
+        imagePolicy: {
+          type: "string",
+          enum: ["ai_generated", "web_free_to_use", "pictographic", "text_only"],
+          description:
+            "Optional presentation-only image policy for create_presentation. Prefer ai_generated or web_free_to_use when the user wants a visual deck, and text_only only when they explicitly want no images."
+        },
+        visualDensity: {
+          type: "string",
+          enum: ["balanced", "visual_heavy", "text_heavy"],
+          description:
+            "Optional presentation-only content balance for create_presentation. Prefer visual_heavy when the user wants a more image-rich deck."
+        },
         outline: {
           description: "Optional document outline or structured content seed."
         },

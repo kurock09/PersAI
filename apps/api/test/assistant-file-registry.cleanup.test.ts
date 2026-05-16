@@ -92,6 +92,9 @@ async function run(): Promise<void> {
       },
       updateMany: async () => ({ count: 1 })
     },
+    assistantDocumentDeliveredFile: {
+      findFirst: async () => null
+    },
     $transaction: async (ops: Array<Promise<unknown>>) => Promise.all(ops)
   };
   const service = new AssistantFileRegistryService(
@@ -137,3 +140,64 @@ async function run(): Promise<void> {
 }
 
 void run();
+
+async function runBlocksDeliveredDocumentDeletion(): Promise<void> {
+  const rows = [
+    createRow({
+      id: "file-document-1",
+      origin: "runtime_output",
+      objectKey: "objects/document.pdf",
+      relativePath: "artifacts/document.pdf",
+      displayName: "document.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: BigInt(50),
+      metadata: { source: "tool_output" }
+    })
+  ];
+  let deleteCalls = 0;
+  const prisma = {
+    assistantFile: {
+      findMany: async () => rows,
+      findFirst: async ({ where }: { where: { id: string } }) =>
+        rows.find((row) => row.id === where.id) ?? null,
+      delete: async () => {
+        deleteCalls += 1;
+        throw new Error("delete should not run for delivered document files");
+      }
+    },
+    assistantChatMessageAttachment: {
+      findMany: async () => [],
+      update: async () => ({}),
+      updateMany: async () => ({ count: 0 })
+    },
+    assistantDocumentDeliveredFile: {
+      findFirst: async () => ({
+        docId: "doc-1",
+        versionId: "version-1",
+        isCurrentOutput: true
+      })
+    },
+    $transaction: async (ops: Array<Promise<unknown>>) => Promise.all(ops)
+  };
+  const service = new AssistantFileRegistryService(
+    prisma as never,
+    {
+      async deleteObject() {
+        throw new Error("storage delete should not run for delivered document files");
+      }
+    } as never
+  );
+
+  await assert.rejects(
+    () =>
+      service.deleteAssistantFile({
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        fileRef: "file-document-1"
+      }),
+    /current delivered output of a document version/
+  );
+  assert.equal(deleteCalls, 0);
+}
+
+void runBlocksDeliveredDocumentDeletion();

@@ -1,6 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
+  PersaiRuntimePresentationImagePolicy,
+  PersaiRuntimePresentationVisualDensity,
+  PersaiRuntimePresentationVisualStyle,
   ProviderGatewayToolCall,
   RuntimeDocumentToolResult,
   RuntimeOutputArtifact
@@ -153,6 +156,9 @@ export class RuntimeDocumentToolService {
           outputFormat?: "pdf" | "pptx" | null;
           docId?: string | null;
           requestedName?: string | null;
+          visualStyle?: PersaiRuntimePresentationVisualStyle | null;
+          imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
+          visualDensity?: PersaiRuntimePresentationVisualDensity | null;
           outline?: unknown;
           metadata?: Record<string, unknown> | null;
         };
@@ -195,6 +201,26 @@ export class RuntimeDocumentToolService {
         outputFormat,
         docId: typeof row.docId === "string" ? row.docId : null,
         requestedName: typeof row.requestedName === "string" ? row.requestedName : null,
+        visualStyle:
+          row.visualStyle === "professional_modern" ||
+          row.visualStyle === "bold_editorial" ||
+          row.visualStyle === "minimal_clean" ||
+          row.visualStyle === "illustrated_storytelling"
+            ? row.visualStyle
+            : null,
+        imagePolicy:
+          row.imagePolicy === "ai_generated" ||
+          row.imagePolicy === "web_free_to_use" ||
+          row.imagePolicy === "pictographic" ||
+          row.imagePolicy === "text_only"
+            ? row.imagePolicy
+            : null,
+        visualDensity:
+          row.visualDensity === "balanced" ||
+          row.visualDensity === "visual_heavy" ||
+          row.visualDensity === "text_heavy"
+            ? row.visualDensity
+            : null,
         outline: row.outline,
         metadata
       }

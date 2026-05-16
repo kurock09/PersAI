@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, type SandboxFileOrigin } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
@@ -165,6 +165,28 @@ export class AssistantFileRegistryService {
         metadata: true
       }
     });
+    const linkedDocumentDelivery = await this.prisma.assistantDocumentDeliveredFile.findFirst({
+      where: {
+        assistantFileId: input.fileRef,
+        workspaceId: input.workspaceId,
+        document: {
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId
+        }
+      },
+      select: {
+        docId: true,
+        versionId: true,
+        isCurrentOutput: true
+      }
+    });
+    if (linkedDocumentDelivery !== null) {
+      throw new BadRequestException(
+        linkedDocumentDelivery.isCurrentOutput
+          ? "This file is the current delivered output of a document version and cannot be deleted directly."
+          : "This file is pinned by document version history and cannot be deleted directly."
+      );
+    }
     const deletedAt = new Date().toISOString();
     await this.prisma.$transaction([
       ...linkedAttachments.map((attachment) =>

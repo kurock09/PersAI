@@ -235,7 +235,8 @@ export class RuntimeDocumentProviderAdapterService {
           providerId: "gamma"
         },
         providerOptions: {
-          outputFormat: "pptx"
+          outputFormat: "pptx",
+          presentationOptions: this.buildGammaPresentationOptions(input.request)
         }
       },
       { timeoutMs }
@@ -338,7 +339,17 @@ export class RuntimeDocumentProviderAdapterService {
     const base =
       requested.length > 0 ? requested.replace(/[\\/:*?"<>|]+/g, " ").trim() : "document";
     const extension = request.job.outputFormat === "pptx" ? "pptx" : "pdf";
-    return `${base.length > 0 ? base : "document"}.${extension}`;
+    const normalizedBase = this.stripMatchingExtensionSuffix(base, extension);
+    return `${normalizedBase.length > 0 ? normalizedBase : "document"}.${extension}`;
+  }
+
+  private stripMatchingExtensionSuffix(value: string, extension: "pdf" | "pptx"): string {
+    const normalized = value.trim();
+    if (normalized.length === 0) {
+      return "";
+    }
+    const suffixPattern = new RegExp(`\\.${extension}$`, "i");
+    return normalized.replace(suffixPattern, "").trim();
   }
 
   private renderGammaInput(request: RuntimeDocumentJobRunRequest): string {
@@ -356,6 +367,264 @@ export class RuntimeDocumentProviderAdapterService {
       .map((value) => value.trim())
       .filter((value) => value.length > 0);
     return parts.join("\n\n");
+  }
+
+  private buildGammaPresentationOptions(request: RuntimeDocumentJobRunRequest): NonNullable<
+    Extract<
+      RuntimeDocumentJobRunRequest["directToolExecution"],
+      { toolCode: "document" }
+    >["request"]
+  > extends never
+    ? never
+    : {
+        textMode: "generate";
+        numCards: number;
+        cardSplit: "auto" | "inputTextBreaks";
+        additionalInstructions: string | null;
+        textOptions: {
+          amount: "brief" | "medium" | "detailed";
+          language: string;
+          tone: string | null;
+          audience: string | null;
+        };
+        imageOptions: {
+          source: "aiGenerated" | "webFreeToUseCommercially" | "pictographic" | "noImages";
+          style?: string | null;
+          stylePreset?: "illustration" | "lineArt" | "custom" | null;
+        } | null;
+        cardOptions: {
+          dimensions: "16x9";
+        };
+      } {
+    const docRequest = request.directToolExecution.request;
+    const language = this.resolveGammaLanguageCode(request);
+    const visualDensity = docRequest.visualDensity ?? "visual_heavy";
+    const visualStyle = docRequest.visualStyle ?? "professional_modern";
+    const imagePolicy = docRequest.imagePolicy ?? "ai_generated";
+    const additionalInstructions = this.buildGammaAdditionalInstructions(request, {
+      visualStyle,
+      imagePolicy,
+      visualDensity
+    });
+
+    return {
+      textMode: "generate",
+      numCards: this.estimateGammaCardCount(request, visualDensity),
+      cardSplit: this.resolveGammaCardSplit(docRequest.outline),
+      additionalInstructions,
+      textOptions: {
+        amount:
+          visualDensity === "visual_heavy"
+            ? "brief"
+            : visualDensity === "text_heavy"
+              ? "detailed"
+              : "medium",
+        language,
+        tone: this.resolveGammaTone(request, visualStyle),
+        audience: this.resolveGammaAudience(request)
+      },
+      imageOptions: this.resolveGammaImageOptions({ visualStyle, imagePolicy }),
+      cardOptions: {
+        dimensions: "16x9"
+      }
+    };
+  }
+
+  private buildGammaAdditionalInstructions(
+    request: RuntimeDocumentJobRunRequest,
+    input: {
+      visualStyle:
+        | "professional_modern"
+        | "bold_editorial"
+        | "minimal_clean"
+        | "illustrated_storytelling";
+      imagePolicy: "ai_generated" | "web_free_to_use" | "pictographic" | "text_only";
+      visualDensity: "balanced" | "visual_heavy" | "text_heavy";
+    }
+  ): string {
+    const instructions: string[] = [];
+    instructions.push(
+      "Design this as a polished presentation, not a text memo pasted onto slides."
+    );
+    instructions.push(
+      input.visualDensity === "visual_heavy"
+        ? "Prefer image-led cards, short copy blocks, clear hierarchy, and strong visual contrast."
+        : input.visualDensity === "text_heavy"
+          ? "Keep the deck readable and content-rich, but still avoid text walls and preserve visual hierarchy."
+          : "Balance concise text with clear visuals, varied layouts, and strong slide-to-slide rhythm."
+    );
+    instructions.push(this.describeGammaVisualStyle(input.visualStyle));
+    instructions.push(
+      input.imagePolicy === "text_only"
+        ? "Do not add extra images unless they are already explicitly provided in the source content."
+        : "Use visuals deliberately so the deck feels image-rich and presentation-native rather than document-like."
+    );
+    instructions.push(
+      "Favor punchy slide titles, comparisons, timelines, grids, callouts, and section-divider cards when helpful."
+    );
+    if (typeof request.directToolExecution.request.instructions === "string") {
+      const trimmed = request.directToolExecution.request.instructions.trim();
+      if (trimmed.length > 0) {
+        instructions.push(`User guidance: ${trimmed}`);
+      }
+    }
+    return instructions.join(" ");
+  }
+
+  private describeGammaVisualStyle(
+    style: "professional_modern" | "bold_editorial" | "minimal_clean" | "illustrated_storytelling"
+  ): string {
+    switch (style) {
+      case "bold_editorial":
+        return "Use bold editorial layouts, large headlines, dramatic contrast, and dynamic compositions.";
+      case "minimal_clean":
+        return "Use a minimal clean aesthetic with restrained copy, generous spacing, and calm modern layouts.";
+      case "illustrated_storytelling":
+        return "Use a cohesive illustrated storytelling look with expressive visuals and narrative card sequencing.";
+      case "professional_modern":
+      default:
+        return "Use a professional modern look with crisp business-ready layouts, clean hierarchy, and visually confident slides.";
+    }
+  }
+
+  private resolveGammaImageOptions(input: {
+    visualStyle:
+      | "professional_modern"
+      | "bold_editorial"
+      | "minimal_clean"
+      | "illustrated_storytelling";
+    imagePolicy: "ai_generated" | "web_free_to_use" | "pictographic" | "text_only";
+  }): {
+    source: "aiGenerated" | "webFreeToUseCommercially" | "pictographic" | "noImages";
+    style?: string | null;
+    stylePreset?: "illustration" | "lineArt" | "custom" | null;
+  } | null {
+    switch (input.imagePolicy) {
+      case "text_only":
+        return { source: "noImages" };
+      case "web_free_to_use":
+        return { source: "webFreeToUseCommercially" };
+      case "pictographic":
+        return { source: "pictographic" };
+      case "ai_generated":
+      default:
+        return {
+          source: "aiGenerated",
+          style: this.resolveGammaImageStyle(input.visualStyle),
+          stylePreset:
+            input.visualStyle === "illustrated_storytelling"
+              ? "illustration"
+              : input.visualStyle === "minimal_clean"
+                ? "lineArt"
+                : "custom"
+        };
+    }
+  }
+
+  private resolveGammaImageStyle(
+    visualStyle:
+      | "professional_modern"
+      | "bold_editorial"
+      | "minimal_clean"
+      | "illustrated_storytelling"
+  ): string {
+    switch (visualStyle) {
+      case "bold_editorial":
+        return "bold editorial, cinematic lighting, dramatic compositions, premium brand presentation";
+      case "minimal_clean":
+        return "minimal clean, restrained palette, elegant simple compositions, modern presentation design";
+      case "illustrated_storytelling":
+        return "cohesive editorial illustration, narrative scenes, expressive but polished, presentation-ready";
+      case "professional_modern":
+      default:
+        return "professional modern, polished business visuals, clean compositions, premium startup deck aesthetic";
+    }
+  }
+
+  private resolveGammaTone(
+    request: RuntimeDocumentJobRunRequest,
+    visualStyle:
+      | "professional_modern"
+      | "bold_editorial"
+      | "minimal_clean"
+      | "illustrated_storytelling"
+  ): string {
+    const instructionTone = request.directToolExecution.request.instructions?.trim() ?? "";
+    if (instructionTone.length > 0) {
+      return instructionTone.slice(0, 500);
+    }
+    switch (visualStyle) {
+      case "bold_editorial":
+        return "confident, punchy, high-contrast";
+      case "minimal_clean":
+        return "clear, calm, concise";
+      case "illustrated_storytelling":
+        return "engaging, human, story-driven";
+      case "professional_modern":
+      default:
+        return "professional, polished, concise";
+    }
+  }
+
+  private resolveGammaAudience(request: RuntimeDocumentJobRunRequest): string | null {
+    const normalized = [
+      request.directToolExecution.request.prompt,
+      request.directToolExecution.request.instructions ?? "",
+      request.job.sourceUserMessageText
+    ]
+      .join(" ")
+      .toLowerCase();
+    if (normalized.includes("investor")) return "investors";
+    if (normalized.includes("board")) return "board members and executives";
+    if (normalized.includes("sales")) return "customers and prospects";
+    if (normalized.includes("training")) return "learners and team members";
+    return null;
+  }
+
+  private resolveGammaLanguageCode(request: RuntimeDocumentJobRunRequest): string {
+    const locale = request.directToolExecution.request.metadata?.locale;
+    if (typeof locale === "string" && locale.trim().length > 0) {
+      return locale.trim().toLowerCase();
+    }
+    const bundleLocale = request.runtimeBundleDocument.includes('"locale":"ru"') ? "ru" : null;
+    if (bundleLocale !== null) {
+      return bundleLocale;
+    }
+    return "en";
+  }
+
+  private estimateGammaCardCount(
+    request: RuntimeDocumentJobRunRequest,
+    visualDensity: "balanced" | "visual_heavy" | "text_heavy"
+  ): number {
+    const outline = request.directToolExecution.request.outline;
+    if (Array.isArray(outline)) {
+      const count = outline.filter((entry) => entry !== null).length;
+      if (count > 0) {
+        return Math.max(6, Math.min(14, count));
+      }
+    }
+    if (typeof outline === "string") {
+      const splitCount = outline.split(/\n---\n/g).filter((part) => part.trim().length > 0).length;
+      if (splitCount > 1) {
+        return Math.max(6, Math.min(14, splitCount));
+      }
+    }
+    const baseText = this.renderGammaInput(request);
+    const approx =
+      visualDensity === "visual_heavy"
+        ? Math.ceil(baseText.length / 450)
+        : visualDensity === "text_heavy"
+          ? Math.ceil(baseText.length / 850)
+          : Math.ceil(baseText.length / 650);
+    return Math.max(6, Math.min(14, approx));
+  }
+
+  private resolveGammaCardSplit(outline: unknown): "auto" | "inputTextBreaks" {
+    if (typeof outline === "string" && outline.includes("\n---\n")) {
+      return "inputTextBreaks";
+    }
+    return "auto";
   }
 
   private renderOutline(value: unknown): string {

@@ -393,6 +393,9 @@ async function run(): Promise<void> {
       properties?: {
         descriptorMode?: { enum?: unknown[] };
         docId?: { description?: string };
+        visualStyle?: { enum?: unknown[]; description?: string };
+        imagePolicy?: { enum?: unknown[]; description?: string };
+        visualDensity?: { enum?: unknown[]; description?: string };
       };
     }
   )?.properties;
@@ -407,6 +410,26 @@ async function run(): Promise<void> {
     documentProperties?.docId?.description ?? "",
     /revise_document and export_or_redeliver/
   );
+  assert.deepEqual(documentProperties?.visualStyle?.enum, [
+    "professional_modern",
+    "bold_editorial",
+    "minimal_clean",
+    "illustrated_storytelling"
+  ]);
+  assert.deepEqual(documentProperties?.imagePolicy?.enum, [
+    "ai_generated",
+    "web_free_to_use",
+    "pictographic",
+    "text_only"
+  ]);
+  assert.deepEqual(documentProperties?.visualDensity?.enum, [
+    "balanced",
+    "visual_heavy",
+    "text_heavy"
+  ]);
+  assert.match(documentProperties?.visualStyle?.description ?? "", /presentation-only/);
+  assert.match(documentProperties?.imagePolicy?.description ?? "", /visual deck/);
+  assert.match(documentProperties?.visualDensity?.description ?? "", /image-rich/);
   const scheduledActionKindDescription = (
     scheduledAction?.inputSchema as {
       properties?: {

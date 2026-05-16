@@ -430,6 +430,168 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.equal(result.providerStatus?.state, "success");
   });
 
+  test("normalizes requested PDF filenames without duplicating the extension", async () => {
+    const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
+
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: { outputSchema?: { name?: string } }) {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text:
+              input.outputSchema?.name === "document_job_completion"
+                ? JSON.stringify({
+                    assistantText: null
+                  })
+                : JSON.stringify({
+                    htmlContent:
+                      "<!DOCTYPE html><html><body><h1>Onboarding Guide</h1><p>Recovered PDF content.</p></body></html>"
+                  }),
+            respondedAt: "2026-05-16T18:40:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          gatewayCalls.push(input);
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-provider-3",
+              templateId:
+                input.providerOptions.outputFormat === "pdf"
+                  ? input.providerOptions.pdfmonkeyTemplateId
+                  : "template-123",
+              filename: input.filename,
+              bytesBase64: Buffer.from("%PDF-test").toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-16T18:40:02.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "success",
+                documentId: "doc-provider-3",
+                documentTemplateId:
+                  input.providerOptions.outputFormat === "pdf"
+                    ? input.providerOptions.pdfmonkeyTemplateId
+                    : "template-123",
+                downloadUrl: "https://example.com/document-3.pdf",
+                previewUrl: "https://example.com/preview-3",
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf",
+                status: "success",
+                updatedAt: "2026-05-16T18:40:02.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-3",
+          docId: "doc-3",
+          versionId: "version-3",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "message-3",
+          sourceUserMessageText: "Create onboarding guide",
+          sourceUserMessageCreatedAt: "2026-05-16T18:39:00.000Z"
+        },
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt: "Create an onboarding guide",
+            requestedName: "onboarding-guide.pdf"
+          }
+        }
+      }
+    });
+
+    assert.equal(gatewayCalls.length, 1);
+    assert.equal(gatewayCalls[0]!.filename, "onboarding-guide.pdf");
+    assert.equal(result.artifacts[0]!.filename, "onboarding-guide.pdf");
+  });
+
   test("returns honest template_not_configured status when materialized PDFMonkey template is missing", async () => {
     const service = new RuntimeDocumentProviderAdapterService(
       {
@@ -750,7 +912,10 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           request: {
             prompt: "Create an investor presentation about PersAI",
             instructions: "Focus on traction and product vision.",
-            requestedName: "PersAI Deck"
+            requestedName: "PersAI Deck",
+            visualStyle: "bold_editorial",
+            imagePolicy: "web_free_to_use",
+            visualDensity: "visual_heavy"
           }
         }
       }
@@ -759,6 +924,25 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.equal(gatewayCalls.length, 1);
     assert.equal(gatewayCalls[0]!.credential.providerId, "gamma");
     assert.equal(gatewayCalls[0]!.providerOptions.outputFormat, "pptx");
+    assert.deepEqual(gatewayCalls[0]!.providerOptions.presentationOptions, {
+      textMode: "generate",
+      numCards: 6,
+      cardSplit: "auto",
+      additionalInstructions:
+        "Design this as a polished presentation, not a text memo pasted onto slides. Prefer image-led cards, short copy blocks, clear hierarchy, and strong visual contrast. Use bold editorial layouts, large headlines, dramatic contrast, and dynamic compositions. Use visuals deliberately so the deck feels image-rich and presentation-native rather than document-like. Favor punchy slide titles, comparisons, timelines, grids, callouts, and section-divider cards when helpful. User guidance: Focus on traction and product vision.",
+      textOptions: {
+        amount: "brief",
+        language: "en",
+        tone: "Focus on traction and product vision.",
+        audience: "investors"
+      },
+      imageOptions: {
+        source: "webFreeToUseCommercially"
+      },
+      cardOptions: {
+        dimensions: "16x9"
+      }
+    });
     assert.equal(savedObjects.length, 1);
     assert.equal(
       savedObjects[0]!.mimeType,

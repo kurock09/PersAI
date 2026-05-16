@@ -8,7 +8,13 @@ import type {
   AssistantDocumentRenderProvider,
   AssistantDocumentType
 } from "@prisma/client";
-import type { RuntimeOutputArtifact, RuntimeFileRef } from "@persai/runtime-contract";
+import type {
+  PersaiRuntimePresentationImagePolicy,
+  PersaiRuntimePresentationVisualDensity,
+  PersaiRuntimePresentationVisualStyle,
+  RuntimeOutputArtifact,
+  RuntimeFileRef
+} from "@persai/runtime-contract";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -19,6 +25,9 @@ export type AssistantDocumentSourcePayload = {
   outputFormat?: "pdf" | "pptx" | null;
   docId?: string | null;
   requestedName?: string | null;
+  visualStyle?: PersaiRuntimePresentationVisualStyle | null;
+  imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
+  visualDensity?: PersaiRuntimePresentationVisualDensity | null;
   outline?: unknown;
   metadata?: Record<string, unknown> | null;
 };
@@ -580,6 +589,9 @@ export class AssistantDocumentJobService {
         row.outputFormat === "pdf" || row.outputFormat === "pptx" ? row.outputFormat : null,
       docId: typeof row.docId === "string" ? row.docId : null,
       requestedName: typeof row.requestedName === "string" ? row.requestedName : null,
+      visualStyle: this.readPresentationVisualStyle(row.visualStyle),
+      imagePolicy: this.readPresentationImagePolicy(row.imagePolicy),
+      visualDensity: this.readPresentationVisualDensity(row.visualDensity),
       outline: row.outline,
       metadata:
         row.metadata !== null && typeof row.metadata === "object" && !Array.isArray(row.metadata)
@@ -608,6 +620,9 @@ export class AssistantDocumentJobService {
       outputFormat: current.outputFormat ?? revision.outputFormat ?? null,
       docId: current.docId ?? revision.docId ?? null,
       requestedName: revision.requestedName ?? current.requestedName ?? null,
+      visualStyle: revision.visualStyle ?? current.visualStyle ?? null,
+      imagePolicy: revision.imagePolicy ?? current.imagePolicy ?? null,
+      visualDensity: revision.visualDensity ?? current.visualDensity ?? null,
       outline: revision.outline ?? current.outline,
       metadata: {
         ...(current.metadata ?? {}),
@@ -627,6 +642,9 @@ export class AssistantDocumentJobService {
       outputFormat: current.outputFormat ?? request.outputFormat ?? null,
       docId: current.docId ?? request.docId ?? null,
       requestedName: request.requestedName ?? current.requestedName ?? null,
+      visualStyle: request.visualStyle ?? current.visualStyle ?? null,
+      imagePolicy: request.imagePolicy ?? current.imagePolicy ?? null,
+      visualDensity: request.visualDensity ?? current.visualDensity ?? null,
       outline: current.outline,
       metadata: {
         ...(current.metadata ?? {}),
@@ -639,6 +657,32 @@ export class AssistantDocumentJobService {
           : undefined
       }
     };
+  }
+
+  private readPresentationVisualStyle(value: unknown): PersaiRuntimePresentationVisualStyle | null {
+    return value === "professional_modern" ||
+      value === "bold_editorial" ||
+      value === "minimal_clean" ||
+      value === "illustrated_storytelling"
+      ? value
+      : null;
+  }
+
+  private readPresentationImagePolicy(value: unknown): PersaiRuntimePresentationImagePolicy | null {
+    return value === "ai_generated" ||
+      value === "web_free_to_use" ||
+      value === "pictographic" ||
+      value === "text_only"
+      ? value
+      : null;
+  }
+
+  private readPresentationVisualDensity(
+    value: unknown
+  ): PersaiRuntimePresentationVisualDensity | null {
+    return value === "balanced" || value === "visual_heavy" || value === "text_heavy"
+      ? value
+      : null;
   }
 
   private toPersistedRuntimeArtifact(

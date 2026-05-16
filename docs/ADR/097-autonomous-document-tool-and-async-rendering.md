@@ -61,6 +61,7 @@ The tool will expose four descriptor modes inside one typed tool schema:
 2. `create_presentation`
    - creates slide decks and PPTX outputs
    - primary provider: Gamma
+   - PersAI source JSON may carry a minimal presentation visual brief (`visualStyle`, `imagePolicy`, `visualDensity`) so Gamma receives honest typed visual intent instead of only a generic text prompt
 
 3. `revise_document`
    - revises an existing PersAI document by `doc_id` or server-resolved recent document context
@@ -444,6 +445,14 @@ Sandbox may be reconsidered later for:
 - expanded the shared document-generation contract from PDFMonkey-only `pdf` responses to honest dual-provider result/request shapes: PDFMonkey remains `pdf`, Gamma now returns `pptx`
 - runtime now persists Gamma PPTX output through the same canonical runtime-output object-storage + `AssistantFile` seam as PDF documents, so the API delivery/quota path stays provider-agnostic and PersAI remains the source of truth for delivered-file state and quota settlement
 - opened backend admission for `create_presentation` now that the Gamma path is real, while keeping model-visible `document`, `revise_document`, and `export_or_redeliver` closed until their own execution paths exist
+
+### 2026-05-16 — Gamma presentation visual-contract hardening landed locally
+
+- closed the next bounded `create_presentation` quality gap without redesigning the document architecture: PersAI now has a minimal typed presentation visual contract on the active path (`visualStyle`, `imagePolicy`, `visualDensity`) instead of relying on Gamma to infer visual richness from a mostly text-only prompt blob
+- made that contract honest across descriptor/runtime truth: the model-visible `document` tool schema, persisted `AssistantDocument` source JSON, runtime/API document-job contracts, enqueue parsing, revision/export source normalization, and provider-gateway request types now all carry the same optional presentation-only fields
+- changed Gamma request shaping from a thin `inputText + themeAccent` fallback into real docs-backed parameter mapping: runtime/provider-gateway now derive `textOptions`, `imageOptions`, `additionalInstructions`, `numCards`, `cardSplit`, and `cardOptions.dimensions` from the typed PersAI visual brief plus the existing prompt/instructions/outline context
+- set the bounded product default toward more visual decks when the assistant does not specify a visual brief: `create_presentation` now defaults to a visual-forward path (`visualDensity=visual_heavy`, image-rich Gamma image sources unless the assistant explicitly requests `text_only`) instead of silently degrading to text-heavy slides
+- kept scope discipline explicit: no new slideshow-planner subsystem, no user-upload image injection, no Gamma theme-management surface, and no unrelated PDF-flow redesign were added in this slice
 
 ### 2026-05-15 — Phase 4 verification alignment landed locally
 

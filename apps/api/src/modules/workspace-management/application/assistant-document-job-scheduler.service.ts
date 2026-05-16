@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import type { RuntimeDocumentJobRunRequest } from "@persai/runtime-contract";
+import type {
+  PersaiRuntimePresentationImagePolicy,
+  PersaiRuntimePresentationVisualDensity,
+  PersaiRuntimePresentationVisualStyle,
+  RuntimeDocumentJobRunRequest
+} from "@persai/runtime-contract";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { BackgroundSchedulerMetricsService } from "./background-scheduler-metrics.service";
@@ -34,6 +39,9 @@ type DocumentJobRequestPayload = {
     outputFormat?: "pdf" | "pptx" | null;
     docId?: string | null;
     requestedName?: string | null;
+    visualStyle?: PersaiRuntimePresentationVisualStyle | null;
+    imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
+    visualDensity?: PersaiRuntimePresentationVisualDensity | null;
     outline?: unknown;
     metadata?: Record<string, unknown> | null;
   };
@@ -629,6 +637,26 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         docId: typeof sourceJson.docId === "string" ? sourceJson.docId : null,
         requestedName:
           typeof sourceJson.requestedName === "string" ? sourceJson.requestedName : null,
+        visualStyle:
+          sourceJson.visualStyle === "professional_modern" ||
+          sourceJson.visualStyle === "bold_editorial" ||
+          sourceJson.visualStyle === "minimal_clean" ||
+          sourceJson.visualStyle === "illustrated_storytelling"
+            ? sourceJson.visualStyle
+            : null,
+        imagePolicy:
+          sourceJson.imagePolicy === "ai_generated" ||
+          sourceJson.imagePolicy === "web_free_to_use" ||
+          sourceJson.imagePolicy === "pictographic" ||
+          sourceJson.imagePolicy === "text_only"
+            ? sourceJson.imagePolicy
+            : null,
+        visualDensity:
+          sourceJson.visualDensity === "balanced" ||
+          sourceJson.visualDensity === "visual_heavy" ||
+          sourceJson.visualDensity === "text_heavy"
+            ? sourceJson.visualDensity
+            : null,
         outline: sourceJson.outline,
         metadata:
           sourceJson.metadata !== null &&

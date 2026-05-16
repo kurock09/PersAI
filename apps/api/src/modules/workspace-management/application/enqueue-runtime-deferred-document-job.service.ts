@@ -576,6 +576,26 @@ export class EnqueueRuntimeDeferredDocumentJobService {
             : null,
         docId: typeof request.docId === "string" ? request.docId : null,
         requestedName: typeof request.requestedName === "string" ? request.requestedName : null,
+        visualStyle:
+          request.visualStyle === "professional_modern" ||
+          request.visualStyle === "bold_editorial" ||
+          request.visualStyle === "minimal_clean" ||
+          request.visualStyle === "illustrated_storytelling"
+            ? request.visualStyle
+            : null,
+        imagePolicy:
+          request.imagePolicy === "ai_generated" ||
+          request.imagePolicy === "web_free_to_use" ||
+          request.imagePolicy === "pictographic" ||
+          request.imagePolicy === "text_only"
+            ? request.imagePolicy
+            : null,
+        visualDensity:
+          request.visualDensity === "balanced" ||
+          request.visualDensity === "visual_heavy" ||
+          request.visualDensity === "text_heavy"
+            ? request.visualDensity
+            : null,
         outline: request.outline,
         metadata: this.optionalRecord(request.metadata)
       }

@@ -1,0 +1,200 @@
+import assert from "node:assert/strict";
+import { ServiceUnavailableException } from "@nestjs/common";
+import type { ProviderGatewayConfig } from "@persai/config";
+import type { ProviderGatewayDocumentGenerateRequest } from "@persai/runtime-contract";
+import { GammaProviderClient } from "../src/modules/providers/gamma/gamma-provider.client";
+
+function createConfig(): ProviderGatewayConfig {
+  return {
+    APP_ENV: "local",
+    PORT: 3011,
+    LOG_LEVEL: "info",
+    PROVIDER_GATEWAY_WARM_ON_BOOT: false,
+    PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: 5_000,
+    PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS: 90_000,
+    PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 90_000,
+    PROVIDER_GATEWAY_BROWSERLESS_BASE_URL: "https://production-sfo.browserless.io",
+    PROVIDER_GATEWAY_OPENAI_API_KEY: undefined,
+    PROVIDER_GATEWAY_ANTHROPIC_API_KEY: undefined,
+    PROVIDER_GATEWAY_OPENAI_MODELS: ["gpt-5.4"],
+    PROVIDER_GATEWAY_ANTHROPIC_MODELS: ["claude-sonnet-4-5"]
+  };
+}
+
+function createRequest(): ProviderGatewayDocumentGenerateRequest {
+  return {
+    htmlContent:
+      "<!DOCTYPE html><html><body><h1>PersAI deck</h1><p>Investor update with traction and roadmap.</p></body></html>",
+    filename: "persai-deck.pptx",
+    timeoutMs: 120000,
+    credential: {
+      toolCode: "document",
+      secretId: "tool/document/gamma/api-key",
+      providerId: "gamma"
+    },
+    providerOptions: {
+      outputFormat: "pptx",
+      presentationOptions: {
+        textMode: "generate",
+        numCards: 8,
+        cardSplit: "auto",
+        additionalInstructions:
+          "Make it feel bold and visual first. Use image-led layouts and strong contrast.",
+        textOptions: {
+          amount: "brief",
+          language: "en",
+          tone: "professional, punchy",
+          audience: "investors"
+        },
+        imageOptions: {
+          source: "aiGenerated",
+          style: "bold editorial, premium startup deck aesthetic",
+          stylePreset: "custom"
+        },
+        cardOptions: {
+          dimensions: "16x9"
+        }
+      }
+    }
+  };
+}
+
+export async function runGammaProviderClientTest(): Promise<void> {
+  const client = new GammaProviderClient(createConfig());
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: unknown }> = [];
+
+  try {
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      let body: unknown = null;
+      if (typeof init?.body === "string" && init.body.length > 0) {
+        body = JSON.parse(init.body);
+      }
+      calls.push({ url, body });
+
+      if (url.endsWith("/v1.0/generations")) {
+        return new Response(JSON.stringify({ generationId: "gen-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (url.endsWith("/v1.0/generations/gen-1")) {
+        return new Response(
+          JSON.stringify({
+            generationId: "gen-1",
+            status: "completed",
+            gammaId: "gamma-1",
+            gammaUrl: "https://gamma.app/docs/gamma-1",
+            exportUrl: "https://gamma.app/export/gamma-1.pptx"
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      if (url === "https://gamma.app/export/gamma-1.pptx") {
+        return new Response(Buffer.from("pptx-binary"), {
+          status: 200,
+          headers: {
+            "Content-Type":
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          }
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const result = await client.generateDocument(createRequest(), { apiKey: "secret" });
+    assert.equal(result.provider, "gamma");
+    assert.equal(result.outputFormat, "pptx");
+    assert.equal(calls.length >= 3, true);
+
+    const createCall = calls.find((entry) => entry.url.endsWith("/v1.0/generations"));
+    assert.ok(createCall, "expected Gamma create-generation call");
+    assert.deepEqual(createCall.body, {
+      inputText: "PersAI deck Investor update with traction and roadmap.",
+      textMode: "generate",
+      format: "presentation",
+      exportAs: "pptx",
+      title: "persai-deck",
+      numCards: 8,
+      cardSplit: "auto",
+      additionalInstructions:
+        "Make it feel bold and visual first. Use image-led layouts and strong contrast.",
+      textOptions: {
+        amount: "brief",
+        language: "en",
+        tone: "professional, punchy",
+        audience: "investors"
+      },
+      cardOptions: {
+        dimensions: "16x9"
+      },
+      imageOptions: {
+        source: "aiGenerated",
+        style: "bold editorial, premium startup deck aesthetic",
+        stylePreset: "custom"
+      }
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  try {
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/v1.0/generations")) {
+        return new Response(JSON.stringify({ generationId: "gen-2" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (url.endsWith("/v1.0/generations/gen-2")) {
+        return new Response(
+          JSON.stringify({
+            generationId: "gen-2",
+            status: "completed",
+            gammaId: "gamma-2",
+            gammaUrl: "https://gamma.app/docs/gamma-2",
+            exportUrl: "https://gamma.app/export/gamma-2.pptx"
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      if (url === "https://gamma.app/export/gamma-2.pptx") {
+        return new Response(Buffer.alloc(0), {
+          status: 200,
+          headers: {
+            "Content-Type":
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          }
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => client.generateDocument(createRequest(), { apiKey: "secret" }),
+      (error: unknown) => {
+        assert.ok(error instanceof ServiceUnavailableException);
+        const response = error.getResponse() as {
+          error?: { code?: string; providerStatus?: { status?: string } };
+        };
+        assert.equal(response.error?.code, "gamma_empty_pptx_payload");
+        assert.equal(response.error?.providerStatus?.status, "export_empty");
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+void runGammaProviderClientTest();

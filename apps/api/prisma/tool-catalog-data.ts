@@ -94,7 +94,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     modelDescription:
       "Create or revise user-ready business documents, reports, proposals, and slide decks through the unified document tool.",
     modelUsageGuidance:
-      "Use this when the user explicitly wants a generated document, presentation, deck, proposal, report, or a revision to an existing generated document. Do not improvise provider-specific behavior in normal chat. If document generation later runs asynchronously, describe it as in progress until the delivered file actually arrives.",
+      "Use this when the user explicitly wants a generated document, presentation, deck, proposal, report, or a revision to an existing generated document. For create_presentation, prefer the typed presentation fields when the user's intent is clear: set visualStyle, imagePolicy, and visualDensity so Gamma receives an honest visual brief instead of only generic text. Prefer visual_heavy plus ai_generated or web_free_to_use when the user asks for a more visual, image-rich deck; use text_only only when they explicitly want no images. Do not improvise provider-specific behavior in normal chat. If document generation later runs asynchronously, describe it as in progress until the delivered file actually arrives.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"

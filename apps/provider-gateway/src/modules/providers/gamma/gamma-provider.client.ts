@@ -184,24 +184,64 @@ export class GammaProviderClient {
   private buildCreatePayload(
     input: ProviderGatewayDocumentGenerateRequest
   ): Record<string, unknown> {
-    const audience = this.readAudience(input.htmlContent);
-    const tone = this.readTone(input.htmlContent);
+    const presentationOptions =
+      input.providerOptions.outputFormat === "pptx"
+        ? input.providerOptions.presentationOptions
+        : null;
+    const audience =
+      presentationOptions?.textOptions?.audience ?? this.readAudience(input.htmlContent);
+    const tone = presentationOptions?.textOptions?.tone ?? this.readTone(input.htmlContent);
     return {
       inputText: this.toGammaInputText(input.htmlContent),
-      textMode: "generate",
+      textMode: presentationOptions?.textMode ?? "generate",
       format: "presentation",
       exportAs: "pptx",
       ...(input.filename === null ? {} : { title: this.stripExtension(input.filename) }),
-      numCards: this.estimateCardCount(input.htmlContent),
+      ...(presentationOptions?.numCards === null || presentationOptions?.numCards === undefined
+        ? { numCards: this.estimateCardCount(input.htmlContent) }
+        : { numCards: presentationOptions.numCards }),
+      ...(presentationOptions?.cardSplit === null || presentationOptions?.cardSplit === undefined
+        ? {}
+        : { cardSplit: presentationOptions.cardSplit }),
+      ...(presentationOptions?.additionalInstructions === null ||
+      presentationOptions?.additionalInstructions === undefined
+        ? {}
+        : { additionalInstructions: presentationOptions.additionalInstructions }),
       textOptions: {
-        amount: "medium",
-        language: "en",
+        amount: presentationOptions?.textOptions?.amount ?? "medium",
+        language: presentationOptions?.textOptions?.language ?? "en",
         ...(tone === null ? {} : { tone }),
         ...(audience === null ? {} : { audience })
       },
-      imageOptions: {
-        source: "themeAccent"
-      }
+      ...(presentationOptions?.cardOptions?.dimensions === null ||
+      presentationOptions?.cardOptions?.dimensions === undefined
+        ? {}
+        : {
+            cardOptions: {
+              dimensions: presentationOptions.cardOptions.dimensions
+            }
+          }),
+      imageOptions:
+        presentationOptions?.imageOptions === null ||
+        presentationOptions?.imageOptions === undefined
+          ? {
+              source: "themeAccent"
+            }
+          : {
+              source: presentationOptions.imageOptions.source ?? "themeAccent",
+              ...(presentationOptions.imageOptions.model === null ||
+              presentationOptions.imageOptions.model === undefined
+                ? {}
+                : { model: presentationOptions.imageOptions.model }),
+              ...(presentationOptions.imageOptions.style === null ||
+              presentationOptions.imageOptions.style === undefined
+                ? {}
+                : { style: presentationOptions.imageOptions.style }),
+              ...(presentationOptions.imageOptions.stylePreset === null ||
+              presentationOptions.imageOptions.stylePreset === undefined
+                ? {}
+                : { stylePreset: presentationOptions.imageOptions.stylePreset })
+            }
     };
   }
 

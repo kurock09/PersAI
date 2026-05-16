@@ -335,7 +335,27 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
       providerId: "gamma"
     },
     providerOptions: {
-      outputFormat: "pptx"
+      outputFormat: "pptx",
+      presentationOptions: {
+        textMode: "generate",
+        numCards: 8,
+        cardSplit: "auto",
+        additionalInstructions: "Make it visual first.",
+        textOptions: {
+          amount: "brief",
+          language: "en",
+          tone: "professional",
+          audience: "investors"
+        },
+        imageOptions: {
+          source: "aiGenerated",
+          style: "bold editorial",
+          stylePreset: "custom"
+        },
+        cardOptions: {
+          dimensions: "16x9"
+        }
+      }
     }
   });
   assert.equal(gammaResult.provider, "gamma");
@@ -352,7 +372,27 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
         providerId: "gamma"
       },
       providerOptions: {
-        outputFormat: "pptx"
+        outputFormat: "pptx",
+        presentationOptions: {
+          textMode: "generate",
+          numCards: 8,
+          cardSplit: "auto",
+          additionalInstructions: "Make it visual first.",
+          textOptions: {
+            amount: "brief",
+            language: "en",
+            tone: "professional",
+            audience: "investors"
+          },
+          imageOptions: {
+            source: "aiGenerated",
+            style: "bold editorial",
+            stylePreset: "custom"
+          },
+          cardOptions: {
+            dimensions: "16x9"
+          }
+        }
       }
     },
     apiKey: "resolved-tool-secret"

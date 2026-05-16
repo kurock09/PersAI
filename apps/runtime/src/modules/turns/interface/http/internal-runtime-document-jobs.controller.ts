@@ -115,6 +115,18 @@ export class InternalRuntimeDocumentJobsController {
                   request.requestedName,
                   "directToolExecution.request.requestedName"
                 ),
+          visualStyle:
+            request.visualStyle === null || request.visualStyle === undefined
+              ? null
+              : this.presentationVisualStyle(request.visualStyle),
+          imagePolicy:
+            request.imagePolicy === null || request.imagePolicy === undefined
+              ? null
+              : this.presentationImagePolicy(request.imagePolicy),
+          visualDensity:
+            request.visualDensity === null || request.visualDensity === undefined
+              ? null
+              : this.presentationVisualDensity(request.visualDensity),
           outline: request.outline,
           metadata:
             request.metadata === null || request.metadata === undefined
@@ -240,6 +252,41 @@ export class InternalRuntimeDocumentJobsController {
       return value;
     }
     throw new BadRequestException("directToolExecution.descriptorMode is invalid.");
+  }
+
+  private presentationVisualStyle(
+    value: unknown
+  ): "professional_modern" | "bold_editorial" | "minimal_clean" | "illustrated_storytelling" {
+    if (
+      value === "professional_modern" ||
+      value === "bold_editorial" ||
+      value === "minimal_clean" ||
+      value === "illustrated_storytelling"
+    ) {
+      return value;
+    }
+    throw new BadRequestException("directToolExecution.request.visualStyle is invalid.");
+  }
+
+  private presentationImagePolicy(
+    value: unknown
+  ): "ai_generated" | "web_free_to_use" | "pictographic" | "text_only" {
+    if (
+      value === "ai_generated" ||
+      value === "web_free_to_use" ||
+      value === "pictographic" ||
+      value === "text_only"
+    ) {
+      return value;
+    }
+    throw new BadRequestException("directToolExecution.request.imagePolicy is invalid.");
+  }
+
+  private presentationVisualDensity(value: unknown): "balanced" | "visual_heavy" | "text_heavy" {
+    if (value === "balanced" || value === "visual_heavy" || value === "text_heavy") {
+      return value;
+    }
+    throw new BadRequestException("directToolExecution.request.visualDensity is invalid.");
   }
 
   private currentHistory(value: unknown): RuntimeDocumentJobCompletionRequest["currentHistory"] {

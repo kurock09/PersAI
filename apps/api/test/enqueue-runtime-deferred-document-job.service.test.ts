@@ -102,7 +102,10 @@ async function runAcceptedCase(): Promise<void> {
       request: {
         prompt: "Investor deck about PersAI",
         outputFormat: "pptx",
-        requestedName: "persai-investor-deck"
+        requestedName: "persai-investor-deck",
+        visualStyle: "bold_editorial",
+        imagePolicy: "web_free_to_use",
+        visualDensity: "visual_heavy"
       }
     }
   });

@@ -1431,6 +1431,35 @@ export const PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS = ["pdfmonkey", "gamma"] as co
 
 export type PersaiRuntimeDocumentProviderId = (typeof PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS)[number];
 
+export const PERSAI_RUNTIME_PRESENTATION_VISUAL_STYLES = [
+  "professional_modern",
+  "bold_editorial",
+  "minimal_clean",
+  "illustrated_storytelling"
+] as const;
+
+export type PersaiRuntimePresentationVisualStyle =
+  (typeof PERSAI_RUNTIME_PRESENTATION_VISUAL_STYLES)[number];
+
+export const PERSAI_RUNTIME_PRESENTATION_IMAGE_POLICIES = [
+  "ai_generated",
+  "web_free_to_use",
+  "pictographic",
+  "text_only"
+] as const;
+
+export type PersaiRuntimePresentationImagePolicy =
+  (typeof PERSAI_RUNTIME_PRESENTATION_IMAGE_POLICIES)[number];
+
+export const PERSAI_RUNTIME_PRESENTATION_VISUAL_DENSITIES = [
+  "balanced",
+  "visual_heavy",
+  "text_heavy"
+] as const;
+
+export type PersaiRuntimePresentationVisualDensity =
+  (typeof PERSAI_RUNTIME_PRESENTATION_VISUAL_DENSITIES)[number];
+
 export const PERSAI_RUNTIME_TTS_DELIVERY_KINDS = ["voice_note", "audio"] as const;
 
 export type PersaiRuntimeTtsDeliveryKind = (typeof PERSAI_RUNTIME_TTS_DELIVERY_KINDS)[number];
@@ -1936,6 +1965,9 @@ export interface RuntimeDocumentJobRunRequest {
       outputFormat?: "pdf" | "pptx" | null;
       docId?: string | null;
       requestedName?: string | null;
+      visualStyle?: PersaiRuntimePresentationVisualStyle | null;
+      imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
+      visualDensity?: PersaiRuntimePresentationVisualDensity | null;
       outline?: unknown;
       metadata?: Record<string, unknown> | null;
     };
@@ -2311,6 +2343,38 @@ export interface ProviderGatewayDocumentGenerateRequest {
       }
     | {
         outputFormat: "pptx";
+        presentationOptions?: {
+          textMode?: "generate" | "condense" | "preserve" | null;
+          numCards?: number | null;
+          cardSplit?: "auto" | "inputTextBreaks" | null;
+          additionalInstructions?: string | null;
+          textOptions?: {
+            amount?: "brief" | "medium" | "detailed" | "extensive" | null;
+            language?: string | null;
+            tone?: string | null;
+            audience?: string | null;
+          } | null;
+          imageOptions?: {
+            source?:
+              | "webAllImages"
+              | "webFreeToUse"
+              | "webFreeToUseCommercially"
+              | "aiGenerated"
+              | "pictographic"
+              | "giphy"
+              | "pexels"
+              | "placeholder"
+              | "noImages"
+              | "themeAccent"
+              | null;
+            model?: string | null;
+            style?: string | null;
+            stylePreset?: "illustration" | "abstract" | "3D" | "lineArt" | "custom" | null;
+          } | null;
+          cardOptions?: {
+            dimensions?: "16x9" | "4x3" | "fluid" | null;
+          } | null;
+        } | null;
       };
 }
 
