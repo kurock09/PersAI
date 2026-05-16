@@ -414,7 +414,9 @@ export class RuntimeDocumentJobCompletionService {
           assistantId: input.assistantId,
           workspaceId: input.workspaceId,
           job: input.job,
-          workerResult: input.workerResult,
+          mode: input.failure !== undefined ? "failure" : "completion",
+          workerResult: input.workerResult ?? null,
+          failure: input.failure ?? null,
           history: input.currentHistory.map((entry) => ({
             author: entry.author,
             content: entry.content,

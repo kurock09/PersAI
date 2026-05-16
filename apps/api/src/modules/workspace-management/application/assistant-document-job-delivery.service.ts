@@ -246,21 +246,17 @@ export class AssistantDocumentJobDeliveryService {
           "document_delivery_recovery_pending",
           error instanceof Error ? error.message : "Document delivery recovery failed."
         );
-      } else if (typeof currentPayload?.completionAssistantMessageId === "string") {
-        await this.failDelivery(
-          job,
-          "document_delivery_failed",
-          error instanceof Error ? error.message : "Document delivery failed.",
-          currentPayload,
-          currentPayload.completionAssistantMessageId
-        );
       } else {
+        const completionAssistantMessageId =
+          typeof currentPayload?.completionAssistantMessageId === "string"
+            ? currentPayload.completionAssistantMessageId
+            : null;
         await this.failDelivery(
           job,
           "document_delivery_failed",
           error instanceof Error ? error.message : "Document delivery failed.",
           currentPayload,
-          null
+          completionAssistantMessageId
         );
       }
     } finally {
