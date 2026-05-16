@@ -697,7 +697,7 @@
     "monthlyMediaQuotaSettlementHint": "Media quota is reserved before generation and charged only after delivery succeeds.",
     "monthlyMediaRemainingSubline": "left: {remaining}",
     "monthlyMediaBonusExpiryHint": "Package expires with period",
-    "monthlyMediaBuyChip": "Add packages",
+    "monthlyMediaBuyChip": "Top up",
     "toolLimitsCount": "{count, plural, one {# active tool} other {# active tools}}",
     "toolLimitUnlimited": "No daily cap",
     "toolLimitPerDay": "{count} / day",

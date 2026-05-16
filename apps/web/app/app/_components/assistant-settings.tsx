@@ -641,9 +641,7 @@ export function AssistantSettings({
     data.plan?.limits.quotaBuckets.find((bucket) => bucket.bucketCode === "token_budget") ?? null;
   const compactQuotaBuckets =
     data.plan?.limits.quotaBuckets.filter((bucket) =>
-      ["active_web_chats", "media_storage_bytes", "knowledge_storage_bytes"].includes(
-        bucket.bucketCode
-      )
+      ["media_storage_bytes", "knowledge_storage_bytes"].includes(bucket.bucketCode)
     ) ?? [];
   const monthlyToolQuotaSnapshot =
     data.plan?.limits.monthlyToolQuotas ??
@@ -653,19 +651,6 @@ export function AssistantSettings({
       } | null
     )?.monthlyMediaQuotas ??
     null;
-  const documentMonthlyQuota =
-    (monthlyToolQuotaSnapshot?.tools as MonthlyToolQuotaToolState[] | undefined)?.find(
-      (tool) => tool.toolCode === "document"
-    ) ?? null;
-  const visibleMonthlyMediaQuotas = (
-    (monthlyToolQuotaSnapshot?.tools as MonthlyToolQuotaToolState[] | undefined) ?? []
-  )
-    .filter((tool) => ["image_generate", "image_edit", "video_generate"].includes(tool.toolCode))
-    .sort((left, right) => {
-      const leftLabel = toolLimitLabels[left.toolCode] ?? left.displayName;
-      const rightLabel = toolLimitLabels[right.toolCode] ?? right.displayName;
-      return leftLabel.localeCompare(rightLabel, locale);
-    });
   const allToolDailyLimits =
     [...(data.plan?.limits.toolDailyLimits ?? [])]
       .filter(
@@ -714,6 +699,73 @@ export function AssistantSettings({
       remaining: Math.max(0, effectiveLimit - tool.usedUnits)
     });
   };
+
+  type MonthlyCardData = {
+    toolCode: string;
+    label: string;
+    value: string;
+    secondary: string | null;
+    hasBonus: boolean;
+    unavailable: boolean;
+    buyChipLabel: string;
+    onBuyClick: (() => void) | null;
+  };
+  const buildMonthlyCard = (toolCode: string): MonthlyCardData | null => {
+    const snapshot =
+      (monthlyToolQuotaSnapshot?.tools as MonthlyToolQuotaToolState[] | undefined)?.find(
+        (entry) => entry.toolCode === toolCode
+      ) ?? null;
+    const daily =
+      data.plan?.limits.toolDailyLimits.find((entry) => entry.toolCode === toolCode) ?? null;
+    if (snapshot === null && daily === null) {
+      return null;
+    }
+    // `daily.active === false` is the authoritative "disabled on plan" signal.
+    // When daily is missing we trust the snapshot's presence as active.
+    const isActive = daily !== null ? daily.active === true : snapshot !== null;
+    const label =
+      toolLimitLabels[toolCode] ?? snapshot?.displayName ?? daily?.displayName ?? toolCode;
+    if (!isActive) {
+      return {
+        toolCode,
+        label,
+        value: t("limitUnavailable"),
+        secondary: null,
+        hasBonus: false,
+        unavailable: true,
+        buyChipLabel: t("changePlan"),
+        onBuyClick: onOpenPricingPage ?? null
+      };
+    }
+    if (snapshot === null) {
+      return {
+        toolCode,
+        label,
+        value: "—",
+        secondary: null,
+        hasBonus: false,
+        unavailable: false,
+        buyChipLabel: t("monthlyMediaBuyChip"),
+        onBuyClick: onOpenPackagesPage ?? null
+      };
+    }
+    return {
+      toolCode,
+      label,
+      value: formatMonthlyMediaQuotaValue(snapshot),
+      secondary: formatMonthlyMediaRemainingSubline(snapshot),
+      hasBonus: (snapshot.bonusLimitUnits ?? 0) > 0,
+      unavailable: false,
+      buyChipLabel: t("monthlyMediaBuyChip"),
+      onBuyClick: onOpenPackagesPage ?? null
+    };
+  };
+  // Fixed visual order for media tools (edit -> create -> video), per UX.
+  const MEDIA_TOOL_ORDER = ["image_edit", "image_generate", "video_generate"] as const;
+  const orderedMonthlyMediaCards = MEDIA_TOOL_ORDER.map((code) => buildMonthlyCard(code)).filter(
+    (card): card is MonthlyCardData => card !== null
+  );
+  const documentMonthlyCard = buildMonthlyCard("document");
 
   const [draftName, setDraftName] = useState(assistant?.draft.displayName ?? "");
   const [draftInstructions, setDraftInstructions] = useState(assistant?.draft.instructions ?? "");
@@ -2765,54 +2817,75 @@ export function AssistantSettings({
                 </div>
               </div>
 
-              <div className="mt-3 flex items-end justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-xl font-semibold tracking-[-0.02em] text-text">
-                    {data.plan.effectivePlan.displayName ??
-                      data.plan.effectivePlan.code ??
-                      t("freePlan")}
+              <div className="mt-3">
+                <p className="truncate text-xl font-semibold tracking-[-0.02em] text-text">
+                  {data.plan.effectivePlan.displayName ??
+                    data.plan.effectivePlan.code ??
+                    t("freePlan")}
+                </p>
+                {!tokenBucket && billingSummary.dateKey ? (
+                  <p className="mt-1 text-[11px] text-text-muted">
+                    {billingSummary.dateLabel
+                      ? t(billingSummary.dateKey, { date: billingSummary.dateLabel })
+                      : t(billingSummary.dateKey)}
                   </p>
-                  {billingSummary.dateKey && (
-                    <p className="mt-1 text-[11px] text-text-muted">
-                      {billingSummary.dateLabel
-                        ? t(billingSummary.dateKey, { date: billingSummary.dateLabel })
-                        : t(billingSummary.dateKey)}
-                    </p>
-                  )}
-                </div>
-                {tokenBucket?.percent !== null && tokenBucket?.percent !== undefined ? (
-                  <span className="shrink-0 text-sm font-medium text-text-muted">
-                    {t("tokenPercentCompact", { pct: tokenBucket.percent })}
-                  </span>
                 ) : null}
               </div>
 
               {tokenBucket && (
                 <div className="mt-4">
-                  <LimitBar
-                    label={quotaBucketLabels[tokenBucket.bucketCode] ?? tokenBucket.displayName}
-                    pct={tokenBucket.percent}
-                    valueLabel={formatQuotaBucketValue(tokenBucket)}
-                    unavailable={!tokenBucket.usageAvailable}
-                    size="lg"
-                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-medium text-text">
+                      {quotaBucketLabels[tokenBucket.bucketCode] ?? tokenBucket.displayName}
+                    </span>
+                    <span className="shrink-0 text-xs text-text-muted">
+                      {tokenBucket.percent !== null && tokenBucket.percent !== undefined
+                        ? t("tokenPercentCompact", { pct: tokenBucket.percent })
+                        : tokenBucket.usageAvailable
+                          ? "—"
+                          : t("usageUnavailable")}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-raised/80">
+                    <div
+                      className={cn(
+                        "h-full rounded-full",
+                        !tokenBucket.usageAvailable
+                          ? "bg-text-subtle/60"
+                          : (tokenBucket.percent ?? 0) >= 90
+                            ? "bg-destructive"
+                            : "bg-accent"
+                      )}
+                      style={{ width: `${Math.min(tokenBucket.percent ?? 0, 100)}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <span className="truncate text-[11px] text-text-muted">
+                      {billingSummary.dateKey
+                        ? billingSummary.dateLabel
+                          ? t(billingSummary.dateKey, { date: billingSummary.dateLabel })
+                          : t(billingSummary.dateKey)
+                        : ""}
+                    </span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-text-subtle">
+                      {formatQuotaBucketValue(tokenBucket)}
+                    </span>
+                  </div>
                 </div>
               )}
 
-              {visibleMonthlyMediaQuotas.length > 0 ? (
-                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {visibleMonthlyMediaQuotas.map((tool) => (
+              {orderedMonthlyMediaCards.length > 0 ? (
+                <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {orderedMonthlyMediaCards.map((card) => (
                     <LimitMetricCard
-                      key={tool.toolCode}
-                      label={toolLimitLabels[tool.toolCode] ?? tool.displayName}
-                      value={formatMonthlyMediaQuotaValue(tool)}
-                      secondary={formatMonthlyMediaRemainingSubline(tool)}
-                      hasBonus={(tool.bonusLimitUnits ?? 0) > 0}
-                      {...(onOpenPackagesPage
-                        ? {
-                            buyChipLabel: t("changePlan"),
-                            onBuyClick: onOpenPackagesPage
-                          }
+                      key={card.toolCode}
+                      label={card.label}
+                      value={card.value}
+                      secondary={card.secondary}
+                      hasBonus={card.hasBonus}
+                      unavailable={card.unavailable}
+                      {...(card.onBuyClick
+                        ? { buyChipLabel: card.buyChipLabel, onBuyClick: card.onBuyClick }
                         : {})}
                     />
                   ))}
@@ -2839,22 +2912,26 @@ export function AssistantSettings({
                   )}
                 />
               </button>
-              <div className="border-t border-border/80 px-3 py-3">
-                {documentMonthlyQuota !== null ? (
-                  <div className={cn(toolLimitsExpanded && "mb-3")}>
-                    <LimitMetricCard
-                      label={documentMonthlyQuota.displayName}
-                      value={formatMonthlyMediaQuotaValue(documentMonthlyQuota)}
-                      secondary={formatMonthlyMediaRemainingSubline(documentMonthlyQuota)}
-                      hasBonus={(documentMonthlyQuota.bonusLimitUnits ?? 0) > 0}
-                    />
-                  </div>
-                ) : null}
-              </div>
               {toolLimitsExpanded && (
                 <div className="border-t border-border/80 px-3 py-3">
-                  {compactQuotaBuckets.length > 0 ? (
+                  {documentMonthlyCard !== null || compactQuotaBuckets.length > 0 ? (
                     <div className="mb-3 grid grid-cols-3 gap-2">
+                      {documentMonthlyCard !== null ? (
+                        <LimitMetricCard
+                          key={documentMonthlyCard.toolCode}
+                          label={documentMonthlyCard.label}
+                          value={documentMonthlyCard.value}
+                          secondary={documentMonthlyCard.secondary}
+                          hasBonus={documentMonthlyCard.hasBonus}
+                          unavailable={documentMonthlyCard.unavailable}
+                          {...(documentMonthlyCard.onBuyClick
+                            ? {
+                                buyChipLabel: documentMonthlyCard.buyChipLabel,
+                                onBuyClick: documentMonthlyCard.onBuyClick
+                              }
+                            : {})}
+                        />
+                      ) : null}
                       {compactQuotaBuckets.map((bucket) => (
                         <LimitMetricCard
                           key={bucket.bucketCode}
@@ -3159,50 +3236,12 @@ function ChannelRow({
   );
 }
 
-function LimitBar({
-  label,
-  pct,
-  valueLabel,
-  unavailable = false,
-  size = "sm"
-}: {
-  label: string;
-  pct: number | null;
-  valueLabel?: string;
-  unavailable?: boolean;
-  size?: "sm" | "lg";
-}) {
-  return (
-    <div>
-      <div className={cn("flex justify-between gap-3", size === "lg" ? "text-xs" : "text-[11px]")}>
-        <span className={cn(size === "lg" ? "font-medium text-text" : "text-text-muted")}>
-          {label}
-        </span>
-        <span className="text-text-subtle">{valueLabel ?? (pct === null ? "—" : `${pct}%`)}</span>
-      </div>
-      <div
-        className={cn(
-          "mt-1 overflow-hidden rounded-full bg-surface-raised/80",
-          size === "lg" ? "h-2" : "h-1"
-        )}
-      >
-        <div
-          className={cn(
-            "h-full rounded-full",
-            unavailable ? "bg-text-subtle/60" : (pct ?? 0) >= 90 ? "bg-destructive" : "bg-accent"
-          )}
-          style={{ width: `${Math.min(pct ?? 0, 100)}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
 function LimitMetricCard({
   label,
   value,
   secondary,
   hasBonus,
+  unavailable,
   buyChipLabel,
   onBuyClick
 }: {
@@ -3210,6 +3249,7 @@ function LimitMetricCard({
   value: string;
   secondary?: string | null;
   hasBonus?: boolean;
+  unavailable?: boolean;
   buyChipLabel?: string | null;
   onBuyClick?: () => void;
 }) {
@@ -3228,16 +3268,32 @@ function LimitMetricCard({
         // no chip is needed, a placeholder of the same height keeps the
         // footer baseline aligned across siblings.
         "group relative flex h-full min-h-[6.25rem] flex-col overflow-hidden rounded-xl border bg-surface/70 p-2.5 text-left transition-colors",
-        hasBonus ? "border-accent/30 bg-surface/80" : "border-border/80",
+        hasBonus
+          ? "border-accent/30 bg-surface/80"
+          : unavailable
+            ? "border-border/60 bg-surface/40"
+            : "border-border/80",
         interactive &&
           "cursor-pointer hover:border-accent/30 hover:bg-surface/85 focus:outline-none focus:ring-2 focus:ring-accent/30"
       )}
     >
-      <p className="min-h-[2rem] text-[10px] font-medium uppercase leading-4 tracking-[0.12em] text-text-subtle">
+      <p
+        className={cn(
+          "min-h-[2rem] text-[10px] font-medium uppercase leading-4 tracking-[0.12em]",
+          unavailable ? "text-text-subtle/80" : "text-text-subtle"
+        )}
+      >
         {label}
       </p>
       <div className="mt-3">
-        <p className="text-xs font-semibold tabular-nums text-text">{value}</p>
+        <p
+          className={cn(
+            "text-xs font-semibold tabular-nums",
+            unavailable ? "text-text-muted" : "text-text"
+          )}
+        >
+          {value}
+        </p>
         {secondary ? <p className="mt-0.5 text-[10px] text-text-subtle">{secondary}</p> : null}
       </div>
       <div className="mt-auto flex h-[1.5rem] items-end justify-center pt-3.5 sm:h-[1.25rem] sm:justify-end sm:pt-3">

@@ -1070,8 +1070,9 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("3 / 20")).toBeInTheDocument();
     expect(screen.getByText("Video generation")).toBeInTheDocument();
     expect(screen.getByText("1 / 5")).toBeInTheDocument();
-    expect(screen.getByText("Documents")).toBeInTheDocument();
-    expect(screen.getByText("2 / 10")).toBeInTheDocument();
+    // Documents card moves into the (collapsed) Tool limits accordion.
+    expect(screen.queryByText("Documents")).toBeNull();
+    expect(screen.queryByText("2 / 10")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Tool limits/i }));
 
@@ -1274,8 +1275,13 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("2 / 20")).toBeInTheDocument();
     expect(screen.getByText("Video generation")).toBeInTheDocument();
     expect(screen.getByText("0")).toBeInTheDocument();
-    expect(screen.getByText("Documents")).toBeInTheDocument();
-    expect(screen.getByText("1 / 10")).toBeInTheDocument();
+    // image_edit is in toolDailyLimits with active=false → media row renders it
+    // as the "Unavailable" disabled card with the Change-plan CTA.
+    expect(screen.getByText("Image editing")).toBeInTheDocument();
+    expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
+    // Documents card now lives inside the collapsed Tool limits accordion.
+    expect(screen.queryByText("Documents")).toBeNull();
+    expect(screen.queryByText("1 / 10")).toBeNull();
     expect(screen.queryByText("Image edits")).toBeNull();
     expect(screen.queryByText("Code execution")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Change plan" }));
@@ -1285,13 +1291,15 @@ describe("AssistantSettings limits", () => {
 
     expect(screen.getByText("Documents")).toBeInTheDocument();
     expect(screen.getByText("1 / 10")).toBeInTheDocument();
-    expect(screen.getByText("Active chats")).toBeInTheDocument();
+    // Active chats card was removed from Tool limits per UX cleanup.
+    expect(screen.queryByText("Active chats")).toBeNull();
     expect(screen.getByText("Media storage")).toBeInTheDocument();
     expect(screen.getByText("Knowledge storage")).toBeInTheDocument();
     expect(screen.queryAllByText("Image generation")).toHaveLength(1);
     expect(screen.queryByText("Image edits")).toBeNull();
     expect(screen.getByText("Code execution")).toBeInTheDocument();
-    expect(screen.getByText("Image editing")).toBeInTheDocument();
+    // Image editing still shows once (in the media row above the accordion).
+    expect(screen.queryAllByText("Image editing")).toHaveLength(1);
     expect(screen.queryByText("Off")).toBeNull();
   });
 
@@ -1398,7 +1406,10 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Image generation")).toBeInTheDocument();
     expect(screen.getByText("4 / 20")).toBeInTheDocument();
     expect(screen.getByText("Video generation")).toBeInTheDocument();
-    expect(screen.getByText("0 / 1")).toBeInTheDocument();
+    // video_generate is active=false on the plan → media card flips to the
+    // "Unavailable" disabled state instead of showing "0 / 1".
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("0 / 1")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Tool limits/i }));
 
