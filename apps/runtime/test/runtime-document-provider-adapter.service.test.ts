@@ -1853,4 +1853,214 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.equal(result.assistantText, "Your document draft is ready for review.");
     assert.equal(result.providerStatus?.state, "success");
   });
+
+  test("injects enhanced print CSS with @page, thead repeat, tr break-inside, orphans/widows and cover-page page-break by default", () => {
+    const previousFlag = process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
+    delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
+    try {
+      const service = new RuntimeDocumentProviderAdapterService(
+        {} as never,
+        {} as never,
+        {} as never
+      );
+      const result = (
+        service as unknown as {
+          repairHtmlDocument(html: string): {
+            html: string;
+            bodyTextLength: number;
+            paginationEnhanced: boolean;
+            theadPromoted: number;
+          };
+        }
+      ).repairHtmlDocument(
+        '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><h1>Report</h1><p>The actual document content goes here, long enough to clear the minimum body text gate and pass HTML repair validation before being sent to PDFMonkey for final rendering.</p></body></html>'
+      );
+      assert.equal(result.paginationEnhanced, true);
+      assert.match(result.html, /<style>[\s\S]*<\/style>/i);
+      assert.match(result.html, /@page\{size:A4;margin:2cm 1.8cm;\}/);
+      assert.match(result.html, /thead\{display:table-header-group;\}/);
+      assert.match(result.html, /tr\{page-break-inside:avoid;break-inside:avoid;\}/);
+      assert.match(result.html, /orphans:3;widows:3/);
+      assert.match(
+        result.html,
+        /\.cover-page,\.title-page\{break-after:page;page-break-after:always;\}/
+      );
+      assert.match(result.html, /table\{[^}]*table-layout:fixed/);
+    } finally {
+      if (previousFlag === undefined) {
+        delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
+      } else {
+        process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION = previousFlag;
+      }
+    }
+  });
+
+  test("auto-promotes first <tr> with all <th> cells into <thead> when <thead> is missing", () => {
+    const previousFlag = process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
+    delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
+    try {
+      const service = new RuntimeDocumentProviderAdapterService(
+        {} as never,
+        {} as never,
+        {} as never
+      );
+      const repair = (
+        service as unknown as {
+          repairHtmlDocument(html: string): {
+            html: string;
+            bodyTextLength: number;
+            paginationEnhanced: boolean;
+            theadPromoted: number;
+          };
+        }
+      ).repairHtmlDocument(
+        "<!DOCTYPE html><html><head></head><body><h1>Report</h1><p>The actual document content goes here, long enough to clear the minimum body text gate and pass HTML repair validation before being sent to PDFMonkey for final rendering.</p><table><tbody><tr><th>Quarter</th><th>Revenue</th></tr><tr><td>Q1</td><td>100</td></tr><tr><td>Q2</td><td>120</td></tr></tbody></table></body></html>"
+      );
+      assert.equal(repair.paginationEnhanced, true);
+      assert.equal(repair.theadPromoted, 1);
+      assert.match(
+        repair.html,
+        /<thead>\s*<tr>\s*<th>Quarter<\/th>\s*<th>Revenue<\/th>\s*<\/tr>\s*<\/thead>/i
+      );
+      assert.match(repair.html, /<tbody>\s*<tr>\s*<td>Q1<\/td>/i);
+    } finally {
+      if (previousFlag === undefined) {
+        delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
+      } else {
+        process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION = previousFlag;
+      }
+    }
+  });
+
+  test("keeps existing <thead> intact and does not promote first body row when it is not header-only", () => {
+    const previousFlag = process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
+    delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
+    try {
+      const service = new RuntimeDocumentProviderAdapterService(
+        {} as never,
+        {} as never,
+        {} as never
+      );
+      const repair = (
+        service as unknown as {
+          repairHtmlDocument(html: string): {
+            html: string;
+            bodyTextLength: number;
+            paginationEnhanced: boolean;
+            theadPromoted: number;
+          };
+        }
+      ).repairHtmlDocument(
+        "<!DOCTYPE html><html><head></head><body><h1>Report</h1><p>Filler body text long enough to clear the minimum body text gate before being sent to PDFMonkey for final rendering of the resulting PDF document.</p><table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table><table><tbody><tr><th>Row label</th><td>Value</td></tr><tr><th>Other label</th><td>Other</td></tr></tbody></table></body></html>"
+      );
+      assert.equal(repair.paginationEnhanced, true);
+      assert.equal(repair.theadPromoted, 0);
+      assert.equal(
+        (repair.html.match(/<thead>/gi) ?? []).length,
+        1,
+        "should not duplicate or add a second <thead>"
+      );
+    } finally {
+      if (previousFlag === undefined) {
+        delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
+      } else {
+        process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION = previousFlag;
+      }
+    }
+  });
+
+  test("RUNTIME_DOCUMENT_ENHANCED_PAGINATION=off reverts to legacy baseline CSS and disables thead auto-promote", () => {
+    const previousFlag = process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
+    process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION = "off";
+    try {
+      const service = new RuntimeDocumentProviderAdapterService(
+        {} as never,
+        {} as never,
+        {} as never
+      );
+      const repair = (
+        service as unknown as {
+          repairHtmlDocument(html: string): {
+            html: string;
+            bodyTextLength: number;
+            paginationEnhanced: boolean;
+            theadPromoted: number;
+          };
+        }
+      ).repairHtmlDocument(
+        "<!DOCTYPE html><html><head></head><body><h1>Report</h1><p>Filler body text long enough to clear the minimum body text gate before being sent to PDFMonkey for final rendering of the resulting PDF document.</p><table><tbody><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></tbody></table></body></html>"
+      );
+      assert.equal(repair.paginationEnhanced, false);
+      assert.equal(repair.theadPromoted, 0);
+      assert.match(repair.html, /padding:32px 48px/);
+      assert.ok(!/@page\{/.test(repair.html), "legacy baseline must not contain @page rules");
+      assert.ok(
+        !/thead\{display:table-header-group/.test(repair.html),
+        "legacy baseline must not contain thead-repeat rules"
+      );
+    } finally {
+      if (previousFlag === undefined) {
+        delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
+      } else {
+        process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION = previousFlag;
+      }
+    }
+  });
+
+  test("HTML generation prompt includes pagination guidance for cover-page, keep-together, long-table thead, and no manual page-breaks", () => {
+    const service = new RuntimeDocumentProviderAdapterService(
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const request = (
+      service as unknown as {
+        buildPdfContentRequest(
+          input: {
+            bundle: unknown;
+            request: unknown;
+            filename: string;
+            attempt: number;
+          },
+          providerSelection: { provider: string; model: string }
+        ): { developerInstructions?: string };
+      }
+    ).buildPdfContentRequest(
+      {
+        bundle: createBundle(),
+        request: {
+          job: {
+            id: "job-pagination-1",
+            workspaceId: "workspace-1",
+            assistantId: "assistant-1",
+            assistantConversationId: "conv-1",
+            requestId: "req-1",
+            outputFormat: "pdf",
+            sourceUserMessageId: "msg-1",
+            sourceUserMessageText: "Render the report.",
+            sourceUserMessageCreatedAt: "2026-05-15T10:00:00.000Z"
+          },
+          directToolExecution: {
+            toolCode: "document",
+            descriptorMode: "create_pdf_document",
+            request: {
+              prompt: "Render the report.",
+              instructions: null,
+              requestedName: null,
+              outline: null
+            }
+          }
+        },
+        filename: "report.pdf",
+        attempt: 1
+      },
+      { provider: "openai", model: "gpt-4.1-mini" }
+    );
+    const developer = request.developerInstructions ?? "";
+    assert.match(developer, /Pagination guidance/);
+    assert.match(developer, /cover-page/);
+    assert.match(developer, /<thead>/);
+    assert.match(developer, /keep-together/);
+    assert.match(developer, /Do NOT insert manual page breaks/);
+  });
 });

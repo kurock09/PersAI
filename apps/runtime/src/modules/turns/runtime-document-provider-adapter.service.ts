@@ -42,8 +42,56 @@ const PDF_VALIDATION_MIN_TEXT_LENGTH = 80;
 const PDF_VALIDATION_MIN_ALNUM_COUNT = 24;
 const DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH = 120;
 const PDF_VALIDATION_TAIL_INSPECTION_BYTES = 2_048;
-const DOCUMENT_HTML_DEFAULT_PRINT_CSS =
+// Legacy baseline used as the kill-switch fallback when enhanced pagination is
+// explicitly disabled via RUNTIME_DOCUMENT_ENHANCED_PAGINATION=off. Keep this
+// in sync with the pre-pagination baseline behavior so an off-switch reverts to
+// the exact previous render.
+const DOCUMENT_HTML_BASELINE_PRINT_CSS =
   'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#1a1a1a;line-height:1.5;padding:32px 48px;}h1{font-size:24pt;margin:0 0 16pt;}h2{font-size:16pt;margin:24pt 0 8pt;}h3{font-size:13pt;margin:18pt 0 6pt;}p,li{font-size:11pt;margin:6pt 0;}ul,ol{padding-left:20pt;}table{border-collapse:collapse;width:100%;margin:12pt 0;}th,td{border:1px solid #d0d0d0;padding:6pt 10pt;text-align:left;font-size:10pt;vertical-align:top;}th{background:#f4f4f4;}';
+
+// Enhanced print CSS: baseline typography + Chromium-paginated CSS rules so
+// PDFs from PDFMonkey come out with proper page breaks. Key behaviors:
+// - @page sets A4 size + margins and shows "page N / total" in the footer.
+// - thead { display: table-header-group } makes Chromium repeat <thead> on
+//   every page of a long table. tfoot does the same for table footers, so do
+//   not put "Total / Итого" rows in <tfoot> unless they should appear on every
+//   page; put them as the last <tbody> row instead.
+// - tr { break-inside: avoid } prevents a single row from being cut in half
+//   across a page boundary; Chromium falls back gracefully if a row is taller
+//   than a page (it splits instead of overflowing forever).
+// - p { orphans: 3; widows: 3 } prevents a single trailing/leading line of a
+//   paragraph from being marooned alone on the next/previous page.
+// - h1..h4 { break-after: avoid } prevents a heading from being orphaned at
+//   the bottom of a page while its first paragraph starts on the next page.
+// - .cover-page / .title-page { break-after: page } guarantees that the title
+//   block lives on its own page and the document body starts on page 2.
+// - .keep-together / .card / .kpi / figure / blockquote { break-inside: avoid }
+//   guarantees that small visual blocks (signature blocks, KPI rows, info
+//   cards) stay on one page rather than being cut in half.
+// - table-layout: fixed + word-break: break-word keeps wide tables inside the
+//   page width by wrapping long cell text instead of stretching the column.
+const DOCUMENT_HTML_ENHANCED_PRINT_CSS = [
+  "@page{size:A4;margin:2cm 1.8cm;}",
+  '@page{@bottom-center{content:counter(page) " / " counter(pages);font-size:9pt;color:#666;}}',
+  'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#1a1a1a;line-height:1.5;padding:0;margin:0;}',
+  "h1{font-size:24pt;margin:0 0 16pt;break-after:avoid;page-break-after:avoid;}",
+  "h2{font-size:16pt;margin:24pt 0 8pt;break-after:avoid;page-break-after:avoid;}",
+  "h3{font-size:13pt;margin:18pt 0 6pt;break-after:avoid;page-break-after:avoid;}",
+  "h4,h5,h6{break-after:avoid;page-break-after:avoid;}",
+  "p,li{font-size:11pt;margin:6pt 0;orphans:3;widows:3;}",
+  "ul,ol{padding-left:20pt;}",
+  "table{border-collapse:collapse;width:100%;margin:12pt 0;table-layout:fixed;word-break:break-word;}",
+  "thead{display:table-header-group;}",
+  "tfoot{display:table-footer-group;}",
+  "tr{page-break-inside:avoid;break-inside:avoid;}",
+  "th,td{border:1px solid #d0d0d0;padding:6pt 10pt;text-align:left;font-size:10pt;vertical-align:top;word-wrap:break-word;}",
+  "th{background:#f4f4f4;}",
+  "img{max-width:100%;height:auto;break-inside:avoid;page-break-inside:avoid;}",
+  "figure,blockquote{break-inside:avoid;page-break-inside:avoid;margin:12pt 0;}",
+  ".card,.keep-together,.kpi,.infocard{break-inside:avoid;page-break-inside:avoid;}",
+  ".cover-page,.title-page{break-after:page;page-break-after:always;}"
+].join("");
+const DOCUMENT_HTML_ENHANCED_PAGINATION_ENV_KEY = "RUNTIME_DOCUMENT_ENHANCED_PAGINATION";
 
 @Injectable()
 export class RuntimeDocumentProviderAdapterService {
@@ -796,6 +844,9 @@ export class RuntimeDocumentProviderAdapterService {
         )}, minimum=${String(DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH)}).`
       );
     }
+    this.logger.log(
+      `[document-pdf-html-pagination] jobId=${input.request.job.id} attempt=${String(input.attempt)} paginationEnhanced=${String(repaired.paginationEnhanced)} theadPromoted=${String(repaired.theadPromoted)}`
+    );
     return { htmlContent: repaired.html, bodyTextLength: repaired.bodyTextLength };
   }
 
@@ -821,7 +872,14 @@ export class RuntimeDocumentProviderAdapterService {
       "Write the document in the user's apparent language unless the request clearly asks for another language.",
       "Use coherent headings (<h1>/<h2>/<h3>), paragraphs, lists, and simple tables when helpful.",
       "Close every tag you open. Never leave dangling <td>, <tr>, <ul>, <p>, or other elements unclosed.",
-      "Do not embed external scripts, iframes, remote stylesheets, or remote images."
+      "Do not embed external scripts, iframes, remote stylesheets, or remote images.",
+      "Pagination guidance (the renderer applies print-CSS automatically; you do NOT add inline styles for these):",
+      '- If the document has a cover/title page, wrap it as <section class="cover-page">...</section>. It will start on its own printed page automatically.',
+      "- For long tables, ALWAYS put the header row inside <thead> with <th> cells, and data rows inside <tbody>. The header repeats on every printed page automatically.",
+      "- Do NOT put summary/total rows in <tfoot> unless they must repeat on every page; put them as the last <tbody> row instead.",
+      '- Wrap small blocks that must stay together on one page (KPI cards, signature blocks, info boxes, definition lists) in <section class="keep-together"> or <div class="card">.',
+      '- Do NOT insert manual page breaks like <div style="page-break-before:always"> or empty divs to push content. The renderer handles page breaks via CSS.',
+      "- Keep each heading and its first paragraph in the same <section> so the renderer does not orphan the heading at the bottom of a page."
     ];
     const retryInstructions = isSimplifiedRetry
       ? [
@@ -1450,7 +1508,14 @@ export class RuntimeDocumentProviderAdapterService {
    * unstyled wall of text. Returns the visible body text length so callers can
    * reject obviously empty documents before sending them to PDFMonkey.
    */
-  private repairHtmlDocument(htmlInput: string): { html: string; bodyTextLength: number } {
+  private repairHtmlDocument(htmlInput: string): {
+    html: string;
+    bodyTextLength: number;
+    paginationEnhanced: boolean;
+    theadPromoted: number;
+  } {
+    const activeCss = this.resolveActivePrintCss();
+    const paginationEnhanced = activeCss === DOCUMENT_HTML_ENHANCED_PRINT_CSS;
     let parse5: {
       parse: (html: string) => Parse5Document;
       serialize: (node: Parse5Node) => string;
@@ -1467,16 +1532,28 @@ export class RuntimeDocumentProviderAdapterService {
           error instanceof Error ? error.message : String(error)
         }`
       );
-      const fallback = this.wrapHtmlInBoilerplate(htmlInput);
+      const fallback = this.wrapHtmlInBoilerplate(htmlInput, activeCss);
       const fallbackText = this.extractPlainTextFromHtmlPassthrough(htmlInput);
-      return { html: fallback, bodyTextLength: fallbackText.length };
+      return {
+        html: fallback,
+        bodyTextLength: fallbackText.length,
+        paginationEnhanced,
+        theadPromoted: 0
+      };
     }
     const document = parse5.parse(htmlInput);
     const body = this.findFirstNodeByTagName(document, "body");
     const head = this.findFirstNodeByTagName(document, "head");
     if (head !== null && !this.hasStyleChild(head)) {
-      this.appendStyleNodeToHead(head);
+      this.appendStyleNodeToHead(head, activeCss);
     }
+    // For long tables, Chromium only repeats the header row across pages when
+    // it is wrapped in <thead>. Models often forget the <thead> wrapper and
+    // put the header row directly into <tbody> (or under <table> with no
+    // tbody). Auto-promote the first row to <thead> when it contains only
+    // <th> cells and no <thead> exists yet. Tables that already have <thead>
+    // or whose first row is not header-only are left untouched.
+    const theadPromoted = paginationEnhanced ? this.promoteImplicitTheads(document) : 0;
     const bodyText = body === null ? "" : this.collectVisibleTextFromNode(body);
     const bodyTextLength = bodyText.replace(/\s+/g, " ").trim().length;
     let serialized = parse5.serialize(document).trim();
@@ -1484,15 +1561,19 @@ export class RuntimeDocumentProviderAdapterService {
       serialized = `<!DOCTYPE html>\n${serialized}`;
     }
     if (!/<style/i.test(serialized)) {
-      serialized = serialized.replace(
-        /<\/head>/i,
-        `<style>${DOCUMENT_HTML_DEFAULT_PRINT_CSS}</style></head>`
-      );
+      serialized = serialized.replace(/<\/head>/i, `<style>${activeCss}</style></head>`);
     }
-    return { html: serialized, bodyTextLength };
+    return { html: serialized, bodyTextLength, paginationEnhanced, theadPromoted };
   }
 
-  private wrapHtmlInBoilerplate(value: string): string {
+  private resolveActivePrintCss(): string {
+    const flag = process.env[DOCUMENT_HTML_ENHANCED_PAGINATION_ENV_KEY];
+    return flag === "off" || flag === "false" || flag === "0"
+      ? DOCUMENT_HTML_BASELINE_PRINT_CSS
+      : DOCUMENT_HTML_ENHANCED_PRINT_CSS;
+  }
+
+  private wrapHtmlInBoilerplate(value: string, css: string): string {
     const normalized = value.trim();
     const lower = normalized.toLowerCase();
     if (lower.startsWith("<!doctype")) {
@@ -1501,7 +1582,7 @@ export class RuntimeDocumentProviderAdapterService {
     if (lower.startsWith("<html")) {
       return `<!DOCTYPE html>\n${normalized}`;
     }
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${DOCUMENT_HTML_DEFAULT_PRINT_CSS}</style></head><body>${normalized}</body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${normalized}</body></html>`;
   }
 
   private extractPlainTextFromHtmlPassthrough(value: string): string {
@@ -1535,7 +1616,7 @@ export class RuntimeDocumentProviderAdapterService {
     return false;
   }
 
-  private appendStyleNodeToHead(head: Parse5Node): void {
+  private appendStyleNodeToHead(head: Parse5Node, css: string): void {
     const styleNode: Parse5Node = {
       nodeName: "style",
       tagName: "style",
@@ -1544,7 +1625,7 @@ export class RuntimeDocumentProviderAdapterService {
       childNodes: [
         {
           nodeName: "#text",
-          value: DOCUMENT_HTML_DEFAULT_PRINT_CSS,
+          value: css,
           parentNode: null
         }
       ],
@@ -1555,6 +1636,105 @@ export class RuntimeDocumentProviderAdapterService {
       firstChild.parentNode = styleNode;
     }
     head.childNodes = [...(head.childNodes ?? []), styleNode];
+  }
+
+  /**
+   * For every <table> in the document, if it has no <thead> but its first row
+   * (anywhere — either directly under <table> or under an existing <tbody>)
+   * contains only <th> cells, wrap that row in a new <thead>. Returns the
+   * number of tables that were modified so callers can log/test the effect.
+   *
+   * Why: PDFMonkey / Chromium only repeats the table header on every printed
+   * page when the header row is inside <thead>. Models routinely forget the
+   * <thead> wrapper. This safe, syntactic auto-promote fixes the common case
+   * without changing any visible content.
+   *
+   * Safety:
+   * - tables with an existing <thead> are left untouched (no double-wrap),
+   * - tables whose first row mixes <th> and <td> are left untouched (it is
+   *   probably a data row with a leading header cell, not a header row),
+   * - tables whose first row has any non-<th> non-whitespace child are left
+   *   untouched.
+   */
+  private promoteImplicitTheads(node: Parse5Node): number {
+    let promoted = 0;
+    if (node.tagName === "table") {
+      const hasExistingThead = (node.childNodes ?? []).some((child) => child.tagName === "thead");
+      if (!hasExistingThead) {
+        const firstRowLocation = this.findFirstRowOfTable(node);
+        if (firstRowLocation !== null && this.isHeaderOnlyRow(firstRowLocation.row)) {
+          this.wrapRowInThead(node, firstRowLocation);
+          promoted += 1;
+        }
+      }
+    }
+    for (const child of node.childNodes ?? []) {
+      promoted += this.promoteImplicitTheads(child);
+    }
+    return promoted;
+  }
+
+  private findFirstRowOfTable(table: Parse5Node): { row: Parse5Node; parent: Parse5Node } | null {
+    for (const child of table.childNodes ?? []) {
+      if (child.tagName === "tr") {
+        return { row: child, parent: table };
+      }
+      if (child.tagName === "tbody") {
+        for (const grandChild of child.childNodes ?? []) {
+          if (grandChild.tagName === "tr") {
+            return { row: grandChild, parent: child };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  private isHeaderOnlyRow(row: Parse5Node): boolean {
+    let sawHeaderCell = false;
+    for (const child of row.childNodes ?? []) {
+      if (child.nodeName === "#text") {
+        if (typeof child.value === "string" && child.value.trim().length > 0) {
+          return false;
+        }
+        continue;
+      }
+      if (child.tagName === "th") {
+        sawHeaderCell = true;
+        continue;
+      }
+      // Any other element (td, span, etc.) disqualifies this row as a header.
+      return false;
+    }
+    return sawHeaderCell;
+  }
+
+  private wrapRowInThead(
+    table: Parse5Node,
+    location: { row: Parse5Node; parent: Parse5Node }
+  ): void {
+    const theadNode: Parse5Node = {
+      nodeName: "thead",
+      tagName: "thead",
+      attrs: [],
+      namespaceURI: "http://www.w3.org/1999/xhtml",
+      childNodes: [location.row],
+      parentNode: table
+    };
+    location.row.parentNode = theadNode;
+    if (location.parent === table) {
+      const remainingChildren = (table.childNodes ?? []).filter((child) => child !== location.row);
+      table.childNodes = [theadNode, ...remainingChildren];
+    } else {
+      const parent = location.parent;
+      parent.childNodes = (parent.childNodes ?? []).filter((child) => child !== location.row);
+      const tableChildren = table.childNodes ?? [];
+      const parentIndex = tableChildren.indexOf(parent);
+      const insertIndex = parentIndex >= 0 ? parentIndex : tableChildren.length;
+      const next = [...tableChildren];
+      next.splice(insertIndex, 0, theadNode);
+      table.childNodes = next;
+    }
   }
 
   private collectVisibleTextFromNode(node: Parse5Node): string {
