@@ -282,6 +282,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
               "scheduler_claim_expires_at" IS NULL
               OR "scheduler_claim_expires_at" <= NOW()
             )
+            AND ("next_retry_at" IS NULL OR "next_retry_at" <= NOW())
           )
         ORDER BY "created_at" ASC
         FOR UPDATE SKIP LOCKED

@@ -1297,4 +1297,280 @@ describe("AssistantDocumentJobDeliveryService", () => {
       false
     );
   });
+
+  test("skips provider framing call when payload already carries a cached completionAssistantText (defer-retry safe)", async () => {
+    const renderJobUpdates: Array<Record<string, unknown>> = [];
+    const messageUpdates: Array<Record<string, unknown>> = [];
+    let maybeFrameCalls = 0;
+
+    const service = new AssistantDocumentJobDeliveryService(
+      {
+        assistantDocumentRenderJob: {
+          updateMany: async (input: Record<string, unknown>) => {
+            renderJobUpdates.push(input);
+            return { count: 1 };
+          }
+        },
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              updateMany: async (input: Record<string, unknown>) => {
+                renderJobUpdates.push(input);
+                return { count: 1 };
+              }
+            },
+            assistantDocumentDeliveredFile: {
+              updateMany: async () => ({ count: 0 }),
+              findMany: async () => [
+                { id: "delivered-file-cache-1", assistantFileId: "file-cache-1" }
+              ],
+              update: async () => undefined,
+              create: async () => undefined
+            },
+            assistantDocumentVersion: {
+              update: async () => undefined
+            },
+            assistantDocument: {
+              findUnique: async () => ({ currentVersionId: "version-1" }),
+              update: async () => undefined
+            }
+          })
+      } as never,
+      {
+        listByMessageId: async () => [
+          {
+            id: "attachment-cache-1",
+            assistantFileId: "file-cache-1",
+            mimeType: "application/pdf"
+          }
+        ]
+      } as never,
+      {
+        createMessage: async () => {
+          throw new Error(
+            "createMessage must not be called when completionAssistantMessageId exists"
+          );
+        },
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
+          messageUpdates.push({ messageId, assistantId, content });
+          return null;
+        },
+        deleteMessage: async () => true
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        deliver: async () => {
+          throw new Error(
+            "mediaDeliveryService.deliver must not be called when attachments already exist"
+          );
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram resolution should not run for web jobs");
+        }
+      } as never,
+      {
+        async consumeAssistantMonthlyToolQuotaSuccessOnly() {}
+      } as never,
+      {
+        async maybeFrame() {
+          maybeFrameCalls += 1;
+          return "Fresh LLM completion framing (should NOT run on retry).";
+        }
+      } as never
+    );
+
+    await service.deliverReadyJob({
+      id: "job-cache-1",
+      docId: "doc-1",
+      versionId: "version-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      schedulerClaimToken: "cache-claim-1",
+      providerStatusJson: {
+        descriptorMode: "create_pdf_document",
+        outputFormat: "pdf",
+        sourceUserMessageId: "user-message-cache-1",
+        sourceUserMessageText: "Render a brief.",
+        sourceUserMessageCreatedAt: "2026-05-15T15:55:00.000Z",
+        artifacts: [
+          { source: "runtime_url", url: "https://example.com/brief.pdf", type: "document" }
+        ],
+        assistantText: "Your document is ready.",
+        externalDeliveryCommitted: true,
+        completionAssistantMessageId: "assistant-message-cache-1",
+        completionAssistantText: "CACHED: Готово. Документ прилетел."
+      }
+    });
+
+    assert.equal(
+      maybeFrameCalls,
+      0,
+      "framing model must NOT be called when cached text is present"
+    );
+    assert.equal(
+      messageUpdates.some((entry) => entry.content === "CACHED: Готово. Документ прилетел."),
+      true,
+      "final message content must equal the cached framed text"
+    );
+  });
+
+  test("persists framed completionAssistantText into providerStatusJson after the first framing call", async () => {
+    const renderJobUpdates: Array<Record<string, unknown>> = [];
+    let maybeFrameCalls = 0;
+
+    const service = new AssistantDocumentJobDeliveryService(
+      {
+        assistantDocumentRenderJob: {
+          updateMany: async (input: Record<string, unknown>) => {
+            renderJobUpdates.push(input);
+            return { count: 1 };
+          }
+        },
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              updateMany: async (input: Record<string, unknown>) => {
+                renderJobUpdates.push(input);
+                return { count: 1 };
+              }
+            },
+            assistantDocumentDeliveredFile: {
+              updateMany: async () => ({ count: 0 }),
+              findMany: async () => [],
+              update: async () => undefined,
+              create: async () => undefined
+            },
+            assistantDocumentVersion: {
+              update: async () => undefined
+            },
+            assistantDocument: {
+              findUnique: async () => ({ currentVersionId: "version-1" }),
+              update: async () => undefined
+            }
+          })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        createMessage: async () => ({
+          id: "assistant-message-cache-2",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "Preparing your document...",
+          createdAt: new Date("2026-05-15T16:00:00.000Z")
+        }),
+        updateMessageContent: async () => null,
+        deleteMessage: async () => true
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: [
+            {
+              id: "attachment-cache-2",
+              fileRef: "file-cache-2",
+              mimeType: "application/pdf",
+              originalFilename: "brief.pdf"
+            }
+          ]
+        })
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram resolution should not run for web jobs");
+        }
+      } as never,
+      {
+        async consumeAssistantMonthlyToolQuotaSuccessOnly() {}
+      } as never,
+      {
+        async maybeFrame() {
+          maybeFrameCalls += 1;
+          return "Готово. Документ собран.";
+        }
+      } as never
+    );
+
+    await service.deliverReadyJob({
+      id: "job-cache-persist-1",
+      docId: "doc-1",
+      versionId: "version-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      schedulerClaimToken: "cache-persist-claim-1",
+      providerStatusJson: {
+        descriptorMode: "create_pdf_document",
+        outputFormat: "pdf",
+        sourceUserMessageId: "user-message-cache-2",
+        sourceUserMessageText: "Render a brief.",
+        sourceUserMessageCreatedAt: "2026-05-15T15:55:00.000Z",
+        artifacts: [
+          { source: "runtime_url", url: "https://example.com/brief.pdf", type: "document" }
+        ],
+        assistantText: "Your document is ready."
+      }
+    });
+
+    assert.equal(maybeFrameCalls, 1, "framing model must run exactly once on the first delivery");
+    const cachedPersisted = renderJobUpdates.some((update) => {
+      const data = update.data as Record<string, unknown> | undefined;
+      const payload = data?.providerStatusJson as Record<string, unknown> | undefined;
+      return payload?.completionAssistantText === "Готово. Документ собран.";
+    });
+    assert.equal(
+      cachedPersisted,
+      true,
+      "framed completion text must be persisted into providerStatusJson so a deferred retry can reuse it"
+    );
+  });
 });

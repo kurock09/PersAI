@@ -54,6 +54,16 @@ type PersistedDeliveryPayload = {
   quotaConsumed?: boolean;
   quotaSettlementPending?: boolean;
   completionAssistantMessageId?: string | null;
+  // Cached LLM-framed completion text. Persisted in the providerStatusJson
+  // payload after the first successful framing call so that subsequent
+  // deliverReadyJob runs (driven by deferRetry retries) do not re-spend
+  // provider tokens generating the same user-visible completion message.
+  // Without this cache, every deferred-then-replayed delivery (partial
+  // attachment recovery, quota settlement defer, recovery_pending defer)
+  // produces an additional OpenAI call with the same input and the same
+  // output, which is wasted spend and shows up in provider logs as duplicate
+  // "completion framing" requests for a single document job.
+  completionAssistantText?: string | null;
 };
 
 type CanonicalDeliveredAttachment = {
@@ -135,10 +145,12 @@ export class AssistantDocumentJobDeliveryService {
         };
       }
 
-      const completionAssistantText = await this.resolveCompletionAssistantText({
+      const framingOutcome = await this.resolveCompletionAssistantText({
         job,
         payload: currentPayload
       });
+      const completionAssistantText = framingOutcome.text;
+      currentPayload = framingOutcome.payload;
       const deliveredAttachments = await this.ensureDeliveredAttachments({
         job,
         payload: currentPayload,
@@ -301,7 +313,9 @@ export class AssistantDocumentJobDeliveryService {
       completionAssistantMessageId:
         typeof row.completionAssistantMessageId === "string"
           ? row.completionAssistantMessageId
-          : null
+          : null,
+      completionAssistantText:
+        typeof row.completionAssistantText === "string" ? row.completionAssistantText : null
     };
     if (
       row.descriptorMode === "create_pdf_document" ||
@@ -444,8 +458,18 @@ export class AssistantDocumentJobDeliveryService {
   private async resolveCompletionAssistantText(input: {
     job: ClaimedReadyDocumentJob;
     payload: PersistedDeliveryPayload;
-  }): Promise<string> {
+  }): Promise<{ text: string; payload: PersistedDeliveryPayload }> {
     const rawAssistantText = input.payload.assistantText?.trim() ?? "";
+    const cached =
+      typeof input.payload.completionAssistantText === "string"
+        ? input.payload.completionAssistantText.trim()
+        : "";
+    if (cached.length > 0) {
+      this.logger.log(
+        `[document-delivery-framing-cached] jobId=${input.job.id} reusing cached framed completion text (length=${String(cached.length)}) — skipping provider framing call.`
+      );
+      return { text: cached, payload: input.payload };
+    }
     const completionService = this.assistantDocumentJobCompletionTurnService as
       | AssistantDocumentJobCompletionTurnService
       | undefined;
@@ -466,7 +490,38 @@ export class AssistantDocumentJobDeliveryService {
         resultText: rawAssistantText,
         artifacts: input.payload.artifacts
       })) ?? rawAssistantText;
-    return framed.length > 0 ? framed : "Your document is ready.";
+    const text = framed.length > 0 ? framed : "Your document is ready.";
+    let nextPayload = input.payload;
+    if (framed.length > 0 && framed !== cached) {
+      nextPayload = {
+        ...input.payload,
+        completionAssistantText: framed
+      };
+      await this.rememberFramedCompletionText(input.job, nextPayload).catch((error) => {
+        this.logger.warn(
+          `Failed to persist cached framed completion text for ${input.job.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      });
+    }
+    return { text, payload: nextPayload };
+  }
+
+  private async rememberFramedCompletionText(
+    job: ClaimedReadyDocumentJob,
+    payload: PersistedDeliveryPayload
+  ): Promise<void> {
+    await this.prisma.assistantDocumentRenderJob.updateMany({
+      where: {
+        id: job.id,
+        schedulerClaimToken: job.schedulerClaimToken,
+        status: "ready_for_delivery"
+      },
+      data: {
+        providerStatusJson: payload as never
+      }
+    });
   }
 
   private readDescriptorMode(
