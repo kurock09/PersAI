@@ -2193,6 +2193,8 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   // compacted slice and writes them through the M1 memory_write path.
   "auto_extract_to_memory",
   "background_task_evaluation",
+  "document_html_generation",
+  "document_job_completion",
   "media_job_completion",
   "media_job_failure_explanation",
   "admin_authoring"
