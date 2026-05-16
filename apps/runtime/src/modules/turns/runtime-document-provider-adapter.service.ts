@@ -22,6 +22,8 @@ const DEFAULT_DOCUMENT_TIMEOUT_MS = 6 * 60 * 1000;
 const PDFMONKEY_TEMPLATE_MISSING_CODE = "document_template_not_configured";
 const DOCUMENT_HTML_MAX_OUTPUT_TOKENS = 4_500;
 const DOCUMENT_COMPLETION_MAX_OUTPUT_TOKENS = 220;
+const DOCUMENT_PDF_MAX_RENDER_ATTEMPTS = 2;
+const PDF_VALIDATION_MIN_BYTES = 1_024;
 const PDF_VALIDATION_MIN_TEXT_LENGTH = 80;
 const PDF_VALIDATION_MIN_ALNUM_COUNT = 24;
 
@@ -89,28 +91,78 @@ export class RuntimeDocumentProviderAdapterService {
     }
     const filename = this.resolveRequestedFilename(input.request);
     const timeoutMs = this.resolveWorkerTimeoutMs(input.bundle);
-    const htmlContent = await this.generatePdfHtmlContent({
-      bundle: input.bundle,
-      request: input.request,
-      filename
-    });
-    const providerOutcome = await this.providerGatewayClientService.generateDocumentOutcome(
-      {
-        htmlContent,
-        filename,
-        credential: {
-          toolCode: "document",
-          secretId: credential.secretRef.id,
-          providerId: "pdfmonkey"
+    let lastProviderFailure: {
+      code: string | null;
+      status: number | null;
+      message: string;
+      retryable: boolean;
+      providerStatus: Record<string, unknown> | null;
+    } | null = null;
+    let lastValidationFailure: {
+      code: string;
+      message: string;
+      metadata: Record<string, unknown>;
+    } | null = null;
+    let successfulProviderResult: {
+      bytesBase64: string;
+      mimeType: string;
+      providerStatus: Record<string, unknown>;
+    } | null = null;
+
+    for (let attempt = 1; attempt <= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS; attempt += 1) {
+      const htmlContent = await this.generatePdfHtmlContent({
+        bundle: input.bundle,
+        request: input.request,
+        filename
+      });
+      const providerOutcome = await this.providerGatewayClientService.generateDocumentOutcome(
+        {
+          htmlContent,
+          filename,
+          credential: {
+            toolCode: "document",
+            secretId: credential.secretRef.id,
+            providerId: "pdfmonkey"
+          },
+          providerOptions: {
+            pdfmonkeyTemplateId: templateId,
+            outputFormat: "pdf"
+          }
         },
-        providerOptions: {
-          pdfmonkeyTemplateId: templateId,
-          outputFormat: "pdf"
+        { timeoutMs }
+      );
+      if (!providerOutcome.ok) {
+        lastProviderFailure = {
+          code: providerOutcome.code ?? "provider_document_generation_failed",
+          status: providerOutcome.status,
+          message: providerOutcome.message,
+          retryable: providerOutcome.retryable,
+          providerStatus: providerOutcome.providerStatus
+        };
+        break;
+      }
+      const providerResult = providerOutcome.result;
+      const pdfBuffer = Buffer.from(providerResult.bytesBase64, "base64");
+      const validationFailure = await this.validateGeneratedPdfArtifact(pdfBuffer);
+      if (validationFailure === null) {
+        lastValidationFailure = null;
+        successfulProviderResult = providerResult;
+        break;
+      }
+      lastValidationFailure = {
+        ...validationFailure,
+        metadata: {
+          ...validationFailure.metadata,
+          attempt,
+          maxAttempts: DOCUMENT_PDF_MAX_RENDER_ATTEMPTS
         }
-      },
-      { timeoutMs }
-    );
-    if (!providerOutcome.ok) {
+      };
+      if (attempt >= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS) {
+        break;
+      }
+    }
+
+    if (lastProviderFailure !== null) {
       return {
         assistantText: null,
         artifacts: [],
@@ -127,26 +179,23 @@ export class RuntimeDocumentProviderAdapterService {
         providerStatus: {
           provider,
           state: "failed",
-          errorCode: providerOutcome.code ?? "provider_document_generation_failed",
-          retryable: providerOutcome.retryable,
-          httpStatus: providerOutcome.status,
-          message: providerOutcome.message,
+          errorCode: lastProviderFailure.code ?? "provider_document_generation_failed",
+          retryable: lastProviderFailure.retryable,
+          httpStatus: lastProviderFailure.status,
+          message: lastProviderFailure.message,
           outputFormat: input.request.job.outputFormat,
           requestedName: filename,
           sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
           assistantFileRegistryAvailable:
             typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function",
-          ...(providerOutcome.providerStatus === null
+          ...(lastProviderFailure.providerStatus === null
             ? {}
-            : { providerFailure: providerOutcome.providerStatus })
+            : { providerFailure: lastProviderFailure.providerStatus })
         }
       };
     }
-    const providerResult = providerOutcome.result;
-    const validationFailure = await this.validateGeneratedPdfArtifact(
-      Buffer.from(providerResult.bytesBase64, "base64")
-    );
-    if (validationFailure !== null) {
+
+    if (successfulProviderResult === null || lastValidationFailure !== null) {
       return {
         assistantText: null,
         artifacts: [],
@@ -163,16 +212,18 @@ export class RuntimeDocumentProviderAdapterService {
         providerStatus: {
           provider,
           state: "invalid_output",
-          errorCode: validationFailure.code,
+          errorCode: lastValidationFailure?.code ?? "document_pdf_invalid_output",
           retryable: false,
-          message: validationFailure.message,
+          message:
+            lastValidationFailure?.message ??
+            "Rendered PDF output was invalid and could not be delivered honestly.",
           outputFormat: input.request.job.outputFormat,
           requestedName: filename,
           sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
           assistantFileRegistryAvailable:
             typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function",
-          validation: validationFailure.metadata,
-          providerFailure: providerResult.providerStatus
+          validation: lastValidationFailure?.metadata ?? {},
+          providerFailure: successfulProviderResult?.providerStatus ?? null
         }
       };
     }
@@ -182,8 +233,8 @@ export class RuntimeDocumentProviderAdapterService {
       sessionId: input.request.job.chatId,
       requestId: input.request.job.id,
       filename,
-      buffer: Buffer.from(providerResult.bytesBase64, "base64"),
-      mimeType: providerResult.mimeType
+      buffer: Buffer.from(successfulProviderResult.bytesBase64, "base64"),
+      mimeType: successfulProviderResult.mimeType
     });
 
     return {
@@ -206,7 +257,7 @@ export class RuntimeDocumentProviderAdapterService {
       ],
       rawText: null,
       providerStatus: {
-        ...providerResult.providerStatus,
+        ...successfulProviderResult.providerStatus,
         outputFormat: input.request.job.outputFormat,
         requestedName: filename,
         sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
@@ -663,9 +714,13 @@ export class RuntimeDocumentProviderAdapterService {
       this.buildPdfContentRequest(input, providerSelection)
     );
     const parsed = this.parseJsonObject(response.text, "document_html_generation");
-    const htmlContent = typeof parsed.htmlContent === "string" ? parsed.htmlContent.trim() : "";
+    const rawHtmlContent = typeof parsed.htmlContent === "string" ? parsed.htmlContent.trim() : "";
+    const htmlContent = this.normalizeGeneratedHtml(rawHtmlContent);
     if (htmlContent.length === 0) {
       throw new Error("Document HTML generation returned empty htmlContent.");
+    }
+    if (!this.looksLikeRenderableHtml(htmlContent)) {
+      throw new Error("Document HTML generation returned non-renderable HTML content.");
     }
     return htmlContent;
   }
@@ -893,6 +948,16 @@ export class RuntimeDocumentProviderAdapterService {
         message: "Document provider returned an empty PDF payload.",
         metadata: {
           bytes: 0
+        }
+      };
+    }
+    if (buffer.length < PDF_VALIDATION_MIN_BYTES) {
+      return {
+        code: "document_pdf_too_small",
+        message: "Rendered PDF payload is too small to be trusted as a real document.",
+        metadata: {
+          bytes: buffer.length,
+          minBytes: PDF_VALIDATION_MIN_BYTES
         }
       };
     }
@@ -1186,6 +1251,48 @@ export class RuntimeDocumentProviderAdapterService {
       normalized.startsWith("<html") ||
       (normalized.includes("<body") && normalized.includes("</body>"))
     );
+  }
+
+  private looksLikeRenderableHtml(value: string): boolean {
+    const normalized = value.trim().toLowerCase();
+    return (
+      this.looksLikeRawHtmlDocument(value) ||
+      normalized.startsWith("<section") ||
+      normalized.startsWith("<article") ||
+      normalized.startsWith("<main") ||
+      normalized.startsWith("<div") ||
+      normalized.startsWith("<table") ||
+      normalized.startsWith("<h1") ||
+      normalized.startsWith("<h2")
+    );
+  }
+
+  private normalizeGeneratedHtml(value: string): string {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return "";
+    }
+    let normalized = trimmed;
+    if (
+      (normalized.startsWith('"') && normalized.endsWith('"')) ||
+      (normalized.startsWith("'") && normalized.endsWith("'"))
+    ) {
+      normalized = normalized.slice(1, -1).trim();
+    }
+    normalized = normalized
+      .replace(/\\n/g, "\n")
+      .replace(/\\t/g, "\t")
+      .replace(/\\"/g, '"')
+      .replace(/\\'/g, "'")
+      .replace(/\\\\/g, "\\")
+      .trim();
+    if (this.looksLikeRawHtmlDocument(normalized)) {
+      return normalized;
+    }
+    if (this.looksLikeRenderableHtml(normalized)) {
+      return `<!DOCTYPE html><html><body>${normalized}</body></html>`;
+    }
+    return normalized;
   }
 
   private unwrapJsonCodeFence(value: string): string {

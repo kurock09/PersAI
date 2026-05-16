@@ -107,8 +107,11 @@ interface AssistantSettingsProps {
 type ActionFeedback = { type: "ok" | "err"; text: string } | null;
 
 type QuotaBucketState = UserPlanVisibilityState["limits"]["quotaBuckets"][number];
-type MonthlyMediaQuotaToolState =
-  UserPlanVisibilityState["limits"]["monthlyMediaQuotas"]["tools"][number];
+type MonthlyToolQuotaSnapshot = UserPlanVisibilityState["limits"]["monthlyToolQuotas"];
+type MonthlyToolQuotaToolCode = MonthlyToolQuotaSnapshot["tools"][number]["toolCode"] | "document";
+type MonthlyToolQuotaToolState = Omit<MonthlyToolQuotaSnapshot["tools"][number], "toolCode"> & {
+  toolCode: MonthlyToolQuotaToolCode;
+};
 type ToolDailyLimitState = UserPlanVisibilityState["limits"]["toolDailyLimits"][number];
 type SettingsSectionId =
   | "character"
@@ -580,7 +583,6 @@ export function AssistantSettings({
   initialSection,
   onOpenTelegramSettings,
   onOpenPricingPage,
-  onOpenPackagesPage,
   onStartBillingCheckout
 }: AssistantSettingsProps) {
   const router = useRouter();
@@ -619,16 +621,6 @@ export function AssistantSettings({
     media_storage_bytes: t("mediaStorage"),
     knowledge_storage_bytes: t("knowledgeStorage")
   };
-  const monthlyMediaQuotaLabels: Record<MonthlyMediaQuotaToolState["toolCode"], string> = {
-    image_generate: t("monthlyMediaImageGenerate"),
-    image_edit: t("monthlyMediaImageEdit"),
-    video_generate: t("monthlyMediaVideoGenerate")
-  };
-  const monthlyMediaQuotaCompactLabels: Record<MonthlyMediaQuotaToolState["toolCode"], string> = {
-    image_generate: t("monthlyMediaImageGenerateCompact"),
-    image_edit: t("monthlyMediaImageEditCompact"),
-    video_generate: t("monthlyMediaVideoGenerateCompact")
-  };
   const toolLimitLabels: Record<string, string> = {
     browser: t("toolLimitBrowser"),
     exec: t("toolLimitExec"),
@@ -655,35 +647,34 @@ export function AssistantSettings({
   const mediaToolActiveByCode = new Map(
     (data.plan?.limits.toolDailyLimits ?? []).map((tool) => [tool.toolCode, tool.active])
   );
-  const isMonthlyMediaQuotaToolAvailable = (tool: MonthlyMediaQuotaToolState): boolean =>
+  const monthlyToolQuotaSnapshot =
+    data.plan?.limits.monthlyToolQuotas ??
+    (
+      data.plan?.limits as {
+        monthlyMediaQuotas?: MonthlyToolQuotaSnapshot;
+      } | null
+    )?.monthlyMediaQuotas ??
+    null;
+  const documentMonthlyQuota =
+    (monthlyToolQuotaSnapshot?.tools as MonthlyToolQuotaToolState[] | undefined)?.find(
+      (tool) => tool.toolCode === "document"
+    ) ?? null;
+  const isMonthlyMediaQuotaToolAvailable = (tool: MonthlyToolQuotaToolState): boolean =>
     mediaToolActiveByCode.get(tool.toolCode) ?? true;
-  const monthlyMediaQuotaTools = data.plan?.limits.monthlyMediaQuotas?.tools ?? [];
-  const visibleMonthlyMediaQuotas =
-    monthlyMediaQuotaTools.filter(
-      (tool) =>
-        (tool.effectiveLimitUnits !== null && tool.effectiveLimitUnits > 0) ||
-        (tool.limitUnits !== null && tool.limitUnits > 0)
-    ) ?? [];
-  const featuredMonthlyMediaQuotas = visibleMonthlyMediaQuotas
-    .filter(
-      (tool) =>
-        ["image_generate", "image_edit", "video_generate"].includes(tool.toolCode) &&
-        ((tool.effectiveLimitUnits !== null && tool.effectiveLimitUnits > 0) ||
-          (tool.limitUnits !== null && tool.limitUnits > 0))
-    )
-    .sort((left, right) => {
-      const order = ["image_generate", "image_edit", "video_generate"];
-      return order.indexOf(left.toolCode) - order.indexOf(right.toolCode);
-    });
   const allToolDailyLimits =
-    [...(data.plan?.limits.toolDailyLimits ?? [])].sort((left, right) => {
-      if (left.active !== right.active) {
-        return left.active ? -1 : 1;
-      }
-      const leftLabel = toolLimitLabels[left.toolCode] ?? left.displayName;
-      const rightLabel = toolLimitLabels[right.toolCode] ?? right.displayName;
-      return leftLabel.localeCompare(rightLabel, locale);
-    }) ?? [];
+    [...(data.plan?.limits.toolDailyLimits ?? [])]
+      .filter(
+        (tool) =>
+          !["image_generate", "image_edit", "video_generate", "document"].includes(tool.toolCode)
+      )
+      .sort((left, right) => {
+        if (left.active !== right.active) {
+          return left.active ? -1 : 1;
+        }
+        const leftLabel = toolLimitLabels[left.toolCode] ?? left.displayName;
+        const rightLabel = toolLimitLabels[right.toolCode] ?? right.displayName;
+        return leftLabel.localeCompare(rightLabel, locale);
+      }) ?? [];
   const activeToolCount = allToolDailyLimits.filter((tool) => tool.active).length;
   const billingSummary = resolveBillingSummaryCopy(data.plan?.effectivePlan, locale);
   const formatQuotaBucketValue = (bucket: QuotaBucketState): string => {
@@ -697,7 +688,7 @@ export function AssistantSettings({
     const usedLabel = formatQuotaBucketScalar(bucket, Math.max(0, bucket.used));
     return bucket.limit === null ? usedLabel : `${usedLabel}/${limitLabel}`;
   };
-  const formatMonthlyMediaQuotaValue = (tool: MonthlyMediaQuotaToolState): string => {
+  const formatMonthlyMediaQuotaValue = (tool: MonthlyToolQuotaToolState): string => {
     if (!isMonthlyMediaQuotaToolAvailable(tool)) {
       return t("limitUnavailable");
     }
@@ -712,7 +703,7 @@ export function AssistantSettings({
     }
     return `${tool.usedUnits} / ${effectiveLimit}`;
   };
-  const formatMonthlyMediaRemainingSubline = (tool: MonthlyMediaQuotaToolState): string | null => {
+  const formatMonthlyMediaRemainingSubline = (tool: MonthlyToolQuotaToolState): string | null => {
     if (!isMonthlyMediaQuotaToolAvailable(tool)) {
       return null;
     }
@@ -2809,37 +2800,14 @@ export function AssistantSettings({
                 </div>
               )}
 
-              {featuredMonthlyMediaQuotas.length > 0 ? (
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  {featuredMonthlyMediaQuotas.map((tool) => {
-                    const hasBonus = (tool.bonusLimitUnits ?? 0) > 0;
-                    return (
-                      <LimitMetricCard
-                        key={tool.toolCode}
-                        label={
-                          <>
-                            <span className="sm:hidden">
-                              {monthlyMediaQuotaCompactLabels[tool.toolCode] ?? tool.displayName}
-                            </span>
-                            <span className="hidden sm:inline">
-                              {monthlyMediaQuotaLabels[tool.toolCode] ?? tool.displayName}
-                            </span>
-                          </>
-                        }
-                        value={formatMonthlyMediaQuotaValue(tool)}
-                        secondary={formatMonthlyMediaRemainingSubline(tool)}
-                        hasBonus={hasBonus}
-                        buyChipLabel={t("monthlyMediaBuyChip")}
-                        onBuyClick={() => {
-                          if (onOpenPackagesPage) {
-                            onOpenPackagesPage();
-                            return;
-                          }
-                          router.push("/app/packages" as Route);
-                        }}
-                      />
-                    );
-                  })}
+              {documentMonthlyQuota !== null ? (
+                <div className="mt-4">
+                  <LimitMetricCard
+                    label={documentMonthlyQuota.displayName}
+                    value={formatMonthlyMediaQuotaValue(documentMonthlyQuota)}
+                    secondary={formatMonthlyMediaRemainingSubline(documentMonthlyQuota)}
+                    hasBonus={(documentMonthlyQuota.bonusLimitUnits ?? 0) > 0}
+                  />
                 </div>
               ) : null}
             </div>

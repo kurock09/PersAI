@@ -14,7 +14,7 @@ export interface AdminPlanVisibilityState {
   planState: AdminPlanVisibilityPlanState;
   usagePressure: AdminPlanVisibilityUsagePressure;
   quotaBuckets: QuotaVisibilityBucketState[];
-  monthlyMediaQuotas: MonthlyMediaQuotaSnapshot;
+  monthlyToolQuotas: MonthlyMediaQuotaSnapshot;
   /** @nullable */
   effectiveEntitlements: AdminPlanVisibilityStateEffectiveEntitlements;
   updatedAt: string;

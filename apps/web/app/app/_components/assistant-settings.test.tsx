@@ -906,6 +906,175 @@ describe("AssistantSettings limits", () => {
     ).not.toThrow();
   });
 
+  it("renders tool quota cards from monthlyToolQuotas when the new payload shape is present", () => {
+    const openPricingPage = vi.fn();
+    const openPackagesPage = vi.fn();
+
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "workspace_subscription",
+            subscriptionStatus: "active",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-06-09T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null,
+            price: {
+              amount: 49,
+              currency: "USD",
+              billingPeriod: "month"
+            }
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          advisories: {
+            warningThresholdPercent: 90,
+            isFreePlan: false,
+            higherPaidPlanAvailable: false,
+            highestVisiblePaidPlanCode: "pro",
+            tokenBudget: {
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: null,
+              paidLightModeEligible: false,
+              paidLightModeActive: false,
+              paidLightModeReason: null
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyToolQuotas: {
+              planCode: "pro",
+              periodStartedAt: "2026-05-01T00:00:00.000Z",
+              periodEndsAt: "2026-06-01T00:00:00.000Z",
+              periodSource: "subscription_period",
+              tools: [
+                {
+                  toolCode: "document",
+                  displayName: "Documents",
+                  usedUnits: 2,
+                  reservedUnits: 0,
+                  settledUnits: 2,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: 10,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: 10,
+                  bonusExpiresAt: null,
+                  remainingUnits: 8,
+                  percent: 20,
+                  finiteLimit: true,
+                  usageAvailable: true,
+                  warningThresholdPercent: 90,
+                  warningThresholdReached: false,
+                  status: "ok"
+                },
+                {
+                  toolCode: "image_generate",
+                  displayName: "Image generation",
+                  usedUnits: 3,
+                  reservedUnits: 0,
+                  settledUnits: 3,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: 20,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: 20,
+                  bonusExpiresAt: null,
+                  remainingUnits: 17,
+                  percent: 15,
+                  finiteLimit: true,
+                  usageAvailable: true,
+                  warningThresholdPercent: 90,
+                  warningThresholdReached: false,
+                  status: "ok"
+                },
+                {
+                  toolCode: "video_generate",
+                  displayName: "Video generation",
+                  usedUnits: 1,
+                  reservedUnits: 0,
+                  settledUnits: 1,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: 5,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: 5,
+                  bonusExpiresAt: null,
+                  remainingUnits: 4,
+                  percent: 20,
+                  finiteLimit: true,
+                  usageAvailable: true,
+                  warningThresholdPercent: 90,
+                  warningThresholdReached: false,
+                  status: "ok"
+                }
+              ]
+            },
+            toolDailyLimits: [
+              {
+                toolCode: "image_generate",
+                displayName: "Image generation",
+                dailyCallLimit: null,
+                dailyCallsUsed: 0,
+                percent: null,
+                finiteLimit: false,
+                warningThresholdPercent: null,
+                warningThresholdReached: false,
+                periodStartedAt: null,
+                periodEndsAt: null,
+                periodSource: null,
+                active: true
+              },
+              {
+                toolCode: "video_generate",
+                displayName: "Video generation",
+                dailyCallLimit: null,
+                dailyCallsUsed: 0,
+                percent: null,
+                finiteLimit: false,
+                warningThresholdPercent: null,
+                warningThresholdReached: false,
+                periodStartedAt: null,
+                periodEndsAt: null,
+                periodSource: null,
+                active: true
+              }
+            ]
+          },
+          packageOffers: {
+            packagesPurchase: null,
+            tools: []
+          },
+          updatedAt: "2026-05-16T00:00:00.000Z"
+        }
+      }),
+      "limits",
+      { onOpenPricingPage: openPricingPage, onOpenPackagesPage: openPackagesPage }
+    );
+
+    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(screen.getByText("2 / 10")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Tool limits/i }));
+
+    expect(screen.queryByText("Image generation")).toBeNull();
+    expect(screen.queryByText("Video generation")).toBeNull();
+  });
+
   it("prioritizes token budget, hides disabled monthly media, and keeps tool limits collapsed by default", () => {
     const openPricingPage = vi.fn();
     const openPackagesPage = vi.fn();
@@ -985,6 +1154,26 @@ describe("AssistantSettings limits", () => {
               periodEndsAt: "2026-05-01T00:00:00.000Z",
               periodSource: "subscription_period",
               tools: [
+                {
+                  toolCode: "document",
+                  displayName: "Documents",
+                  usedUnits: 1,
+                  reservedUnits: 0,
+                  settledUnits: 1,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: 10,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: 10,
+                  bonusExpiresAt: null,
+                  remainingUnits: 9,
+                  percent: 10,
+                  finiteLimit: true,
+                  usageAvailable: true,
+                  warningThresholdPercent: 90,
+                  warningThresholdReached: false,
+                  status: "ok"
+                },
                 {
                   toolCode: "image_generate",
                   displayName: "Image generation",
@@ -1075,12 +1264,11 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Pro")).toBeInTheDocument();
     expect(screen.getByText("Token budget")).toBeInTheDocument();
     expect(screen.getByText("2,100/10,000")).toBeInTheDocument();
-    expect(screen.getByText("Image generations")).toBeInTheDocument();
-    expect(screen.getByText("2 / 20")).toBeInTheDocument();
+    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(screen.getByText("1 / 10")).toBeInTheDocument();
+    expect(screen.queryByText("Image generations")).toBeNull();
     expect(screen.queryByText("Image edits")).toBeNull();
     expect(screen.queryByText("Code execution")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Image generations/i }));
-    expect(openPackagesPage).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Change plan" }));
     expect(openPricingPage).toHaveBeenCalledTimes(1);
 
@@ -1090,11 +1278,11 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Media storage")).toBeInTheDocument();
     expect(screen.getByText("Knowledge storage")).toBeInTheDocument();
     expect(screen.getByText("Code execution")).toBeInTheDocument();
-    expect(screen.getByText("Image editing")).toBeInTheDocument();
-    expect(screen.getByText("Off")).toBeInTheDocument();
+    expect(screen.queryByText("Image editing")).toBeNull();
+    expect(screen.queryByText("Off")).toBeNull();
   });
 
-  it("shows unavailable for media cards when the tool is disabled but a technical limit still exists", () => {
+  it("hides media monthly cards from the limits section even when technical media quotas exist", () => {
     renderSettings(
       makeAppData({
         plan: {
@@ -1194,10 +1382,10 @@ describe("AssistantSettings limits", () => {
       "limits"
     );
 
-    expect(screen.getByText("Image generations")).toBeInTheDocument();
-    expect(screen.getByText("4 / 20")).toBeInTheDocument();
-    expect(screen.getByText("Video generations")).toBeInTheDocument();
-    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Image generations")).toBeNull();
+    expect(screen.queryByText("4 / 20")).toBeNull();
+    expect(screen.queryByText("Video generations")).toBeNull();
+    expect(screen.queryByText("Unavailable")).toBeNull();
     expect(screen.queryByText("0/1")).toBeNull();
   });
 

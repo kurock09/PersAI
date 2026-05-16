@@ -10,6 +10,6 @@ import type { UserPlanVisibilityLimitsToolDailyLimitsItem } from "./userPlanVisi
 
 export interface UserPlanVisibilityLimits {
   quotaBuckets: QuotaVisibilityBucketState[];
-  monthlyMediaQuotas: MonthlyMediaQuotaSnapshot;
+  monthlyToolQuotas: MonthlyMediaQuotaSnapshot;
   toolDailyLimits: UserPlanVisibilityLimitsToolDailyLimitsItem[];
 }

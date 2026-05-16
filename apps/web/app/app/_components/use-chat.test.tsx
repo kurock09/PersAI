@@ -641,6 +641,57 @@ describe("useChat", () => {
     });
   });
 
+  it("refreshes history while activeDocumentJobs are present even without media jobs", async () => {
+    vi.useFakeTimers();
+    assistantApiMocks.getChatMessages
+      .mockResolvedValueOnce({
+        nextCursor: null,
+        activeTurn: null,
+        activeMediaJobs: [],
+        activeDocumentJobs: [
+          {
+            id: "doc-job-1",
+            documentType: "pdf_document",
+            descriptorMode: "create_pdf_document",
+            status: "running",
+            createdAt: "2026-05-16T19:12:52.000Z",
+            startedAt: "2026-05-16T19:12:53.000Z",
+            updatedAt: "2026-05-16T19:12:53.000Z"
+          }
+        ],
+        messages: []
+      })
+      .mockResolvedValue({
+        nextCursor: null,
+        activeTurn: null,
+        activeMediaJobs: [],
+        activeDocumentJobs: [],
+        messages: []
+      });
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+
+    expect(result.current.activeDocumentJobs).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(assistantApiMocks.getChatMessages).toHaveBeenCalledTimes(2);
+    expect(assistantApiMocks.getChatMessages).toHaveBeenNthCalledWith(
+      2,
+      "token-1",
+      "chat-1",
+      undefined,
+      20
+    );
+    vi.useRealTimers();
+  });
+
   it("clears the local streaming bubble when focus history already contains the completed turn", async () => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,

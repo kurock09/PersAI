@@ -8816,6 +8816,7 @@ components:
         toolCode:
           type: string
           enum:
+            - document
             - image_generate
             - image_edit
             - video_generate
@@ -8910,14 +8911,14 @@ components:
       type: object
       required:
         - quotaBuckets
-        - monthlyMediaQuotas
+        - monthlyToolQuotas
         - toolDailyLimits
       properties:
         quotaBuckets:
           type: array
           items:
             $ref: "#/components/schemas/QuotaVisibilityBucketState"
-        monthlyMediaQuotas:
+        monthlyToolQuotas:
           $ref: "#/components/schemas/MonthlyMediaQuotaSnapshot"
         toolDailyLimits:
           type: array
@@ -9305,7 +9306,7 @@ components:
         - planState
         - usagePressure
         - quotaBuckets
-        - monthlyMediaQuotas
+        - monthlyToolQuotas
         - effectiveEntitlements
         - updatedAt
       properties:
@@ -9317,7 +9318,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/QuotaVisibilityBucketState"
-        monthlyMediaQuotas:
+        monthlyToolQuotas:
           $ref: "#/components/schemas/MonthlyMediaQuotaSnapshot"
         effectiveEntitlements:
           allOf:

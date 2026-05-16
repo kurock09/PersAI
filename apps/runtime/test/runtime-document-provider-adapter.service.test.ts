@@ -129,7 +129,11 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                   ? input.providerOptions.pdfmonkeyTemplateId
                   : "template-123",
               filename: input.filename,
-              bytesBase64: Buffer.from("%PDF-test").toString("base64"),
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.alloc(1400, "A"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
               mimeType: "application/pdf",
               respondedAt: "2026-05-15T18:30:00.000Z",
               warning: null,
@@ -306,7 +310,11 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                   ? input.providerOptions.pdfmonkeyTemplateId
                   : "template-123",
               filename: input.filename,
-              bytesBase64: Buffer.from("%PDF-test").toString("base64"),
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.alloc(1400, "B"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
               mimeType: "application/pdf",
               respondedAt: "2026-05-16T17:25:02.000Z",
               warning: null,
@@ -430,6 +438,162 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.equal(result.providerStatus?.state, "success");
   });
 
+  test("normalizes escaped HTML fragments into a renderable document before provider dispatch", async () => {
+    const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
+
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: { outputSchema?: { name?: string } }) {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text:
+              input.outputSchema?.name === "document_job_completion"
+                ? JSON.stringify({ assistantText: null })
+                : JSON.stringify({
+                    htmlContent:
+                      '"<section><h1>Payback Graph</h1>\\n<p>Monthly revenue, break-even point, and окупаемость by month.</p></section>"'
+                  }),
+            respondedAt: "2026-05-16T19:35:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          gatewayCalls.push(input);
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-provider-fragment",
+              templateId:
+                input.providerOptions.outputFormat === "pdf"
+                  ? input.providerOptions.pdfmonkeyTemplateId
+                  : "template-123",
+              filename: input.filename,
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.from("Monthly revenue break-even окупаемость ".repeat(40), "utf8"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-16T19:35:05.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "success",
+                documentId: "doc-provider-fragment",
+                status: "success",
+                updatedAt: "2026-05-16T19:35:05.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-fragment-1",
+          docId: "doc-1",
+          versionId: "version-1",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "message-1",
+          sourceUserMessageText: "Create a payback graph document",
+          sourceUserMessageCreatedAt: "2026-05-16T19:34:00.000Z"
+        },
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt: "Create a payback graph document with monthly table",
+            requestedName: "payback-graph.pdf"
+          }
+        }
+      }
+    });
+
+    assert.equal(gatewayCalls.length, 1);
+    assert.match(gatewayCalls[0]!.htmlContent, /<!DOCTYPE html>/);
+    assert.match(gatewayCalls[0]!.htmlContent, /<section><h1>Payback Graph/);
+    assert.equal(result.artifacts.length, 1);
+  });
+
   test("normalizes requested PDF filenames without duplicating the extension", async () => {
     const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
 
@@ -469,7 +633,11 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                   ? input.providerOptions.pdfmonkeyTemplateId
                   : "template-123",
               filename: input.filename,
-              bytesBase64: Buffer.from("%PDF-test").toString("base64"),
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.alloc(1400, "C"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
               mimeType: "application/pdf",
               respondedAt: "2026-05-16T18:40:02.000Z",
               warning: null,
@@ -760,6 +928,170 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       (result.providerStatus?.providerFailure as { status?: string } | undefined)?.status,
       "http_401"
     );
+  });
+
+  test("retries once when the first PDF output is too small", async () => {
+    const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
+    let attempt = 0;
+
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: { outputSchema?: { name?: string } }) {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text:
+              input.outputSchema?.name === "document_job_completion"
+                ? JSON.stringify({ assistantText: "Your document is ready." })
+                : JSON.stringify({
+                    htmlContent:
+                      "<!DOCTYPE html><html><body><h1>Payback Plan</h1><p>Monthly revenue, break-even, and forecast table with realistic assumptions.</p></body></html>"
+                  }),
+            respondedAt: "2026-05-16T19:30:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          gatewayCalls.push(input);
+          attempt += 1;
+          const pdfBuffer =
+            attempt === 1
+              ? Buffer.alloc(681, 0)
+              : Buffer.concat([
+                  Buffer.from("%PDF-1.4\n", "utf8"),
+                  Buffer.from(
+                    "Monthly revenue break-even payback forecast assumptions table ".repeat(40),
+                    "utf8"
+                  ),
+                  Buffer.from("\n%%EOF", "utf8")
+                ]);
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: `doc-provider-${attempt}`,
+              templateId:
+                input.providerOptions.outputFormat === "pdf"
+                  ? input.providerOptions.pdfmonkeyTemplateId
+                  : "template-123",
+              filename: input.filename,
+              bytesBase64: pdfBuffer.toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-16T19:30:10.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "success",
+                documentId: `doc-provider-${attempt}`,
+                status: "success",
+                updatedAt: "2026-05-16T19:30:10.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-retry-1",
+          docId: "doc-1",
+          versionId: "version-1",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "message-1",
+          sourceUserMessageText: "Create a payback graph PDF",
+          sourceUserMessageCreatedAt: "2026-05-16T19:29:00.000Z"
+        },
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt: "Create a payback graph and financial plan",
+            requestedName: "payback-graph.pdf"
+          }
+        }
+      }
+    });
+
+    assert.equal(gatewayCalls.length, 2);
+    assert.equal(result.artifacts.length, 1);
+    assert.equal(result.providerStatus?.state, "success");
   });
 
   test("generates and persists a Gamma presentation artifact", async () => {

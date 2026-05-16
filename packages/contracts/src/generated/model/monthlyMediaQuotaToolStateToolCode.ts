@@ -10,6 +10,7 @@ export type MonthlyMediaQuotaToolStateToolCode =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const MonthlyMediaQuotaToolStateToolCode = {
+  document: "document",
   image_generate: "image_generate",
   image_edit: "image_edit",
   video_generate: "video_generate"

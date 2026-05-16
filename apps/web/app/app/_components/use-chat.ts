@@ -3935,7 +3935,11 @@ export function useChat(threadKey: string): UseChatReturn {
     setOlderMessagesLoading(false);
   }, [getToken, olderMessagesLoading]);
   useEffect(() => {
-    if (chatId === null || activeMediaJobs.length === 0 || isStreaming) {
+    if (
+      chatId === null ||
+      (activeMediaJobs.length === 0 && activeDocumentJobs.length === 0) ||
+      isStreaming
+    ) {
       return;
     }
     const timer = window.setInterval(() => {
@@ -3945,7 +3949,7 @@ export function useChat(threadKey: string): UseChatReturn {
       void refreshLatestHistory(chatId, { targetThreadKey: currentThreadKeyRef.current });
     }, 10_000);
     return () => window.clearInterval(timer);
-  }, [activeMediaJobs, chatId, isStreaming, refreshLatestHistory]);
+  }, [activeDocumentJobs, activeMediaJobs, chatId, isStreaming, refreshLatestHistory]);
   // Drop phantom "thinking" / blinking-cursor placeholders. If a streaming
   // assistant message has empty content AND there's a NEWER assistant
   // message below it, the older one is stale (background turn already
