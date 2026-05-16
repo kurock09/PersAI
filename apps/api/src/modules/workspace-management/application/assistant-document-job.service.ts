@@ -11,6 +11,8 @@ import type {
 import type { RuntimeOutputArtifact, RuntimeFileRef } from "@persai/runtime-contract";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export type AssistantDocumentSourcePayload = {
   prompt: string;
   instructions?: string | null;
@@ -64,6 +66,10 @@ export type AssistantDocumentExportOrRedeliverContext = AssistantDocumentRevisio
 @Injectable()
 export class AssistantDocumentJobService {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
+
+  isUuid(value: string | null | undefined): value is string {
+    return typeof value === "string" && UUID_REGEX.test(value.trim());
+  }
 
   async countOpenJobsForChat(input: { assistantId: string; chatId: string }): Promise<number> {
     return this.prisma.assistantDocumentRenderJob.count({
@@ -162,6 +168,9 @@ export class AssistantDocumentJobService {
     chatId: string;
     docId: string;
   }): Promise<AssistantDocumentRevisionContext | null> {
+    if (!this.isUuid(input.docId)) {
+      return null;
+    }
     const document = await this.prisma.assistantDocument.findFirst({
       where: {
         id: input.docId,
@@ -306,6 +315,9 @@ export class AssistantDocumentJobService {
     chatId: string;
     docId: string;
   }): Promise<AssistantDocumentExportOrRedeliverContext | null> {
+    if (!this.isUuid(input.docId)) {
+      return null;
+    }
     const document = await this.prisma.assistantDocument.findFirst({
       where: {
         id: input.docId,
@@ -389,6 +401,55 @@ export class AssistantDocumentJobService {
                   ? null
                   : Number(latestDeliveredAssistantFile.logicalSizeBytes)
             }
+    };
+  }
+
+  async findLatestRevisionContextForChat(input: {
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+  }): Promise<AssistantDocumentRevisionContext | null> {
+    const document = await this.prisma.assistantDocument.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        chatId: input.chatId,
+        currentVersionId: { not: null }
+      },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      select: {
+        id: true,
+        assistantId: true,
+        workspaceId: true,
+        chatId: true,
+        documentType: true,
+        currentVersionId: true,
+        currentVersion: {
+          select: {
+            id: true,
+            versionNumber: true,
+            sourceJson: true
+          }
+        }
+      }
+    });
+    if (
+      document === null ||
+      document.currentVersionId === null ||
+      document.currentVersion === null ||
+      document.currentVersion.id !== document.currentVersionId
+    ) {
+      return null;
+    }
+    return {
+      docId: document.id,
+      assistantId: document.assistantId,
+      workspaceId: document.workspaceId,
+      chatId: document.chatId,
+      documentType: document.documentType,
+      currentVersionId: document.currentVersion.id,
+      currentVersionNumber: document.currentVersion.versionNumber,
+      currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson)
     };
   }
 

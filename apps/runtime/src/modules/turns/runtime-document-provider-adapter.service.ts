@@ -830,21 +830,98 @@ export class RuntimeDocumentProviderAdapterService {
     if (text === null || text.trim().length === 0) {
       throw new Error(`${operation} returned empty output.`);
     }
+    const normalized = this.unwrapJsonCodeFence(text.trim());
     let parsed: unknown;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(normalized);
     } catch {
-      const match = text.match(/\{[\s\S]*\}/);
-      if (!match) {
-        throw new Error(`${operation} returned non-JSON output.`);
+      const extractedObject = this.extractJsonObjectCandidate(normalized);
+      if (extractedObject !== null) {
+        try {
+          parsed = JSON.parse(extractedObject);
+        } catch {
+          parsed = this.tryRecoverDocumentGenerationPayload(normalized, operation);
+        }
+      } else {
+        parsed = this.tryRecoverDocumentGenerationPayload(normalized, operation);
       }
-      parsed = JSON.parse(match[0]);
     }
     const row = this.asObject(parsed);
     if (row === null) {
       throw new Error(`${operation} returned an invalid JSON object.`);
     }
     return row;
+  }
+
+  private tryRecoverDocumentGenerationPayload(
+    text: string,
+    operation: "document_html_generation" | "document_completion_framing"
+  ): Record<string, unknown> | null {
+    if (operation !== "document_html_generation") {
+      return null;
+    }
+
+    const extractedHtml = this.extractHtmlContentCandidate(text);
+    if (extractedHtml !== null) {
+      return { htmlContent: extractedHtml };
+    }
+
+    if (this.looksLikeRawHtmlDocument(text)) {
+      return { htmlContent: text.trim() };
+    }
+
+    return null;
+  }
+
+  private extractJsonObjectCandidate(value: string): string | null {
+    const start = value.indexOf("{");
+    const end = value.lastIndexOf("}");
+    if (start === -1 || end === -1 || end <= start) {
+      return null;
+    }
+    return value.slice(start, end + 1);
+  }
+
+  private extractHtmlContentCandidate(value: string): string | null {
+    const keyIndex = value.indexOf('"htmlContent"');
+    if (keyIndex === -1) {
+      return null;
+    }
+    const colonIndex = value.indexOf(":", keyIndex);
+    if (colonIndex === -1) {
+      return null;
+    }
+    const afterColon = value.slice(colonIndex + 1).trimStart();
+    if (!afterColon.startsWith('"')) {
+      return this.looksLikeRawHtmlDocument(afterColon) ? afterColon.trim() : null;
+    }
+
+    const objectEnd = value.lastIndexOf("}");
+    const candidateEnd =
+      objectEnd > colonIndex ? value.lastIndexOf('"', objectEnd - 1) : value.lastIndexOf('"');
+    if (candidateEnd <= colonIndex) {
+      return null;
+    }
+
+    const rawValue = value.slice(value.indexOf('"', colonIndex) + 1, candidateEnd).trim();
+    if (!this.looksLikeRawHtmlDocument(rawValue)) {
+      return null;
+    }
+    return rawValue;
+  }
+
+  private looksLikeRawHtmlDocument(value: string): boolean {
+    const normalized = value.trim().toLowerCase();
+    return (
+      normalized.startsWith("<!doctype html") ||
+      normalized.startsWith("<html") ||
+      (normalized.includes("<body") && normalized.includes("</body>"))
+    );
+  }
+
+  private unwrapJsonCodeFence(value: string): string {
+    const fenceMatch = value.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    return fenceMatch?.[1]?.trim() ?? value;
   }
 
   private normalizeOptionalText(value: unknown): string | null {

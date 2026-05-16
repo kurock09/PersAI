@@ -20,6 +20,7 @@ import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-pr
 import { DOCUMENT_PROVIDER_CONFIG_KEYS } from "./tool-credential-settings";
 
 const MAX_OPEN_DOCUMENT_JOBS_PER_CHAT = 2;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type DocumentDirectToolExecutionPayload = {
   toolCode: "document";
@@ -374,27 +375,28 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       }
   > {
     const requestedDocId = input.requestedDocId?.trim() ?? "";
-    if (requestedDocId.length === 0) {
-      return {
-        accepted: false,
-        code: "document_revision_target_missing",
-        message: "Document revision requires a target doc_id.",
-        guidance: "Pass the existing document identifier when requesting a document revision."
-      };
-    }
-    const revisionContext = await this.assistantDocumentJobService.findRevisionContext({
-      assistantId: input.assistantId,
-      workspaceId: input.workspaceId,
-      chatId: input.chatId,
-      docId: requestedDocId
-    });
+    const revisionContext =
+      requestedDocId.length > 0 && this.isUuid(requestedDocId)
+        ? await this.assistantDocumentJobService.findRevisionContext({
+            assistantId: input.assistantId,
+            workspaceId: input.workspaceId,
+            chatId: input.chatId,
+            docId: requestedDocId
+          })
+        : await this.assistantDocumentJobService.findLatestRevisionContextForChat({
+            assistantId: input.assistantId,
+            workspaceId: input.workspaceId,
+            chatId: input.chatId
+          });
     if (revisionContext === null) {
       return {
         accepted: false,
         code: "document_not_found",
         message: "The requested document could not be found for this assistant chat.",
         guidance:
-          "Use a document created in this chat, or create a new document if you do not have a valid doc_id."
+          requestedDocId.length > 0
+            ? "Use a valid document created in this chat, or omit doc_id so PersAI can target the latest document in context."
+            : "Use a document created in this chat, or create a new document if there is no existing document to revise."
       };
     }
     const provider = revisionContext.documentType === "presentation" ? "gamma" : "pdfmonkey";
@@ -456,6 +458,14 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         code: "document_export_target_missing",
         message: "Document export or redelivery requires a target doc_id.",
         guidance: "Pass the existing document identifier when requesting document redelivery."
+      };
+    }
+    if (!this.isUuid(requestedDocId)) {
+      return {
+        accepted: false,
+        code: "document_not_found",
+        message: "The requested document could not be found for this assistant chat.",
+        guidance: "Pass a valid document doc_id when requesting document redelivery or export."
       };
     }
 
@@ -584,6 +594,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       throw new BadRequestException(`${fieldName} must be a non-empty string.`);
     }
     return value.trim();
+  }
+
+  private isUuid(value: string | null | undefined): value is string {
+    return typeof value === "string" && UUID_REGEX.test(value.trim());
   }
 
   private optionalRecord(value: unknown): Record<string, unknown> | null {

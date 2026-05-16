@@ -269,12 +269,12 @@ async function runRevisionAcceptedCase(): Promise<void> {
       },
       async findRevisionContext() {
         return {
-          docId: "doc-existing",
+          docId: "12345678-1234-4234-9234-1234567890ab",
           assistantId: "assistant-1",
           workspaceId: "workspace-1",
           chatId: "chat-1",
           documentType: "presentation" as const,
-          currentVersionId: "version-3",
+          currentVersionId: "22345678-1234-4234-9234-1234567890ab",
           currentVersionNumber: 3,
           currentSourceJson: {
             prompt: "Original deck",
@@ -283,12 +283,15 @@ async function runRevisionAcceptedCase(): Promise<void> {
           }
         };
       },
+      async findLatestRevisionContextForChat() {
+        throw new Error("latest revision fallback should not run when docId is already valid");
+      },
       async enqueueRevision(input) {
         enqueueCalls += 1;
         capturedRevisionRequest = input as Record<string, unknown>;
         return {
-          docId: "doc-existing",
-          versionId: "version-4",
+          docId: "12345678-1234-4234-9234-1234567890ab",
+          versionId: "32345678-1234-4234-9234-1234567890ab",
           renderJobId: "render-4",
           status: "queued" as const
         };
@@ -357,7 +360,7 @@ async function runRevisionAcceptedCase(): Promise<void> {
       descriptorMode: "revise_document",
       request: {
         prompt: "Shorten slide 3",
-        docId: "doc-existing",
+        docId: "12345678-1234-4234-9234-1234567890ab",
         outputFormat: "pptx"
       }
     }
@@ -365,8 +368,8 @@ async function runRevisionAcceptedCase(): Promise<void> {
 
   assert.deepEqual(result, {
     accepted: true,
-    docId: "doc-existing",
-    versionId: "version-4",
+    docId: "12345678-1234-4234-9234-1234567890ab",
+    versionId: "32345678-1234-4234-9234-1234567890ab",
     renderJobId: "render-4",
     documentType: "presentation"
   });
@@ -397,6 +400,151 @@ async function runRevisionAcceptedCase(): Promise<void> {
     ).request.sourceJson.outputFormat,
     "pptx"
   );
+}
+
+async function runRevisionFallsBackToLatestChatDocumentWhenDocIdIsNotUuid(): Promise<void> {
+  let enqueueCalls = 0;
+  let findRevisionContextCalls = 0;
+  let findLatestRevisionContextCalls = 0;
+
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    {
+      async findMessageByIdForAssistant(messageId: string, assistantId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "user" as const,
+          createdAt: new Date("2026-05-16T12:00:00.000Z")
+        };
+      },
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "web" as const
+        };
+      }
+    } as never,
+    {
+      async countOpenJobsForChat() {
+        return 0;
+      },
+      async enqueue() {
+        throw new Error("plain enqueue should not run for revision");
+      },
+      async findRevisionContext() {
+        findRevisionContextCalls += 1;
+        return null;
+      },
+      async findLatestRevisionContextForChat() {
+        findLatestRevisionContextCalls += 1;
+        return {
+          docId: "12345678-1234-4234-9234-1234567890ab",
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          documentType: "pdf_document" as const,
+          currentVersionId: "version-1",
+          currentVersionNumber: 1,
+          currentSourceJson: {
+            prompt: "Original document",
+            outputFormat: "pdf",
+            requestedName: "PersAI overview"
+          }
+        };
+      },
+      async enqueueRevision() {
+        enqueueCalls += 1;
+        return {
+          docId: "12345678-1234-4234-9234-1234567890ab",
+          versionId: "version-2",
+          renderJobId: "render-2",
+          status: "queued" as const
+        };
+      }
+    } as never,
+    {
+      async build() {
+        return null;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          monthlyToolQuotas: {
+            planCode: "pro",
+            periodStartedAt: "2026-05-01T00:00:00.000Z",
+            periodEndsAt: "2026-06-01T00:00:00.000Z",
+            periodSource: "subscription_period" as const,
+            tools: [
+              {
+                toolCode: "document",
+                displayName: "Document",
+                usedUnits: 0,
+                reservedUnits: 0,
+                settledUnits: 0,
+                releasedUnits: 0,
+                reconciliationRequiredUnits: 0,
+                limitUnits: 10,
+                effectiveLimitUnits: 10,
+                remainingUnits: 10,
+                usageAvailable: true,
+                status: "ok" as const
+              }
+            ]
+          }
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          tools: [
+            {
+              toolCode: "document",
+              activationStatus: "active" as const
+            }
+          ]
+        };
+      }
+    } as never,
+    {
+      async resolveSecretValueByProviderKey() {
+        return "template-123";
+      }
+    } as never
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Обнови документ",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "revise_document",
+      request: {
+        prompt: "Refresh the overview section",
+        docId: "PersAI_overview_and_competitor_comparison.pdf.pdf",
+        outputFormat: "pdf"
+      }
+    }
+  });
+
+  assert.deepEqual(result, {
+    accepted: true,
+    docId: "12345678-1234-4234-9234-1234567890ab",
+    versionId: "version-2",
+    renderJobId: "render-2",
+    documentType: "pdf_document"
+  });
+  assert.equal(findRevisionContextCalls, 0);
+  assert.equal(findLatestRevisionContextCalls, 1);
+  assert.equal(enqueueCalls, 1);
 }
 
 async function runPdfTemplateAdmissionRejectCase(): Promise<void> {
@@ -518,6 +666,7 @@ async function run(): Promise<void> {
   await runAcceptedCase();
   await runLimitReachedCase();
   await runRevisionAcceptedCase();
+  await runRevisionFallsBackToLatestChatDocumentWhenDocIdIsNotUuid();
   await runPdfTemplateAdmissionRejectCase();
 }
 

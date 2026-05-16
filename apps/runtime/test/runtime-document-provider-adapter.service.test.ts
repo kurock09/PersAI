@@ -270,6 +270,166 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.equal(result.providerStatus?.state, "success");
   });
 
+  test("recovers htmlContent when model wraps or truncates schema JSON around a valid HTML document", async () => {
+    const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
+
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: { outputSchema?: { name?: string } }) {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text:
+              input.outputSchema?.name === "document_job_completion"
+                ? JSON.stringify({
+                    assistantText: null
+                  })
+                : '```json\n{"htmlContent":"<!DOCTYPE html><html><body><h1>Recovered Brief</h1><p>Customer-ready PDF content that should still render even if the model leaves trailing JSON noise.</p></body></html>\n```',
+            respondedAt: "2026-05-16T17:25:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          gatewayCalls.push(input);
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-provider-2",
+              templateId:
+                input.providerOptions.outputFormat === "pdf"
+                  ? input.providerOptions.pdfmonkeyTemplateId
+                  : "template-123",
+              filename: input.filename,
+              bytesBase64: Buffer.from("%PDF-test").toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-16T17:25:02.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "success",
+                documentId: "doc-provider-2",
+                documentTemplateId:
+                  input.providerOptions.outputFormat === "pdf"
+                    ? input.providerOptions.pdfmonkeyTemplateId
+                    : "template-123",
+                downloadUrl: "https://example.com/document-2.pdf",
+                previewUrl: "https://example.com/preview-2",
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf",
+                status: "success",
+                updatedAt: "2026-05-16T17:25:02.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-2",
+          docId: "doc-2",
+          versionId: "version-2",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "message-2",
+          sourceUserMessageText: "Create a recovered PDF brief",
+          sourceUserMessageCreatedAt: "2026-05-16T17:24:00.000Z"
+        },
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt: "Create a concise recovered business brief",
+            requestedName: "Recovered Brief"
+          }
+        }
+      }
+    });
+
+    assert.equal(gatewayCalls.length, 1);
+    assert.match(gatewayCalls[0]!.htmlContent, /Recovered Brief/);
+    assert.equal(result.artifacts.length, 1);
+    assert.equal(result.providerStatus?.state, "success");
+  });
+
   test("returns honest template_not_configured status when materialized PDFMonkey template is missing", async () => {
     const service = new RuntimeDocumentProviderAdapterService(
       {
