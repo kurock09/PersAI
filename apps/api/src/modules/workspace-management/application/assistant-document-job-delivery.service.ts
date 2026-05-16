@@ -17,6 +17,10 @@ import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-c
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { AssistantDocumentJobCompletionTurnService } from "./assistant-document-job-completion-turn.service";
+import {
+  buildAssistantDocumentJobFailureMessage,
+  inferAssistantDocumentJobFailureLocale
+} from "./assistant-document-job-failure-copy.service";
 
 const DOCUMENT_DELIVERY_LAST_ERROR_MAX_CHARS = 1_000;
 const DOCUMENT_JOB_CLAIM_TTL_MS = 10 * 60 * 1000;
@@ -243,19 +247,20 @@ export class AssistantDocumentJobDeliveryService {
           error instanceof Error ? error.message : "Document delivery recovery failed."
         );
       } else if (typeof currentPayload?.completionAssistantMessageId === "string") {
-        await this.assistantChatRepository
-          .deleteMessage(currentPayload.completionAssistantMessageId, job.assistantId)
-          .catch(() => {});
-        await this.failJob(
+        await this.failDelivery(
           job,
           "document_delivery_failed",
-          error instanceof Error ? error.message : "Document delivery failed."
+          error instanceof Error ? error.message : "Document delivery failed.",
+          currentPayload,
+          currentPayload.completionAssistantMessageId
         );
       } else {
-        await this.failJob(
+        await this.failDelivery(
           job,
           "document_delivery_failed",
-          error instanceof Error ? error.message : "Document delivery failed."
+          error instanceof Error ? error.message : "Document delivery failed.",
+          currentPayload,
+          null
         );
       }
     } finally {
@@ -415,13 +420,12 @@ export class AssistantDocumentJobDeliveryService {
         mimeType: attachment.mimeType
       }));
     if (normalized.length === 0) {
-      await this.assistantChatRepository
-        .deleteMessage(completionAssistantMessageId, job.assistantId)
-        .catch(() => {});
-      await this.failJob(
+      await this.failDelivery(
         job,
         "document_delivery_failed",
-        "Generated document could not be delivered to the chat."
+        "Generated document could not be delivered to the chat.",
+        payload,
+        completionAssistantMessageId
       );
       return null;
     }
@@ -692,6 +696,90 @@ export class AssistantDocumentJobDeliveryService {
     });
   }
 
+  private async tryLlmAuthoredFailureCopy(input: {
+    job: ClaimedReadyDocumentJob;
+    payload: PersistedDeliveryPayload | null;
+    code: string;
+    message: string;
+  }): Promise<string | null> {
+    const payload = input.payload;
+    if (payload === null) {
+      return null;
+    }
+    try {
+      return await this.assistantDocumentJobCompletionTurnService.maybeFrameFailure({
+        id: input.job.id,
+        docId: input.job.docId,
+        versionId: input.job.versionId,
+        assistantId: input.job.assistantId,
+        workspaceId: input.job.workspaceId,
+        chatId: input.job.chatId,
+        surface: input.job.surface,
+        outputFormat: this.readOutputFormat(payload),
+        descriptorMode: this.readDescriptorMode(payload),
+        sourceUserMessageId: this.readSourceUserMessageId(payload),
+        sourceUserMessageText: this.readSourceUserMessageText(payload),
+        sourceUserMessageCreatedAt: this.readSourceUserMessageCreatedAt(payload),
+        failure: {
+          code: input.code,
+          message: input.message,
+          attemptCount: 1,
+          maxAttempts: 1,
+          retryable: false,
+          stage: "delivery"
+        }
+      });
+    } catch (error) {
+      this.logger.warn(
+        `LLM document failure-framing threw for job ${input.job.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    }
+  }
+
+  private async ensureFailureMessage(input: {
+    job: ClaimedReadyDocumentJob;
+    failureMessage: string;
+    completionAssistantMessageId: string | null;
+  }): Promise<string | null> {
+    if (input.completionAssistantMessageId !== null) {
+      try {
+        await this.assistantChatRepository.updateMessageContent(
+          input.completionAssistantMessageId,
+          input.job.assistantId,
+          input.failureMessage
+        );
+        return input.completionAssistantMessageId;
+      } catch (error) {
+        this.logger.warn(
+          `Failed to update terminal document-job failure message for ${input.job.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        return input.completionAssistantMessageId;
+      }
+    }
+
+    try {
+      const created = await this.assistantChatRepository.createMessage({
+        chatId: input.job.chatId,
+        assistantId: input.job.assistantId,
+        author: "assistant",
+        content: input.failureMessage
+      });
+      return created.id;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to create terminal document-job failure message for ${input.job.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    }
+  }
+
   private async deferRetry(
     job: ClaimedReadyDocumentJob,
     payload: PersistedDeliveryPayload,
@@ -716,10 +804,54 @@ export class AssistantDocumentJobDeliveryService {
     });
   }
 
+  private async failDelivery(
+    job: ClaimedReadyDocumentJob,
+    code: string,
+    message: string,
+    payload: PersistedDeliveryPayload | null,
+    completionAssistantMessageId: string | null
+  ): Promise<void> {
+    const locale = inferAssistantDocumentJobFailureLocale({
+      preferredLocale: null,
+      sourceText: payload?.sourceUserMessageText ?? null
+    });
+    const llmAuthored = await this.tryLlmAuthoredFailureCopy({
+      job,
+      payload,
+      code,
+      message
+    });
+    const failureMessage =
+      llmAuthored ??
+      buildAssistantDocumentJobFailureMessage({
+        code,
+        message,
+        locale
+      });
+    const persistedMessageId = await this.ensureFailureMessage({
+      job,
+      failureMessage,
+      completionAssistantMessageId
+    });
+    const persistedPayload =
+      payload === null
+        ? persistedMessageId === null
+          ? null
+          : ({
+              completionAssistantMessageId: persistedMessageId
+            } satisfies Partial<PersistedDeliveryPayload>)
+        : ({
+            ...payload,
+            completionAssistantMessageId: persistedMessageId
+          } satisfies PersistedDeliveryPayload);
+    await this.failJob(job, code, message, persistedPayload);
+  }
+
   private async failJob(
     job: ClaimedReadyDocumentJob,
     code: string,
-    message: string
+    message: string,
+    payload?: PersistedDeliveryPayload | Partial<PersistedDeliveryPayload> | null
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.assistantDocumentRenderJob.updateMany({
@@ -736,7 +868,12 @@ export class AssistantDocumentJobDeliveryService {
           schedulerClaimExpiresAt: null,
           nextRetryAt: null,
           lastErrorCode: code,
-          lastErrorMessage: this.truncateLastError(message)
+          lastErrorMessage: this.truncateLastError(message),
+          ...(payload === undefined
+            ? {}
+            : {
+                providerStatusJson: (payload ?? {}) as never
+              })
         }
       });
       if (claimed.count === 0) {

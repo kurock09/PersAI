@@ -487,6 +487,15 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                 provider: "pdfmonkey",
                 state: "success",
                 documentId: "doc-provider-fragment",
+                documentTemplateId:
+                  input.providerOptions.outputFormat === "pdf"
+                    ? input.providerOptions.pdfmonkeyTemplateId
+                    : "template-123",
+                downloadUrl: "https://example.com/document-fragment.pdf",
+                previewUrl: "https://example.com/document-fragment/preview",
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf",
                 status: "success",
                 updatedAt: "2026-05-16T19:35:05.000Z"
               }
@@ -988,6 +997,15 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                 provider: "pdfmonkey",
                 state: "success",
                 documentId: `doc-provider-${attempt}`,
+                documentTemplateId:
+                  input.providerOptions.outputFormat === "pdf"
+                    ? input.providerOptions.pdfmonkeyTemplateId
+                    : "template-123",
+                downloadUrl: `https://example.com/document-${attempt}.pdf`,
+                previewUrl: `https://example.com/document-${attempt}/preview`,
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf",
                 status: "success",
                 updatedAt: "2026-05-16T19:30:10.000Z"
               }

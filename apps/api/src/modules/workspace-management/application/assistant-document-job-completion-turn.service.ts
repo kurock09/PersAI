@@ -33,6 +33,33 @@ type DocumentJobCompletionInput = {
   artifacts: RuntimeOutputArtifact[];
 };
 
+type DocumentJobFailureFramingInput = {
+  id: string;
+  docId: string;
+  versionId: string;
+  assistantId: string;
+  workspaceId: string;
+  chatId: string;
+  surface: "web" | "telegram";
+  outputFormat: "pdf" | "pptx";
+  descriptorMode:
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver";
+  sourceUserMessageId: string;
+  sourceUserMessageText: string;
+  sourceUserMessageCreatedAt: string;
+  failure: {
+    code: string | null;
+    message: string;
+    attemptCount: number;
+    maxAttempts: number;
+    retryable: boolean;
+    stage: "execution" | "delivery";
+  };
+};
+
 @Injectable()
 export class AssistantDocumentJobCompletionTurnService {
   private readonly logger = new Logger(AssistantDocumentJobCompletionTurnService.name);
@@ -93,6 +120,52 @@ export class AssistantDocumentJobCompletionTurnService {
     if (!outcome.ok) {
       this.logger.warn(
         `Document completion framing call failed for job ${input.id}: ${outcome.message}`
+      );
+      return null;
+    }
+    const text = outcome.result.assistantText?.trim() ?? "";
+    return text.length === 0 ? null : text;
+  }
+
+  async maybeFrameFailure(input: DocumentJobFailureFramingInput): Promise<string | null> {
+    let context: Awaited<
+      ReturnType<AssistantDocumentJobCompletionTurnService["loadFramingContext"]>
+    >;
+    try {
+      context = await this.loadFramingContext(input.assistantId, input.chatId);
+    } catch (error) {
+      this.logger.warn(
+        `Skipping LLM document failure-framing for job ${input.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    }
+
+    const outcome = await this.internalRuntimeDocumentJobClientService.complete({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      runtimeTier: context.runtimeTier,
+      runtimeBundleDocument: context.runtimeBundleDocument,
+      job: {
+        id: input.id,
+        docId: input.docId,
+        versionId: input.versionId,
+        surface: input.surface,
+        chatId: input.chatId,
+        outputFormat: input.outputFormat,
+        descriptorMode: input.descriptorMode,
+        sourceUserMessageId: input.sourceUserMessageId,
+        sourceUserMessageText: input.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt
+      },
+      currentHistory: context.history,
+      failure: input.failure
+    });
+
+    if (!outcome.ok) {
+      this.logger.warn(
+        `LLM document failure-framing call failed for job ${input.id}: ${outcome.message}`
       );
       return null;
     }

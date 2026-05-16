@@ -2009,13 +2009,21 @@ export interface RuntimeDocumentJobCompletionRequest {
     content: string;
     createdAt: IsoTimestamp;
   }>;
-  workerResult: {
+  workerResult?: {
     assistantText: string | null;
     artifacts: Array<{
       type: RuntimeOutputArtifact["kind"];
       filename: string | null;
       fileRef: string | null;
     }>;
+  };
+  failure?: {
+    code: string | null;
+    message: string;
+    attemptCount: number;
+    maxAttempts: number;
+    retryable: boolean;
+    stage: "execution" | "delivery";
   };
 }
 

@@ -479,13 +479,18 @@ describe("AssistantDocumentJobDeliveryService", () => {
 
   test("keeps the previous ready document current when a revision delivery fails", async () => {
     const documentUpdates: Array<Record<string, unknown>> = [];
+    const renderJobUpdates: Array<Record<string, unknown>> = [];
+    const messageUpdates: Array<Record<string, unknown>> = [];
 
     const service = new AssistantDocumentJobDeliveryService(
       {
         $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
           callback({
             assistantDocumentRenderJob: {
-              updateMany: async () => ({ count: 1 })
+              updateMany: async (input: Record<string, unknown>) => {
+                renderJobUpdates.push(input);
+                return { count: 1 };
+              }
             },
             assistantDocumentVersion: {
               update: async () => undefined
@@ -502,8 +507,12 @@ describe("AssistantDocumentJobDeliveryService", () => {
           })
       } as never,
       {} as never,
-      {} as never,
-      {} as never,
+      {
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
+          messageUpdates.push({ messageId, assistantId, content });
+          return null;
+        }
+      } as never,
       {} as never,
       {} as never,
       {} as never,
@@ -511,15 +520,24 @@ describe("AssistantDocumentJobDeliveryService", () => {
       {
         async maybeFrame() {
           return null;
+        },
+        async maybeFrameFailure() {
+          return "Не удалось подготовить документ. Попробуйте запустить запрос еще раз.";
         }
       } as never
     );
 
     await (
       service as unknown as {
-        failJob: (job: Record<string, unknown>, code: string, message: string) => Promise<void>;
+        failDelivery: (
+          job: Record<string, unknown>,
+          code: string,
+          message: string,
+          payload: Record<string, unknown>,
+          completionAssistantMessageId: string | null
+        ) => Promise<void>;
       }
-    ).failJob(
+    ).failDelivery(
       {
         id: "job-revision-failed-1",
         docId: "doc-1",
@@ -531,7 +549,16 @@ describe("AssistantDocumentJobDeliveryService", () => {
         schedulerClaimToken: "claim-failed-1"
       },
       "document_delivery_failed",
-      "delivery failed"
+      "delivery failed",
+      {
+        descriptorMode: "revise_document",
+        outputFormat: "pdf",
+        sourceUserMessageId: "user-message-1",
+        sourceUserMessageText: "Поправь документ",
+        sourceUserMessageCreatedAt: "2026-05-16T20:00:00.000Z",
+        completionAssistantMessageId: "assistant-message-failed-1"
+      },
+      "assistant-message-failed-1"
     );
 
     assert.equal(
@@ -543,6 +570,159 @@ describe("AssistantDocumentJobDeliveryService", () => {
     assert.equal(
       documentUpdates.some((input) => input.data?.status === "failed"),
       false
+    );
+    assert.equal(
+      messageUpdates.some(
+        (entry) =>
+          entry.messageId === "assistant-message-failed-1" &&
+          entry.content === "Не удалось подготовить документ. Попробуйте запустить запрос еще раз."
+      ),
+      true
+    );
+    assert.equal(
+      renderJobUpdates.some(
+        (input) =>
+          input.data?.providerStatusJson?.completionAssistantMessageId ===
+          "assistant-message-failed-1"
+      ),
+      true
+    );
+  });
+
+  test("replaces the optimistic completion text with a user-visible failure message when web delivery fails", async () => {
+    const renderJobUpdates: Array<Record<string, unknown>> = [];
+    const messageUpdates: Array<Record<string, unknown>> = [];
+
+    const service = new AssistantDocumentJobDeliveryService(
+      {
+        assistantDocumentRenderJob: {
+          updateMany: async (input: Record<string, unknown>) => {
+            renderJobUpdates.push(input);
+            return { count: 1 };
+          }
+        },
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              updateMany: async (input: Record<string, unknown>) => {
+                renderJobUpdates.push(input);
+                return { count: 1 };
+              }
+            },
+            assistantDocumentDeliveredFile: {
+              updateMany: async () => ({ count: 0 }),
+              findMany: async () => [],
+              update: async () => undefined,
+              create: async () => undefined
+            },
+            assistantDocumentVersion: {
+              update: async () => undefined
+            },
+            assistantDocument: {
+              findUnique: async () => ({
+                currentVersionId: "version-1"
+              }),
+              update: async () => undefined
+            }
+          })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
+          messageUpdates.push({ messageId, assistantId, content });
+          return null;
+        },
+        deleteMessage: async () => true
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram resolution should not run for web jobs");
+        }
+      } as never,
+      {
+        async consumeAssistantMonthlyToolQuotaSuccessOnly() {}
+      } as never,
+      {
+        async maybeFrame() {
+          return null;
+        },
+        async maybeFrameFailure(input: Record<string, unknown>) {
+          return `LLM failure: ${String(input.failure?.message ?? "unknown failure")}`;
+        }
+      } as never
+    );
+
+    await service.deliverReadyJob({
+      id: "job-failure-followup-1",
+      docId: "doc-1",
+      versionId: "version-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      schedulerClaimToken: "claim-failure-followup-1",
+      providerStatusJson: {
+        descriptorMode: "create_pdf_document",
+        outputFormat: "pdf",
+        sourceUserMessageId: "user-message-1",
+        sourceUserMessageText: "Сделай PDF отчет",
+        sourceUserMessageCreatedAt: "2026-05-16T20:10:00.000Z",
+        artifacts: [
+          {
+            kind: "file",
+            fileRef: "file-1",
+            mimeType: "application/pdf",
+            filename: "report.pdf"
+          }
+        ],
+        assistantText: "Preparing your document...",
+        completionAssistantMessageId: "assistant-message-failure-followup-1"
+      }
+    });
+
+    assert.equal(
+      messageUpdates.some(
+        (entry) =>
+          entry.messageId === "assistant-message-failure-followup-1" &&
+          entry.content === "LLM failure: Generated document could not be delivered to the chat."
+      ),
+      true
+    );
+    assert.equal(
+      renderJobUpdates.some(
+        (input) =>
+          input.data?.status === "failed" &&
+          input.data?.providerStatusJson?.completionAssistantMessageId ===
+            "assistant-message-failure-followup-1"
+      ),
+      true
     );
   });
 

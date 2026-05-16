@@ -51,6 +51,16 @@ export class RuntimeDocumentJobCompletionService {
       if (bundle.metadata.workspaceId !== input.workspaceId) {
         throw new BadRequestException("runtimeBundleDocument workspaceId does not match request.");
       }
+      if (input.workerResult === undefined && input.failure === undefined) {
+        throw new BadRequestException(
+          "Document-job completion requires either workerResult or failure context."
+        );
+      }
+      if (input.workerResult !== undefined && input.failure !== undefined) {
+        throw new BadRequestException(
+          "Document-job completion request cannot carry both workerResult and failure."
+        );
+      }
       const syntheticTurn = this.buildSyntheticTurnRequest(input, bundle);
       const acceptedTurn = await this.turnAcceptanceService.acceptTurn(syntheticTurn);
       switch (acceptedTurn.outcome) {
@@ -111,6 +121,7 @@ export class RuntimeDocumentJobCompletionService {
   ): RuntimeTurnRequest {
     const bundleHash = hashAssistantRuntimeBundleDocument(input.runtimeBundleDocument);
     const key = this.buildCompletionKey(input);
+    const isFailure = input.failure !== undefined;
     return {
       requestId: key,
       idempotencyKey: key,
@@ -127,12 +138,16 @@ export class RuntimeDocumentJobCompletionService {
         assistantId: input.assistantId,
         workspaceId: input.workspaceId,
         channel: input.job.surface,
-        externalThreadKey: `system:document-job-completion:${input.job.id}`,
+        externalThreadKey: isFailure
+          ? `system:document-job-failure:${input.job.id}`
+          : `system:document-job-completion:${input.job.id}`,
         externalUserKey: null,
         mode: "direct"
       },
       message: {
-        text: `Complete async document job ${input.job.id}`,
+        text: isFailure
+          ? `Explain failed async document job ${input.job.id}`
+          : `Complete async document job ${input.job.id}`,
         attachments: [],
         locale: bundle.userContext.locale,
         timezone: bundle.userContext.timezone,
@@ -148,17 +163,30 @@ export class RuntimeDocumentJobCompletionService {
     bundle: AssistantRuntimeBundle,
     providerSelection: ProviderSelection
   ): ProviderGatewayTextGenerateRequest {
+    const isFailure = input.failure !== undefined;
     const developerInstructions = [
       this.normalizeOptionalText(bundle.promptConstructor.ordinary.sections.heartbeat),
-      [
-        "You are framing the completion of a finished PersAI async document job.",
-        "Backend state already owns the job, file delivery, idempotency, and quota truth.",
-        "Write only optional user-facing completion text.",
-        "If the worker text should be reused unchanged, return assistantText=null.",
-        "Do not claim the file was already sent, attached, uploaded, or delivered.",
-        "Do not mention internal providers, templates, job ids, or technical pipeline details.",
-        "Keep the text short, calm, and aware of the latest chat context."
-      ].join("\n")
+      isFailure
+        ? [
+            "You are explaining to the user that a PersAI async document job did NOT finish successfully.",
+            "Backend state already owns job status, retries, delivery truth, and quota truth.",
+            "The provider/runtime error reason is in failure.message and failure.code; treat it as the only authoritative reason.",
+            "Tell the user, in their language, what the document request tried to do and why it did not finish, in honest, calm, brief words.",
+            "If the failure looks like a provider safety/policy/content block, say so plainly and suggest rephrasing without disallowed details.",
+            "If the failure looks like a transient infrastructure issue and failure.retryable=true, suggest trying again shortly.",
+            "Do not invent technical details, retry counts, internal ids, provider names, template ids, or hidden system behavior.",
+            "Do not claim the file was sent, attached, uploaded, or delivered when it was not.",
+            "Keep the message short (1-3 sentences), human, and aware of the latest chat context."
+          ].join("\n")
+        : [
+            "You are framing the completion of a finished PersAI async document job.",
+            "Backend state already owns the job, file delivery, idempotency, and quota truth.",
+            "Write only optional user-facing completion text.",
+            "If the worker text should be reused unchanged, return assistantText=null.",
+            "Do not claim the file was already sent, attached, uploaded, or delivered.",
+            "Do not mention internal providers, templates, job ids, or technical pipeline details.",
+            "Keep the text short, calm, and aware of the latest chat context."
+          ].join("\n")
     ]
       .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
       .join("\n\n");
@@ -177,7 +205,7 @@ export class RuntimeDocumentJobCompletionService {
               text: JSON.stringify(
                 {
                   currentTimeIso: new Date().toISOString(),
-                  mode: "document_completion_framing",
+                  mode: isFailure ? "document_failure_explanation" : "document_completion_framing",
                   job: {
                     id: input.job.id,
                     docId: input.job.docId,
@@ -200,7 +228,13 @@ export class RuntimeDocumentJobCompletionService {
                     userLocale: bundle.userContext.locale,
                     userTimezone: bundle.userContext.timezone
                   },
-                  workerResult: input.workerResult
+                  ...(isFailure
+                    ? {
+                        failure: input.failure
+                      }
+                    : {
+                        workerResult: input.workerResult
+                      })
                 },
                 null,
                 2
