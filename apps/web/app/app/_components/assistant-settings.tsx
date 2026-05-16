@@ -583,6 +583,7 @@ export function AssistantSettings({
   initialSection,
   onOpenTelegramSettings,
   onOpenPricingPage,
+  onOpenPackagesPage,
   onStartBillingCheckout
 }: AssistantSettingsProps) {
   const router = useRouter();
@@ -644,9 +645,6 @@ export function AssistantSettings({
         bucket.bucketCode
       )
     ) ?? [];
-  const mediaToolActiveByCode = new Map(
-    (data.plan?.limits.toolDailyLimits ?? []).map((tool) => [tool.toolCode, tool.active])
-  );
   const monthlyToolQuotaSnapshot =
     data.plan?.limits.monthlyToolQuotas ??
     (
@@ -659,8 +657,15 @@ export function AssistantSettings({
     (monthlyToolQuotaSnapshot?.tools as MonthlyToolQuotaToolState[] | undefined)?.find(
       (tool) => tool.toolCode === "document"
     ) ?? null;
-  const isMonthlyMediaQuotaToolAvailable = (tool: MonthlyToolQuotaToolState): boolean =>
-    mediaToolActiveByCode.get(tool.toolCode) ?? true;
+  const visibleMonthlyMediaQuotas = (
+    (monthlyToolQuotaSnapshot?.tools as MonthlyToolQuotaToolState[] | undefined) ?? []
+  )
+    .filter((tool) => ["image_generate", "image_edit", "video_generate"].includes(tool.toolCode))
+    .sort((left, right) => {
+      const leftLabel = toolLimitLabels[left.toolCode] ?? left.displayName;
+      const rightLabel = toolLimitLabels[right.toolCode] ?? right.displayName;
+      return leftLabel.localeCompare(rightLabel, locale);
+    });
   const allToolDailyLimits =
     [...(data.plan?.limits.toolDailyLimits ?? [])]
       .filter(
@@ -689,9 +694,6 @@ export function AssistantSettings({
     return bucket.limit === null ? usedLabel : `${usedLabel}/${limitLabel}`;
   };
   const formatMonthlyMediaQuotaValue = (tool: MonthlyToolQuotaToolState): string => {
-    if (!isMonthlyMediaQuotaToolAvailable(tool)) {
-      return t("limitUnavailable");
-    }
     const base = tool.limitUnits;
     const bonus = tool.bonusLimitUnits ?? 0;
     const effectiveLimit = tool.effectiveLimitUnits ?? base ?? null;
@@ -704,9 +706,6 @@ export function AssistantSettings({
     return `${tool.usedUnits} / ${effectiveLimit}`;
   };
   const formatMonthlyMediaRemainingSubline = (tool: MonthlyToolQuotaToolState): string | null => {
-    if (!isMonthlyMediaQuotaToolAvailable(tool)) {
-      return null;
-    }
     const effectiveLimit = tool.effectiveLimitUnits ?? tool.limitUnits ?? null;
     if (effectiveLimit === null) {
       return null;
@@ -2800,14 +2799,23 @@ export function AssistantSettings({
                 </div>
               )}
 
-              {documentMonthlyQuota !== null ? (
-                <div className="mt-4">
-                  <LimitMetricCard
-                    label={documentMonthlyQuota.displayName}
-                    value={formatMonthlyMediaQuotaValue(documentMonthlyQuota)}
-                    secondary={formatMonthlyMediaRemainingSubline(documentMonthlyQuota)}
-                    hasBonus={(documentMonthlyQuota.bonusLimitUnits ?? 0) > 0}
-                  />
+              {visibleMonthlyMediaQuotas.length > 0 ? (
+                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {visibleMonthlyMediaQuotas.map((tool) => (
+                    <LimitMetricCard
+                      key={tool.toolCode}
+                      label={toolLimitLabels[tool.toolCode] ?? tool.displayName}
+                      value={formatMonthlyMediaQuotaValue(tool)}
+                      secondary={formatMonthlyMediaRemainingSubline(tool)}
+                      hasBonus={(tool.bonusLimitUnits ?? 0) > 0}
+                      {...(onOpenPackagesPage
+                        ? {
+                            buyChipLabel: t("changePlan"),
+                            onBuyClick: onOpenPackagesPage
+                          }
+                        : {})}
+                    />
+                  ))}
                 </div>
               ) : null}
             </div>
@@ -2831,6 +2839,18 @@ export function AssistantSettings({
                   )}
                 />
               </button>
+              <div className="border-t border-border/80 px-3 py-3">
+                {documentMonthlyQuota !== null ? (
+                  <div className={cn(toolLimitsExpanded && "mb-3")}>
+                    <LimitMetricCard
+                      label={documentMonthlyQuota.displayName}
+                      value={formatMonthlyMediaQuotaValue(documentMonthlyQuota)}
+                      secondary={formatMonthlyMediaRemainingSubline(documentMonthlyQuota)}
+                      hasBonus={(documentMonthlyQuota.bonusLimitUnits ?? 0) > 0}
+                    />
+                  </div>
+                ) : null}
+              </div>
               {toolLimitsExpanded && (
                 <div className="border-t border-border/80 px-3 py-3">
                   {compactQuotaBuckets.length > 0 ? (

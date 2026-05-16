@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnauthorizedException
 } from "@nestjs/common";
@@ -36,6 +37,8 @@ type PdfMonkeyDocumentCard = {
 
 @Injectable()
 export class PdfMonkeyProviderClient {
+  private readonly logger = new Logger(PdfMonkeyProviderClient.name);
+
   constructor(@Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig) {}
 
   async generateDocument(
@@ -50,6 +53,13 @@ export class PdfMonkeyProviderClient {
     const timeoutMs = input.timeoutMs ?? this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const startedAtMs = Date.now();
+    const htmlBytes = Buffer.byteLength(input.htmlContent ?? "", "utf8");
+    this.logger.log(
+      `[pdfmonkey-create-request] templateId=${input.providerOptions.pdfmonkeyTemplateId} filename=${
+        input.filename ?? "(none)"
+      } htmlBytes=${String(htmlBytes)} timeoutMs=${String(timeoutMs)}`
+    );
     try {
       const createResponse = await fetch(new URL("/api/v1/documents/sync", PDFMONKEY_BASE_URL), {
         method: "POST",
@@ -75,7 +85,17 @@ export class PdfMonkeyProviderClient {
         signal: controller.signal
       });
       const body = await this.readJson(createResponse);
+      this.logger.log(
+        `[pdfmonkey-create-response] templateId=${input.providerOptions.pdfmonkeyTemplateId} status=${String(
+          createResponse.status
+        )} elapsedMs=${String(Date.now() - startedAtMs)}`
+      );
       if (!createResponse.ok) {
+        this.logger.warn(
+          `[pdfmonkey-create-failed] templateId=${input.providerOptions.pdfmonkeyTemplateId} status=${String(
+            createResponse.status
+          )} body=${JSON.stringify(body).slice(0, 600)}`
+        );
         throw this.toPdfMonkeyCreateFailure({
           status: createResponse.status,
           body,
@@ -84,11 +104,20 @@ export class PdfMonkeyProviderClient {
         });
       }
       const card = this.readDocumentCard(body);
+      this.logger.log(
+        `[pdfmonkey-card-ready] documentId=${card.id} templateId=${card.document_template_id} downloadUrl=${card.download_url}`
+      );
       const downloadResponse = await fetch(card.download_url, { signal: controller.signal });
       if (!downloadResponse.ok) {
+        const downloadBody = await this.readJson(downloadResponse);
+        this.logger.warn(
+          `[pdfmonkey-download-failed] documentId=${card.id} status=${String(
+            downloadResponse.status
+          )} body=${JSON.stringify(downloadBody).slice(0, 600)}`
+        );
         throw this.toPdfMonkeyDownloadFailure({
           status: downloadResponse.status,
-          body: await this.readJson(downloadResponse),
+          body: downloadBody,
           documentId: card.id,
           templateId: card.document_template_id,
           filename: card.filename,
@@ -100,7 +129,15 @@ export class PdfMonkeyProviderClient {
       }
       const arrayBuffer = await downloadResponse.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
+      this.logger.log(
+        `[pdfmonkey-download-ok] documentId=${card.id} pdfBytes=${String(
+          buffer.length
+        )} elapsedMs=${String(Date.now() - startedAtMs)}`
+      );
       if (buffer.length === 0) {
+        this.logger.warn(
+          `[pdfmonkey-download-empty] documentId=${card.id} templateId=${card.document_template_id}`
+        );
         throw this.raiseFailure({
           code: "pdfmonkey_empty_pdf_payload",
           message: "PDFMonkey returned an empty PDF payload.",
@@ -145,6 +182,9 @@ export class PdfMonkeyProviderClient {
       };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        this.logger.warn(
+          `[pdfmonkey-timeout] templateId=${input.providerOptions.pdfmonkeyTemplateId} timeoutMs=${String(timeoutMs)} elapsedMs=${String(Date.now() - startedAtMs)}`
+        );
         throw new ServiceUnavailableException(`PDFMonkey request timed out after ${timeoutMs}ms.`);
       }
       throw error;

@@ -88,6 +88,28 @@ function createBundle() {
   } as never;
 }
 
+function mockExtractedPdfText(
+  service: RuntimeDocumentProviderAdapterService,
+  text: string | null,
+  error: string | null = null
+): void {
+  (
+    service as unknown as {
+      extractPdfText: (buffer: Buffer) => Promise<{ text: string | null; error: string | null }>;
+    }
+  ).extractPdfText = async () => ({ text, error });
+}
+
+function makeHtmlGenerationText(html: string): string {
+  return html;
+}
+
+function isHtmlGenerationRequest(input: {
+  requestMetadata?: { classification?: string };
+}): boolean {
+  return input.requestMetadata?.classification === "document_html_generation";
+}
+
 describe("RuntimeDocumentProviderAdapterService", () => {
   test("generates and persists a PDFMonkey document artifact", async () => {
     const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
@@ -95,19 +117,17 @@ describe("RuntimeDocumentProviderAdapterService", () => {
 
     const service = new RuntimeDocumentProviderAdapterService(
       {
-        async generateText(input: { outputSchema?: { name?: string } }) {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
           return {
             provider: "openai",
             model: "gpt-4.1-mini",
-            text:
-              input.outputSchema?.name === "document_job_completion"
-                ? JSON.stringify({
-                    assistantText: "Your document draft is ready for review."
-                  })
-                : JSON.stringify({
-                    htmlContent:
-                      "<!DOCTYPE html><html><body><h1>Business Brief</h1><p>Create a concise business brief with customer-ready content and actionable recommendations for leadership.</p></body></html>"
-                  }),
+            text: isHtmlGenerationRequest(input)
+              ? makeHtmlGenerationText(
+                  "<!DOCTYPE html><html><body><h1>Business Brief</h1><p>Create a concise business brief with customer-ready content and actionable recommendations for leadership across product, growth, and operations teams.</p></body></html>"
+                )
+              : JSON.stringify({
+                  assistantText: "Your document draft is ready for review."
+                }),
             respondedAt: "2026-05-15T18:29:00.000Z",
             stopReason: "completed",
             toolCalls: [],
@@ -225,6 +245,10 @@ describe("RuntimeDocumentProviderAdapterService", () => {
         }
       } as never
     );
+    mockExtractedPdfText(
+      service,
+      "This PDF contains enough real document text for PersAI validation to trust the generated document output for users."
+    );
 
     const result = await service.run({
       bundle: createBundle(),
@@ -279,16 +303,15 @@ describe("RuntimeDocumentProviderAdapterService", () => {
 
     const service = new RuntimeDocumentProviderAdapterService(
       {
-        async generateText(input: { outputSchema?: { name?: string } }) {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
           return {
             provider: "openai",
             model: "gpt-4.1-mini",
-            text:
-              input.outputSchema?.name === "document_job_completion"
-                ? JSON.stringify({
-                    assistantText: null
-                  })
-                : '```json\n{"htmlContent":"<!DOCTYPE html><html><body><h1>Recovered Brief</h1><p>Customer-ready PDF content that should still render even if the model leaves trailing JSON noise.</p></body></html>\n```',
+            text: isHtmlGenerationRequest(input)
+              ? "```html\n<!DOCTYPE html><html><body><h1>Recovered Brief</h1><p>Customer-ready PDF content that should still render even if the model wraps the HTML in markdown code fences and adds trailing whitespace around the document.</p></body></html>\n```"
+              : JSON.stringify({
+                  assistantText: null
+                }),
             respondedAt: "2026-05-16T17:25:00.000Z",
             stopReason: "completed",
             toolCalls: [],
@@ -401,6 +424,10 @@ describe("RuntimeDocumentProviderAdapterService", () => {
         }
       } as never
     );
+    mockExtractedPdfText(
+      service,
+      "Recovered brief content with enough trustworthy text for PersAI validation to accept the rendered PDF output."
+    );
 
     const result = await service.run({
       bundle: createBundle(),
@@ -443,17 +470,13 @@ describe("RuntimeDocumentProviderAdapterService", () => {
 
     const service = new RuntimeDocumentProviderAdapterService(
       {
-        async generateText(input: { outputSchema?: { name?: string } }) {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
           return {
             provider: "openai",
             model: "gpt-4.1-mini",
-            text:
-              input.outputSchema?.name === "document_job_completion"
-                ? JSON.stringify({ assistantText: null })
-                : JSON.stringify({
-                    htmlContent:
-                      '"<section><h1>Payback Graph</h1>\\n<p>Monthly revenue, break-even point, and окупаемость by month.</p></section>"'
-                  }),
+            text: isHtmlGenerationRequest(input)
+              ? "<section><h1>Payback Graph</h1>\n<p>Monthly revenue, break-even point, and окупаемость by month with a forecast covering the next twelve months of growth.</p></section>"
+              : JSON.stringify({ assistantText: null }),
             respondedAt: "2026-05-16T19:35:00.000Z",
             stopReason: "completed",
             toolCalls: [],
@@ -566,6 +589,10 @@ describe("RuntimeDocumentProviderAdapterService", () => {
         }
       } as never
     );
+    mockExtractedPdfText(
+      service,
+      "Monthly revenue break-even окупаемость forecast assumptions table with enough real text for PersAI validation."
+    );
 
     const result = await service.run({
       bundle: createBundle(),
@@ -608,19 +635,15 @@ describe("RuntimeDocumentProviderAdapterService", () => {
 
     const service = new RuntimeDocumentProviderAdapterService(
       {
-        async generateText(input: { outputSchema?: { name?: string } }) {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
           return {
             provider: "openai",
             model: "gpt-4.1-mini",
-            text:
-              input.outputSchema?.name === "document_job_completion"
-                ? JSON.stringify({
-                    assistantText: null
-                  })
-                : JSON.stringify({
-                    htmlContent:
-                      "<!DOCTYPE html><html><body><h1>Onboarding Guide</h1><p>Recovered PDF content.</p></body></html>"
-                  }),
+            text: isHtmlGenerationRequest(input)
+              ? "<!DOCTYPE html><html><body><h1>Onboarding Guide</h1><p>This onboarding guide walks new teammates through the first thirty days at the company with concrete actions, owners, and checkpoints they need to follow.</p></body></html>"
+              : JSON.stringify({
+                  assistantText: null
+                }),
             respondedAt: "2026-05-16T18:40:00.000Z",
             stopReason: "completed",
             toolCalls: [],
@@ -733,6 +756,10 @@ describe("RuntimeDocumentProviderAdapterService", () => {
         }
       } as never
     );
+    mockExtractedPdfText(
+      service,
+      "Onboarding guide content with enough trustworthy text for PersAI validation to accept the rendered PDF output."
+    );
 
     const result = await service.run({
       bundle: createBundle(),
@@ -776,10 +803,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return {
             provider: "openai",
             model: "gpt-4.1-mini",
-            text: JSON.stringify({
-              htmlContent:
-                "<!DOCTYPE html><html><body><h1>Business Brief</h1><p>Quarterly update with customer-ready content.</p></body></html>"
-            }),
+            text: "<!DOCTYPE html><html><body><h1>Business Brief</h1><p>Quarterly update with customer-ready content for leadership review across product, growth, and operations.</p></body></html>",
             respondedAt: "2026-05-15T18:29:00.000Z",
             stopReason: "completed",
             toolCalls: [],
@@ -804,7 +828,6 @@ describe("RuntimeDocumentProviderAdapterService", () => {
         }
       } as never
     );
-
     const result = await service.run({
       bundle: {
         ...(createBundle() as AssistantRuntimeBundle),
@@ -853,10 +876,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           return {
             provider: "openai",
             model: "gpt-4.1-mini",
-            text: JSON.stringify({
-              htmlContent:
-                "<!DOCTYPE html><html><body><h1>Business Brief</h1><p>Quarterly update with customer-ready content.</p></body></html>"
-            }),
+            text: "<!DOCTYPE html><html><body><h1>Business Brief</h1><p>Quarterly update with customer-ready content for leadership review across product, growth, and operations.</p></body></html>",
             respondedAt: "2026-05-15T18:29:00.000Z",
             stopReason: "completed",
             toolCalls: [],
@@ -896,6 +916,10 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           };
         }
       } as never
+    );
+    mockExtractedPdfText(
+      service,
+      "Monthly revenue break-even payback forecast assumptions table with enough real text for PersAI validation."
     );
 
     const result = await service.run({
@@ -945,17 +969,13 @@ describe("RuntimeDocumentProviderAdapterService", () => {
 
     const service = new RuntimeDocumentProviderAdapterService(
       {
-        async generateText(input: { outputSchema?: { name?: string } }) {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
           return {
             provider: "openai",
             model: "gpt-4.1-mini",
-            text:
-              input.outputSchema?.name === "document_job_completion"
-                ? JSON.stringify({ assistantText: "Your document is ready." })
-                : JSON.stringify({
-                    htmlContent:
-                      "<!DOCTYPE html><html><body><h1>Payback Plan</h1><p>Monthly revenue, break-even, and forecast table with realistic assumptions.</p></body></html>"
-                  }),
+            text: isHtmlGenerationRequest(input)
+              ? "<!DOCTYPE html><html><body><h1>Payback Plan</h1><p>Monthly revenue, break-even, and forecast table with realistic assumptions for the first twelve months of the launch plan.</p></body></html>"
+              : JSON.stringify({ assistantText: "Your document is ready." }),
             respondedAt: "2026-05-16T19:30:00.000Z",
             stopReason: "completed",
             toolCalls: [],
@@ -969,7 +989,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           attempt += 1;
           const pdfBuffer =
             attempt === 1
-              ? Buffer.alloc(681, 0)
+              ? Buffer.from("%PDF-1.4\n" + "x".repeat(800) + "\n%%EOF", "utf8")
               : Buffer.concat([
                   Buffer.from("%PDF-1.4\n", "utf8"),
                   Buffer.from(
@@ -1076,6 +1096,10 @@ describe("RuntimeDocumentProviderAdapterService", () => {
         }
       } as never
     );
+    mockExtractedPdfText(
+      service,
+      "Monthly revenue break-even payback forecast assumptions table with enough real text for PersAI validation."
+    );
 
     const result = await service.run({
       bundle: createBundle(),
@@ -1112,24 +1136,546 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.equal(result.providerStatus?.state, "success");
   });
 
+  test("delivers PDF when pdf-parse text extraction is unavailable (soft degrade)", async () => {
+    const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
+
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: isHtmlGenerationRequest(input)
+              ? "<!DOCTYPE html><html><body><h1>Business Brief</h1><p>Customer-ready PDF content with enough body text to pass HTML repair validation before being sent to PDFMonkey for rendering.</p></body></html>"
+              : JSON.stringify({ assistantText: null }),
+            respondedAt: "2026-05-16T21:10:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          gatewayCalls.push(input);
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-provider-uninspectable",
+              templateId:
+                input.providerOptions.outputFormat === "pdf"
+                  ? input.providerOptions.pdfmonkeyTemplateId
+                  : "template-123",
+              filename: input.filename,
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.alloc(1400, "Z"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-16T21:10:02.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "success",
+                documentId: "doc-provider-uninspectable",
+                documentTemplateId:
+                  input.providerOptions.outputFormat === "pdf"
+                    ? input.providerOptions.pdfmonkeyTemplateId
+                    : "template-123",
+                downloadUrl: "https://example.com/document-uninspectable.pdf",
+                previewUrl: "https://example.com/preview-uninspectable",
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf",
+                status: "success",
+                updatedAt: "2026-05-16T21:10:02.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+    mockExtractedPdfText(service, null, "pdf-parse unavailable");
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-uninspectable-1",
+          docId: "doc-1",
+          versionId: "version-1",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "message-1",
+          sourceUserMessageText: "Create a PDF brief",
+          sourceUserMessageCreatedAt: "2026-05-16T21:09:00.000Z"
+        },
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt: "Create a concise business brief",
+            requestedName: "Business Brief"
+          }
+        }
+      }
+    });
+
+    assert.equal(gatewayCalls.length, 1);
+    assert.equal(result.artifacts.length, 1);
+    assert.equal(result.artifacts[0]!.mimeType, "application/pdf");
+    assert.equal(result.providerStatus?.state, "success");
+  });
+
+  test("rejects PDFMonkey output that is not a real PDF (missing %PDF- magic)", async () => {
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: isHtmlGenerationRequest(input)
+              ? "<!DOCTYPE html><html><body><h1>Business Brief</h1><p>Customer-ready PDF content with enough body text to pass HTML repair validation before being sent to PDFMonkey for rendering.</p></body></html>"
+              : JSON.stringify({ assistantText: null }),
+            respondedAt: "2026-05-16T21:30:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-not-a-pdf",
+              templateId:
+                input.providerOptions.outputFormat === "pdf"
+                  ? input.providerOptions.pdfmonkeyTemplateId
+                  : "template-123",
+              filename: input.filename,
+              bytesBase64: Buffer.alloc(2048, "Z").toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-16T21:30:02.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "success",
+                documentId: "doc-not-a-pdf",
+                documentTemplateId:
+                  input.providerOptions.outputFormat === "pdf"
+                    ? input.providerOptions.pdfmonkeyTemplateId
+                    : "template-123",
+                downloadUrl: "https://example.com/not-a-pdf",
+                previewUrl: null,
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf",
+                status: "success",
+                updatedAt: "2026-05-16T21:30:02.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+    mockExtractedPdfText(service, "");
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-not-a-pdf",
+          docId: "doc-1",
+          versionId: "version-1",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "message-1",
+          sourceUserMessageText: "Create a PDF brief",
+          sourceUserMessageCreatedAt: "2026-05-16T21:29:00.000Z"
+        },
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt: "Create a concise business brief",
+            requestedName: "Business Brief"
+          }
+        }
+      }
+    });
+
+    assert.deepEqual(result.artifacts, []);
+    assert.equal(result.providerStatus?.state, "invalid_output");
+    assert.equal(result.providerStatus?.errorCode, "document_pdf_missing_magic");
+  });
+
+  test("simplified retry prompt activates on attempt >= 2 after the first HTML generation fails", async () => {
+    const htmlRequests: Array<{
+      attempt: number;
+      developerInstructions: string | null;
+    }> = [];
+    let htmlAttempt = 0;
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: {
+          developerInstructions?: string;
+          requestMetadata?: { classification?: string; runtimeRequestId?: string };
+        }) {
+          if (isHtmlGenerationRequest(input)) {
+            htmlAttempt += 1;
+            const requestId = input.requestMetadata?.runtimeRequestId ?? "";
+            const attemptMatch = requestId.match(/attempt-(\d+)/);
+            const attempt = attemptMatch ? Number(attemptMatch[1]) : htmlAttempt;
+            htmlRequests.push({
+              attempt,
+              developerInstructions: input.developerInstructions ?? null
+            });
+            if (htmlAttempt === 1) {
+              return {
+                provider: "openai",
+                model: "gpt-4.1-mini",
+                text: "no html here, just an apology preamble",
+                respondedAt: "2026-05-16T22:00:00.000Z",
+                stopReason: "completed",
+                toolCalls: [],
+                usage: null
+              };
+            }
+            return {
+              provider: "openai",
+              model: "gpt-4.1-mini",
+              text: "<!DOCTYPE html><html><body><h1>Simplified Brief</h1><p>Compact one-page brief generated on the retry pass after the first attempt produced no recognizable HTML output.</p></body></html>",
+              respondedAt: "2026-05-16T22:00:05.000Z",
+              stopReason: "completed",
+              toolCalls: [],
+              usage: null
+            };
+          }
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: JSON.stringify({ assistantText: null }),
+            respondedAt: "2026-05-16T22:00:10.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-retry",
+              templateId:
+                input.providerOptions.outputFormat === "pdf"
+                  ? input.providerOptions.pdfmonkeyTemplateId
+                  : "template-123",
+              filename: input.filename,
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.from(
+                  "Simplified brief content with realistic body text ".repeat(60),
+                  "utf8"
+                ),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-16T22:00:15.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "success",
+                documentId: "doc-retry",
+                documentTemplateId:
+                  input.providerOptions.outputFormat === "pdf"
+                    ? input.providerOptions.pdfmonkeyTemplateId
+                    : "template-123",
+                downloadUrl: "https://example.com/retry.pdf",
+                previewUrl: null,
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf",
+                status: "success",
+                updatedAt: "2026-05-16T22:00:15.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+    mockExtractedPdfText(
+      service,
+      "Simplified brief content with enough characters to satisfy text inspection and PersAI alphanumeric validation across the rendered PDF body output for the user."
+    );
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-retry-prompt",
+          docId: "doc-1",
+          versionId: "version-1",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "message-1",
+          sourceUserMessageText: "Create a simplified brief",
+          sourceUserMessageCreatedAt: "2026-05-16T21:59:00.000Z"
+        },
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt: "Create a concise business brief",
+            requestedName: "Simplified Brief"
+          }
+        }
+      }
+    });
+
+    assert.equal(htmlRequests.length, 2);
+    assert.equal(htmlRequests[0]!.attempt, 1);
+    assert.equal(htmlRequests[1]!.attempt, 2);
+    assert.ok(
+      htmlRequests[1]!.developerInstructions?.includes("RETRY MODE"),
+      "second attempt should use simplified RETRY MODE instructions"
+    );
+    assert.ok(
+      !(htmlRequests[0]!.developerInstructions?.includes("RETRY MODE") ?? false),
+      "first attempt should not use RETRY MODE instructions"
+    );
+    assert.equal(result.artifacts.length, 1);
+    assert.equal(result.providerStatus?.state, "success");
+  });
+
   test("generates and persists a Gamma presentation artifact", async () => {
     const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
     const savedObjects: Array<{ objectKey: string; mimeType: string; bytes: Buffer }> = [];
     const service = new RuntimeDocumentProviderAdapterService(
       {
-        async generateText(input: { outputSchema?: { name?: string } }) {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
           return {
             provider: "openai",
             model: "gpt-4.1-mini",
-            text:
-              input.outputSchema?.name === "document_job_completion"
-                ? JSON.stringify({
-                    assistantText: "Your document draft is ready for review."
-                  })
-                : JSON.stringify({
-                    htmlContent:
-                      "<!DOCTYPE html><html><body><h1>PersAI Deck</h1><p>Create an investor presentation about PersAI with traction, product vision, and funding needs.</p></body></html>"
-                  }),
+            text: isHtmlGenerationRequest(input)
+              ? "<!DOCTYPE html><html><body><h1>PersAI Deck</h1><p>Create an investor presentation about PersAI with traction, product vision, and funding needs for the next eighteen months of growth.</p></body></html>"
+              : JSON.stringify({
+                  assistantText: "Your document draft is ready for review."
+                }),
             respondedAt: "2026-05-15T18:39:00.000Z",
             stopReason: "completed",
             toolCalls: [],

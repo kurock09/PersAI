@@ -1066,16 +1066,22 @@ describe("AssistantSettings limits", () => {
       { onOpenPricingPage: openPricingPage, onOpenPackagesPage: openPackagesPage }
     );
 
+    expect(screen.getByText("Image generation")).toBeInTheDocument();
+    expect(screen.getByText("3 / 20")).toBeInTheDocument();
+    expect(screen.getByText("Video generation")).toBeInTheDocument();
+    expect(screen.getByText("1 / 5")).toBeInTheDocument();
     expect(screen.getByText("Documents")).toBeInTheDocument();
     expect(screen.getByText("2 / 10")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Tool limits/i }));
 
-    expect(screen.queryByText("Image generation")).toBeNull();
-    expect(screen.queryByText("Video generation")).toBeNull();
+    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(screen.getByText("2 / 10")).toBeInTheDocument();
+    expect(screen.queryAllByText("Image generation")).toHaveLength(1);
+    expect(screen.queryAllByText("Video generation")).toHaveLength(1);
   });
 
-  it("prioritizes token budget, hides disabled monthly media, and keeps tool limits collapsed by default", () => {
+  it("prioritizes token budget, keeps document featured in tool limits, and keeps tool limits collapsed by default", () => {
     const openPricingPage = vi.fn();
     const openPackagesPage = vi.fn();
 
@@ -1264,9 +1270,12 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Pro")).toBeInTheDocument();
     expect(screen.getByText("Token budget")).toBeInTheDocument();
     expect(screen.getByText("2,100/10,000")).toBeInTheDocument();
+    expect(screen.getByText("Image generation")).toBeInTheDocument();
+    expect(screen.getByText("2 / 20")).toBeInTheDocument();
+    expect(screen.getByText("Video generation")).toBeInTheDocument();
+    expect(screen.getByText("0")).toBeInTheDocument();
     expect(screen.getByText("Documents")).toBeInTheDocument();
     expect(screen.getByText("1 / 10")).toBeInTheDocument();
-    expect(screen.queryByText("Image generations")).toBeNull();
     expect(screen.queryByText("Image edits")).toBeNull();
     expect(screen.queryByText("Code execution")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Change plan" }));
@@ -1274,15 +1283,19 @@ describe("AssistantSettings limits", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Tool limits/i }));
 
+    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(screen.getByText("1 / 10")).toBeInTheDocument();
     expect(screen.getByText("Active chats")).toBeInTheDocument();
     expect(screen.getByText("Media storage")).toBeInTheDocument();
     expect(screen.getByText("Knowledge storage")).toBeInTheDocument();
+    expect(screen.queryAllByText("Image generation")).toHaveLength(1);
+    expect(screen.queryByText("Image edits")).toBeNull();
     expect(screen.getByText("Code execution")).toBeInTheDocument();
-    expect(screen.queryByText("Image editing")).toBeNull();
+    expect(screen.getByText("Image editing")).toBeInTheDocument();
     expect(screen.queryByText("Off")).toBeNull();
   });
 
-  it("hides media monthly cards from the limits section even when technical media quotas exist", () => {
+  it("renders media monthly cards under token usage and does not duplicate them inside tool limits", () => {
     renderSettings(
       makeAppData({
         plan: {
@@ -1382,11 +1395,15 @@ describe("AssistantSettings limits", () => {
       "limits"
     );
 
-    expect(screen.queryByText("Image generations")).toBeNull();
-    expect(screen.queryByText("4 / 20")).toBeNull();
-    expect(screen.queryByText("Video generations")).toBeNull();
-    expect(screen.queryByText("Unavailable")).toBeNull();
-    expect(screen.queryByText("0/1")).toBeNull();
+    expect(screen.getByText("Image generation")).toBeInTheDocument();
+    expect(screen.getByText("4 / 20")).toBeInTheDocument();
+    expect(screen.getByText("Video generation")).toBeInTheDocument();
+    expect(screen.getByText("0 / 1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Tool limits/i }));
+
+    expect(screen.queryAllByText("Image generation")).toHaveLength(1);
+    expect(screen.queryAllByText("Video generation")).toHaveLength(1);
   });
 
   it("opens payment settings for recurring subscribers and shows a quiet cancel-subscription action", async () => {

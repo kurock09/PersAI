@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import type {
   AssistantRuntimeBundle,
   AssistantRuntimeBundleToolCredentialRef
@@ -18,17 +18,37 @@ import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-re
 type SupportedDocumentProvider = "pdfmonkey" | "gamma";
 type NativeManagedProvider = "openai" | "anthropic";
 type ProviderSelection = { provider: NativeManagedProvider; model: string };
+
+interface Parse5Node {
+  nodeName: string;
+  tagName?: string;
+  attrs?: Array<{ name: string; value: string }>;
+  namespaceURI?: string;
+  childNodes?: Parse5Node[];
+  parentNode?: Parse5Node | null;
+  value?: string;
+}
+
+interface Parse5Document extends Parse5Node {
+  mode?: string;
+}
 const DEFAULT_DOCUMENT_TIMEOUT_MS = 6 * 60 * 1000;
 const PDFMONKEY_TEMPLATE_MISSING_CODE = "document_template_not_configured";
-const DOCUMENT_HTML_MAX_OUTPUT_TOKENS = 4_500;
+const DOCUMENT_HTML_MAX_OUTPUT_TOKENS = 16_000;
 const DOCUMENT_COMPLETION_MAX_OUTPUT_TOKENS = 220;
-const DOCUMENT_PDF_MAX_RENDER_ATTEMPTS = 2;
+const DOCUMENT_PDF_MAX_RENDER_ATTEMPTS = 3;
 const PDF_VALIDATION_MIN_BYTES = 1_024;
 const PDF_VALIDATION_MIN_TEXT_LENGTH = 80;
 const PDF_VALIDATION_MIN_ALNUM_COUNT = 24;
+const DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH = 120;
+const PDF_VALIDATION_TAIL_INSPECTION_BYTES = 2_048;
+const DOCUMENT_HTML_DEFAULT_PRINT_CSS =
+  'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#1a1a1a;line-height:1.5;padding:32px 48px;}h1{font-size:24pt;margin:0 0 16pt;}h2{font-size:16pt;margin:24pt 0 8pt;}h3{font-size:13pt;margin:18pt 0 6pt;}p,li{font-size:11pt;margin:6pt 0;}ul,ol{padding-left:20pt;}table{border-collapse:collapse;width:100%;margin:12pt 0;}th,td{border:1px solid #d0d0d0;padding:6pt 10pt;text-align:left;font-size:10pt;vertical-align:top;}th{background:#f4f4f4;}';
 
 @Injectable()
 export class RuntimeDocumentProviderAdapterService {
+  private readonly logger = new Logger(RuntimeDocumentProviderAdapterService.name);
+
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
@@ -109,12 +129,41 @@ export class RuntimeDocumentProviderAdapterService {
       providerStatus: Record<string, unknown>;
     } | null = null;
 
+    this.logger.log(
+      `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} templateId=${templateId} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)}`
+    );
     for (let attempt = 1; attempt <= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS; attempt += 1) {
-      const htmlContent = await this.generatePdfHtmlContent({
-        bundle: input.bundle,
-        request: input.request,
-        filename
-      });
+      let htmlContent: string;
+      try {
+        const generation = await this.generatePdfHtmlContent({
+          bundle: input.bundle,
+          request: input.request,
+          filename,
+          attempt
+        });
+        htmlContent = generation.htmlContent;
+        this.logger.log(
+          `[document-pdf-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(generation.bodyTextLength)}`
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `[document-pdf-html-generation-failed] jobId=${input.request.job.id} attempt=${String(attempt)} message=${message}`
+        );
+        lastValidationFailure = {
+          code: "document_html_generation_failed",
+          message,
+          metadata: {
+            attempt,
+            maxAttempts: DOCUMENT_PDF_MAX_RENDER_ATTEMPTS,
+            stage: "html_generation"
+          }
+        };
+        if (attempt >= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS) {
+          break;
+        }
+        continue;
+      }
       const providerOutcome = await this.providerGatewayClientService.generateDocumentOutcome(
         {
           htmlContent,
@@ -132,6 +181,9 @@ export class RuntimeDocumentProviderAdapterService {
         { timeoutMs }
       );
       if (!providerOutcome.ok) {
+        this.logger.warn(
+          `[document-pdf-provider-failed] jobId=${input.request.job.id} attempt=${String(attempt)} status=${String(providerOutcome.status)} code=${String(providerOutcome.code)} retryable=${String(providerOutcome.retryable)} message=${providerOutcome.message}`
+        );
         lastProviderFailure = {
           code: providerOutcome.code ?? "provider_document_generation_failed",
           status: providerOutcome.status,
@@ -143,10 +195,19 @@ export class RuntimeDocumentProviderAdapterService {
       }
       const providerResult = providerOutcome.result;
       const pdfBuffer = Buffer.from(providerResult.bytesBase64, "base64");
-      const validationFailure = await this.validateGeneratedPdfArtifact(pdfBuffer);
+      this.logger.log(
+        `[document-pdf-provider-ok] jobId=${input.request.job.id} attempt=${String(attempt)} pdfBytes=${String(pdfBuffer.length)} providerDocumentId=${providerResult.documentId}`
+      );
+      const validationFailure = await this.validateGeneratedPdfArtifact(pdfBuffer, {
+        jobId: input.request.job.id,
+        attempt
+      });
       if (validationFailure === null) {
         lastValidationFailure = null;
         successfulProviderResult = providerResult;
+        this.logger.log(
+          `[document-pdf-success] jobId=${input.request.job.id} attempt=${String(attempt)} pdfBytes=${String(pdfBuffer.length)}`
+        );
         break;
       }
       lastValidationFailure = {
@@ -157,6 +218,9 @@ export class RuntimeDocumentProviderAdapterService {
           maxAttempts: DOCUMENT_PDF_MAX_RENDER_ATTEMPTS
         }
       };
+      this.logger.warn(
+        `[document-pdf-validation-failed] jobId=${input.request.job.id} attempt=${String(attempt)} code=${validationFailure.code} message=${validationFailure.message}`
+      );
       if (attempt >= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS) {
         break;
       }
@@ -708,21 +772,31 @@ export class RuntimeDocumentProviderAdapterService {
     bundle: AssistantRuntimeBundle;
     request: RuntimeDocumentJobRunRequest;
     filename: string;
-  }): Promise<string> {
+    attempt: number;
+  }): Promise<{ htmlContent: string; bodyTextLength: number }> {
     const providerSelection = this.resolveProviderSelection(input.bundle, "premium_reply");
     const response = await this.providerGatewayClientService.generateText(
       this.buildPdfContentRequest(input, providerSelection)
     );
-    const parsed = this.parseJsonObject(response.text, "document_html_generation");
-    const rawHtmlContent = typeof parsed.htmlContent === "string" ? parsed.htmlContent.trim() : "";
-    const htmlContent = this.normalizeGeneratedHtml(rawHtmlContent);
-    if (htmlContent.length === 0) {
-      throw new Error("Document HTML generation returned empty htmlContent.");
+    const rawText = response.text ?? "";
+    this.logger.log(
+      `[document-pdf-html-raw] jobId=${input.request.job.id} attempt=${String(input.attempt)} provider=${providerSelection.provider} model=${providerSelection.model} rawLength=${String(rawText.length)} preview=${JSON.stringify(rawText.slice(0, 200))}`
+    );
+    const extracted = this.extractHtmlFromModelOutput(rawText);
+    if (extracted === null) {
+      throw new Error(
+        "Document HTML generation produced no recognizable HTML in the model output."
+      );
     }
-    if (!this.looksLikeRenderableHtml(htmlContent)) {
-      throw new Error("Document HTML generation returned non-renderable HTML content.");
+    const repaired = this.repairHtmlDocument(extracted);
+    if (repaired.bodyTextLength < DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH) {
+      throw new Error(
+        `Document HTML generation produced too little body text (length=${String(
+          repaired.bodyTextLength
+        )}, minimum=${String(DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH)}).`
+      );
     }
-    return htmlContent;
+    return { htmlContent: repaired.html, bodyTextLength: repaired.bodyTextLength };
   }
 
   private buildPdfContentRequest(
@@ -730,23 +804,35 @@ export class RuntimeDocumentProviderAdapterService {
       bundle: AssistantRuntimeBundle;
       request: RuntimeDocumentJobRunRequest;
       filename: string;
+      attempt: number;
     },
     providerSelection: ProviderSelection
   ): ProviderGatewayTextGenerateRequest {
     const bundle = input.bundle;
     const request = input.request;
+    const isSimplifiedRetry = input.attempt >= 2;
+    const baseInstructions = [
+      "You are generating the real user-facing content for a PersAI PDF document job.",
+      "Return ONLY the HTML document. Do not add any preamble, JSON envelope, markdown code fences, or commentary.",
+      "Begin your response with <!DOCTYPE html> and end it with </html>.",
+      "The HTML body must contain the actual document content, not meta commentary about the request.",
+      "Do not include sections titled Prompt, Instructions, Source User Message, Outline, PersAI Document Draft, or any internal/debug labels.",
+      "Do not mention templates, PDFMonkey, providers, job ids, system prompts, or internal architecture.",
+      "Write the document in the user's apparent language unless the request clearly asks for another language.",
+      "Use coherent headings (<h1>/<h2>/<h3>), paragraphs, lists, and simple tables when helpful.",
+      "Close every tag you open. Never leave dangling <td>, <tr>, <ul>, <p>, or other elements unclosed.",
+      "Do not embed external scripts, iframes, remote stylesheets, or remote images."
+    ];
+    const retryInstructions = isSimplifiedRetry
+      ? [
+          "RETRY MODE: keep the document compact (roughly one to two pages of body).",
+          "Avoid nested tables, complex inline styles, or multi-column layouts. Use a flat structure of <h1>/<h2>/<p>/<ul>/<table>.",
+          "Prefer short paragraphs and concise bullet points over long prose."
+        ]
+      : [];
     const developerInstructions = [
       this.normalizeOptionalText(bundle.promptConstructor.ordinary.sections.heartbeat),
-      [
-        "You are generating the real user-facing content for a PersAI PDF document job.",
-        "Return only valid JSON that matches the output schema.",
-        "htmlContent must contain the actual document body content, not meta commentary about the request.",
-        "Do not include sections titled Prompt, Instructions, Source User Message, Outline, PersAI Document Draft, or any internal/debug labels.",
-        "Do not mention templates, PDFMonkey, providers, job ids, system prompts, or internal architecture.",
-        "Write the document in the user's apparent language unless the request clearly asks for another language.",
-        "Use coherent headings, paragraphs, and lists/tables when helpful.",
-        "htmlContent should be ready to render as the final document content and must not include markdown fences."
-      ].join("\n")
+      [...baseInstructions, ...retryInstructions].join("\n")
     ]
       .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
       .join("\n\n");
@@ -765,6 +851,8 @@ export class RuntimeDocumentProviderAdapterService {
               text: JSON.stringify(
                 {
                   mode: "document_pdf_html_generation",
+                  attempt: input.attempt,
+                  simplifiedRetry: isSimplifiedRetry,
                   currentTimeIso: new Date().toISOString(),
                   documentRequest: {
                     descriptorMode: request.directToolExecution.descriptorMode,
@@ -793,23 +881,9 @@ export class RuntimeDocumentProviderAdapterService {
         }
       ],
       maxOutputTokens: DOCUMENT_HTML_MAX_OUTPUT_TOKENS,
-      outputSchema: {
-        name: "document_pdf_html_generation",
-        strict: true,
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["htmlContent"],
-          properties: {
-            htmlContent: {
-              type: "string"
-            }
-          }
-        }
-      },
       requestMetadata: {
         runtimeSessionId: `document-job:${request.job.id}`,
-        runtimeRequestId: `document-html:${request.job.id}`,
+        runtimeRequestId: `document-html:${request.job.id}:attempt-${String(input.attempt)}`,
         toolLoopIteration: null,
         compactionToolCode: null,
         classification: "document_html_generation"
@@ -937,7 +1011,10 @@ export class RuntimeDocumentProviderAdapterService {
     };
   }
 
-  private async validateGeneratedPdfArtifact(buffer: Buffer): Promise<{
+  private async validateGeneratedPdfArtifact(
+    buffer: Buffer,
+    context: { jobId: string; attempt: number }
+  ): Promise<{
     code: string;
     message: string;
     metadata: Record<string, unknown>;
@@ -961,9 +1038,40 @@ export class RuntimeDocumentProviderAdapterService {
         }
       };
     }
+    const head = buffer.subarray(0, 8).toString("utf8");
+    if (!head.startsWith("%PDF-")) {
+      return {
+        code: "document_pdf_missing_magic",
+        message: "Rendered PDF payload does not start with the %PDF- magic header.",
+        metadata: {
+          bytes: buffer.length,
+          headHex: buffer.subarray(0, 8).toString("hex")
+        }
+      };
+    }
+    const tail = buffer
+      .subarray(Math.max(0, buffer.length - PDF_VALIDATION_TAIL_INSPECTION_BYTES))
+      .toString("utf8");
+    if (!tail.includes("%%EOF")) {
+      return {
+        code: "document_pdf_missing_eof",
+        message: "Rendered PDF payload is missing the trailing %%EOF marker.",
+        metadata: {
+          bytes: buffer.length,
+          tailTrailerPreview: tail.slice(-200)
+        }
+      };
+    }
     const rawText = this.normalizeExtractedPdfText(buffer.toString("utf8"));
-    const extractedText = await this.extractPdfText(buffer);
-    const candidateText = extractedText ?? rawText;
+    const extraction = await this.extractPdfText(buffer);
+    if (extraction.text === null) {
+      this.logger.warn(
+        `[document-pdf-text-extraction-soft-fail] jobId=${context.jobId} attempt=${String(
+          context.attempt
+        )} bytes=${String(buffer.length)} error=${extraction.error ?? "unknown"}. Relying on byte/structure checks only.`
+      );
+    }
+    const candidateText = extraction.text ?? rawText;
     const hasDebugMarkers =
       this.looksLikeDebugDraft(rawText) || this.looksLikeDebugDraft(candidateText);
     if (hasDebugMarkers) {
@@ -977,10 +1085,10 @@ export class RuntimeDocumentProviderAdapterService {
         }
       };
     }
-    if (extractedText !== null) {
-      const alnumCount = extractedText.match(/[0-9A-Za-z\u0400-\u04FF]/g)?.length ?? 0;
+    if (extraction.text !== null) {
+      const alnumCount = extraction.text.match(/[0-9A-Za-z\u0400-\u04FF]/g)?.length ?? 0;
       if (
-        extractedText.length < PDF_VALIDATION_MIN_TEXT_LENGTH ||
+        extraction.text.length < PDF_VALIDATION_MIN_TEXT_LENGTH ||
         alnumCount < PDF_VALIDATION_MIN_ALNUM_COUNT
       ) {
         return {
@@ -988,9 +1096,9 @@ export class RuntimeDocumentProviderAdapterService {
           message:
             "Rendered PDF does not contain enough real document text to be delivered honestly.",
           metadata: {
-            extractedLength: extractedText.length,
+            extractedLength: extraction.text.length,
             alnumCount,
-            extractedPreview: extractedText.slice(0, 240)
+            extractedPreview: extraction.text.slice(0, 240)
           }
         };
       }
@@ -1011,7 +1119,9 @@ export class RuntimeDocumentProviderAdapterService {
     );
   }
 
-  private async extractPdfText(buffer: Buffer): Promise<string | null> {
+  private async extractPdfText(
+    buffer: Buffer
+  ): Promise<{ text: string | null; error: string | null }> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const pdfParse = require("pdf-parse") as (
@@ -1019,9 +1129,15 @@ export class RuntimeDocumentProviderAdapterService {
         opts?: { max?: number }
       ) => Promise<{ text?: string }>;
       const result = await pdfParse(buffer, { max: 100 });
-      return this.normalizeExtractedPdfText(result.text ?? "");
-    } catch {
-      return null;
+      return {
+        text: this.normalizeExtractedPdfText(result.text ?? ""),
+        error: null
+      };
+    } catch (error) {
+      return {
+        text: null,
+        error: error instanceof Error ? error.message : String(error)
+      };
     }
   }
 
@@ -1159,7 +1275,7 @@ export class RuntimeDocumentProviderAdapterService {
 
   private parseJsonObject(
     text: string | null,
-    operation: "document_html_generation" | "document_completion_framing"
+    operation: "document_completion_framing"
   ): Record<string, unknown> {
     if (text === null || text.trim().length === 0) {
       throw new Error(`${operation} returned empty output.`);
@@ -1174,10 +1290,10 @@ export class RuntimeDocumentProviderAdapterService {
         try {
           parsed = JSON.parse(extractedObject);
         } catch {
-          parsed = this.tryRecoverDocumentGenerationPayload(normalized, operation);
+          throw new Error(`${operation} returned an invalid JSON object.`);
         }
       } else {
-        parsed = this.tryRecoverDocumentGenerationPayload(normalized, operation);
+        throw new Error(`${operation} returned an invalid JSON object.`);
       }
     }
     const row = this.asObject(parsed);
@@ -1185,26 +1301,6 @@ export class RuntimeDocumentProviderAdapterService {
       throw new Error(`${operation} returned an invalid JSON object.`);
     }
     return row;
-  }
-
-  private tryRecoverDocumentGenerationPayload(
-    text: string,
-    operation: "document_html_generation" | "document_completion_framing"
-  ): Record<string, unknown> | null {
-    if (operation !== "document_html_generation") {
-      return null;
-    }
-
-    const extractedHtml = this.extractHtmlContentCandidate(text);
-    if (extractedHtml !== null) {
-      return { htmlContent: extractedHtml };
-    }
-
-    if (this.looksLikeRawHtmlDocument(text)) {
-      return { htmlContent: text.trim() };
-    }
-
-    return null;
   }
 
   private extractJsonObjectCandidate(value: string): string | null {
@@ -1216,88 +1312,268 @@ export class RuntimeDocumentProviderAdapterService {
     return value.slice(start, end + 1);
   }
 
-  private extractHtmlContentCandidate(value: string): string | null {
-    const keyIndex = value.indexOf('"htmlContent"');
-    if (keyIndex === -1) {
-      return null;
-    }
-    const colonIndex = value.indexOf(":", keyIndex);
-    if (colonIndex === -1) {
-      return null;
-    }
-    const afterColon = value.slice(colonIndex + 1).trimStart();
-    if (!afterColon.startsWith('"')) {
-      return this.looksLikeRawHtmlDocument(afterColon) ? afterColon.trim() : null;
-    }
-
-    const objectEnd = value.lastIndexOf("}");
-    const candidateEnd =
-      objectEnd > colonIndex ? value.lastIndexOf('"', objectEnd - 1) : value.lastIndexOf('"');
-    if (candidateEnd <= colonIndex) {
-      return null;
-    }
-
-    const rawValue = value.slice(value.indexOf('"', colonIndex) + 1, candidateEnd).trim();
-    if (!this.looksLikeRawHtmlDocument(rawValue)) {
-      return null;
-    }
-    return rawValue;
+  private unwrapJsonCodeFence(value: string): string {
+    const fenceMatch = value.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    return fenceMatch?.[1]?.trim() ?? value;
   }
 
-  private looksLikeRawHtmlDocument(value: string): boolean {
-    const normalized = value.trim().toLowerCase();
-    return (
-      normalized.startsWith("<!doctype html") ||
-      normalized.startsWith("<html") ||
-      (normalized.includes("<body") && normalized.includes("</body>"))
-    );
-  }
-
-  private looksLikeRenderableHtml(value: string): boolean {
-    const normalized = value.trim().toLowerCase();
-    return (
-      this.looksLikeRawHtmlDocument(value) ||
-      normalized.startsWith("<section") ||
-      normalized.startsWith("<article") ||
-      normalized.startsWith("<main") ||
-      normalized.startsWith("<div") ||
-      normalized.startsWith("<table") ||
-      normalized.startsWith("<h1") ||
-      normalized.startsWith("<h2")
-    );
-  }
-
-  private normalizeGeneratedHtml(value: string): string {
-    const trimmed = value.trim();
+  /**
+   * Pulls the HTML document out of whatever the model returned.
+   *
+   * Accepts:
+   * - raw HTML starting with <!DOCTYPE html>, <html>, <body>, <section>, <article>, <main>, <div>, <table>, <h1>, <h2>
+   * - HTML wrapped in ```html``` or ``` ``` markdown fences
+   * - JSON envelopes like {"htmlContent": "..."} (legacy fallback for older prompts)
+   * - HTML wrapped in surrounding quotes / escaped JSON-style strings
+   *
+   * Returns null only when nothing recognizable is found.
+   */
+  private extractHtmlFromModelOutput(text: string): string | null {
+    const trimmed = text.trim();
     if (trimmed.length === 0) {
-      return "";
+      return null;
     }
-    let normalized = trimmed;
+    const unfenced = this.stripMarkdownFences(trimmed);
+    const candidate = this.unquoteAndUnescape(unfenced);
+    const direct = this.locateHtmlStart(candidate);
+    if (direct !== null) {
+      return this.trimToHtmlEnd(direct);
+    }
+    const jsonRecovered = this.tryRecoverHtmlFromJsonEnvelope(candidate);
+    if (jsonRecovered !== null) {
+      return this.trimToHtmlEnd(jsonRecovered);
+    }
+    return null;
+  }
+
+  private stripMarkdownFences(value: string): string {
+    const match = value.match(/^```(?:html|json|xml)?\s*([\s\S]*?)\s*```\s*$/i);
+    return match?.[1]?.trim() ?? value;
+  }
+
+  private unquoteAndUnescape(value: string): string {
+    let normalized = value.trim();
     if (
-      (normalized.startsWith('"') && normalized.endsWith('"')) ||
-      (normalized.startsWith("'") && normalized.endsWith("'"))
+      (normalized.startsWith('"') && normalized.endsWith('"') && normalized.length > 2) ||
+      (normalized.startsWith("'") && normalized.endsWith("'") && normalized.length > 2)
     ) {
       normalized = normalized.slice(1, -1).trim();
     }
-    normalized = normalized
-      .replace(/\\n/g, "\n")
-      .replace(/\\t/g, "\t")
-      .replace(/\\"/g, '"')
-      .replace(/\\'/g, "'")
-      .replace(/\\\\/g, "\\")
-      .trim();
-    if (this.looksLikeRawHtmlDocument(normalized)) {
-      return normalized;
-    }
-    if (this.looksLikeRenderableHtml(normalized)) {
-      return `<!DOCTYPE html><html><body>${normalized}</body></html>`;
+    if (normalized.includes("\\n") || normalized.includes('\\"')) {
+      normalized = normalized
+        .replace(/\\r\\n/g, "\n")
+        .replace(/\\n/g, "\n")
+        .replace(/\\t/g, "\t")
+        .replace(/\\"/g, '"')
+        .replace(/\\'/g, "'")
+        .replace(/\\\\/g, "\\")
+        .trim();
     }
     return normalized;
   }
 
-  private unwrapJsonCodeFence(value: string): string {
-    const fenceMatch = value.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-    return fenceMatch?.[1]?.trim() ?? value;
+  private locateHtmlStart(value: string): string | null {
+    const lower = value.toLowerCase();
+    const candidates = [
+      lower.indexOf("<!doctype html"),
+      lower.indexOf("<html"),
+      lower.indexOf("<body"),
+      lower.search(/<(section|article|main|div|table|h1|h2)\b/)
+    ].filter((idx) => idx !== -1);
+    if (candidates.length === 0) {
+      return null;
+    }
+    const startIdx = Math.min(...candidates);
+    return value.slice(startIdx).trim();
+  }
+
+  private trimToHtmlEnd(value: string): string {
+    const closingIdx = value.toLowerCase().lastIndexOf("</html>");
+    if (closingIdx === -1) {
+      return value.trim();
+    }
+    return value.slice(0, closingIdx + "</html>".length).trim();
+  }
+
+  private tryRecoverHtmlFromJsonEnvelope(value: string): string | null {
+    const trimmed = value.trim();
+    const objectStart = trimmed.indexOf("{");
+    const objectEnd = trimmed.lastIndexOf("}");
+    if (objectStart === -1 || objectEnd === -1 || objectEnd <= objectStart) {
+      return null;
+    }
+    const objectSlice = trimmed.slice(objectStart, objectEnd + 1);
+    try {
+      const parsed = JSON.parse(objectSlice) as unknown;
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const inner = (parsed as Record<string, unknown>).htmlContent;
+        if (typeof inner === "string" && inner.trim().length > 0) {
+          return this.locateHtmlStart(inner) ?? this.unquoteAndUnescape(inner);
+        }
+      }
+    } catch {
+      // ignore — fall back to substring extraction
+    }
+    const keyIdx = trimmed.indexOf('"htmlContent"');
+    if (keyIdx === -1) {
+      return null;
+    }
+    const colonIdx = trimmed.indexOf(":", keyIdx);
+    if (colonIdx === -1) {
+      return null;
+    }
+    const afterColon = trimmed.slice(colonIdx + 1).trimStart();
+    if (afterColon.startsWith('"')) {
+      const innerStart = colonIdx + 1 + (trimmed.slice(colonIdx + 1).length - afterColon.length);
+      const tail = trimmed.slice(innerStart + 1);
+      const innerEnd = tail.lastIndexOf('"');
+      if (innerEnd > 0) {
+        const inner = tail.slice(0, innerEnd);
+        return this.locateHtmlStart(inner) ?? this.unquoteAndUnescape(inner);
+      }
+    }
+    return this.locateHtmlStart(afterColon);
+  }
+
+  /**
+   * Backend HTML repair pass.
+   *
+   * Uses parse5 (a forgiving HTML5 parser) to:
+   * - parse whatever HTML fragment we got from the model,
+   * - implicitly create <html>/<head>/<body> wrappers if missing,
+   * - close any tags the model forgot to close,
+   * - drop nothing — parse5 keeps content even when structure is broken,
+   * - re-serialize back into clean, well-formed HTML PDFMonkey can render.
+   *
+   * Also injects a baseline print CSS so any HTML the model gives us renders as
+   * a real document (typography, headings, lists, tables) instead of an
+   * unstyled wall of text. Returns the visible body text length so callers can
+   * reject obviously empty documents before sending them to PDFMonkey.
+   */
+  private repairHtmlDocument(htmlInput: string): { html: string; bodyTextLength: number } {
+    let parse5: {
+      parse: (html: string) => Parse5Document;
+      serialize: (node: Parse5Node) => string;
+    };
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      parse5 = require("parse5") as {
+        parse: (html: string) => Parse5Document;
+        serialize: (node: Parse5Node) => string;
+      };
+    } catch (error) {
+      this.logger.warn(
+        `[document-pdf-html-repair-soft-fail] parse5 unavailable, falling back to passthrough: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      const fallback = this.wrapHtmlInBoilerplate(htmlInput);
+      const fallbackText = this.extractPlainTextFromHtmlPassthrough(htmlInput);
+      return { html: fallback, bodyTextLength: fallbackText.length };
+    }
+    const document = parse5.parse(htmlInput);
+    const body = this.findFirstNodeByTagName(document, "body");
+    const head = this.findFirstNodeByTagName(document, "head");
+    if (head !== null && !this.hasStyleChild(head)) {
+      this.appendStyleNodeToHead(head);
+    }
+    const bodyText = body === null ? "" : this.collectVisibleTextFromNode(body);
+    const bodyTextLength = bodyText.replace(/\s+/g, " ").trim().length;
+    let serialized = parse5.serialize(document).trim();
+    if (!/^<!doctype/i.test(serialized)) {
+      serialized = `<!DOCTYPE html>\n${serialized}`;
+    }
+    if (!/<style/i.test(serialized)) {
+      serialized = serialized.replace(
+        /<\/head>/i,
+        `<style>${DOCUMENT_HTML_DEFAULT_PRINT_CSS}</style></head>`
+      );
+    }
+    return { html: serialized, bodyTextLength };
+  }
+
+  private wrapHtmlInBoilerplate(value: string): string {
+    const normalized = value.trim();
+    const lower = normalized.toLowerCase();
+    if (lower.startsWith("<!doctype")) {
+      return normalized;
+    }
+    if (lower.startsWith("<html")) {
+      return `<!DOCTYPE html>\n${normalized}`;
+    }
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${DOCUMENT_HTML_DEFAULT_PRINT_CSS}</style></head><body>${normalized}</body></html>`;
+  }
+
+  private extractPlainTextFromHtmlPassthrough(value: string): string {
+    return value
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private findFirstNodeByTagName(node: Parse5Node, tagName: string): Parse5Node | null {
+    if (node.tagName === tagName) {
+      return node;
+    }
+    for (const child of node.childNodes ?? []) {
+      const found = this.findFirstNodeByTagName(child, tagName);
+      if (found !== null) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  private hasStyleChild(node: Parse5Node): boolean {
+    for (const child of node.childNodes ?? []) {
+      if (child.tagName === "style") {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private appendStyleNodeToHead(head: Parse5Node): void {
+    const styleNode: Parse5Node = {
+      nodeName: "style",
+      tagName: "style",
+      attrs: [],
+      namespaceURI: "http://www.w3.org/1999/xhtml",
+      childNodes: [
+        {
+          nodeName: "#text",
+          value: DOCUMENT_HTML_DEFAULT_PRINT_CSS,
+          parentNode: null
+        }
+      ],
+      parentNode: head
+    };
+    const firstChild = styleNode.childNodes?.[0];
+    if (firstChild !== undefined) {
+      firstChild.parentNode = styleNode;
+    }
+    head.childNodes = [...(head.childNodes ?? []), styleNode];
+  }
+
+  private collectVisibleTextFromNode(node: Parse5Node): string {
+    if (node.nodeName === "#text") {
+      return typeof node.value === "string" ? node.value : "";
+    }
+    if (
+      node.tagName === "script" ||
+      node.tagName === "style" ||
+      node.tagName === "noscript" ||
+      node.tagName === "template"
+    ) {
+      return "";
+    }
+    let collected = "";
+    for (const child of node.childNodes ?? []) {
+      collected += `${this.collectVisibleTextFromNode(child)} `;
+    }
+    return collected;
   }
 
   private normalizeOptionalText(value: unknown): string | null {
