@@ -385,6 +385,7 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
             audience: "investors"
           },
           imageOptions: {
+            model: null,
             source: "aiGenerated",
             style: "bold editorial",
             stylePreset: "custom"
