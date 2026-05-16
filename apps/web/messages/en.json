@@ -727,6 +727,8 @@
     "toolLimitImageGenerate": "Image generation",
     "toolLimitKnowledgeFetch": "Knowledge reading",
     "toolLimitKnowledgeSearch": "Knowledge search",
+    "toolLimitBackgroundTask": "Background tasks",
+    "toolLimitDocument": "Document generation",
     "toolLimitScheduledAction": "Scheduled actions",
     "toolLimitShell": "Shell commands",
     "toolLimitTextToSpeech": "Text to speech",

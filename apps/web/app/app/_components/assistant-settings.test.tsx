@@ -1071,12 +1071,12 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Video generation")).toBeInTheDocument();
     expect(screen.getByText("1 / 5")).toBeInTheDocument();
     // Documents card moves into the (collapsed) Tool limits accordion.
-    expect(screen.queryByText("Documents")).toBeNull();
+    expect(screen.queryByText("Document generation")).toBeNull();
     expect(screen.queryByText("2 / 10")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Tool limits/i }));
 
-    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(screen.getByText("Document generation")).toBeInTheDocument();
     expect(screen.getByText("2 / 10")).toBeInTheDocument();
     expect(screen.queryAllByText("Image generation")).toHaveLength(1);
     expect(screen.queryAllByText("Video generation")).toHaveLength(1);
@@ -1280,7 +1280,7 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Image editing")).toBeInTheDocument();
     expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
     // Documents card now lives inside the collapsed Tool limits accordion.
-    expect(screen.queryByText("Documents")).toBeNull();
+    expect(screen.queryByText("Document generation")).toBeNull();
     expect(screen.queryByText("1 / 10")).toBeNull();
     expect(screen.queryByText("Image edits")).toBeNull();
     expect(screen.queryByText("Code execution")).toBeNull();
@@ -1289,7 +1289,7 @@ describe("AssistantSettings limits", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Tool limits/i }));
 
-    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(screen.getByText("Document generation")).toBeInTheDocument();
     expect(screen.getByText("1 / 10")).toBeInTheDocument();
     // Active chats card was removed from Tool limits per UX cleanup.
     expect(screen.queryByText("Active chats")).toBeNull();

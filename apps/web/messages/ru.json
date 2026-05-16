@@ -727,6 +727,8 @@
     "toolLimitImageGenerate": "Генерация изображений",
     "toolLimitKnowledgeFetch": "Чтение базы знаний",
     "toolLimitKnowledgeSearch": "Поиск по базе знаний",
+    "toolLimitBackgroundTask": "Фоновые задачи",
+    "toolLimitDocument": "Генерация документов",
     "toolLimitScheduledAction": "Запланированные действия",
     "toolLimitShell": "Команды shell",
     "toolLimitTextToSpeech": "Озвучивание текста",

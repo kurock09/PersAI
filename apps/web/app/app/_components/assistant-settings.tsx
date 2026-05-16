@@ -622,17 +622,23 @@ export function AssistantSettings({
     media_storage_bytes: t("mediaStorage"),
     knowledge_storage_bytes: t("knowledgeStorage")
   };
+  // Keys here MUST match the canonical `toolCode` values persisted in the
+  // backend tool catalog (see apps/api/prisma/tool-catalog-data.ts), not the
+  // historical human-readable names. Mismatches silently fall back to the
+  // english `displayName` and leak untranslated tool labels into ru UI.
   const toolLimitLabels: Record<string, string> = {
+    background_task: t("toolLimitBackgroundTask"),
     browser: t("toolLimitBrowser"),
+    document: t("toolLimitDocument"),
     exec: t("toolLimitExec"),
     files: t("toolLimitFiles"),
     image_edit: t("toolLimitImageEdit"),
     image_generate: t("toolLimitImageGenerate"),
-    knowledge_fetch: t("toolLimitKnowledgeFetch"),
-    knowledge_search: t("toolLimitKnowledgeSearch"),
+    memory_get: t("toolLimitKnowledgeFetch"),
+    memory_search: t("toolLimitKnowledgeSearch"),
     scheduled_action: t("toolLimitScheduledAction"),
     shell: t("toolLimitShell"),
-    text_to_speech: t("toolLimitTextToSpeech"),
+    tts: t("toolLimitTextToSpeech"),
     video_generate: t("toolLimitVideoGenerate"),
     web_fetch: t("toolLimitWebFetch"),
     web_search: t("toolLimitWebSearch")
