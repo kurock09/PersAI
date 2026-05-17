@@ -294,7 +294,12 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.equal(result.artifacts.length, 1);
     assert.equal(result.artifacts[0]!.kind, "file");
     assert.equal(result.artifacts[0]!.mimeType, "application/pdf");
-    assert.equal(result.assistantText, "Your document draft is ready for review.");
+    // Worker now intentionally returns assistantText: null. The user-facing
+    // completion message is generated exactly once in
+    // AssistantDocumentJobDeliveryService.resolveCompletionAssistantText
+    // after delivery; producing it here as well would create a duplicate
+    // framing LLM call for every document job.
+    assert.equal(result.assistantText, null);
     assert.equal(result.providerStatus?.state, "success");
   });
 
@@ -1665,9 +1670,13 @@ describe("RuntimeDocumentProviderAdapterService", () => {
   test("generates and persists a Gamma presentation artifact", async () => {
     const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
     const savedObjects: Array<{ objectKey: string; mimeType: string; bytes: Buffer }> = [];
+    const generateTextCalls: Array<{ classification: string | null }> = [];
     const service = new RuntimeDocumentProviderAdapterService(
       {
         async generateText(input: { requestMetadata?: { classification?: string } }) {
+          generateTextCalls.push({
+            classification: input.requestMetadata?.classification ?? null
+          });
           return {
             provider: "openai",
             model: "gpt-4.1-mini",
@@ -1850,8 +1859,19 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       result.artifacts[0]!.mimeType,
       "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     );
-    assert.equal(result.assistantText, "Your document draft is ready for review.");
+    // See PDF test note: worker now intentionally returns assistantText: null
+    // so the framing LLM call only happens once, in the API delivery service.
+    assert.equal(result.assistantText, null);
     assert.equal(result.providerStatus?.state, "success");
+    // Gamma path must not issue ANY LLM text-generation calls inside the
+    // worker (no HTML generation, no completion framing). The provider does
+    // the entire content/layout job; the API delivery service generates the
+    // single user-facing completion message after delivery.
+    assert.equal(
+      generateTextCalls.length,
+      0,
+      `Gamma worker path must not call generateText (got ${String(generateTextCalls.length)} calls: ${generateTextCalls.map((c) => c.classification ?? "<no-classification>").join(", ")})`
+    );
   });
 
   test("injects enhanced print CSS with @page, thead repeat, tr break-inside, orphans/widows and cover-page page-break by default", () => {

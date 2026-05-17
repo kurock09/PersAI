@@ -35,7 +35,6 @@ interface Parse5Document extends Parse5Node {
 const DEFAULT_DOCUMENT_TIMEOUT_MS = 6 * 60 * 1000;
 const PDFMONKEY_TEMPLATE_MISSING_CODE = "document_template_not_configured";
 const DOCUMENT_HTML_MAX_OUTPUT_TOKENS = 16_000;
-const DOCUMENT_COMPLETION_MAX_OUTPUT_TOKENS = 220;
 const DOCUMENT_PDF_MAX_RENDER_ATTEMPTS = 3;
 const PDF_VALIDATION_MIN_BYTES = 1_024;
 const PDF_VALIDATION_MIN_TEXT_LENGTH = 80;
@@ -349,14 +348,18 @@ export class RuntimeDocumentProviderAdapterService {
       mimeType: successfulProviderResult.mimeType
     });
 
+    // Worker intentionally returns assistantText: null. The user-facing
+    // completion message is generated exactly once in the API layer by
+    // AssistantDocumentJobDeliveryService.resolveCompletionAssistantText
+    // after the document is delivered to the chat, using full chat history
+    // as context. Generating it here as well would (a) produce a duplicate
+    // LLM call for every document job (visible in provider logs as two
+    // independent framing requests with different outputs for the same
+    // job) and (b) misuse `bundle.promptConstructor.ordinary.sections.heartbeat`,
+    // which ADR-077 explicitly reserves for Background Task Evaluation
+    // and must never be appended to a normal user-visible chat turn.
     return {
-      assistantText: await this.generateDocumentCompletionText({
-        bundle: input.bundle,
-        request: input.request,
-        provider: "pdfmonkey",
-        outputFormat: "pdf",
-        filename
-      }),
+      assistantText: null,
       artifacts: [artifact],
       usage: null,
       toolInvocations: [
@@ -446,14 +449,12 @@ export class RuntimeDocumentProviderAdapterService {
       buffer: Buffer.from(providerResult.bytesBase64, "base64"),
       mimeType: providerResult.mimeType
     });
+    // Same rationale as the PDF path: worker returns assistantText: null
+    // and the user-facing completion text is generated exactly once in
+    // AssistantDocumentJobDeliveryService after delivery, with full chat
+    // history as context. See the PDF return statement for the full note.
     return {
-      assistantText: await this.generateDocumentCompletionText({
-        bundle: input.bundle,
-        request: input.request,
-        provider: "gamma",
-        outputFormat: "pptx",
-        filename
-      }),
+      assistantText: null,
       artifacts: [artifact],
       usage: null,
       toolInvocations: [
@@ -945,126 +946,6 @@ export class RuntimeDocumentProviderAdapterService {
         toolLoopIteration: null,
         compactionToolCode: null,
         classification: "document_html_generation"
-      }
-    };
-  }
-
-  private async generateDocumentCompletionText(input: {
-    bundle: AssistantRuntimeBundle;
-    request: RuntimeDocumentJobRunRequest;
-    provider: SupportedDocumentProvider;
-    outputFormat: "pdf" | "pptx";
-    filename: string;
-  }): Promise<string | null> {
-    try {
-      const providerSelection = this.resolveProviderSelection(input.bundle, "premium_reply");
-      const response = await this.providerGatewayClientService.generateText(
-        this.buildDocumentCompletionRequest(input, providerSelection)
-      );
-      const parsed = this.parseJsonObject(response.text, "document_completion_framing");
-      if (parsed.assistantText === null) {
-        return null;
-      }
-      const assistantText =
-        typeof parsed.assistantText === "string" ? parsed.assistantText.trim() : "";
-      return assistantText.length > 0 ? assistantText : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private buildDocumentCompletionRequest(
-    input: {
-      bundle: AssistantRuntimeBundle;
-      request: RuntimeDocumentJobRunRequest;
-      provider: SupportedDocumentProvider;
-      outputFormat: "pdf" | "pptx";
-      filename: string;
-    },
-    providerSelection: ProviderSelection
-  ): ProviderGatewayTextGenerateRequest {
-    const bundle = input.bundle;
-    const request = input.request;
-    const developerInstructions = [
-      this.normalizeOptionalText(bundle.promptConstructor.ordinary.sections.heartbeat),
-      [
-        "You are framing the successful completion of a finished PersAI async document job.",
-        "Backend state already owns the job, rendered file, delivery idempotency, and quota truth.",
-        "Write only optional user-facing completion text.",
-        "Do not claim the document was already sent, attached, uploaded, or delivered.",
-        "Do not mention internal tools, templates, providers, or job ids.",
-        "Keep the message short, calm, and in the user's language.",
-        "If no extra text is needed, you may return assistantText as null."
-      ].join("\n")
-    ]
-      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-      .join("\n\n");
-
-    return {
-      provider: providerSelection.provider,
-      model: providerSelection.model,
-      systemPrompt: this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt),
-      ...(developerInstructions.length === 0 ? {} : { developerInstructions }),
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  mode: "document_completion_framing",
-                  currentTimeIso: new Date().toISOString(),
-                  job: {
-                    id: request.job.id,
-                    descriptorMode: request.directToolExecution.descriptorMode,
-                    outputFormat: input.outputFormat,
-                    provider: input.provider,
-                    filename: input.filename
-                  },
-                  documentRequest: {
-                    prompt: request.directToolExecution.request.prompt,
-                    instructions: request.directToolExecution.request.instructions ?? null,
-                    requestedName: request.directToolExecution.request.requestedName ?? null
-                  },
-                  sourceUserMessage: {
-                    text: request.job.sourceUserMessageText,
-                    createdAt: request.job.sourceUserMessageCreatedAt
-                  },
-                  assistant: {
-                    name: bundle.persona.displayName,
-                    userLocale: bundle.userContext.locale,
-                    userTimezone: bundle.userContext.timezone
-                  }
-                },
-                null,
-                2
-              )
-            }
-          ]
-        }
-      ],
-      maxOutputTokens: DOCUMENT_COMPLETION_MAX_OUTPUT_TOKENS,
-      outputSchema: {
-        name: "document_job_completion",
-        strict: true,
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["assistantText"],
-          properties: {
-            assistantText: {
-              type: ["string", "null"]
-            }
-          }
-        }
-      },
-      requestMetadata: {
-        runtimeSessionId: `document-job:${request.job.id}`,
-        runtimeRequestId: `document-completion:${request.job.id}`,
-        toolLoopIteration: null,
-        compactionToolCode: null,
-        classification: "document_job_completion"
       }
     };
   }
