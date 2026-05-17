@@ -89,7 +89,7 @@ export class RuntimeMediaJobCompletionService {
     bundle: AssistantRuntimeBundle
   ): Promise<RuntimeMediaJobCompletionResult> {
     try {
-      const providerSelection = this.resolveProviderSelection(bundle, "premium_reply");
+      const providerSelection = this.resolveProviderSelection(bundle, "normal_reply");
       const response = await this.providerGatewayClientService.generateText(
         this.buildProviderRequest(acceptedTurn, input, bundle, providerSelection)
       );
@@ -156,7 +156,7 @@ export class RuntimeMediaJobCompletionService {
         timezone: bundle.userContext.timezone,
         receivedAt: new Date().toISOString()
       },
-      modelRoleOverride: "premium_reply"
+      modelRoleOverride: "normal_reply"
     };
   }
 

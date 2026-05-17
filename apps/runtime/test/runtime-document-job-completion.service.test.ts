@@ -89,7 +89,7 @@ describe("RuntimeDocumentJobCompletionService", () => {
         runtime: {
           runtimeProviderRouting: {
             modelSlots: {
-              premiumReply: {
+              normalReply: {
                 providerKey: "openai",
                 modelKey: "gpt-5.4-medium"
               }
@@ -249,7 +249,7 @@ describe("RuntimeDocumentJobCompletionService", () => {
         runtime: {
           runtimeProviderRouting: {
             modelSlots: {
-              premiumReply: {
+              normalReply: {
                 providerKey: "openai",
                 modelKey: "gpt-5.4-medium"
               }

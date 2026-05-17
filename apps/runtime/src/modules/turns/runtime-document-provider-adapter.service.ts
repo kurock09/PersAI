@@ -149,6 +149,18 @@ type DocumentSourceFilePayload = {
   note: string | null;
 };
 
+type PdfParseLegacyModule = (
+  buffer: Buffer,
+  options?: { max?: number }
+) => Promise<{ text?: string }>;
+
+type PdfParseV2Module = {
+  PDFParse: new (options: { data: Buffer }) => {
+    getText(): Promise<{ text?: string } | string>;
+    destroy(): Promise<void> | void;
+  };
+};
+
 @Injectable()
 export class RuntimeDocumentProviderAdapterService {
   private readonly logger = new Logger(RuntimeDocumentProviderAdapterService.name);
@@ -991,13 +1003,7 @@ export class RuntimeDocumentProviderAdapterService {
   ): Promise<{ text: string | null; error: string | null }> {
     if (kind === "pdf") {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const pdfParse = require("pdf-parse") as (
-          buf: Buffer,
-          opts?: { max?: number }
-        ) => Promise<{ text?: string }>;
-        const result = await pdfParse(buffer, { max: 100 });
-        return { text: result.text ?? "", error: null };
+        return { text: await this.parsePdfBuffer(buffer), error: null };
       } catch (error) {
         return {
           text: null,
@@ -1330,14 +1336,8 @@ export class RuntimeDocumentProviderAdapterService {
     buffer: Buffer
   ): Promise<{ text: string | null; error: string | null }> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pdfParse = require("pdf-parse") as (
-        buf: Buffer,
-        opts?: { max?: number }
-      ) => Promise<{ text?: string }>;
-      const result = await pdfParse(buffer, { max: 100 });
       return {
-        text: this.normalizeExtractedPdfText(result.text ?? ""),
+        text: this.normalizeExtractedPdfText(await this.parsePdfBuffer(buffer)),
         error: null
       };
     } catch (error) {
@@ -1345,6 +1345,25 @@ export class RuntimeDocumentProviderAdapterService {
         text: null,
         error: error instanceof Error ? error.message : String(error)
       };
+    }
+  }
+
+  private async parsePdfBuffer(buffer: Buffer): Promise<string> {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pdfParseModule = require("pdf-parse") as PdfParseLegacyModule | PdfParseV2Module;
+    if (typeof pdfParseModule === "function") {
+      const result = await pdfParseModule(buffer, { max: 100 });
+      return result.text ?? "";
+    }
+    if (typeof pdfParseModule.PDFParse !== "function") {
+      throw new Error("pdf-parse module does not expose a supported parser API.");
+    }
+    const parser = new pdfParseModule.PDFParse({ data: buffer });
+    try {
+      const result = await parser.getText();
+      return typeof result === "string" ? result : (result.text ?? "");
+    } finally {
+      await parser.destroy();
     }
   }
 

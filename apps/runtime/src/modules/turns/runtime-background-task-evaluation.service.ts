@@ -114,7 +114,7 @@ export class RuntimeBackgroundTaskEvaluationService {
         timezone: bundle.userContext.timezone,
         receivedAt: new Date().toISOString()
       },
-      modelRoleOverride: "reasoning"
+      modelRoleOverride: "premium_reply"
     };
   }
 

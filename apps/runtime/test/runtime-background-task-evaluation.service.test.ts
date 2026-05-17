@@ -61,6 +61,16 @@ function createRuntimeBundleDocument(): string {
     },
     runtime: {
       runtimeProviderRouting: {
+        modelSlots: {
+          premiumReply: {
+            providerKey: "openai",
+            modelKey: "premium-slot-model"
+          },
+          systemTool: {
+            providerKey: "openai",
+            modelKey: "system-tool-slot-model"
+          }
+        },
         primaryPath: {
           providerKey: "openai",
           modelKey: "gpt-5.4",
@@ -145,6 +155,8 @@ export async function runRuntimeBackgroundTaskEvaluationServiceTest(): Promise<v
   assert.ok(providerRequest !== undefined);
   assert.ok(providerRequest.requestMetadata !== undefined);
   assert.equal(providerRequest.requestMetadata.runtimeRequestId, toolRunRequest.requestId);
+  assert.equal(toolRunRequest.modelRoleOverride, "premium_reply");
+  assert.equal(providerRequest.model, "system-tool-slot-model");
 }
 
 // ADR-090: unique externalThreadKey when evaluationAttemptId is provided
