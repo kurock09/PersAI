@@ -84,7 +84,7 @@ type QuotaUsageData = {
   activeWebChats: number;
   activeWebChatsLimit: number | null;
   monthlyMediaTools: Array<{
-    toolCode: "image_generate" | "image_edit" | "video_generate";
+    toolCode: "image_generate" | "image_edit" | "video_generate" | "document";
     displayName: string;
     usedUnits: number;
     limitUnits: number | null;
@@ -1588,9 +1588,9 @@ export default function AdminOpsPage() {
                     </div>
                     <div className="space-y-1.5">
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                        Monthly media
+                        Monthly package tools
                       </p>
-                      <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3">
+                      <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2 xl:grid-cols-4">
                         {quotaUsage.monthlyMediaTools.map((tool) => (
                           <div
                             key={tool.toolCode}

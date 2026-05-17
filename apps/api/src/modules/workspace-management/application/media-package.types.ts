@@ -1,4 +1,9 @@
-export const MEDIA_PACKAGE_TYPES = ["image_generate", "image_edit", "video_generate"] as const;
+export const MEDIA_PACKAGE_TYPES = [
+  "image_generate",
+  "image_edit",
+  "video_generate",
+  "document"
+] as const;
 export type MediaPackageType = (typeof MEDIA_PACKAGE_TYPES)[number];
 
 export const SUPPORTED_PACKAGE_CURRENCIES = ["RUB", "USD"] as const;

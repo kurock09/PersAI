@@ -131,7 +131,7 @@ describe("BillingCheckoutPage", () => {
     );
   });
 
-  it("shows media package checkout price without a recurring suffix", async () => {
+  it("shows additional package checkout price without a recurring suffix", async () => {
     navigationMocks.params = { paymentIntentId: "pi-package" };
     apiMocks.getAssistantBillingPaymentIntent.mockResolvedValue({
       id: "pi-package",
@@ -172,7 +172,7 @@ describe("BillingCheckoutPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Pay for media package")).toBeInTheDocument();
+      expect(screen.getByText("Pay for additional package")).toBeInTheDocument();
     });
     expect(screen.getByText("RUB 5,200")).toBeInTheDocument();
     expect(screen.queryByText("RUB 5,200 / month")).toBeNull();

@@ -186,7 +186,8 @@ async function run(): Promise<void> {
               activeWebChatsLimit: 10,
               imageGenerateMonthlyUnitsLimit: 30,
               imageEditMonthlyUnitsLimit: 10,
-              videoGenerateMonthlyUnitsLimit: 5
+              videoGenerateMonthlyUnitsLimit: 5,
+              documentMonthlyUnitsLimit: 8
             }
           }
         ];
@@ -212,6 +213,21 @@ async function run(): Promise<void> {
             displayOrder: 0,
             highlighted: false,
             title: { ru: "10 генераций", en: "10 generations" },
+            subtitle: { ru: "", en: "" },
+            ctaLabel: { ru: "Купить", en: "Buy" },
+            createdAt: "2026-05-01T00:00:00.000Z",
+            updatedAt: "2026-05-01T00:00:00.000Z"
+          },
+          {
+            id: "pkg-document-1",
+            packageType: "document",
+            units: 5,
+            amountMinor: 14900,
+            currency: "RUB",
+            isActive: true,
+            displayOrder: 1,
+            highlighted: false,
+            title: { ru: "5 документов", en: "5 documents" },
             subtitle: { ru: "", en: "" },
             ctaLabel: { ru: "Купить", en: "Buy" },
             createdAt: "2026-05-01T00:00:00.000Z",
@@ -275,9 +291,14 @@ async function run(): Promise<void> {
   assert.equal(result.monthlyToolQuotas.tools[1], undefined);
   assert.equal(result.packagesAvailableByTool.image_generate, true);
   assert.equal(result.packagesAvailableByTool.image_edit, false);
+  assert.equal(result.packagesAvailableByTool.document, false);
   assert.equal(result.packageOffers.packagesPurchase?.path, "/app/packages");
   assert.equal(result.packageOffers.tools[0]?.offerableNow, true);
   assert.equal(result.packageOffers.tools[0]?.offers[0]?.id, "pkg-image-1");
+  assert.equal(
+    result.packageOffers.tools.find((tool) => tool.toolCode === "document")?.offers[0]?.id,
+    "pkg-document-1"
+  );
   assert.equal(result.advisoryCandidates.length, 0);
 
   const hiddenFreePlanService = new ReadInternalRuntimeQuotaStatusService(

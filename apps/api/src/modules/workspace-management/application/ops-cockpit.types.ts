@@ -13,7 +13,7 @@ export type AdminOpsCockpitQuotaUsage = {
   activeWebChats: number;
   activeWebChatsLimit: number | null;
   monthlyMediaTools: Array<{
-    toolCode: "image_generate" | "image_edit" | "video_generate";
+    toolCode: "image_generate" | "image_edit" | "video_generate" | "document";
     displayName: string;
     usedUnits: number;
     limitUnits: number | null;

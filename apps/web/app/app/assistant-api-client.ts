@@ -3592,7 +3592,7 @@ export async function listAdminAbuseActiveOverrides(
 
 export type MediaPackageCatalogItem = {
   id: string;
-  packageType: "image_generate" | "image_edit" | "video_generate";
+  packageType: "image_generate" | "image_edit" | "video_generate" | "document";
   units: number;
   amountMinor: number;
   currency: "RUB" | "USD";
@@ -3614,7 +3614,7 @@ export async function getAdminMediaPackages(token: string): Promise<MediaPackage
       headers: getAuthHeaders(token)
     });
     if (!res.ok) {
-      throw new Error(await readJsonErrorMessage(res, "Failed to fetch media packages."));
+      throw new Error(await readJsonErrorMessage(res, "Failed to fetch package offers."));
     }
     const data = (await res.json()) as { packages: MediaPackageCatalogItem[] };
     return data.packages;
@@ -3626,7 +3626,7 @@ export async function getAdminMediaPackages(token: string): Promise<MediaPackage
 export async function postAdminMediaPackage(
   token: string,
   payload: {
-    packageType: "image_generate" | "image_edit" | "video_generate";
+    packageType: "image_generate" | "image_edit" | "video_generate" | "document";
     units: number;
     amountMinor: number;
     currency: "RUB" | "USD";
@@ -3650,7 +3650,7 @@ export async function postAdminMediaPackage(
       body: JSON.stringify(payload)
     });
     if (!res.ok) {
-      throw new Error(await readJsonErrorMessage(res, "Failed to create media package."));
+      throw new Error(await readJsonErrorMessage(res, "Failed to create package offer."));
     }
     const data = (await res.json()) as { package: MediaPackageCatalogItem };
     return data.package;
@@ -3663,7 +3663,7 @@ export async function patchAdminMediaPackage(
   token: string,
   id: string,
   patch: Partial<{
-    packageType: "image_generate" | "image_edit" | "video_generate";
+    packageType: "image_generate" | "image_edit" | "video_generate" | "document";
     units: number;
     amountMinor: number;
     currency: "RUB" | "USD";
@@ -3687,7 +3687,7 @@ export async function patchAdminMediaPackage(
       body: JSON.stringify(patch)
     });
     if (!res.ok) {
-      throw new Error(await readJsonErrorMessage(res, "Failed to update media package."));
+      throw new Error(await readJsonErrorMessage(res, "Failed to update package offer."));
     }
     const data = (await res.json()) as { package: MediaPackageCatalogItem };
     return data.package;
@@ -3704,7 +3704,7 @@ export async function deleteAdminMediaPackage(token: string, id: string): Promis
       headers: getAuthHeaders(token)
     });
     if (!res.ok) {
-      throw new Error(await readJsonErrorMessage(res, "Failed to delete media package."));
+      throw new Error(await readJsonErrorMessage(res, "Failed to delete package offer."));
     }
   } catch (error) {
     throw new Error(toErrorMessage(error));
@@ -3719,7 +3719,7 @@ export async function getPublicMediaPackages(token: string): Promise<MediaPackag
       headers: getAuthHeaders(token)
     });
     if (!res.ok) {
-      throw new Error(await readJsonErrorMessage(res, "Failed to fetch media packages."));
+      throw new Error(await readJsonErrorMessage(res, "Failed to fetch package offers."));
     }
     const data = (await res.json()) as { packages: MediaPackageCatalogItem[] };
     return data.packages;

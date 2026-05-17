@@ -182,6 +182,22 @@ function createService(prisma: WorkspaceManagementPrismaService): ResolveAdminOp
               remainingUnits: 4,
               usageAvailable: true,
               status: "ok" as const
+            },
+            {
+              toolCode: "document" as const,
+              displayName: "Document generation",
+              usedUnits: 3,
+              reservedUnits: 0,
+              settledUnits: 3,
+              releasedUnits: 0,
+              reconciliationRequiredUnits: 0,
+              limitUnits: 8,
+              bonusLimitUnits: 2,
+              effectiveLimitUnits: 10,
+              bonusExpiresAt: "2026-06-01T00:00:00.000Z",
+              remainingUnits: 7,
+              usageAvailable: true,
+              status: "ok" as const
             }
           ]
         };
@@ -444,6 +460,15 @@ async function run(): Promise<void> {
         bonusLimitUnits: 0,
         effectiveLimitUnits: 5,
         bonusExpiresAt: null
+      },
+      {
+        toolCode: "document",
+        displayName: "Document generation",
+        usedUnits: 3,
+        limitUnits: 8,
+        bonusLimitUnits: 2,
+        effectiveLimitUnits: 10,
+        bonusExpiresAt: "2026-06-01T00:00:00.000Z"
       }
     ]);
     assert.equal(result.billingSupport?.subscription.status, "grace_period");

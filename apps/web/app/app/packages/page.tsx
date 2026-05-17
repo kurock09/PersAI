@@ -13,13 +13,18 @@ import {
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
-type PackageType = "image_generate" | "image_edit" | "video_generate";
+type PackageType = "image_generate" | "image_edit" | "video_generate" | "document";
 type PackageOfferItem = UserPlanVisibilityState["packageOffers"]["tools"][number]["offers"][number];
 type PackageToolState = UserPlanVisibilityState["packageOffers"]["tools"][number];
 
 type SelectedByType = Record<PackageType, string | null>;
 
-const PACKAGE_TYPE_ORDER: PackageType[] = ["image_generate", "image_edit", "video_generate"];
+const PACKAGE_TYPE_ORDER: PackageType[] = [
+  "image_generate",
+  "image_edit",
+  "video_generate",
+  "document"
+];
 
 const PACKAGE_TYPE_META: Record<
   PackageType,
@@ -82,6 +87,23 @@ const PACKAGE_TYPE_META: Record<
       ru: "Создаём и редактируем видео по описанию.",
       en: "We create and edit videos based on your description."
     }
+  },
+  document: {
+    eyebrow: { ru: "Документы", en: "Documents" },
+    headline: { ru: "Генерация", en: "Generation" },
+    summaryLabel: { ru: "Документы · Генерация", en: "Documents · Generation" },
+    disabledHint: {
+      ru: "Перейдите на тариф, где включена генерация документов, чтобы купить пакет.",
+      en: "Switch to a plan with document generation enabled to buy this package."
+    },
+    emptyHint: {
+      ru: "Для этого типа пока нет доступных пакетов.",
+      en: "No packages available for this type yet."
+    },
+    info: {
+      ru: "Создаём PDF и презентации по описанию.",
+      en: "We create PDFs and presentations from your prompt."
+    }
   }
 };
 
@@ -126,7 +148,8 @@ function resolveToolAvailability(
   const fallback: Record<PackageType, boolean> = {
     image_generate: false,
     image_edit: false,
-    video_generate: false
+    video_generate: false,
+    document: false
   };
   if (!visibility) {
     return fallback;
@@ -141,7 +164,9 @@ function resolveToolAvailability(
       fallback.image_edit,
     video_generate:
       packageTools.find((tool) => tool.toolCode === "video_generate")?.offerableNow ??
-      fallback.video_generate
+      fallback.video_generate,
+    document:
+      packageTools.find((tool) => tool.toolCode === "document")?.offerableNow ?? fallback.document
   };
 }
 
@@ -152,7 +177,8 @@ function resolvePackageToolStates(
   return {
     image_generate: tools.find((tool) => tool.toolCode === "image_generate") ?? null,
     image_edit: tools.find((tool) => tool.toolCode === "image_edit") ?? null,
-    video_generate: tools.find((tool) => tool.toolCode === "video_generate") ?? null
+    video_generate: tools.find((tool) => tool.toolCode === "video_generate") ?? null,
+    document: tools.find((tool) => tool.toolCode === "document") ?? null
   };
 }
 
@@ -260,7 +286,7 @@ function PackageTypeCard({
   const toolEnabled = toolState?.offerableNow === true;
 
   return (
-    <section className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-border/70 bg-surface/78 p-4 shadow-[0_12px_32px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-5">
+    <section className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface/78 p-4 shadow-[0_12px_32px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-5">
       <div className="relative z-10">
         <p className="text-[10px] font-semibold uppercase leading-4 tracking-[0.22em] text-text-subtle">
           {pickMetaText(locale, meta.eyebrow)}
@@ -343,7 +369,7 @@ function SummaryBlock({
       : formatPrice(totalAmountMinor, currency, locale);
 
   return (
-    <section className="relative overflow-hidden rounded-3xl border border-border/70 bg-surface/78 p-4 shadow-[0_12px_32px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-5">
+    <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-surface/78 p-4 shadow-[0_12px_32px_rgba(0,0,0,0.12)] backdrop-blur-sm sm:p-5">
       <div className="relative z-10">
         <p className="text-[10px] font-semibold uppercase leading-4 tracking-[0.22em] text-text-subtle">
           {locale === "ru" ? "Ваш выбор" : "Your selection"}
@@ -432,7 +458,8 @@ export default function PackagesPage() {
   const [selectedByType, setSelectedByType] = useState<SelectedByType>({
     image_generate: null,
     image_edit: null,
-    video_generate: null
+    video_generate: null,
+    document: null
   });
   const [purchasing, setPurchasing] = useState(false);
 
@@ -476,7 +503,8 @@ export default function PackagesPage() {
     const map: Record<PackageType, PackageOfferItem[]> = {
       image_generate: [],
       image_edit: [],
-      video_generate: []
+      video_generate: [],
+      document: []
     };
     for (const tool of planVisibility?.packageOffers.tools ?? []) {
       if (tool.toolCode in map) {
@@ -603,7 +631,7 @@ export default function PackagesPage() {
               {locale === "ru" ? "Дополнительные лимиты" : "Additional limits"}
             </p>
             <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-text sm:text-5xl">
-              {locale === "ru" ? "Пакеты медиа" : "Media packages"}
+              {locale === "ru" ? "Дополнительные пакеты" : "Additional packages"}
             </h1>
           </header>
         </div>
@@ -626,7 +654,7 @@ export default function PackagesPage() {
         {!loading &&
         !error &&
         Object.values(packagesByType).every((items) => items.length === 0) ? (
-          <div className="mx-auto mt-10 w-full max-w-2xl rounded-3xl border border-border/70 bg-surface/70 p-6 text-center">
+          <div className="mx-auto mt-10 w-full max-w-2xl rounded-2xl border border-border/70 bg-surface/70 p-6 text-center">
             <p className="text-lg font-medium text-text">
               {locale === "ru"
                 ? "Пакеты временно недоступны."
@@ -637,7 +665,7 @@ export default function PackagesPage() {
 
         {!loading && !error && Object.values(packagesByType).some((items) => items.length > 0) ? (
           <div className="mt-10 space-y-4">
-            <div className="grid items-stretch gap-4 lg:grid-cols-3">
+            <div className="grid items-stretch gap-4 lg:grid-cols-2 xl:grid-cols-4">
               {PACKAGE_TYPE_ORDER.map((type) => (
                 <PackageTypeCard
                   key={type}

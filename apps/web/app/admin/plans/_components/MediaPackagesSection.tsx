@@ -10,7 +10,7 @@ import {
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
 
-type PackageType = "image_generate" | "image_edit" | "video_generate";
+type PackageType = "image_generate" | "image_edit" | "video_generate" | "document";
 
 const PACKAGE_TYPES: Array<{
   value: PackageType;
@@ -27,6 +27,10 @@ const PACKAGE_TYPES: Array<{
   {
     value: "video_generate",
     label: "Video Generate"
+  },
+  {
+    value: "document",
+    label: "Document Generate"
   }
 ];
 
@@ -538,10 +542,11 @@ export function MediaPackagesSection({
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text">
-            Media packages
+            Additional packages
           </h3>
           <p className="mt-0.5 text-[10px] text-text-subtle/80">
-            One-time purchasable quota boosts. Active during the current subscription period.
+            One-time purchasable quota boosts, including documents. Active during the current
+            subscription period.
           </p>
         </div>
         {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-text-subtle" />}

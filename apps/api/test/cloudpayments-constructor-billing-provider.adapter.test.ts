@@ -178,12 +178,16 @@ async function run(): Promise<void> {
       packageItems: [
         { catalogItemId: "ci-1", packageType: "image_generate", units: 100, amountMinor: 300000 },
         { catalogItemId: "ci-2", packageType: "image_edit", units: 0, amountMinor: 0 },
-        { catalogItemId: "ci-3", packageType: "video_generate", units: 10, amountMinor: 220000 }
+        { catalogItemId: "ci-3", packageType: "video_generate", units: 10, amountMinor: 220000 },
+        { catalogItemId: "ci-4", packageType: "document", units: 5, amountMinor: 0 }
       ]
     }
   });
   const mediaInit = mediaPackageSession.payload.initializationParams as Record<string, unknown>;
-  assert.equal(mediaInit.description, "PersAI Пакет медиа 100/0/10 (фото/ред/видео)");
+  assert.equal(
+    mediaInit.description,
+    "PersAI Дополнительный пакет 100/0/10/5 (фото/ред/видео/док)"
+  );
   const mediaButton = (
     (mediaPackageSession.payload.customizationParams as Record<string, unknown>)
       .components as Record<string, unknown>

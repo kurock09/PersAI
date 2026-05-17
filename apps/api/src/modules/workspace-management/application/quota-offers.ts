@@ -49,10 +49,11 @@ type VisiblePlanOfferInput = {
     imageGenerateMonthlyUnitsLimit: number | null;
     imageEditMonthlyUnitsLimit: number | null;
     videoGenerateMonthlyUnitsLimit: number | null;
+    documentMonthlyUnitsLimit: number | null;
   };
 };
 
-const PACKAGE_TOOL_CODES = ["image_generate", "image_edit", "video_generate"] as const;
+const PACKAGE_TOOL_CODES = ["image_generate", "image_edit", "video_generate", "document"] as const;
 
 function resolvePublicWebBaseUrl(): string | null {
   const raw = process.env.PERSAI_WEB_BASE_URL?.trim();
@@ -88,6 +89,8 @@ function resolveCurrentToolLimit(
       return currentPlan.limits.imageEditMonthlyUnitsLimit;
     case "video_generate":
       return currentPlan.limits.videoGenerateMonthlyUnitsLimit;
+    case "document":
+      return currentPlan.limits.documentMonthlyUnitsLimit;
   }
 }
 

@@ -477,7 +477,8 @@ async function run(): Promise<void> {
               messagesPerChat: 200,
               imageGenerateMonthlyUnitsLimit: 100,
               imageEditMonthlyUnitsLimit: 100,
-              videoGenerateMonthlyUnitsLimit: 20
+              videoGenerateMonthlyUnitsLimit: 20,
+              documentMonthlyUnitsLimit: 12
             }
           }
         ];
@@ -496,6 +497,21 @@ async function run(): Promise<void> {
             displayOrder: 0,
             highlighted: true,
             title: { ru: "10 генераций", en: "10 generations" },
+            subtitle: { ru: "", en: "" },
+            ctaLabel: { ru: "Купить", en: "Buy" },
+            createdAt: "2026-05-01T00:00:00.000Z",
+            updatedAt: "2026-05-01T00:00:00.000Z"
+          },
+          {
+            id: "pkg-document-1",
+            packageType: "document",
+            units: 5,
+            amountMinor: 14900,
+            currency: "RUB",
+            isActive: true,
+            displayOrder: 1,
+            highlighted: false,
+            title: { ru: "5 документов", en: "5 documents" },
             subtitle: { ru: "", en: "" },
             ctaLabel: { ru: "Купить", en: "Buy" },
             createdAt: "2026-05-01T00:00:00.000Z",
@@ -540,6 +556,10 @@ async function run(): Promise<void> {
   assert.equal(visibility.packageOffers.tools[0]?.offerableNow, false);
   assert.equal(visibility.packageOffers.tools[0]?.preferredUpgradePlanCode, "max");
   assert.equal(visibility.packageOffers.tools[0]?.offers[0]?.id, "pkg-image-1");
+  assert.equal(
+    visibility.packageOffers.tools.find((tool) => tool.toolCode === "document")?.offers[0]?.id,
+    "pkg-document-1"
+  );
   assert.equal(visibility.limits.toolDailyLimits.length, 2);
   assert.equal(visibility.limits.monthlyToolQuotas.tools[0]?.toolCode, "image_generate");
   assert.deepEqual(visibility.limits.toolDailyLimits[0], {

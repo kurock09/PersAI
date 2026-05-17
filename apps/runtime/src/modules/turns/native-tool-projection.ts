@@ -377,11 +377,11 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
     description: resolveToolDefinitionDescription(
       policy,
       [
-        "Read live PersAI quota status for the current assistant, compare public plans from the same source of truth, report monthly media/package availability, and create a checkout link when the user wants to open it now.",
-        "When the user asks about media generation/edit/video limits, monthly media usage, or media packages, call this tool first instead of guessing from history.",
+        "Read live PersAI quota status for the current assistant, compare public plans from the same source of truth, report monthly tool/package availability, and create a checkout link when the user wants to open it now.",
+        "When the user asks about image, video, or document generation limits, monthly usage, or extra packages, call this tool first instead of guessing from history.",
         "When the user asks about tariffs, plans, subscription differences, upgrade options, or asks to send/open the pricing page, call this tool first instead of improvising links from memory.",
         "Use packageOffers.tools to ground package guidance: it contains exact offers (ids, units, prices, CTA labels), whether each tool is offerable now, and whether the better answer is package only, plan upgrade only, or both.",
-        "If the result has packagesPurchase != null, then media packages CAN be bought right now for the listed availableTools. In that case, when the user asks 'can I buy a package' / 'how do I add more' / 'show me packages' (in any phrasing), say plainly that yes — media packages are available for those tools, and tell the user to open the in-product packages page (path from packagesPurchase.path/url, default '/app/packages'). Do not say packages are unavailable just because no per-package checkout link was returned here: package purchase happens on that page, not via this tool.",
+        "If the result has packagesPurchase != null, then extra packages CAN be bought right now for the listed availableTools. In that case, when the user asks 'can I buy a package' / 'how do I add more' / 'show me packages' (in any phrasing), say plainly that yes — packages are available for those tools, and tell the user to open the in-product packages page (path from packagesPurchase.path/url, default '/app/packages'). Do not say packages are unavailable just because no per-package checkout link was returned here: package purchase happens on that page, not via this tool.",
         "If the result has pricingPage != null, then the user CAN open the in-product pricing page right now. When they ask to compare plans, choose a tariff, upgrade, or send the tariffs page, include that pricingPage path/url plainly in the answer instead of saying no link is available."
       ].join(" ")
     ),
@@ -398,7 +398,7 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
         toolCode: {
           type: "string",
           description:
-            "Optional tool code to inspect one quota-governed tool when action='report'. Leave unset to return non-media daily tool counters, the current quota bucket snapshot, monthly media quota rows, media package availability by tool, and visible plan options."
+            "Optional tool code to inspect one quota-governed tool when action='report'. Leave unset to return non-media daily tool counters, the current quota bucket snapshot, monthly tool quota rows, package availability by tool, and visible plan options."
         },
         targetPlanCode: {
           type: "string",

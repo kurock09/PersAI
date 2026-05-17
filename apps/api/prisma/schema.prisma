@@ -231,6 +231,7 @@ enum MediaPackageType {
   image_generate
   image_edit
   video_generate
+  document
 }
 
 enum MediaPackageGrantStatus {

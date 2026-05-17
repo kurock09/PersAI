@@ -142,7 +142,12 @@ function isSupportedRecurringInterval(value: unknown): value is "Day" | "Week" |
   return value === "Day" || value === "Week" || value === "Month";
 }
 
-const MEDIA_PACKAGE_TYPE_ORDER = ["image_generate", "image_edit", "video_generate"] as const;
+const MEDIA_PACKAGE_TYPE_ORDER = [
+  "image_generate",
+  "image_edit",
+  "video_generate",
+  "document"
+] as const;
 
 function isMediaPackagePurchase(metadata: Record<string, unknown>): boolean {
   return metadata["purpose"] === "media_package_purchase";
@@ -151,7 +156,7 @@ function isMediaPackagePurchase(metadata: Record<string, unknown>): boolean {
 function buildMediaPackageDescription(metadata: Record<string, unknown>): string {
   const rawItems = metadata["packageItems"];
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
-    return "PersAI Пакет медиа";
+    return "PersAI Дополнительный пакет";
   }
   const totalsByType = new Map<string, number>();
   for (const candidate of rawItems) {
@@ -168,7 +173,7 @@ function buildMediaPackageDescription(metadata: Record<string, unknown>): string
     totalsByType.set(packageType, (totalsByType.get(packageType) ?? 0) + units);
   }
   const compactCode = MEDIA_PACKAGE_TYPE_ORDER.map((type) => totalsByType.get(type) ?? 0).join("/");
-  return `PersAI Пакет медиа ${compactCode} (фото/ред/видео)`;
+  return `PersAI Дополнительный пакет ${compactCode} (фото/ред/видео/док)`;
 }
 
 function buildPaymentButtonText(metadata: Record<string, unknown>): string {

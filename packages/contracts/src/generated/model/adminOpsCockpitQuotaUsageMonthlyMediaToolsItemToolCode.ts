@@ -12,5 +12,6 @@ export type AdminOpsCockpitQuotaUsageMonthlyMediaToolsItemToolCode =
 export const AdminOpsCockpitQuotaUsageMonthlyMediaToolsItemToolCode = {
   image_generate: "image_generate",
   image_edit: "image_edit",
-  video_generate: "video_generate"
+  video_generate: "video_generate",
+  document: "document"
 } as const;

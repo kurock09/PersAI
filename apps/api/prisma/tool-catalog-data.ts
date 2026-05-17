@@ -50,7 +50,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "AI image generation via DALL-E or other supported providers.",
     modelDescription: "Generate brand-new images from a text prompt.",
     modelUsageGuidance:
-      'Use this only for creating a new image, not for editing an existing one or generating video. When the user directly asks you to make, draw, create, or generate an image, call the tool instead of narrating the planned call. Never print `image_generate(...)`, JSON arguments, or a fenced code block as a substitute. For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". If the result says `action="deferred"`, say the image is still rendering and will arrive separately; do not describe it as already created, attached, or sent.',
+      'Use this only for creating a new image, not for editing an existing one or generating video. When the user directly asks you to make, draw, create, or generate an image, call this tool immediately instead of narrating the planned call. Never print `image_generate(...)`, JSON arguments, or a fenced code block as a substitute. For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". If the result says `action="deferred"`, say the image is still rendering and will arrive separately; do not describe it as already created, attached, or sent.',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -65,7 +65,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     modelDescription:
       "Edit images only when the user explicitly asks to modify an image, for example replace, remove, add, recolor, restyle, insert, or draw something.",
     modelUsageGuidance:
-      'Do not use this for image description, OCR, or "what do you see" questions. Prefer the current user attachment; otherwise use a recent reusable chat image already in context. With one available image, edit that image. With multiple images, set `sourceImageAlias` to the image being edited and use `referenceImageAlias` only as a visual guide from another available image. If roles like "the second photo" are still unclear, ask instead of guessing. For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". Never claim the edit is done unless this turn produced a successful `image_edit` result. If the result says `action="deferred"`, say the edit is in progress and will arrive separately.',
+      'Do not use this for image description, OCR, or "what do you see" questions. Prefer the current user attachment; otherwise use a recent reusable chat image already in context. With one available image, edit that image. With multiple images, set `sourceImageAlias` to the image being edited and use `referenceImageAlias` only as a visual guide from another available image. If roles like "the second photo" are still unclear, ask instead of guessing. For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent". Never claim the edit is done unless this turn produced a successful `image_edit` result. If you have not called `image_edit`, do not pretend the image was edited. If the result says `action="deferred"`, say the edit is in progress and will arrive separately.',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -79,7 +79,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       "Generate a short video clip from a text prompt, optionally guided by one current or recent chat reference image.",
     modelDescription: "Generate a short brand-new video clip from a text prompt.",
     modelUsageGuidance:
-      'Use this only when the user explicitly wants a generated video, animation, or clip. When the user directly asks for one, call the tool instead of narrating the planned call. Never print `video_generate(...)`, JSON arguments, or a fenced code block as a substitute. You may guide the result with one current or recent chat image via `referenceImageAlias`. Do not use this for editing an existing video or answering image questions. If the result says `action="deferred"`, say the video is still rendering and will arrive separately; do not describe it as already created, attached, or sent.',
+      'Use this only when the user explicitly wants a generated video, animation, or clip. When the user directly asks for one, call this tool immediately instead of narrating the planned call. Never print `video_generate(...)`, JSON arguments, or a fenced code block as a substitute. You may guide the result with one current or recent chat image via `referenceImageAlias`. Do not use this for editing an existing video or answering image questions. If the result says `action="deferred"`, say the video is still rendering and will arrive separately; do not describe it as already created, attached, or sent.',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",

@@ -9076,6 +9076,7 @@ components:
             - image_generate
             - image_edit
             - video_generate
+            - document
         units:
           type: integer
           minimum: 0
@@ -9114,6 +9115,7 @@ components:
             - image_generate
             - image_edit
             - video_generate
+            - document
         available:
           type: boolean
         offerableNow:
@@ -11437,6 +11439,7 @@ components:
                   - image_generate
                   - image_edit
                   - video_generate
+                  - document
               displayName:
                 type: string
               usedUnits:

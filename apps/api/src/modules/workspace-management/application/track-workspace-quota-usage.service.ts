@@ -364,7 +364,7 @@ const MONTHLY_TOOL_QUOTA_TOOLS: Array<{
     toolCode: "document",
     displayName: "Document generation",
     limitKey: "documentMonthlyUnitsLimit",
-    packageBonusEligible: false
+    packageBonusEligible: true
   }
 ];
 

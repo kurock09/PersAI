@@ -895,7 +895,7 @@
     "eyebrow": "Billing",
     "title": "Checkout",
     "titleWithPlan": "Pay for {plan}",
-    "titlePackage": "Pay for media package",
+    "titlePackage": "Pay for additional package",
     "subtitle": "The subscription activates after payment is confirmed.",
     "subtitlePackage": "This is a one-time payment. The purchased limits will be added to your available capacity right after payment confirmation.",
     "subtitleBind": "Bind a bank card for future auto-renew charges. Your current access period does not restart.",
