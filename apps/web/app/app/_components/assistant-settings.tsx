@@ -2921,7 +2921,7 @@ export function AssistantSettings({
               {toolLimitsExpanded && (
                 <div className="border-t border-border/80 px-3 py-3">
                   {documentMonthlyCard !== null || compactQuotaBuckets.length > 0 ? (
-                    <div className="mb-3 grid grid-cols-3 gap-2">
+                    <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                       {documentMonthlyCard !== null ? (
                         <LimitMetricCard
                           key={documentMonthlyCard.toolCode}
@@ -3268,12 +3268,16 @@ function LimitMetricCard({
       type={interactive ? "button" : undefined}
       onClick={onBuyClick}
       className={cn(
-        // Deterministic 3-slot layout (header / value+secondary / chip-slot)
-        // so every card has the same height regardless of whether secondary
-        // text or buy chip is present. The chip-slot always renders — when
-        // no chip is needed, a placeholder of the same height keeps the
-        // footer baseline aligned across siblings.
-        "group relative flex h-full min-h-[6.25rem] flex-col overflow-hidden rounded-xl border bg-surface/70 p-2.5 text-left transition-colors",
+        // Responsive layout:
+        // - Mobile (<sm): compact single-row card — title+value+secondary
+        //   on the left, chip pinned to the right. Auto-height so the cards
+        //   feel dense rather than tall/empty when stacked vertically.
+        // - Desktop (sm+): keep the 3-slot vertical layout (header / value+
+        //   secondary / chip-slot) so a row of 3 sibling cards stays
+        //   visually aligned regardless of which slots are populated.
+        "group relative flex h-full overflow-hidden rounded-xl border bg-surface/70 p-2.5 text-left transition-colors",
+        "flex-row items-center gap-3",
+        "sm:min-h-[6.25rem] sm:flex-col sm:items-stretch sm:gap-0",
         hasBonus
           ? "border-accent/30 bg-surface/80"
           : unavailable
@@ -3283,26 +3287,33 @@ function LimitMetricCard({
           "cursor-pointer hover:border-accent/30 hover:bg-surface/85 focus:outline-none focus:ring-2 focus:ring-accent/30"
       )}
     >
-      <p
-        className={cn(
-          "min-h-[2rem] text-[10px] font-medium uppercase leading-4 tracking-[0.12em]",
-          unavailable ? "text-text-subtle/80" : "text-text-subtle"
-        )}
-      >
-        {label}
-      </p>
-      <div className="mt-3">
+      <div className="min-w-0 flex-1">
         <p
           className={cn(
-            "text-xs font-semibold tabular-nums",
-            unavailable ? "text-text-muted" : "text-text"
+            "text-[10px] font-medium uppercase leading-4 tracking-[0.12em] sm:min-h-[2rem]",
+            unavailable ? "text-text-subtle/80" : "text-text-subtle"
           )}
         >
-          {value}
+          {label}
         </p>
-        {secondary ? <p className="mt-0.5 text-[10px] text-text-subtle">{secondary}</p> : null}
+        <div className="mt-1 sm:mt-3">
+          <p
+            className={cn(
+              "text-xs font-semibold tabular-nums",
+              unavailable ? "text-text-muted" : "text-text"
+            )}
+          >
+            {value}
+          </p>
+          {secondary ? <p className="mt-0.5 text-[10px] text-text-subtle">{secondary}</p> : null}
+        </div>
       </div>
-      <div className="mt-auto flex h-[1.5rem] items-end justify-center pt-3.5 sm:h-[1.25rem] sm:justify-end sm:pt-3">
+      <div
+        className={cn(
+          "shrink-0 self-center",
+          "sm:mt-auto sm:flex sm:h-[1.25rem] sm:items-end sm:justify-end sm:self-auto sm:pt-3"
+        )}
+      >
         {showChip ? (
           <span
             aria-hidden="true"
