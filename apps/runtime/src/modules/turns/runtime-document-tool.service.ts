@@ -11,6 +11,8 @@ import type {
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export interface RuntimeDocumentToolExecutionResult {
   payload: RuntimeDocumentToolResult;
   artifacts: RuntimeOutputArtifact[];
@@ -58,9 +60,25 @@ export class RuntimeDocumentToolService {
       };
     }
 
-    const outputFormat = parsed.request.outputFormat ?? null;
+    const sourceAttachments = this.selectSourceAttachmentsForRequest({
+      attachments: params.deferToAsyncDocumentJob.attachments,
+      descriptorMode: parsed.descriptorMode,
+      prompt: parsed.request.prompt,
+      sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText
+    });
+    const effectiveDescriptorMode = this.resolveEffectiveDescriptorMode({
+      descriptorMode: parsed.descriptorMode,
+      outputFormat: parsed.request.outputFormat ?? null,
+      docId: parsed.request.docId ?? null,
+      sourceAttachmentCount: sourceAttachments.length
+    });
+    const effectiveRequest =
+      effectiveDescriptorMode === parsed.descriptorMode
+        ? parsed.request
+        : { ...parsed.request, docId: null };
+    const outputFormat = effectiveRequest.outputFormat ?? null;
     const documentType =
-      outputFormat === "pptx" || parsed.descriptorMode === "create_presentation"
+      outputFormat === "pptx" || effectiveDescriptorMode === "create_presentation"
         ? "presentation"
         : "pdf_document";
     const provider = documentType === "presentation" ? "gamma" : "pdfmonkey";
@@ -69,11 +87,11 @@ export class RuntimeDocumentToolService {
         assistantId: params.bundle.metadata.assistantId,
         sourceUserMessageId: params.deferToAsyncDocumentJob.sourceUserMessageId,
         sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText,
-        attachments: params.deferToAsyncDocumentJob.attachments,
+        attachments: sourceAttachments,
         directToolExecution: {
           toolCode: "document",
-          descriptorMode: parsed.descriptorMode,
-          request: parsed.request
+          descriptorMode: effectiveDescriptorMode,
+          request: effectiveRequest
         }
       });
       if (!enqueueOutcome.accepted) {
@@ -81,13 +99,13 @@ export class RuntimeDocumentToolService {
           payload: {
             toolCode: "document",
             executionMode: "worker",
-            descriptorMode: parsed.descriptorMode,
+            descriptorMode: effectiveDescriptorMode,
             documentType,
             provider,
-            prompt: parsed.request.prompt,
-            outputFormat: parsed.request.outputFormat ?? null,
-            docId: parsed.request.docId ?? null,
-            requestedName: parsed.request.requestedName ?? null,
+            prompt: effectiveRequest.prompt,
+            outputFormat: effectiveRequest.outputFormat ?? null,
+            docId: effectiveRequest.docId ?? null,
+            requestedName: effectiveRequest.requestedName ?? null,
             artifacts: [],
             usage: null,
             action: "skipped",
@@ -104,13 +122,13 @@ export class RuntimeDocumentToolService {
         payload: {
           toolCode: "document",
           executionMode: "worker",
-          descriptorMode: parsed.descriptorMode,
+          descriptorMode: effectiveDescriptorMode,
           documentType: enqueueOutcome.documentType,
           provider,
-          prompt: parsed.request.prompt,
-          outputFormat: parsed.request.outputFormat ?? null,
-          docId: parsed.request.docId ?? null,
-          requestedName: parsed.request.requestedName ?? null,
+          prompt: effectiveRequest.prompt,
+          outputFormat: effectiveRequest.outputFormat ?? null,
+          docId: effectiveRequest.docId ?? null,
+          requestedName: effectiveRequest.requestedName ?? null,
           artifacts: [],
           usage: null,
           action: "deferred",
@@ -126,13 +144,13 @@ export class RuntimeDocumentToolService {
         payload: {
           toolCode: "document",
           executionMode: "worker",
-          descriptorMode: parsed.descriptorMode,
+          descriptorMode: effectiveDescriptorMode,
           documentType,
           provider,
-          prompt: parsed.request.prompt,
-          outputFormat: parsed.request.outputFormat ?? null,
-          docId: parsed.request.docId ?? null,
-          requestedName: parsed.request.requestedName ?? null,
+          prompt: effectiveRequest.prompt,
+          outputFormat: effectiveRequest.outputFormat ?? null,
+          docId: effectiveRequest.docId ?? null,
+          requestedName: effectiveRequest.requestedName ?? null,
           artifacts: [],
           usage: null,
           action: "skipped",
@@ -231,5 +249,72 @@ export class RuntimeDocumentToolService {
         metadata
       }
     };
+  }
+
+  private selectSourceAttachmentsForRequest(input: {
+    attachments: RuntimeAttachmentRef[];
+    descriptorMode:
+      | "create_pdf_document"
+      | "create_presentation"
+      | "revise_document"
+      | "export_or_redeliver";
+    prompt: string;
+    sourceUserMessageText: string;
+  }): RuntimeAttachmentRef[] {
+    if (input.attachments.length === 0) {
+      return [];
+    }
+    const currentAttachments = input.attachments.filter((attachment) =>
+      (attachment.aliases ?? []).some((alias) =>
+        alias.toLowerCase().startsWith("current attachment #")
+      )
+    );
+    if (currentAttachments.length > 0) {
+      return currentAttachments;
+    }
+    if (
+      (input.descriptorMode === "create_pdf_document" ||
+        input.descriptorMode === "create_presentation") &&
+      this.referencesPriorSourceAttachment(input.prompt, input.sourceUserMessageText)
+    ) {
+      return input.attachments.filter((attachment) =>
+        (attachment.aliases ?? []).some((alias) =>
+          alias.toLowerCase().startsWith("previous attachment #")
+        )
+      );
+    }
+    return [];
+  }
+
+  private resolveEffectiveDescriptorMode(input: {
+    descriptorMode:
+      | "create_pdf_document"
+      | "create_presentation"
+      | "revise_document"
+      | "export_or_redeliver";
+    outputFormat: "pdf" | "pptx" | null;
+    docId: string | null;
+    sourceAttachmentCount: number;
+  }): "create_pdf_document" | "create_presentation" | "revise_document" | "export_or_redeliver" {
+    if (
+      input.descriptorMode !== "revise_document" ||
+      input.sourceAttachmentCount === 0 ||
+      (input.docId !== null && UUID_REGEX.test(input.docId.trim()))
+    ) {
+      return input.descriptorMode;
+    }
+    return input.outputFormat === "pptx" ? "create_presentation" : "create_pdf_document";
+  }
+
+  private referencesPriorSourceAttachment(prompt: string, sourceUserMessageText: string): boolean {
+    const text = `${sourceUserMessageText}\n${prompt}`.toLowerCase();
+    return (
+      /\b(previous attachment|attached document|attached file|source file|my document|my file|from (?:the )?file|based on (?:the )?(?:attached|source|uploaded) (?:file|document))\b/i.test(
+        text
+      ) ||
+      /предыдущ(?:ий|его|ем|ая|ую)\s+(?:файл|документ|attachment)|прикреп|прилож|вложен|загружен|файл|мо[йеегою]*\s+документ|мо[йеегою]*\s+файл|на\s+основе[^.\n]{0,80}документ|из\s+(?:этого\s+)?документ/i.test(
+        text
+      )
+    );
   }
 }

@@ -47,6 +47,7 @@ const MIN_HYDRATED_MEMORY_TOTAL_CHARS = 400;
 const MAX_HYDRATED_MEMORY_TOTAL_CHARS = 1800;
 const MAX_RECENT_IMAGE_TOOL_MESSAGES = 8;
 const MAX_RECENT_IMAGE_TOOL_ATTACHMENTS = 6;
+const MAX_RECENT_DOCUMENT_SOURCE_ATTACHMENTS = 4;
 const MAX_OPEN_LOOP_REFS_DEVELOPER_ITEMS = 5;
 const MAX_OPEN_LOOP_REF_SUMMARY_CHARS = 72;
 const MAX_OPEN_LOOP_REF_SELECTION_TOKENS = 12;
@@ -493,6 +494,55 @@ export class TurnContextHydrationService {
       }
     }
     return this.dedupeRuntimeAttachments([...currentImages, ...recentImages]);
+  }
+
+  async listAvailableDocumentSourceAttachments(input: {
+    conversation: RuntimeConversationAddress;
+    currentAttachments: RuntimeAttachmentRef[];
+  }): Promise<RuntimeAttachmentRef[]> {
+    let currentAttachmentOrdinal = 0;
+    const currentSources = input.currentAttachments
+      .filter((attachment) => this.isDocumentSourceAttachmentMime(attachment.mimeType))
+      .map((attachment) => ({
+        ...attachment,
+        aliases: this.mergeAliases(
+          attachment.aliases,
+          `current attachment #${String(++currentAttachmentOrdinal)}`
+        )
+      }));
+
+    const storedMessages = await this.loadCanonicalChatMessages(input.conversation);
+    if (storedMessages === null) {
+      return this.dedupeRuntimeAttachments(currentSources);
+    }
+
+    let previousAttachmentOrdinal = 0;
+    const previousSources: RuntimeAttachmentRef[] = [];
+    for (const message of [...storedMessages].reverse()) {
+      if (message.author !== "user") {
+        continue;
+      }
+      for (const attachment of [...message.attachments].reverse()) {
+        if (!this.isDocumentSourceAttachmentMime(attachment.mimeType)) {
+          continue;
+        }
+        previousSources.push({
+          attachmentId: attachment.id,
+          kind: "file",
+          objectKey: attachment.storagePath,
+          mimeType: attachment.mimeType,
+          filename: attachment.originalFilename,
+          sizeBytes: attachment.sizeBytes,
+          fileRef: attachment.assistantFileId,
+          aliases: [`previous attachment #${String(++previousAttachmentOrdinal)}`]
+        });
+        if (previousSources.length >= MAX_RECENT_DOCUMENT_SOURCE_ATTACHMENTS) {
+          return this.dedupeRuntimeAttachments([...currentSources, ...previousSources]);
+        }
+      }
+    }
+
+    return this.dedupeRuntimeAttachments([...currentSources, ...previousSources]);
   }
 
   async listAvailableWorkingFileRefs(input: {
@@ -1796,6 +1846,21 @@ export class TurnContextHydrationService {
 
   private isAssistantGeneratedFile(file: Pick<RuntimeFileRef, "origin">): boolean {
     return file.origin !== "uploaded_attachment";
+  }
+
+  private isDocumentSourceAttachmentMime(mimeType: string): boolean {
+    const normalized = mimeType.trim().toLowerCase();
+    return (
+      normalized.startsWith("text/") ||
+      normalized === "application/pdf" ||
+      normalized === "application/x-pdf" ||
+      normalized === "application/json" ||
+      normalized === "application/x-ndjson" ||
+      normalized === "application/xml" ||
+      normalized === "application/x-yaml" ||
+      normalized === "application/yaml" ||
+      normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
   }
 
   private upsertWorkingFileRef(

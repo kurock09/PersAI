@@ -491,6 +491,12 @@ Sandbox may be reconsidered later for:
 - closed the PDFMonkey/Gamma asymmetry: PDF HTML generation and Gamma presentation generation now both receive the same extracted source text/notes
 - kept generated-PDF validation local to runtime because it validates provider output, not source extraction; image placement/orchestration remains out of scope
 
+### 2026-05-17 — Previous attachment rebuild routing fix landed locally
+
+- fixed the live "previous attachment #1" rebuild failure where a follow-up turn created a PDF job without `sourceUserMessageAttachments`, causing the generated PDF to style the user's request instead of the uploaded source document
+- runtime now exposes current plus recent ready user-uploaded text/PDF/DOCX-like attachments to the `document` tool as document source candidates; previous attachments are forwarded only when the prompt/user text explicitly references a previous/attached/source file
+- if the model selects `revise_document` for an attached source-file alias or other non-UUID `docId`, runtime treats that as new document creation from source attachments instead of asking API to revise a non-existent PersAI document
+
 ## Non-goals
 
 - no user-facing template editor

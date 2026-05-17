@@ -2551,13 +2551,18 @@ export class TurnExecutionService {
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
       case DOCUMENT_TOOL_CODE: {
+        const availableDocumentSourceAttachments =
+          await this.turnContextHydrationService.listAvailableDocumentSourceAttachments({
+            conversation: acceptedTurn.session.conversation,
+            currentAttachments: input.message.attachments
+          });
         const result = await this.runtimeDocumentToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
           deferToAsyncDocumentJob: {
             sourceUserMessageId: input.idempotencyKey,
             sourceUserMessageText: input.message.text,
-            attachments: input.message.attachments
+            attachments: availableDocumentSourceAttachments
           }
         });
         return this.createToolExecutionOutcome(
