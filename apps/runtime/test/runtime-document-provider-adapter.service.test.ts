@@ -2098,16 +2098,13 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.match(developer, /Do NOT insert manual page breaks/);
   });
 
-  test("loadSourceAttachmentContents inlines text attachments via mediaObjectStorage and surfaces binary attachments with a structured note", async () => {
+  test("loadSourceAttachmentContents inlines UTF-8 text attachments and surfaces unparseable binaries (image) with a structured note", async () => {
     const downloadCalls: string[] = [];
     const mediaObjectStorage = {
       async downloadObject(objectKey: string) {
         downloadCalls.push(objectKey);
         if (objectKey === "obj/notes.md") {
           return Buffer.from("# Notes\n\nReal user content from the attached source file.", "utf8");
-        }
-        if (objectKey === "obj/report.pdf") {
-          return Buffer.from("%PDF-1.4 binary bytes", "utf8");
         }
         return null;
       }
@@ -2151,12 +2148,12 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           filename: "notes.md"
         },
         {
-          attachmentId: "att-binary-1",
+          attachmentId: "att-image-1",
           kind: "file",
-          objectKey: "obj/report.pdf",
-          mimeType: "application/pdf",
+          objectKey: "obj/photo.png",
+          mimeType: "image/png",
           sizeBytes: 1024,
-          filename: "report.pdf"
+          filename: "photo.png"
         }
       ]
     });
@@ -2165,22 +2162,320 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.ok(textEntry, "expected text attachment entry");
     assert.match(textEntry!.text ?? "", /Real user content from the attached source file/);
     assert.equal(textEntry!.note, null);
-    const binaryEntry = result.find((entry) => entry.attachmentId === "att-binary-1");
-    assert.ok(binaryEntry, "expected binary attachment entry");
+    const imageEntry = result.find((entry) => entry.attachmentId === "att-image-1");
+    assert.ok(imageEntry, "expected image attachment entry");
     assert.equal(
-      binaryEntry!.text,
+      imageEntry!.text,
       null,
-      "binary (application/pdf) attachments must NOT be inlined as UTF-8 text"
+      "image (binary without an inline text extractor) must NOT be inlined"
     );
     assert.match(
-      binaryEntry!.note ?? "",
-      /Binary or non-text attachment/,
-      "binary attachment must surface a structured note instead of silently dropping"
+      imageEntry!.note ?? "",
+      /Binary attachment without an inline text extractor/,
+      "unparseable binary attachment must surface a structured note instead of silently dropping"
     );
     assert.deepEqual(
       downloadCalls,
       ["obj/notes.md"],
-      "worker must only download text-eligible attachments, never binary ones"
+      "worker must only download attachments it can actually inline (text MIMEs or registered binary parsers); raw images are skipped"
+    );
+  });
+
+  test("loadSourceAttachmentContents extracts text from application/pdf attachments via pdf-parse and inlines it", async () => {
+    const downloadCalls: string[] = [];
+    const mediaObjectStorage = {
+      async downloadObject(objectKey: string) {
+        downloadCalls.push(objectKey);
+        if (objectKey === "obj/report.pdf") {
+          return Buffer.from("%PDF-1.4 binary bytes", "utf8");
+        }
+        return null;
+      }
+    };
+    const service = new RuntimeDocumentProviderAdapterService(
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    (service as unknown as { mediaObjectStorage: unknown }).mediaObjectStorage = mediaObjectStorage;
+    const parserCalls: Array<{ kind: string; bufferLength: number }> = [];
+    (
+      service as unknown as {
+        extractInlineableAttachmentText: (
+          buffer: Buffer,
+          kind: "pdf" | "docx"
+        ) => Promise<{ text: string | null; error: string | null }>;
+      }
+    ).extractInlineableAttachmentText = async (buffer, kind) => {
+      parserCalls.push({ kind, bufferLength: buffer.length });
+      if (kind === "pdf") {
+        return {
+          text: "Page 1 heading\n\nFirst paragraph of the original report content.\n\nSecond paragraph with extra detail.",
+          error: null
+        };
+      }
+      return { text: null, error: "unexpected parser kind" };
+    };
+
+    const result = await (
+      service as unknown as {
+        loadSourceAttachmentContents(request: {
+          attachments: Array<{
+            attachmentId: string;
+            kind: string;
+            objectKey: string;
+            mimeType: string;
+            sizeBytes: number;
+            filename: string | null;
+          }>;
+        }): Promise<
+          Array<{
+            attachmentId: string;
+            filename: string | null;
+            mimeType: string;
+            sizeBytes: number;
+            text: string | null;
+            note: string | null;
+          }>
+        >;
+      }
+    ).loadSourceAttachmentContents({
+      attachments: [
+        {
+          attachmentId: "att-pdf-1",
+          kind: "file",
+          objectKey: "obj/report.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 153_000,
+          filename: "report.pdf"
+        }
+      ]
+    });
+
+    assert.equal(result.length, 1);
+    const pdfEntry = result[0]!;
+    assert.equal(
+      pdfEntry.text,
+      "Page 1 heading\n\nFirst paragraph of the original report content.\n\nSecond paragraph with extra detail.",
+      "PDF attachment must be inlined as extracted text, not as raw UTF-8 bytes"
+    );
+    assert.equal(pdfEntry.note, null, "successful extraction must not emit a note");
+    assert.deepEqual(downloadCalls, ["obj/report.pdf"]);
+    assert.equal(parserCalls.length, 1, "extractor must be invoked exactly once");
+    assert.equal(parserCalls[0]!.kind, "pdf");
+  });
+
+  test("loadSourceAttachmentContents extracts text from DOCX attachments via mammoth and inlines it", async () => {
+    const mediaObjectStorage = {
+      async downloadObject() {
+        return Buffer.from("PK fake docx zip bytes", "utf8");
+      }
+    };
+    const service = new RuntimeDocumentProviderAdapterService(
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    (service as unknown as { mediaObjectStorage: unknown }).mediaObjectStorage = mediaObjectStorage;
+    (
+      service as unknown as {
+        extractInlineableAttachmentText: (
+          buffer: Buffer,
+          kind: "pdf" | "docx"
+        ) => Promise<{ text: string | null; error: string | null }>;
+      }
+    ).extractInlineableAttachmentText = async (_, kind) => {
+      assert.equal(kind, "docx", "DOCX attachments must dispatch into the docx parser branch");
+      return {
+        text: "Section A\nLine 1\nLine 2\n\nSection B\nMore body text from the original DOCX.",
+        error: null
+      };
+    };
+
+    const result = await (
+      service as unknown as {
+        loadSourceAttachmentContents(request: {
+          attachments: Array<{
+            attachmentId: string;
+            kind: string;
+            objectKey: string;
+            mimeType: string;
+            sizeBytes: number;
+            filename: string | null;
+          }>;
+        }): Promise<
+          Array<{
+            attachmentId: string;
+            filename: string | null;
+            mimeType: string;
+            sizeBytes: number;
+            text: string | null;
+            note: string | null;
+          }>
+        >;
+      }
+    ).loadSourceAttachmentContents({
+      attachments: [
+        {
+          attachmentId: "att-docx-1",
+          kind: "file",
+          objectKey: "obj/draft.docx",
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          sizeBytes: 12_000,
+          filename: "draft.docx"
+        }
+      ]
+    });
+
+    assert.equal(result.length, 1);
+    assert.match(
+      result[0]!.text ?? "",
+      /Section A[\s\S]*Section B[\s\S]*More body text from the original DOCX\./,
+      "DOCX attachment must be inlined as extracted text"
+    );
+    assert.equal(result[0]!.note, null);
+  });
+
+  test("loadSourceAttachmentContents gracefully surfaces corrupt PDFs as text:null with a structured note instead of crashing the worker", async () => {
+    const mediaObjectStorage = {
+      async downloadObject() {
+        return Buffer.from("not actually a pdf", "utf8");
+      }
+    };
+    const service = new RuntimeDocumentProviderAdapterService(
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    (service as unknown as { mediaObjectStorage: unknown }).mediaObjectStorage = mediaObjectStorage;
+    (
+      service as unknown as {
+        extractInlineableAttachmentText: (
+          buffer: Buffer,
+          kind: "pdf" | "docx"
+        ) => Promise<{ text: string | null; error: string | null }>;
+      }
+    ).extractInlineableAttachmentText = async () => ({
+      text: null,
+      error: "Invalid PDF structure: missing %PDF- header"
+    });
+
+    const result = await (
+      service as unknown as {
+        loadSourceAttachmentContents(request: {
+          attachments: Array<{
+            attachmentId: string;
+            kind: string;
+            objectKey: string;
+            mimeType: string;
+            sizeBytes: number;
+            filename: string | null;
+          }>;
+        }): Promise<
+          Array<{
+            attachmentId: string;
+            filename: string | null;
+            mimeType: string;
+            sizeBytes: number;
+            text: string | null;
+            note: string | null;
+          }>
+        >;
+      }
+    ).loadSourceAttachmentContents({
+      attachments: [
+        {
+          attachmentId: "att-bad-pdf",
+          kind: "file",
+          objectKey: "obj/broken.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 18,
+          filename: "broken.pdf"
+        }
+      ]
+    });
+
+    assert.equal(result.length, 1);
+    assert.equal(
+      result[0]!.text,
+      null,
+      "corrupt PDF must surface text:null, never crash the worker"
+    );
+    assert.match(
+      result[0]!.note ?? "",
+      /Failed to extract text from pdf attachment.*Invalid PDF structure/,
+      "corrupt PDF must surface the parser error message in a structured note"
+    );
+  });
+
+  test("loadSourceAttachmentContents refuses to extract text from binary attachments above the 1MB parser cap", async () => {
+    const oversized = Buffer.alloc(1_048_577, 0x42);
+    const mediaObjectStorage = {
+      async downloadObject() {
+        return oversized;
+      }
+    };
+    const service = new RuntimeDocumentProviderAdapterService(
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    (service as unknown as { mediaObjectStorage: unknown }).mediaObjectStorage = mediaObjectStorage;
+    let parserCalled = false;
+    (
+      service as unknown as {
+        extractInlineableAttachmentText: () => Promise<{
+          text: string | null;
+          error: string | null;
+        }>;
+      }
+    ).extractInlineableAttachmentText = async () => {
+      parserCalled = true;
+      return { text: "should not run", error: null };
+    };
+
+    const result = await (
+      service as unknown as {
+        loadSourceAttachmentContents(request: {
+          attachments: Array<{
+            attachmentId: string;
+            kind: string;
+            objectKey: string;
+            mimeType: string;
+            sizeBytes: number;
+            filename: string | null;
+          }>;
+        }): Promise<
+          Array<{
+            attachmentId: string;
+            filename: string | null;
+            mimeType: string;
+            sizeBytes: number;
+            text: string | null;
+            note: string | null;
+          }>
+        >;
+      }
+    ).loadSourceAttachmentContents({
+      attachments: [
+        {
+          attachmentId: "att-huge-pdf",
+          kind: "file",
+          objectKey: "obj/huge.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: oversized.length,
+          filename: "huge.pdf"
+        }
+      ]
+    });
+
+    assert.equal(parserCalled, false, "parser must not run on oversized payloads");
+    assert.equal(result.length, 1);
+    assert.equal(result[0]!.text, null);
+    assert.match(
+      result[0]!.note ?? "",
+      /above the 1048576-byte text-extraction cap/,
+      "oversized binary must surface a cap-exceeded note"
     );
   });
 

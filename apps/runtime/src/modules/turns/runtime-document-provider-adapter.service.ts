@@ -98,10 +98,18 @@ const DOCUMENT_HTML_ENHANCED_PAGINATION_ENV_KEY = "RUNTIME_DOCUMENT_ENHANCED_PAG
 // nothing.
 const DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES = 64_000;
 
+// Max raw payload size we are willing to feed into a binary text parser
+// (pdf-parse, mammoth). Files above this cap are surfaced as text=null
+// with a structured note rather than risking long-running extraction or
+// memory pressure on the worker pod.
+const DOCUMENT_SOURCE_ATTACHMENT_PARSER_MAX_BYTES = 1_048_576;
+
 // MIME types whose payload is safely UTF-8 decodable and worth inlining
-// directly. docx, pdf, images, and other binary formats are intentionally
-// listed under sourceFiles[] with text=null + a structured note so the
-// model knows the file exists but must be read via the `files` tool first.
+// directly. Binary formats handled by a real text extractor are listed in
+// `DOCUMENT_SOURCE_ATTACHMENT_BINARY_PARSER_MIMES` below; everything else
+// (images, archives, audio/video) still surfaces as `text: null` with a
+// structured note so the model knows the file exists but cannot be
+// inlined.
 const DOCUMENT_SOURCE_ATTACHMENT_TEXT_MIMES = new Set<string>([
   "text/plain",
   "text/markdown",
@@ -116,6 +124,20 @@ const DOCUMENT_SOURCE_ATTACHMENT_TEXT_MIMES = new Set<string>([
   "application/javascript",
   "application/x-yaml",
   "application/yaml"
+]);
+
+type DocumentSourceAttachmentParserKind = "pdf" | "docx";
+
+// Binary MIME types we extract inline via a real parser instead of telling
+// the model "call files.read first". Any extension here also needs a real
+// parser branch in `extractInlineableAttachmentText`.
+const DOCUMENT_SOURCE_ATTACHMENT_BINARY_PARSER_MIMES = new Map<
+  string,
+  DocumentSourceAttachmentParserKind
+>([
+  ["application/pdf", "pdf"],
+  ["application/x-pdf", "pdf"],
+  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"]
 ]);
 
 type DocumentSourceFilePayload = {
@@ -836,17 +858,19 @@ export class RuntimeDocumentProviderAdapterService {
     const results: DocumentSourceFilePayload[] = [];
     for (const attachment of attachments) {
       const mime = attachment.mimeType.toLowerCase().split(";")[0]?.trim() ?? "";
-      if (!DOCUMENT_SOURCE_ATTACHMENT_TEXT_MIMES.has(mime) && !mime.startsWith("text/")) {
-        // Surface non-text attachments so the model knows they exist but can
-        // see why they were not inlined; it can then ask the user or call
-        // `files.read` for those before retrying.
+      const isUtf8Text =
+        DOCUMENT_SOURCE_ATTACHMENT_TEXT_MIMES.has(mime) || mime.startsWith("text/");
+      const parserKind = DOCUMENT_SOURCE_ATTACHMENT_BINARY_PARSER_MIMES.get(mime) ?? null;
+      if (!isUtf8Text && parserKind === null) {
+        // Image / archive / audio / unknown binary: cannot inline, but
+        // surface the file so the model knows it exists.
         results.push({
           attachmentId: attachment.attachmentId,
           filename: attachment.filename,
           mimeType: attachment.mimeType,
           sizeBytes: attachment.sizeBytes,
           text: null,
-          note: "Binary or non-text attachment; worker did not inline its content. Call the `files` tool with action='read' and the matching alias to obtain text content, then retry the document call with that text in `prompt`."
+          note: "Binary attachment without an inline text extractor; worker did not inline its content. The model cannot read raw image/archive/binary bytes — proceed with the user's textual prompt only."
         });
         continue;
       }
@@ -860,6 +884,63 @@ export class RuntimeDocumentProviderAdapterService {
             sizeBytes: attachment.sizeBytes,
             text: null,
             note: "Attachment object not found in storage; worker could not inline its content."
+          });
+          continue;
+        }
+        if (parserKind !== null) {
+          if (buffer.length > DOCUMENT_SOURCE_ATTACHMENT_PARSER_MAX_BYTES) {
+            results.push({
+              attachmentId: attachment.attachmentId,
+              filename: attachment.filename,
+              mimeType: attachment.mimeType,
+              sizeBytes: attachment.sizeBytes,
+              text: null,
+              note: `Attachment is ${String(buffer.length)} bytes, above the ${String(
+                DOCUMENT_SOURCE_ATTACHMENT_PARSER_MAX_BYTES
+              )}-byte text-extraction cap; ask the user to share a smaller file or paste the relevant excerpt.`
+            });
+            continue;
+          }
+          const extracted = await this.extractInlineableAttachmentText(buffer, parserKind);
+          if (extracted.text === null) {
+            results.push({
+              attachmentId: attachment.attachmentId,
+              filename: attachment.filename,
+              mimeType: attachment.mimeType,
+              sizeBytes: attachment.sizeBytes,
+              text: null,
+              note: `Failed to extract text from ${parserKind} attachment: ${
+                extracted.error ?? "unknown error"
+              }.`
+            });
+            continue;
+          }
+          const normalized = this.normalizeInlineableAttachmentText(extracted.text);
+          if (normalized.length === 0) {
+            results.push({
+              attachmentId: attachment.attachmentId,
+              filename: attachment.filename,
+              mimeType: attachment.mimeType,
+              sizeBytes: attachment.sizeBytes,
+              text: null,
+              note: `${parserKind} text extractor returned an empty document; the file may be image-only / scanned / encrypted.`
+            });
+            continue;
+          }
+          const inlineSlice = this.truncateToInlineByteCap(normalized);
+          results.push({
+            attachmentId: attachment.attachmentId,
+            filename: attachment.filename,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+            text: inlineSlice.text,
+            note: inlineSlice.truncated
+              ? `Extracted ${parserKind} text was truncated to first ${String(
+                  DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES
+                )} bytes; original extracted size was ${String(
+                  Buffer.byteLength(normalized, "utf8")
+                )} bytes.`
+              : null
           });
           continue;
         }
@@ -891,6 +972,76 @@ export class RuntimeDocumentProviderAdapterService {
       }
     }
     return results;
+  }
+
+  /**
+   * Extract inlineable plain text from a binary attachment buffer.
+   *
+   * Each parser branch is wrapped in try/catch so a corrupt/encrypted/empty
+   * input never crashes the worker — it surfaces as `text: null` with the
+   * parser error message, which `loadSourceAttachmentContents` turns into a
+   * structured `note` for the model.
+   *
+   * Tests override this method directly to avoid pulling in the real
+   * `pdf-parse` / `mammoth` modules from the test sandbox.
+   */
+  private async extractInlineableAttachmentText(
+    buffer: Buffer,
+    kind: DocumentSourceAttachmentParserKind
+  ): Promise<{ text: string | null; error: string | null }> {
+    if (kind === "pdf") {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const pdfParse = require("pdf-parse") as (
+          buf: Buffer,
+          opts?: { max?: number }
+        ) => Promise<{ text?: string }>;
+        const result = await pdfParse(buffer, { max: 100 });
+        return { text: result.text ?? "", error: null };
+      } catch (error) {
+        return {
+          text: null,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mammoth = require("mammoth") as {
+        extractRawText(input: { buffer: Buffer }): Promise<{ value?: string }>;
+      };
+      const result = await mammoth.extractRawText({ buffer });
+      return { text: result.value ?? "", error: null };
+    } catch (error) {
+      return {
+        text: null,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Normalize text extracted from a binary parser so it inlines cleanly
+   * into the HTML generation prompt: collapse runs of spaces/tabs to a
+   * single space, preserve line breaks (paragraph structure matters for
+   * the model), and collapse runs of 3+ newlines to a paragraph break.
+   */
+  private normalizeInlineableAttachmentText(value: string): string {
+    return value
+      .replace(/\r\n?/g, "\n")
+      .replace(/[ \t\f\v]+/g, " ")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  private truncateToInlineByteCap(value: string): { text: string; truncated: boolean } {
+    const buf = Buffer.from(value, "utf8");
+    if (buf.length <= DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES) {
+      return { text: value, truncated: false };
+    }
+    const slice = buf.subarray(0, DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES);
+    return { text: slice.toString("utf8"), truncated: true };
   }
 
   private async generatePdfHtmlContent(input: {
@@ -981,7 +1132,7 @@ export class RuntimeDocumentProviderAdapterService {
         : []),
       ...(input.sourceFiles.some((entry) => entry.text === null)
         ? [
-            'BINARY SOURCE FILES: some attached files (e.g. docx, pdf, images) are listed under `sourceFiles[]` but do NOT include `text` because they were not inlined by the worker. If the user expects you to rebuild from those files, ask them to first share the text or call the `files` tool with `action: "read"` and the file\'s alias before retrying the document call.'
+            "UNPARSEABLE SOURCE FILES: some attached files are listed under `sourceFiles[]` with `text: null` (e.g. images, archives, encrypted/scanned PDFs without selectable text, oversized files). The worker tried to extract their text and could not — the matching `note` explains why. Do NOT pretend you have read those files; if the user explicitly asked to rebuild from one of them, briefly tell them what blocked the extraction (per the `note`) and ask for a smaller / unencrypted / OCR-ed version, or paste of the relevant excerpt."
           ]
         : []),
       "Pagination guidance (the renderer applies print-CSS automatically; you do NOT add inline styles for these):",

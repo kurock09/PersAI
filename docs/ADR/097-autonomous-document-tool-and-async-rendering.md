@@ -475,6 +475,13 @@ Sandbox may be reconsidered later for:
 - added a dedicated runtime/API document completion-framing seam so final document-job delivery text can be LLM-authored from bounded current chat context instead of defaulting to the generic `Your document is ready.` fallback
 - kept ADR-097 async ownership intact: the worker still owns render execution, delivery still happens later through the persisted document-job lane, and the completion-framing turn does not become the source of truth for job state, quota, or file delivery
 
+### 2026-05-17 — Attachment ingestion attachment text-extraction landed locally
+
+- text-eligible attachments (`text/*`, `json`, `xml`, `yaml`, `ndjson`) attached to the user message that triggered the document call are now downloaded by the runtime worker and inlined into the HTML generation prompt as `sourceFiles[].text`, so rebuild/restyle/translate-from-attachment requests no longer force the model to invent placeholder content
+- binary `application/pdf` and `application/vnd.openxmlformats-officedocument.wordprocessingml.document` attachments are now extracted to inline text directly inside the document worker via `pdf-parse` (already a runtime dep, also reused by PDF validation) and `mammoth` (newly added), so the model never has to round-trip binary files through the sandbox `files.read` path; a 1 MB raw-payload cap protects the worker from oversized scanned PDFs and surfaces a structured "above the cap" note instead
+- corrupt / encrypted / scanned-only / unsupported binaries surface as `text: null` with a structured `note` explaining the blocker (parser error, image-only document, etc.) so the model can ask the user for a smaller / OCR-ed / unencrypted version or a textual paste, rather than crashing the worker or pretending it read the file
+- Gamma/PPTX worker attachment ingestion, image orchestration in PDFMonkey (so user-attached images become `<img>` tags in the rendered PDF), and a defensive `files.read` UTF-8/NUL-byte hardening pass on the sandbox path remain explicit bounded follow-ups, not part of this slice
+
 ## Non-goals
 
 - no user-facing template editor
