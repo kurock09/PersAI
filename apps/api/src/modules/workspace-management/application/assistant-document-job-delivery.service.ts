@@ -620,43 +620,36 @@ export class AssistantDocumentJobDeliveryService {
         }
       });
       const existingByFileRef = new Map(existing.map((row) => [row.assistantFileId, row.id]));
-      const documentVersion = await tx.assistantDocumentVersion.findUnique({
-        where: { id: input.job.versionId },
-        select: {
-          versionNumber: true,
-          descriptorMode: true,
-          status: true,
-          document: {
-            select: {
-              documentType: true,
-              status: true
-            }
-          }
+      const attachmentMetadataWriter = (
+        tx as unknown as {
+          assistantChatMessageAttachment?: {
+            updateMany(input: {
+              where: { assistantFileId: string; messageId: string };
+              data: { metadata: unknown };
+            }): Promise<unknown>;
+          };
         }
-      });
+      ).assistantChatMessageAttachment;
       for (const attachment of input.attachments) {
-        await tx.assistantChatMessageAttachment.updateMany({
-          where: {
-            assistantFileId: attachment.fileRef,
-            messageId: input.completionAssistantMessageId
-          },
-          data: {
-            metadata: {
-              source: "tool_output",
-              documentLink: {
-                docId: input.job.docId,
-                versionId: input.job.versionId,
-                versionNumber: documentVersion?.versionNumber ?? null,
-                descriptorMode: documentVersion?.descriptorMode ?? null,
-                documentType: documentVersion?.document.documentType ?? null,
-                documentStatus: documentVersion?.document.status ?? null,
-                versionStatus: documentVersion?.status ?? null,
-                renderJobId: input.job.id,
-                isCurrentOutput: true
+        if (attachmentMetadataWriter !== undefined) {
+          await attachmentMetadataWriter.updateMany({
+            where: {
+              assistantFileId: attachment.fileRef,
+              messageId: input.completionAssistantMessageId
+            },
+            data: {
+              metadata: {
+                source: "tool_output",
+                documentLink: {
+                  docId: input.job.docId,
+                  versionId: input.job.versionId,
+                  renderJobId: input.job.id,
+                  isCurrentOutput: true
+                }
               }
-            } as never
-          }
-        });
+            }
+          });
+        }
         const existingRowId = existingByFileRef.get(attachment.fileRef);
         if (existingRowId !== undefined) {
           await tx.assistantDocumentDeliveredFile.update({
