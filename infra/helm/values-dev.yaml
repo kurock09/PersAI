@@ -196,7 +196,7 @@ web:
       maxSurge: 1
   image:
     name: web
-    tag: 9659a87fef42cff9b106be1bea9cdfd42484f07a
+    tag: b008dfb339716d374d042cfb84d76c4c5126aa08
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
@@ -490,6 +490,7 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
 
 
 
