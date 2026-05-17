@@ -12,6 +12,7 @@ const policy = {
 
 async function run(): Promise<void> {
   await usesMistralForPdfKnowledgeProcessing();
+  await fallsBackToLocalExtractionWhenProviderRejectsLocalExtractableContent();
   await keepsSimpleTextKnowledgeProcessingLocal();
   await knowledgeProcessorFacadeDelegatesToSharedExtractionService();
 }
@@ -59,6 +60,39 @@ async function usesMistralForPdfKnowledgeProcessing(): Promise<void> {
       calls.some((call) => call.url.endsWith("/v1/ocr")),
       true
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function fallsBackToLocalExtractionWhenProviderRejectsLocalExtractableContent(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ error: "Invalid file format." }), {
+      status: 422
+    })) as typeof fetch;
+
+  try {
+    const service = new DocumentExtractionService(
+      prismaWithPolicy() as never,
+      failingMediaPreprocessor() as never,
+      secretStore() as never
+    );
+    const result = await service.extract({
+      source: source(),
+      requestedMode: "default_provider",
+      content: {
+        kind: "bytes",
+        buffer: Buffer.from("fallback source text"),
+        mimeType: "text/plain",
+        originalFilename: "source.txt"
+      }
+    });
+
+    assert.equal(result.normalizedText, "fallback source text");
+    assert.equal(result.provider.providerKey, "local");
+    assert.equal(result.provider.processorMode, "local");
+    assert.deepEqual(result.provider.attemptedProviderKeys, ["mistral", "local"]);
   } finally {
     globalThis.fetch = originalFetch;
   }

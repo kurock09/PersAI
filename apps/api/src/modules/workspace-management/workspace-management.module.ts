@@ -37,6 +37,7 @@ import { InternalRuntimeOrchestratedRetrievalController } from "./interface/http
 import { InternalRuntimeMemoryController } from "./interface/http/internal-runtime-memory.controller";
 import { InternalRuntimeCompactionEnqueueController } from "./interface/http/internal-runtime-compaction-enqueue.controller";
 import { InternalRuntimeDocumentJobsEnqueueController } from "./interface/http/internal-runtime-document-jobs-enqueue.controller";
+import { InternalRuntimeFilesController } from "./interface/http/internal-runtime-files-controller";
 import { InternalRuntimeMediaJobsEnqueueController } from "./interface/http/internal-runtime-media-jobs-enqueue.controller";
 import { InternalRuntimeMemoryHydrationController } from "./interface/http/internal-runtime-memory-hydration.controller";
 import { InternalRuntimeMemoryCloseMostSimilarController } from "./interface/http/internal-runtime-memory-close-most-similar.controller";
@@ -109,6 +110,7 @@ import { ManageAdminKnowledgeRetrievalPolicyService } from "./application/manage
 import { ListKnowledgeIndexingJobsService } from "./application/list-knowledge-indexing-jobs.service";
 import { DocumentExtractionService } from "./application/document-extraction.service";
 import { DocumentSourceAttachmentExtractionService } from "./application/document-source-attachment-extraction.service";
+import { ExtractInternalRuntimeAssistantFileService } from "./application/extract-internal-runtime-assistant-file.service";
 import { KnowledgeDocumentProcessorService } from "./application/knowledge-document-processor.service";
 import { KnowledgeEmbeddingService } from "./application/knowledge-embedding.service";
 import { KnowledgeIndexingService } from "./application/knowledge-indexing.service";
@@ -352,6 +354,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     InternalRuntimeCrossSessionMarkFiredController,
     InternalRuntimeCompactionEnqueueController,
     InternalRuntimeDocumentJobsEnqueueController,
+    InternalRuntimeFilesController,
     InternalRuntimeMediaJobsEnqueueController,
     InternalRuntimeTaskRegistryController,
     InternalRuntimeBackgroundTasksController,
@@ -431,6 +434,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ListKnowledgeIndexingJobsService,
     DocumentExtractionService,
     DocumentSourceAttachmentExtractionService,
+    ExtractInternalRuntimeAssistantFileService,
     KnowledgeDocumentProcessorService,
     KnowledgeEmbeddingService,
     KnowledgeIndexingService,

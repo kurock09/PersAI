@@ -377,6 +377,38 @@ export type InternalEnqueueDeferredDocumentJobInput = {
   };
 };
 
+export type InternalRuntimeFileExtractionOutcome =
+  | {
+      extracted: true;
+      file: {
+        fileRef: string;
+        displayName: string | null;
+        relativePath: string;
+        mimeType: string;
+        sizeBytes: number;
+      };
+      text: string;
+      markdown: string | null;
+      note: string | null;
+      provider: unknown;
+      quality: unknown;
+    }
+  | {
+      extracted: false;
+      file: {
+        fileRef: string;
+        displayName: string | null;
+        relativePath: string;
+        mimeType: string;
+        sizeBytes: number;
+      } | null;
+      text: null;
+      markdown: null;
+      note: string;
+      provider: null;
+      quality: null;
+    };
+
 // ADR-074 Slice M3 — opt-in explicit close of an active open-loop entry,
 // driven by the model setting `closeOpenLoop: true` on `memory_write`.
 export type InternalCloseMostSimilarOpenLoopInput = {
@@ -632,6 +664,44 @@ export class PersaiInternalApiClientService {
     }
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected deferred document enqueue."
+    );
+  }
+
+  async extractAssistantFileText(input: {
+    assistantId: string;
+    workspaceId: string;
+    fileRef: string;
+  }): Promise<InternalRuntimeFileExtractionOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/files/extract", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    const payload = this.asObject(response.body);
+    if (response.ok) {
+      const parsed = this.parseRuntimeFileExtractionOutcome(payload);
+      if (parsed !== null) {
+        return parsed;
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid runtime file extraction response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API runtime file extraction failed."
+      );
+    }
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected runtime file extraction."
     );
   }
 
@@ -1717,6 +1787,55 @@ export class PersaiInternalApiClientService {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private parseRuntimeFileExtractionOutcome(
+    payload: Record<string, unknown> | null
+  ): InternalRuntimeFileExtractionOutcome | null {
+    if (payload?.ok !== true || typeof payload.extracted !== "boolean") {
+      return null;
+    }
+    const file = this.asObject(payload.file);
+    const fileSummary =
+      file !== null &&
+      typeof file.fileRef === "string" &&
+      (typeof file.displayName === "string" || file.displayName === null) &&
+      typeof file.relativePath === "string" &&
+      typeof file.mimeType === "string" &&
+      typeof file.sizeBytes === "number"
+        ? {
+            fileRef: file.fileRef,
+            displayName: file.displayName,
+            relativePath: file.relativePath,
+            mimeType: file.mimeType,
+            sizeBytes: file.sizeBytes
+          }
+        : null;
+    if (payload.extracted === false) {
+      return typeof payload.note === "string"
+        ? {
+            extracted: false,
+            file: fileSummary,
+            text: null,
+            markdown: null,
+            note: payload.note,
+            provider: null,
+            quality: null
+          }
+        : null;
+    }
+    if (fileSummary === null || typeof payload.text !== "string") {
+      return null;
+    }
+    return {
+      extracted: true,
+      file: fileSummary,
+      text: payload.text,
+      markdown: typeof payload.markdown === "string" ? payload.markdown : null,
+      note: typeof payload.note === "string" ? payload.note : null,
+      provider: payload.provider,
+      quality: payload.quality
+    };
   }
 
   private isInternalScheduledActionItem(value: unknown): value is InternalScheduledActionItem {

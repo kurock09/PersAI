@@ -38,6 +38,16 @@ export interface AssistantWebChatMessageAttachmentState {
   sizeBytes: number;
   processingStatus: string;
   fileDeleted?: boolean;
+  documentLink?: {
+    docId: string;
+    versionId: string;
+    versionNumber: number | null;
+    descriptorMode: string | null;
+    documentType: string | null;
+    documentStatus: string | null;
+    versionStatus: string | null;
+    isCurrentOutput: boolean;
+  } | null;
   createdAt: string;
 }
 

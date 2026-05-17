@@ -16,6 +16,17 @@ export type AssistantFileBucket =
 
 export type AssistantFileCleanupReason = "voice_upload_cache" | null;
 
+export type AssistantFileDocumentLink = {
+  docId: string;
+  versionId: string;
+  versionNumber: number;
+  descriptorMode: string;
+  documentType: string;
+  documentStatus: string;
+  versionStatus: string;
+  isCurrentOutput: boolean;
+};
+
 export type AssistantFileRegistryRecord = {
   fileRef: string;
   assistantId: string;
@@ -32,6 +43,7 @@ export type AssistantFileRegistryRecord = {
   fileBucket: AssistantFileBucket;
   cleanupEligible: boolean;
   cleanupReason: AssistantFileCleanupReason;
+  documentLink: AssistantFileDocumentLink | null;
   createdAt: Date;
 };
 
@@ -76,7 +88,7 @@ export class AssistantFileRegistryService {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: input.limit
     });
-    return rows.map((row) => this.mapRow(row));
+    return this.attachDocumentLinks(rows.map((row) => this.mapRow(row)));
   }
 
   async summarizeCleanup(input: {
@@ -103,7 +115,11 @@ export class AssistantFileRegistryService {
         workspaceId: input.workspaceId
       }
     });
-    return row === null ? null : this.mapRow(row);
+    if (row === null) {
+      return null;
+    }
+    const [mapped] = await this.attachDocumentLinks([this.mapRow(row)]);
+    return mapped ?? null;
   }
 
   async downloadAssistantFile(input: {
@@ -522,7 +538,62 @@ export class AssistantFileRegistryService {
       sha256: row.sha256,
       metadata,
       ...classification,
+      documentLink: null,
       createdAt: row.createdAt
     };
+  }
+
+  private async attachDocumentLinks(
+    files: AssistantFileRegistryRecord[]
+  ): Promise<AssistantFileRegistryRecord[]> {
+    const fileRefs = files.map((file) => file.fileRef);
+    if (fileRefs.length === 0) {
+      return files;
+    }
+    const links = await this.prisma.assistantDocumentDeliveredFile.findMany({
+      where: {
+        assistantFileId: { in: fileRefs }
+      },
+      orderBy: [{ deliveredAt: "desc" }, { id: "desc" }],
+      select: {
+        assistantFileId: true,
+        docId: true,
+        versionId: true,
+        isCurrentOutput: true,
+        document: {
+          select: {
+            documentType: true,
+            status: true
+          }
+        },
+        version: {
+          select: {
+            versionNumber: true,
+            descriptorMode: true,
+            status: true
+          }
+        }
+      }
+    });
+    const byFileRef = new Map<string, AssistantFileDocumentLink>();
+    for (const link of links) {
+      if (byFileRef.has(link.assistantFileId)) {
+        continue;
+      }
+      byFileRef.set(link.assistantFileId, {
+        docId: link.docId,
+        versionId: link.versionId,
+        versionNumber: link.version.versionNumber,
+        descriptorMode: link.version.descriptorMode,
+        documentType: link.document.documentType,
+        documentStatus: link.document.status,
+        versionStatus: link.version.status,
+        isCurrentOutput: link.isCurrentOutput
+      });
+    }
+    return files.map((file) => ({
+      ...file,
+      documentLink: byFileRef.get(file.fileRef) ?? null
+    }));
   }
 }

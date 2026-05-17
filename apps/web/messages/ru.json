@@ -506,6 +506,8 @@
     "filesDownload": "Скачать",
     "filesRename": "Переименовать",
     "filesDelete": "Удалить",
+    "filesDocumentCurrentOutputPinned": "Этот файл — текущий результат версии документа. Удаляй или архивируй сам документ, а не выходной файл напрямую.",
+    "filesDocumentCurrentOutputPinnedShort": "Текущий",
     "filesRenamed": "Файл переименован.",
     "filesRenameFailed": "Не удалось переименовать файл.",
     "filesDeleted": "Файл удалён.",

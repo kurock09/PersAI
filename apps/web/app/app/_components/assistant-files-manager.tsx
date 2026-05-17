@@ -75,6 +75,15 @@ function isPreviewableMedia(file: AssistantFileState): boolean {
   return file.mimeType.startsWith("image/") || file.mimeType.startsWith("video/");
 }
 
+function documentVersionLabel(file: AssistantFileState): string | null {
+  const link = file.documentLink;
+  if (!link) {
+    return null;
+  }
+  const version = typeof link.versionNumber === "number" ? `v${link.versionNumber}` : "version";
+  return link.isCurrentOutput ? `Document · ${version} · current` : `Document · ${version}`;
+}
+
 function originLabel(
   file: AssistantFileState,
   t: (
@@ -482,6 +491,8 @@ export function AssistantFilesManager() {
                         const name = fileDisplayName(file);
                         const isEditing = editingRef === file.fileRef;
                         const busy = busyRef === file.fileRef;
+                        const versionLabel = documentVersionLabel(file);
+                        const isPinnedDocumentOutput = file.documentLink?.isCurrentOutput === true;
                         const downloadUrl = getAssistantFileDownloadUrl(file.fileRef, {
                           download: true
                         });
@@ -548,19 +559,28 @@ export function AssistantFilesManager() {
                                       >
                                         <Pencil className="h-3.5 w-3.5" />
                                       </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleDelete(file.fileRef)}
-                                        disabled={busy}
-                                        className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
-                                        title={t("filesDelete")}
-                                      >
-                                        {busy ? (
-                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        ) : (
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        )}
-                                      </button>
+                                      {isPinnedDocumentOutput ? (
+                                        <span
+                                          className="rounded-xl border border-border bg-surface px-2.5 py-2 text-[11px] text-text-subtle"
+                                          title={t("filesDocumentCurrentOutputPinned")}
+                                        >
+                                          {t("filesDocumentCurrentOutputPinnedShort")}
+                                        </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleDelete(file.fileRef)}
+                                          disabled={busy}
+                                          className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
+                                          title={t("filesDelete")}
+                                        >
+                                          {busy ? (
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                          ) : (
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          )}
+                                        </button>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -568,6 +588,11 @@ export function AssistantFilesManager() {
                                   <span className="rounded-full bg-surface px-2 py-0.5">
                                     {originLabel(file, t)}
                                   </span>
+                                  {versionLabel ? (
+                                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                      {versionLabel}
+                                    </span>
+                                  ) : null}
                                   <span>{fileKind(file)}</span>
                                   <span>{formatBytes(file.sizeBytes)}</span>
                                 </div>

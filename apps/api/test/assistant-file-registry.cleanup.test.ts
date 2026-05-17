@@ -93,6 +93,7 @@ async function run(): Promise<void> {
       updateMany: async () => ({ count: 1 })
     },
     assistantDocumentDeliveredFile: {
+      findMany: async () => [],
       findFirst: async () => null
     },
     $transaction: async (ops: Array<Promise<unknown>>) => Promise.all(ops)
@@ -171,6 +172,7 @@ async function runBlocksDeliveredDocumentDeletion(): Promise<void> {
       updateMany: async () => ({ count: 0 })
     },
     assistantDocumentDeliveredFile: {
+      findMany: async () => [],
       findFirst: async () => ({
         docId: "doc-1",
         versionId: "version-1",

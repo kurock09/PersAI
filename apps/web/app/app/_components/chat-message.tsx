@@ -991,6 +991,13 @@ function AttachmentStrip({
             ? undefined
             : getAssistantFileDownloadUrl(att.fileRef, { download: true });
         const previewUrl = att.localPreviewUrl ?? inlineUrl;
+        const documentLabel = (() => {
+          const link = att.documentLink;
+          if (!link) return null;
+          const version =
+            typeof link.versionNumber === "number" ? `v${link.versionNumber}` : "version";
+          return link.isCurrentOutput ? `Document · ${version} · current` : `Document · ${version}`;
+        })();
 
         if (att.attachmentType === "image") {
           const fullUrl = inlineUrl ?? previewUrl;
@@ -1118,6 +1125,11 @@ function AttachmentStrip({
             <span className="text-text-subtle">
               {isDeleted ? t("fileDeleted") : (progressLabel ?? formatBytes(att.sizeBytes))}
             </span>
+            {documentLabel ? (
+              <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                {documentLabel}
+              </span>
+            ) : null}
           </>
         );
 

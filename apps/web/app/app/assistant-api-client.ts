@@ -2104,6 +2104,7 @@ export type ChatHistoryAttachment = {
   sizeBytes: number;
   processingStatus: string;
   fileDeleted?: boolean;
+  documentLink?: AssistantFileDocumentLink | null;
   createdAt: string;
 };
 
@@ -4039,7 +4040,19 @@ export type AssistantFileState = {
   fileBucket: "user_files" | "assistant_created" | "documents" | "media_uploads" | "cache_history";
   cleanupEligible: boolean;
   cleanupReason: "voice_upload_cache" | null;
+  documentLink?: AssistantFileDocumentLink | null;
   createdAt: string;
+};
+
+export type AssistantFileDocumentLink = {
+  docId: string;
+  versionId: string;
+  versionNumber: number | null;
+  descriptorMode: string | null;
+  documentType: string | null;
+  documentStatus: string | null;
+  versionStatus: string | null;
+  isCurrentOutput: boolean;
 };
 
 export type AssistantFilesCleanupSummary = {

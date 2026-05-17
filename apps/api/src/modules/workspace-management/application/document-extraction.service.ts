@@ -52,13 +52,32 @@ export class DocumentExtractionService {
       providerAvailability
     });
 
-    const firstAttempt = await this.extractWithSelection(input, selection.providerKey);
     let providerTrace: KnowledgeProcessingProviderTrace = {
       providerKey: selection.providerKey,
       processorMode: selection.processorMode,
       attemptedProviderKeys: [selection.providerKey]
     };
-    let quality = buildExtractionQuality(firstAttempt.normalizedText, selection.providerKey);
+    let firstAttempt: { normalizedText: string; markdown: string | null };
+    try {
+      firstAttempt = await this.extractWithSelection(input, selection.providerKey);
+    } catch (error) {
+      const fallbackAttempt = await this.extractWithLocalFallbackAfterProviderError({
+        input,
+        failedProviderKey: selection.providerKey,
+        policy,
+        providerAvailability
+      });
+      if (fallbackAttempt === null) {
+        throw error;
+      }
+      firstAttempt = fallbackAttempt.result;
+      providerTrace = {
+        providerKey: "local",
+        processorMode: "local",
+        attemptedProviderKeys: [selection.providerKey, "local"]
+      };
+    }
+    let quality = buildExtractionQuality(firstAttempt.normalizedText, providerTrace.providerKey);
     let selectedText = firstAttempt.normalizedText;
     let selectedMarkdown = firstAttempt.markdown;
     let selectionReasonCode = selection.reasonCode;
@@ -98,6 +117,32 @@ export class DocumentExtractionService {
         sourceId: input.source.sourceId,
         sourceVersion: input.source.sourceVersion,
         provenance: input.source.provenance
+      }
+    };
+  }
+
+  private async extractWithLocalFallbackAfterProviderError(input: {
+    input: KnowledgeDocumentProcessingInput;
+    failedProviderKey: KnowledgeProcessingProviderKey;
+    policy: Awaited<ReturnType<DocumentExtractionService["loadPolicy"]>>;
+    providerAvailability: Awaited<
+      ReturnType<DocumentExtractionService["loadProviderAvailability"]>
+    >;
+  }): Promise<{ result: { normalizedText: string; markdown: string | null } } | null> {
+    if (
+      input.failedProviderKey === "local" ||
+      !input.policy.localFallbackEnabled ||
+      !input.providerAvailability.local.enabled ||
+      !input.providerAvailability.local.configured ||
+      !isLocalExtractableContent(input.input.content)
+    ) {
+      return null;
+    }
+    const normalizedText = await this.extractLocalText(input.input);
+    return {
+      result: {
+        normalizedText,
+        markdown: null
       }
     };
   }
@@ -471,6 +516,22 @@ function isTextLikeMime(mime: string): boolean {
     mime === "application/xml" ||
     mime === "application/x-yaml" ||
     mime === "application/yaml"
+  );
+}
+
+function isLocalExtractableContent(content: KnowledgeDocumentProcessingInput["content"]): boolean {
+  if (content.kind === "text") {
+    return true;
+  }
+  if (content.kind !== "bytes") {
+    return false;
+  }
+  const mime = normalizeMime(content.mimeType);
+  return (
+    isTextLikeMime(mime) ||
+    mime === "application/pdf" ||
+    mime === "application/x-pdf" ||
+    mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   );
 }
 

@@ -437,6 +437,7 @@ export class MediaAttachmentController {
       fileBucket: file.fileBucket,
       cleanupEligible: file.cleanupEligible,
       cleanupReason: file.cleanupReason,
+      documentLink: file.documentLink,
       createdAt: file.createdAt.toISOString()
     };
   }

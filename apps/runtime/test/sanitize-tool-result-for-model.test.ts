@@ -253,6 +253,55 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     assert.equal(parsed.artifacts[0]!.filename, undefined);
   }
 
+  // Defensive guard for the production regression where files.read returned
+  // raw PDF bytes into the tool-result channel and inflated the next OpenAI
+  // request to ~95k tokens.
+  {
+    const payload = {
+      toolCode: "files" as const,
+      executionMode: "inline" as const,
+      requestedAction: "read" as const,
+      action: "read" as const,
+      reason: null,
+      warning: null,
+      item: null,
+      items: [],
+      content: "%PDF-1.4\n\u0000\u0001\u0002binary-data",
+      job: null,
+      fileRefs: [],
+      queuedArtifacts: 0
+    };
+    const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
+      content: string | null;
+    };
+    assert.equal(parsed.content, "[binary file content omitted from model context]");
+  }
+
+  // Large text reads stay useful but are capped before they become the next
+  // turn's whole context.
+  {
+    const payload = {
+      toolCode: "files" as const,
+      executionMode: "inline" as const,
+      requestedAction: "read" as const,
+      action: "read" as const,
+      reason: null,
+      warning: null,
+      item: null,
+      items: [],
+      content: "a".repeat(20_000),
+      job: null,
+      fileRefs: [],
+      queuedArtifacts: 0
+    };
+    const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
+      content: string | null;
+    };
+    assert.equal(parsed.content?.startsWith("a".repeat(100)), true);
+    assert.match(parsed.content ?? "", /content truncated for model context/);
+    assert.ok((parsed.content ?? "").length < 17_000);
+  }
+
   // Defensive: a null `artifact` field on a skipped tool result must not
   // crash the replacer.
   {

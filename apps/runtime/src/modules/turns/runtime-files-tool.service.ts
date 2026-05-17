@@ -22,6 +22,24 @@ const MAX_FILES_SEARCH_LIMIT = 20;
 const DEFAULT_FILES_LIST_LIMIT = 100;
 const MAX_FILES_LIST_LIMIT = 200;
 const FILE_LIST_SECTION_ORDER = ["workspace", "uploads", "artifacts"] as const;
+const TEXT_READABLE_MIME_TYPES = new Set([
+  "application/json",
+  "application/ld+json",
+  "application/xml",
+  "application/x-ndjson",
+  "application/yaml",
+  "application/yml",
+  "text/csv",
+  "text/markdown",
+  "text/plain",
+  "text/tab-separated-values",
+  "text/xml"
+]);
+const DOCUMENT_EXTRACTABLE_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/x-pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+]);
 
 type FilesListSection = (typeof FILE_LIST_SECTION_ORDER)[number];
 
@@ -385,6 +403,74 @@ export class RuntimeFilesToolService {
             warning: resolved.warning
           }),
           items: resolved.items ?? []
+        },
+        artifacts: [],
+        isError: true
+      };
+    }
+
+    if (!this.isTextReadableFile(resolved.item)) {
+      if (this.isDocumentExtractableFile(resolved.item)) {
+        const extraction = await this.persaiInternalApiClientService.extractAssistantFileText({
+          assistantId: params.bundle.metadata.assistantId,
+          workspaceId: params.bundle.metadata.workspaceId,
+          fileRef: resolved.item.fileRef
+        });
+        if (extraction.extracted) {
+          return {
+            payload: {
+              toolCode: "files",
+              executionMode: "inline",
+              requestedAction: "read",
+              action: "read",
+              reason: null,
+              warning:
+                extraction.note ??
+                `Extracted text from "${resolved.item.displayName ?? resolved.item.relativePath}" through PersAI document extraction.`,
+              item: resolved.item,
+              items: [resolved.item],
+              content: extraction.text,
+              job: null,
+              fileRefs: [resolved.item.fileRef],
+              queuedArtifacts: 0
+            },
+            artifacts: [],
+            isError: false
+          };
+        }
+        return {
+          payload: {
+            toolCode: "files",
+            executionMode: "inline",
+            requestedAction: "read",
+            action: "skipped",
+            reason: "document_text_extraction_failed",
+            warning: extraction.note,
+            item: resolved.item,
+            items: [resolved.item],
+            content: null,
+            job: null,
+            fileRefs: [resolved.item.fileRef],
+            queuedArtifacts: 0
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "read",
+          action: "skipped",
+          reason: "binary_file_read_unsupported",
+          warning: `Direct files.read is only for text files. "${resolved.item.displayName ?? resolved.item.relativePath}" is ${resolved.item.mimeType}; do not read or quote raw binary bytes. Use a document extraction flow for PDFs/DOCX, or ask the user for a text source.`,
+          item: resolved.item,
+          items: [resolved.item],
+          content: null,
+          job: null,
+          fileRefs: [resolved.item.fileRef],
+          queuedArtifacts: 0
         },
         artifacts: [],
         isError: true
@@ -1422,6 +1508,24 @@ export class RuntimeFilesToolService {
       return "video";
     }
     return "file";
+  }
+
+  private isTextReadableFile(item: RuntimeFilesToolItem): boolean {
+    const mimeType = item.mimeType.trim().toLowerCase().split(";")[0] ?? "";
+    if (mimeType.startsWith("text/") || TEXT_READABLE_MIME_TYPES.has(mimeType)) {
+      return true;
+    }
+    const path = `${item.displayName ?? ""} ${item.relativePath}`.toLowerCase();
+    return /\.(txt|md|markdown|csv|tsv|json|jsonl|ndjson|xml|yaml|yml|log)$/i.test(path);
+  }
+
+  private isDocumentExtractableFile(item: RuntimeFilesToolItem): boolean {
+    const mimeType = item.mimeType.trim().toLowerCase().split(";")[0] ?? "";
+    if (DOCUMENT_EXTRACTABLE_MIME_TYPES.has(mimeType)) {
+      return true;
+    }
+    const path = `${item.displayName ?? ""} ${item.relativePath}`.toLowerCase();
+    return /\.(pdf|docx)$/i.test(path);
   }
 
   private createSkippedResult(input: {

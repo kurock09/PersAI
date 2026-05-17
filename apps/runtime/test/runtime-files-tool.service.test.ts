@@ -358,6 +358,23 @@ async function run(): Promise<void> {
     {
       async consumeToolDailyLimit() {
         return { allowed: true, currentCount: 0, limit: 10 };
+      },
+      async extractAssistantFileText(input: { fileRef: string }) {
+        return {
+          extracted: true,
+          file: {
+            fileRef: input.fileRef,
+            displayName: "ТЗ.pdf",
+            relativePath: "uploads/bdf7ec74-23fa-4a47-98cd-8ccb3726d92a/TZ.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 2048
+          },
+          text: "Extracted PDF text",
+          markdown: null,
+          note: null,
+          provider: null,
+          quality: null
+        };
       }
     } as never
   );
@@ -481,13 +498,11 @@ async function run(): Promise<void> {
     channel: "web"
   });
   assert.equal(readUploadedPdfByQuery.isError, false);
+  assert.equal(readUploadedPdfByQuery.payload.action, "read");
   assert.equal(readUploadedPdfByQuery.payload.item?.fileRef, "file-ref-uploaded-pdf");
-  assert.equal(sandboxClientService.calls.at(-1)?.args.fileRef, "file-ref-uploaded-pdf");
-  assert.equal(
-    sandboxClientService.calls.at(-1)?.args.path,
-    "uploads/bdf7ec74-23fa-4a47-98cd-8ccb3726d92a/TZ.pdf"
-  );
-  assert.deepEqual(sandboxClientService.calls.at(-1)?.mountedFileRefs, ["file-ref-uploaded-pdf"]);
+  assert.equal(readUploadedPdfByQuery.payload.content, "Extracted PDF text");
+  assert.match(readUploadedPdfByQuery.payload.warning ?? "", /Extracted text/);
+  assert.equal(sandboxClientService.calls.length, 0);
 
   const ambiguousGet = await service.executeToolCall({
     bundle: createBundle(),

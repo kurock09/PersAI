@@ -297,6 +297,8 @@ Final document outputs are ordinary PersAI Files:
 
 The document domain keeps document/version truth. Files keeps binary output truth.
 
+Because files are only binary outputs of document versions, any UI/API surface that lists generated document files must project enough document metadata to avoid misleading users. At minimum, delivered document files should carry `docId`, `versionId`, `versionNumber`, and a current-output marker so the product can show "Document · vN · current" and avoid offering a direct file-delete action for a protected delivered output. Deleting or archiving document history is a document-domain operation, not a generic file-row delete.
+
 ## Edits And Versions
 
 User edits after delivery create new versions:

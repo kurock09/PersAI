@@ -49,6 +49,7 @@ const MODEL_VISIBLE_FILES_ITEM_FIELDS = new Set([
   "logicalSizeBytes",
   "aliases"
 ]);
+const MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS = 16_000;
 
 function isSuccessfulFilesDeliveryResult(value: Record<string, unknown>): boolean {
   if (value.toolCode !== "files" || value.executionMode !== "inline") {
@@ -88,6 +89,38 @@ function sanitizeFilesToolItemForModel(value: Record<string, unknown>): Record<s
     }
   }
   return sanitized;
+}
+
+function isLikelyBinaryContent(value: string): boolean {
+  if (value.length === 0) {
+    return false;
+  }
+  if (value.startsWith("%PDF-") || value.includes("\u0000") || value.includes("\uFFFD")) {
+    return true;
+  }
+  const sample = value.slice(0, 4096);
+  let controlChars = 0;
+  for (let index = 0; index < sample.length; index += 1) {
+    const code = sample.charCodeAt(index);
+    const allowedWhitespace = code === 9 || code === 10 || code === 13;
+    if ((code < 32 && !allowedWhitespace) || (code >= 127 && code <= 159)) {
+      controlChars += 1;
+    }
+  }
+  return controlChars / sample.length > 0.02;
+}
+
+function sanitizeFilesContentForModel(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  if (isLikelyBinaryContent(value)) {
+    return "[binary file content omitted from model context]";
+  }
+  if (value.length > MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS) {
+    return `${value.slice(0, MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS)}\n\n[content truncated for model context: ${String(value.length - MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS)} characters omitted]`;
+  }
+  return value;
 }
 
 function sanitizeFilesToolResultForModel(value: Record<string, unknown>): Record<string, unknown> {
@@ -130,7 +163,7 @@ function sanitizeFilesToolResultForModel(value: Record<string, unknown>): Record
     warning: value.warning,
     item,
     items,
-    content: value.content ?? null,
+    content: sanitizeFilesContentForModel(value.content),
     job: null,
     queuedArtifacts: value.queuedArtifacts ?? 0
   };

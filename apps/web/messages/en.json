@@ -506,6 +506,8 @@
     "filesDownload": "Download",
     "filesRename": "Rename",
     "filesDelete": "Delete",
+    "filesDocumentCurrentOutputPinned": "This file is the current delivered output of a document version. Delete or archive the document instead of removing the output file directly.",
+    "filesDocumentCurrentOutputPinnedShort": "Current",
     "filesRenamed": "File renamed.",
     "filesRenameFailed": "Failed to rename file.",
     "filesDeleted": "File deleted.",
