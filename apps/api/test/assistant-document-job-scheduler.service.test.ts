@@ -77,6 +77,11 @@ describe("AssistantDocumentJobSchedulerService", () => {
         }
       } as never,
       {
+        async extractSourceFiles() {
+          return [];
+        }
+      } as never,
+      {
         async deliverReadyJob() {
           throw new Error("delivery should not run in this test");
         }
@@ -167,6 +172,8 @@ describe("AssistantDocumentJobSchedulerService", () => {
             }
           })
       } as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -298,6 +305,11 @@ describe("AssistantDocumentJobSchedulerService", () => {
               }
             }
           };
+        }
+      } as never,
+      {
+        async extractSourceFiles() {
+          return [];
         }
       } as never,
       {
@@ -464,6 +476,11 @@ describe("AssistantDocumentJobSchedulerService", () => {
               }
             }
           };
+        }
+      } as never,
+      {
+        async extractSourceFiles() {
+          return [];
         }
       } as never,
       {

@@ -482,6 +482,15 @@ Sandbox may be reconsidered later for:
 - corrupt / encrypted / scanned-only / unsupported binaries surface as `text: null` with a structured `note` explaining the blocker (parser error, image-only document, etc.) so the model can ask the user for a smaller / OCR-ed / unencrypted version or a textual paste, rather than crashing the worker or pretending it read the file
 - Gamma/PPTX worker attachment ingestion, image orchestration in PDFMonkey (so user-attached images become `<img>` tags in the rendered PDF), and a defensive `files.read` UTF-8/NUL-byte hardening pass on the sandbox path remain explicit bounded follow-ups, not part of this slice
 
+### 2026-05-17 — Shared API document source extraction pipeline landed locally
+
+- superseded the temporary runtime-owned source attachment extraction described above with a clean API-owned shared extraction core: `DocumentExtractionService` now owns local text-like extraction, local PDF parsing via the current `pdf-parse` API, local DOCX extraction via `mammoth`, extraction quality scoring, Mistral OCR default provider execution, LlamaParse high-quality fallback, provider trace, and metadata
+- kept Knowledge behavior-compatible by leaving `KnowledgeDocumentProcessorService` as a facade over the shared extraction service; Knowledge indexing/chunking/vector persistence and user KB save semantics remain owned by the existing Knowledge pipeline and were not broadened
+- changed the API document-job worker boundary so transient generation attachments are extracted in API before runtime execution and forwarded as `RuntimeDocumentJobRunRequest.sourceFiles[]`; these attachments are not persisted into user KB unless the user explicitly saves them through Knowledge flows
+- cleaned runtime source handling: `RuntimeDocumentProviderAdapterService` no longer parses source PDF/DOCX attachments, no longer depends on `mammoth`, and no longer knows document-processing provider secrets; it consumes API-extracted `sourceFiles[]`
+- closed the PDFMonkey/Gamma asymmetry: PDF HTML generation and Gamma presentation generation now both receive the same extracted source text/notes
+- kept generated-PDF validation local to runtime because it validates provider output, not source extraction; image placement/orchestration remains out of scope
+
 ## Non-goals
 
 - no user-facing template editor

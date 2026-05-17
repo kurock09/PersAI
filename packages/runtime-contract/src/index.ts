@@ -103,6 +103,28 @@ export interface RuntimeOutputArtifact {
   caption?: string | null;
 }
 
+export interface RuntimeDocumentSourceFile {
+  attachmentId: string;
+  filename: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  text: string | null;
+  markdown: string | null;
+  note: string | null;
+  provider: {
+    providerKey: "local" | "mistral" | "llamaparse";
+    processorMode: "auto" | "local" | "default_provider" | "high_quality_fallback";
+    attemptedProviderKeys: Array<"local" | "mistral" | "llamaparse">;
+  } | null;
+  quality: {
+    status: "ok" | "poor" | "needs_review";
+    score: number | null;
+    reasonCodes: string[];
+    textChars: number;
+    metadata?: Record<string, unknown> | null;
+  } | null;
+}
+
 export const PERSAI_SANDBOX_FILE_ORIGINS = [
   "sandbox_output",
   "runtime_output",
@@ -1953,12 +1975,12 @@ export interface RuntimeDocumentJobRunRequest {
     sourceUserMessageCreatedAt: string;
   };
   // Attachments from the user message that triggered this document job.
-  // Mirrors the media path so the document worker can inline text-extractable
-  // source-file content (txt/md/csv/json/xml/html) directly into the HTML
-  // generation prompt instead of forcing the model to imagine the source.
-  // For binary types (docx/pdf/image) the worker only includes a structured
-  // reference; the model is expected to first call `files.read` for those.
+  // Mirrors the media path and remains available for trace/debug metadata.
+  // Source extraction itself is API-owned and passed through sourceFiles.
   attachments: RuntimeAttachmentRef[];
+  // API-extracted source payloads for transient generation attachments. These
+  // are not persisted into Knowledge unless the user explicitly saves them.
+  sourceFiles?: RuntimeDocumentSourceFile[];
   directToolExecution: {
     toolCode: "document";
     descriptorMode:

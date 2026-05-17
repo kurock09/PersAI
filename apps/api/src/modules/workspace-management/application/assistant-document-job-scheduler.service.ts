@@ -17,6 +17,7 @@ import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { AssistantDocumentJobDeliveryService } from "./assistant-document-job-delivery.service";
+import { DocumentSourceAttachmentExtractionService } from "./document-source-attachment-extraction.service";
 
 const DOCUMENT_JOB_POLL_INTERVAL_MS = 5_000;
 const DOCUMENT_JOB_BATCH_SIZE = 4;
@@ -91,6 +92,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
     private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly internalRuntimeDocumentJobClientService: InternalRuntimeDocumentJobClientService,
+    private readonly documentSourceAttachmentExtractionService: DocumentSourceAttachmentExtractionService,
     private readonly assistantDocumentJobDeliveryService: AssistantDocumentJobDeliveryService,
     private readonly schedulerLeaseService: SchedulerLeaseService,
     private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService
@@ -391,6 +393,16 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         );
         return;
       }
+      const attachments = requestPayload.sourceUserMessageAttachments ?? [];
+      const sourceFiles =
+        attachments.length === 0
+          ? []
+          : await this.documentSourceAttachmentExtractionService.extractSourceFiles({
+              jobId: job.id,
+              assistantId: job.assistantId,
+              workspaceId: job.workspaceId,
+              attachments
+            });
 
       const outcome = await this.internalRuntimeDocumentJobClientService.run({
         assistantId: job.assistantId,
@@ -409,11 +421,11 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           sourceUserMessageText: requestPayload.sourceUserMessageText,
           sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt
         },
-        // Forward attachments captured at enqueue time so the worker can
-        // inline text-extractable source-file content into HTML generation.
-        // Older jobs persisted before this field existed surface as an
-        // empty array, preserving the previous text-only worker behavior.
-        attachments: requestPayload.sourceUserMessageAttachments ?? [],
+        // Raw attachment refs stay available for trace/debug metadata, while
+        // sourceFiles carries API-owned extraction output from the shared
+        // document extraction pipeline.
+        attachments,
+        sourceFiles,
         directToolExecution: {
           toolCode: "document",
           descriptorMode:

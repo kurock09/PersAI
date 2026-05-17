@@ -107,6 +107,8 @@ import { ManageAdminSkillsService } from "./application/manage-admin-skills.serv
 import { GenerateSkillAuthoringDraftService } from "./application/generate-skill-authoring-draft.service";
 import { ManageAdminKnowledgeRetrievalPolicyService } from "./application/manage-admin-knowledge-retrieval-policy.service";
 import { ListKnowledgeIndexingJobsService } from "./application/list-knowledge-indexing-jobs.service";
+import { DocumentExtractionService } from "./application/document-extraction.service";
+import { DocumentSourceAttachmentExtractionService } from "./application/document-source-attachment-extraction.service";
 import { KnowledgeDocumentProcessorService } from "./application/knowledge-document-processor.service";
 import { KnowledgeEmbeddingService } from "./application/knowledge-embedding.service";
 import { KnowledgeIndexingService } from "./application/knowledge-indexing.service";
@@ -427,6 +429,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     GenerateSkillAuthoringDraftService,
     ManageAdminKnowledgeRetrievalPolicyService,
     ListKnowledgeIndexingJobsService,
+    DocumentExtractionService,
+    DocumentSourceAttachmentExtractionService,
     KnowledgeDocumentProcessorService,
     KnowledgeEmbeddingService,
     KnowledgeIndexingService,

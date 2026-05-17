@@ -20,7 +20,6 @@
     "@persai/runtime-bundle": "workspace:*",
     "@persai/runtime-contract": "workspace:*",
     "@prisma/client": "6.19.2",
-    "mammoth": "^1.12.0",
     "parse5": "^8.0.1",
     "pdf-parse": "^2.4.5",
     "redis": "^5.11.0",

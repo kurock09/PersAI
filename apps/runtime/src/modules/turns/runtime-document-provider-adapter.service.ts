@@ -9,6 +9,7 @@ import type {
   ProviderGatewayTextGenerateRequest,
   RuntimeDocumentJobRunRequest,
   RuntimeDocumentJobRunResult,
+  RuntimeDocumentSourceFile,
   RuntimeOutputArtifact
 } from "@persai/runtime-contract";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
@@ -92,62 +93,7 @@ const DOCUMENT_HTML_ENHANCED_PRINT_CSS = [
 ].join("");
 const DOCUMENT_HTML_ENHANCED_PAGINATION_ENV_KEY = "RUNTIME_DOCUMENT_ENHANCED_PAGINATION";
 
-// Max bytes per attachment we inline into the HTML generation prompt.
-// Caps prompt size for very large text files; the model still sees the
-// truncated head with an explicit truncation note instead of being given
-// nothing.
-const DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES = 64_000;
-
-// Max raw payload size we are willing to feed into a binary text parser
-// (pdf-parse, mammoth). Files above this cap are surfaced as text=null
-// with a structured note rather than risking long-running extraction or
-// memory pressure on the worker pod.
-const DOCUMENT_SOURCE_ATTACHMENT_PARSER_MAX_BYTES = 1_048_576;
-
-// MIME types whose payload is safely UTF-8 decodable and worth inlining
-// directly. Binary formats handled by a real text extractor are listed in
-// `DOCUMENT_SOURCE_ATTACHMENT_BINARY_PARSER_MIMES` below; everything else
-// (images, archives, audio/video) still surfaces as `text: null` with a
-// structured note so the model knows the file exists but cannot be
-// inlined.
-const DOCUMENT_SOURCE_ATTACHMENT_TEXT_MIMES = new Set<string>([
-  "text/plain",
-  "text/markdown",
-  "text/x-markdown",
-  "text/csv",
-  "text/tab-separated-values",
-  "text/html",
-  "text/xml",
-  "application/xml",
-  "application/json",
-  "application/x-ndjson",
-  "application/javascript",
-  "application/x-yaml",
-  "application/yaml"
-]);
-
-type DocumentSourceAttachmentParserKind = "pdf" | "docx";
-
-// Binary MIME types we extract inline via a real parser instead of telling
-// the model "call files.read first". Any extension here also needs a real
-// parser branch in `extractInlineableAttachmentText`.
-const DOCUMENT_SOURCE_ATTACHMENT_BINARY_PARSER_MIMES = new Map<
-  string,
-  DocumentSourceAttachmentParserKind
->([
-  ["application/pdf", "pdf"],
-  ["application/x-pdf", "pdf"],
-  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"]
-]);
-
-type DocumentSourceFilePayload = {
-  attachmentId: string;
-  filename: string | null;
-  mimeType: string;
-  sizeBytes: number;
-  text: string | null;
-  note: string | null;
-};
+type DocumentSourceFilePayload = RuntimeDocumentSourceFile;
 
 type PdfParseLegacyModule = (
   buffer: Buffer,
@@ -590,6 +536,7 @@ export class RuntimeDocumentProviderAdapterService {
       request.directToolExecution.request.prompt,
       request.directToolExecution.request.instructions ?? "",
       request.job.sourceUserMessageText,
+      this.renderSourceFilesForProviderInput(request.sourceFiles ?? []),
       typeof request.directToolExecution.request.outline === "string"
         ? request.directToolExecution.request.outline
         : request.directToolExecution.request.outline === null ||
@@ -600,6 +547,24 @@ export class RuntimeDocumentProviderAdapterService {
       .map((value) => value.trim())
       .filter((value) => value.length > 0);
     return parts.join("\n\n");
+  }
+
+  private renderSourceFilesForProviderInput(sourceFiles: RuntimeDocumentSourceFile[]): string {
+    const rendered = sourceFiles
+      .map((sourceFile, index) => {
+        const label = sourceFile.filename ?? `attachment-${String(index + 1)}`;
+        if (sourceFile.text !== null && sourceFile.text.trim().length > 0) {
+          return `Source file: ${label}\nMIME: ${sourceFile.mimeType}\n\n${sourceFile.text.trim()}`;
+        }
+        if (sourceFile.note !== null && sourceFile.note.trim().length > 0) {
+          return `Source file: ${label}\nMIME: ${sourceFile.mimeType}\nExtraction note: ${sourceFile.note.trim()}`;
+        }
+        return null;
+      })
+      .filter((entry): entry is string => entry !== null);
+    return rendered.length === 0
+      ? ""
+      : `Extracted source files:\n\n${rendered.join("\n\n---\n\n")}`;
   }
 
   private buildGammaPresentationOptions(request: RuntimeDocumentJobRunRequest): NonNullable<
@@ -700,6 +665,17 @@ export class RuntimeDocumentProviderAdapterService {
       if (trimmed.length > 0) {
         instructions.push(`User guidance: ${trimmed}`);
       }
+    }
+    const sourceFiles = request.sourceFiles ?? [];
+    if (sourceFiles.some((sourceFile) => sourceFile.text !== null)) {
+      instructions.push(
+        "Use the extracted source file text supplied in the input as primary content when the user asks to rebuild, convert, summarize, or restyle an attached document."
+      );
+    }
+    if (sourceFiles.some((sourceFile) => sourceFile.text === null)) {
+      instructions.push(
+        "Some source files could not be extracted; do not pretend their contents were read, and rely only on extracted text plus the user's written prompt."
+      );
     }
     return instructions.join(" ");
   }
@@ -860,196 +836,6 @@ export class RuntimeDocumentProviderAdapterService {
     return "auto";
   }
 
-  private async loadSourceAttachmentContents(
-    request: RuntimeDocumentJobRunRequest
-  ): Promise<DocumentSourceFilePayload[]> {
-    const attachments = request.attachments;
-    if (attachments.length === 0) {
-      return [];
-    }
-    const results: DocumentSourceFilePayload[] = [];
-    for (const attachment of attachments) {
-      const mime = attachment.mimeType.toLowerCase().split(";")[0]?.trim() ?? "";
-      const isUtf8Text =
-        DOCUMENT_SOURCE_ATTACHMENT_TEXT_MIMES.has(mime) || mime.startsWith("text/");
-      const parserKind = DOCUMENT_SOURCE_ATTACHMENT_BINARY_PARSER_MIMES.get(mime) ?? null;
-      if (!isUtf8Text && parserKind === null) {
-        // Image / archive / audio / unknown binary: cannot inline, but
-        // surface the file so the model knows it exists.
-        results.push({
-          attachmentId: attachment.attachmentId,
-          filename: attachment.filename,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-          text: null,
-          note: "Binary attachment without an inline text extractor; worker did not inline its content. The model cannot read raw image/archive/binary bytes — proceed with the user's textual prompt only."
-        });
-        continue;
-      }
-      try {
-        const buffer = await this.mediaObjectStorage.downloadObject(attachment.objectKey);
-        if (buffer === null) {
-          results.push({
-            attachmentId: attachment.attachmentId,
-            filename: attachment.filename,
-            mimeType: attachment.mimeType,
-            sizeBytes: attachment.sizeBytes,
-            text: null,
-            note: "Attachment object not found in storage; worker could not inline its content."
-          });
-          continue;
-        }
-        if (parserKind !== null) {
-          if (buffer.length > DOCUMENT_SOURCE_ATTACHMENT_PARSER_MAX_BYTES) {
-            results.push({
-              attachmentId: attachment.attachmentId,
-              filename: attachment.filename,
-              mimeType: attachment.mimeType,
-              sizeBytes: attachment.sizeBytes,
-              text: null,
-              note: `Attachment is ${String(buffer.length)} bytes, above the ${String(
-                DOCUMENT_SOURCE_ATTACHMENT_PARSER_MAX_BYTES
-              )}-byte text-extraction cap; ask the user to share a smaller file or paste the relevant excerpt.`
-            });
-            continue;
-          }
-          const extracted = await this.extractInlineableAttachmentText(buffer, parserKind);
-          if (extracted.text === null) {
-            results.push({
-              attachmentId: attachment.attachmentId,
-              filename: attachment.filename,
-              mimeType: attachment.mimeType,
-              sizeBytes: attachment.sizeBytes,
-              text: null,
-              note: `Failed to extract text from ${parserKind} attachment: ${
-                extracted.error ?? "unknown error"
-              }.`
-            });
-            continue;
-          }
-          const normalized = this.normalizeInlineableAttachmentText(extracted.text);
-          if (normalized.length === 0) {
-            results.push({
-              attachmentId: attachment.attachmentId,
-              filename: attachment.filename,
-              mimeType: attachment.mimeType,
-              sizeBytes: attachment.sizeBytes,
-              text: null,
-              note: `${parserKind} text extractor returned an empty document; the file may be image-only / scanned / encrypted.`
-            });
-            continue;
-          }
-          const inlineSlice = this.truncateToInlineByteCap(normalized);
-          results.push({
-            attachmentId: attachment.attachmentId,
-            filename: attachment.filename,
-            mimeType: attachment.mimeType,
-            sizeBytes: attachment.sizeBytes,
-            text: inlineSlice.text,
-            note: inlineSlice.truncated
-              ? `Extracted ${parserKind} text was truncated to first ${String(
-                  DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES
-                )} bytes; original extracted size was ${String(
-                  Buffer.byteLength(normalized, "utf8")
-                )} bytes.`
-              : null
-          });
-          continue;
-        }
-        const truncated = buffer.length > DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES;
-        const slice = truncated
-          ? buffer.subarray(0, DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES)
-          : buffer;
-        const text = slice.toString("utf8");
-        results.push({
-          attachmentId: attachment.attachmentId,
-          filename: attachment.filename,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-          text,
-          note: truncated
-            ? `Truncated to first ${String(DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES)} bytes; original is ${String(buffer.length)} bytes.`
-            : null
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "unknown error";
-        results.push({
-          attachmentId: attachment.attachmentId,
-          filename: attachment.filename,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-          text: null,
-          note: `Failed to fetch attachment content: ${message}.`
-        });
-      }
-    }
-    return results;
-  }
-
-  /**
-   * Extract inlineable plain text from a binary attachment buffer.
-   *
-   * Each parser branch is wrapped in try/catch so a corrupt/encrypted/empty
-   * input never crashes the worker — it surfaces as `text: null` with the
-   * parser error message, which `loadSourceAttachmentContents` turns into a
-   * structured `note` for the model.
-   *
-   * Tests override this method directly to avoid pulling in the real
-   * `pdf-parse` / `mammoth` modules from the test sandbox.
-   */
-  private async extractInlineableAttachmentText(
-    buffer: Buffer,
-    kind: DocumentSourceAttachmentParserKind
-  ): Promise<{ text: string | null; error: string | null }> {
-    if (kind === "pdf") {
-      try {
-        return { text: await this.parsePdfBuffer(buffer), error: null };
-      } catch (error) {
-        return {
-          text: null,
-          error: error instanceof Error ? error.message : String(error)
-        };
-      }
-    }
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const mammoth = require("mammoth") as {
-        extractRawText(input: { buffer: Buffer }): Promise<{ value?: string }>;
-      };
-      const result = await mammoth.extractRawText({ buffer });
-      return { text: result.value ?? "", error: null };
-    } catch (error) {
-      return {
-        text: null,
-        error: error instanceof Error ? error.message : String(error)
-      };
-    }
-  }
-
-  /**
-   * Normalize text extracted from a binary parser so it inlines cleanly
-   * into the HTML generation prompt: collapse runs of spaces/tabs to a
-   * single space, preserve line breaks (paragraph structure matters for
-   * the model), and collapse runs of 3+ newlines to a paragraph break.
-   */
-  private normalizeInlineableAttachmentText(value: string): string {
-    return value
-      .replace(/\r\n?/g, "\n")
-      .replace(/[ \t\f\v]+/g, " ")
-      .replace(/[ \t]+\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-  }
-
-  private truncateToInlineByteCap(value: string): { text: string; truncated: boolean } {
-    const buf = Buffer.from(value, "utf8");
-    if (buf.length <= DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES) {
-      return { text: value, truncated: false };
-    }
-    const slice = buf.subarray(0, DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES);
-    return { text: slice.toString("utf8"), truncated: true };
-  }
-
   private async generatePdfHtmlContent(input: {
     bundle: AssistantRuntimeBundle;
     request: RuntimeDocumentJobRunRequest;
@@ -1057,11 +843,7 @@ export class RuntimeDocumentProviderAdapterService {
     attempt: number;
   }): Promise<{ htmlContent: string; bodyTextLength: number }> {
     const providerSelection = this.resolveProviderSelection(input.bundle, "premium_reply");
-    // Fetch and decode text content from user-attached source files before
-    // calling the model so the HTML generation prompt carries the real
-    // source content for rebuild/convert/restyle/translate requests instead
-    // of forcing the model to invent placeholder text.
-    const sourceFiles = await this.loadSourceAttachmentContents(input.request);
+    const sourceFiles = input.request.sourceFiles ?? [];
     if (sourceFiles.length > 0) {
       const inlinedCount = sourceFiles.filter((entry) => entry.text !== null).length;
       const totalBytes = sourceFiles.reduce(

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { DocumentExtractionService } from "../src/modules/workspace-management/application/document-extraction.service";
 import { KnowledgeDocumentProcessorService } from "../src/modules/workspace-management/application/knowledge-document-processor.service";
 
 const policy = {
@@ -11,7 +12,8 @@ const policy = {
 
 async function run(): Promise<void> {
   await usesMistralForPdfKnowledgeProcessing();
-  await keepsLocalKnowledgeProcessingLocal();
+  await keepsSimpleTextKnowledgeProcessingLocal();
+  await knowledgeProcessorFacadeDelegatesToSharedExtractionService();
 }
 
 async function usesMistralForPdfKnowledgeProcessing(): Promise<void> {
@@ -34,12 +36,12 @@ async function usesMistralForPdfKnowledgeProcessing(): Promise<void> {
   }) as typeof fetch;
 
   try {
-    const service = new KnowledgeDocumentProcessorService(
+    const service = new DocumentExtractionService(
       prismaWithPolicy() as never,
       failingMediaPreprocessor() as never,
       secretStore() as never
     );
-    const result = await service.process({
+    const result = await service.extract({
       source: source(),
       content: {
         kind: "bytes",
@@ -62,38 +64,61 @@ async function usesMistralForPdfKnowledgeProcessing(): Promise<void> {
   }
 }
 
-async function keepsLocalKnowledgeProcessingLocal(): Promise<void> {
-  let receivedOptions: unknown = "not-called";
-  const service = new KnowledgeDocumentProcessorService(
+async function keepsSimpleTextKnowledgeProcessingLocal(): Promise<void> {
+  const service = new DocumentExtractionService(
     prismaWithPolicy() as never,
-    {
-      async process(
-        _buffer: Buffer,
-        _mimeType: string,
-        _originalFilename: string,
-        options?: unknown
-      ) {
-        receivedOptions = options;
-        return { textExtract: "local text" };
-      }
-    } as never,
+    failingMediaPreprocessor() as never,
     secretStore() as never
   );
 
-  const result = await service.process({
+  const result = await service.extract({
     source: source(),
-    requestedMode: "local",
     content: {
       kind: "bytes",
-      buffer: Buffer.from("%PDF"),
-      mimeType: "application/pdf",
-      originalFilename: "local.pdf"
+      buffer: Buffer.from(" local text "),
+      mimeType: "text/plain",
+      originalFilename: "local.txt"
     }
   });
 
   assert.equal(result.normalizedText, "local text");
   assert.equal(result.provider.providerKey, "local");
-  assert.equal(receivedOptions, undefined);
+  assert.deepEqual(result.provider.attemptedProviderKeys, ["local"]);
+}
+
+async function knowledgeProcessorFacadeDelegatesToSharedExtractionService(): Promise<void> {
+  const calls: unknown[] = [];
+  const service = new KnowledgeDocumentProcessorService({
+    async extract(input: unknown) {
+      calls.push(input);
+      return {
+        normalizedText: "facade text",
+        markdown: null,
+        provider: {
+          providerKey: "local",
+          processorMode: "local",
+          attemptedProviderKeys: ["local"]
+        },
+        quality: {
+          status: "ok",
+          score: 0.8,
+          reasonCodes: [],
+          textChars: 11
+        }
+      };
+    }
+  } as never);
+
+  const result = await service.process({
+    source: source(),
+    content: {
+      kind: "text",
+      text: "facade text"
+    }
+  });
+
+  assert.equal(result.normalizedText, "facade text");
+  assert.equal(calls.length, 1);
 }
 
 function prismaWithPolicy() {

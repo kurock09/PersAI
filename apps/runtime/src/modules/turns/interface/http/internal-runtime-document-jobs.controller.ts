@@ -6,7 +6,8 @@ import {
   type RuntimeDocumentJobCompletionRequest,
   type RuntimeDocumentJobCompletionResult,
   type RuntimeDocumentJobRunRequest,
-  type RuntimeDocumentJobRunResult
+  type RuntimeDocumentJobRunResult,
+  type RuntimeDocumentSourceFile
 } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../../../runtime-config";
 import { RuntimeDocumentJobCompletionService } from "../../runtime-document-job-completion.service";
@@ -92,6 +93,7 @@ export class InternalRuntimeDocumentJobsController {
         )
       },
       attachments: this.attachments(row.attachments),
+      sourceFiles: this.sourceFiles(row.sourceFiles),
       directToolExecution: {
         toolCode: this.toolCode(direct.toolCode),
         descriptorMode: this.descriptorMode(direct.descriptorMode),
@@ -342,6 +344,60 @@ export class InternalRuntimeDocumentJobsController {
         ...(aliases === undefined ? {} : { aliases })
       };
     });
+  }
+
+  private sourceFiles(value: unknown): RuntimeDocumentSourceFile[] {
+    if (value === undefined || value === null) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      throw new BadRequestException("sourceFiles must be an array when provided.");
+    }
+    return value.map((entry, index) => {
+      const row = this.objectField(entry, `sourceFiles[${index}]`);
+      return {
+        attachmentId: this.requiredString(row.attachmentId, `sourceFiles[${index}].attachmentId`),
+        filename:
+          row.filename === null || row.filename === undefined
+            ? null
+            : this.stringValue(row.filename, `sourceFiles[${index}].filename`),
+        mimeType: this.requiredString(row.mimeType, `sourceFiles[${index}].mimeType`),
+        sizeBytes: this.sourceFileSizeBytes(row.sizeBytes, `sourceFiles[${index}].sizeBytes`),
+        text:
+          row.text === null || row.text === undefined
+            ? null
+            : this.stringValue(row.text, `sourceFiles[${index}].text`),
+        markdown:
+          row.markdown === null || row.markdown === undefined
+            ? null
+            : this.stringValue(row.markdown, `sourceFiles[${index}].markdown`),
+        note:
+          row.note === null || row.note === undefined
+            ? null
+            : this.stringValue(row.note, `sourceFiles[${index}].note`),
+        provider:
+          row.provider === null || row.provider === undefined
+            ? null
+            : (this.objectField(
+                row.provider,
+                `sourceFiles[${index}].provider`
+              ) as RuntimeDocumentSourceFile["provider"]),
+        quality:
+          row.quality === null || row.quality === undefined
+            ? null
+            : (this.objectField(
+                row.quality,
+                `sourceFiles[${index}].quality`
+              ) as RuntimeDocumentSourceFile["quality"])
+      };
+    });
+  }
+
+  private sourceFileSizeBytes(value: unknown, fieldName: string): number {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      return value;
+    }
+    throw new BadRequestException(`${fieldName} must be a non-negative number.`);
   }
 
   private currentHistory(value: unknown): RuntimeDocumentJobCompletionRequest["currentHistory"] {
