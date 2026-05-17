@@ -826,32 +826,6 @@ export class RuntimeDocumentProviderAdapterService {
     return "auto";
   }
 
-  private renderOutline(value: unknown): string {
-    if (value === null || value === undefined) {
-      return "";
-    }
-    if (typeof value === "string" && value.trim().length > 0) {
-      return `<pre>${this.escapeHtml(value)}</pre>`;
-    }
-    if (Array.isArray(value)) {
-      const items = value
-        .map((entry) =>
-          typeof entry === "string"
-            ? this.escapeHtml(entry)
-            : this.escapeHtml(JSON.stringify(entry))
-        )
-        .filter((entry) => entry.length > 0);
-      if (items.length === 0) {
-        return "";
-      }
-      return `<ul>${items.map((entry) => `<li>${entry}</li>`).join("")}</ul>`;
-    }
-    if (typeof value === "object") {
-      return `<pre>${this.escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
-    }
-    return "";
-  }
-
   private async loadSourceAttachmentContents(
     request: RuntimeDocumentJobRunRequest
   ): Promise<DocumentSourceFilePayload[]> {
@@ -948,7 +922,6 @@ export class RuntimeDocumentProviderAdapterService {
     const response = await this.providerGatewayClientService.generateText(
       this.buildPdfContentRequest({ ...input, sourceFiles }, providerSelection)
     );
-    // Note: loadSourceAttachmentContents lives just below this method.
     const rawText = response.text ?? "";
     this.logger.log(
       `[document-pdf-html-raw] jobId=${input.request.job.id} attempt=${String(input.attempt)} provider=${providerSelection.provider} model=${providerSelection.model} rawLength=${String(rawText.length)} preview=${JSON.stringify(rawText.slice(0, 200))}`
@@ -1356,57 +1329,15 @@ export class RuntimeDocumentProviderAdapterService {
     return provider !== null && model !== null ? { provider, model } : null;
   }
 
-  private parseJsonObject(
-    text: string | null,
-    operation: "document_completion_framing"
-  ): Record<string, unknown> {
-    if (text === null || text.trim().length === 0) {
-      throw new Error(`${operation} returned empty output.`);
-    }
-    const normalized = this.unwrapJsonCodeFence(text.trim());
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(normalized);
-    } catch {
-      const extractedObject = this.extractJsonObjectCandidate(normalized);
-      if (extractedObject !== null) {
-        try {
-          parsed = JSON.parse(extractedObject);
-        } catch {
-          throw new Error(`${operation} returned an invalid JSON object.`);
-        }
-      } else {
-        throw new Error(`${operation} returned an invalid JSON object.`);
-      }
-    }
-    const row = this.asObject(parsed);
-    if (row === null) {
-      throw new Error(`${operation} returned an invalid JSON object.`);
-    }
-    return row;
-  }
-
-  private extractJsonObjectCandidate(value: string): string | null {
-    const start = value.indexOf("{");
-    const end = value.lastIndexOf("}");
-    if (start === -1 || end === -1 || end <= start) {
-      return null;
-    }
-    return value.slice(start, end + 1);
-  }
-
-  private unwrapJsonCodeFence(value: string): string {
-    const fenceMatch = value.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-    return fenceMatch?.[1]?.trim() ?? value;
-  }
-
   /**
    * Pulls the HTML document out of whatever the model returned.
    *
    * Accepts:
    * - raw HTML starting with <!DOCTYPE html>, <html>, <body>, <section>, <article>, <main>, <div>, <table>, <h1>, <h2>
    * - HTML wrapped in ```html``` or ``` ``` markdown fences
-   * - JSON envelopes like {"htmlContent": "..."} (legacy fallback for older prompts)
+   * - JSON envelopes like {"htmlContent": "..."} (defensive: some models still
+   *   reflexively wrap raw HTML in a JSON object even when the prompt asks for
+   *   raw HTML)
    * - HTML wrapped in surrounding quotes / escaped JSON-style strings
    *
    * Returns null only when nothing recognizable is found.
@@ -1797,15 +1728,6 @@ export class RuntimeDocumentProviderAdapterService {
 
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-  }
-
-  private escapeHtml(value: string): string {
-    return value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
   }
 
   private hashPrompt(prompt: string): string {

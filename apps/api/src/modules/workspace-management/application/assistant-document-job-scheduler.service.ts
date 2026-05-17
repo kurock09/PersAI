@@ -461,14 +461,6 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           return;
         }
         const providerState = this.readProviderState(outcome.result.providerStatus);
-        if (providerState === "not_implemented") {
-          await this.failJob(
-            job,
-            "document_provider_not_implemented",
-            `Document provider "${job.provider}" execution boundary is wired but not yet implemented.`
-          );
-          return;
-        }
         if (providerState === "template_not_configured") {
           await this.failJob(
             job,

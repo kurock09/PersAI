@@ -41,7 +41,9 @@ export type EnqueueRuntimeDeferredDocumentJobInput = {
   // worker uses them to inline text-extractable source-file content into
   // the HTML generation prompt instead of forcing the model to invent
   // content when the user asked to rebuild/convert/restyle a real file.
-  // Optional for backward compatibility with older runtime callers.
+  // The runtime tool always sends this field today; the optional shape is
+  // kept as a defensive shim during rollouts where a partially-deployed
+  // runtime caller might still be on the previous contract.
   sourceUserMessageAttachments?: RuntimeAttachmentRef[];
   directToolExecution: DocumentDirectToolExecutionPayload;
 };
@@ -204,10 +206,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         ? null
         : descriptorMode === "export_or_redeliver"
           ? null
-          : this.resolveExecutionShape(
-              descriptorMode,
-              input.directToolExecution.request.outputFormat ?? null
-            );
+          : this.resolveExecutionShape(descriptorMode);
     if (
       descriptorMode === "create_pdf_document" &&
       (await this.readPersistedPdfMonkeyTemplateId()) === null
@@ -393,10 +392,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     return requestedOutputFormat === context.currentOutputFormat;
   }
 
-  private resolveExecutionShape(
-    descriptorMode: AssistantDocumentDescriptorMode,
-    _requestedOutputFormat: string | null
-  ): {
+  private resolveExecutionShape(descriptorMode: AssistantDocumentDescriptorMode): {
     documentType: AssistantDocumentType;
     provider: AssistantDocumentRenderProvider;
     outputFormat: AssistantDocumentOutputFormat;
