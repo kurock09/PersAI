@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, type SandboxFileOrigin } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
@@ -88,7 +88,8 @@ export class AssistantFileRegistryService {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: input.limit
     });
-    return this.attachDocumentLinks(rows.map((row) => this.mapRow(row)));
+    const files = await this.attachDocumentLinks(rows.map((row) => this.mapRow(row)));
+    return files.filter((file) => file.documentLink?.documentStatus !== "archived");
   }
 
   async summarizeCleanup(input: {
@@ -170,6 +171,7 @@ export class AssistantFileRegistryService {
     if (existing === null) {
       throw new NotFoundException("File not found.");
     }
+    const deletedAt = new Date().toISOString();
     const linkedAttachments = await this.prisma.assistantChatMessageAttachment.findMany({
       where: {
         assistantFileId: input.fileRef,
@@ -197,13 +199,14 @@ export class AssistantFileRegistryService {
       }
     });
     if (linkedDocumentDelivery !== null) {
-      throw new BadRequestException(
-        linkedDocumentDelivery.isCurrentOutput
-          ? "This file is the current delivered output of a document version and cannot be deleted directly."
-          : "This file is pinned by document version history and cannot be deleted directly."
-      );
+      await this.archiveDeliveredDocumentFromFilesSurface({
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        docId: linkedDocumentDelivery.docId,
+        deletedAt
+      });
+      return;
     }
-    const deletedAt = new Date().toISOString();
     await this.prisma.$transaction([
       ...linkedAttachments.map((attachment) =>
         this.prisma.assistantChatMessageAttachment.update({
@@ -221,6 +224,70 @@ export class AssistantFileRegistryService {
       this.prisma.assistantFile.delete({
         where: { id: input.fileRef }
       })
+    ]);
+  }
+
+  private async archiveDeliveredDocumentFromFilesSurface(input: {
+    assistantId: string;
+    workspaceId: string;
+    docId: string;
+    deletedAt: string;
+  }): Promise<void> {
+    const deliveredFiles = await this.prisma.assistantDocumentDeliveredFile.findMany({
+      where: {
+        docId: input.docId,
+        workspaceId: input.workspaceId,
+        document: {
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId
+        }
+      },
+      select: {
+        assistantFileId: true
+      }
+    });
+    const deliveredFileRefs = [...new Set(deliveredFiles.map((file) => file.assistantFileId))];
+    const linkedAttachments =
+      deliveredFileRefs.length === 0
+        ? []
+        : await this.prisma.assistantChatMessageAttachment.findMany({
+            where: {
+              assistantFileId: { in: deliveredFileRefs },
+              assistantId: input.assistantId,
+              workspaceId: input.workspaceId
+            },
+            select: {
+              id: true,
+              assistantFileId: true,
+              metadata: true
+            }
+          });
+
+    await this.prisma.$transaction([
+      this.prisma.assistantDocument.updateMany({
+        where: {
+          id: input.docId,
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId
+        },
+        data: {
+          status: "archived"
+        }
+      }),
+      ...linkedAttachments.map((attachment) =>
+        this.prisma.assistantChatMessageAttachment.update({
+          where: { id: attachment.id },
+          data: {
+            metadata: {
+              ...this.asMetadataObject(attachment.metadata),
+              fileDeleted: true,
+              deletedFileRef: attachment.assistantFileId,
+              deletedDocumentId: input.docId,
+              deletedAt: input.deletedAt
+            } satisfies Prisma.InputJsonObject
+          }
+        })
+      )
     ]);
   }
 

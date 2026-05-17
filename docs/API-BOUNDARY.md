@@ -238,7 +238,7 @@ ADR-081 Slice 4 adds the first visible product Files surface inside Assistant Se
 
 ADR-081 Slice 5 removes the old attachment-download fallback from the active product/API path. Product open/download links are now canonical `fileRef` links only, and assistant Files API state exposes product metadata without storage-derived `relativePath`, `sha256`, `objectKey`, or raw path fields.
 
-ADR-097 document outputs are still ordinary Files at the binary/download boundary, but the file/chat attachment API may project document-domain metadata as `documentLink` when an `AssistantFile` is a delivered output of an `AssistantDocumentVersion`. That projection is read-only UI metadata (`docId`, `versionId`, `versionNumber`, status fields, `isCurrentOutput`) so clients can show version/current state and avoid offering direct deletion for protected delivered outputs. Document deletion/archive/history remains a document-domain operation, not a generic file-delete operation.
+ADR-097 document outputs are still ordinary Files at the binary/download boundary, but the file/chat attachment API may project document-domain metadata as `documentLink` when an `AssistantFile` is a delivered output of an `AssistantDocumentVersion`. That projection is read-only UI metadata (`docId`, `versionId`, `versionNumber`, status fields, `isCurrentOutput`) so clients can show quiet version state. Clients may use the same delete affordance as ordinary files; the backend `deleteAssistantFile(fileRef)` boundary is responsible for detecting delivered document outputs and translating that user action into document-aware surface deletion (archive the document and hide delivered attachments) instead of physically deleting a protected file row and breaking version truth.
 
 ### Provider gateway
 

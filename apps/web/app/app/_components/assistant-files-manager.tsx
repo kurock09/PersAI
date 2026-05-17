@@ -80,8 +80,7 @@ function documentVersionLabel(file: AssistantFileState): string | null {
   if (!link) {
     return null;
   }
-  const version = typeof link.versionNumber === "number" ? `v${link.versionNumber}` : "version";
-  return link.isCurrentOutput ? `Document · ${version} · current` : `Document · ${version}`;
+  return typeof link.versionNumber === "number" ? `v${link.versionNumber}` : null;
 }
 
 function originLabel(
@@ -141,6 +140,14 @@ function groupFiles(files: AssistantFileState[]): Array<{
       bytes: bucketFiles.reduce((sum, file) => sum + Math.max(0, file.sizeBytes), 0)
     };
   }).filter((group) => group.files.length > 0);
+}
+
+function isVisibleInMainFilesList(file: AssistantFileState): boolean {
+  return (
+    file.documentLink === null ||
+    file.documentLink === undefined ||
+    file.documentLink.isCurrentOutput
+  );
 }
 
 function VideoPreviewModal({
@@ -239,14 +246,15 @@ export function AssistantFilesManager() {
     () =>
       files
         .filter((file) => !file.cleanupEligible)
+        .filter(isVisibleInMainFilesList)
         .reduce((sum, file) => sum + Math.max(0, file.sizeBytes), 0),
     [files]
   );
   const visibleFileCount = useMemo(
-    () => files.filter((file) => !file.cleanupEligible).length,
+    () => files.filter((file) => !file.cleanupEligible).filter(isVisibleInMainFilesList).length,
     [files]
   );
-  const groupedFiles = useMemo(() => groupFiles(files), [files]);
+  const groupedFiles = useMemo(() => groupFiles(files.filter(isVisibleInMainFilesList)), [files]);
   const previewFile = useMemo(
     () => files.find((file) => file.fileRef === previewFileRef) ?? null,
     [files, previewFileRef]
@@ -492,7 +500,6 @@ export function AssistantFilesManager() {
                         const isEditing = editingRef === file.fileRef;
                         const busy = busyRef === file.fileRef;
                         const versionLabel = documentVersionLabel(file);
-                        const isPinnedDocumentOutput = file.documentLink?.isCurrentOutput === true;
                         const downloadUrl = getAssistantFileDownloadUrl(file.fileRef, {
                           download: true
                         });
@@ -559,28 +566,19 @@ export function AssistantFilesManager() {
                                       >
                                         <Pencil className="h-3.5 w-3.5" />
                                       </button>
-                                      {isPinnedDocumentOutput ? (
-                                        <span
-                                          className="rounded-xl border border-border bg-surface px-2.5 py-2 text-[11px] text-text-subtle"
-                                          title={t("filesDocumentCurrentOutputPinned")}
-                                        >
-                                          {t("filesDocumentCurrentOutputPinnedShort")}
-                                        </span>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleDelete(file.fileRef)}
-                                          disabled={busy}
-                                          className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
-                                          title={t("filesDelete")}
-                                        >
-                                          {busy ? (
-                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                          ) : (
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                          )}
-                                        </button>
-                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleDelete(file.fileRef)}
+                                        disabled={busy}
+                                        className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
+                                        title={t("filesDelete")}
+                                      >
+                                        {busy ? (
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        )}
+                                      </button>
                                     </div>
                                   )}
                                 </div>
@@ -589,7 +587,7 @@ export function AssistantFilesManager() {
                                     {originLabel(file, t)}
                                   </span>
                                   {versionLabel ? (
-                                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                    <span className="rounded-full bg-surface px-2 py-0.5 text-text-subtle">
                                       {versionLabel}
                                     </span>
                                   ) : null}

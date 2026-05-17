@@ -34,7 +34,6 @@ import {
   ThumbsUp,
   ThumbsDown,
   FileText,
-  Download,
   Loader2,
   CreditCard,
   Package2,
@@ -834,6 +833,42 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function attachmentTypeBadge(attachment: ChatAttachment): string {
+  const mimeType = attachment.mimeType.toLowerCase();
+  const filename = (attachment.originalFilename ?? "").toLowerCase();
+  if (mimeType === "application/pdf" || filename.endsWith(".pdf")) return "PDF";
+  if (
+    mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    mimeType === "application/msword" ||
+    filename.endsWith(".docx") ||
+    filename.endsWith(".doc")
+  ) {
+    return "WORD";
+  }
+  if (
+    mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+    mimeType === "application/vnd.ms-powerpoint" ||
+    filename.endsWith(".pptx") ||
+    filename.endsWith(".ppt")
+  ) {
+    return "PPT";
+  }
+  if (
+    mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    mimeType === "application/vnd.ms-excel" ||
+    filename.endsWith(".xlsx") ||
+    filename.endsWith(".xls")
+  ) {
+    return "XLS";
+  }
+  if (mimeType.includes("csv") || filename.endsWith(".csv")) return "CSV";
+  if (mimeType.includes("json") || filename.endsWith(".json")) return "JSON";
+  if (mimeType.includes("markdown") || filename.endsWith(".md")) return "MD";
+  if (mimeType.startsWith("text/") || filename.endsWith(".txt")) return "TXT";
+  if (mimeType.includes("zip") || filename.endsWith(".zip")) return "ZIP";
+  return "FILE";
+}
+
 function userMessageHasVoiceAttachment(attachments: ChatAttachment[] | undefined): boolean {
   return (
     attachments?.some((a) => a.attachmentType === "audio" || a.attachmentType === "voice") ?? false
@@ -994,9 +1029,7 @@ function AttachmentStrip({
         const documentLabel = (() => {
           const link = att.documentLink;
           if (!link) return null;
-          const version =
-            typeof link.versionNumber === "number" ? `v${link.versionNumber}` : "version";
-          return link.isCurrentOutput ? `Document · ${version} · current` : `Document · ${version}`;
+          return typeof link.versionNumber === "number" ? `v${link.versionNumber}` : null;
         })();
 
         if (att.attachmentType === "image") {
@@ -1117,7 +1150,9 @@ function AttachmentStrip({
             ) : isDeleted ? (
               <FileText className="h-3.5 w-3.5 text-text-subtle" />
             ) : (
-              <Download className="h-3.5 w-3.5 text-text-subtle" />
+              <span className="inline-flex h-5 min-w-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-surface px-1.5 text-[9px] font-semibold tracking-[0.08em] text-text-subtle">
+                {attachmentTypeBadge(att)}
+              </span>
             )}
             <span className="max-w-[150px] truncate text-text-muted">
               {att.originalFilename ?? "File"}
@@ -1126,7 +1161,7 @@ function AttachmentStrip({
               {isDeleted ? t("fileDeleted") : (progressLabel ?? formatBytes(att.sizeBytes))}
             </span>
             {documentLabel ? (
-              <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+              <span className="rounded-full bg-surface px-1.5 py-0.5 text-[10px] font-medium text-text-subtle">
                 {documentLabel}
               </span>
             ) : null}
@@ -1138,7 +1173,7 @@ function AttachmentStrip({
             <div
               key={att.id}
               aria-disabled="true"
-              className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs opacity-50"
+              className="flex items-center gap-2 rounded-xl border border-border/80 bg-surface-raised/85 px-3 py-2 text-xs opacity-50"
             >
               {fileContent}
             </div>
@@ -1150,7 +1185,7 @@ function AttachmentStrip({
             key={att.id}
             href={downloadUrl}
             download={att.originalFilename ?? undefined}
-            className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs transition-colors hover:border-border-strong hover:bg-surface-hover"
+            className="flex items-center gap-2 rounded-xl border border-border/80 bg-surface-raised/85 px-3 py-2 text-xs shadow-[0_1px_0_rgba(255,255,255,0.03)_inset] transition-colors hover:border-border-strong hover:bg-surface-hover"
           >
             {fileContent}
           </a>

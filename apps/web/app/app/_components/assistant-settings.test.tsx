@@ -619,6 +619,29 @@ describe("AssistantSettings Files", () => {
     assistantApiMocks.getAssistantFiles.mockResolvedValue({
       files: [
         {
+          fileRef: "file-doc-v1",
+          origin: "runtime_output",
+          displayName: "Investor deck.pdf",
+          filename: "investor-deck.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 2048,
+          logicalSizeBytes: 2048,
+          fileBucket: "documents",
+          cleanupEligible: false,
+          cleanupReason: null,
+          documentLink: {
+            docId: "doc-1",
+            versionId: "version-1",
+            versionNumber: 1,
+            descriptorMode: "create_pdf_document",
+            documentType: "pdf",
+            documentStatus: "active",
+            versionStatus: "superseded",
+            isCurrentOutput: false
+          },
+          createdAt: "2026-05-01T00:00:00.000Z"
+        },
+        {
           fileRef: "file-doc-v2",
           origin: "runtime_output",
           displayName: "Investor deck.pdf",
@@ -650,10 +673,11 @@ describe("AssistantSettings Files", () => {
     expect(await screen.findByText("Documents")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Documents/i }));
 
-    expect(screen.getByText("Investor deck.pdf")).toBeInTheDocument();
-    expect(screen.getByText("Document · v2 · current")).toBeInTheDocument();
-    expect(screen.getByText("Current")).toBeInTheDocument();
-    expect(screen.queryByTitle("Delete")).toBeNull();
+    expect(screen.getAllByText("Investor deck.pdf")).toHaveLength(1);
+    expect(screen.getByText("v2")).toBeInTheDocument();
+    expect(screen.queryByText("v1")).toBeNull();
+    expect(screen.queryByText("Current")).toBeNull();
+    expect(screen.getByTitle("Delete")).toBeInTheDocument();
   });
 });
 
