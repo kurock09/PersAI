@@ -178,7 +178,7 @@ console.log(title);
     expect(screen.getByTestId("assistant-response-actions")).toBeInTheDocument();
   });
 
-  it("caps assistant follow-up chips to two actions", () => {
+  it("renders all assistant follow-up chips with the same action styling", () => {
     render(
       <ChatMessageBubble
         message={assistantMessage(`Собрал
@@ -193,7 +193,7 @@ console.log(title);
 
     expect(screen.getByRole("button", { name: "Дать короткий план" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Показать подробнее" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Сравнить варианты" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Сравнить варианты" })).toBeInTheDocument();
   });
 
   it("normalizes assistant-voice action chips into plain user requests", () => {

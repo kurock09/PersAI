@@ -184,7 +184,6 @@ function maybeExtractActionBlock(
   lines: string[],
   startIndex = 0
 ): { actions: string[]; consumed: number } | null {
-  const maxActions = 2;
   let idx = startIndex;
   while (idx < lines.length && lines[idx]?.trim() === "") idx += 1;
   if (idx >= lines.length) return null;
@@ -207,7 +206,6 @@ function maybeExtractActionBlock(
     hasExplicitAction = hasExplicitAction || isExplicitActionLine(line);
     actions.push(action);
     consumed += 1;
-    if (actions.length === maxActions) break;
   }
 
   if (actions.length === 0) return null;
@@ -714,7 +712,7 @@ function AssistantActionChips({
 
   return (
     <div className="assistant-response-actions mt-4" data-testid="assistant-response-actions">
-      {actions.slice(0, 2).map((action) => (
+      {actions.map((action) => (
         <button
           key={action}
           type="button"
