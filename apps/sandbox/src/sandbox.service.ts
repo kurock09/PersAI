@@ -136,6 +136,23 @@ export class SandboxService {
     @Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig
   ) {}
 
+  /**
+   * Postgres rejects U+0000 in `text` / JSON string fields (error `22P05`:
+   * `unsupported Unicode escape sequence`, `\u0000 cannot be converted to text`).
+   * Strip embedded NUL bytes from any user-derived or process-output string before
+   * persisting sandbox job rows or returning file-read content to the model.
+   */
+  private stripNulCharacters(value: string): string {
+    if (!value.includes("\0")) {
+      return value;
+    }
+    return value.split("\u0000").join("");
+  }
+
+  private stripNulCharactersNullable(value: string | null): string | null {
+    return value === null ? null : this.stripNulCharacters(value);
+  }
+
   async submitJob(request: RuntimeSandboxJobRequest): Promise<RuntimeSandboxJobResult> {
     const preflightViolation = await this.resolvePreflightViolation(request);
     const created = await this.prisma.sandboxJob.create({
@@ -154,10 +171,10 @@ export class SandboxService {
           : {
               completedAt: new Date(),
               violationCode: preflightViolation.code,
-              violationMessage: preflightViolation.message,
+              violationMessage: this.stripNulCharacters(preflightViolation.message),
               resultPayload: {
                 reason: preflightViolation.code,
-                warning: preflightViolation.message,
+                warning: this.stripNulCharacters(preflightViolation.message),
                 exitCode: null,
                 stdout: null,
                 stderr: null,
@@ -310,6 +327,7 @@ export class SandboxService {
     reason: string,
     message: string
   ) {
+    const safeMessage = this.stripNulCharacters(message);
     const updated = await this.prisma.sandboxJob.updateMany({
       where: {
         id: job.id,
@@ -320,10 +338,10 @@ export class SandboxService {
         status: "failed",
         completedAt: new Date(),
         violationCode: reason,
-        violationMessage: message,
+        violationMessage: safeMessage,
         resultPayload: {
           reason,
-          warning: message,
+          warning: safeMessage,
           exitCode: null,
           stdout: null,
           stderr: null,
@@ -518,12 +536,12 @@ export class SandboxService {
           status: "completed",
           completedAt: new Date(),
           resultPayload: {
-            reason: result.reason,
-            warning: result.warning,
+            reason: this.stripNulCharactersNullable(result.reason),
+            warning: this.stripNulCharactersNullable(result.warning),
             exitCode: result.exitCode,
-            stdout: result.stdout,
-            stderr: result.stderr,
-            content: result.content
+            stdout: this.stripNulCharactersNullable(result.stdout),
+            stderr: this.stripNulCharactersNullable(result.stderr),
+            content: this.stripNulCharactersNullable(result.content)
           },
           resourceUsage: {
             workspaceBytes: stats.totalBytes,
@@ -545,16 +563,17 @@ export class SandboxService {
       }
     } catch (error) {
       const { code, message, blocked, resourceUsage } = this.normalizeSandboxError(error);
+      const safeMessage = this.stripNulCharacters(message);
       await this.prisma.sandboxJob.update({
         where: { id: jobId },
         data: {
           status: blocked ? "blocked" : "failed",
           completedAt: new Date(),
           violationCode: code,
-          violationMessage: message,
+          violationMessage: safeMessage,
           resultPayload: {
             reason: code,
-            warning: message,
+            warning: safeMessage,
             exitCode: null,
             stdout: null,
             stderr: null,
@@ -664,7 +683,7 @@ export class SandboxService {
       exitCode: null,
       stdout: null,
       stderr: null,
-      content: buffer.toString("utf8")
+      content: this.stripNulCharacters(buffer.toString("utf8"))
     };
   }
 

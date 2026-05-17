@@ -505,6 +505,22 @@ async function run(): Promise<void> {
       ["inputs/example.txt", "outputs/fresh.txt"]
     );
 
+    await fs.writeFile(
+      join(workspaceRoot, "inputs", "example.txt"),
+      Buffer.from("a\u0000b\u0000c", "utf8")
+    );
+    const readAfterNul = await serviceTestAccess.executeFilesReadAction(
+      workspaceRoot,
+      { fileRef: "file-ref-1" },
+      mountedFiles
+    );
+    assert.equal(
+      readAfterNul.content,
+      "abc",
+      "NUL bytes must be stripped so Postgres text/JSON persistence (sandboxJob) does not fail with 22P05"
+    );
+    await fs.writeFile(join(workspaceRoot, "inputs", "example.txt"), "changed content", "utf8");
+
     const staleMountHarness = createDurableHarness();
     staleMountHarness.assistantFiles.push({
       id: "assistant-file-stale-mount",
