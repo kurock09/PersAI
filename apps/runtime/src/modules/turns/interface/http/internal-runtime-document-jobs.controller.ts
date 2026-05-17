@@ -91,6 +91,7 @@ export class InternalRuntimeDocumentJobsController {
           "job.sourceUserMessageCreatedAt"
         )
       },
+      attachments: this.attachments(row.attachments),
       directToolExecution: {
         toolCode: this.toolCode(direct.toolCode),
         descriptorMode: this.descriptorMode(direct.descriptorMode),
@@ -287,6 +288,60 @@ export class InternalRuntimeDocumentJobsController {
       return value;
     }
     throw new BadRequestException("directToolExecution.request.visualDensity is invalid.");
+  }
+
+  private attachments(value: unknown): RuntimeDocumentJobRunRequest["attachments"] {
+    // Backward-compatible: jobs queued before the document-attachment path
+    // existed will not include this field; treat as no attachments.
+    if (value === undefined || value === null) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      throw new BadRequestException("attachments must be an array when provided.");
+    }
+    return value.map((entry, index) => {
+      const row = this.objectField(entry, `attachments[${index}]`);
+      const kind = row.kind;
+      if (kind !== "image" && kind !== "audio" && kind !== "video" && kind !== "file") {
+        throw new BadRequestException(
+          `attachments[${index}].kind must be one of "image", "audio", "video", "file".`
+        );
+      }
+      const sizeBytesRaw = row.sizeBytes;
+      const sizeBytes =
+        typeof sizeBytesRaw === "number" && Number.isFinite(sizeBytesRaw) && sizeBytesRaw >= 0
+          ? sizeBytesRaw
+          : 0;
+      const fileRef =
+        row.fileRef === undefined
+          ? undefined
+          : row.fileRef === null
+            ? null
+            : this.stringValue(row.fileRef, `attachments[${index}].fileRef`);
+      const aliases =
+        row.aliases === undefined
+          ? undefined
+          : row.aliases === null
+            ? null
+            : Array.isArray(row.aliases)
+              ? row.aliases.filter(
+                  (alias): alias is string => typeof alias === "string" && alias.trim().length > 0
+                )
+              : null;
+      return {
+        attachmentId: this.requiredString(row.attachmentId, `attachments[${index}].attachmentId`),
+        kind,
+        objectKey: this.requiredString(row.objectKey, `attachments[${index}].objectKey`),
+        mimeType: this.requiredString(row.mimeType, `attachments[${index}].mimeType`),
+        filename:
+          row.filename === null || row.filename === undefined
+            ? null
+            : this.stringValue(row.filename, `attachments[${index}].filename`),
+        sizeBytes,
+        ...(fileRef === undefined ? {} : { fileRef }),
+        ...(aliases === undefined ? {} : { aliases })
+      };
+    });
   }
 
   private currentHistory(value: unknown): RuntimeDocumentJobCompletionRequest["currentHistory"] {

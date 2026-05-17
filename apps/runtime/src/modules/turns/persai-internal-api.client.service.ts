@@ -361,6 +361,11 @@ export type InternalEnqueueDeferredDocumentJobInput = {
   assistantId: string;
   sourceUserMessageId: string;
   sourceUserMessageText: string;
+  // Attachments from the user turn that triggered this document tool call.
+  // Mirrors the deferred media path. The API persists them on the job so the
+  // runtime worker (`RuntimeDocumentProviderAdapterService`) can inline
+  // text-extractable source content into the HTML generation prompt.
+  attachments: RuntimeDocumentJobRunRequest["attachments"];
   directToolExecution: {
     toolCode: "document";
     descriptorMode:

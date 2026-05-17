@@ -5,6 +5,7 @@ import type {
   PersaiRuntimePresentationImagePolicy,
   PersaiRuntimePresentationVisualDensity,
   PersaiRuntimePresentationVisualStyle,
+  RuntimeAttachmentRef,
   RuntimeDocumentJobRunRequest
 } from "@persai/runtime-contract";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
@@ -45,6 +46,9 @@ type DocumentJobRequestPayload = {
     outline?: unknown;
     metadata?: Record<string, unknown> | null;
   };
+  // Attachments persisted on the job at enqueue time. Optional / nullable
+  // so jobs queued before this field existed still parse cleanly.
+  sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
 };
 
 type ClaimedDocumentJob = {
@@ -405,6 +409,11 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           sourceUserMessageText: requestPayload.sourceUserMessageText,
           sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt
         },
+        // Forward attachments captured at enqueue time so the worker can
+        // inline text-extractable source-file content into HTML generation.
+        // Older jobs persisted before this field existed surface as an
+        // empty array, preserving the previous text-only worker behavior.
+        attachments: requestPayload.sourceUserMessageAttachments ?? [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode:
@@ -665,8 +674,71 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           !Array.isArray(sourceJson.metadata)
             ? (sourceJson.metadata as Record<string, unknown>)
             : null
-      }
+      },
+      sourceUserMessageAttachments: this.parseAttachmentsFromPersistedJson(
+        row.sourceUserMessageAttachments
+      )
     };
+  }
+
+  private parseAttachmentsFromPersistedJson(value: unknown): RuntimeAttachmentRef[] | null {
+    if (!Array.isArray(value)) {
+      return null;
+    }
+    const refs: RuntimeAttachmentRef[] = [];
+    for (const entry of value) {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        continue;
+      }
+      const row = entry as Record<string, unknown>;
+      const attachmentId = typeof row.attachmentId === "string" ? row.attachmentId : null;
+      const kind = row.kind;
+      const objectKey = typeof row.objectKey === "string" ? row.objectKey : null;
+      const mimeType = typeof row.mimeType === "string" ? row.mimeType : null;
+      if (
+        attachmentId === null ||
+        objectKey === null ||
+        mimeType === null ||
+        (kind !== "image" && kind !== "audio" && kind !== "video" && kind !== "file")
+      ) {
+        continue;
+      }
+      const sizeBytesRaw = row.sizeBytes;
+      const sizeBytes =
+        typeof sizeBytesRaw === "number" && Number.isFinite(sizeBytesRaw) && sizeBytesRaw >= 0
+          ? sizeBytesRaw
+          : 0;
+      const filename = typeof row.filename === "string" ? row.filename : null;
+      const fileRef =
+        row.fileRef === undefined
+          ? undefined
+          : row.fileRef === null
+            ? null
+            : typeof row.fileRef === "string"
+              ? row.fileRef
+              : null;
+      const aliases =
+        row.aliases === undefined
+          ? undefined
+          : row.aliases === null
+            ? null
+            : Array.isArray(row.aliases)
+              ? row.aliases.filter(
+                  (alias): alias is string => typeof alias === "string" && alias.trim().length > 0
+                )
+              : null;
+      refs.push({
+        attachmentId,
+        kind,
+        objectKey,
+        mimeType,
+        filename,
+        sizeBytes,
+        ...(fileRef === undefined ? {} : { fileRef }),
+        ...(aliases === undefined ? {} : { aliases })
+      });
+    }
+    return refs.length > 0 ? refs : null;
   }
 
   private readProviderState(value: unknown): string | null {

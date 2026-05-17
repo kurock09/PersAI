@@ -269,6 +269,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           sourceUserMessageText: "Create a PDF brief",
           sourceUserMessageCreatedAt: "2026-05-15T12:00:00.000Z"
         },
+        attachments: [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_pdf_document",
@@ -453,6 +454,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           sourceUserMessageText: "Create a recovered PDF brief",
           sourceUserMessageCreatedAt: "2026-05-16T17:24:00.000Z"
         },
+        attachments: [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_pdf_document",
@@ -618,6 +620,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           sourceUserMessageText: "Create a payback graph document",
           sourceUserMessageCreatedAt: "2026-05-16T19:34:00.000Z"
         },
+        attachments: [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_pdf_document",
@@ -785,6 +788,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           sourceUserMessageText: "Create onboarding guide",
           sourceUserMessageCreatedAt: "2026-05-16T18:39:00.000Z"
         },
+        attachments: [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_pdf_document",
@@ -860,6 +864,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           sourceUserMessageText: "Create a PDF brief",
           sourceUserMessageCreatedAt: "2026-05-15T12:00:00.000Z"
         },
+        attachments: [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_pdf_document",
@@ -946,6 +951,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           sourceUserMessageText: "Create a PDF brief",
           sourceUserMessageCreatedAt: "2026-05-15T12:00:00.000Z"
         },
+        attachments: [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_pdf_document",
@@ -1125,6 +1131,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           sourceUserMessageText: "Create a payback graph PDF",
           sourceUserMessageCreatedAt: "2026-05-16T19:29:00.000Z"
         },
+        attachments: [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_pdf_document",
@@ -1286,6 +1293,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           sourceUserMessageText: "Create a PDF brief",
           sourceUserMessageCreatedAt: "2026-05-16T21:09:00.000Z"
         },
+        attachments: [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_pdf_document",
@@ -1441,6 +1449,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           sourceUserMessageText: "Create a PDF brief",
           sourceUserMessageCreatedAt: "2026-05-16T21:29:00.000Z"
         },
+        attachments: [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_pdf_document",
@@ -1641,6 +1650,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           sourceUserMessageText: "Create a simplified brief",
           sourceUserMessageCreatedAt: "2026-05-16T21:59:00.000Z"
         },
+        attachments: [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_pdf_document",
@@ -1811,6 +1821,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           sourceUserMessageText: "Create a pitch deck",
           sourceUserMessageCreatedAt: "2026-05-15T12:10:00.000Z"
         },
+        attachments: [],
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_presentation",
@@ -2041,6 +2052,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
             request: unknown;
             filename: string;
             attempt: number;
+            sourceFiles: Array<unknown>;
           },
           providerSelection: { provider: string; model: string }
         ): { developerInstructions?: string };
@@ -2060,6 +2072,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
             sourceUserMessageText: "Render the report.",
             sourceUserMessageCreatedAt: "2026-05-15T10:00:00.000Z"
           },
+          attachments: [],
           directToolExecution: {
             toolCode: "document",
             descriptorMode: "create_pdf_document",
@@ -2072,7 +2085,8 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           }
         },
         filename: "report.pdf",
-        attempt: 1
+        attempt: 1,
+        sourceFiles: []
       },
       { provider: "openai", model: "gpt-4.1-mini" }
     );
@@ -2082,5 +2096,186 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.match(developer, /<thead>/);
     assert.match(developer, /keep-together/);
     assert.match(developer, /Do NOT insert manual page breaks/);
+  });
+
+  test("loadSourceAttachmentContents inlines text attachments via mediaObjectStorage and surfaces binary attachments with a structured note", async () => {
+    const downloadCalls: string[] = [];
+    const mediaObjectStorage = {
+      async downloadObject(objectKey: string) {
+        downloadCalls.push(objectKey);
+        if (objectKey === "obj/notes.md") {
+          return Buffer.from("# Notes\n\nReal user content from the attached source file.", "utf8");
+        }
+        if (objectKey === "obj/report.pdf") {
+          return Buffer.from("%PDF-1.4 binary bytes", "utf8");
+        }
+        return null;
+      }
+    };
+    const service = new RuntimeDocumentProviderAdapterService(
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    (service as unknown as { mediaObjectStorage: unknown }).mediaObjectStorage = mediaObjectStorage;
+    const result = await (
+      service as unknown as {
+        loadSourceAttachmentContents(request: {
+          attachments: Array<{
+            attachmentId: string;
+            kind: string;
+            objectKey: string;
+            mimeType: string;
+            sizeBytes: number;
+            filename: string | null;
+          }>;
+        }): Promise<
+          Array<{
+            attachmentId: string;
+            filename: string | null;
+            mimeType: string;
+            sizeBytes: number;
+            text: string | null;
+            note: string | null;
+          }>
+        >;
+      }
+    ).loadSourceAttachmentContents({
+      attachments: [
+        {
+          attachmentId: "att-text-1",
+          kind: "file",
+          objectKey: "obj/notes.md",
+          mimeType: "text/markdown",
+          sizeBytes: 56,
+          filename: "notes.md"
+        },
+        {
+          attachmentId: "att-binary-1",
+          kind: "file",
+          objectKey: "obj/report.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+          filename: "report.pdf"
+        }
+      ]
+    });
+    assert.equal(result.length, 2);
+    const textEntry = result.find((entry) => entry.attachmentId === "att-text-1");
+    assert.ok(textEntry, "expected text attachment entry");
+    assert.match(textEntry!.text ?? "", /Real user content from the attached source file/);
+    assert.equal(textEntry!.note, null);
+    const binaryEntry = result.find((entry) => entry.attachmentId === "att-binary-1");
+    assert.ok(binaryEntry, "expected binary attachment entry");
+    assert.equal(
+      binaryEntry!.text,
+      null,
+      "binary (application/pdf) attachments must NOT be inlined as UTF-8 text"
+    );
+    assert.match(
+      binaryEntry!.note ?? "",
+      /Binary or non-text attachment/,
+      "binary attachment must surface a structured note instead of silently dropping"
+    );
+    assert.deepEqual(
+      downloadCalls,
+      ["obj/notes.md"],
+      "worker must only download text-eligible attachments, never binary ones"
+    );
+  });
+
+  test("buildPdfContentRequest inlines sourceFiles[].text into the user prompt and adds rebuild instructions when at least one source file has text", () => {
+    const service = new RuntimeDocumentProviderAdapterService(
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const request = (
+      service as unknown as {
+        buildPdfContentRequest(
+          input: {
+            bundle: unknown;
+            request: unknown;
+            filename: string;
+            attempt: number;
+            sourceFiles: Array<{
+              attachmentId: string;
+              filename: string | null;
+              mimeType: string;
+              sizeBytes: number;
+              text: string | null;
+              note: string | null;
+            }>;
+          },
+          providerSelection: { provider: string; model: string }
+        ): {
+          developerInstructions?: string;
+          messages: Array<{ content: Array<{ type: string; text: string }> }>;
+        };
+      }
+    ).buildPdfContentRequest(
+      {
+        bundle: createBundle(),
+        request: {
+          job: {
+            id: "job-attach-1",
+            workspaceId: "workspace-1",
+            assistantId: "assistant-1",
+            assistantConversationId: "conv-1",
+            requestId: "req-1",
+            outputFormat: "pdf",
+            sourceUserMessageId: "msg-1",
+            sourceUserMessageText: "Rebuild this report with a cleaner layout.",
+            sourceUserMessageCreatedAt: "2026-05-15T10:00:00.000Z"
+          },
+          attachments: [],
+          directToolExecution: {
+            toolCode: "document",
+            descriptorMode: "create_pdf_document",
+            request: {
+              prompt: "Rebuild this report with a cleaner layout.",
+              instructions: null,
+              requestedName: null,
+              outline: null
+            }
+          }
+        },
+        filename: "rebuilt.pdf",
+        attempt: 1,
+        sourceFiles: [
+          {
+            attachmentId: "att-1",
+            filename: "draft.md",
+            mimeType: "text/markdown",
+            sizeBytes: 42,
+            text: "# Draft\nOriginal user content that must be preserved.",
+            note: null
+          }
+        ]
+      },
+      { provider: "openai", model: "gpt-4.1-mini" }
+    );
+    const developer = request.developerInstructions ?? "";
+    assert.match(
+      developer,
+      /SOURCE FILES/,
+      "developer instructions must announce the SOURCE FILES guidance when text attachments are inlined"
+    );
+    assert.match(
+      developer,
+      /sourceFiles\[\]\.text/,
+      "developer instructions must point the model at sourceFiles[].text as the real content"
+    );
+    const userText = request.messages[0]?.content[0]?.text ?? "";
+    assert.match(
+      userText,
+      /"sourceFiles"/,
+      "user message JSON must include sourceFiles[] so attachments reach the model"
+    );
+    assert.match(
+      userText,
+      /Original user content that must be preserved/,
+      "actual text content from the attachment must be inlined verbatim into the user prompt"
+    );
   });
 });

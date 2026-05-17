@@ -2556,7 +2556,8 @@ export class TurnExecutionService {
           toolCall,
           deferToAsyncDocumentJob: {
             sourceUserMessageId: input.idempotencyKey,
-            sourceUserMessageText: input.message.text
+            sourceUserMessageText: input.message.text,
+            attachments: input.message.attachments
           }
         });
         return this.createToolExecutionOutcome(

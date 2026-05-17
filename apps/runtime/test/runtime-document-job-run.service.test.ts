@@ -82,6 +82,7 @@ describe("RuntimeDocumentJobRunService", () => {
         sourceUserMessageText: "Create a PDF brief",
         sourceUserMessageCreatedAt: "2026-05-15T12:00:00.000Z"
       },
+      attachments: [],
       directToolExecution: {
         toolCode: "document",
         descriptorMode: "create_pdf_document",

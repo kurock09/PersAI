@@ -12,6 +12,7 @@ import type {
   PersaiRuntimePresentationImagePolicy,
   PersaiRuntimePresentationVisualDensity,
   PersaiRuntimePresentationVisualStyle,
+  RuntimeAttachmentRef,
   RuntimeOutputArtifact,
   RuntimeFileRef
 } from "@persai/runtime-contract";
@@ -37,6 +38,12 @@ export type AssistantDocumentRequestPayload = {
   sourceUserMessageCreatedAt: string;
   descriptorMode: AssistantDocumentDescriptorMode;
   sourceJson: AssistantDocumentSourcePayload;
+  // Attachments from the triggering user message. Persisted on the render
+  // job's requestJson so the runtime worker can inline text-extractable
+  // source content (txt/md/csv/json/xml/html) directly into the HTML
+  // generation prompt. Optional/nullable for backward compatibility with
+  // previously enqueued jobs that predate this field.
+  sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
 };
 
 export type AssistantDocumentRevisionContext = {

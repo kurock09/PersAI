@@ -5,6 +5,7 @@ import type {
   PersaiRuntimePresentationVisualDensity,
   PersaiRuntimePresentationVisualStyle,
   ProviderGatewayToolCall,
+  RuntimeAttachmentRef,
   RuntimeDocumentToolResult,
   RuntimeOutputArtifact
 } from "@persai/runtime-contract";
@@ -26,6 +27,10 @@ export class RuntimeDocumentToolService {
     deferToAsyncDocumentJob: {
       sourceUserMessageId: string;
       sourceUserMessageText: string;
+      // Attachments captured from the user turn that triggered the tool call.
+      // Forwarded into the document job so the worker can inline
+      // text-extractable source-file content into the generation prompt.
+      attachments: RuntimeAttachmentRef[];
     };
   }): Promise<RuntimeDocumentToolExecutionResult> {
     const parsed = this.readDocumentArguments(params.toolCall.arguments);
@@ -64,6 +69,7 @@ export class RuntimeDocumentToolService {
         assistantId: params.bundle.metadata.assistantId,
         sourceUserMessageId: params.deferToAsyncDocumentJob.sourceUserMessageId,
         sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText,
+        attachments: params.deferToAsyncDocumentJob.attachments,
         directToolExecution: {
           toolCode: "document",
           descriptorMode: parsed.descriptorMode,

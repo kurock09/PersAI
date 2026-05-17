@@ -1952,6 +1952,13 @@ export interface RuntimeDocumentJobRunRequest {
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
   };
+  // Attachments from the user message that triggered this document job.
+  // Mirrors the media path so the document worker can inline text-extractable
+  // source-file content (txt/md/csv/json/xml/html) directly into the HTML
+  // generation prompt instead of forcing the model to imagine the source.
+  // For binary types (docx/pdf/image) the worker only includes a structured
+  // reference; the model is expected to first call `files.read` for those.
+  attachments: RuntimeAttachmentRef[];
   directToolExecution: {
     toolCode: "document";
     descriptorMode:

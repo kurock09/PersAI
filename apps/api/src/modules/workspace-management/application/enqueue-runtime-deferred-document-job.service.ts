@@ -5,6 +5,7 @@ import type {
   AssistantDocumentRenderProvider,
   AssistantDocumentType
 } from "@prisma/client";
+import type { RuntimeAttachmentRef } from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -36,6 +37,12 @@ export type EnqueueRuntimeDeferredDocumentJobInput = {
   assistantId: string;
   sourceUserMessageId: string;
   sourceUserMessageText: string;
+  // Attachments captured from the triggering user message. The runtime
+  // worker uses them to inline text-extractable source-file content into
+  // the HTML generation prompt instead of forcing the model to invent
+  // content when the user asked to rebuild/convert/restyle a real file.
+  // Optional for backward compatibility with older runtime callers.
+  sourceUserMessageAttachments?: RuntimeAttachmentRef[];
   directToolExecution: DocumentDirectToolExecutionPayload;
 };
 
@@ -53,6 +60,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
 
   parseInput(payload: unknown): EnqueueRuntimeDeferredDocumentJobInput {
     const row = this.objectValue(payload, "payload");
+    const attachments = this.parseOptionalAttachments(row.attachments);
     return {
       assistantId: this.requiredString(row.assistantId, "assistantId"),
       sourceUserMessageId: this.requiredString(row.sourceUserMessageId, "sourceUserMessageId"),
@@ -60,8 +68,70 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         row.sourceUserMessageText,
         "sourceUserMessageText"
       ),
+      ...(attachments === null ? {} : { sourceUserMessageAttachments: attachments }),
       directToolExecution: this.directToolExecution(row.directToolExecution)
     };
+  }
+
+  private parseOptionalAttachments(value: unknown): RuntimeAttachmentRef[] | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (!Array.isArray(value)) {
+      throw new BadRequestException("attachments must be an array when provided.");
+    }
+    const refs: RuntimeAttachmentRef[] = [];
+    for (const entry of value) {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new BadRequestException("attachments[] entries must be objects.");
+      }
+      const row = entry as Record<string, unknown>;
+      const attachmentId = this.requiredString(row.attachmentId, "attachments[].attachmentId");
+      const kindRaw = this.requiredString(row.kind, "attachments[].kind");
+      if (kindRaw !== "image" && kindRaw !== "audio" && kindRaw !== "video" && kindRaw !== "file") {
+        throw new BadRequestException(
+          'attachments[].kind must be one of "image", "audio", "video", "file".'
+        );
+      }
+      const objectKey = this.requiredString(row.objectKey, "attachments[].objectKey");
+      const mimeType = this.requiredString(row.mimeType, "attachments[].mimeType");
+      const sizeBytesRaw = row.sizeBytes;
+      const sizeBytes =
+        typeof sizeBytesRaw === "number" && Number.isFinite(sizeBytesRaw) && sizeBytesRaw >= 0
+          ? sizeBytesRaw
+          : 0;
+      const filename =
+        typeof row.filename === "string" && row.filename.trim().length > 0 ? row.filename : null;
+      const fileRef =
+        row.fileRef === undefined
+          ? undefined
+          : row.fileRef === null
+            ? null
+            : typeof row.fileRef === "string" && row.fileRef.trim().length > 0
+              ? row.fileRef
+              : null;
+      const aliases =
+        row.aliases === undefined
+          ? undefined
+          : row.aliases === null
+            ? null
+            : Array.isArray(row.aliases)
+              ? row.aliases.filter(
+                  (alias): alias is string => typeof alias === "string" && alias.trim().length > 0
+                )
+              : null;
+      refs.push({
+        attachmentId,
+        kind: kindRaw,
+        objectKey,
+        mimeType,
+        filename,
+        sizeBytes,
+        ...(fileRef === undefined ? {} : { fileRef }),
+        ...(aliases === undefined ? {} : { aliases })
+      });
+    }
+    return refs;
   }
 
   async execute(input: EnqueueRuntimeDeferredDocumentJobInput): Promise<
@@ -151,6 +221,11 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           "Configure the PDFMonkey template for the document tool first, then retry the document request."
       };
     }
+    const sourceUserMessageAttachmentsForPayload =
+      input.sourceUserMessageAttachments === undefined ||
+      input.sourceUserMessageAttachments.length === 0
+        ? null
+        : input.sourceUserMessageAttachments;
     if (descriptorMode === "revise_document") {
       return this.enqueueRevision({
         assistantId: input.assistantId,
@@ -163,7 +238,8 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           sourceUserMessageText: input.sourceUserMessageText,
           sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
           descriptorMode: "revise_document",
-          sourceJson: input.directToolExecution.request
+          sourceJson: input.directToolExecution.request,
+          sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
         },
         requestedDocId: input.directToolExecution.request.docId ?? null
       });
@@ -180,7 +256,8 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           sourceUserMessageText: input.sourceUserMessageText,
           sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
           descriptorMode: "export_or_redeliver",
-          sourceJson: input.directToolExecution.request
+          sourceJson: input.directToolExecution.request,
+          sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
         },
         requestedDocId: input.directToolExecution.request.docId ?? null
       });
@@ -203,7 +280,8 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         sourceUserMessageText: input.sourceUserMessageText,
         sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
         descriptorMode,
-        sourceJson: input.directToolExecution.request
+        sourceJson: input.directToolExecution.request,
+        sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
       }
     });
     return {
@@ -357,6 +435,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       sourceUserMessageCreatedAt: string;
       descriptorMode: "revise_document";
       sourceJson: AssistantDocumentSourcePayload;
+      sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
     };
     requestedDocId: string | null;
   }): Promise<
@@ -434,6 +513,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       sourceUserMessageCreatedAt: string;
       descriptorMode: "export_or_redeliver";
       sourceJson: AssistantDocumentSourcePayload;
+      sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
     };
     requestedDocId: string | null;
   }): Promise<

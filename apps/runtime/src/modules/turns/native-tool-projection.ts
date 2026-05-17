@@ -865,6 +865,9 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
       [
         "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
         "Use create_pdf_document for PDF-first documents, create_presentation for PPTX slide decks, revise_document to create a new version of an existing PersAI document, and export_or_redeliver to resend or re-render an existing document when supported.",
+        "When the user has attached a source file (txt, md, csv, json, html, xml) and asks to rebuild, convert, restyle, translate, or summarize it, the backend worker will AUTOMATICALLY inline that file's text content into document generation; you do not need to pre-read it. Simply call create_pdf_document with a prompt that describes the requested transformation and the worker will use the attached source verbatim.",
+        "When the user has attached a binary source file (docx, pdf, image) and asks to rebuild from it, the worker CANNOT auto-extract its text. In that case you MUST first call the `files` tool with action='read' and alias='current attachment #1' (or the matching alias) to obtain the text content, then call `document` with that extracted text embedded in `prompt`.",
+        "Never invent placeholder, generic-template, or test/demo content when the user has attached a source file. Either the worker auto-inlines its content (text formats) or you read it first via `files` (binary formats).",
         "If the tool returns action='deferred', acknowledge only that the document is being prepared and will arrive separately when ready.",
         "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and call quota_status if the user needs concrete package or upgrade options."
       ].join(" ")
@@ -887,7 +890,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         prompt: {
           type: "string",
           description:
-            "Main document intent or revision/export request. For revise_document and export_or_redeliver, keep this focused on the requested change or resend."
+            "Main document intent or revision/export request. For revise_document and export_or_redeliver, keep this focused on the requested change or resend. When the user attached a text-format source file (txt/md/csv/json/html/xml), describe the requested transformation here and let the worker auto-inline the file content; do not paste the file content into this field yourself. When the user attached a binary source file (docx/pdf/image), first call the `files` tool with action='read' to extract its text, then embed that extracted text in this field so the worker can rebuild from it. Never invent placeholder/template/test content when a source file is attached."
         },
         instructions: {
           type: "string",

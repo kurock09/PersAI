@@ -92,6 +92,41 @@ const DOCUMENT_HTML_ENHANCED_PRINT_CSS = [
 ].join("");
 const DOCUMENT_HTML_ENHANCED_PAGINATION_ENV_KEY = "RUNTIME_DOCUMENT_ENHANCED_PAGINATION";
 
+// Max bytes per attachment we inline into the HTML generation prompt.
+// Caps prompt size for very large text files; the model still sees the
+// truncated head with an explicit truncation note instead of being given
+// nothing.
+const DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES = 64_000;
+
+// MIME types whose payload is safely UTF-8 decodable and worth inlining
+// directly. docx, pdf, images, and other binary formats are intentionally
+// listed under sourceFiles[] with text=null + a structured note so the
+// model knows the file exists but must be read via the `files` tool first.
+const DOCUMENT_SOURCE_ATTACHMENT_TEXT_MIMES = new Set<string>([
+  "text/plain",
+  "text/markdown",
+  "text/x-markdown",
+  "text/csv",
+  "text/tab-separated-values",
+  "text/html",
+  "text/xml",
+  "application/xml",
+  "application/json",
+  "application/x-ndjson",
+  "application/javascript",
+  "application/x-yaml",
+  "application/yaml"
+]);
+
+type DocumentSourceFilePayload = {
+  attachmentId: string;
+  filename: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  text: string | null;
+  note: string | null;
+};
+
 @Injectable()
 export class RuntimeDocumentProviderAdapterService {
   private readonly logger = new Logger(RuntimeDocumentProviderAdapterService.name);
@@ -817,6 +852,73 @@ export class RuntimeDocumentProviderAdapterService {
     return "";
   }
 
+  private async loadSourceAttachmentContents(
+    request: RuntimeDocumentJobRunRequest
+  ): Promise<DocumentSourceFilePayload[]> {
+    const attachments = request.attachments;
+    if (attachments.length === 0) {
+      return [];
+    }
+    const results: DocumentSourceFilePayload[] = [];
+    for (const attachment of attachments) {
+      const mime = attachment.mimeType.toLowerCase().split(";")[0]?.trim() ?? "";
+      if (!DOCUMENT_SOURCE_ATTACHMENT_TEXT_MIMES.has(mime) && !mime.startsWith("text/")) {
+        // Surface non-text attachments so the model knows they exist but can
+        // see why they were not inlined; it can then ask the user or call
+        // `files.read` for those before retrying.
+        results.push({
+          attachmentId: attachment.attachmentId,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          text: null,
+          note: "Binary or non-text attachment; worker did not inline its content. Call the `files` tool with action='read' and the matching alias to obtain text content, then retry the document call with that text in `prompt`."
+        });
+        continue;
+      }
+      try {
+        const buffer = await this.mediaObjectStorage.downloadObject(attachment.objectKey);
+        if (buffer === null) {
+          results.push({
+            attachmentId: attachment.attachmentId,
+            filename: attachment.filename,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+            text: null,
+            note: "Attachment object not found in storage; worker could not inline its content."
+          });
+          continue;
+        }
+        const truncated = buffer.length > DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES;
+        const slice = truncated
+          ? buffer.subarray(0, DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES)
+          : buffer;
+        const text = slice.toString("utf8");
+        results.push({
+          attachmentId: attachment.attachmentId,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          text,
+          note: truncated
+            ? `Truncated to first ${String(DOCUMENT_SOURCE_ATTACHMENT_MAX_INLINE_BYTES)} bytes; original is ${String(buffer.length)} bytes.`
+            : null
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "unknown error";
+        results.push({
+          attachmentId: attachment.attachmentId,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          text: null,
+          note: `Failed to fetch attachment content: ${message}.`
+        });
+      }
+    }
+    return results;
+  }
+
   private async generatePdfHtmlContent(input: {
     bundle: AssistantRuntimeBundle;
     request: RuntimeDocumentJobRunRequest;
@@ -824,9 +926,29 @@ export class RuntimeDocumentProviderAdapterService {
     attempt: number;
   }): Promise<{ htmlContent: string; bodyTextLength: number }> {
     const providerSelection = this.resolveProviderSelection(input.bundle, "premium_reply");
+    // Fetch and decode text content from user-attached source files before
+    // calling the model so the HTML generation prompt carries the real
+    // source content for rebuild/convert/restyle/translate requests instead
+    // of forcing the model to invent placeholder text.
+    const sourceFiles = await this.loadSourceAttachmentContents(input.request);
+    if (sourceFiles.length > 0) {
+      const inlinedCount = sourceFiles.filter((entry) => entry.text !== null).length;
+      const totalBytes = sourceFiles.reduce(
+        (sum, entry) => sum + (entry.text === null ? 0 : Buffer.byteLength(entry.text, "utf8")),
+        0
+      );
+      this.logger.log(
+        `[document-pdf-source-attachments] jobId=${input.request.job.id} attempt=${String(
+          input.attempt
+        )} attachments=${String(sourceFiles.length)} inlinedTextFiles=${String(
+          inlinedCount
+        )} inlinedBytes=${String(totalBytes)}`
+      );
+    }
     const response = await this.providerGatewayClientService.generateText(
-      this.buildPdfContentRequest(input, providerSelection)
+      this.buildPdfContentRequest({ ...input, sourceFiles }, providerSelection)
     );
+    // Note: loadSourceAttachmentContents lives just below this method.
     const rawText = response.text ?? "";
     this.logger.log(
       `[document-pdf-html-raw] jobId=${input.request.job.id} attempt=${String(input.attempt)} provider=${providerSelection.provider} model=${providerSelection.model} rawLength=${String(rawText.length)} preview=${JSON.stringify(rawText.slice(0, 200))}`
@@ -857,12 +979,14 @@ export class RuntimeDocumentProviderAdapterService {
       request: RuntimeDocumentJobRunRequest;
       filename: string;
       attempt: number;
+      sourceFiles: DocumentSourceFilePayload[];
     },
     providerSelection: ProviderSelection
   ): ProviderGatewayTextGenerateRequest {
     const bundle = input.bundle;
     const request = input.request;
     const isSimplifiedRetry = input.attempt >= 2;
+    const hasInlinedSource = input.sourceFiles.some((entry) => entry.text !== null);
     const baseInstructions = [
       "You are generating the real user-facing content for a PersAI PDF document job.",
       "Return ONLY the HTML document. Do not add any preamble, JSON envelope, markdown code fences, or commentary.",
@@ -874,6 +998,19 @@ export class RuntimeDocumentProviderAdapterService {
       "Use coherent headings (<h1>/<h2>/<h3>), paragraphs, lists, and simple tables when helpful.",
       "Close every tag you open. Never leave dangling <td>, <tr>, <ul>, <p>, or other elements unclosed.",
       "Do not embed external scripts, iframes, remote stylesheets, or remote images.",
+      ...(hasInlinedSource
+        ? [
+            "SOURCE FILES: the user attached one or more source files. Their actual text content is included in the `sourceFiles[].text` field of this prompt.",
+            "When the user asks to rebuild, convert, restyle, translate, summarize, or otherwise transform an attached file, you MUST use the provided source text as the document body. Do NOT invent placeholder content, generic templates, or test data.",
+            "When `documentRequest.prompt` requests presentation/formatting changes (colors, layout, structure), apply them to the actual source content from `sourceFiles[].text`, do not replace the content with a fresh assistant-generated draft.",
+            "Preserve the user's headings, sections, numbered lists, table structure, and overall information from the source files; only restructure or restyle if the prompt explicitly asks for that."
+          ]
+        : []),
+      ...(input.sourceFiles.some((entry) => entry.text === null)
+        ? [
+            'BINARY SOURCE FILES: some attached files (e.g. docx, pdf, images) are listed under `sourceFiles[]` but do NOT include `text` because they were not inlined by the worker. If the user expects you to rebuild from those files, ask them to first share the text or call the `files` tool with `action: "read"` and the file\'s alias before retrying the document call.'
+          ]
+        : []),
       "Pagination guidance (the renderer applies print-CSS automatically; you do NOT add inline styles for these):",
       '- If the document has a cover/title page, wrap it as <section class="cover-page">...</section>. It will start on its own printed page automatically.',
       "- For long tables, ALWAYS put the header row inside <thead> with <th> cells, and data rows inside <tbody>. The header repeats on every printed page automatically.",
@@ -926,6 +1063,13 @@ export class RuntimeDocumentProviderAdapterService {
                     text: request.job.sourceUserMessageText,
                     createdAt: request.job.sourceUserMessageCreatedAt
                   },
+                  sourceFiles: input.sourceFiles.map((entry) => ({
+                    filename: entry.filename,
+                    mimeType: entry.mimeType,
+                    sizeBytes: entry.sizeBytes,
+                    text: entry.text,
+                    note: entry.note
+                  })),
                   assistant: {
                     name: bundle.persona.displayName,
                     userLocale: bundle.userContext.locale,

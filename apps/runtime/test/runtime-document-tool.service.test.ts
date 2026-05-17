@@ -35,7 +35,8 @@ describe("RuntimeDocumentToolService", () => {
       },
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-1",
-        sourceUserMessageText: "Сделай PDF"
+        sourceUserMessageText: "Сделай PDF",
+        attachments: []
       }
     });
     assert.equal(result.isError, false);
@@ -69,7 +70,8 @@ describe("RuntimeDocumentToolService", () => {
       },
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-1",
-        sourceUserMessageText: "Отправь документ еще раз"
+        sourceUserMessageText: "Отправь документ еще раз",
+        attachments: []
       }
     });
     assert.equal(result.isError, false);
