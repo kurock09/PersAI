@@ -178,6 +178,24 @@ console.log(title);
     expect(screen.getByTestId("assistant-response-actions")).toBeInTheDocument();
   });
 
+  it("caps assistant follow-up chips to two actions", () => {
+    render(
+      <ChatMessageBubble
+        message={assistantMessage(`Собрал
+
+### Дальше
+- Дать короткий план
+- Показать подробнее
+- Сравнить варианты`)}
+        onAssistantAction={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Дать короткий план" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Показать подробнее" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Сравнить варианты" })).toBeNull();
+  });
+
   it("normalizes assistant-voice action chips into plain user requests", () => {
     const onAction = vi.fn();
 

@@ -294,21 +294,48 @@ async function runDefaultPromptTemplateCompile(): Promise<void> {
   });
   const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
   const soulPrompt = compiled.promptDocuments.soul;
+  const previewPrompt = compiled.promptConstructor.onboarding.previewTurnPrompt;
+  const welcomePrompt = compiled.promptConstructor.onboarding.welcomeTurnPrompt;
 
   assert.match(
     systemPrompt,
-    /Each follow-up action must be written as a user-style imperative request/,
-    "default system prompt must require user-voice quick actions"
+    /Add follow-up actions only when there is a genuinely useful next step/,
+    "default system prompt should discourage unnecessary quick actions"
   );
   assert.match(
     systemPrompt,
-    /Do not use Markdown formatting inside follow-up actions/,
-    "default system prompt must forbid markdown inside quick-action labels"
+    /1-2 short plain-text bullet items/,
+    "default system prompt must cap quick actions to a small count"
+  );
+  assert.match(
+    systemPrompt,
+    /Never write follow-up actions from the assistant's point of view/,
+    "default system prompt must forbid assistant-voice quick actions"
   );
   assert.match(
     soulPrompt,
     /female -> use feminine forms like "поняла", "подобрала", "сделала"/,
     "default soul prompt must spell out feminine Russian self-reference guidance"
+  );
+  assert.match(
+    previewPrompt,
+    /Write one short first-person intro message/,
+    "default preview prompt should ask the assistant to introduce itself"
+  );
+  assert.match(
+    previewPrompt,
+    /setup preview, not in a real first live chat/,
+    "default preview prompt should stay explicitly separate from the real first chat"
+  );
+  assert.match(
+    welcomePrompt,
+    /Telegram, PDF\/PPT creation, image creation\/editing, Skills, knowledge base, reminders, memory/,
+    "default welcome prompt should surface standout PersAI capabilities"
+  );
+  assert.match(
+    welcomePrompt,
+    /Do not produce a long wall of text, checklist, or FAQ/,
+    "default welcome prompt should stay concise and avoid outdated long-form onboarding"
   );
 }
 

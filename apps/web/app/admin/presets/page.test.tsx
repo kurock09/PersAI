@@ -230,4 +230,46 @@ describe("AdminPresetsPage tool prompt defaults", () => {
     expect(description.readOnly).toBe(true);
     expect(guidance.readOnly).toBe(true);
   });
+
+  it("renders voice summary sample variables inside onboarding compiled preview", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/admin/prompt-templates")) {
+        return jsonResponse({
+          presets: [
+            {
+              id: "preview_bootstrap",
+              template: "Preview says: {{voice_summary_line}}",
+              updatedAt: "2026-01-01T00:00:00.000Z"
+            },
+            {
+              id: "welcome_bootstrap",
+              template: "Welcome says: {{voice_summary_line}}",
+              updatedAt: "2026-01-01T00:00:00.000Z"
+            }
+          ]
+        });
+      }
+      if (url.endsWith("/api/v1/admin/tools/metadata")) {
+        return jsonResponse({ tools: [] });
+      }
+      if (url.endsWith("/api/v1/admin/persona-archetypes")) {
+        return jsonResponse({ archetypes: [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(<AdminPresetsPage />);
+
+    await screen.findByText("Compiled Preview");
+    fireEvent.click(screen.getByRole("button", { name: "Preview character test" }));
+    await screen.findByText(
+      "Preview says: Your voice is **Magnetic Strategist** — warm, concise, confident, and slightly playful."
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Welcome first chat" }));
+    await screen.findByText(
+      "Welcome says: Your voice is **Magnetic Strategist** — warm, concise, confident, and slightly playful."
+    );
+  });
 });

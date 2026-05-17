@@ -253,19 +253,22 @@ const PRESET_META: Record<
   preview_bootstrap: {
     label: "Preview Character Test",
     description:
-      "Hidden prompt used only for setup/recreate preview so admins can test personality and tone without simulating the literal first live chat.",
+      "Hidden prompt used only for setup/recreate preview so admins can test how the assistant introduces itself and how its tone feels before the first real chat.",
     variables: [
       { key: "assistant_name", hint: "Assistant display name" },
       { key: "human_name", hint: "Human display name" },
+      { key: "voice_summary_line", hint: "Resolved one-line voice/archetype summary" },
       { key: "traits_summary_line", hint: "One-line trait summary for preview mode" }
     ]
   },
   welcome_bootstrap: {
     label: "Welcome / First Chat Greeting",
-    description: "Hidden prompt used for the real first welcome message after publish or recreate.",
+    description:
+      "Hidden prompt used for the real first greeting after publish or recreate. Keep it short, stylish, and product-aware.",
     variables: [
       { key: "assistant_name", hint: "Assistant display name" },
       { key: "human_name", hint: "Human display name" },
+      { key: "voice_summary_line", hint: "Resolved one-line voice/archetype summary" },
       { key: "traits_summary_line", hint: "One-line trait summary for first conversation" }
     ]
   }
@@ -292,6 +295,8 @@ const SAMPLE_VARIABLES: Record<string, string> = {
   assistant_avatar_emoji_line: "- **Avatar**: 🌟",
   assistant_avatar_url_line: "",
   human_name: "Alex",
+  voice_summary_line:
+    "Your voice is **Magnetic Strategist** — warm, concise, confident, and slightly playful.",
   traits_summary_line: "They set your personality to: warmth 80/100, playfulness 75/100.",
   skill_cards_block:
     "# Enabled Skills\n\n## 1. Accounting mode\n\n- Skill: Accountant\n- Summary: Accounting support\n- Category: finance\n- Tags: tax, books\n\nUse accounting knowledge carefully.\n\nGuardrails:\n- No legal guarantees",
