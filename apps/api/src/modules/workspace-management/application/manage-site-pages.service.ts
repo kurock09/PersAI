@@ -263,7 +263,11 @@ export class ManageSitePagesService {
       throw new BadRequestException("market must be one of: rf, intl.");
     }
     const cookieCountry = normalizeCountryCode(parseCookieValue(headers.cookie, "persai-country"));
-    return resolveLegalMarket(cookieCountry ?? inferCountryCodeFromHeaders(headers));
+    const inferredCountry = cookieCountry ?? inferCountryCodeFromHeaders(headers);
+    if (!inferredCountry) {
+      return "rf";
+    }
+    return resolveLegalMarket(inferredCountry);
   }
 
   async getPublicPage(

@@ -31,6 +31,7 @@ Primary public API surface:
 Trust-page boundary rules:
 
 - `GET /api/v1/public/site-pages/:slug` accepts only contract values for `market` (`rf|intl`) and `locale` (`ru|en`); invalid explicit query values are `400`, not silent fallback.
+- when `market` is omitted and there is no guest country cookie/header hint yet, anonymous public trust-page reads default to `rf`.
 - successful public site-page reads return the resolved published page plus the currently published `availableVariants[]` for that slug so web switchers do not offer dead market/locale combinations.
 - `GET/PUT/POST /api/v1/admin/site-pages*` is platform-owned admin surface, not generic workspace-owner surface; management requires a platform-scoped admin role.
 - missing baseline rows for `platform_site_pages` are auto-seeded on API startup from the same canonical seed set used by `prisma seed`, so new environments do not boot into empty `/terms`/`/privacy`/`/requisites`/`/contacts` 404s.

@@ -48,6 +48,39 @@ async function run(): Promise<void> {
     const service = new ManageSitePagesService(
       {
         platformSitePage: {
+          findMany: async () => [{ market: "rf", locale: "ru" }],
+          findUnique: async () => ({
+            slug: "privacy",
+            market: "rf",
+            locale: "ru",
+            status: "published",
+            title: "Privacy",
+            bodyMarkdown: "Body",
+            version: "rf:persai_privacy_mvp_v1",
+            publishedAt: new Date("2026-05-18T00:00:00.000Z"),
+            createdAt: new Date("2026-05-18T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-18T00:00:00.000Z")
+          })
+        }
+      } as never,
+      {
+        assertCanManagePlatformSitePages: async () => ({})
+      } as never
+    );
+
+    const result = await service.getPublicPage(
+      "privacy",
+      { market: undefined, locale: undefined },
+      { cookie: undefined, "accept-language": undefined }
+    );
+    assert.equal(result.resolvedMarket, "rf");
+    assert.equal(result.resolvedLocale, "ru");
+  }
+
+  {
+    const service = new ManageSitePagesService(
+      {
+        platformSitePage: {
           findMany: async () => [],
           findUnique: async () => null
         }

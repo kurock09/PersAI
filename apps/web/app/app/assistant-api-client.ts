@@ -3796,8 +3796,15 @@ export function getAssistantDocumentOriginalDownloadUrl(
   docId: string,
   options: { versionId?: string | null }
 ): string {
+  // Route through the Next.js BFF at `apps/web/app/api/assistant-document/[docId]/original/route.ts`,
+  // which performs server-side Clerk auth via `auth().getToken()` and forwards
+  // the request to the API with a fresh Bearer token. Calling the API path
+  // (`/api/v1/assistant/documents/...`) directly from the browser bypasses
+  // that handler and surfaces as `userId: null -> 401` even after the live
+  // bundle injects the bearer header from the click action — exactly the
+  // production failure observed on long-lived `persai.dev` tabs.
   const url = new URL(
-    `/api/v1/assistant/documents/${encodeURIComponent(docId)}/download-original`,
+    `/api/assistant-document/${encodeURIComponent(docId)}/original`,
     "https://persai.local"
   );
   if (typeof options.versionId === "string" && options.versionId.trim().length > 0) {

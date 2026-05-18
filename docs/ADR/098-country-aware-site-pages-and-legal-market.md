@@ -30,7 +30,7 @@ What was missing was a single persisted site-page model plus one shared legal-ma
 Add shared `resolveLegalMarket(countryCode)` with only two outcomes:
 
 - `RU` -> `rf`
-- every other or missing country -> `intl`
+- every other country -> `intl`
 
 No new user-level `market` field is introduced.
 
@@ -61,7 +61,8 @@ Public page reads resolve market and locale in this order:
 
 1. explicit query params
 2. guest cookie / geo header heuristics
-3. locale fallback (`rf -> ru`, `intl -> en`)
+3. anonymous market fallback to `rf` when no country hint exists
+4. locale fallback (`rf -> ru`, `intl -> en`)
 
 If explicit query params are provided and are outside the contract (`market` not in `rf|intl`, `locale` not in `ru|en`), the API returns `400` instead of silently coercing or ignoring them.
 
@@ -108,6 +109,7 @@ This startup path inserts missing rows only; it does not overwrite operator-edit
 - compliance can evolve per market by publishing a new page version
 - setup now captures a durable country choice early instead of guessing forever from locale
 - new environments do not rely on a separate manual backfill step just to serve baseline legal pages
+- anonymous opens on public trust pages now default to the RF variant unless a country hint or explicit query says otherwise
 
 ### Negative
 
@@ -115,6 +117,7 @@ This startup path inserts missing rows only; it does not overwrite operator-edit
 - there is still only a two-market legal model; finer regional policy matrices remain out of scope
 - billing email market inference is still locale-based when there is no user country available at click time
 - startup auto-seed must remain insert-only so it never clobbers admin-managed edits
+- anonymous defaulting is intentionally founder-biased toward RF and may feel surprising for international incognito traffic until a country hint is known
 
 ## Out of scope
 
