@@ -66,6 +66,10 @@ export function PresentationOriginalDownloadAction({
     setState({ status: "idle" });
   }, []);
 
+  const resolveDownloadToken = useCallback(async (): Promise<string | null> => {
+    return (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
+  }, [getToken]);
+
   const handleClick = useCallback(async () => {
     if (state.status === "downloading") return;
 
@@ -78,7 +82,11 @@ export function PresentationOriginalDownloadAction({
 
     setState({ status: "downloading" });
     try {
-      const token = await getToken();
+      // Match the working Clerk-auth pattern used by other live buttons:
+      // force-fresh first, then fall back to the cached JWT if refresh is
+      // unavailable. The stale cached token path was producing 401s on live
+      // PPTX downloads after long-lived tabs.
+      const token = await resolveDownloadToken();
       const headers = new Headers();
       if (typeof token === "string" && token.trim().length > 0) {
         headers.set("Authorization", `Bearer ${token}`);
@@ -117,7 +125,7 @@ export function PresentationOriginalDownloadAction({
       console.warn("[presentation-pptx] download failed", error);
       setState({ status: "error", reason: "failed" });
     }
-  }, [filename, getToken, href, state.status]);
+  }, [filename, href, resolveDownloadToken, state.status]);
 
   const isModalOpen = state.status === "error";
   const modalTitleId = "presentation-pptx-download-modal-title";
