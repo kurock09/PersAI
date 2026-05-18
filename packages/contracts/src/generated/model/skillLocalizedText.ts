@@ -5,6 +5,4 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface SkillLocalizedText {
-  [key: string]: string;
-}
+export interface SkillLocalizedText {[key: string]: string}

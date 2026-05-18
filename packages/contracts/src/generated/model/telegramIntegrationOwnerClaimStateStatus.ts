@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type TelegramIntegrationOwnerClaimStateStatus =
-  (typeof TelegramIntegrationOwnerClaimStateStatus)[keyof typeof TelegramIntegrationOwnerClaimStateStatus];
+export type TelegramIntegrationOwnerClaimStateStatus = typeof TelegramIntegrationOwnerClaimStateStatus[keyof typeof TelegramIntegrationOwnerClaimStateStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TelegramIntegrationOwnerClaimStateStatus = {
-  not_started: "not_started",
-  pending: "pending",
-  claimed: "claimed"
+  not_started: 'not_started',
+  pending: 'pending',
+  claimed: 'claimed',
 } as const;

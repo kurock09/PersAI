@@ -14,6 +14,7 @@ PersAI is the source of truth for:
 - durable materialization rollout control-plane state through `materialization_rollouts` and `materialization_rollout_items`
 - canonical chats and messages
 - canonical assistant chat attachments and media metadata
+- persisted app-user identity/profile state, including `app_users.preferred_locale` as the primary user language truth and `app_users.country_code` as separate regional metadata
 - durable web-chat logical turn attempts keyed by `assistantId + userId + surfaceThreadKey + clientTurnId`, used for retry/replay/status reconciliation
 - canonical user-visible Files through `assistant_files` and durable `fileRef`, with runtime-owned model aliases resolving back to that canonical id
 - assistant-private knowledge source metadata plus platform/admin-managed Skill, Product KB, and global Knowledge metadata and indexed chunks

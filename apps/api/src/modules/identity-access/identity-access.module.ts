@@ -3,6 +3,7 @@ import { PlatformCoreModule } from "../platform-core/platform-core.module";
 import { GetCurrentUserStateService } from "./application/get-current-user-state.service";
 import { ResolveAppUserService } from "./application/resolve-app-user.service";
 import { UpsertOnboardingService } from "./application/upsert-onboarding.service";
+import { UpdateUserPreferencesService } from "./application/update-user-preferences.service";
 import { ClerkAuthService } from "./infrastructure/identity/clerk-auth.service";
 import { PrismaService } from "./infrastructure/persistence/prisma.service";
 import { ClerkAuthMiddleware } from "./interface/http/clerk-auth.middleware";
@@ -17,6 +18,7 @@ import { MeController } from "./interface/http/me.controller";
     ResolveAppUserService,
     GetCurrentUserStateService,
     UpsertOnboardingService,
+    UpdateUserPreferencesService,
     PrismaService,
     ClerkAuthMiddleware
   ],
@@ -27,6 +29,7 @@ export class IdentityAccessModule implements NestModule {
     consumer.apply(ClerkAuthMiddleware).forRoutes(
       { path: "api/v1/auth/*", method: RequestMethod.ALL },
       { path: "api/v1/me", method: RequestMethod.GET },
+      { path: "api/v1/me/preferences", method: RequestMethod.PATCH },
       { path: "api/v1/me/onboarding", method: RequestMethod.POST },
       { path: "api/v1/app/bootstrap", method: RequestMethod.GET },
       { path: "api/v1/assistant", method: RequestMethod.GET },

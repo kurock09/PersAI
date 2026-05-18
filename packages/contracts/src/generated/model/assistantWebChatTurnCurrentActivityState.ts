@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantWebChatTurnCurrentActivityStateType } from "./assistantWebChatTurnCurrentActivityStateType";
-import type { AssistantWebChatTurnCurrentActivityStatePhase } from "./assistantWebChatTurnCurrentActivityStatePhase";
+import type { AssistantWebChatTurnCurrentActivityStateType } from './assistantWebChatTurnCurrentActivityStateType';
+import type { AssistantWebChatTurnCurrentActivityStatePhase } from './assistantWebChatTurnCurrentActivityStatePhase';
 
 export interface AssistantWebChatTurnCurrentActivityState {
   type: AssistantWebChatTurnCurrentActivityStateType;

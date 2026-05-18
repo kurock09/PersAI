@@ -4,9 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantBillingSubscriptionActionSubscriptionUpdatedResult } from "./assistantBillingSubscriptionActionSubscriptionUpdatedResult";
-import type { AssistantBillingSubscriptionActionCheckoutResult } from "./assistantBillingSubscriptionActionCheckoutResult";
+import type { AssistantBillingSubscriptionActionSubscriptionUpdatedResult } from './assistantBillingSubscriptionActionSubscriptionUpdatedResult';
+import type { AssistantBillingSubscriptionActionCheckoutResult } from './assistantBillingSubscriptionActionCheckoutResult';
 
-export type AssistantBillingSubscriptionActionResult =
-  | AssistantBillingSubscriptionActionSubscriptionUpdatedResult
-  | AssistantBillingSubscriptionActionCheckoutResult;
+export type AssistantBillingSubscriptionActionResult = AssistantBillingSubscriptionActionSubscriptionUpdatedResult | AssistantBillingSubscriptionActionCheckoutResult;

@@ -4,6 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AppUserSummaryPreferredLocale } from './appUserSummaryPreferredLocale';
+import type { AppUserSummaryResolvedLocale } from './appUserSummaryResolvedLocale';
 
 export interface AppUserSummary {
   id: string;
@@ -15,4 +17,13 @@ export interface AppUserSummary {
   birthday?: string | null;
   /** @nullable */
   gender?: string | null;
+  /** @nullable */
+  preferredLocale?: AppUserSummaryPreferredLocale;
+  /**
+   * @minLength 2
+   * @maxLength 2
+   * @nullable
+   */
+  countryCode?: string | null;
+  resolvedLocale: AppUserSummaryResolvedLocale;
 }

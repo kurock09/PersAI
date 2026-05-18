@@ -7,13 +7,15 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState
 } from "react";
 import type { Route } from "next";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { useAuth } from "@clerk/nextjs";
 import { Sidebar } from "./sidebar";
 import { SlideOver } from "./slide-over";
 import { useAppData, type AppData } from "./use-app-data";
@@ -23,6 +25,8 @@ import { AppUrlOpenBridge } from "../../_components/app-url-open-bridge";
 import { OfflineGate } from "./offline-gate";
 import { StreamingThreadsProvider } from "./streaming-threads";
 import type { AppBootstrapInitialData } from "../_server/fetch-app-bootstrap";
+import { getMe } from "../me-api-client";
+import { getLocaleCookie, isWebLocale, setLocaleCookie } from "@/app/lib/locale-sync";
 
 /**
  * ADR-076 Slice 6 — code-split the two heaviest slide-over bodies behind
@@ -95,8 +99,11 @@ export function AppShell({
   const appData = useAppData(initialData);
   const ts = useTranslations("settings");
   const tt = useTranslations("telegram");
+  const locale = useLocale();
+  const { getToken, isLoaded: authLoaded, isSignedIn } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const localeSyncAttemptedRef = useRef(false);
   const isSetup = pathname === "/app/setup";
   const isChatPage = pathname === "/app/chat";
 
@@ -110,6 +117,41 @@ export function AppShell({
       router.replace("/app/setup" as Route);
     }
   }, [appData.isLoading, appData.assistantResolved, needsSetup, isSetup, router]);
+
+  useEffect(() => {
+    if (!authLoaded || !isSignedIn || localeSyncAttemptedRef.current) {
+      return;
+    }
+
+    localeSyncAttemptedRef.current = true;
+
+    void (async () => {
+      const token = await getToken();
+      if (!token) {
+        return;
+      }
+
+      try {
+        const me = await getMe(token);
+        const resolvedLocale = me.me.appUser.resolvedLocale;
+        if (!isWebLocale(resolvedLocale)) {
+          return;
+        }
+
+        const cookieLocale = getLocaleCookie();
+        if (cookieLocale === resolvedLocale) {
+          return;
+        }
+
+        setLocaleCookie(resolvedLocale);
+        if (locale !== resolvedLocale) {
+          window.location.reload();
+        }
+      } catch {
+        // Cookie sync is a best-effort hydration fix for fresh devices.
+      }
+    })();
+  }, [authLoaded, getToken, isSignedIn, locale]);
 
   const shellActions: ShellActions = {
     openSidebar: () => setSidebarOpen(true),

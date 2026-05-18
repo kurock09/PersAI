@@ -8,6 +8,7 @@ import {
   MVP_PRIVACY_POLICY_VERSION,
   MVP_TERMS_OF_SERVICE_VERSION
 } from "./compliance-baseline";
+import { resolvePreferredLocale } from "./locale-resolution";
 
 function toWorkspaceSummary(workspaceMember: {
   role: "owner" | "member";
@@ -70,9 +71,16 @@ export class GetCurrentUserStateService {
       appUser.privacyPolicyAcceptedAt !== null &&
       appUser.privacyPolicyVersion === MVP_PRIVACY_POLICY_VERSION;
     const onboardingComplete = workspaceSummary !== null && termsAccepted && privacyAccepted;
+    const resolvedLocale = resolvePreferredLocale({
+      preferredLocale: resolvedAppUser.preferredLocale,
+      workspaceLocale: workspaceSummary?.locale ?? null
+    });
 
     return {
-      appUser: resolvedAppUser,
+      appUser: {
+        ...resolvedAppUser,
+        resolvedLocale
+      },
       onboarding: {
         isComplete: onboardingComplete,
         status: onboardingComplete ? "completed" : "pending"

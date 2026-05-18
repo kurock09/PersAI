@@ -5,14 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatActiveDocumentJobStateStatus =
-  (typeof AssistantWebChatActiveDocumentJobStateStatus)[keyof typeof AssistantWebChatActiveDocumentJobStateStatus];
+export type AssistantWebChatActiveDocumentJobStateStatus = typeof AssistantWebChatActiveDocumentJobStateStatus[keyof typeof AssistantWebChatActiveDocumentJobStateStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatActiveDocumentJobStateStatus = {
-  queued: "queued",
-  running: "running",
-  provider_processing: "provider_processing",
-  fetching_output: "fetching_output",
-  ready_for_delivery: "ready_for_delivery"
+  queued: 'queued',
+  running: 'running',
+  provider_processing: 'provider_processing',
+  fetching_output: 'fetching_output',
+  ready_for_delivery: 'ready_for_delivery',
 } as const;

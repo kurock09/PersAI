@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingPaymentIntentAction =
-  (typeof AssistantBillingPaymentIntentAction)[keyof typeof AssistantBillingPaymentIntentAction];
+export type AssistantBillingPaymentIntentAction = typeof AssistantBillingPaymentIntentAction[keyof typeof AssistantBillingPaymentIntentAction];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingPaymentIntentAction = {
-  new_purchase: "new_purchase",
-  upgrade: "upgrade",
-  renewal: "renewal",
-  manual_admin: "manual_admin"
+  new_purchase: 'new_purchase',
+  upgrade: 'upgrade',
+  renewal: 'renewal',
+  manual_admin: 'manual_admin',
 } as const;

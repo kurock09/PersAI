@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminOpsCockpitSandboxJobStatus } from "./adminOpsCockpitSandboxJobStatus";
-import type { AdminOpsCockpitSandboxJobResourceUsageProperty } from "./adminOpsCockpitSandboxJobResourceUsageProperty";
+import type { AdminOpsCockpitSandboxJobStatus } from './adminOpsCockpitSandboxJobStatus';
+import type { AdminOpsCockpitSandboxJobResourceUsageProperty } from './adminOpsCockpitSandboxJobResourceUsageProperty';
 
 export interface AdminOpsCockpitSandboxJob {
   id: string;

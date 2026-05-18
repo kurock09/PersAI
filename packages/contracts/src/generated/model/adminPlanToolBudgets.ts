@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanToolBudgetsLoopLimitByMode } from "./adminPlanToolBudgetsLoopLimitByMode";
+import type { AdminPlanToolBudgetsLoopLimitByMode } from './adminPlanToolBudgetsLoopLimitByMode';
 
 export interface AdminPlanToolBudgets {
   /** ADR-074 Slice L1 — per-plan override of the runtime tool-loop iteration limit per execution mode. NULL on a leaf means "use the runtime code default for that mode" (TOOL_LOOP_LIMIT_BY_MODE). */

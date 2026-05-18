@@ -13,6 +13,7 @@ import {
 } from "@/app/lib/clerk-navigation";
 import { RedirectSignedInUserToApp } from "@/app/app/_components/redirect-signed-in-to-app";
 import { PasswordField } from "@/app/app/_components/password-field";
+import { mapClerkError } from "@/app/lib/clerk-error-messages";
 
 type Stage = "form" | "verify";
 
@@ -41,14 +42,14 @@ export default function SignUpPage() {
         password
       });
       if (pwError) {
-        setError(pwError.longMessage ?? pwError.message ?? t("signUpFailed"));
+        setError(mapClerkError(pwError, t, "signUpFailed"));
         return;
       }
 
       await signUp.verifications.sendEmailCode();
       setStage("verify");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("somethingWrong"));
+    } catch {
+      setError(t("somethingWrong"));
     }
   }, [email, password, signUp, t]);
 
@@ -68,8 +69,8 @@ export default function SignUpPage() {
       } else {
         setError(t("verificationIncomplete"));
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("verificationFailed"));
+    } catch {
+      setError(t("verificationFailed"));
     }
   }, [code, signUp, t]);
 
@@ -89,9 +90,7 @@ export default function SignUpPage() {
     return <RedirectSignedInUserToApp />;
   }
 
-  const fieldErrors = clerkErrors?.fields as unknown as
-    | Record<string, { message: string }>
-    | undefined;
+  const fieldErrors = clerkErrors?.fields as unknown as Record<string, unknown> | undefined;
 
   return (
     <div className="flex min-h-screen items-center justify-center relative overflow-hidden px-4">
@@ -122,7 +121,9 @@ export default function SignUpPage() {
                 className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
               />
               {fieldErrors?.emailAddress && (
-                <p className="mt-1 text-xs text-destructive">{fieldErrors.emailAddress.message}</p>
+                <p className="mt-1 text-xs text-destructive">
+                  {mapClerkError(fieldErrors.emailAddress, t, "signUpFailed")}
+                </p>
               )}
 
               <label className="mt-4 mb-1.5 block text-xs font-medium text-text-muted">
@@ -139,7 +140,9 @@ export default function SignUpPage() {
                 hideLabel={t("hidePassword")}
               />
               {fieldErrors?.password && (
-                <p className="mt-1 text-xs text-destructive">{fieldErrors.password.message}</p>
+                <p className="mt-1 text-xs text-destructive">
+                  {mapClerkError(fieldErrors.password, t, "signUpFailed")}
+                </p>
               )}
               <p className="mt-2 text-xs leading-relaxed text-text-subtle">
                 {t("passwordCreateHint")}
@@ -204,7 +207,9 @@ export default function SignUpPage() {
                 className="mt-5 w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-center text-lg tracking-widest text-text placeholder:text-sm placeholder:tracking-normal placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
               />
               {fieldErrors?.code && (
-                <p className="mt-1 text-xs text-destructive">{fieldErrors.code.message}</p>
+                <p className="mt-1 text-xs text-destructive">
+                  {mapClerkError(fieldErrors.code, t, "verificationFailed")}
+                </p>
               )}
 
               <button

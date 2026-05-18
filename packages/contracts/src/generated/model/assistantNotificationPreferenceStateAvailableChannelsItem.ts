@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantNotificationPreferenceStateAvailableChannelsItem =
-  (typeof AssistantNotificationPreferenceStateAvailableChannelsItem)[keyof typeof AssistantNotificationPreferenceStateAvailableChannelsItem];
+export type AssistantNotificationPreferenceStateAvailableChannelsItem = typeof AssistantNotificationPreferenceStateAvailableChannelsItem[keyof typeof AssistantNotificationPreferenceStateAvailableChannelsItem];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantNotificationPreferenceStateAvailableChannelsItem = {
-  web: "web",
-  telegram: "telegram"
+  web: 'web',
+  telegram: 'telegram',
 } as const;

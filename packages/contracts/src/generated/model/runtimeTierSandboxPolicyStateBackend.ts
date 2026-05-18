@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeTierSandboxPolicyStateBackend =
-  (typeof RuntimeTierSandboxPolicyStateBackend)[keyof typeof RuntimeTierSandboxPolicyStateBackend];
+export type RuntimeTierSandboxPolicyStateBackend = typeof RuntimeTierSandboxPolicyStateBackend[keyof typeof RuntimeTierSandboxPolicyStateBackend];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeTierSandboxPolicyStateBackend = {
-  docker: "docker"
+  docker: 'docker',
 } as const;

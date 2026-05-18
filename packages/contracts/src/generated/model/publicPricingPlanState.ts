@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
-import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
-import type { AdminPlanSkillPolicy } from "./adminPlanSkillPolicy";
-import type { AdminPlanPresentation } from "./adminPlanPresentation";
+import type { AdminPlanEntitlements } from './adminPlanEntitlements';
+import type { AdminPlanQuotaLimits } from './adminPlanQuotaLimits';
+import type { AdminPlanSkillPolicy } from './adminPlanSkillPolicy';
+import type { AdminPlanPresentation } from './adminPlanPresentation';
 
 export interface PublicPricingPlanState {
   code: string;

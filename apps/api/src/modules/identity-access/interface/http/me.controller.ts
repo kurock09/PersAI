@@ -1,14 +1,25 @@
-import { Body, Controller, Get, HttpCode, Post, Req, UnauthorizedException } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Patch,
+  Post,
+  Req,
+  UnauthorizedException
+} from "@nestjs/common";
 import { GetCurrentUserStateService } from "../../application/get-current-user-state.service";
 import { CurrentUserState } from "../../application/current-user-state.types";
 import { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import { UpsertOnboardingService } from "../../application/upsert-onboarding.service";
+import { UpdateUserPreferencesService } from "../../application/update-user-preferences.service";
 
 @Controller("api/v1")
 export class MeController {
   constructor(
     private readonly getCurrentUserStateService: GetCurrentUserStateService,
-    private readonly upsertOnboardingService: UpsertOnboardingService
+    private readonly upsertOnboardingService: UpsertOnboardingService,
+    private readonly updateUserPreferencesService: UpdateUserPreferencesService
   ) {}
 
   @Get("me")
@@ -21,6 +32,31 @@ export class MeController {
     }
 
     const me = await this.getCurrentUserStateService.getCurrentUserState(req.resolvedAppUser);
+
+    return {
+      requestId: req.requestId ?? null,
+      me
+    };
+  }
+
+  @Patch("me/preferences")
+  @HttpCode(200)
+  async updatePreferences(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    me: CurrentUserState;
+  }> {
+    if (req.resolvedAppUser === undefined) {
+      throw new UnauthorizedException("Authenticated user context is missing.");
+    }
+
+    const input = this.updateUserPreferencesService.parseInput(body);
+    const me = await this.updateUserPreferencesService.updatePreferences(
+      req.resolvedAppUser,
+      input
+    );
 
     return {
       requestId: req.requestId ?? null,

@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { NotificationIntentService } from "./notifications/notification-intent.service";
 import type { BillingLifecycleFactPayload } from "./notifications/templates/billing/billing-lifecycle-fact-payload";
+import { ResolveUserLocaleService } from "./resolve-user-locale.service";
 
 /**
  * Billing lifecycle notification producer.
@@ -93,7 +94,8 @@ export class BillingLifecycleProducerService {
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly notificationIntentService: NotificationIntentService
+    private readonly notificationIntentService: NotificationIntentService,
+    private readonly resolveUserLocaleService: ResolveUserLocaleService
   ) {}
 
   async emitForLifecycleEventIds(eventIds: string[]): Promise<void> {
@@ -143,6 +145,10 @@ export class BillingLifecycleProducerService {
     const planDisplayName = await this.resolvePlanDisplayName(event.nextPlanCode);
     const assistant = await this.resolveAssistant(event.workspaceId, event.userId);
     const supplement = await this.resolveFactSupplement(event);
+    const locale = await this.resolveUserLocaleService.forUserInWorkspace(
+      event.userId,
+      event.workspaceId
+    );
 
     for (const ruleInfo of applicableRules) {
       const facts: BillingLifecycleFactPayload = {
@@ -156,7 +162,7 @@ export class BillingLifecycleProducerService {
         amount: supplement.amount,
         currency: supplement.currency,
         officialReceiptUrl: supplement.officialReceiptUrl,
-        locale: "ru",
+        locale,
         recipientEmail: event.user?.email ?? null
       };
 

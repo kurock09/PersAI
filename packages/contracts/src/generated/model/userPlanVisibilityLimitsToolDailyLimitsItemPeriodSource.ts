@@ -8,11 +8,10 @@
 /**
  * @nullable
  */
-export type UserPlanVisibilityLimitsToolDailyLimitsItemPeriodSource =
-  | (typeof UserPlanVisibilityLimitsToolDailyLimitsItemPeriodSource)[keyof typeof UserPlanVisibilityLimitsToolDailyLimitsItemPeriodSource]
-  | null;
+export type UserPlanVisibilityLimitsToolDailyLimitsItemPeriodSource = typeof UserPlanVisibilityLimitsToolDailyLimitsItemPeriodSource[keyof typeof UserPlanVisibilityLimitsToolDailyLimitsItemPeriodSource] | null;
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UserPlanVisibilityLimitsToolDailyLimitsItemPeriodSource = {
-  utc_day: "utc_day"
+  utc_day: 'utc_day',
 } as const;

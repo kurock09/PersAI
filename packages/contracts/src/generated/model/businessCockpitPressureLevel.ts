@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type BusinessCockpitPressureLevel =
-  (typeof BusinessCockpitPressureLevel)[keyof typeof BusinessCockpitPressureLevel];
+export type BusinessCockpitPressureLevel = typeof BusinessCockpitPressureLevel[keyof typeof BusinessCockpitPressureLevel];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BusinessCockpitPressureLevel = {
-  low: "low",
-  elevated: "elevated",
-  high: "high"
+  low: 'low',
+  elevated: 'elevated',
+  high: 'high',
 } as const;

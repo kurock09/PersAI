@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { KnowledgeLifecycleStatus } from "./knowledgeLifecycleStatus";
-import type { KnowledgeAuthoringProvenanceKind } from "./knowledgeAuthoringProvenanceKind";
-import type { ProductKnowledgeTextEntryStateAllOfProvenanceMetadata } from "./productKnowledgeTextEntryStateAllOfProvenanceMetadata";
+import type { KnowledgeLifecycleStatus } from './knowledgeLifecycleStatus';
+import type { KnowledgeAuthoringProvenanceKind } from './knowledgeAuthoringProvenanceKind';
+import type { ProductKnowledgeTextEntryStateAllOfProvenanceMetadata } from './productKnowledgeTextEntryStateAllOfProvenanceMetadata';
 
 export type ProductKnowledgeTextEntryStateAllOf = {
   id: string;

@@ -139,6 +139,7 @@ import { ManageMediaPackagePurchaseService } from "./application/manage-media-pa
 import { ManageWorkspaceSubscriptionLifecycleService } from "./application/manage-workspace-subscription-lifecycle.service";
 import { ApplyWorkspaceSubscriptionBillingEventService } from "./application/apply-workspace-subscription-billing-event.service";
 import { BillingLifecycleProducerService } from "./application/billing-lifecycle-producer.service";
+import { ResolveUserLocaleService } from "./application/resolve-user-locale.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -460,6 +461,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     HandleCloudpaymentsWebhookService,
     ManageWorkspaceSubscriptionLifecycleService,
     ApplyWorkspaceSubscriptionBillingEventService,
+    ResolveUserLocaleService,
     BillingLifecycleProducerService,
     HandleInternalCronFireService,
     BuildReminderContextSnapshotService,

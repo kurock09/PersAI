@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { TelegramSecretLifecycleStatus } from "./telegramSecretLifecycleStatus";
-import type { TelegramSecretLifecycleStateManager } from "./telegramSecretLifecycleStateManager";
+import type { TelegramSecretLifecycleStatus } from './telegramSecretLifecycleStatus';
+import type { TelegramSecretLifecycleStateManager } from './telegramSecretLifecycleStateManager';
 
 export interface TelegramSecretLifecycleState {
   status: TelegramSecretLifecycleStatus;

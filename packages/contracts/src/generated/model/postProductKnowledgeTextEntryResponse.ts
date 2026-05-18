@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { ProductKnowledgeTextEntryState } from "./productKnowledgeTextEntryState";
-import type { PostProductKnowledgeTextEntryResponseIndexingJob } from "./postProductKnowledgeTextEntryResponseIndexingJob";
+import type { ProductKnowledgeTextEntryState } from './productKnowledgeTextEntryState';
+import type { PostProductKnowledgeTextEntryResponseIndexingJob } from './postProductKnowledgeTextEntryResponseIndexingJob';
 
 export interface PostProductKnowledgeTextEntryResponse {
   /** @nullable */

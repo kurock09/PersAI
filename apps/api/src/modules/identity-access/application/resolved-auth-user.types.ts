@@ -11,4 +11,6 @@ export interface ResolvedAppUser {
   displayName: string | null;
   birthday: string | null;
   gender: string | null;
+  preferredLocale: string | null;
+  countryCode: string | null;
 }

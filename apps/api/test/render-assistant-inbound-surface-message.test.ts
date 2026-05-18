@@ -33,6 +33,11 @@ async function run(): Promise<void> {
     service.renderError("reminder_callback", "assistant_activation_failed", "fallback").text,
     "Reminder delivery is blocked until assistant settings activation is retried."
   );
+
+  assert.equal(
+    service.renderError("telegram", "assistant_activating", "fallback", "ru").text,
+    "Настройки ассистента ещё применяются. Подождите немного и попробуйте снова."
+  );
 }
 
 void run();

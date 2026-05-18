@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantKnowledgeSourceNamespace =
-  (typeof AssistantKnowledgeSourceNamespace)[keyof typeof AssistantKnowledgeSourceNamespace];
+export type AssistantKnowledgeSourceNamespace = typeof AssistantKnowledgeSourceNamespace[keyof typeof AssistantKnowledgeSourceNamespace];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantKnowledgeSourceNamespace = {
-  assistant_user_workspace: "assistant_user_workspace"
+  assistant_user_workspace: 'assistant_user_workspace',
 } as const;

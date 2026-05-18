@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanLocalizedText } from "./adminPlanLocalizedText";
-import type { AdminPlanPresentationPrice } from "./adminPlanPresentationPrice";
-import type { AdminPlanLocalizedTextList } from "./adminPlanLocalizedTextList";
+import type { AdminPlanLocalizedText } from './adminPlanLocalizedText';
+import type { AdminPlanPresentationPrice } from './adminPlanPresentationPrice';
+import type { AdminPlanLocalizedTextList } from './adminPlanLocalizedTextList';
 
 export interface AdminPlanPresentation {
   showOnPricingPage: boolean;

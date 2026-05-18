@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { SkillKnowledgeCardState } from "./skillKnowledgeCardState";
-import type { PostAdminSkillKnowledgeCardResponseIndexingJob } from "./postAdminSkillKnowledgeCardResponseIndexingJob";
+import type { SkillKnowledgeCardState } from './skillKnowledgeCardState';
+import type { PostAdminSkillKnowledgeCardResponseIndexingJob } from './postAdminSkillKnowledgeCardResponseIndexingJob';
 
 export interface PostAdminSkillKnowledgeCardResponse {
   /** @nullable */

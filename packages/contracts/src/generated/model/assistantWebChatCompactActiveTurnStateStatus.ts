@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatCompactActiveTurnStateStatus =
-  (typeof AssistantWebChatCompactActiveTurnStateStatus)[keyof typeof AssistantWebChatCompactActiveTurnStateStatus];
+export type AssistantWebChatCompactActiveTurnStateStatus = typeof AssistantWebChatCompactActiveTurnStateStatus[keyof typeof AssistantWebChatCompactActiveTurnStateStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatCompactActiveTurnStateStatus = {
-  accepted: "accepted",
-  running: "running"
+  accepted: 'accepted',
+  running: 'running',
 } as const;

@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatActiveMediaJobStateKind =
-  (typeof AssistantWebChatActiveMediaJobStateKind)[keyof typeof AssistantWebChatActiveMediaJobStateKind];
+export type AssistantWebChatActiveMediaJobStateKind = typeof AssistantWebChatActiveMediaJobStateKind[keyof typeof AssistantWebChatActiveMediaJobStateKind];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatActiveMediaJobStateKind = {
-  image: "image",
-  audio: "audio",
-  video: "video"
+  image: 'image',
+  audio: 'audio',
+  video: 'video',
 } as const;

@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { SkillDocumentState } from "./skillDocumentState";
-import type { KnowledgeIndexingJobState } from "./knowledgeIndexingJobState";
+import type { SkillDocumentState } from './skillDocumentState';
+import type { KnowledgeIndexingJobState } from './knowledgeIndexingJobState';
 
 export interface PostAdminSkillDocumentUploadResponse {
   /** @nullable */

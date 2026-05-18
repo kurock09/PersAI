@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminPlanContextPolicyPreset =
-  (typeof AdminPlanContextPolicyPreset)[keyof typeof AdminPlanContextPolicyPreset];
+export type AdminPlanContextPolicyPreset = typeof AdminPlanContextPolicyPreset[keyof typeof AdminPlanContextPolicyPreset];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminPlanContextPolicyPreset = {
-  lean: "lean",
-  balanced: "balanced",
-  rich: "rich",
-  custom: "custom"
+  lean: 'lean',
+  balanced: 'balanced',
+  rich: 'rich',
+  custom: 'custom',
 } as const;

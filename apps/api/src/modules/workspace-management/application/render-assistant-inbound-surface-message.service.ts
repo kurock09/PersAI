@@ -1,5 +1,10 @@
 import { Injectable } from "@nestjs/common";
+import type { SupportedLocale } from "@persai/types";
 import type { AssistantInboundSurface } from "./assistant-inbound.types";
+import {
+  resolveMessengerSurfaceErrorCopy,
+  resolveReminderSurfaceErrorCopy
+} from "./system-copy/system-copy-catalog";
 
 type RenderedSurfaceMessage = {
   text: string;
@@ -11,19 +16,20 @@ export class RenderAssistantInboundSurfaceMessageService {
   renderError(
     surface: AssistantInboundSurface,
     code: string,
-    fallbackMessage: string
+    fallbackMessage: string,
+    locale: SupportedLocale = "en"
   ): RenderedSurfaceMessage {
     if (surface === "telegram" || surface === "whatsapp" || surface === "max") {
       return {
         code,
-        text: this.renderMessengerError(code, fallbackMessage)
+        text: resolveMessengerSurfaceErrorCopy(code, locale, fallbackMessage)
       };
     }
 
     if (surface === "reminder_callback") {
       return {
         code,
-        text: this.renderReminderError(code, fallbackMessage)
+        text: resolveReminderSurfaceErrorCopy(code, locale, fallbackMessage)
       };
     }
 
@@ -31,73 +37,5 @@ export class RenderAssistantInboundSurfaceMessageService {
       code,
       text: fallbackMessage
     };
-  }
-
-  private renderMessengerError(code: string, fallbackMessage: string): string {
-    switch (code) {
-      case "assistant_not_live":
-        return "Assistant is not live yet. Please publish/apply the latest version first.";
-      case "assistant_activating":
-        return "Assistant settings are still activating. Please wait a moment and try again.";
-      case "assistant_activation_failed":
-        return "Assistant settings activation failed. Retry the rollout from Admin > Rollouts, then try again.";
-      case "plan_feature_unavailable":
-        return "This channel is not available on the current plan.";
-      case "media_storage_quota_exceeded":
-      case "workspace_storage_full":
-      case "knowledge_storage_quota_exceeded":
-      case "monthly_media_quota_exceeded":
-      case "monthly_media_quota_rejected":
-      case "tool_daily_limit_reached":
-        return fallbackMessage;
-      case "chat_message_limit_reached":
-        return "This chat has reached its message limit. Please continue in a new chat or upgrade the plan.";
-      case "token_budget_exhausted":
-        return fallbackMessage;
-      case "rate_limited":
-        return "Requests are temporarily limited right now. Please try again in a moment.";
-      case "runtime_timeout":
-        return "The assistant took too long to respond. Please try again.";
-      case "native_runtime_conflict":
-        return "One previous response is still finishing. Please wait a moment and try again.";
-      case "runtime_degraded":
-      case "runtime_unreachable":
-      case "runtime_auth_failure":
-      case "runtime_invalid_response":
-      case "assistant_turn_failed":
-        return "Assistant is temporarily unavailable. Please try again.";
-      default:
-        return fallbackMessage;
-    }
-  }
-
-  private renderReminderError(code: string, fallbackMessage: string): string {
-    switch (code) {
-      case "assistant_activating":
-        return "Reminder delivery is waiting for assistant settings activation.";
-      case "assistant_activation_failed":
-        return "Reminder delivery is blocked until assistant settings activation is retried.";
-      case "plan_feature_unavailable":
-        return "Reminder delivery is unavailable on the current plan.";
-      case "quota_limit_reached":
-      case "tool_daily_limit_reached":
-      case "monthly_media_quota_exceeded":
-      case "monthly_media_quota_rejected":
-      case "media_storage_quota_exceeded":
-      case "workspace_storage_full":
-      case "knowledge_storage_quota_exceeded":
-        return fallbackMessage;
-      case "rate_limited":
-        return "Reminder delivery is temporarily rate-limited.";
-      case "runtime_timeout":
-      case "runtime_degraded":
-      case "runtime_unreachable":
-      case "runtime_auth_failure":
-      case "runtime_invalid_response":
-      case "assistant_turn_failed":
-        return "Reminder delivery is temporarily unavailable.";
-      default:
-        return fallbackMessage;
-    }
   }
 }

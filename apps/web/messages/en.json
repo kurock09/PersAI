@@ -75,7 +75,22 @@
     "verificationFailed": "Verification failed. Try again.",
     "verificationIncomplete": "Verification incomplete. Please try again.",
     "additionalVerification": "Additional verification required",
-    "somethingWrong": "Something went wrong"
+    "somethingWrong": "Something went wrong",
+    "clerkErrors": {
+      "form_password_incorrect": "Incorrect email or password.",
+      "form_identifier_not_found": "No account found with this email.",
+      "form_password_pwned": "This password is too common. Choose a stronger one.",
+      "form_password_length_too_short": "Password is too short.",
+      "form_password_not_strong_enough": "Password is not strong enough.",
+      "form_password_validation_failed": "Password does not meet the requirements.",
+      "form_code_incorrect": "Incorrect verification code.",
+      "verification_failed": "Verification failed. Try again.",
+      "too_many_requests": "Too many attempts. Please wait and try again.",
+      "user_locked": "Your account is temporarily locked. Try again later.",
+      "session_exists": "You are already signed in.",
+      "form_param_format_invalid": "Check the entered data and try again.",
+      "strategy_for_user_invalid": "This sign-in method is not available for this account."
+    }
   },
   "chat": {
     "newChat": "New chat",

@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type UserPlanVisibilityPackageToolOffersOfferReason =
-  (typeof UserPlanVisibilityPackageToolOffersOfferReason)[keyof typeof UserPlanVisibilityPackageToolOffersOfferReason];
+export type UserPlanVisibilityPackageToolOffersOfferReason = typeof UserPlanVisibilityPackageToolOffersOfferReason[keyof typeof UserPlanVisibilityPackageToolOffersOfferReason];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UserPlanVisibilityPackageToolOffersOfferReason = {
-  available: "available",
-  no_public_packages: "no_public_packages",
-  tool_not_enabled_on_current_plan: "tool_not_enabled_on_current_plan"
+  available: 'available',
+  no_public_packages: 'no_public_packages',
+  tool_not_enabled_on_current_plan: 'tool_not_enabled_on_current_plan',
 } as const;

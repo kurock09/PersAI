@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { TelegramIntegrationState } from "./telegramIntegrationState";
-import type { BootstrapSectionError } from "./bootstrapSectionError";
+import type { TelegramIntegrationState } from './telegramIntegrationState';
+import type { BootstrapSectionError } from './bootstrapSectionError';
 
 export interface AppBootstrapTelegramSection {
   ok: boolean;

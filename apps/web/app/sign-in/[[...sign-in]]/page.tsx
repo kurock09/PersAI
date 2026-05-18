@@ -11,6 +11,7 @@ import {
   withSafeRedirectParam
 } from "@/app/lib/clerk-navigation";
 import { RedirectSignedInUserToApp } from "@/app/app/_components/redirect-signed-in-to-app";
+import { mapClerkError } from "@/app/lib/clerk-error-messages";
 import { PasswordField } from "@/app/app/_components/password-field";
 import { useSearchParams } from "next/navigation";
 
@@ -60,7 +61,7 @@ export default function SignInPage() {
         password
       });
       if (pwError) {
-        setError(pwError.longMessage ?? pwError.message ?? t("signInFailed"));
+        setError(mapClerkError(pwError, t, "signInFailed"));
         return;
       }
 
@@ -80,8 +81,8 @@ export default function SignInPage() {
         await signIn.mfa.sendEmailCode();
         setStage("verify");
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("somethingWrong"));
+    } catch {
+      setError(t("somethingWrong"));
     }
   }, [email, password, signIn, finalize, t]);
 
@@ -95,8 +96,8 @@ export default function SignInPage() {
       } else {
         setError(t("verificationFailed"));
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("verificationFailed"));
+    } catch {
+      setError(t("verificationFailed"));
     }
   }, [code, signIn, finalize, t]);
 
@@ -116,23 +117,19 @@ export default function SignInPage() {
         identifier: resetEmail.trim()
       });
       if (createError) {
-        setError(
-          createError.longMessage ?? createError.message ?? t("forgotPasswordRequestFailed")
-        );
+        setError(mapClerkError(createError, t, "forgotPasswordRequestFailed"));
         return;
       }
 
       const { error: sendCodeError } = await signIn.resetPasswordEmailCode.sendCode();
       if (sendCodeError) {
-        setError(
-          sendCodeError.longMessage ?? sendCodeError.message ?? t("forgotPasswordRequestFailed")
-        );
+        setError(mapClerkError(sendCodeError, t, "forgotPasswordRequestFailed"));
         return;
       }
 
       setStage("forgot-code");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("somethingWrong"));
+    } catch {
+      setError(t("somethingWrong"));
     }
   }, [resetEmail, signIn, t]);
 
@@ -144,7 +141,7 @@ export default function SignInPage() {
         code: resetCode.trim()
       });
       if (verifyError) {
-        setError(verifyError.longMessage ?? verifyError.message ?? t("verificationFailed"));
+        setError(mapClerkError(verifyError, t, "verificationFailed"));
         return;
       }
 
@@ -153,8 +150,8 @@ export default function SignInPage() {
       } else {
         setError(t("verificationIncomplete"));
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("verificationFailed"));
+    } catch {
+      setError(t("verificationFailed"));
     }
   }, [resetCode, signIn, t]);
 
@@ -171,7 +168,7 @@ export default function SignInPage() {
         password: resetPassword
       });
       if (passwordError) {
-        setError(passwordError.longMessage ?? passwordError.message ?? t("passwordResetFailed"));
+        setError(mapClerkError(passwordError, t, "passwordResetFailed"));
         return;
       }
 
@@ -182,14 +179,12 @@ export default function SignInPage() {
       } else {
         setError(t("verificationIncomplete"));
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("passwordResetFailed"));
+    } catch {
+      setError(t("passwordResetFailed"));
     }
   }, [finalize, resetPassword, resetPasswordConfirm, signIn, t]);
 
-  const fieldErrors = clerkErrors?.fields as unknown as
-    | Record<string, { message: string }>
-    | undefined;
+  const fieldErrors = clerkErrors?.fields as unknown as Record<string, unknown> | undefined;
 
   if (!authLoaded) {
     return (
@@ -233,7 +228,9 @@ export default function SignInPage() {
                 className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
               />
               {fieldErrors?.identifier && (
-                <p className="mt-1 text-xs text-destructive">{fieldErrors.identifier.message}</p>
+                <p className="mt-1 text-xs text-destructive">
+                  {mapClerkError(fieldErrors.identifier, t, "signInFailed")}
+                </p>
               )}
 
               {/* Password */}
@@ -251,7 +248,9 @@ export default function SignInPage() {
                 hideLabel={t("hidePassword")}
               />
               {fieldErrors?.password && (
-                <p className="mt-1 text-xs text-destructive">{fieldErrors.password.message}</p>
+                <p className="mt-1 text-xs text-destructive">
+                  {mapClerkError(fieldErrors.password, t, "signInFailed")}
+                </p>
               )}
 
               <button

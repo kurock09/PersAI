@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingPaymentMethodClass =
-  (typeof AssistantBillingPaymentMethodClass)[keyof typeof AssistantBillingPaymentMethodClass];
+export type AssistantBillingPaymentMethodClass = typeof AssistantBillingPaymentMethodClass[keyof typeof AssistantBillingPaymentMethodClass];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingPaymentMethodClass = {
-  card: "card",
-  sbp_qr: "sbp_qr"
+  card: 'card',
+  sbp_qr: 'sbp_qr',
 } as const;

@@ -1,13 +1,21 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useLocale } from "next-intl";
+import { isWebLocale, switchWebLocale } from "@/app/lib/locale-sync";
 
 export function LandingLocaleSwitcher() {
   const current = useLocale();
+  const { getToken, isSignedIn } = useAuth();
 
   const switchLocale = (code: string) => {
-    document.cookie = `persai-locale=${code};path=/;max-age=${365 * 86400};samesite=lax`;
-    window.location.reload();
+    if (!isWebLocale(code)) {
+      return;
+    }
+    void (async () => {
+      const token = isSignedIn ? await getToken() : null;
+      await switchWebLocale(code, token);
+    })();
   };
 
   return (

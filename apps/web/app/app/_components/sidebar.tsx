@@ -36,6 +36,7 @@ import { useNetworkOnline } from "./use-network-online";
 import { resolveBillingSummaryCopy } from "./billing-summary";
 import { AndroidAppDownloadBanner } from "../../_components/android-app-download-banner";
 import { navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
+import { isWebLocale, switchWebLocale } from "@/app/lib/locale-sync";
 import {
   patchAssistantWebChat,
   postAssistantWebChatArchive,
@@ -426,6 +427,7 @@ function AccountFooter({
   const t = useTranslations("sidebar");
   const ts = useTranslations("settings");
   const locale = useLocale();
+  const { getToken } = useAuth();
   const { user } = useUser();
   const { signOut } = useClerk();
   const router = useRouter();
@@ -490,10 +492,13 @@ function AccountFooter({
   );
 
   const switchLocale = (code: string) => {
-    void guardedNavigate(() => {
-      document.cookie = `persai-locale=${code};path=/;max-age=${365 * 86400};samesite=lax`;
+    if (!isWebLocale(code)) {
+      return;
+    }
+    void guardedNavigate(async () => {
       setOpen(false);
-      window.location.reload();
+      const token = await getToken();
+      await switchWebLocale(code, token);
     });
   };
 

@@ -5,6 +5,7 @@ import { CurrentUserState } from "./current-user-state.types";
 import { GetCurrentUserStateService } from "./get-current-user-state.service";
 import { ResolvedAppUser } from "./resolved-auth-user.types";
 import { MVP_PRIVACY_POLICY_VERSION, MVP_TERMS_OF_SERVICE_VERSION } from "./compliance-baseline";
+import { normalizeLocaleInput, resolvePreferredLocale } from "./locale-resolution";
 
 export interface OnboardingInput {
   displayName: string;
@@ -97,6 +98,11 @@ export class UpsertOnboardingService {
       throw new BadRequestException("acceptPrivacyPolicy must be true.");
     }
 
+    const resolvedLocale = resolvePreferredLocale({
+      preferredLocale: normalizeLocaleInput(input.locale),
+      workspaceLocale: null
+    });
+
     await this.prismaService.$transaction(async (tx) => {
       const existingUser = await tx.appUser.findUnique({
         where: { id: resolvedAppUser.id }
@@ -119,6 +125,7 @@ export class UpsertOnboardingService {
         where: { id: resolvedAppUser.id },
         data: {
           displayName: input.displayName,
+          preferredLocale: resolvedLocale,
           ...(input.birthday !== null ? { birthday: new Date(input.birthday) } : {}),
           ...(input.gender !== null ? { gender: input.gender } : {}),
           termsOfServiceVersion: input.termsOfServiceVersion,
@@ -149,7 +156,7 @@ export class UpsertOnboardingService {
         const workspace = await tx.workspace.create({
           data: {
             name: input.workspaceName,
-            locale: input.locale,
+            locale: resolvedLocale,
             timezone: input.timezone,
             status: WorkspaceStatus.active
           }
@@ -170,7 +177,7 @@ export class UpsertOnboardingService {
         where: { id: fallbackMembership.workspaceId },
         data: {
           name: input.workspaceName,
-          locale: input.locale,
+          locale: resolvedLocale,
           timezone: input.timezone,
           status: WorkspaceStatus.active
         }
@@ -205,7 +212,9 @@ export class UpsertOnboardingService {
       birthday: refreshedAppUser.birthday
         ? refreshedAppUser.birthday.toISOString().split("T")[0]!
         : null,
-      gender: refreshedAppUser.gender
+      gender: refreshedAppUser.gender,
+      preferredLocale: refreshedAppUser.preferredLocale,
+      countryCode: refreshedAppUser.countryCode
     });
   }
 

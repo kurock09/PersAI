@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantWebChatListItemState } from "./assistantWebChatListItemState";
-import type { BootstrapSectionError } from "./bootstrapSectionError";
+import type { AssistantWebChatListItemState } from './assistantWebChatListItemState';
+import type { BootstrapSectionError } from './bootstrapSectionError';
 
 export interface AppBootstrapChatsSection {
   ok: boolean;

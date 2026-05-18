@@ -5,11 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type SkillStatus = (typeof SkillStatus)[keyof typeof SkillStatus];
+export type SkillStatus = typeof SkillStatus[keyof typeof SkillStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SkillStatus = {
-  draft: "draft",
-  active: "active",
-  archived: "archived"
+  draft: 'draft',
+  active: 'active',
+  archived: 'archived',
 } as const;

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
+import { mapClerkError } from "@/app/lib/clerk-error-messages";
 import { useClerkAvatar } from "../_components/use-clerk-avatar";
 import { PasswordField } from "../_components/password-field";
 
@@ -26,6 +27,7 @@ export default function ProfilePage() {
   const { signOut } = useClerk();
   const router = useRouter();
   const t = useTranslations("profile");
+  const ta = useTranslations("auth");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoutInFlightRef = useRef(false);
   const clerkAvatar = useClerkAvatar();
@@ -65,6 +67,20 @@ export default function ProfilePage() {
     };
   }, [avatarPreviewUrl]);
 
+  const resolveLocalizedError = useCallback(
+    (
+      error: unknown,
+      fallbackKey: "profileSaveFailed" | "avatarSaveFailed" | "passwordSaveFailed"
+    ) => {
+      if (typeof error === "object" && error !== null && "code" in error) {
+        return mapClerkError(error, ta, "somethingWrong");
+      }
+
+      return t(fallbackKey);
+    },
+    [t, ta]
+  );
+
   const handleProfileSave = useCallback(async () => {
     if (!user) return;
     setProfileSaving(true);
@@ -78,12 +94,12 @@ export default function ProfilePage() {
     } catch (error) {
       setProfileFeedback({
         type: "err",
-        text: error instanceof Error ? error.message : t("profileSaveFailed")
+        text: resolveLocalizedError(error, "profileSaveFailed")
       });
     } finally {
       setProfileSaving(false);
     }
-  }, [firstName, lastName, t, user]);
+  }, [firstName, lastName, resolveLocalizedError, t, user]);
 
   const handleAvatarChange = useCallback(
     async (file: File) => {
@@ -111,13 +127,13 @@ export default function ProfilePage() {
       } catch (error) {
         setAvatarFeedback({
           type: "err",
-          text: error instanceof Error ? error.message : t("avatarSaveFailed")
+          text: resolveLocalizedError(error, "avatarSaveFailed")
         });
       } finally {
         setAvatarSaving(false);
       }
     },
-    [t, user]
+    [resolveLocalizedError, t, user]
   );
 
   const handlePasswordSave = useCallback(async () => {
@@ -141,12 +157,12 @@ export default function ProfilePage() {
     } catch (error) {
       setPasswordFeedback({
         type: "err",
-        text: error instanceof Error ? error.message : t("passwordSaveFailed")
+        text: resolveLocalizedError(error, "passwordSaveFailed")
       });
     } finally {
       setPasswordSaving(false);
     }
-  }, [confirmPassword, currentPassword, newPassword, t, user]);
+  }, [confirmPassword, currentPassword, newPassword, resolveLocalizedError, t, user]);
   const isUsingClerkAvatar = avatarPreviewUrl === null && user?.hasImage === true;
   const profileImage = avatarPreviewUrl ?? (isUsingClerkAvatar ? clerkAvatar.imageSrc : null);
   const profileImageBroken = isUsingClerkAvatar ? clerkAvatar.broken : previewBroken;

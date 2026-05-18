@@ -4,11 +4,11 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantWebChatRuntimeStateTurnRoutingMode } from "./assistantWebChatRuntimeStateTurnRoutingMode";
-import type { AssistantWebChatRuntimeStateTurnRoutingExecutionMode } from "./assistantWebChatRuntimeStateTurnRoutingExecutionMode";
-import type { AssistantWebChatRuntimeStateTurnRoutingSource } from "./assistantWebChatRuntimeStateTurnRoutingSource";
-import type { AssistantWebChatRuntimeStateTurnRoutingRetrievalPlan } from "./assistantWebChatRuntimeStateTurnRoutingRetrievalPlan";
-import type { AssistantWebChatRuntimeStateTurnRoutingSkillState } from "./assistantWebChatRuntimeStateTurnRoutingSkillState";
+import type { AssistantWebChatRuntimeStateTurnRoutingMode } from './assistantWebChatRuntimeStateTurnRoutingMode';
+import type { AssistantWebChatRuntimeStateTurnRoutingExecutionMode } from './assistantWebChatRuntimeStateTurnRoutingExecutionMode';
+import type { AssistantWebChatRuntimeStateTurnRoutingSource } from './assistantWebChatRuntimeStateTurnRoutingSource';
+import type { AssistantWebChatRuntimeStateTurnRoutingRetrievalPlan } from './assistantWebChatRuntimeStateTurnRoutingRetrievalPlan';
+import type { AssistantWebChatRuntimeStateTurnRoutingSkillState } from './assistantWebChatRuntimeStateTurnRoutingSkillState';
 
 /**
  * @nullable

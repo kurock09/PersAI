@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { UserPlanVisibilityPackageOfferToolCode } from "./userPlanVisibilityPackageOfferToolCode";
-import type { AdminPlanLocalizedText } from "./adminPlanLocalizedText";
+import type { UserPlanVisibilityPackageOfferToolCode } from './userPlanVisibilityPackageOfferToolCode';
+import type { AdminPlanLocalizedText } from './adminPlanLocalizedText';
 
 export interface UserPlanVisibilityPackageOffer {
   id: string;

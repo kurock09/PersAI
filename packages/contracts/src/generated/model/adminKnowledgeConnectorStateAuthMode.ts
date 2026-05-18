@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminKnowledgeConnectorStateAuthMode =
-  (typeof AdminKnowledgeConnectorStateAuthMode)[keyof typeof AdminKnowledgeConnectorStateAuthMode];
+export type AdminKnowledgeConnectorStateAuthMode = typeof AdminKnowledgeConnectorStateAuthMode[keyof typeof AdminKnowledgeConnectorStateAuthMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminKnowledgeConnectorStateAuthMode = {
-  oauth_deferred: "oauth_deferred"
+  oauth_deferred: 'oauth_deferred',
 } as const;

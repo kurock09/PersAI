@@ -1,23 +1,19 @@
 import { getRequestConfig } from "next-intl/server";
 import { cookies, headers } from "next/headers";
+import { isSupportedLocale, type SupportedLocale } from "@persai/types";
 
-const SUPPORTED_LOCALES = ["en", "ru"] as const;
-type Locale = (typeof SUPPORTED_LOCALES)[number];
-
-function isSupported(locale: string): locale is Locale {
-  return (SUPPORTED_LOCALES as readonly string[]).includes(locale);
-}
+type Locale = SupportedLocale;
 
 async function resolveLocale(): Promise<Locale> {
   const cookieStore = await cookies();
   const cookie = cookieStore.get("persai-locale")?.value;
-  if (cookie && isSupported(cookie)) return cookie;
+  if (cookie && isSupportedLocale(cookie)) return cookie;
 
   const headerStore = await headers();
   const accept = headerStore.get("accept-language") ?? "";
   for (const part of accept.split(",")) {
     const lang = part.trim().split(";")[0]?.split("-")[0]?.toLowerCase() ?? "";
-    if (isSupported(lang)) return lang;
+    if (isSupportedLocale(lang)) return lang;
   }
 
   return "en";

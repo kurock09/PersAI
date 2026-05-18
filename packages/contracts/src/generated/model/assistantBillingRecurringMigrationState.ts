@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantBillingRecurringMigrationStateStatus } from "./assistantBillingRecurringMigrationStateStatus";
-import type { AssistantBillingRecurringMigrationStateTargetMethodClass } from "./assistantBillingRecurringMigrationStateTargetMethodClass";
+import type { AssistantBillingRecurringMigrationStateStatus } from './assistantBillingRecurringMigrationStateStatus';
+import type { AssistantBillingRecurringMigrationStateTargetMethodClass } from './assistantBillingRecurringMigrationStateTargetMethodClass';
 
 export interface AssistantBillingRecurringMigrationState {
   status: AssistantBillingRecurringMigrationStateStatus;

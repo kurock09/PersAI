@@ -8,13 +8,12 @@
 /**
  * @nullable
  */
-export type AssistantMaterializationStateSourceAction =
-  | (typeof AssistantMaterializationStateSourceAction)[keyof typeof AssistantMaterializationStateSourceAction]
-  | null;
+export type AssistantMaterializationStateSourceAction = typeof AssistantMaterializationStateSourceAction[keyof typeof AssistantMaterializationStateSourceAction] | null;
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantMaterializationStateSourceAction = {
-  publish: "publish",
-  rollback: "rollback",
-  reset: "reset"
+  publish: 'publish',
+  rollback: 'rollback',
+  reset: 'reset',
 } as const;

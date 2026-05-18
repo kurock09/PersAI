@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { UserPlanVisibilityPackageToolOffersToolCode } from "./userPlanVisibilityPackageToolOffersToolCode";
-import type { UserPlanVisibilityPackageToolOffersOfferReason } from "./userPlanVisibilityPackageToolOffersOfferReason";
-import type { UserPlanVisibilityPackageToolOffersPreferredOfferKind } from "./userPlanVisibilityPackageToolOffersPreferredOfferKind";
-import type { UserPlanVisibilityPackageOffer } from "./userPlanVisibilityPackageOffer";
+import type { UserPlanVisibilityPackageToolOffersToolCode } from './userPlanVisibilityPackageToolOffersToolCode';
+import type { UserPlanVisibilityPackageToolOffersOfferReason } from './userPlanVisibilityPackageToolOffersOfferReason';
+import type { UserPlanVisibilityPackageToolOffersPreferredOfferKind } from './userPlanVisibilityPackageToolOffersPreferredOfferKind';
+import type { UserPlanVisibilityPackageOffer } from './userPlanVisibilityPackageOffer';
 
 export interface UserPlanVisibilityPackageToolOffers {
   toolCode: UserPlanVisibilityPackageToolOffersToolCode;

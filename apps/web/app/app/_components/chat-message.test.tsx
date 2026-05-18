@@ -4,6 +4,12 @@ import { forwardRef } from "react";
 import { ChatMessageBubble, resolveInternalChatCta } from "./chat-message";
 import type { ChatMessage } from "./use-chat";
 
+vi.mock("@clerk/nextjs", () => ({
+  useAuth: () => ({
+    getToken: vi.fn().mockResolvedValue("test-token")
+  })
+}));
+
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key
 }));

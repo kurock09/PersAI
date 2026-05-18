@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminKnowledgeConnectorStateKind =
-  (typeof AdminKnowledgeConnectorStateKind)[keyof typeof AdminKnowledgeConnectorStateKind];
+export type AdminKnowledgeConnectorStateKind = typeof AdminKnowledgeConnectorStateKind[keyof typeof AdminKnowledgeConnectorStateKind];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminKnowledgeConnectorStateKind = {
-  google_drive: "google_drive",
-  yandex_disk: "yandex_disk",
-  mailru_cloud: "mailru_cloud"
+  google_drive: 'google_drive',
+  yandex_disk: 'yandex_disk',
+  mailru_cloud: 'mailru_cloud',
 } as const;

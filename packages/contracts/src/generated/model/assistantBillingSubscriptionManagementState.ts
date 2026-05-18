@@ -4,11 +4,11 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantBillingSubscriptionManagementStateSubscriptionStatus } from "./assistantBillingSubscriptionManagementStateSubscriptionStatus";
-import type { AssistantBillingEnableAutoRenewMode } from "./assistantBillingEnableAutoRenewMode";
-import type { AssistantBillingSubscriptionManagementStateScheduledPlanChange } from "./assistantBillingSubscriptionManagementStateScheduledPlanChange";
-import type { AssistantBillingRecurringMigrationState } from "./assistantBillingRecurringMigrationState";
-import type { AssistantBillingSubscriptionManagementMode } from "./assistantBillingSubscriptionManagementMode";
+import type { AssistantBillingSubscriptionManagementStateSubscriptionStatus } from './assistantBillingSubscriptionManagementStateSubscriptionStatus';
+import type { AssistantBillingEnableAutoRenewMode } from './assistantBillingEnableAutoRenewMode';
+import type { AssistantBillingSubscriptionManagementStateScheduledPlanChange } from './assistantBillingSubscriptionManagementStateScheduledPlanChange';
+import type { AssistantBillingRecurringMigrationState } from './assistantBillingRecurringMigrationState';
+import type { AssistantBillingSubscriptionManagementMode } from './assistantBillingSubscriptionManagementMode';
 
 export interface AssistantBillingSubscriptionManagementState {
   /** @nullable */

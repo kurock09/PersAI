@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type SkillAuthoringDraftProposalStateProviderKey =
-  (typeof SkillAuthoringDraftProposalStateProviderKey)[keyof typeof SkillAuthoringDraftProposalStateProviderKey];
+export type SkillAuthoringDraftProposalStateProviderKey = typeof SkillAuthoringDraftProposalStateProviderKey[keyof typeof SkillAuthoringDraftProposalStateProviderKey];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SkillAuthoringDraftProposalStateProviderKey = {
-  openai: "openai",
-  anthropic: "anthropic"
+  openai: 'openai',
+  anthropic: 'anthropic',
 } as const;

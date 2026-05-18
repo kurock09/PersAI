@@ -4,12 +4,12 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AppBootstrapAssistantSection } from "./appBootstrapAssistantSection";
-import type { AppBootstrapChatsSection } from "./appBootstrapChatsSection";
-import type { AppBootstrapTelegramSection } from "./appBootstrapTelegramSection";
-import type { AppBootstrapNotificationPreferenceSection } from "./appBootstrapNotificationPreferenceSection";
-import type { AppBootstrapPlanSection } from "./appBootstrapPlanSection";
-import type { AppBootstrapAdminSection } from "./appBootstrapAdminSection";
+import type { AppBootstrapAssistantSection } from './appBootstrapAssistantSection';
+import type { AppBootstrapChatsSection } from './appBootstrapChatsSection';
+import type { AppBootstrapTelegramSection } from './appBootstrapTelegramSection';
+import type { AppBootstrapNotificationPreferenceSection } from './appBootstrapNotificationPreferenceSection';
+import type { AppBootstrapPlanSection } from './appBootstrapPlanSection';
+import type { AppBootstrapAdminSection } from './appBootstrapAdminSection';
 
 export interface AppBootstrapSectionsState {
   assistant: AppBootstrapAssistantSection;

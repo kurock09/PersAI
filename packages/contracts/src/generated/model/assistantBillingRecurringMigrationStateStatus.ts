@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingRecurringMigrationStateStatus =
-  (typeof AssistantBillingRecurringMigrationStateStatus)[keyof typeof AssistantBillingRecurringMigrationStateStatus];
+export type AssistantBillingRecurringMigrationStateStatus = typeof AssistantBillingRecurringMigrationStateStatus[keyof typeof AssistantBillingRecurringMigrationStateStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingRecurringMigrationStateStatus = {
-  idle: "idle",
-  in_progress: "in_progress",
-  succeeded: "succeeded",
-  failed: "failed"
+  idle: 'idle',
+  in_progress: 'in_progress',
+  succeeded: 'succeeded',
+  failed: 'failed',
 } as const;

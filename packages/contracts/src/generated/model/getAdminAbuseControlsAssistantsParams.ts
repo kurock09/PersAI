@@ -6,5 +6,5 @@
  */
 
 export type GetAdminAbuseControlsAssistantsParams = {
-  email: string;
+email: string;
 };

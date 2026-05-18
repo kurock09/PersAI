@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminToolPromptMetadataStateCatalogStatus =
-  (typeof AdminToolPromptMetadataStateCatalogStatus)[keyof typeof AdminToolPromptMetadataStateCatalogStatus];
+export type AdminToolPromptMetadataStateCatalogStatus = typeof AdminToolPromptMetadataStateCatalogStatus[keyof typeof AdminToolPromptMetadataStateCatalogStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminToolPromptMetadataStateCatalogStatus = {
-  active: "active",
-  inactive: "inactive"
+  active: 'active',
+  inactive: 'inactive',
 } as const;

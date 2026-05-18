@@ -18,6 +18,8 @@ import { StaticFallbackRendererService } from "./render/static-fallback-renderer
 import { NOTIFICATION_CHANNEL_ADAPTERS } from "../../infrastructure/notifications/channel-adapters/channel-adapter.interface";
 import type { NotificationChannelAdapter } from "../../infrastructure/notifications/channel-adapters/channel-adapter.interface";
 import type { NotificationIntentRecord } from "./notification-platform.types";
+import { normalizeLocaleInput } from "@persai/types";
+import { ResolveUserLocaleService } from "../resolve-user-locale.service";
 import {
   NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS,
   NOTIFICATION_POLICY_DEFAULTS,
@@ -127,6 +129,7 @@ export type TestSendResult = {
 export type TestSendForSourceInput = {
   eventCode?: string | null;
   channelOverride?: string | null;
+  locale?: "ru" | "en" | null;
 };
 
 export type TestSendForSourceResult = {
@@ -280,6 +283,7 @@ export class ManageNotificationPlatformService {
     private readonly templateRenderer: TemplateRendererService,
     private readonly groundedLlmRenderer: GroundedLlmRendererService,
     private readonly staticFallbackRenderer: StaticFallbackRendererService,
+    private readonly resolveUserLocaleService: ResolveUserLocaleService,
     @Inject(NOTIFICATION_CHANNEL_ADAPTERS)
     private readonly channelAdapters: NotificationChannelAdapter[]
   ) {}
@@ -675,6 +679,9 @@ export class ManageNotificationPlatformService {
           : "trial_ending";
       const now = new Date();
       const soon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+      const locale =
+        normalizeLocaleInput(input.locale ?? null) ??
+        (await this.resolveUserLocaleService.forUserInWorkspace(userId, workspaceId));
       factPayload = {
         rule: eventCode,
         workspaceId,
@@ -685,7 +692,7 @@ export class ManageNotificationPlatformService {
         trialEndsAt: soon.toISOString(),
         amount: 990,
         currency: "RUB",
-        locale: "ru",
+        locale,
         recipientEmail: adminEmail
       };
       templateId = `billing.${eventCode}`;

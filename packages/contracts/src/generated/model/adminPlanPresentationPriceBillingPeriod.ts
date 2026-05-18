@@ -8,12 +8,11 @@
 /**
  * @nullable
  */
-export type AdminPlanPresentationPriceBillingPeriod =
-  | (typeof AdminPlanPresentationPriceBillingPeriod)[keyof typeof AdminPlanPresentationPriceBillingPeriod]
-  | null;
+export type AdminPlanPresentationPriceBillingPeriod = typeof AdminPlanPresentationPriceBillingPeriod[keyof typeof AdminPlanPresentationPriceBillingPeriod] | null;
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminPlanPresentationPriceBillingPeriod = {
-  month: "month",
-  year: "year"
+  month: 'month',
+  year: 'year',
 } as const;

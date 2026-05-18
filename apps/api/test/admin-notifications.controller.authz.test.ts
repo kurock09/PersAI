@@ -100,7 +100,10 @@ function buildController(authService: AdminAuthorizationService): AdminNotificat
     failingPrismaProxy as never,
     authService,
     failingRenderer as never,
-    failingRenderer as never
+    failingRenderer as never,
+    failingRenderer as never,
+    { forUserInWorkspace: async () => "en" as const } as never,
+    []
   );
   return new AdminNotificationsController(manageService);
 }

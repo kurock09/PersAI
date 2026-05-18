@@ -499,14 +499,14 @@ export default function SetupWizardPage() {
     () => ({
       displayName: userName.trim(),
       workspaceName: `${userName.trim()}'s workspace`,
-      locale: navigator.language ?? "en",
+      locale,
       timezone: timezone || "UTC",
       birthday: birthday || null,
       gender: gender ?? null,
       acceptTermsOfService: true,
       acceptPrivacyPolicy: true
     }),
-    [birthday, gender, timezone, userName]
+    [birthday, gender, locale, timezone, userName]
   );
 
   const persistDraftForPreview = useCallback(async () => {

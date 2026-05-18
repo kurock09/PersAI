@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type MonthlyMediaQuotaSnapshotPeriodSource =
-  (typeof MonthlyMediaQuotaSnapshotPeriodSource)[keyof typeof MonthlyMediaQuotaSnapshotPeriodSource];
+export type MonthlyMediaQuotaSnapshotPeriodSource = typeof MonthlyMediaQuotaSnapshotPeriodSource[keyof typeof MonthlyMediaQuotaSnapshotPeriodSource];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const MonthlyMediaQuotaSnapshotPeriodSource = {
-  subscription_period: "subscription_period",
-  calendar_month_fallback: "calendar_month_fallback"
+  subscription_period: 'subscription_period',
+  calendar_month_fallback: 'calendar_month_fallback',
 } as const;

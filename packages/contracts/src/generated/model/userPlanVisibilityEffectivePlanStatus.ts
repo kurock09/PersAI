@@ -8,12 +8,11 @@
 /**
  * @nullable
  */
-export type UserPlanVisibilityEffectivePlanStatus =
-  | (typeof UserPlanVisibilityEffectivePlanStatus)[keyof typeof UserPlanVisibilityEffectivePlanStatus]
-  | null;
+export type UserPlanVisibilityEffectivePlanStatus = typeof UserPlanVisibilityEffectivePlanStatus[keyof typeof UserPlanVisibilityEffectivePlanStatus] | null;
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UserPlanVisibilityEffectivePlanStatus = {
-  active: "active",
-  inactive: "inactive"
+  active: 'active',
+  inactive: 'inactive',
 } as const;

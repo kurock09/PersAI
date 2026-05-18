@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { MaterializationRolloutItemViewStatus } from "./materializationRolloutItemViewStatus";
+import type { MaterializationRolloutItemViewStatus } from './materializationRolloutItemViewStatus';
 
 export interface MaterializationRolloutItemView {
   id: string;

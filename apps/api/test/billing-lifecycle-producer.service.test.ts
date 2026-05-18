@@ -130,7 +130,15 @@ function makeService(opts: {
     }
   } as Pick<NotificationIntentService, "createIntent"> as NotificationIntentService;
 
-  return new BillingLifecycleProducerService(prisma as never, intentService);
+  const resolveUserLocaleService = {
+    forUserInWorkspace: async () => "en" as const
+  };
+
+  return new BillingLifecycleProducerService(
+    prisma as never,
+    intentService,
+    resolveUserLocaleService as never
+  );
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────

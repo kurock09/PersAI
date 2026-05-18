@@ -5212,6 +5212,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /me/preferences:
+    patch:
+      operationId: patchMePreferences
+      summary: Update persisted user locale and regional preferences
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserPreferencesRequest"
+      responses:
+        "200":
+          description: Updated current user state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetMeResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /me/onboarding:
     post:
       operationId: postMeOnboarding
@@ -5288,6 +5325,20 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    UpdateUserPreferencesRequest:
+      type: object
+      properties:
+        preferredLocale:
+          type: string
+          enum:
+            - en
+            - ru
+        countryCode:
+          type: string
+          minLength: 2
+          maxLength: 2
+          nullable: true
+      minProperties: 1
     OnboardingRequest:
       type: object
       required:
@@ -5366,6 +5417,7 @@ components:
         - id
         - clerkUserId
         - email
+        - resolvedLocale
       properties:
         id:
           type: string
@@ -5384,6 +5436,22 @@ components:
         gender:
           type: string
           nullable: true
+        preferredLocale:
+          type: string
+          enum:
+            - en
+            - ru
+          nullable: true
+        countryCode:
+          type: string
+          minLength: 2
+          maxLength: 2
+          nullable: true
+        resolvedLocale:
+          type: string
+          enum:
+            - en
+            - ru
     OnboardingState:
       type: object
       required:

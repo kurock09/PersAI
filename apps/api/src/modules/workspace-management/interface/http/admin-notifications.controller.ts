@@ -368,6 +368,9 @@ function parseTestSendForSourceInput(body: unknown): TestSendForSourceInput {
       : {}),
     ...(typeof body["channelOverride"] === "string" || body["channelOverride"] === null
       ? { channelOverride: body["channelOverride"] as string | null }
+      : {}),
+    ...(typeof body["locale"] === "string" || body["locale"] === null
+      ? { locale: body["locale"] as "ru" | "en" | null }
       : {})
   };
 }

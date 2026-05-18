@@ -1,10 +1,12 @@
 import { HttpStatus } from "@nestjs/common";
+import { normalizeLocaleInput } from "@persai/types";
 import {
   ApiErrorHttpException,
   type ApiErrorCategory,
   type ApiErrorObject
 } from "../../platform-core/interface/http/api-error";
 import { AssistantRuntimeError } from "./assistant-runtime.facade";
+import { resolveRuntimeInboundErrorCopy } from "./system-copy/system-copy-catalog";
 
 export type AssistantInboundFailurePayload = {
   code: string;
@@ -122,20 +124,57 @@ function normalizeRuntimeError(error: AssistantRuntimeError): {
   }
 }
 
-export function toAssistantInboundHttpException(error: unknown): ApiErrorHttpException {
-  if (error instanceof ApiErrorHttpException) {
+function localizeRuntimeInboundException(
+  error: ApiErrorHttpException,
+  locale?: string | null
+): ApiErrorHttpException {
+  const normalizedLocale = normalizeLocaleInput(locale ?? null);
+  if (normalizedLocale === null) {
     return error;
+  }
+
+  const localizedMessage = resolveRuntimeInboundErrorCopy(
+    error.errorObject.code,
+    normalizedLocale,
+    error.errorObject.message
+  );
+
+  if (localizedMessage === error.errorObject.message) {
+    return error;
+  }
+
+  return new ApiErrorHttpException(error.getStatus(), {
+    ...error.errorObject,
+    message: localizedMessage
+  });
+}
+
+export function toAssistantInboundHttpException(
+  error: unknown,
+  locale?: string | null
+): ApiErrorHttpException {
+  if (error instanceof ApiErrorHttpException) {
+    return localizeRuntimeInboundException(error, locale);
   }
   if (error instanceof AssistantRuntimeError) {
     const normalized = normalizeRuntimeError(error);
-    return new ApiErrorHttpException(normalized.status, normalized.error);
+    return localizeRuntimeInboundException(
+      new ApiErrorHttpException(normalized.status, normalized.error),
+      locale
+    );
   }
   if (error instanceof Error) {
-    return createAssistantInboundInfraError("assistant_turn_failed", error.message);
+    return localizeRuntimeInboundException(
+      createAssistantInboundInfraError("assistant_turn_failed", error.message),
+      locale
+    );
   }
-  return createAssistantInboundInfraError(
-    "assistant_turn_failed",
-    "Assistant turn failed unexpectedly."
+  return localizeRuntimeInboundException(
+    createAssistantInboundInfraError(
+      "assistant_turn_failed",
+      "Assistant turn failed unexpectedly."
+    ),
+    locale
   );
 }
 
@@ -206,8 +245,11 @@ export function createKnowledgeStorageQuotaExceededError(
   );
 }
 
-export function toAssistantInboundFailurePayload(error: unknown): AssistantInboundFailurePayload {
-  const normalized = toAssistantInboundHttpException(error);
+export function toAssistantInboundFailurePayload(
+  error: unknown,
+  locale?: string | null
+): AssistantInboundFailurePayload {
+  const normalized = toAssistantInboundHttpException(error, locale);
   const guidance = normalized.errorObject.details?.userFacingGuidance;
   return {
     code: normalized.errorObject.code,

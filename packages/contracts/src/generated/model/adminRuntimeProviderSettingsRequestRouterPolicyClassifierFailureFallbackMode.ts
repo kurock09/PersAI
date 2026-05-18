@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminRuntimeProviderSettingsRequestRouterPolicyClassifierFailureFallbackMode =
-  (typeof AdminRuntimeProviderSettingsRequestRouterPolicyClassifierFailureFallbackMode)[keyof typeof AdminRuntimeProviderSettingsRequestRouterPolicyClassifierFailureFallbackMode];
+export type AdminRuntimeProviderSettingsRequestRouterPolicyClassifierFailureFallbackMode = typeof AdminRuntimeProviderSettingsRequestRouterPolicyClassifierFailureFallbackMode[keyof typeof AdminRuntimeProviderSettingsRequestRouterPolicyClassifierFailureFallbackMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminRuntimeProviderSettingsRequestRouterPolicyClassifierFailureFallbackMode = {
-  normal: "normal",
-  premium: "premium",
-  reasoning: "reasoning"
+  normal: 'normal',
+  premium: 'premium',
+  reasoning: 'reasoning',
 } as const;

@@ -20,6 +20,13 @@ async function run(): Promise<void> {
     message: "Browser is exhausted for the current daily limit.",
     guidance: "Try a request that does not need Browser until the daily limit resets."
   });
+
+  const localizedFailure = toAssistantInboundFailurePayload(
+    new Error("Runtime authorization failed for this turn."),
+    "ru"
+  );
+  assert.equal(localizedFailure.code, "assistant_turn_failed");
+  assert.equal(localizedFailure.message, "Не удалось выполнить ход ассистента.");
 }
 
 void run();

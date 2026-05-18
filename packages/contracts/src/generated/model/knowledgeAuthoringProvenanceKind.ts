@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type KnowledgeAuthoringProvenanceKind =
-  (typeof KnowledgeAuthoringProvenanceKind)[keyof typeof KnowledgeAuthoringProvenanceKind];
+export type KnowledgeAuthoringProvenanceKind = typeof KnowledgeAuthoringProvenanceKind[keyof typeof KnowledgeAuthoringProvenanceKind];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const KnowledgeAuthoringProvenanceKind = {
-  manual: "manual",
-  assistant_generated: "assistant_generated",
-  document_summary: "document_summary",
-  imported: "imported"
+  manual: 'manual',
+  assistant_generated: 'assistant_generated',
+  document_summary: 'document_summary',
+  imported: 'imported',
 } as const;

@@ -10,7 +10,9 @@ function toResolvedAppUser(user: AppUser): ResolvedAppUser {
     email: user.email,
     displayName: user.displayName,
     birthday: user.birthday ? user.birthday.toISOString().split("T")[0]! : null,
-    gender: user.gender
+    gender: user.gender,
+    preferredLocale: user.preferredLocale,
+    countryCode: user.countryCode
   };
 }
 

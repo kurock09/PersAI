@@ -571,6 +571,8 @@ model AppUser {
   termsOfServiceVersion                  String?                             @map("terms_of_service_version") @db.VarChar(64)
   privacyPolicyAcceptedAt                DateTime?                           @map("privacy_policy_accepted_at") @db.Timestamptz(6)
   privacyPolicyVersion                   String?                             @map("privacy_policy_version") @db.VarChar(64)
+  preferredLocale                        String?                             @map("preferred_locale") @db.VarChar(8)
+  countryCode                            String?                             @map("country_code") @db.VarChar(2)
   createdAt                              DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                              DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
   assistant                              Assistant?

@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingPaymentIntentBillingPeriod =
-  (typeof AssistantBillingPaymentIntentBillingPeriod)[keyof typeof AssistantBillingPaymentIntentBillingPeriod];
+export type AssistantBillingPaymentIntentBillingPeriod = typeof AssistantBillingPaymentIntentBillingPeriod[keyof typeof AssistantBillingPaymentIntentBillingPeriod];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingPaymentIntentBillingPeriod = {
-  month: "month",
-  year: "year"
+  month: 'month',
+  year: 'year',
 } as const;

@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantBillingSubscriptionActionSubscriptionUpdatedResultMode } from "./assistantBillingSubscriptionActionSubscriptionUpdatedResultMode";
-import type { AssistantBillingSubscriptionManagementState } from "./assistantBillingSubscriptionManagementState";
+import type { AssistantBillingSubscriptionActionSubscriptionUpdatedResultMode } from './assistantBillingSubscriptionActionSubscriptionUpdatedResultMode';
+import type { AssistantBillingSubscriptionManagementState } from './assistantBillingSubscriptionManagementState';
 
 export interface AssistantBillingSubscriptionActionSubscriptionUpdatedResult {
   mode: AssistantBillingSubscriptionActionSubscriptionUpdatedResultMode;

@@ -5,17 +5,17 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingPaymentIntentStatus =
-  (typeof AssistantBillingPaymentIntentStatus)[keyof typeof AssistantBillingPaymentIntentStatus];
+export type AssistantBillingPaymentIntentStatus = typeof AssistantBillingPaymentIntentStatus[keyof typeof AssistantBillingPaymentIntentStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingPaymentIntentStatus = {
-  created: "created",
-  checkout_ready: "checkout_ready",
-  pending_confirmation: "pending_confirmation",
-  succeeded: "succeeded",
-  failed: "failed",
-  canceled: "canceled",
-  reversed: "reversed",
-  expired: "expired"
+  created: 'created',
+  checkout_ready: 'checkout_ready',
+  pending_confirmation: 'pending_confirmation',
+  succeeded: 'succeeded',
+  failed: 'failed',
+  canceled: 'canceled',
+  reversed: 'reversed',
+  expired: 'expired',
 } as const;

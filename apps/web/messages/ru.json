@@ -75,7 +75,22 @@
     "verificationFailed": "Неверный код — попробуй ещё раз",
     "verificationIncomplete": "Подтверждение не завершено — попробуй ещё раз",
     "additionalVerification": "Нужна дополнительная проверка",
-    "somethingWrong": "Что-то пошло не так — попробуй ещё раз"
+    "somethingWrong": "Что-то пошло не так — попробуй ещё раз",
+    "clerkErrors": {
+      "form_password_incorrect": "Неверный email или пароль.",
+      "form_identifier_not_found": "Аккаунт с таким email не найден.",
+      "form_password_pwned": "Этот пароль слишком распространён. Выбери более надёжный.",
+      "form_password_length_too_short": "Пароль слишком короткий.",
+      "form_password_not_strong_enough": "Пароль недостаточно надёжный.",
+      "form_password_validation_failed": "Пароль не соответствует требованиям.",
+      "form_code_incorrect": "Неверный код подтверждения.",
+      "verification_failed": "Не удалось подтвердить. Попробуй ещё раз.",
+      "too_many_requests": "Слишком много попыток. Подожди и попробуй снова.",
+      "user_locked": "Аккаунт временно заблокирован. Попробуй позже.",
+      "session_exists": "Ты уже вошёл в аккаунт.",
+      "form_param_format_invalid": "Проверь введённые данные и попробуй снова.",
+      "strategy_for_user_invalid": "Этот способ входа недоступен для этого аккаунта."
+    }
   },
   "chat": {
     "newChat": "Новый чат",

@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -50,6 +51,7 @@ export function PresentationOriginalDownloadAction({
   href,
   filename
 }: PresentationOriginalDownloadActionProps): ReactElement {
+  const { getToken } = useAuth();
   const t = useTranslations("chat");
   const [state, setState] = useState<DownloadState>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
@@ -76,8 +78,14 @@ export function PresentationOriginalDownloadAction({
 
     setState({ status: "downloading" });
     try {
+      const token = await getToken();
+      const headers = new Headers();
+      if (typeof token === "string" && token.trim().length > 0) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
       const response = await fetch(href, {
         credentials: "same-origin",
+        headers,
         signal: controller.signal
       });
       if (!response.ok) {
@@ -109,7 +117,7 @@ export function PresentationOriginalDownloadAction({
       console.warn("[presentation-pptx] download failed", error);
       setState({ status: "error", reason: "failed" });
     }
-  }, [filename, href, state.status]);
+  }, [filename, getToken, href, state.status]);
 
   const isModalOpen = state.status === "error";
   const modalTitleId = "presentation-pptx-download-modal-title";

@@ -38,6 +38,9 @@ export interface CurrentUserState {
     displayName: string | null;
     birthday: string | null;
     gender: string | null;
+    preferredLocale: string | null;
+    countryCode: string | null;
+    resolvedLocale: "ru" | "en";
   };
   onboarding: {
     isComplete: boolean;

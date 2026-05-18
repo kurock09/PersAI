@@ -5,16 +5,16 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminOpsCockpitStateAssistantEffectivePlanSource =
-  (typeof AdminOpsCockpitStateAssistantEffectivePlanSource)[keyof typeof AdminOpsCockpitStateAssistantEffectivePlanSource];
+export type AdminOpsCockpitStateAssistantEffectivePlanSource = typeof AdminOpsCockpitStateAssistantEffectivePlanSource[keyof typeof AdminOpsCockpitStateAssistantEffectivePlanSource];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminOpsCockpitStateAssistantEffectivePlanSource = {
-  workspace_subscription: "workspace_subscription",
-  subscription_trial_fallback: "subscription_trial_fallback",
-  subscription_paid_fallback: "subscription_paid_fallback",
-  assistant_plan_override: "assistant_plan_override",
-  assistant_plan_fallback: "assistant_plan_fallback",
-  catalog_default_fallback: "catalog_default_fallback",
-  none: "none"
+  workspace_subscription: 'workspace_subscription',
+  subscription_trial_fallback: 'subscription_trial_fallback',
+  subscription_paid_fallback: 'subscription_paid_fallback',
+  assistant_plan_override: 'assistant_plan_override',
+  assistant_plan_fallback: 'assistant_plan_fallback',
+  catalog_default_fallback: 'catalog_default_fallback',
+  none: 'none',
 } as const;

@@ -832,7 +832,7 @@ export class TelegramChannelAdapterService {
           })
         };
       }
-      const failure = toAssistantInboundFailurePayload(error);
+      const failure = toAssistantInboundFailurePayload(error, config.locale);
       const fallbackMessage =
         failure.message.trim().length > 0
           ? failure.message
@@ -840,7 +840,8 @@ export class TelegramChannelAdapterService {
       const outboundMessage = this.renderAssistantInboundSurfaceMessageService.renderError(
         "telegram",
         failure.code,
-        failure.guidance !== null ? `${fallbackMessage}\n\n${failure.guidance}` : fallbackMessage
+        failure.guidance !== null ? `${fallbackMessage}\n\n${failure.guidance}` : fallbackMessage,
+        config.locale
       );
       return {
         kind: "failure",

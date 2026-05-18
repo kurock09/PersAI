@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type UserPlanVisibilityPackageOfferToolCode =
-  (typeof UserPlanVisibilityPackageOfferToolCode)[keyof typeof UserPlanVisibilityPackageOfferToolCode];
+export type UserPlanVisibilityPackageOfferToolCode = typeof UserPlanVisibilityPackageOfferToolCode[keyof typeof UserPlanVisibilityPackageOfferToolCode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UserPlanVisibilityPackageOfferToolCode = {
-  image_generate: "image_generate",
-  image_edit: "image_edit",
-  video_generate: "video_generate",
-  document: "document"
+  image_generate: 'image_generate',
+  image_edit: 'image_edit',
+  video_generate: 'video_generate',
+  document: 'document',
 } as const;

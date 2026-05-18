@@ -5,6 +5,7 @@ import { MeController } from "../src/modules/identity-access/interface/http/me.c
 import { GetCurrentUserStateService } from "../src/modules/identity-access/application/get-current-user-state.service";
 import { ResolveAppUserService } from "../src/modules/identity-access/application/resolve-app-user.service";
 import { UpsertOnboardingService } from "../src/modules/identity-access/application/upsert-onboarding.service";
+import { UpdateUserPreferencesService } from "../src/modules/identity-access/application/update-user-preferences.service";
 import { AppModule } from "../src/app.module";
 import { RequestContextStore } from "../src/modules/platform-core/infrastructure/request-context/request-context.store";
 import { RequestWithPlatformContext } from "../src/modules/platform-core/interface/http/request-http.types";
@@ -21,10 +22,14 @@ interface AppUserRecord {
   clerkUserId: string | null;
   email: string;
   displayName: string | null;
+  birthday: Date | null;
+  gender: string | null;
   termsOfServiceAcceptedAt: Date | null;
   termsOfServiceVersion: string | null;
   privacyPolicyAcceptedAt: Date | null;
   privacyPolicyVersion: string | null;
+  preferredLocale: string | null;
+  countryCode: string | null;
 }
 
 interface WorkspaceRecord {
@@ -65,10 +70,20 @@ class InMemoryPrisma {
 
       return null;
     },
-    create: async ({ data }: { data: Omit<AppUserRecord, "id"> }) => {
+    create: async ({ data }: { data: Partial<AppUserRecord> & Pick<AppUserRecord, "email"> }) => {
       const created: AppUserRecord = {
         id: this.nextId("user"),
-        ...data
+        clerkUserId: data.clerkUserId ?? null,
+        email: data.email,
+        displayName: data.displayName ?? null,
+        birthday: data.birthday ?? null,
+        gender: data.gender ?? null,
+        termsOfServiceAcceptedAt: data.termsOfServiceAcceptedAt ?? null,
+        termsOfServiceVersion: data.termsOfServiceVersion ?? null,
+        privacyPolicyAcceptedAt: data.privacyPolicyAcceptedAt ?? null,
+        privacyPolicyVersion: data.privacyPolicyVersion ?? null,
+        preferredLocale: data.preferredLocale ?? null,
+        countryCode: data.countryCode ?? null
       };
       this.appUsers.push(created);
       return created;
@@ -83,6 +98,8 @@ class InMemoryPrisma {
           AppUserRecord,
           | "clerkUserId"
           | "displayName"
+          | "countryCode"
+          | "preferredLocale"
           | "termsOfServiceAcceptedAt"
           | "termsOfServiceVersion"
           | "privacyPolicyAcceptedAt"
@@ -100,6 +117,12 @@ class InMemoryPrisma {
       }
       if (data.displayName !== undefined) {
         target.displayName = data.displayName;
+      }
+      if (data.countryCode !== undefined) {
+        target.countryCode = data.countryCode;
+      }
+      if (data.preferredLocale !== undefined) {
+        target.preferredLocale = data.preferredLocale;
       }
       if (data.termsOfServiceAcceptedAt !== undefined) {
         target.termsOfServiceAcceptedAt = data.termsOfServiceAcceptedAt;
@@ -275,7 +298,15 @@ async function runStep2AuthFoundationSmoke(): Promise<void> {
     prisma as never,
     getCurrentUserStateService
   );
-  const meController = new MeController(getCurrentUserStateService, upsertOnboardingService);
+  const updateUserPreferencesService = new UpdateUserPreferencesService(
+    prisma as never,
+    getCurrentUserStateService
+  );
+  const meController = new MeController(
+    getCurrentUserStateService,
+    upsertOnboardingService,
+    updateUserPreferencesService
+  );
   const authVerifyController = new AuthVerifyController();
 
   const unauthorizedReq: RequestWithPlatformContext = {
@@ -334,6 +365,9 @@ async function runStep2AuthFoundationSmoke(): Promise<void> {
   assert.equal(onboarding1.me.onboarding.status, "completed");
   assert.equal(onboarding1.me.workspace?.name, "Workspace A");
   assert.equal(onboarding1.me.workspace?.role, "owner");
+  assert.equal(onboarding1.me.appUser.preferredLocale, "en");
+  assert.equal(onboarding1.me.appUser.resolvedLocale, "en");
+  assert.equal(onboarding1.me.workspace?.locale, "en");
   assert.equal(onboarding1.me.compliance.termsOfService.accepted, true);
   assert.equal(onboarding1.me.compliance.privacyPolicy.accepted, true);
 
@@ -342,10 +376,31 @@ async function runStep2AuthFoundationSmoke(): Promise<void> {
   assert.equal(onboarding2.me.workspace?.name, "Workspace A");
   assert.equal(onboarding2.me.workspace?.role, "owner");
 
+  const preferencesReq = await authorizeRequest("req-me-preferences");
+  const updatedPreferences = await meController.updatePreferences(preferencesReq, {
+    preferredLocale: "ru",
+    countryCode: "ru"
+  });
+  assert.equal(updatedPreferences.me.appUser.preferredLocale, "ru");
+  assert.equal(updatedPreferences.me.appUser.countryCode, "RU");
+  assert.equal(updatedPreferences.me.appUser.resolvedLocale, "ru");
+
+  const invalidPreferencesReq = await authorizeRequest("req-me-preferences-invalid");
+  await assert.rejects(
+    () =>
+      meController.updatePreferences(invalidPreferencesReq, {
+        preferredLocale: "fr"
+      }),
+    /preferredLocale must be one of: en, ru\./
+  );
+
   const finalMeReq = await authorizeRequest("req-me-final");
   const finalMe = await meController.getCurrentUser(finalMeReq);
   assert.equal(finalMe.me.onboarding.status, "completed");
   assert.equal(finalMe.me.appUser.displayName, "User One Updated");
+  assert.equal(finalMe.me.appUser.preferredLocale, "ru");
+  assert.equal(finalMe.me.appUser.countryCode, "RU");
+  assert.equal(finalMe.me.appUser.resolvedLocale, "ru");
 
   const snapshot = prisma.snapshot();
   assert.equal(snapshot.appUsers.length, 1);

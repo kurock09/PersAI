@@ -47,7 +47,9 @@ export class ClerkAuthMiddleware implements NestMiddleware {
       email: resolvedAppUser.email,
       displayName: resolvedAppUser.displayName,
       birthday: resolvedAppUser.birthday,
-      gender: resolvedAppUser.gender
+      gender: resolvedAppUser.gender,
+      preferredLocale: resolvedAppUser.preferredLocale,
+      countryCode: resolvedAppUser.countryCode
     };
 
     req.userId = requestUser.id;

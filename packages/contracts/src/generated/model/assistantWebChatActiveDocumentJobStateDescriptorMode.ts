@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatActiveDocumentJobStateDescriptorMode =
-  (typeof AssistantWebChatActiveDocumentJobStateDescriptorMode)[keyof typeof AssistantWebChatActiveDocumentJobStateDescriptorMode];
+export type AssistantWebChatActiveDocumentJobStateDescriptorMode = typeof AssistantWebChatActiveDocumentJobStateDescriptorMode[keyof typeof AssistantWebChatActiveDocumentJobStateDescriptorMode];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatActiveDocumentJobStateDescriptorMode = {
-  create_pdf_document: "create_pdf_document",
-  create_presentation: "create_presentation",
-  revise_document: "revise_document",
-  export_or_redeliver: "export_or_redeliver"
+  create_pdf_document: 'create_pdf_document',
+  create_presentation: 'create_presentation',
+  revise_document: 'revise_document',
+  export_or_redeliver: 'export_or_redeliver',
 } as const;
