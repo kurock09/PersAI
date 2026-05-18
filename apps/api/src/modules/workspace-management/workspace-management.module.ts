@@ -311,6 +311,8 @@ import { WorkspaceManagementPrismaService } from "./infrastructure/persistence/w
 import { ResolveTelegramChannelRuntimeConfigService } from "./application/resolve-telegram-channel-runtime-config.service";
 import { TelegramBotClientService } from "./application/telegram-bot.client.service";
 import { TelegramChannelAdapterService } from "./application/telegram-channel-adapter.service";
+import { TelegramAlbumCollectorService } from "./application/telegram-album-collector.service";
+import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-album-finalizer-scheduler.service";
 
 @Module({
   imports: [IdentityAccessModule, PlatformCoreModule],
@@ -572,6 +574,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AssistantDocumentJobDeliveryService,
     AssistantDocumentOriginalDownloadService,
     AssistantMediaJobSchedulerService,
+    TelegramAlbumCollectorService,
+    TelegramAlbumFinalizerSchedulerService,
     AssistantDocumentJobSchedulerService,
     AssistantDocumentJobService,
     AssistantDocumentJobReadService,

@@ -232,4 +232,123 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.reason, "document_quota_reached");
     assert.equal(result.payload.guidance, "Upgrade or wait for the next period.");
   });
+
+  test("normalizes ordinary school presentations to PDF-first and avoids text-only dense defaults", async () => {
+    const capturedInputs: Array<{
+      directToolExecution: {
+        descriptorMode: string;
+        request: {
+          outputFormat?: string | null;
+          imagePolicy?: string | null;
+          visualDensity?: string | null;
+        };
+      };
+    }> = [];
+    const service = new RuntimeDocumentToolService({
+      async enqueueDeferredDocumentJob(input: {
+        directToolExecution: {
+          descriptorMode: string;
+          request: {
+            outputFormat?: string | null;
+            imagePolicy?: string | null;
+            visualDensity?: string | null;
+          };
+        };
+      }) {
+        capturedInputs.push(input);
+        return {
+          accepted: true as const,
+          jobId: "doc-job-school-1",
+          documentType: "presentation" as const
+        };
+      }
+    } as never);
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-school-1",
+        name: "document",
+        arguments: {
+          descriptorMode: "create_presentation",
+          prompt:
+            "Create a school presentation in Russian for a 6th grade student on the topic of flowering plants.",
+          outputFormat: "pptx",
+          imagePolicy: "text_only",
+          visualDensity: "text_heavy"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-school-1",
+        sourceUserMessageText: "Сделай презентацию для 6 класса по биологии",
+        attachments: []
+      }
+    });
+
+    assert.equal(result.payload.action, "deferred");
+    assert.equal(result.payload.outputFormat, "pdf");
+    const input = capturedInputs[0]!;
+    assert.equal(input.directToolExecution.request.outputFormat, "pdf");
+    assert.equal(input.directToolExecution.request.imagePolicy, "pictographic");
+    assert.equal(input.directToolExecution.request.visualDensity, "balanced");
+  });
+
+  test("preserves explicit PPTX and text-heavy no-image presentation requests", async () => {
+    const capturedInputs: Array<{
+      directToolExecution: {
+        descriptorMode: string;
+        request: {
+          outputFormat?: string | null;
+          imagePolicy?: string | null;
+          visualDensity?: string | null;
+        };
+      };
+    }> = [];
+    const service = new RuntimeDocumentToolService({
+      async enqueueDeferredDocumentJob(input: {
+        directToolExecution: {
+          descriptorMode: string;
+          request: {
+            outputFormat?: string | null;
+            imagePolicy?: string | null;
+            visualDensity?: string | null;
+          };
+        };
+      }) {
+        capturedInputs.push(input);
+        return {
+          accepted: true as const,
+          jobId: "doc-job-pptx-1",
+          documentType: "presentation" as const
+        };
+      }
+    } as never);
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-pptx-1",
+        name: "document",
+        arguments: {
+          descriptorMode: "create_presentation",
+          prompt: "Create an editable PPTX deck with only text-heavy slides and no images.",
+          outputFormat: "pptx",
+          imagePolicy: "text_only",
+          visualDensity: "text_heavy"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-pptx-1",
+        sourceUserMessageText: "Нужен именно PPTX, без картинок и с большим количеством текста",
+        attachments: []
+      }
+    });
+
+    assert.equal(result.payload.action, "deferred");
+    assert.equal(result.payload.outputFormat, "pptx");
+    const input = capturedInputs[0]!;
+    assert.equal(input.directToolExecution.request.outputFormat, "pptx");
+    assert.equal(input.directToolExecution.request.imagePolicy, "text_only");
+    assert.equal(input.directToolExecution.request.visualDensity, "text_heavy");
+  });
 });

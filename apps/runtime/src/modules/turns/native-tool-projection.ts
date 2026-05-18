@@ -864,10 +864,12 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
       policy,
       [
         "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
-        "Use create_pdf_document for PDF-first documents, create_presentation for PPTX slide decks, revise_document to create a new version of an existing PersAI document, and export_or_redeliver to resend or re-render an existing document when supported.",
+        "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation with PDF-first delivery by default, revise_document to create a new version of an existing PersAI document, and export_or_redeliver to resend or re-render an existing document when supported.",
+        "For ordinary presentations, do not ask for PPTX unless the user explicitly wants editable PowerPoint/PPTX output. Presentation chat delivery is PDF-first by default; PPTX is the optional original/export path.",
         "When the user has attached a source file (txt, md, csv, json, html, xml, pdf, docx) and asks to rebuild, convert, restyle, translate, or summarize it, the backend worker will AUTOMATICALLY inline that file's text content into document generation; you do not need to pre-read it. Simply call create_pdf_document with a prompt that describes the requested transformation and the worker will use the attached source verbatim.",
         "When the user attaches PDF or DOCX source material, do not use revise_document or export_or_redeliver unless the user explicitly targets an existing PersAI document docId. Treat attached files as source input for create_pdf_document.",
         "Never invent placeholder, generic-template, or test/demo content when the user has attached a source file. The worker auto-inlines supported text/PDF/DOCX content; unsupported binaries surface a structured note instead.",
+        "For school, educational, explainer, and ordinary client decks, do not choose imagePolicy=text_only or visualDensity=text_heavy unless the user explicitly asks for text-only slides or unusually dense slide copy.",
         "If the tool returns action='deferred', acknowledge only that the document is being prepared and will arrive separately when ready.",
         "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and call quota_status if the user needs concrete package or upgrade options."
       ].join(" ")
@@ -900,7 +902,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           type: "string",
           enum: ["pdf", "pptx"],
           description:
-            "Optional requested output format. Use only when the requested document type/output is explicit."
+            "Optional requested output format. For create_presentation, omit this unless the user explicitly wants PDF or editable PPTX output."
         },
         docId: {
           type: "string",
@@ -926,13 +928,13 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           type: "string",
           enum: ["ai_generated", "web_free_to_use", "pictographic", "text_only"],
           description:
-            "Optional presentation-only image policy for create_presentation. Prefer ai_generated or web_free_to_use when the user wants a visual deck, and text_only only when they explicitly want no images."
+            "Optional presentation-only image policy for create_presentation. Prefer ai_generated, web_free_to_use, or pictographic when the user wants a normal visual deck. Use text_only only when they explicitly want no images."
         },
         visualDensity: {
           type: "string",
           enum: ["balanced", "visual_heavy", "text_heavy"],
           description:
-            "Optional presentation-only content balance for create_presentation. Prefer visual_heavy when the user wants a more image-rich deck."
+            "Optional presentation-only content balance for create_presentation. Prefer balanced for most decks, visual_heavy when the user wants stronger visuals, and text_heavy only when they explicitly ask for denser slide copy."
         },
         outline: {
           description: "Optional document outline or structured content seed."

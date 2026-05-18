@@ -96,6 +96,20 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async appendPart() {
+        return "appended" as const;
+      }
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return {
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1"
+        };
+      }
+    } as never,
+    {
       async updateMessageContent(messageId: string, _assistantId: string, content: string) {
         persistedCorrections.push({ messageId, content });
         return { id: messageId, content };
@@ -255,6 +269,20 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async appendPart() {
+        return "appended" as const;
+      }
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return {
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1"
+        };
+      }
+    } as never,
+    {
       async updateMessageContent(messageId: string, _assistantId: string, content: string) {
         noMediaCorrections.push({ messageId, content });
         return { id: messageId, content };
@@ -362,6 +390,20 @@ async function run(): Promise<void> {
     {
       async deliverIntentNow() {
         return { status: "delivered", providerRef: null, channel: "telegram_thread" };
+      }
+    } as never,
+    {
+      async appendPart() {
+        return "appended" as const;
+      }
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return {
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1"
+        };
       }
     } as never,
     {
@@ -478,6 +520,20 @@ async function run(): Promise<void> {
     {
       async deliverIntentNow() {
         return { status: "delivered", providerRef: null, channel: "telegram_thread" };
+      }
+    } as never,
+    {
+      async appendPart() {
+        return "appended" as const;
+      }
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return {
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1"
+        };
       }
     } as never,
     {

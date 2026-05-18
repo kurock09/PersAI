@@ -61,8 +61,19 @@ export class GammaThemePickerService {
     const request: ProviderGatewayTextGenerateRequest = {
       provider: runtimeSettings.primary.provider,
       model: runtimeSettings.primary.model,
-      systemPrompt:
-        "You choose a Gamma presentation theme for a deferred document job. Return only JSON matching the schema. Pick exactly one themeId from the supplied catalog when a theme clearly fits the presentation request. Return themeId null when no catalog theme is a good fit or the request is ambiguous. Never invent theme ids.",
+      systemPrompt: [
+        "You choose a Gamma presentation theme for a deferred document job.",
+        "Return only JSON matching the schema.",
+        "Pick exactly one themeId from the supplied catalog when a theme clearly fits the presentation request.",
+        "Return themeId null when no catalog theme is a good fit or the request is ambiguous.",
+        "Never invent theme ids.",
+        "Treat the user's real presentation context as primary: audience, topic, formality, age, and visual intent matter more than generic popularity.",
+        "For school, classroom, student, lesson, biology, history, geography, or educational decks, prefer themes that feel clear, friendly, readable, and age-appropriate; avoid themes that feel overly dark, corporate, aggressive, or luxury-brand unless the request explicitly asks for that.",
+        "For investor, startup, sales, board, or executive decks, prefer confident premium modern themes with stronger contrast and sharper business polish.",
+        "For formal reports, proposals, and professional explainers, prefer calm, trustworthy, readable themes over playful or loud themes.",
+        "For creative, food, lifestyle, travel, or storytelling decks, warmer or more expressive themes are appropriate when the request suggests it.",
+        "If visualStyle, imagePolicy, or visualDensity hints are present, use them as strong guidance. Do not let text-heavy or text-only hints force a stale-looking theme unless the request explicitly wants that."
+      ].join(" "),
       messages: [
         {
           role: "user",
@@ -75,6 +86,12 @@ export class GammaThemePickerService {
             input.visualStyle ? `Visual style hint: ${input.visualStyle}` : null,
             input.imagePolicy ? `Image policy hint: ${input.imagePolicy}` : null,
             input.visualDensity ? `Visual density hint: ${input.visualDensity}` : null,
+            "",
+            "Selection rules:",
+            "- Optimize for how the finished deck should feel in real use, not just for matching literal keywords.",
+            "- School and educational decks should usually feel clean, approachable, and readable rather than harsh or overly corporate.",
+            "- Business and investor decks can be bolder and more premium, but should still stay presentation-native and credible.",
+            "- If no theme is clearly better than the workspace default, return themeId null.",
             "",
             "Gamma theme catalog (themeId | name | tones | colors):",
             ...themes.map((theme) => this.formatThemeLine(theme))

@@ -30,6 +30,14 @@ import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
+import { TelegramAlbumCollectorService } from "./telegram-album-collector.service";
+import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
+import {
+  buildTelegramAlbumFallbackMessage,
+  type ClaimedTelegramAlbumCollector,
+  type TelegramAlbumFinalizeOutcome,
+  type TelegramAlbumPart
+} from "./telegram-album.types";
 
 const TELEGRAM_OWNER_CLAIM_CODE_LENGTH = 6;
 
@@ -55,6 +63,7 @@ type ParsedTelegramWebhookEvent =
       chatTitle: string | null;
       telegramUserId: number | null;
       telegramUsername: string | null;
+      mediaGroupId: string | null;
       incomingText: string;
       replyToUserId: number | null;
       turnKind: "text" | "voice" | "photo" | "document";
@@ -271,7 +280,7 @@ function extractChatId(chat: Record<string, unknown>): string | null {
   return null;
 }
 
-function extractTelegramWebhookEvent(
+export function extractTelegramWebhookEvent(
   assistantId: string,
   payload: unknown
 ): ParsedTelegramWebhookEvent {
@@ -321,6 +330,8 @@ function extractTelegramWebhookEvent(
   }
   const normalizedChatType = chatType as TelegramChatType;
 
+  const mediaGroupId = toStringOrNull(message.media_group_id);
+
   const base = {
     kind: "message" as const,
     updateId,
@@ -329,6 +340,7 @@ function extractTelegramWebhookEvent(
     chatTitle: toStringOrNull(chat.title),
     telegramUserId: toNumberOrNull(from?.id),
     telegramUsername: toStringOrNull(from?.username),
+    mediaGroupId,
     replyToUserId: toNumberOrNull(replyToFrom?.id)
   };
 
@@ -460,11 +472,58 @@ export class TelegramChannelAdapterService {
     private readonly syncTelegramGroupMembershipService: SyncTelegramGroupMembershipService,
     private readonly renderAssistantInboundSurfaceMessageService: RenderAssistantInboundSurfaceMessageService,
     private readonly notificationDeliveryWorkerService: NotificationDeliveryWorkerService,
+    private readonly telegramAlbumCollectorService: TelegramAlbumCollectorService,
+    private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository
   ) {}
+
+  async finalizeCollectedAlbum(
+    claimed: ClaimedTelegramAlbumCollector
+  ): Promise<TelegramAlbumFinalizeOutcome> {
+    const config = await this.resolveTelegramChannelRuntimeConfigService.resolveByAssistantId(
+      claimed.assistantId
+    );
+    if (config === null || !config.inbound || !config.outbound) {
+      this.logger.warn(
+        `Skipping Telegram album finalize for ${claimed.assistantId}/${claimed.mediaGroupId}: channel unavailable.`
+      );
+      return "skipped";
+    }
+
+    const caption = claimed.caption?.trim() ?? "";
+    const userMessage =
+      caption.length > 0 ? caption : buildTelegramAlbumFallbackMessage(config.locale);
+    const primaryTurnKind = claimed.parts.some((part) => part.turnKind === "document")
+      ? "document"
+      : "photo";
+    const event: Extract<ParsedTelegramWebhookEvent, { kind: "message" }> = {
+      kind: "message",
+      updateId: null,
+      chatId: claimed.telegramChatId,
+      chatType: claimed.telegramChatType,
+      chatTitle: null,
+      telegramUserId: Number.isFinite(Number(claimed.telegramUserId))
+        ? Number(claimed.telegramUserId)
+        : null,
+      telegramUsername: null,
+      mediaGroupId: claimed.mediaGroupId,
+      incomingText: caption,
+      replyToUserId: null,
+      turnKind: primaryTurnKind,
+      userMessage,
+      attachment: null
+    };
+
+    const turnOutcome = await this.executeInboundMessageTurn({
+      config,
+      event,
+      loadRawAttachments: async () => this.buildRawAttachmentsFromAlbumParts(config, claimed.parts)
+    });
+    return turnOutcome.kind === "ok" ? "ok" : "failed";
+  }
 
   async handleWebhook(params: {
     assistantId: string;
@@ -601,6 +660,61 @@ export class TelegramChannelAdapterService {
       runtimeHealthMessage: null
     });
 
+    if (event.mediaGroupId !== null && event.attachment !== null) {
+      const albumUpdateClaim = await this.claimTelegramUpdateIfNeeded(
+        config.assistantId,
+        event.updateId
+      );
+      if (albumUpdateClaim !== "claimed") {
+        return { statusCode: 200, body: { ok: true } };
+      }
+      try {
+        const resolved =
+          await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
+            config.assistantId
+          );
+        const runtimeThreadKey = buildTelegramRuntimeThreadKey(
+          event.chatId,
+          config.sessionThreadKey
+        );
+        const chat = await this.assistantChatRepository.findOrCreateChatBySurfaceThread({
+          assistantId: resolved.assistantId,
+          userId: resolved.userId,
+          workspaceId: resolved.workspaceId,
+          surface: "telegram",
+          surfaceThreadKey: runtimeThreadKey,
+          title: null
+        });
+        const appendOutcome = await this.telegramAlbumCollectorService.appendPart({
+          assistantId: config.assistantId,
+          workspaceId: config.workspaceId,
+          chatId: chat.id,
+          telegramChatId: event.chatId,
+          telegramChatType: event.chatType,
+          telegramUserId:
+            event.telegramUserId !== null ? String(event.telegramUserId) : event.chatId,
+          mediaGroupId: event.mediaGroupId,
+          caption: event.incomingText.trim().length > 0 ? event.incomingText : null,
+          part: {
+            fileId: event.attachment.fileId,
+            mimeType: event.attachment.mimeType,
+            originalFilename: event.attachment.originalFilename,
+            turnKind: event.turnKind === "document" ? "document" : "photo"
+          }
+        });
+        if (appendOutcome === "ignored") {
+          this.logger.warn(
+            `Ignored late Telegram album part for ${config.assistantId}/${event.mediaGroupId} (collector no longer collecting).`
+          );
+        }
+        await this.completeTelegramUpdateBestEffort(config.assistantId, event.updateId);
+        return { statusCode: 200, body: { ok: true } };
+      } catch (error) {
+        await this.releaseTelegramUpdateClaimBestEffort(config.assistantId, event.updateId);
+        throw error;
+      }
+    }
+
     if (isTelegramNewSessionRequest({ event })) {
       const updateClaim = await this.claimTelegramUpdateIfNeeded(
         config.assistantId,
@@ -645,6 +759,23 @@ export class TelegramChannelAdapterService {
       }
     }
 
+    const turnOutcome = await this.executeInboundMessageTurn({
+      config,
+      event,
+      loadRawAttachments: async () => this.buildRawAttachments(config, event)
+    });
+    if (turnOutcome.kind === "ok") {
+      return { statusCode: 200, body: { ok: true } };
+    }
+    return turnOutcome.result;
+  }
+
+  private async executeInboundMessageTurn(params: {
+    config: ResolvedTelegramChannelRuntimeConfig;
+    event: Extract<ParsedTelegramWebhookEvent, { kind: "message" }>;
+    loadRawAttachments: () => Promise<RawInboundAttachment[]>;
+  }): Promise<{ kind: "ok" } | { kind: "failure"; result: TelegramWebhookHandleResult }> {
+    const { config, event } = params;
     let turnResult;
     const chatActionState: { current: TelegramChatActionHeartbeat | null } = {
       current: null
@@ -659,8 +790,8 @@ export class TelegramChannelAdapterService {
         externalUserKey: conversationIdentity.externalUserKey,
         message: event.userMessage,
         updateId: event.updateId,
-        hasAttachments: event.attachment !== null,
-        loadRawAttachments: async () => this.buildRawAttachments(config, event),
+        hasAttachments: event.attachment !== null || event.mediaGroupId !== null,
+        loadRawAttachments: params.loadRawAttachments,
         onProcessingStarted: () => {
           if (chatActionState.current !== null) {
             return;
@@ -685,15 +816,21 @@ export class TelegramChannelAdapterService {
       chatActionState.current?.stop();
       if (await this.handleUnauthorizedTelegramError(config.assistantId, error)) {
         await this.completeTelegramUpdateBestEffort(config.assistantId, event.updateId);
-        return { statusCode: 200, body: { ok: false, error: "invalid_bot_token" } };
+        return {
+          kind: "failure",
+          result: { statusCode: 200, body: { ok: false, error: "invalid_bot_token" } }
+        };
       }
       if (error instanceof TelegramInboundAttachmentDownloadError) {
-        return this.replyWithTerminalTurnFailure({
-          config,
-          event,
-          text: fallbackTurnFailureCopy(event.turnKind),
-          errorCode: "attachment_download_failed"
-        });
+        return {
+          kind: "failure",
+          result: await this.replyWithTerminalTurnFailure({
+            config,
+            event,
+            text: fallbackTurnFailureCopy(event.turnKind),
+            errorCode: "attachment_download_failed"
+          })
+        };
       }
       const failure = toAssistantInboundFailurePayload(error);
       const fallbackMessage =
@@ -705,17 +842,20 @@ export class TelegramChannelAdapterService {
         failure.code,
         failure.guidance !== null ? `${fallbackMessage}\n\n${failure.guidance}` : fallbackMessage
       );
-      return this.replyWithTerminalTurnFailure({
-        config,
-        event,
-        text: outboundMessage.text,
-        errorCode: failure.code
-      });
+      return {
+        kind: "failure",
+        result: await this.replyWithTerminalTurnFailure({
+          config,
+          event,
+          text: outboundMessage.text,
+          errorCode: failure.code
+        })
+      };
     }
 
     if (turnResult.deduplicated) {
       chatActionState.current?.stop();
-      return { statusCode: 200, body: { ok: true } };
+      return { kind: "ok" };
     }
 
     let mediaDeliveryCompleted = false;
@@ -849,16 +989,54 @@ export class TelegramChannelAdapterService {
         });
       }
       if (await this.handleUnauthorizedTelegramError(config.assistantId, error)) {
-        return { statusCode: 200, body: { ok: false, error: "invalid_bot_token" } };
+        return {
+          kind: "failure",
+          result: { statusCode: 200, body: { ok: false, error: "invalid_bot_token" } }
+        };
       }
       this.logger.warn(
         `Telegram outbound delivery failed for ${config.assistantId}: ${String(error)}`
       );
-      return { statusCode: 200, body: { ok: false, error: "telegram_delivery_failed" } };
+      return {
+        kind: "failure",
+        result: { statusCode: 200, body: { ok: false, error: "telegram_delivery_failed" } }
+      };
     }
     chatActionState.current?.stop();
 
-    return { statusCode: 200, body: { ok: true } };
+    return { kind: "ok" };
+  }
+
+  private async buildRawAttachmentsFromAlbumParts(
+    config: ResolvedTelegramChannelRuntimeConfig,
+    parts: TelegramAlbumPart[]
+  ): Promise<RawInboundAttachment[]> {
+    const attachments: RawInboundAttachment[] = [];
+    for (const part of parts) {
+      try {
+        const downloaded = await this.telegramBotClientService.downloadInboundFile(
+          config.botToken,
+          part.fileId
+        );
+        attachments.push({
+          buffer: downloaded.buffer,
+          mime: part.mimeType,
+          originalFilename:
+            part.originalFilename ??
+            downloaded.filePath.split("/").pop() ??
+            `telegram-${part.turnKind}`,
+          source: "telegram_download"
+        });
+      } catch (error) {
+        if (error instanceof TelegramBotUnauthorizedError) {
+          throw error;
+        }
+        throw new TelegramInboundAttachmentDownloadError(
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    }
+    return attachments;
   }
 
   private async buildRawAttachments(

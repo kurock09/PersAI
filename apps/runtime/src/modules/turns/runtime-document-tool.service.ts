@@ -76,7 +76,12 @@ export class RuntimeDocumentToolService {
       effectiveDescriptorMode === parsed.descriptorMode
         ? parsed.request
         : { ...parsed.request, docId: null };
-    const outputFormat = effectiveRequest.outputFormat ?? null;
+    const normalizedRequest = this.normalizePresentationRequest({
+      descriptorMode: effectiveDescriptorMode,
+      request: effectiveRequest,
+      sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText
+    });
+    const outputFormat = normalizedRequest.outputFormat ?? null;
     const documentType =
       outputFormat === "pptx" || effectiveDescriptorMode === "create_presentation"
         ? "presentation"
@@ -91,7 +96,7 @@ export class RuntimeDocumentToolService {
         directToolExecution: {
           toolCode: "document",
           descriptorMode: effectiveDescriptorMode,
-          request: effectiveRequest
+          request: normalizedRequest
         }
       });
       if (!enqueueOutcome.accepted) {
@@ -102,10 +107,10 @@ export class RuntimeDocumentToolService {
             descriptorMode: effectiveDescriptorMode,
             documentType,
             provider,
-            prompt: effectiveRequest.prompt,
-            outputFormat: effectiveRequest.outputFormat ?? null,
-            docId: effectiveRequest.docId ?? null,
-            requestedName: effectiveRequest.requestedName ?? null,
+            prompt: normalizedRequest.prompt,
+            outputFormat: normalizedRequest.outputFormat ?? null,
+            docId: normalizedRequest.docId ?? null,
+            requestedName: normalizedRequest.requestedName ?? null,
             artifacts: [],
             usage: null,
             action: "skipped",
@@ -125,10 +130,10 @@ export class RuntimeDocumentToolService {
           descriptorMode: effectiveDescriptorMode,
           documentType: enqueueOutcome.documentType,
           provider,
-          prompt: effectiveRequest.prompt,
-          outputFormat: effectiveRequest.outputFormat ?? null,
-          docId: effectiveRequest.docId ?? null,
-          requestedName: effectiveRequest.requestedName ?? null,
+          prompt: normalizedRequest.prompt,
+          outputFormat: normalizedRequest.outputFormat ?? null,
+          docId: normalizedRequest.docId ?? null,
+          requestedName: normalizedRequest.requestedName ?? null,
           artifacts: [],
           usage: null,
           action: "deferred",
@@ -147,10 +152,10 @@ export class RuntimeDocumentToolService {
           descriptorMode: effectiveDescriptorMode,
           documentType,
           provider,
-          prompt: effectiveRequest.prompt,
-          outputFormat: effectiveRequest.outputFormat ?? null,
-          docId: effectiveRequest.docId ?? null,
-          requestedName: effectiveRequest.requestedName ?? null,
+          prompt: normalizedRequest.prompt,
+          outputFormat: normalizedRequest.outputFormat ?? null,
+          docId: normalizedRequest.docId ?? null,
+          requestedName: normalizedRequest.requestedName ?? null,
           artifacts: [],
           usage: null,
           action: "skipped",
@@ -304,6 +309,97 @@ export class RuntimeDocumentToolService {
       return input.descriptorMode;
     }
     return input.outputFormat === "pptx" ? "create_presentation" : "create_pdf_document";
+  }
+
+  private normalizePresentationRequest(input: {
+    descriptorMode:
+      | "create_pdf_document"
+      | "create_presentation"
+      | "revise_document"
+      | "export_or_redeliver";
+    request: {
+      prompt: string;
+      instructions?: string | null;
+      outputFormat?: "pdf" | "pptx" | null;
+      docId?: string | null;
+      requestedName?: string | null;
+      visualStyle?: PersaiRuntimePresentationVisualStyle | null;
+      imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
+      visualDensity?: PersaiRuntimePresentationVisualDensity | null;
+      outline?: unknown;
+      metadata?: Record<string, unknown> | null;
+    };
+    sourceUserMessageText: string;
+  }): {
+    prompt: string;
+    instructions?: string | null;
+    outputFormat?: "pdf" | "pptx" | null;
+    docId?: string | null;
+    requestedName?: string | null;
+    visualStyle?: PersaiRuntimePresentationVisualStyle | null;
+    imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
+    visualDensity?: PersaiRuntimePresentationVisualDensity | null;
+    outline?: unknown;
+    metadata?: Record<string, unknown> | null;
+  } {
+    if (input.descriptorMode !== "create_presentation") {
+      return input.request;
+    }
+    const combinedText = [
+      input.sourceUserMessageText,
+      input.request.prompt,
+      input.request.instructions ?? ""
+    ]
+      .join("\n")
+      .toLowerCase();
+    const explicitPptx = this.explicitlyRequestsPptx(combinedText);
+    const explicitTextOnly = this.explicitlyRequestsTextOnlyPresentation(combinedText);
+    const explicitTextHeavy = this.explicitlyRequestsTextHeavyPresentation(combinedText);
+    const schoolLike = this.isSchoolPresentationContext(combinedText);
+    const normalizedRequest = { ...input.request };
+    normalizedRequest.outputFormat = explicitPptx ? "pptx" : "pdf";
+    if (input.request.imagePolicy === "text_only" && !explicitTextOnly) {
+      normalizedRequest.imagePolicy = schoolLike ? "pictographic" : "ai_generated";
+    }
+    if (input.request.visualDensity === "text_heavy" && !explicitTextHeavy) {
+      normalizedRequest.visualDensity = "balanced";
+    }
+    return normalizedRequest;
+  }
+
+  private explicitlyRequestsPptx(text: string): boolean {
+    return (
+      /\b(pptx|powerpoint|power point|editable deck|editable presentation|editable slides)\b/i.test(
+        text
+      ) ||
+      /(?:именно|нужен|нужно|хочу|сделай|дай).{0,24}(pptx|powerpoint|паверпоинт)/i.test(text) ||
+      /(редактируем\w*|исходн\w*).{0,24}(pptx|powerpoint|презент)/i.test(text)
+    );
+  }
+
+  private explicitlyRequestsTextOnlyPresentation(text: string): boolean {
+    return (
+      /\b(text only|only text|no images|without images|without pictures)\b/i.test(text) ||
+      /(без|только).{0,18}(картинок|изображени|иллюстрац|фото)/i.test(text) ||
+      /(только|побольше).{0,18}текст/i.test(text)
+    );
+  }
+
+  private explicitlyRequestsTextHeavyPresentation(text: string): boolean {
+    return (
+      /\b(text heavy|dense text|more text|detailed slides)\b/i.test(text) ||
+      /(много|больше|побольше|подробн\w*).{0,18}текст/i.test(text) ||
+      /больш.{0,18}количеств.{0,18}текст/i.test(text) ||
+      /подробн\w*.{0,24}(слайды|презентац|дек)/i.test(text)
+    );
+  }
+
+  private isSchoolPresentationContext(text: string): boolean {
+    return (
+      /\b(school|student|class|grade|lesson|teacher|biology|history|geography|homework)\b/i.test(
+        text
+      ) || /(ученик|ученица|школ|класс|урок|биолог|истор|географ|домашн)/i.test(text)
+    );
   }
 
   private referencesPriorSourceAttachment(prompt: string, sourceUserMessageText: string): boolean {

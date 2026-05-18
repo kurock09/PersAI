@@ -754,6 +754,7 @@ model Assistant {
   backgroundCompactionJobs             AssistantBackgroundCompactionJob[]
   webChatTurnAttempts                  AssistantWebChatTurnAttempt[]
   mediaJobs                            AssistantMediaJob[]
+  telegramAlbumCollectors              AssistantTelegramAlbumCollector[]
   documents                            AssistantDocument[]
   documentVersions                     AssistantDocumentVersion[]
   documentRenderJobs                   AssistantDocumentRenderJob[]
@@ -1707,6 +1708,7 @@ model AssistantChat {
   attachments                 AssistantChatMessageAttachment[]
   webTurnAttempts             AssistantWebChatTurnAttempt[]
   mediaJobs                   AssistantMediaJob[]
+  telegramAlbumCollectors     AssistantTelegramAlbumCollector[]
   documents                   AssistantDocument[]
   documentRenderJobs          AssistantDocumentRenderJob[]
 
@@ -1841,6 +1843,33 @@ model AssistantMediaJob {
   @@index([workspaceId, status, updatedAt])
   @@index([status, updatedAt])
   @@map("assistant_media_jobs")
+}
+
+model AssistantTelegramAlbumCollector {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId             String    @map("assistant_id") @db.Uuid
+  workspaceId             String    @map("workspace_id") @db.Uuid
+  chatId                  String    @map("chat_id") @db.Uuid
+  telegramChatId          String    @map("telegram_chat_id") @db.VarChar(64)
+  telegramChatType        String    @map("telegram_chat_type") @db.VarChar(32)
+  telegramUserId          String    @map("telegram_user_id") @db.VarChar(64)
+  mediaGroupId            String    @map("media_group_id") @db.VarChar(64)
+  caption                 String?   @db.Text
+  partsJson               Json      @map("parts_json") @db.JsonB
+  firstSeenAt             DateTime  @map("first_seen_at") @db.Timestamptz(6)
+  lastPartAt              DateTime  @map("last_part_at") @db.Timestamptz(6)
+  status                  String    @default("collecting") @db.VarChar(32)
+  schedulerClaimToken     String?   @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimedAt      DateTime? @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt DateTime? @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant               Assistant @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chat                    AssistantChat @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([assistantId, telegramChatId, mediaGroupId])
+  @@index([status, lastPartAt])
+  @@map("assistant_telegram_album_collectors")
 }
 
 model AssistantDocument {

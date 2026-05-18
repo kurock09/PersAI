@@ -8,7 +8,8 @@ export const SCHEDULER_KEYS = [
   "background_compaction",
   "media_job",
   "document_job",
-  "materialization_rollout"
+  "materialization_rollout",
+  "telegram_album_finalizer"
 ] as const;
 
 export type SchedulerKey = (typeof SCHEDULER_KEYS)[number];
