@@ -374,6 +374,7 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
       providerOptions: {
         outputFormat: "pptx",
         presentationOptions: {
+          themeId: null,
           textMode: "generate",
           numCards: 8,
           cardSplit: "auto",
