@@ -19,7 +19,8 @@ import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.s
 import { AssistantDocumentJobCompletionTurnService } from "./assistant-document-job-completion-turn.service";
 import {
   buildAssistantDocumentJobFailureMessage,
-  inferAssistantDocumentJobFailureLocale
+  buildAssistantDocumentJobSuccessFallbackMessage,
+  inferAssistantDocumentJobLocale
 } from "./assistant-document-job-failure-copy.service";
 
 const DOCUMENT_DELIVERY_LAST_ERROR_MAX_CHARS = 1_000;
@@ -235,9 +236,15 @@ export class AssistantDocumentJobDeliveryService {
       }
 
       const finalAssistantText = completionAssistantText.trim();
+      const finalLocale = inferAssistantDocumentJobLocale({
+        preferredLocale: null,
+        sourceText: this.readSourceUserMessageText(finalPayload)
+      });
       const finalText = applyFinalDeliveryHonestyCorrection({
         assistantText:
-          finalAssistantText.length > 0 ? finalAssistantText : "Your document is ready.",
+          finalAssistantText.length > 0
+            ? finalAssistantText
+            : buildAssistantDocumentJobSuccessFallbackMessage(finalLocale),
         attemptedArtifactCount: finalPayload.artifacts.length,
         deliveredAttachmentCount: deliveredAttachments.length,
         deliveredAttachmentFilenames: []
@@ -498,7 +505,12 @@ export class AssistantDocumentJobDeliveryService {
         resultText: rawAssistantText,
         artifacts: input.payload.artifacts
       })) ?? rawAssistantText;
-    const text = framed.length > 0 ? framed : "Your document is ready.";
+    const fallbackLocale = inferAssistantDocumentJobLocale({
+      preferredLocale: null,
+      sourceText: this.readSourceUserMessageText(input.payload)
+    });
+    const text =
+      framed.length > 0 ? framed : buildAssistantDocumentJobSuccessFallbackMessage(fallbackLocale);
     let nextPayload = input.payload;
     if (framed.length > 0 && framed !== cached) {
       nextPayload = {
@@ -916,7 +928,7 @@ export class AssistantDocumentJobDeliveryService {
     payload: PersistedDeliveryPayload | null,
     completionAssistantMessageId: string | null
   ): Promise<void> {
-    const locale = inferAssistantDocumentJobFailureLocale({
+    const locale = inferAssistantDocumentJobLocale({
       preferredLocale: null,
       sourceText: payload?.sourceUserMessageText ?? null
     });

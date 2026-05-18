@@ -1,13 +1,15 @@
-export type AssistantDocumentJobFailureLocale = "ru" | "en";
+export type AssistantDocumentJobLocale = "ru" | "en";
+/** @deprecated Use {@link AssistantDocumentJobLocale}. */
+export type AssistantDocumentJobFailureLocale = AssistantDocumentJobLocale;
 
 function containsCyrillic(text: string): boolean {
   return /[А-Яа-яЁё]/.test(text);
 }
 
-export function inferAssistantDocumentJobFailureLocale(input: {
+export function inferAssistantDocumentJobLocale(input: {
   preferredLocale?: string | null;
   sourceText?: string | null;
-}): AssistantDocumentJobFailureLocale {
+}): AssistantDocumentJobLocale {
   const preferred = input.preferredLocale?.trim().toLowerCase() ?? "";
   if (preferred.startsWith("ru")) {
     return "ru";
@@ -19,6 +21,21 @@ export function inferAssistantDocumentJobFailureLocale(input: {
     return "ru";
   }
   return "en";
+}
+
+/** @deprecated Use {@link inferAssistantDocumentJobLocale}. */
+export const inferAssistantDocumentJobFailureLocale = inferAssistantDocumentJobLocale;
+
+/**
+ * Default fallback shown when LLM framing produced no completion text. Covers
+ * the case the founder reported in production where every Russian-prompted
+ * presentation came back with the English string "Your document is ready."
+ * even though the assistant just spoke in Russian.
+ */
+export function buildAssistantDocumentJobSuccessFallbackMessage(
+  locale: AssistantDocumentJobLocale
+): string {
+  return locale === "ru" ? "Документ готов." : "Your document is ready.";
 }
 
 function isPolicyLikeFailure(input: { code?: string | null; message?: string | null }): boolean {

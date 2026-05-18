@@ -49,6 +49,7 @@ import {
 } from "./chat-message-streaming";
 import { VoiceMessagePlayer } from "./voice-message-player";
 import { ImageLightbox } from "./image-lightbox";
+import { PresentationOriginalDownloadAction } from "./presentation-original-download-action";
 import {
   getAssistantDocumentOriginalDownloadUrl,
   getAssistantFileDownloadUrl
@@ -1192,26 +1193,23 @@ function AttachmentStrip({
         }
 
         if (originalPresentationDownloadUrl !== null) {
+          // PDF is the primary deliverable; the original PPTX is offered as a
+          // quiet text link under the banner (not a competing pill inside the
+          // banner) and the click is handled in-page so an expired Gamma
+          // export never bounces the user off the chat.
           return (
-            <div
-              key={att.id}
-              className="flex items-center gap-2 rounded-2xl border border-border-strong/70 bg-surface-raised/95 px-3.5 py-2.5 text-xs shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_22px_rgba(0,0,0,0.12)]"
-            >
+            <div key={att.id} className="flex flex-col items-start">
               <a
                 href={downloadUrl}
                 download={att.originalFilename ?? undefined}
-                className="flex min-w-0 flex-1 items-center gap-2 transition-colors hover:text-text hover:opacity-90"
+                className="flex items-center gap-2 rounded-2xl border border-border-strong/70 bg-surface-raised/95 px-3.5 py-2.5 text-xs shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_22px_rgba(0,0,0,0.12)] transition-colors hover:border-accent/35 hover:bg-surface-hover"
               >
                 {fileContent}
               </a>
-              <a
+              <PresentationOriginalDownloadAction
                 href={originalPresentationDownloadUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="shrink-0 rounded-full border border-accent/20 bg-accent/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-accent/85 transition-colors hover:border-accent/35 hover:bg-accent/10 hover:text-accent"
-              >
-                PPTX
-              </a>
+                filename={att.originalFilename}
+              />
             </div>
           );
         }

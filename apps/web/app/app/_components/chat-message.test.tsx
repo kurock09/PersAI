@@ -446,10 +446,15 @@ describe("ChatMessageBubble — canonical file attachments", () => {
       "href",
       "/api/assistant-file/presentation-file-ref-1?download=1"
     );
-    expect(screen.getByRole("link", { name: "PPTX" })).toHaveAttribute(
-      "href",
-      "/api/assistant-document/doc-presentation-1/original?versionId=version-presentation-1"
-    );
+    // The PPTX affordance is now a quiet text button below the PDF banner that
+    // fetches the BFF in-page (no `target="_blank"`, no shouty pill inside the
+    // banner, and no full-page redirect on expired Gamma exports). The test
+    // harness stubs `useTranslations` to echo the i18n key, so we match on
+    // that key here.
+    const pptxButton = screen.getByRole("button", {
+      name: /presentationDownloadPptxAction|Download PPTX|Скачать PPTX/i
+    });
+    expect(pptxButton).toBeInTheDocument();
   });
 
   it("renders the PPTX action when descriptorMode marks a presentation even if documentType is missing", () => {
@@ -482,10 +487,11 @@ describe("ChatMessageBubble — canonical file attachments", () => {
       />
     );
 
-    expect(screen.getByRole("link", { name: "PPTX" })).toHaveAttribute(
-      "href",
-      "/api/assistant-document/doc-presentation-2/original?versionId=version-presentation-2"
-    );
+    expect(
+      screen.getByRole("button", {
+        name: /presentationDownloadPptxAction|Download PPTX|Скачать PPTX/i
+      })
+    ).toBeInTheDocument();
   });
 
   it("does not render a fallback download link when a committed file lacks fileRef", () => {
