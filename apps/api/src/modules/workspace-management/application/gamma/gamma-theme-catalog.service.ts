@@ -33,10 +33,9 @@ export class GammaThemeCatalogService {
   }
 
   private async refreshStandardThemes(): Promise<GammaThemeCatalogEntry[]> {
-    const apiKey =
-      await this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
-        TOOL_CREDENTIAL_IDS.tool_document_gamma
-      );
+    const apiKey = await this.platformRuntimeProviderSecretStoreService
+      .resolveSecretValueById(TOOL_CREDENTIAL_IDS.tool_document_gamma)
+      .catch(() => null);
     if (apiKey === null) {
       this.logger.warn(
         "[gamma-theme-catalog] Gamma API key is not configured; theme catalog is empty."
