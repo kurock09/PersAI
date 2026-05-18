@@ -8,6 +8,7 @@ import { useLocale } from "next-intl";
 import { ChatArea } from "../_components/chat-area";
 import { useChat } from "../_components/use-chat";
 import { useAppDataContext, useShellActions } from "../_components/app-shell";
+import { pushBackHandler } from "../_components/back-handler-stack";
 import {
   getAssistantBillingPaymentIntent,
   getAssistantPlanVisibility,
@@ -163,6 +164,22 @@ function ChatPageInner() {
   // server during the first send becomes visible in the header immediately
   // after `reloadChats()` lands, even before the URL has been updated.
   const existingChat = appData.chats.find((c) => c.chat.surfaceThreadKey === threadKey);
+
+  // ADR-076 mobile UX: hardware Back from a chat thread should jump straight
+  // to the app home (`/app`) instead of walking back through every previously
+  // viewed chat in the WebView history stack. We register at module-level so
+  // open overlays (sidebar/modal) still consume Back first via the existing
+  // LIFO stack; only when nothing is open does this handler fire.
+  // Web/browser Back is intentionally unchanged — this only intercepts the
+  // Capacitor Android backButton event delivered through BackButtonBridge.
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
+  useEffect(() => {
+    const remove = pushBackHandler(() => {
+      router.replace(buildAppRootHrefPreservingNonChatParams(searchParamsRef.current));
+    });
+    return remove;
+  }, [router]);
 
   useEffect(() => {
     if (appData.isLoading) {

@@ -496,19 +496,26 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       };
     }
     const provider = revisionContext.documentType === "presentation" ? "gamma" : "pdfmonkey";
-    const outputFormat =
+    // Chat delivery is PDF-first by default for presentations. We never
+    // inherit the previous version's outputFormat — PPTX is only produced when
+    // the new revision request explicitly asks for it via the typed field.
+    const outputFormat: AssistantDocumentOutputFormat =
       revisionContext.documentType === "presentation"
-        ? (input.request.sourceJson.outputFormat ??
-          revisionContext.currentSourceJson.outputFormat ??
-          "pdf")
+        ? input.request.sourceJson.outputFormat === "pptx"
+          ? "pptx"
+          : "pdf"
         : "pdf";
+    const requestSourceJson: AssistantDocumentSourcePayload = {
+      ...input.request.sourceJson,
+      outputFormat
+    };
     const sourceJson =
       input.enrichPresentationTheme === true && revisionContext.documentType === "presentation"
         ? await this.applyGammaThemeSelection(
-            input.request.sourceJson,
+            requestSourceJson,
             input.request.sourceUserMessageText
           )
-        : input.request.sourceJson;
+        : requestSourceJson;
     const created = await this.assistantDocumentJobService.enqueueRevision({
       assistantId: input.assistantId,
       userId: input.userId,
@@ -716,10 +723,22 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           request.visualDensity === "text_heavy"
             ? request.visualDensity
             : null,
+        targetSlideCount: this.optionalTargetSlideCount(request.targetSlideCount),
         outline: request.outline,
         metadata: this.optionalRecord(request.metadata)
       }
     };
+  }
+
+  private optionalTargetSlideCount(value: unknown): number | null {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return null;
+    }
+    const rounded = Math.round(value);
+    if (rounded < 1) {
+      return null;
+    }
+    return Math.min(rounded, 30);
   }
 
   private objectValue(value: unknown, fieldName: string): Record<string, unknown> {

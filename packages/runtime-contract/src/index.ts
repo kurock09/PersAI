@@ -1998,6 +1998,9 @@ export interface RuntimeDocumentJobRunRequest {
       imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
       visualDensity?: PersaiRuntimePresentationVisualDensity | null;
       gammaThemeId?: string | null;
+      // Authoritative slide count for presentations. Validated and clamped on
+      // the runtime side; null when the caller did not specify a target.
+      targetSlideCount?: number | null;
       outline?: unknown;
       metadata?: Record<string, unknown> | null;
     };

@@ -1169,10 +1169,13 @@ function AttachmentStrip({
             ) : null}
           </>
         );
+        const isPresentationAttachment =
+          (link?.documentType === "presentation" ||
+            link?.descriptorMode === "create_presentation") &&
+          (att.mimeType === "application/pdf" ||
+            (att.originalFilename ?? "").toLowerCase().endsWith(".pdf"));
         const originalPresentationDownloadUrl =
-          link?.documentType === "presentation" &&
-          att.mimeType === "application/pdf" &&
-          typeof link.docId === "string"
+          isPresentationAttachment && typeof link?.docId === "string"
             ? getAssistantDocumentOriginalDownloadUrl(link.docId, { versionId: link.versionId })
             : null;
 

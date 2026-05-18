@@ -78,8 +78,7 @@ export class RuntimeDocumentToolService {
         : { ...parsed.request, docId: null };
     const normalizedRequest = this.normalizePresentationRequest({
       descriptorMode: effectiveDescriptorMode,
-      request: effectiveRequest,
-      sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText
+      request: effectiveRequest
     });
     const outputFormat = normalizedRequest.outputFormat ?? null;
     const documentType =
@@ -188,6 +187,7 @@ export class RuntimeDocumentToolService {
           visualStyle?: PersaiRuntimePresentationVisualStyle | null;
           imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
           visualDensity?: PersaiRuntimePresentationVisualDensity | null;
+          targetSlideCount?: number | null;
           outline?: unknown;
           metadata?: Record<string, unknown> | null;
         };
@@ -250,10 +250,22 @@ export class RuntimeDocumentToolService {
           row.visualDensity === "text_heavy"
             ? row.visualDensity
             : null,
+        targetSlideCount: this.readTargetSlideCount(row.targetSlideCount),
         outline: row.outline,
         metadata
       }
     };
+  }
+
+  private readTargetSlideCount(value: unknown): number | null {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return null;
+    }
+    const rounded = Math.round(value);
+    if (rounded < 1) {
+      return null;
+    }
+    return Math.min(rounded, 30);
   }
 
   private selectSourceAttachmentsForRequest(input: {
@@ -326,10 +338,10 @@ export class RuntimeDocumentToolService {
       visualStyle?: PersaiRuntimePresentationVisualStyle | null;
       imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
       visualDensity?: PersaiRuntimePresentationVisualDensity | null;
+      targetSlideCount?: number | null;
       outline?: unknown;
       metadata?: Record<string, unknown> | null;
     };
-    sourceUserMessageText: string;
   }): {
     prompt: string;
     instructions?: string | null;
@@ -339,67 +351,21 @@ export class RuntimeDocumentToolService {
     visualStyle?: PersaiRuntimePresentationVisualStyle | null;
     imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
     visualDensity?: PersaiRuntimePresentationVisualDensity | null;
+    targetSlideCount?: number | null;
     outline?: unknown;
     metadata?: Record<string, unknown> | null;
   } {
+    // Chat-delivered presentations are PDF-first by default. PPTX is always
+    // available as the on-demand original via the dedicated download endpoint,
+    // so we only honour outputFormat="pptx" when the model passes it through
+    // the typed argument. Anything else (null/undefined) defaults to "pdf".
     if (input.descriptorMode !== "create_presentation") {
       return input.request;
     }
-    const combinedText = [
-      input.sourceUserMessageText,
-      input.request.prompt,
-      input.request.instructions ?? ""
-    ]
-      .join("\n")
-      .toLowerCase();
-    const explicitPptx = this.explicitlyRequestsPptx(combinedText);
-    const explicitTextOnly = this.explicitlyRequestsTextOnlyPresentation(combinedText);
-    const explicitTextHeavy = this.explicitlyRequestsTextHeavyPresentation(combinedText);
-    const schoolLike = this.isSchoolPresentationContext(combinedText);
-    const normalizedRequest = { ...input.request };
-    normalizedRequest.outputFormat = explicitPptx ? "pptx" : "pdf";
-    if (input.request.imagePolicy === "text_only" && !explicitTextOnly) {
-      normalizedRequest.imagePolicy = schoolLike ? "pictographic" : "ai_generated";
-    }
-    if (input.request.visualDensity === "text_heavy" && !explicitTextHeavy) {
-      normalizedRequest.visualDensity = "balanced";
-    }
-    return normalizedRequest;
-  }
-
-  private explicitlyRequestsPptx(text: string): boolean {
-    return (
-      /\b(pptx|powerpoint|power point|editable deck|editable presentation|editable slides)\b/i.test(
-        text
-      ) ||
-      /(?:именно|нужен|нужно|хочу|сделай|дай).{0,24}(pptx|powerpoint|паверпоинт)/i.test(text) ||
-      /(редактируем\w*|исходн\w*).{0,24}(pptx|powerpoint|презент)/i.test(text)
-    );
-  }
-
-  private explicitlyRequestsTextOnlyPresentation(text: string): boolean {
-    return (
-      /\b(text only|only text|no images|without images|without pictures)\b/i.test(text) ||
-      /(без|только).{0,18}(картинок|изображени|иллюстрац|фото)/i.test(text) ||
-      /(только|побольше).{0,18}текст/i.test(text)
-    );
-  }
-
-  private explicitlyRequestsTextHeavyPresentation(text: string): boolean {
-    return (
-      /\b(text heavy|dense text|more text|detailed slides)\b/i.test(text) ||
-      /(много|больше|побольше|подробн\w*).{0,18}текст/i.test(text) ||
-      /больш.{0,18}количеств.{0,18}текст/i.test(text) ||
-      /подробн\w*.{0,24}(слайды|презентац|дек)/i.test(text)
-    );
-  }
-
-  private isSchoolPresentationContext(text: string): boolean {
-    return (
-      /\b(school|student|class|grade|lesson|teacher|biology|history|geography|homework)\b/i.test(
-        text
-      ) || /(ученик|ученица|школ|класс|урок|биолог|истор|географ|домашн)/i.test(text)
-    );
+    return {
+      ...input.request,
+      outputFormat: input.request.outputFormat === "pptx" ? "pptx" : "pdf"
+    };
   }
 
   private referencesPriorSourceAttachment(prompt: string, sourceUserMessageText: string): boolean {

@@ -233,32 +233,24 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.guidance, "Upgrade or wait for the next period.");
   });
 
-  test("normalizes ordinary school presentations to PDF-first and avoids text-only dense defaults", async () => {
+  test("defaults create_presentation to PDF when outputFormat is omitted", async () => {
     const capturedInputs: Array<{
       directToolExecution: {
         descriptorMode: string;
-        request: {
-          outputFormat?: string | null;
-          imagePolicy?: string | null;
-          visualDensity?: string | null;
-        };
+        request: { outputFormat?: string | null };
       };
     }> = [];
     const service = new RuntimeDocumentToolService({
       async enqueueDeferredDocumentJob(input: {
         directToolExecution: {
           descriptorMode: string;
-          request: {
-            outputFormat?: string | null;
-            imagePolicy?: string | null;
-            visualDensity?: string | null;
-          };
+          request: { outputFormat?: string | null };
         };
       }) {
         capturedInputs.push(input);
         return {
           accepted: true as const,
-          jobId: "doc-job-school-1",
+          jobId: "doc-job-pdf-default",
           documentType: "presentation" as const
         };
       }
@@ -267,19 +259,15 @@ describe("RuntimeDocumentToolService", () => {
     const result = await service.executeToolCall({
       bundle: createBundle(),
       toolCall: {
-        id: "tool-school-1",
+        id: "tool-default-pdf",
         name: "document",
         arguments: {
           descriptorMode: "create_presentation",
-          prompt:
-            "Create a school presentation in Russian for a 6th grade student on the topic of flowering plants.",
-          outputFormat: "pptx",
-          imagePolicy: "text_only",
-          visualDensity: "text_heavy"
+          prompt: "Make a deck about flowering plants for grade 6 biology"
         }
       },
       deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-school-1",
+        sourceUserMessageId: "msg-default-pdf",
         sourceUserMessageText: "Сделай презентацию для 6 класса по биологии",
         attachments: []
       }
@@ -289,36 +277,26 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.outputFormat, "pdf");
     const input = capturedInputs[0]!;
     assert.equal(input.directToolExecution.request.outputFormat, "pdf");
-    assert.equal(input.directToolExecution.request.imagePolicy, "pictographic");
-    assert.equal(input.directToolExecution.request.visualDensity, "balanced");
   });
 
-  test("preserves explicit PPTX and text-heavy no-image presentation requests", async () => {
+  test("preserves explicit PPTX outputFormat from typed argument", async () => {
     const capturedInputs: Array<{
       directToolExecution: {
         descriptorMode: string;
-        request: {
-          outputFormat?: string | null;
-          imagePolicy?: string | null;
-          visualDensity?: string | null;
-        };
+        request: { outputFormat?: string | null };
       };
     }> = [];
     const service = new RuntimeDocumentToolService({
       async enqueueDeferredDocumentJob(input: {
         directToolExecution: {
           descriptorMode: string;
-          request: {
-            outputFormat?: string | null;
-            imagePolicy?: string | null;
-            visualDensity?: string | null;
-          };
+          request: { outputFormat?: string | null };
         };
       }) {
         capturedInputs.push(input);
         return {
           accepted: true as const,
-          jobId: "doc-job-pptx-1",
+          jobId: "doc-job-pptx",
           documentType: "presentation" as const
         };
       }
@@ -331,15 +309,13 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           descriptorMode: "create_presentation",
-          prompt: "Create an editable PPTX deck with only text-heavy slides and no images.",
-          outputFormat: "pptx",
-          imagePolicy: "text_only",
-          visualDensity: "text_heavy"
+          prompt: "Create an editable PPTX deck",
+          outputFormat: "pptx"
         }
       },
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-pptx-1",
-        sourceUserMessageText: "Нужен именно PPTX, без картинок и с большим количеством текста",
+        sourceUserMessageText: "Нужен именно PPTX",
         attachments: []
       }
     });
@@ -348,7 +324,87 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.outputFormat, "pptx");
     const input = capturedInputs[0]!;
     assert.equal(input.directToolExecution.request.outputFormat, "pptx");
-    assert.equal(input.directToolExecution.request.imagePolicy, "text_only");
-    assert.equal(input.directToolExecution.request.visualDensity, "text_heavy");
+  });
+
+  test("forwards typed targetSlideCount and clamps it to a sane range", async () => {
+    const capturedInputs: Array<{
+      directToolExecution: {
+        descriptorMode: string;
+        request: { targetSlideCount?: number | null };
+      };
+    }> = [];
+    const service = new RuntimeDocumentToolService({
+      async enqueueDeferredDocumentJob(input: {
+        directToolExecution: {
+          descriptorMode: string;
+          request: { targetSlideCount?: number | null };
+        };
+      }) {
+        capturedInputs.push(input);
+        return {
+          accepted: true as const,
+          jobId: "doc-job-target-slides",
+          documentType: "presentation" as const
+        };
+      }
+    } as never);
+
+    await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-target-1",
+        name: "document",
+        arguments: {
+          descriptorMode: "create_presentation",
+          prompt: "Deck on photosynthesis",
+          targetSlideCount: 7
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-target-1",
+        sourceUserMessageText: "Сделай 7 слайдов",
+        attachments: []
+      }
+    });
+
+    await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-target-2",
+        name: "document",
+        arguments: {
+          descriptorMode: "create_presentation",
+          prompt: "Massive deck",
+          targetSlideCount: 999
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-target-2",
+        sourceUserMessageText: "Сделай очень большую презентацию",
+        attachments: []
+      }
+    });
+
+    await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-target-3",
+        name: "document",
+        arguments: {
+          descriptorMode: "create_presentation",
+          prompt: "Bad slide count value",
+          targetSlideCount: -5
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-target-3",
+        sourceUserMessageText: "Сделай отрицательное число слайдов",
+        attachments: []
+      }
+    });
+
+    assert.equal(capturedInputs[0]!.directToolExecution.request.targetSlideCount, 7);
+    assert.equal(capturedInputs[1]!.directToolExecution.request.targetSlideCount, 30);
+    assert.equal(capturedInputs[2]!.directToolExecution.request.targetSlideCount, null);
   });
 });

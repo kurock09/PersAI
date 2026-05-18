@@ -1028,12 +1028,155 @@ async function runPresentationThemePickerPersistenceCase(): Promise<void> {
   assert.equal(capturedSourceJson?.gammaThemeId, "theme-ocean");
 }
 
+async function runPresentationRevisionDefaultsToPdfWhenOutputFormatOmitted(): Promise<void> {
+  let capturedRevisionRequest: Record<string, unknown> | null = null;
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    {
+      async findMessageByIdForAssistant(messageId: string, assistantId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "user" as const,
+          createdAt: new Date("2026-05-18T12:00:00.000Z")
+        };
+      },
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "web" as const
+        };
+      }
+    } as never,
+    {
+      async countOpenJobsForChat() {
+        return 0;
+      },
+      async enqueue() {
+        throw new Error("plain enqueue should not run for revision");
+      },
+      async findRevisionContext() {
+        return {
+          docId: "12345678-1234-4234-9234-1234567890ab",
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          documentType: "presentation" as const,
+          currentVersionId: "22345678-1234-4234-9234-1234567890ab",
+          currentVersionNumber: 3,
+          currentSourceJson: {
+            prompt: "Original deck",
+            // Previous version was rendered as PPTX, but the new revision
+            // request omits outputFormat. We must not inherit pptx from the
+            // previous version — chat delivery is PDF-first by default.
+            outputFormat: "pptx",
+            requestedName: "deck-v1"
+          }
+        };
+      },
+      async findLatestRevisionContextForChat() {
+        throw new Error("latest revision fallback should not run when docId is already valid");
+      },
+      async enqueueRevision(input) {
+        capturedRevisionRequest = input as Record<string, unknown>;
+        return {
+          docId: "12345678-1234-4234-9234-1234567890ab",
+          versionId: "32345678-1234-4234-9234-1234567890ab",
+          renderJobId: "render-revision-pdf",
+          status: "queued" as const
+        };
+      }
+    } as never,
+    {
+      async build() {
+        return null;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          monthlyToolQuotas: {
+            planCode: "pro",
+            periodStartedAt: "2026-05-01T00:00:00.000Z",
+            periodEndsAt: "2026-06-01T00:00:00.000Z",
+            periodSource: "subscription_period" as const,
+            tools: [
+              {
+                toolCode: "document",
+                displayName: "Document",
+                usedUnits: 0,
+                reservedUnits: 0,
+                settledUnits: 0,
+                releasedUnits: 0,
+                reconciliationRequiredUnits: 0,
+                limitUnits: 10,
+                effectiveLimitUnits: 10,
+                remainingUnits: 10,
+                usageAvailable: true,
+                status: "ok" as const
+              }
+            ]
+          }
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          tools: [
+            {
+              toolCode: "document",
+              activationStatus: "active" as const
+            }
+          ]
+        };
+      }
+    } as never,
+    {
+      async resolveSecretValueByProviderKey() {
+        return "template-123";
+      }
+    } as never,
+    noopGammaThemePickerMock()
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Добавь схемы и сделай 7 слайдов",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "revise_document",
+      request: {
+        prompt: "Add diagrams",
+        docId: "12345678-1234-4234-9234-1234567890ab",
+        targetSlideCount: 7
+      }
+    }
+  });
+
+  assert.equal(result.accepted, true);
+  const captured = capturedRevisionRequest as {
+    outputFormat: "pdf" | "pptx";
+    request: { sourceJson: { outputFormat: string; targetSlideCount: number | null } };
+  } | null;
+  assert.equal(captured?.outputFormat, "pdf");
+  assert.equal(captured?.request.sourceJson.outputFormat, "pdf");
+  assert.equal(captured?.request.sourceJson.targetSlideCount, 7);
+}
+
 async function run(): Promise<void> {
   await runAcceptedCase();
   await runPresentationDefaultsToPdfCase();
   await runLimitReachedCase();
   await runRevisionAcceptedCase();
   await runRevisionFallsBackToLatestChatDocumentWhenDocIdIsNotUuid();
+  await runPresentationRevisionDefaultsToPdfWhenOutputFormatOmitted();
   await runPdfTemplateAdmissionRejectCase();
   await runPdfCreateSkipsThemePickerCase();
   await runPresentationThemePickerPersistenceCase();

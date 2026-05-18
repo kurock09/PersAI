@@ -3,6 +3,7 @@
 import { type ReactNode, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
+import { PullToRefresh } from "./pull-to-refresh";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
 
 interface SlideOverProps {
@@ -11,9 +12,25 @@ interface SlideOverProps {
   title: string;
   children: ReactNode;
   size?: "default" | "narrow";
+  /**
+   * Optional pull-to-refresh handler. When provided, the scrollable body of
+   * the slide-over is wrapped in a touch-driven pull-to-refresh container.
+   * The slide-over's title bar stays fixed at the top — only the body
+   * content translates with the pull gesture. Designed for mobile / Capacitor
+   * WebView; on pointer devices the gesture is a no-op because touch events
+   * do not fire on mouse input.
+   */
+  onPullToRefresh?: () => Promise<void> | void;
 }
 
-export function SlideOver({ open, onClose, title, children, size = "default" }: SlideOverProps) {
+export function SlideOver({
+  open,
+  onClose,
+  title,
+  children,
+  size = "default",
+  onPullToRefresh
+}: SlideOverProps) {
   useHistoryBackToClose(open, onClose);
 
   useEffect(() => {
@@ -57,7 +74,13 @@ export function SlideOver({ open, onClose, title, children, size = "default" }: 
                 <X className="h-5 w-5" />
               </button>
             </header>
-            <div className="flex-1 overflow-y-auto">{children}</div>
+            {onPullToRefresh ? (
+              <PullToRefresh onRefresh={onPullToRefresh} className="flex-1">
+                {children}
+              </PullToRefresh>
+            ) : (
+              <div className="flex-1 overflow-y-auto">{children}</div>
+            )}
           </motion.aside>
         </>
       )}

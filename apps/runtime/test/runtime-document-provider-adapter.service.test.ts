@@ -2410,6 +2410,156 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.match(presentationOptions.additionalInstructions ?? "", /title-plus-two-words cards/);
   });
 
+  test("Gamma honours typed targetSlideCount over outline/text heuristics", async () => {
+    const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText() {
+          throw new Error("Gamma path must not call generateText");
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          gatewayCalls.push(input);
+          return {
+            ok: true,
+            result: {
+              provider: "gamma",
+              outputFormat: "pdf",
+              documentId: "gamma-target-1",
+              templateId: null,
+              filename: input.filename,
+              bytesBase64: Buffer.from("pdf-target").toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-18T12:00:00.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "gamma",
+                state: "success",
+                generationId: "gen-target-1",
+                gammaId: "g_target",
+                gammaUrl: "https://gamma.app/docs/g_target",
+                exportUrl: "https://gamma.app/export/g_target.pdf",
+                filename: input.filename,
+                outputType: "pdf",
+                status: "completed",
+                updatedAt: "2026-05-18T12:00:00.000Z"
+              }
+            }
+          };
+        },
+        async resolveSecretValueById() {
+          return "gamma-secret";
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+
+    await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-target-1",
+          docId: "doc-target-1",
+          versionId: "version-target-1",
+          surface: "web",
+          chatId: "chat-target-1",
+          provider: "gamma",
+          outputFormat: "pdf",
+          sourceUserMessageId: "message-target-1",
+          sourceUserMessageText: "Сделай 7 слайдов про фотосинтез",
+          sourceUserMessageCreatedAt: "2026-05-18T12:00:00.000Z"
+        },
+        attachments: [],
+        sourceFiles: [],
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_presentation",
+          request: {
+            // Short prompt and no outline would otherwise yield ~3 cards via
+            // the compact-school heuristic. The typed targetSlideCount must
+            // override the heuristic and yield exactly 7.
+            prompt: "Photosynthesis deck",
+            targetSlideCount: 7
+          }
+        }
+      }
+    });
+
+    assert.equal(gatewayCalls.length, 1);
+    const providerOptions = gatewayCalls[0]!.providerOptions;
+    assert.equal(providerOptions.outputFormat, "pdf");
+    if (providerOptions.outputFormat !== "pdf") {
+      throw new Error("expected pdf provider options");
+    }
+    assert.equal(providerOptions.presentationOptions?.numCards, 7);
+  });
+
   test("buildPdfContentRequest inlines sourceFiles[].text into the user prompt and adds rebuild instructions when at least one source file has text", () => {
     const service = new RuntimeDocumentProviderAdapterService(
       {} as never,

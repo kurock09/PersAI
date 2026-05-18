@@ -274,6 +274,142 @@ describe("AssistantDocumentJobDeliveryService", () => {
     });
   });
 
+  test("writes presentation document metadata from nested providerStatus fallback", async () => {
+    const attachmentMetadataUpdates: Array<Record<string, unknown>> = [];
+
+    const service = new AssistantDocumentJobDeliveryService(
+      {
+        assistantDocumentRenderJob: {
+          updateMany: async () => ({ count: 1 })
+        },
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantChatMessageAttachment: {
+              updateMany: async (input: Record<string, unknown>) => {
+                attachmentMetadataUpdates.push(input);
+                return { count: 1 };
+              }
+            },
+            assistantDocumentDeliveredFile: {
+              updateMany: async () => ({ count: 0 }),
+              findMany: async () => [],
+              update: async () => undefined,
+              create: async () => undefined
+            },
+            assistantDocumentVersion: {
+              update: async () => undefined
+            },
+            assistantDocument: {
+              findUnique: async () => ({
+                currentVersionId: "version-2"
+              }),
+              update: async () => undefined
+            }
+          })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        createMessage: async () => ({
+          id: "assistant-message-presentation-2",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "Your presentation is ready.",
+          createdAt: new Date("2026-05-18T11:30:00.000Z")
+        }),
+        updateMessageContent: async () => null,
+        deleteMessage: async () => true
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: [
+            {
+              id: "attachment-presentation-2",
+              fileRef: "file-presentation-2",
+              mimeType: "application/pdf",
+              originalFilename: "school-deck.pdf"
+            }
+          ]
+        })
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram resolution should not run for web jobs");
+        }
+      } as never,
+      {
+        async consumeAssistantMonthlyToolQuotaSuccessOnly() {}
+      } as never,
+      {
+        async maybeFrame() {
+          return null;
+        }
+      } as never
+    );
+
+    await service.deliverReadyJob({
+      id: "job-presentation-2",
+      docId: "doc-presentation-2",
+      versionId: "version-presentation-2",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      schedulerClaimToken: "claim-presentation-2",
+      providerStatusJson: {
+        artifacts: [
+          {
+            source: "runtime_url",
+            url: "https://example.com/school-deck.pdf",
+            type: "document"
+          }
+        ],
+        assistantText: "Your presentation is ready.",
+        outputFormat: "pdf",
+        providerStatus: {
+          provider: "gamma"
+        }
+      }
+    });
+
+    assert.equal(attachmentMetadataUpdates.length, 1);
+    assert.deepEqual(attachmentMetadataUpdates[0]?.data?.metadata?.documentLink, {
+      docId: "doc-presentation-2",
+      versionId: "version-presentation-2",
+      descriptorMode: "create_pdf_document",
+      documentType: "presentation",
+      renderJobId: "job-presentation-2",
+      isCurrentOutput: true
+    });
+  });
+
   test("reuses already delivered attachments and only finalizes quota on recovery retry", async () => {
     const renderJobUpdates: Array<Record<string, unknown>> = [];
     const deliveredFileCreates: Array<Record<string, unknown>> = [];

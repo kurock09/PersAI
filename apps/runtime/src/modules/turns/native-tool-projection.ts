@@ -870,6 +870,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         "When the user attaches PDF or DOCX source material, do not use revise_document or export_or_redeliver unless the user explicitly targets an existing PersAI document docId. Treat attached files as source input for create_pdf_document.",
         "Never invent placeholder, generic-template, or test/demo content when the user has attached a source file. The worker auto-inlines supported text/PDF/DOCX content; unsupported binaries surface a structured note instead.",
         "For school, educational, explainer, and ordinary client decks, do not choose imagePolicy=text_only or visualDensity=text_heavy unless the user explicitly asks for text-only slides or unusually dense slide copy.",
+        'When the user requests a specific number of slides (e.g. "7 slides", "deck of 10"), set targetSlideCount to that integer (1-30). Otherwise leave it unset so the worker picks a reasonable count.',
         "If the tool returns action='deferred', acknowledge only that the document is being prepared and will arrive separately when ready.",
         "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and call quota_status if the user needs concrete package or upgrade options."
       ].join(" ")
@@ -935,6 +936,13 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           enum: ["balanced", "visual_heavy", "text_heavy"],
           description:
             "Optional presentation-only content balance for create_presentation. Prefer balanced for most decks, visual_heavy when the user wants stronger visuals, and text_heavy only when they explicitly ask for denser slide copy."
+        },
+        targetSlideCount: {
+          type: "integer",
+          minimum: 1,
+          maximum: 30,
+          description:
+            'Optional presentation-only authoritative slide count for create_presentation and revise_document of presentations. Set this to the integer the user explicitly asked for (e.g. "7 slides" => 7). Leave unset when the user did not specify a count.'
         },
         outline: {
           description: "Optional document outline or structured content seed."

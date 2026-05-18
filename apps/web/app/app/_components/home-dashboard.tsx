@@ -43,7 +43,7 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
   const greeting = greetings[Math.floor(Date.now() / 86_400_000) % greetings.length]!;
 
   return (
-    <div className="flex h-full items-start justify-center overflow-y-auto">
+    <div className="flex min-h-full items-start justify-center">
       <div className="w-full max-w-xl px-6 py-12">
         {/* Hero */}
         <div className="flex flex-col items-center text-center">

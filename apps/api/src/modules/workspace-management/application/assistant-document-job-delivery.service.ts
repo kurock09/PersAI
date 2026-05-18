@@ -64,6 +64,7 @@ type PersistedDeliveryPayload = {
   // output, which is wasted spend and shows up in provider logs as duplicate
   // "completion framing" requests for a single document job.
   completionAssistantText?: string | null;
+  providerStatus?: Record<string, unknown> | null;
 };
 
 type CanonicalDeliveredAttachment = {
@@ -317,6 +318,13 @@ export class AssistantDocumentJobDeliveryService {
       completionAssistantText:
         typeof row.completionAssistantText === "string" ? row.completionAssistantText : null
     };
+    if (
+      row.providerStatus !== null &&
+      typeof row.providerStatus === "object" &&
+      !Array.isArray(row.providerStatus)
+    ) {
+      payload.providerStatus = row.providerStatus as Record<string, unknown>;
+    }
     if (
       row.descriptorMode === "create_pdf_document" ||
       row.descriptorMode === "create_presentation" ||
@@ -643,7 +651,7 @@ export class AssistantDocumentJobDeliveryService {
                 documentLink: {
                   docId: input.job.docId,
                   versionId: input.job.versionId,
-                  descriptorMode: input.payload.descriptorMode ?? null,
+                  descriptorMode: this.readDescriptorMode(input.payload),
                   documentType: this.inferDocumentType(input.payload),
                   renderJobId: input.job.id,
                   isCurrentOutput: true
@@ -992,7 +1000,11 @@ export class AssistantDocumentJobDeliveryService {
     if (payload.descriptorMode === "create_presentation") {
       return "presentation";
     }
-    const provider = (payload as Record<string, unknown>).provider;
+    const row = payload as Record<string, unknown>;
+    const provider =
+      typeof payload.providerStatus?.provider === "string"
+        ? payload.providerStatus.provider
+        : row.provider;
     return provider === "gamma" ? "presentation" : "document";
   }
 }

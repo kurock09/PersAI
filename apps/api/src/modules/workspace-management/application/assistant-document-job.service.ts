@@ -30,6 +30,10 @@ export type AssistantDocumentSourcePayload = {
   imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
   visualDensity?: PersaiRuntimePresentationVisualDensity | null;
   gammaThemeId?: string | null;
+  // Authoritative slide count for presentations. When set, the runtime
+  // adapter forwards this number to Gamma's numCards instead of guessing
+  // from outline/text length.
+  targetSlideCount?: number | null;
   outline?: unknown;
   metadata?: Record<string, unknown> | null;
 };
@@ -605,6 +609,7 @@ export class AssistantDocumentJobService {
       imagePolicy: this.readPresentationImagePolicy(row.imagePolicy),
       visualDensity: this.readPresentationVisualDensity(row.visualDensity),
       gammaThemeId: this.readGammaThemeId(row.gammaThemeId),
+      targetSlideCount: this.readTargetSlideCount(row.targetSlideCount),
       outline: row.outline,
       metadata:
         row.metadata !== null && typeof row.metadata === "object" && !Array.isArray(row.metadata)
@@ -630,13 +635,18 @@ export class AssistantDocumentJobService {
     return {
       prompt: current.prompt.trim().length > 0 ? current.prompt : revision.prompt,
       instructions: combinedInstructions.length > 0 ? combinedInstructions : null,
-      outputFormat: revision.outputFormat ?? current.outputFormat ?? null,
+      // Chat-delivered presentations are PDF-first by default. We never
+      // inherit the previous version's outputFormat for revisions: the
+      // resolved value comes from the new request alone (or the enqueue
+      // service's typed default).
+      outputFormat: revision.outputFormat ?? null,
       docId: current.docId ?? revision.docId ?? null,
       requestedName: revision.requestedName ?? current.requestedName ?? null,
       visualStyle: revision.visualStyle ?? current.visualStyle ?? null,
       imagePolicy: revision.imagePolicy ?? current.imagePolicy ?? null,
       visualDensity: revision.visualDensity ?? current.visualDensity ?? null,
       gammaThemeId: revision.gammaThemeId ?? current.gammaThemeId ?? null,
+      targetSlideCount: revision.targetSlideCount ?? current.targetSlideCount ?? null,
       outline: revision.outline ?? current.outline,
       metadata: {
         ...(current.metadata ?? {}),
@@ -660,6 +670,7 @@ export class AssistantDocumentJobService {
       imagePolicy: request.imagePolicy ?? current.imagePolicy ?? null,
       visualDensity: request.visualDensity ?? current.visualDensity ?? null,
       gammaThemeId: current.gammaThemeId ?? request.gammaThemeId ?? null,
+      targetSlideCount: request.targetSlideCount ?? current.targetSlideCount ?? null,
       outline: current.outline,
       metadata: {
         ...(current.metadata ?? {}),
@@ -722,6 +733,17 @@ export class AssistantDocumentJobService {
 
   private readGammaThemeId(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private readTargetSlideCount(value: unknown): number | null {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return null;
+    }
+    const rounded = Math.round(value);
+    if (rounded < 1) {
+      return null;
+    }
+    return Math.min(rounded, 30);
   }
 
   private toPersistedRuntimeArtifact(

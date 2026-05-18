@@ -45,6 +45,7 @@ type DocumentJobRequestPayload = {
     imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
     visualDensity?: PersaiRuntimePresentationVisualDensity | null;
     gammaThemeId?: string | null;
+    targetSlideCount?: number | null;
     outline?: unknown;
     metadata?: Record<string, unknown> | null;
   };
@@ -676,6 +677,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           typeof sourceJson.gammaThemeId === "string" && sourceJson.gammaThemeId.trim().length > 0
             ? sourceJson.gammaThemeId.trim()
             : null,
+        targetSlideCount: this.readTargetSlideCount(sourceJson.targetSlideCount),
         outline: sourceJson.outline,
         metadata:
           sourceJson.metadata !== null &&
@@ -688,6 +690,17 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         row.sourceUserMessageAttachments
       )
     };
+  }
+
+  private readTargetSlideCount(value: unknown): number | null {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return null;
+    }
+    const rounded = Math.round(value);
+    if (rounded < 1) {
+      return null;
+    }
+    return Math.min(rounded, 30);
   }
 
   private parseAttachmentsFromPersistedJson(value: unknown): RuntimeAttachmentRef[] | null {

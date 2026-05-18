@@ -42,6 +42,7 @@ import {
   deleteAssistantWebChat
 } from "../assistant-api-client";
 import { useHasThreadActiveMediaJobs, useIsThreadStreaming } from "./streaming-threads";
+import { PullToRefresh } from "./pull-to-refresh";
 
 interface SidebarProps {
   onClose?: () => void;
@@ -49,6 +50,14 @@ interface SidebarProps {
   onTelegramClick?: () => void;
   onLimitsClick?: () => void;
   data: AppData;
+  /**
+   * Optional pull-to-refresh handler attached to the chat-list scroll
+   * container. Provided by the mobile overlay in `app-shell.tsx` so that a
+   * swipe-down inside the open sidebar refreshes only the chat list. The
+   * desktop sidebar passes the same handler harmlessly — touch events do
+   * not fire on pointer devices, so it is a no-op on a mouse.
+   */
+  onPullToRefresh?: () => Promise<void> | void;
 }
 
 const STATUS_CONFIG: Record<AssistantStatus, { label: string; dot: string }> = {
@@ -148,7 +157,8 @@ export function Sidebar({
   onAssistantCardClick,
   onTelegramClick,
   onLimitsClick,
-  data
+  data,
+  onPullToRefresh
 }: SidebarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -277,48 +287,66 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* 3. Chat list (scrollable) */}
-      <div className="flex-1 overflow-y-auto px-3">
-        {/*
-         * ADR-076 Slice 5 — targeted skeleton policy:
-         *   - `isLoading` (cold start without SSR seed) shows a few ghost
-         *     rows so the sidebar never feels empty during fan-out.
-         *   - `isReloadingChats` only triggers the skeleton when the visible
-         *     list happens to be empty (e.g. right after deleting the last
-         *     chat). When chats are still visible we keep them on screen —
-         *     no global spinner, no flash, just steady content.
-         *   - `isLoading` no longer trips on `reload()` for assistant
-         *     mutations (that path uses `isReloading` now), so settings
-         *     saves never wipe the sidebar.
-         */}
-        {!mounted || data.isLoading || (data.isReloadingChats && chatGroups.length === 0) ? (
-          <ChatListSkeleton />
-        ) : chatGroups.length === 0 ? (
-          <p className="pb-4 pt-6 text-center text-xs text-text-subtle">{t("startFirst")}</p>
-        ) : (
-          chatGroups.map((group) => (
-            <div key={group.label} className="mb-3">
-              <p className="mb-1 px-2 text-[11px] font-medium text-text-subtle">{group.label}</p>
-              {group.items.map((item) => (
-                <ChatListItem
-                  key={item.chat.id}
-                  item={item}
-                  locale={locale}
-                  isActive={activeThread === item.chat.surfaceThreadKey}
-                  onNavigate={() => {
-                    const url = `/app/chat?thread=${encodeURIComponent(item.chat.surfaceThreadKey)}`;
-                    void guardedNavigate(() => {
-                      onClose?.();
-                      router.push(url as Route);
-                    });
-                  }}
-                  onChanged={data.reloadChats}
-                />
-              ))}
-            </div>
-          ))
-        )}
-      </div>
+      {/*
+       * 3. Chat list (scrollable).
+       *
+       * Wrapped in `PullToRefresh` when the consumer (the mobile overlay in
+       * `app-shell.tsx`) supplies an `onPullToRefresh` handler. Pulling down
+       * inside the open sidebar refreshes only the chat list via
+       * `data.reloadChats` — it does not reload the home dashboard
+       * underneath. On desktop / pointer devices the handler is a no-op
+       * because touch events never fire.
+       *
+       * ADR-076 Slice 5 — targeted skeleton policy:
+       *   - `isLoading` (cold start without SSR seed) shows a few ghost rows
+       *     so the sidebar never feels empty during fan-out.
+       *   - `isReloadingChats` only triggers the skeleton when the visible
+       *     list happens to be empty (e.g. right after deleting the last
+       *     chat). When chats are still visible we keep them on screen —
+       *     no global spinner, no flash, just steady content.
+       *   - `isLoading` no longer trips on `reload()` for assistant
+       *     mutations (that path uses `isReloading` now), so settings saves
+       *     never wipe the sidebar.
+       */}
+      {(() => {
+        const chatListContent =
+          !mounted || data.isLoading || (data.isReloadingChats && chatGroups.length === 0) ? (
+            <ChatListSkeleton />
+          ) : chatGroups.length === 0 ? (
+            <p className="pb-4 pt-6 text-center text-xs text-text-subtle">{t("startFirst")}</p>
+          ) : (
+            chatGroups.map((group) => (
+              <div key={group.label} className="mb-3">
+                <p className="mb-1 px-2 text-[11px] font-medium text-text-subtle">{group.label}</p>
+                {group.items.map((item) => (
+                  <ChatListItem
+                    key={item.chat.id}
+                    item={item}
+                    locale={locale}
+                    isActive={activeThread === item.chat.surfaceThreadKey}
+                    onNavigate={() => {
+                      const url = `/app/chat?thread=${encodeURIComponent(item.chat.surfaceThreadKey)}`;
+                      void guardedNavigate(() => {
+                        onClose?.();
+                        router.push(url as Route);
+                      });
+                    }}
+                    onChanged={data.reloadChats}
+                  />
+                ))}
+              </div>
+            ))
+          );
+
+        if (onPullToRefresh) {
+          return (
+            <PullToRefresh onRefresh={onPullToRefresh} className="flex-1 px-3">
+              {chatListContent}
+            </PullToRefresh>
+          );
+        }
+        return <div className="flex-1 overflow-y-auto px-3">{chatListContent}</div>;
+      })()}
 
       {/* Bottom: single account row, everything else lives behind the popup */}
       <div className="shrink-0 border-t border-border p-2" suppressHydrationWarning>

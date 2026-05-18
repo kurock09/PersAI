@@ -706,9 +706,16 @@ export class RuntimeDocumentProviderAdapterService {
         ? docRequest.gammaThemeId.trim()
         : null;
 
+    const numCards = this.estimateGammaCardCount(request, visualDensity);
+    this.logger.log(
+      `[gamma-presentation] resolved numCards=${String(numCards)} targetSlideCount=${String(
+        docRequest.targetSlideCount ?? "null"
+      )} visualDensity=${visualDensity} themeId=${gammaThemeId ?? "auto"}`
+    );
+
     return {
       textMode: "generate",
-      numCards: this.estimateGammaCardCount(request, visualDensity),
+      numCards,
       cardSplit: this.resolveGammaCardSplit(docRequest.outline),
       additionalInstructions,
       ...(gammaThemeId === null ? {} : { themeId: gammaThemeId }),
@@ -1009,6 +1016,16 @@ export class RuntimeDocumentProviderAdapterService {
     request: RuntimeDocumentJobRunRequest,
     visualDensity: "balanced" | "visual_heavy" | "text_heavy"
   ): number {
+    // Authoritative source of truth: when the typed `targetSlideCount` field
+    // is present we trust it. The runtime tool already validates and clamps
+    // the value to [1, 30] so we only re-clamp defensively here. No regex /
+    // text parsing of the user prompt — that path was removed deliberately.
+    const targetSlideCount = this.readTargetSlideCount(
+      request.directToolExecution.request.targetSlideCount
+    );
+    if (targetSlideCount !== null) {
+      return targetSlideCount;
+    }
     const topicProfile = this.inferGammaTopicProfile(request);
     const minCards = topicProfile.prefersCompactDeck ? 3 : 4;
     const maxCards = topicProfile.prefersCompactDeck ? 5 : 12;
@@ -1033,6 +1050,17 @@ export class RuntimeDocumentProviderAdapterService {
           ? Math.ceil(baseText.length / 1100)
           : Math.ceil(baseText.length / 750);
     return Math.max(minCards, Math.min(maxCards, approx));
+  }
+
+  private readTargetSlideCount(value: unknown): number | null {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return null;
+    }
+    const rounded = Math.round(value);
+    if (rounded < 1) {
+      return null;
+    }
+    return Math.min(rounded, 30);
   }
 
   private resolveGammaCardSplit(outline: unknown): "auto" | "inputTextBreaks" {

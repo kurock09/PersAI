@@ -211,6 +211,7 @@ export function AppShell({
                             setSettingsInitialSection("limits");
                             setSettingsOpen(true);
                           }}
+                          onPullToRefresh={appData.reloadChats}
                         />
                       </Suspense>
                     </motion.div>
@@ -264,6 +265,7 @@ export function AppShell({
             }}
             title={ts("title")}
             size="narrow"
+            onPullToRefresh={appData.reload}
           >
             {hasOpenedSettings && (
               <AssistantSettings

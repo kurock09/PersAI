@@ -452,6 +452,42 @@ describe("ChatMessageBubble — canonical file attachments", () => {
     );
   });
 
+  it("renders the PPTX action when descriptorMode marks a presentation even if documentType is missing", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          attachments: [
+            {
+              id: "presentation-pdf-2",
+              fileRef: "presentation-file-ref-2",
+              attachmentType: "document",
+              originalFilename: "school-deck.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 4096,
+              processingStatus: "ready",
+              documentLink: {
+                docId: "doc-presentation-2",
+                versionId: "version-presentation-2",
+                versionNumber: 1,
+                descriptorMode: "create_presentation",
+                documentType: null,
+                documentStatus: "ready",
+                versionStatus: "ready",
+                isCurrentOutput: true
+              },
+              createdAt: "2026-05-18T11:30:00.000Z"
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: "PPTX" })).toHaveAttribute(
+      "href",
+      "/api/assistant-document/doc-presentation-2/original?versionId=version-presentation-2"
+    );
+  });
+
   it("does not render a fallback download link when a committed file lacks fileRef", () => {
     render(
       <ChatMessageBubble

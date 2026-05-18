@@ -1,5 +1,6 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { consumeBackPress } from "../_components/back-handler-stack";
 import ChatPage, { waitForPurchasedPlanTruth } from "./page";
 
 const navigationMocks = vi.hoisted(() => ({
@@ -236,6 +237,67 @@ describe("ChatPage", () => {
       expect(navigationMocks.replace).toHaveBeenCalledWith("/app");
     });
     expect(chatHookMocks.loadHistory).not.toHaveBeenCalled();
+  });
+
+  it("hardware Back from a chat thread jumps to /app instead of walking through chat history", async () => {
+    navigationMocks.searchParams = new URLSearchParams("thread=thread-x");
+    navigationMocks.replace.mockReset();
+    chatHookMocks.chatId = "chat-x";
+    appDataMocks.isLoading = false;
+    appDataMocks.chats = [
+      {
+        chat: {
+          id: "chat-x",
+          surfaceThreadKey: "thread-x",
+          title: "Chat X",
+          deepModeEnabled: false
+        }
+      }
+    ];
+
+    const view = render(<ChatPage />);
+    await waitFor(() => {
+      expect(chatHookMocks.loadHistory).toHaveBeenCalled();
+    });
+
+    navigationMocks.replace.mockReset();
+    act(() => {
+      expect(consumeBackPress()).toBe(true);
+    });
+    expect(navigationMocks.replace).toHaveBeenCalledWith("/app");
+
+    view.unmount();
+    // Handler is removed on unmount so subsequent presses don't trigger
+    // navigation from a stale chat page.
+    expect(consumeBackPress()).toBe(false);
+  });
+
+  it("preserves non-chat search params when hardware Back lands on /app", async () => {
+    navigationMocks.searchParams = new URLSearchParams("thread=thread-x&debug=1");
+    navigationMocks.replace.mockReset();
+    chatHookMocks.chatId = "chat-x";
+    appDataMocks.isLoading = false;
+    appDataMocks.chats = [
+      {
+        chat: {
+          id: "chat-x",
+          surfaceThreadKey: "thread-x",
+          title: "Chat X",
+          deepModeEnabled: false
+        }
+      }
+    ];
+
+    render(<ChatPage />);
+    await waitFor(() => {
+      expect(chatHookMocks.loadHistory).toHaveBeenCalled();
+    });
+
+    navigationMocks.replace.mockReset();
+    act(() => {
+      consumeBackPress();
+    });
+    expect(navigationMocks.replace).toHaveBeenCalledWith("/app?debug=1");
   });
 
   it("keeps the same draft thread key across bare chat remounts", async () => {
