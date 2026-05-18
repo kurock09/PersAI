@@ -710,7 +710,9 @@ export class RuntimeDocumentProviderAdapterService {
     this.logger.log(
       `[gamma-presentation] resolved numCards=${String(numCards)} targetSlideCount=${String(
         docRequest.targetSlideCount ?? "null"
-      )} visualDensity=${visualDensity} themeId=${gammaThemeId ?? "auto"}`
+      )} requestedOutputFormat=${docRequest.outputFormat ?? "null"} jobOutputFormat=${
+        request.job.outputFormat
+      } visualDensity=${visualDensity} themeId=${gammaThemeId ?? "auto"}`
     );
 
     return {

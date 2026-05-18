@@ -525,6 +525,11 @@ async function runRevisionAcceptedCase(): Promise<void> {
     ).request.sourceJson.prompt,
     "Shorten slide 3"
   );
+  // Even though the new revision request explicitly asked for outputFormat=pptx,
+  // chat delivery for presentations is PDF-only by system contract — PPTX is
+  // always reachable via the companion download endpoint, never as the in-chat
+  // artifact. The persisted sourceJson.outputFormat must reflect the resolved
+  // PDF, not the model-requested PPTX.
   assert.equal(
     (
       capturedRevisionRequest as {
@@ -535,8 +540,9 @@ async function runRevisionAcceptedCase(): Promise<void> {
         };
       }
     ).request.sourceJson.outputFormat,
-    "pptx"
+    "pdf"
   );
+  assert.equal((capturedRevisionRequest as { outputFormat: "pdf" | "pptx" }).outputFormat, "pdf");
 }
 
 async function runRevisionFallsBackToLatestChatDocumentWhenDocIdIsNotUuid(): Promise<void> {

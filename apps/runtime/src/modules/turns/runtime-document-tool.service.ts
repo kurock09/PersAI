@@ -355,16 +355,18 @@ export class RuntimeDocumentToolService {
     outline?: unknown;
     metadata?: Record<string, unknown> | null;
   } {
-    // Chat-delivered presentations are PDF-first by default. PPTX is always
-    // available as the on-demand original via the dedicated download endpoint,
-    // so we only honour outputFormat="pptx" when the model passes it through
-    // the typed argument. Anything else (null/undefined) defaults to "pdf".
+    // Chat-delivered presentations are PDF-only by system contract. PPTX is
+    // always available to the user as the on-demand original via the
+    // dedicated companion download endpoint, so the in-chat artifact never
+    // needs to be PPTX. We deliberately ignore outputFormat="pptx" coming
+    // from the model here — chat delivery is a system-owned UX decision and
+    // not a model-controlled parameter.
     if (input.descriptorMode !== "create_presentation") {
       return input.request;
     }
     return {
       ...input.request,
-      outputFormat: input.request.outputFormat === "pptx" ? "pptx" : "pdf"
+      outputFormat: "pdf"
     };
   }
 

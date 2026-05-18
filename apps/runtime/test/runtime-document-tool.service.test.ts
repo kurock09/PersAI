@@ -279,7 +279,7 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(input.directToolExecution.request.outputFormat, "pdf");
   });
 
-  test("preserves explicit PPTX outputFormat from typed argument", async () => {
+  test("forces create_presentation chat delivery to PDF even when the model passes outputFormat=pptx", async () => {
     const capturedInputs: Array<{
       directToolExecution: {
         descriptorMode: string;
@@ -309,21 +309,21 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           descriptorMode: "create_presentation",
-          prompt: "Create an editable PPTX deck",
+          prompt: "Create a deck",
           outputFormat: "pptx"
         }
       },
       deferToAsyncDocumentJob: {
         sourceUserMessageId: "msg-pptx-1",
-        sourceUserMessageText: "Нужен именно PPTX",
+        sourceUserMessageText: "Сделай презентацию",
         attachments: []
       }
     });
 
     assert.equal(result.payload.action, "deferred");
-    assert.equal(result.payload.outputFormat, "pptx");
+    assert.equal(result.payload.outputFormat, "pdf");
     const input = capturedInputs[0]!;
-    assert.equal(input.directToolExecution.request.outputFormat, "pptx");
+    assert.equal(input.directToolExecution.request.outputFormat, "pdf");
   });
 
   test("forwards typed targetSlideCount and clamps it to a sane range", async () => {

@@ -496,15 +496,13 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       };
     }
     const provider = revisionContext.documentType === "presentation" ? "gamma" : "pdfmonkey";
-    // Chat delivery is PDF-first by default for presentations. We never
-    // inherit the previous version's outputFormat — PPTX is only produced when
-    // the new revision request explicitly asks for it via the typed field.
+    // Chat delivery is PDF-only for presentations, by system contract. We do
+    // not inherit the previous version's outputFormat AND we do not honour a
+    // model-supplied outputFormat=pptx on revisions either. PPTX is always
+    // reachable as the companion download artifact, so the in-chat file for
+    // a presentation revision is always the PDF.
     const outputFormat: AssistantDocumentOutputFormat =
-      revisionContext.documentType === "presentation"
-        ? input.request.sourceJson.outputFormat === "pptx"
-          ? "pptx"
-          : "pdf"
-        : "pdf";
+      revisionContext.documentType === "presentation" ? "pdf" : "pdf";
     const requestSourceJson: AssistantDocumentSourcePayload = {
       ...input.request.sourceJson,
       outputFormat
