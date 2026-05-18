@@ -134,6 +134,7 @@ export class InternalRuntimeDocumentJobsController {
             request.gammaThemeId === null || request.gammaThemeId === undefined
               ? null
               : this.stringValue(request.gammaThemeId, "directToolExecution.request.gammaThemeId"),
+          targetSlideCount: this.optionalTargetSlideCount(request.targetSlideCount),
           outline: request.outline,
           metadata:
             request.metadata === null || request.metadata === undefined
@@ -142,6 +143,22 @@ export class InternalRuntimeDocumentJobsController {
         }
       }
     };
+  }
+
+  private optionalTargetSlideCount(value: unknown): number | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new BadRequestException(
+        "directToolExecution.request.targetSlideCount must be a finite number when provided."
+      );
+    }
+    const rounded = Math.round(value);
+    if (rounded < 1) {
+      return null;
+    }
+    return Math.min(rounded, 30);
   }
 
   private parseCompletionInput(body: unknown): RuntimeDocumentJobCompletionRequest {

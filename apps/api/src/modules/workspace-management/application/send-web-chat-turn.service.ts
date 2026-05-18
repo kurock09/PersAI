@@ -18,6 +18,7 @@ import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-po
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AssistantWebChatTurnState } from "./web-chat.types";
+import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
 import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-turn.service";
 import {
   createAssistantInboundConflict,
@@ -97,27 +98,6 @@ function normalizeOptionalClientTurnId(value: unknown): string | undefined {
   return value.trim();
 }
 
-function readDocumentLink(metadata: Record<string, unknown> | null) {
-  const row = metadata?.documentLink;
-  if (row === null || typeof row !== "object" || Array.isArray(row)) {
-    return null;
-  }
-  const link = row as Record<string, unknown>;
-  if (typeof link.docId !== "string" || typeof link.versionId !== "string") {
-    return null;
-  }
-  return {
-    docId: link.docId,
-    versionId: link.versionId,
-    versionNumber: typeof link.versionNumber === "number" ? link.versionNumber : null,
-    descriptorMode: typeof link.descriptorMode === "string" ? link.descriptorMode : null,
-    documentType: typeof link.documentType === "string" ? link.documentType : null,
-    documentStatus: typeof link.documentStatus === "string" ? link.documentStatus : null,
-    versionStatus: typeof link.versionStatus === "string" ? link.versionStatus : null,
-    isCurrentOutput: link.isCurrentOutput === true
-  };
-}
-
 function toAttachmentState(attachment: {
   id: string;
   assistantFileId: string | null;
@@ -138,9 +118,9 @@ function toAttachmentState(attachment: {
     sizeBytes: Number(attachment.sizeBytes),
     processingStatus: attachment.processingStatus,
     ...(attachment.metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
-    ...(readDocumentLink(attachment.metadata) === null
+    ...(readPersistedDocumentLinkMetadata(attachment.metadata) === null
       ? {}
-      : { documentLink: readDocumentLink(attachment.metadata) }),
+      : { documentLink: readPersistedDocumentLinkMetadata(attachment.metadata) }),
     createdAt: attachment.createdAt.toISOString()
   };
 }

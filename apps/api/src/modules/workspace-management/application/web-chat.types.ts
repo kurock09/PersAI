@@ -29,6 +29,17 @@ export interface AssistantWebChatState {
   updatedAt: string;
 }
 
+export interface AssistantWebChatMessageAttachmentDocumentLink {
+  docId: string;
+  versionId: string;
+  versionNumber: number | null;
+  descriptorMode: string | null;
+  documentType: string | null;
+  documentStatus: string | null;
+  versionStatus: string | null;
+  isCurrentOutput: boolean;
+}
+
 export interface AssistantWebChatMessageAttachmentState {
   id: string;
   fileRef: string | null;
@@ -38,16 +49,7 @@ export interface AssistantWebChatMessageAttachmentState {
   sizeBytes: number;
   processingStatus: string;
   fileDeleted?: boolean;
-  documentLink?: {
-    docId: string;
-    versionId: string;
-    versionNumber: number | null;
-    descriptorMode: string | null;
-    documentType: string | null;
-    documentStatus: string | null;
-    versionStatus: string | null;
-    isCurrentOutput: boolean;
-  } | null;
+  documentLink?: AssistantWebChatMessageAttachmentDocumentLink | null;
   createdAt: string;
 }
 

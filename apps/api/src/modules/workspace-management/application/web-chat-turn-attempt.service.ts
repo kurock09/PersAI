@@ -10,6 +10,7 @@ import type {
 } from "./web-chat.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
+import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
 import type { CompletedWebTurnReplayState } from "../domain/assistant-channel-surface-binding.repository";
 import type {
   AssistantChatSkillCadenceState,
@@ -100,27 +101,6 @@ function parseSkillCadenceState(value: unknown): AssistantChatSkillCadenceState 
   };
 }
 
-function readDocumentLink(metadata: Record<string, unknown> | null) {
-  const row = metadata?.documentLink;
-  if (row === null || typeof row !== "object" || Array.isArray(row)) {
-    return null;
-  }
-  const link = row as Record<string, unknown>;
-  if (typeof link.docId !== "string" || typeof link.versionId !== "string") {
-    return null;
-  }
-  return {
-    docId: link.docId,
-    versionId: link.versionId,
-    versionNumber: typeof link.versionNumber === "number" ? link.versionNumber : null,
-    descriptorMode: typeof link.descriptorMode === "string" ? link.descriptorMode : null,
-    documentType: typeof link.documentType === "string" ? link.documentType : null,
-    documentStatus: typeof link.documentStatus === "string" ? link.documentStatus : null,
-    versionStatus: typeof link.versionStatus === "string" ? link.versionStatus : null,
-    isCurrentOutput: link.isCurrentOutput === true
-  };
-}
-
 function toAttachmentState(input: {
   id: string;
   assistantFileId: string | null;
@@ -145,7 +125,9 @@ function toAttachmentState(input: {
     sizeBytes: Number(input.sizeBytes),
     processingStatus: input.processingStatus,
     ...(metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
-    ...(readDocumentLink(metadata) === null ? {} : { documentLink: readDocumentLink(metadata) }),
+    ...(readPersistedDocumentLinkMetadata(metadata) === null
+      ? {}
+      : { documentLink: readPersistedDocumentLinkMetadata(metadata) }),
     createdAt: input.createdAt.toISOString()
   };
 }

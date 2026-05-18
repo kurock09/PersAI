@@ -33,6 +33,7 @@ import type {
 } from "./web-chat.types";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
+import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
@@ -307,6 +308,7 @@ export class ManageWebChatListService {
     const attachmentsByMessageId = new Map<string, AssistantWebChatMessageAttachmentState[]>();
     for (const att of allAttachments) {
       const list = attachmentsByMessageId.get(att.messageId) ?? [];
+      const documentLink = readPersistedDocumentLinkMetadata(att.metadata);
       list.push({
         id: att.id,
         fileRef: att.assistantFileId,
@@ -316,6 +318,7 @@ export class ManageWebChatListService {
         sizeBytes: Number(att.sizeBytes),
         processingStatus: att.processingStatus,
         ...(att.metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
+        ...(documentLink === null ? {} : { documentLink }),
         createdAt: att.createdAt.toISOString()
       });
       attachmentsByMessageId.set(att.messageId, list);
