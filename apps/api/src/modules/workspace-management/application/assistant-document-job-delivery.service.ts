@@ -638,8 +638,23 @@ export class AssistantDocumentJobDeliveryService {
           };
         }
       ).assistantChatMessageAttachment;
+      const resolvedDescriptorMode = this.readDescriptorMode(input.payload);
+      const resolvedDocumentType = this.inferDocumentType(input.payload);
+      const companionOriginalStatus = this.readCompanionOriginalStatus(input.payload);
+      this.logger.log(
+        `[document-delivery] persisting documentLink docId=${input.job.docId} versionId=${
+          input.job.versionId
+        } descriptorMode=${resolvedDescriptorMode} documentType=${
+          resolvedDocumentType ?? "null"
+        } companionOriginalStatus=${companionOriginalStatus} attachmentCount=${input.attachments.length}`
+      );
       for (const attachment of input.attachments) {
         if (attachmentMetadataWriter !== undefined) {
+          this.logger.log(
+            `[document-delivery] attachment fileRef=${attachment.fileRef} mimeType=${
+              attachment.mimeType
+            } messageId=${input.completionAssistantMessageId}`
+          );
           await attachmentMetadataWriter.updateMany({
             where: {
               assistantFileId: attachment.fileRef,
@@ -651,8 +666,8 @@ export class AssistantDocumentJobDeliveryService {
                 documentLink: {
                   docId: input.job.docId,
                   versionId: input.job.versionId,
-                  descriptorMode: this.readDescriptorMode(input.payload),
-                  documentType: this.inferDocumentType(input.payload),
+                  descriptorMode: resolvedDescriptorMode,
+                  documentType: resolvedDocumentType,
                   renderJobId: input.job.id,
                   isCurrentOutput: true
                 }
@@ -1006,5 +1021,21 @@ export class AssistantDocumentJobDeliveryService {
         ? payload.providerStatus.provider
         : row.provider;
     return provider === "gamma" ? "presentation" : "document";
+  }
+
+  private readCompanionOriginalStatus(payload: PersistedDeliveryPayload): string {
+    const providerStatus = payload.providerStatus;
+    if (providerStatus === null || providerStatus === undefined) {
+      return "no_provider_status";
+    }
+    const candidate = (providerStatus as Record<string, unknown>).companionOriginal;
+    if (candidate === null || candidate === undefined) {
+      return "absent";
+    }
+    if (typeof candidate !== "object" || Array.isArray(candidate)) {
+      return "malformed";
+    }
+    const status = (candidate as Record<string, unknown>).status;
+    return typeof status === "string" ? status : "unknown";
   }
 }

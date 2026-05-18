@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   PersaiRuntimePresentationImagePolicy,
@@ -21,6 +21,8 @@ export interface RuntimeDocumentToolExecutionResult {
 
 @Injectable()
 export class RuntimeDocumentToolService {
+  private readonly logger = new Logger(RuntimeDocumentToolService.name);
+
   constructor(private readonly persaiInternalApiClientService: PersaiInternalApiClientService) {}
 
   async executeToolCall(params: {
@@ -86,6 +88,20 @@ export class RuntimeDocumentToolService {
         ? "presentation"
         : "pdf_document";
     const provider = documentType === "presentation" ? "gamma" : "pdfmonkey";
+    // Diagnostic: surface what the model actually passed in the typed args
+    // versus the system-resolved values, so production logs answer "did the
+    // model send targetSlideCount?" without guessing.
+    this.logger.log(
+      `[document-tool] tool-args descriptorMode=${parsed.descriptorMode} effectiveMode=${effectiveDescriptorMode} requestedOutputFormat=${
+        parsed.request.outputFormat ?? "null"
+      } resolvedOutputFormat=${normalizedRequest.outputFormat ?? "null"} targetSlideCount=${
+        parsed.request.targetSlideCount ?? "null"
+      } visualDensity=${parsed.request.visualDensity ?? "null"} imagePolicy=${
+        parsed.request.imagePolicy ?? "null"
+      } visualStyle=${parsed.request.visualStyle ?? "null"} hasOutline=${
+        parsed.request.outline === undefined || parsed.request.outline === null ? "false" : "true"
+      } sourceAttachmentCount=${sourceAttachments.length}`
+    );
     try {
       const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredDocumentJob({
         assistantId: params.bundle.metadata.assistantId,

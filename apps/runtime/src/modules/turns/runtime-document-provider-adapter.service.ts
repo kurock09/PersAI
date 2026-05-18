@@ -976,21 +976,15 @@ export class RuntimeDocumentProviderAdapterService {
   }
 
   private inferGammaTopicProfile(request: RuntimeDocumentJobRunRequest): {
-    prefersCompactDeck: boolean;
+    prefersLongForm: boolean;
   } {
+    // We deliberately removed the `prefersCompactDeck` branch that used to
+    // collapse "school"/"учеб"/"обзор" decks down to 3-5 cards. A typical
+    // school deck is 7-10 slides, not 3, and the topic word alone is not a
+    // reason to ship a stub. We still honor an explicit long-form signal
+    // (report/thesis/quarterly/annual) because those genuinely warrant a
+    // larger card cap.
     const normalized = this.collectGammaTopicText(request);
-    const compactTopic =
-      normalized.includes("school") ||
-      normalized.includes("student") ||
-      normalized.includes("lesson") ||
-      normalized.includes("biology") ||
-      normalized.includes("overview") ||
-      normalized.includes("intro") ||
-      normalized.includes("basics") ||
-      normalized.includes("кратк") ||
-      normalized.includes("обзор") ||
-      normalized.includes("школ") ||
-      normalized.includes("учеб");
     const longFormTopic =
       normalized.includes("report") ||
       normalized.includes("thesis") ||
@@ -999,7 +993,7 @@ export class RuntimeDocumentProviderAdapterService {
       normalized.includes("annual") ||
       normalized.includes("отчет") ||
       normalized.includes("доклад");
-    return { prefersCompactDeck: compactTopic && !longFormTopic };
+    return { prefersLongForm: longFormTopic };
   }
 
   private resolveGammaLanguageCode(request: RuntimeDocumentJobRunRequest): string {
@@ -1028,9 +1022,16 @@ export class RuntimeDocumentProviderAdapterService {
     if (targetSlideCount !== null) {
       return targetSlideCount;
     }
+    // Fallback path when the model omitted `targetSlideCount`. Defaults are
+    // tuned for a real-world chat deck, not a stub. A short prompt like
+    // "Сделай презентацию про круговорот воды для школы" has no signal that
+    // the user wants 3 slides — that was an artefact of a too-aggressive
+    // compact-topic heuristic. The defaults below produce a 7-10 slide deck
+    // unless an outline or genuinely long input clearly says otherwise.
     const topicProfile = this.inferGammaTopicProfile(request);
-    const minCards = topicProfile.prefersCompactDeck ? 3 : 4;
-    const maxCards = topicProfile.prefersCompactDeck ? 5 : 12;
+    const minCards = topicProfile.prefersLongForm ? 8 : 7;
+    const maxCards = topicProfile.prefersLongForm ? 16 : 12;
+    const defaultCards = topicProfile.prefersLongForm ? 10 : 8;
     const outline = request.directToolExecution.request.outline;
     if (Array.isArray(outline)) {
       const count = outline.filter((entry) => entry !== null).length;
@@ -1045,13 +1046,20 @@ export class RuntimeDocumentProviderAdapterService {
       }
     }
     const baseText = this.renderGammaInput(request);
+    // For short user prompts (typical chat ask), the text-length heuristic
+    // collapses to `minCards` and we end up with a bland 4-slide deck. Use
+    // the explicit default-card target instead and only let the heuristic
+    // grow the deck when the seed text is genuinely long.
+    if (baseText.length < 600) {
+      return defaultCards;
+    }
     const approx =
       visualDensity === "visual_heavy"
         ? Math.ceil(baseText.length / 950)
         : visualDensity === "text_heavy"
           ? Math.ceil(baseText.length / 1100)
           : Math.ceil(baseText.length / 750);
-    return Math.max(minCards, Math.min(maxCards, approx));
+    return Math.max(defaultCards, Math.min(maxCards, approx));
   }
 
   private readTargetSlideCount(value: unknown): number | null {

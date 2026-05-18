@@ -1,4 +1,4 @@
-import { GoneException, Injectable, NotFoundException } from "@nestjs/common";
+import { GoneException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { RuntimeDocumentGammaCompanionOriginal } from "@persai/runtime-contract";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
@@ -14,6 +14,8 @@ type OriginalGammaExportRef = {
 
 @Injectable()
 export class AssistantDocumentOriginalDownloadService {
+  private readonly logger = new Logger(AssistantDocumentOriginalDownloadService.name);
+
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
   async downloadOriginalPresentation(input: {
@@ -24,6 +26,11 @@ export class AssistantDocumentOriginalDownloadService {
   }): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
     const resolved = await this.resolveVersionForDownload(input);
     if (resolved === null) {
+      this.logger.log(
+        `[document-original] resolve_failed docId=${input.docId} versionId=${
+          input.versionId ?? "current"
+        }`
+      );
       throw new NotFoundException("Presentation document was not found.");
     }
     const originalExport = this.readOriginalPptxExport(
@@ -31,16 +38,36 @@ export class AssistantDocumentOriginalDownloadService {
       this.resolveFallbackPptxFilename(resolved.sourceJson)
     );
     if (originalExport === null) {
+      this.logger.log(
+        `[document-original] no_companion docId=${input.docId} versionId=${
+          input.versionId ?? "current"
+        }`
+      );
       throw new GoneException(ORIGINAL_PPTX_GONE_MESSAGE);
     }
 
+    this.logger.log(
+      `[document-original] streaming docId=${input.docId} versionId=${
+        input.versionId ?? "current"
+      } filename=${originalExport.filename ?? "fallback"}`
+    );
     const response = await fetch(originalExport.exportUrl, { method: "GET" }).catch(() => null);
     if (response === null || !response.ok) {
+      this.logger.log(
+        `[document-original] export_fetch_failed docId=${input.docId} versionId=${
+          input.versionId ?? "current"
+        } status=${response?.status ?? "no_response"}`
+      );
       throw new GoneException(ORIGINAL_PPTX_GONE_MESSAGE);
     }
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     if (buffer.length === 0) {
+      this.logger.log(
+        `[document-original] empty_body docId=${input.docId} versionId=${
+          input.versionId ?? "current"
+        }`
+      );
       throw new GoneException(ORIGINAL_PPTX_GONE_MESSAGE);
     }
 
