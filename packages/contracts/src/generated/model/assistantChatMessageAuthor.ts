@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantChatMessageAuthor = typeof AssistantChatMessageAuthor[keyof typeof AssistantChatMessageAuthor];
-
+export type AssistantChatMessageAuthor =
+  (typeof AssistantChatMessageAuthor)[keyof typeof AssistantChatMessageAuthor];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantChatMessageAuthor = {
-  user: 'user',
-  assistant: 'assistant',
-  system: 'system',
+  user: "user",
+  assistant: "assistant",
+  system: "system"
 } as const;

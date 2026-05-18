@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { MaterializationRolloutView } from './materializationRolloutView';
-import type { MaterializationRolloutItemView } from './materializationRolloutItemView';
+import type { MaterializationRolloutView } from "./materializationRolloutView";
+import type { MaterializationRolloutItemView } from "./materializationRolloutItemView";
 
 export interface GetAdminPlatformRolloutFailedItemsResponse {
   /** @nullable */

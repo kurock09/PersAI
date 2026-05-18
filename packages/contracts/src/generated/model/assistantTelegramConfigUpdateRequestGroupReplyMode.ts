@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantTelegramConfigUpdateRequestGroupReplyMode = typeof AssistantTelegramConfigUpdateRequestGroupReplyMode[keyof typeof AssistantTelegramConfigUpdateRequestGroupReplyMode];
-
+export type AssistantTelegramConfigUpdateRequestGroupReplyMode =
+  (typeof AssistantTelegramConfigUpdateRequestGroupReplyMode)[keyof typeof AssistantTelegramConfigUpdateRequestGroupReplyMode];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantTelegramConfigUpdateRequestGroupReplyMode = {
-  mention_reply: 'mention_reply',
-  all_messages: 'all_messages',
+  mention_reply: "mention_reply",
+  all_messages: "all_messages"
 } as const;

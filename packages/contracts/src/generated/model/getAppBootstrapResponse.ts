@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AppBootstrapSectionsState } from './appBootstrapSectionsState';
+import type { AppBootstrapSectionsState } from "./appBootstrapSectionsState";
 
 export interface GetAppBootstrapResponse {
   /** @nullable */

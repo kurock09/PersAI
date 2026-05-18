@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { PatchNotificationPolicyRequestConfig } from './patchNotificationPolicyRequestConfig';
+import type { PatchNotificationPolicyRequestConfig } from "./patchNotificationPolicyRequestConfig";
 
 export interface PatchNotificationPolicyRequest {
   enabled?: boolean;

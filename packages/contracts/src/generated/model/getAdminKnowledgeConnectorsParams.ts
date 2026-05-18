@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { GlobalKnowledgeSourceScope } from './globalKnowledgeSourceScope';
+import type { GlobalKnowledgeSourceScope } from "./globalKnowledgeSourceScope";
 
 export type GetAdminKnowledgeConnectorsParams = {
-scope: GlobalKnowledgeSourceScope;
+  scope: GlobalKnowledgeSourceScope;
 };

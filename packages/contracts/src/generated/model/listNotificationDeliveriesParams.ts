@@ -6,12 +6,12 @@
  */
 
 export type ListNotificationDeliveriesParams = {
-source?: string;
-class?: string;
-channel?: string;
-status?: string;
-dateFrom?: string;
-dateTo?: string;
-page?: number;
-pageSize?: number;
+  source?: string;
+  class?: string;
+  channel?: string;
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  pageSize?: number;
 };

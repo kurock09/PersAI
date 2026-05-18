@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminBillingProviderCredentialsRequestProvidersCloudpayments } from './adminBillingProviderCredentialsRequestProvidersCloudpayments';
+import type { AdminBillingProviderCredentialsRequestProvidersCloudpayments } from "./adminBillingProviderCredentialsRequestProvidersCloudpayments";
 
 export type AdminBillingProviderCredentialsRequestProviders = {
   cloudpayments?: AdminBillingProviderCredentialsRequestProvidersCloudpayments;

@@ -5,16 +5,16 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type MaterializationRolloutItemViewStatus = typeof MaterializationRolloutItemViewStatus[keyof typeof MaterializationRolloutItemViewStatus];
-
+export type MaterializationRolloutItemViewStatus =
+  (typeof MaterializationRolloutItemViewStatus)[keyof typeof MaterializationRolloutItemViewStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const MaterializationRolloutItemViewStatus = {
-  pending: 'pending',
-  running: 'running',
-  succeeded: 'succeeded',
-  degraded: 'degraded',
-  failed: 'failed',
-  skipped: 'skipped',
-  cancelled: 'cancelled',
+  pending: "pending",
+  running: "running",
+  succeeded: "succeeded",
+  degraded: "degraded",
+  failed: "failed",
+  skipped: "skipped",
+  cancelled: "cancelled"
 } as const;

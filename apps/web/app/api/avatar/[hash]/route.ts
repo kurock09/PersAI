@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ hash: string }> }
+  { params }: { params: Promise<unknown> }
 ): Promise<Response> {
   const session = await auth();
   if (!session.userId) {
@@ -36,7 +36,7 @@ export async function GET(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { hash: rawHash } = await params;
+  const { hash: rawHash } = (await params) as { hash: string };
   const match = HASH_FROM_PARAM.exec(rawHash);
   if (!match) {
     return Response.json({ error: "Invalid avatar identifier." }, { status: 400 });

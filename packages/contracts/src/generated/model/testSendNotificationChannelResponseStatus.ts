@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type TestSendNotificationChannelResponseStatus = typeof TestSendNotificationChannelResponseStatus[keyof typeof TestSendNotificationChannelResponseStatus];
-
+export type TestSendNotificationChannelResponseStatus =
+  (typeof TestSendNotificationChannelResponseStatus)[keyof typeof TestSendNotificationChannelResponseStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TestSendNotificationChannelResponseStatus = {
-  delivered: 'delivered',
-  failed: 'failed',
-  not_configured: 'not_configured',
-  adapter_not_found: 'adapter_not_found',
+  delivered: "delivered",
+  failed: "failed",
+  not_configured: "not_configured",
+  adapter_not_found: "adapter_not_found"
 } as const;

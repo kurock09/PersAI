@@ -5,15 +5,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminOpsCockpitSandboxJobStatus = typeof AdminOpsCockpitSandboxJobStatus[keyof typeof AdminOpsCockpitSandboxJobStatus];
-
+export type AdminOpsCockpitSandboxJobStatus =
+  (typeof AdminOpsCockpitSandboxJobStatus)[keyof typeof AdminOpsCockpitSandboxJobStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminOpsCockpitSandboxJobStatus = {
-  queued: 'queued',
-  running: 'running',
-  completed: 'completed',
-  failed: 'failed',
-  blocked: 'blocked',
-  cancelled: 'cancelled',
+  queued: "queued",
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  blocked: "blocked",
+  cancelled: "cancelled"
 } as const;

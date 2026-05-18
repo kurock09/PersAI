@@ -4,7 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AuthoredKnowledgeProcessingFields } from './authoredKnowledgeProcessingFields';
-import type { SkillKnowledgeCardStateAllOf } from './skillKnowledgeCardStateAllOf';
+import type { AuthoredKnowledgeProcessingFields } from "./authoredKnowledgeProcessingFields";
+import type { SkillKnowledgeCardStateAllOf } from "./skillKnowledgeCardStateAllOf";
 
-export type SkillKnowledgeCardState = AuthoredKnowledgeProcessingFields & SkillKnowledgeCardStateAllOf;
+export type SkillKnowledgeCardState = AuthoredKnowledgeProcessingFields &
+  SkillKnowledgeCardStateAllOf;

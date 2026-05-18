@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatActiveDocumentJobStateDocumentType = typeof AssistantWebChatActiveDocumentJobStateDocumentType[keyof typeof AssistantWebChatActiveDocumentJobStateDocumentType];
-
+export type AssistantWebChatActiveDocumentJobStateDocumentType =
+  (typeof AssistantWebChatActiveDocumentJobStateDocumentType)[keyof typeof AssistantWebChatActiveDocumentJobStateDocumentType];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatActiveDocumentJobStateDocumentType = {
-  pdf_document: 'pdf_document',
-  presentation: 'presentation',
+  pdf_document: "pdf_document",
+  presentation: "presentation"
 } as const;

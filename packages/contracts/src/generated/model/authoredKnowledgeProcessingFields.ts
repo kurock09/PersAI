@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantKnowledgeSourceStatus } from './assistantKnowledgeSourceStatus';
-import type { AuthoredKnowledgeProcessingFieldsProcessorMode } from './authoredKnowledgeProcessingFieldsProcessorMode';
-import type { AuthoredKnowledgeProcessingFieldsProcessingQuality } from './authoredKnowledgeProcessingFieldsProcessingQuality';
+import type { AssistantKnowledgeSourceStatus } from "./assistantKnowledgeSourceStatus";
+import type { AuthoredKnowledgeProcessingFieldsProcessorMode } from "./authoredKnowledgeProcessingFieldsProcessorMode";
+import type { AuthoredKnowledgeProcessingFieldsProcessingQuality } from "./authoredKnowledgeProcessingFieldsProcessingQuality";
 
 export interface AuthoredKnowledgeProcessingFields {
   status: AssistantKnowledgeSourceStatus;

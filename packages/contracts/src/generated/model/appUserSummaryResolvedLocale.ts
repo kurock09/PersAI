@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AppUserSummaryResolvedLocale = typeof AppUserSummaryResolvedLocale[keyof typeof AppUserSummaryResolvedLocale];
-
+export type AppUserSummaryResolvedLocale =
+  (typeof AppUserSummaryResolvedLocale)[keyof typeof AppUserSummaryResolvedLocale];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AppUserSummaryResolvedLocale = {
-  en: 'en',
-  ru: 'ru',
+  en: "en",
+  ru: "ru"
 } as const;

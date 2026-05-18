@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type UserPlanVisibilityPackagesPurchasePaymentMethodClassesItem = typeof UserPlanVisibilityPackagesPurchasePaymentMethodClassesItem[keyof typeof UserPlanVisibilityPackagesPurchasePaymentMethodClassesItem];
-
+export type UserPlanVisibilityPackagesPurchasePaymentMethodClassesItem =
+  (typeof UserPlanVisibilityPackagesPurchasePaymentMethodClassesItem)[keyof typeof UserPlanVisibilityPackagesPurchasePaymentMethodClassesItem];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UserPlanVisibilityPackagesPurchasePaymentMethodClassesItem = {
-  card: 'card',
-  sbp_qr: 'sbp_qr',
+  card: "card",
+  sbp_qr: "sbp_qr"
 } as const;

@@ -4,9 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantBillingPaymentMethodClass } from './assistantBillingPaymentMethodClass';
+import type { AssistantBillingPaymentMethodClass } from "./assistantBillingPaymentMethodClass";
 
 /**
  * @nullable
  */
-export type AssistantBillingRecurringMigrationStateTargetMethodClass = AssistantBillingPaymentMethodClass | null;
+export type AssistantBillingRecurringMigrationStateTargetMethodClass =
+  AssistantBillingPaymentMethodClass | null;

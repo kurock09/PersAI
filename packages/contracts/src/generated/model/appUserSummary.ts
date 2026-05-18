@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AppUserSummaryPreferredLocale } from './appUserSummaryPreferredLocale';
-import type { AppUserSummaryResolvedLocale } from './appUserSummaryResolvedLocale';
+import type { AppUserSummaryPreferredLocale } from "./appUserSummaryPreferredLocale";
+import type { AppUserSummaryResolvedLocale } from "./appUserSummaryResolvedLocale";
 
 export interface AppUserSummary {
   id: string;

@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminToolPromptMetadataStateToolClass } from './adminToolPromptMetadataStateToolClass';
-import type { AdminToolPromptMetadataStateCapabilityGroup } from './adminToolPromptMetadataStateCapabilityGroup';
-import type { AdminToolPromptMetadataStatePolicyClass } from './adminToolPromptMetadataStatePolicyClass';
-import type { AdminToolPromptMetadataStateCatalogStatus } from './adminToolPromptMetadataStateCatalogStatus';
+import type { AdminToolPromptMetadataStateToolClass } from "./adminToolPromptMetadataStateToolClass";
+import type { AdminToolPromptMetadataStateCapabilityGroup } from "./adminToolPromptMetadataStateCapabilityGroup";
+import type { AdminToolPromptMetadataStatePolicyClass } from "./adminToolPromptMetadataStatePolicyClass";
+import type { AdminToolPromptMetadataStateCatalogStatus } from "./adminToolPromptMetadataStateCatalogStatus";
 
 export interface AdminToolPromptMetadataState {
   toolCode: string;

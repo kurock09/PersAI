@@ -4,13 +4,13 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminKnowledgeConnectorStateKind } from './adminKnowledgeConnectorStateKind';
-import type { AdminKnowledgeConnectorStateStatus } from './adminKnowledgeConnectorStateStatus';
-import type { AdminKnowledgeConnectorStateAuthMode } from './adminKnowledgeConnectorStateAuthMode';
-import type { GlobalKnowledgeSourceScope } from './globalKnowledgeSourceScope';
-import type { AdminKnowledgeConnectorStateSyncMode } from './adminKnowledgeConnectorStateSyncMode';
-import type { AdminKnowledgeConnectorStateStorageTarget } from './adminKnowledgeConnectorStateStorageTarget';
-import type { AdminKnowledgeConnectorStateIndexingTarget } from './adminKnowledgeConnectorStateIndexingTarget';
+import type { AdminKnowledgeConnectorStateKind } from "./adminKnowledgeConnectorStateKind";
+import type { AdminKnowledgeConnectorStateStatus } from "./adminKnowledgeConnectorStateStatus";
+import type { AdminKnowledgeConnectorStateAuthMode } from "./adminKnowledgeConnectorStateAuthMode";
+import type { GlobalKnowledgeSourceScope } from "./globalKnowledgeSourceScope";
+import type { AdminKnowledgeConnectorStateSyncMode } from "./adminKnowledgeConnectorStateSyncMode";
+import type { AdminKnowledgeConnectorStateStorageTarget } from "./adminKnowledgeConnectorStateStorageTarget";
+import type { AdminKnowledgeConnectorStateIndexingTarget } from "./adminKnowledgeConnectorStateIndexingTarget";
 
 export interface AdminKnowledgeConnectorState {
   kind: AdminKnowledgeConnectorStateKind;

@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantSkillAssignmentStatus = typeof AssistantSkillAssignmentStatus[keyof typeof AssistantSkillAssignmentStatus];
-
+export type AssistantSkillAssignmentStatus =
+  (typeof AssistantSkillAssignmentStatus)[keyof typeof AssistantSkillAssignmentStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantSkillAssignmentStatus = {
-  active: 'active',
-  disabled: 'disabled',
-  archived: 'archived',
-  plan_disabled: 'plan_disabled',
+  active: "active",
+  disabled: "disabled",
+  archived: "archived",
+  plan_disabled: "plan_disabled"
 } as const;

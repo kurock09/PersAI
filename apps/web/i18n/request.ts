@@ -1,8 +1,12 @@
 import { getRequestConfig } from "next-intl/server";
 import { cookies, headers } from "next/headers";
-import { isSupportedLocale, type SupportedLocale } from "@persai/types";
 
-type Locale = SupportedLocale;
+const SUPPORTED_LOCALES = ["en", "ru"] as const;
+type Locale = (typeof SUPPORTED_LOCALES)[number];
+
+function isSupportedLocale(value: string): value is Locale {
+  return (SUPPORTED_LOCALES as readonly string[]).includes(value);
+}
 
 async function resolveLocale(): Promise<Locale> {
   const cookieStore = await cookies();

@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatRuntimeStateTurnRoutingExecutionMode = typeof AssistantWebChatRuntimeStateTurnRoutingExecutionMode[keyof typeof AssistantWebChatRuntimeStateTurnRoutingExecutionMode];
-
+export type AssistantWebChatRuntimeStateTurnRoutingExecutionMode =
+  (typeof AssistantWebChatRuntimeStateTurnRoutingExecutionMode)[keyof typeof AssistantWebChatRuntimeStateTurnRoutingExecutionMode];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatRuntimeStateTurnRoutingExecutionMode = {
-  normal: 'normal',
-  premium: 'premium',
-  reasoning: 'reasoning',
+  normal: "normal",
+  premium: "premium",
+  reasoning: "reasoning"
 } as const;

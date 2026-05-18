@@ -22,7 +22,7 @@ const RESPONSE_PASSTHROUGH_HEADERS = [
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ fileRef: string }> }
+  { params }: { params: Promise<unknown> }
 ): Promise<Response> {
   const { getToken } = await auth();
   const token = await getToken();
@@ -30,7 +30,7 @@ export async function GET(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { fileRef } = await params;
+  const { fileRef } = (await params) as { fileRef: string };
   const requestUrl = new URL(request.url);
   const upstream = new URL(`${apiBase}/assistant/files/${encodeURIComponent(fileRef)}/download`);
   const download = requestUrl.searchParams.get("download");

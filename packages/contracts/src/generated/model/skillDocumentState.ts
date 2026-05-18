@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantKnowledgeSourceStatus } from './assistantKnowledgeSourceStatus';
-import type { SkillDocumentStateProcessorMode } from './skillDocumentStateProcessorMode';
-import type { SkillDocumentStateProcessingQuality } from './skillDocumentStateProcessingQuality';
+import type { AssistantKnowledgeSourceStatus } from "./assistantKnowledgeSourceStatus";
+import type { SkillDocumentStateProcessorMode } from "./skillDocumentStateProcessorMode";
+import type { SkillDocumentStateProcessingQuality } from "./skillDocumentStateProcessingQuality";
 
 export interface SkillDocumentState {
   id: string;

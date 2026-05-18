@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type UserPlanVisibilityPackageToolOffersPreferredOfferKind = typeof UserPlanVisibilityPackageToolOffersPreferredOfferKind[keyof typeof UserPlanVisibilityPackageToolOffersPreferredOfferKind];
-
+export type UserPlanVisibilityPackageToolOffersPreferredOfferKind =
+  (typeof UserPlanVisibilityPackageToolOffersPreferredOfferKind)[keyof typeof UserPlanVisibilityPackageToolOffersPreferredOfferKind];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UserPlanVisibilityPackageToolOffersPreferredOfferKind = {
-  none: 'none',
-  package_only: 'package_only',
-  plan_upgrade_only: 'plan_upgrade_only',
-  plan_upgrade_or_package: 'plan_upgrade_or_package',
+  none: "none",
+  package_only: "package_only",
+  plan_upgrade_only: "plan_upgrade_only",
+  plan_upgrade_or_package: "plan_upgrade_or_package"
 } as const;

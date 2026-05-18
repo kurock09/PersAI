@@ -6,10 +6,10 @@
  */
 
 export type ListNotificationDeadLettersParams = {
-source?: string;
-status?: string;
-dateFrom?: string;
-dateTo?: string;
-page?: number;
-pageSize?: number;
+  source?: string;
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  pageSize?: number;
 };

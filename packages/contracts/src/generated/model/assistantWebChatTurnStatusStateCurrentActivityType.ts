@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatTurnStatusStateCurrentActivityType = typeof AssistantWebChatTurnStatusStateCurrentActivityType[keyof typeof AssistantWebChatTurnStatusStateCurrentActivityType];
-
+export type AssistantWebChatTurnStatusStateCurrentActivityType =
+  (typeof AssistantWebChatTurnStatusStateCurrentActivityType)[keyof typeof AssistantWebChatTurnStatusStateCurrentActivityType];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatTurnStatusStateCurrentActivityType = {
-  tool_use: 'tool_use',
+  tool_use: "tool_use"
 } as const;

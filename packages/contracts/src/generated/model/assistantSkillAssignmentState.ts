@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantSkillAssignmentStatus } from './assistantSkillAssignmentStatus';
+import type { AssistantSkillAssignmentStatus } from "./assistantSkillAssignmentStatus";
 
 export interface AssistantSkillAssignmentState {
   id: string;

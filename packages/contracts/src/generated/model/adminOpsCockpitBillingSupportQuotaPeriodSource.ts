@@ -8,11 +8,12 @@
 /**
  * @nullable
  */
-export type AdminOpsCockpitBillingSupportQuotaPeriodSource = typeof AdminOpsCockpitBillingSupportQuotaPeriodSource[keyof typeof AdminOpsCockpitBillingSupportQuotaPeriodSource] | null;
-
+export type AdminOpsCockpitBillingSupportQuotaPeriodSource =
+  | (typeof AdminOpsCockpitBillingSupportQuotaPeriodSource)[keyof typeof AdminOpsCockpitBillingSupportQuotaPeriodSource]
+  | null;
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminOpsCockpitBillingSupportQuotaPeriodSource = {
-  subscription_period: 'subscription_period',
-  calendar_month_fallback: 'calendar_month_fallback',
+  subscription_period: "subscription_period",
+  calendar_month_fallback: "calendar_month_fallback"
 } as const;

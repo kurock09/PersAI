@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { UserPlanVisibilityPackageOffersPackagesPurchase } from './userPlanVisibilityPackageOffersPackagesPurchase';
-import type { UserPlanVisibilityPackageToolOffers } from './userPlanVisibilityPackageToolOffers';
+import type { UserPlanVisibilityPackageOffersPackagesPurchase } from "./userPlanVisibilityPackageOffersPackagesPurchase";
+import type { UserPlanVisibilityPackageToolOffers } from "./userPlanVisibilityPackageToolOffers";
 
 export interface UserPlanVisibilityPackageOffers {
   /** @nullable */

@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantWebChatStateSkillDecisionStateConfidence = typeof AssistantWebChatStateSkillDecisionStateConfidence[keyof typeof AssistantWebChatStateSkillDecisionStateConfidence];
-
+export type AssistantWebChatStateSkillDecisionStateConfidence =
+  (typeof AssistantWebChatStateSkillDecisionStateConfidence)[keyof typeof AssistantWebChatStateSkillDecisionStateConfidence];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatStateSkillDecisionStateConfidence = {
-  low: 'low',
-  medium: 'medium',
-  high: 'high',
+  low: "low",
+  medium: "medium",
+  high: "high"
 } as const;

@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { UserPlanVisibilityEffectivePlanStatus } from './userPlanVisibilityEffectivePlanStatus';
-import type { UserPlanVisibilityEffectivePlanSource } from './userPlanVisibilityEffectivePlanSource';
-import type { UserPlanVisibilityEffectivePlanSubscriptionStatus } from './userPlanVisibilityEffectivePlanSubscriptionStatus';
-import type { AdminPlanPresentationPrice } from './adminPlanPresentationPrice';
+import type { UserPlanVisibilityEffectivePlanStatus } from "./userPlanVisibilityEffectivePlanStatus";
+import type { UserPlanVisibilityEffectivePlanSource } from "./userPlanVisibilityEffectivePlanSource";
+import type { UserPlanVisibilityEffectivePlanSubscriptionStatus } from "./userPlanVisibilityEffectivePlanSubscriptionStatus";
+import type { AdminPlanPresentationPrice } from "./adminPlanPresentationPrice";
 
 export interface UserPlanVisibilityEffectivePlan {
   /** @nullable */

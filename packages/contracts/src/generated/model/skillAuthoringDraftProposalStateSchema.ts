@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type SkillAuthoringDraftProposalStateSchema = typeof SkillAuthoringDraftProposalStateSchema[keyof typeof SkillAuthoringDraftProposalStateSchema];
-
+export type SkillAuthoringDraftProposalStateSchema =
+  (typeof SkillAuthoringDraftProposalStateSchema)[keyof typeof SkillAuthoringDraftProposalStateSchema];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SkillAuthoringDraftProposalStateSchema = {
-  persaiskillAuthoringDraftProposalv1: 'persai.skillAuthoringDraftProposal.v1',
+  persaiskillAuthoringDraftProposalv1: "persai.skillAuthoringDraftProposal.v1"
 } as const;

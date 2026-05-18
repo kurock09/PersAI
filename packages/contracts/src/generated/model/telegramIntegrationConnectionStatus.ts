@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type TelegramIntegrationConnectionStatus = typeof TelegramIntegrationConnectionStatus[keyof typeof TelegramIntegrationConnectionStatus];
-
+export type TelegramIntegrationConnectionStatus =
+  (typeof TelegramIntegrationConnectionStatus)[keyof typeof TelegramIntegrationConnectionStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TelegramIntegrationConnectionStatus = {
-  connected: 'connected',
-  not_connected: 'not_connected',
-  claim_required: 'claim_required',
-  invalid_token: 'invalid_token',
+  connected: "connected",
+  not_connected: "not_connected",
+  claim_required: "claim_required",
+  invalid_token: "invalid_token"
 } as const;

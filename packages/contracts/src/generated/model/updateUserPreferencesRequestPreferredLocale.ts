@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type UpdateUserPreferencesRequestPreferredLocale = typeof UpdateUserPreferencesRequestPreferredLocale[keyof typeof UpdateUserPreferencesRequestPreferredLocale];
-
+export type UpdateUserPreferencesRequestPreferredLocale =
+  (typeof UpdateUserPreferencesRequestPreferredLocale)[keyof typeof UpdateUserPreferencesRequestPreferredLocale];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UpdateUserPreferencesRequestPreferredLocale = {
-  en: 'en',
-  ru: 'ru',
+  en: "en",
+  ru: "ru"
 } as const;

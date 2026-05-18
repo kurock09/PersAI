@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminOpsBillingSupportAction } from './adminOpsBillingSupportAction';
-import type { AdminOpsManualPaidActivation } from './adminOpsManualPaidActivation';
+import type { AdminOpsBillingSupportAction } from "./adminOpsBillingSupportAction";
+import type { AdminOpsManualPaidActivation } from "./adminOpsManualPaidActivation";
 
 export interface PostAdminOpsUserBillingSupportActionRequest {
   action: AdminOpsBillingSupportAction;

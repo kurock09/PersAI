@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantBillingPaymentIntentPurpose = typeof AssistantBillingPaymentIntentPurpose[keyof typeof AssistantBillingPaymentIntentPurpose];
-
+export type AssistantBillingPaymentIntentPurpose =
+  (typeof AssistantBillingPaymentIntentPurpose)[keyof typeof AssistantBillingPaymentIntentPurpose];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingPaymentIntentPurpose = {
-  plan_purchase: 'plan_purchase',
-  media_package_purchase: 'media_package_purchase',
-  managed_recurring_upgrade: 'managed_recurring_upgrade',
-  autopay_enable_bind: 'autopay_enable_bind',
+  plan_purchase: "plan_purchase",
+  media_package_purchase: "media_package_purchase",
+  managed_recurring_upgrade: "managed_recurring_upgrade",
+  autopay_enable_bind: "autopay_enable_bind"
 } as const;

@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanToolActivationToolClass } from './adminPlanToolActivationToolClass';
-import type { AdminPlanToolActivationPolicyClass } from './adminPlanToolActivationPolicyClass';
+import type { AdminPlanToolActivationToolClass } from "./adminPlanToolActivationToolClass";
+import type { AdminPlanToolActivationPolicyClass } from "./adminPlanToolActivationPolicyClass";
 
 export interface AdminPlanToolActivation {
   toolCode: string;

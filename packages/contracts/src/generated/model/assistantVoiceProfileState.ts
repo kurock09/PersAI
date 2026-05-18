@@ -4,11 +4,11 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantVoiceProfileStateSchema } from './assistantVoiceProfileStateSchema';
-import type { AssistantVoiceProfileDeliveryKind } from './assistantVoiceProfileDeliveryKind';
-import type { AssistantVoiceProfileElevenLabsState } from './assistantVoiceProfileElevenLabsState';
-import type { AssistantVoiceProfileYandexState } from './assistantVoiceProfileYandexState';
-import type { AssistantVoiceProfileOpenAIState } from './assistantVoiceProfileOpenAIState';
+import type { AssistantVoiceProfileStateSchema } from "./assistantVoiceProfileStateSchema";
+import type { AssistantVoiceProfileDeliveryKind } from "./assistantVoiceProfileDeliveryKind";
+import type { AssistantVoiceProfileElevenLabsState } from "./assistantVoiceProfileElevenLabsState";
+import type { AssistantVoiceProfileYandexState } from "./assistantVoiceProfileYandexState";
+import type { AssistantVoiceProfileOpenAIState } from "./assistantVoiceProfileOpenAIState";
 
 export interface AssistantVoiceProfileState {
   schema: AssistantVoiceProfileStateSchema;

@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminOpsCockpitBillingSupportSubscription } from './adminOpsCockpitBillingSupportSubscription';
-import type { AdminOpsCockpitBillingSupportQuotaPeriod } from './adminOpsCockpitBillingSupportQuotaPeriod';
-import type { AdminOpsCockpitPaidActivation } from './adminOpsCockpitPaidActivation';
-import type { AdminOpsCockpitBillingLifecycleEvent } from './adminOpsCockpitBillingLifecycleEvent';
+import type { AdminOpsCockpitBillingSupportSubscription } from "./adminOpsCockpitBillingSupportSubscription";
+import type { AdminOpsCockpitBillingSupportQuotaPeriod } from "./adminOpsCockpitBillingSupportQuotaPeriod";
+import type { AdminOpsCockpitPaidActivation } from "./adminOpsCockpitPaidActivation";
+import type { AdminOpsCockpitBillingLifecycleEvent } from "./adminOpsCockpitBillingLifecycleEvent";
 
 export interface AdminOpsCockpitBillingSupport {
   subscription: AdminOpsCockpitBillingSupportSubscription;

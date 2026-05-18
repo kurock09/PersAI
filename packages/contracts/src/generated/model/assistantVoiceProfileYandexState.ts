@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantVoiceProfileYandexStateVoice } from './assistantVoiceProfileYandexStateVoice';
-import type { AssistantVoiceProfileYandexStateRole } from './assistantVoiceProfileYandexStateRole';
+import type { AssistantVoiceProfileYandexStateVoice } from "./assistantVoiceProfileYandexStateVoice";
+import type { AssistantVoiceProfileYandexStateRole } from "./assistantVoiceProfileYandexStateRole";
 
 export interface AssistantVoiceProfileYandexState {
   /** @nullable */

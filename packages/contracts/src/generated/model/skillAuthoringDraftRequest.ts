@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { SkillAuthoringDraftRequestCurrentDraft } from './skillAuthoringDraftRequestCurrentDraft';
+import type { SkillAuthoringDraftRequestCurrentDraft } from "./skillAuthoringDraftRequestCurrentDraft";
 
 export interface SkillAuthoringDraftRequest {
   /** @nullable */

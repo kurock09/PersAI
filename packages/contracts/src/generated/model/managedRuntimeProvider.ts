@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ManagedRuntimeProvider = typeof ManagedRuntimeProvider[keyof typeof ManagedRuntimeProvider];
-
+export type ManagedRuntimeProvider =
+  (typeof ManagedRuntimeProvider)[keyof typeof ManagedRuntimeProvider];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ManagedRuntimeProvider = {
-  openai: 'openai',
-  anthropic: 'anthropic',
+  openai: "openai",
+  anthropic: "anthropic"
 } as const;

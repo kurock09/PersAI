@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantMemoryRegistryKind = typeof AssistantMemoryRegistryKind[keyof typeof AssistantMemoryRegistryKind];
-
+export type AssistantMemoryRegistryKind =
+  (typeof AssistantMemoryRegistryKind)[keyof typeof AssistantMemoryRegistryKind];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantMemoryRegistryKind = {
-  fact: 'fact',
-  preference: 'preference',
-  open_loop: 'open_loop',
+  fact: "fact",
+  preference: "preference",
+  open_loop: "open_loop"
 } as const;

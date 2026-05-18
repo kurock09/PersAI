@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { PersonaArchetypeLocalizedString } from './personaArchetypeLocalizedString';
-import type { PersonaArchetypeVoiceParams } from './personaArchetypeVoiceParams';
-import type { PersonaArchetypeRuntimeStateDefaultTraits } from './personaArchetypeRuntimeStateDefaultTraits';
+import type { PersonaArchetypeLocalizedString } from "./personaArchetypeLocalizedString";
+import type { PersonaArchetypeVoiceParams } from "./personaArchetypeVoiceParams";
+import type { PersonaArchetypeRuntimeStateDefaultTraits } from "./personaArchetypeRuntimeStateDefaultTraits";
 
 export interface PersonaArchetypeRuntimeState {
   key: string;

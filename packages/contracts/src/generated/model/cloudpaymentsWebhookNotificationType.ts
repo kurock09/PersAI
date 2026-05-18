@@ -5,16 +5,16 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type CloudpaymentsWebhookNotificationType = typeof CloudpaymentsWebhookNotificationType[keyof typeof CloudpaymentsWebhookNotificationType];
-
+export type CloudpaymentsWebhookNotificationType =
+  (typeof CloudpaymentsWebhookNotificationType)[keyof typeof CloudpaymentsWebhookNotificationType];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CloudpaymentsWebhookNotificationType = {
-  check: 'check',
-  pay: 'pay',
-  fail: 'fail',
-  confirm: 'confirm',
-  refund: 'refund',
-  cancel: 'cancel',
-  recurrent: 'recurrent',
+  check: "check",
+  pay: "pay",
+  fail: "fail",
+  confirm: "confirm",
+  refund: "refund",
+  cancel: "cancel",
+  recurrent: "recurrent"
 } as const;

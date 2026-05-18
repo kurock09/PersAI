@@ -8,11 +8,12 @@
 /**
  * @nullable
  */
-export type AppUserSummaryPreferredLocale = typeof AppUserSummaryPreferredLocale[keyof typeof AppUserSummaryPreferredLocale] | null;
-
+export type AppUserSummaryPreferredLocale =
+  | (typeof AppUserSummaryPreferredLocale)[keyof typeof AppUserSummaryPreferredLocale]
+  | null;
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AppUserSummaryPreferredLocale = {
-  en: 'en',
-  ru: 'ru',
+  en: "en",
+  ru: "ru"
 } as const;

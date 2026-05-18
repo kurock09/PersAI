@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminRuntimeProviderSettingsMode = typeof AdminRuntimeProviderSettingsMode[keyof typeof AdminRuntimeProviderSettingsMode];
-
+export type AdminRuntimeProviderSettingsMode =
+  (typeof AdminRuntimeProviderSettingsMode)[keyof typeof AdminRuntimeProviderSettingsMode];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminRuntimeProviderSettingsMode = {
-  unconfigured_default: 'unconfigured_default',
-  global_settings: 'global_settings',
+  unconfigured_default: "unconfigured_default",
+  global_settings: "global_settings"
 } as const;

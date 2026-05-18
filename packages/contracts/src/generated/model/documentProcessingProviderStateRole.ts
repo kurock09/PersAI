@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type DocumentProcessingProviderStateRole = typeof DocumentProcessingProviderStateRole[keyof typeof DocumentProcessingProviderStateRole];
-
+export type DocumentProcessingProviderStateRole =
+  (typeof DocumentProcessingProviderStateRole)[keyof typeof DocumentProcessingProviderStateRole];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DocumentProcessingProviderStateRole = {
-  local_fallback: 'local_fallback',
-  default_provider: 'default_provider',
-  high_quality_fallback: 'high_quality_fallback',
+  local_fallback: "local_fallback",
+  default_provider: "default_provider",
+  high_quality_fallback: "high_quality_fallback"
 } as const;

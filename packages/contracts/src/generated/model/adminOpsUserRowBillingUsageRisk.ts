@@ -5,13 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminOpsUserRowBillingUsageRisk = typeof AdminOpsUserRowBillingUsageRisk[keyof typeof AdminOpsUserRowBillingUsageRisk];
-
+export type AdminOpsUserRowBillingUsageRisk =
+  (typeof AdminOpsUserRowBillingUsageRisk)[keyof typeof AdminOpsUserRowBillingUsageRisk];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminOpsUserRowBillingUsageRisk = {
-  unknown: 'unknown',
-  ok: 'ok',
-  elevated: 'elevated',
-  high: 'high',
+  unknown: "unknown",
+  ok: "ok",
+  elevated: "elevated",
+  high: "high"
 } as const;

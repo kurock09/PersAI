@@ -4,9 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantBillingPaymentIntentBillingPeriod } from './assistantBillingPaymentIntentBillingPeriod';
+import type { AssistantBillingPaymentIntentBillingPeriod } from "./assistantBillingPaymentIntentBillingPeriod";
 
 /**
  * @nullable
  */
-export type AssistantBillingScheduledPlanChangePreviewBillingPeriod = AssistantBillingPaymentIntentBillingPeriod | null;
+export type AssistantBillingScheduledPlanChangePreviewBillingPeriod =
+  AssistantBillingPaymentIntentBillingPeriod | null;

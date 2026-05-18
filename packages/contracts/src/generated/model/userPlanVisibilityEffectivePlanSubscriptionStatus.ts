@@ -5,18 +5,18 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type UserPlanVisibilityEffectivePlanSubscriptionStatus = typeof UserPlanVisibilityEffectivePlanSubscriptionStatus[keyof typeof UserPlanVisibilityEffectivePlanSubscriptionStatus];
-
+export type UserPlanVisibilityEffectivePlanSubscriptionStatus =
+  (typeof UserPlanVisibilityEffectivePlanSubscriptionStatus)[keyof typeof UserPlanVisibilityEffectivePlanSubscriptionStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UserPlanVisibilityEffectivePlanSubscriptionStatus = {
-  trialing: 'trialing',
-  active: 'active',
-  grace_period: 'grace_period',
-  past_due: 'past_due',
-  paused: 'paused',
-  canceled: 'canceled',
-  expired: 'expired',
-  expired_fallback: 'expired_fallback',
-  unconfigured: 'unconfigured',
+  trialing: "trialing",
+  active: "active",
+  grace_period: "grace_period",
+  past_due: "past_due",
+  paused: "paused",
+  canceled: "canceled",
+  expired: "expired",
+  expired_fallback: "expired_fallback",
+  unconfigured: "unconfigured"
 } as const;

@@ -8,10 +8,11 @@
 /**
  * @nullable
  */
-export type QuotaAdvisoryTokenBudgetStatePaidLightModeReason = typeof QuotaAdvisoryTokenBudgetStatePaidLightModeReason[keyof typeof QuotaAdvisoryTokenBudgetStatePaidLightModeReason] | null;
-
+export type QuotaAdvisoryTokenBudgetStatePaidLightModeReason =
+  | (typeof QuotaAdvisoryTokenBudgetStatePaidLightModeReason)[keyof typeof QuotaAdvisoryTokenBudgetStatePaidLightModeReason]
+  | null;
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const QuotaAdvisoryTokenBudgetStatePaidLightModeReason = {
-  token_budget_limit_reached: 'token_budget_limit_reached',
+  token_budget_limit_reached: "token_budget_limit_reached"
 } as const;

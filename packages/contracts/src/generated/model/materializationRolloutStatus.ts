@@ -5,14 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type MaterializationRolloutStatus = typeof MaterializationRolloutStatus[keyof typeof MaterializationRolloutStatus];
-
+export type MaterializationRolloutStatus =
+  (typeof MaterializationRolloutStatus)[keyof typeof MaterializationRolloutStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const MaterializationRolloutStatus = {
-  pending: 'pending',
-  running: 'running',
-  succeeded: 'succeeded',
-  failed: 'failed',
-  cancelled: 'cancelled',
+  pending: "pending",
+  running: "running",
+  succeeded: "succeeded",
+  failed: "failed",
+  cancelled: "cancelled"
 } as const;

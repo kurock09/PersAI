@@ -14,7 +14,7 @@ const RESPONSE_PASSTHROUGH_HEADERS = [
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ docId: string }> }
+  { params }: { params: Promise<unknown> }
 ): Promise<Response> {
   const { getToken } = await auth();
   const token = await getToken();
@@ -22,7 +22,7 @@ export async function GET(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { docId } = await params;
+  const { docId } = (await params) as { docId: string };
   const requestUrl = new URL(request.url);
   const upstream = new URL(
     `${apiBase}/assistant/documents/${encodeURIComponent(docId)}/download-original`

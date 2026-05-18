@@ -4,6 +4,6 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanInputBase } from './adminPlanInputBase';
+import type { AdminPlanInputBase } from "./adminPlanInputBase";
 
 export type AdminPlanUpdateRequest = AdminPlanInputBase;

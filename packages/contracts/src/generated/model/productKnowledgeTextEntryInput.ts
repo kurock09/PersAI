@@ -4,7 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { SkillKnowledgeCardInput } from './skillKnowledgeCardInput';
-import type { ProductKnowledgeTextEntryInputAllOf } from './productKnowledgeTextEntryInputAllOf';
+import type { SkillKnowledgeCardInput } from "./skillKnowledgeCardInput";
+import type { ProductKnowledgeTextEntryInputAllOf } from "./productKnowledgeTextEntryInputAllOf";
 
-export type ProductKnowledgeTextEntryInput = SkillKnowledgeCardInput & ProductKnowledgeTextEntryInputAllOf;
+export type ProductKnowledgeTextEntryInput = SkillKnowledgeCardInput &
+  ProductKnowledgeTextEntryInputAllOf;

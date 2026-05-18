@@ -5,11 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminPlanStateStatus = typeof AdminPlanStateStatus[keyof typeof AdminPlanStateStatus];
-
+export type AdminPlanStateStatus = (typeof AdminPlanStateStatus)[keyof typeof AdminPlanStateStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminPlanStateStatus = {
-  active: 'active',
-  inactive: 'inactive',
+  active: "active",
+  inactive: "inactive"
 } as const;
