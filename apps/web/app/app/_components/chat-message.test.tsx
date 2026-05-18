@@ -25,7 +25,7 @@ vi.mock("../assistant-api-client", () => ({
     docId: string,
     options?: { versionId?: string | null }
   ) =>
-    `/api/assistant-document/${docId}/original${
+    `/api/v1/assistant/documents/${docId}/download-original${
       options?.versionId ? `?versionId=${options.versionId}` : ""
     }`,
   getAssistantFileDownloadUrl: (fileRef: string, options?: { download?: boolean }) =>

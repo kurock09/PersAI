@@ -433,7 +433,7 @@ describe("assistant files client", () => {
 
   it("builds a version-aware original presentation download url", () => {
     expect(getAssistantDocumentOriginalDownloadUrl("doc-1", { versionId: "version-1" })).toBe(
-      "/api/assistant-document/doc-1/original?versionId=version-1"
+      "/api/v1/assistant/documents/doc-1/download-original?versionId=version-1"
     );
   });
 

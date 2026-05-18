@@ -3797,7 +3797,7 @@ export function getAssistantDocumentOriginalDownloadUrl(
   options: { versionId?: string | null }
 ): string {
   const url = new URL(
-    `/api/assistant-document/${encodeURIComponent(docId)}/original`,
+    `/api/v1/assistant/documents/${encodeURIComponent(docId)}/download-original`,
     "https://persai.local"
   );
   if (typeof options.versionId === "string" && options.versionId.trim().length > 0) {
