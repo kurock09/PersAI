@@ -152,6 +152,7 @@ async function run(): Promise<void> {
       } as never,
       {} as never,
       {} as never,
+      { forUserInWorkspace: async () => "en" as const } as never,
       [
         {
           channelType: "email",
