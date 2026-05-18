@@ -975,7 +975,7 @@ export interface RuntimeQuotaStatusLocalizedTextList {
 
 export interface RuntimeQuotaStatusPackageOffer {
   id: string;
-  toolCode: "image_generate" | "image_edit" | "video_generate";
+  toolCode: "image_generate" | "image_edit" | "video_generate" | "document";
   units: number;
   amountMinor: number;
   currency: string;
@@ -987,7 +987,7 @@ export interface RuntimeQuotaStatusPackageOffer {
 }
 
 export interface RuntimeQuotaStatusPackageToolOffers {
-  toolCode: "image_generate" | "image_edit" | "video_generate";
+  toolCode: "image_generate" | "image_edit" | "video_generate" | "document";
   available: boolean;
   offerableNow: boolean;
   offerReason: "available" | "no_public_packages" | "tool_not_enabled_on_current_plan";
@@ -2013,6 +2013,28 @@ export interface RuntimeDocumentJobRunResult {
   providerStatus?: Record<string, unknown> | null;
 }
 
+export type RuntimeDocumentGammaCompanionOriginal =
+  | {
+      format: "pptx";
+      status: "ready";
+      generationId: string;
+      gammaId: string;
+      gammaUrl: string | null;
+      exportUrl: string;
+      filename: string | null;
+      outputType: "pptx";
+      updatedAt: IsoTimestamp | null;
+    }
+  | {
+      format: "pptx";
+      status: "unavailable";
+      filename: string | null;
+      errorCode?: string | null;
+      message?: string | null;
+      retryable?: boolean | null;
+      providerFailure?: Record<string, unknown> | null;
+    };
+
 export interface RuntimeDocumentJobCompletionRequest {
   assistantId: string;
   workspaceId: string;
@@ -2366,22 +2388,34 @@ export interface ProviderGatewaySpeechGenerateResult {
   warning: string | null;
 }
 
-export interface ProviderGatewayDocumentGenerateRequest {
-  htmlContent: string;
-  filename: string | null;
-  timeoutMs?: number | null;
-  credential: {
-    toolCode: "document";
-    secretId: string;
-    providerId: PersaiRuntimeDocumentProviderId | null;
-  };
-  providerOptions:
-    | {
+export type ProviderGatewayDocumentGenerateRequest =
+  | {
+      htmlContent: string;
+      filename: string | null;
+      timeoutMs?: number | null;
+      credential: {
+        toolCode: "document";
+        secretId: string;
+        providerId: "pdfmonkey";
+      };
+      providerOptions: {
         pdfmonkeyTemplateId: string;
         outputFormat: "pdf";
-      }
-    | {
-        outputFormat: "pptx";
+        presentationOptions?: never;
+      };
+    }
+  | {
+      htmlContent: string;
+      filename: string | null;
+      timeoutMs?: number | null;
+      credential: {
+        toolCode: "document";
+        secretId: string;
+        providerId: "gamma";
+      };
+      providerOptions: {
+        pdfmonkeyTemplateId?: never;
+        outputFormat: "pdf" | "pptx";
         presentationOptions?: {
           themeId?: string | null;
           textMode?: "generate" | "condense" | "preserve" | null;
@@ -2416,7 +2450,7 @@ export interface ProviderGatewayDocumentGenerateRequest {
           } | null;
         } | null;
       };
-}
+    };
 
 export type ProviderGatewayDocumentGenerateResult =
   | {
@@ -2445,7 +2479,7 @@ export type ProviderGatewayDocumentGenerateResult =
     }
   | {
       provider: "gamma";
-      outputFormat: "pptx";
+      outputFormat: "pdf" | "pptx";
       documentId: string;
       templateId: null;
       filename: string | null;
@@ -2458,10 +2492,10 @@ export type ProviderGatewayDocumentGenerateResult =
         state: "success";
         generationId: string;
         gammaId: string;
-        gammaUrl: string;
+        gammaUrl: string | null;
         exportUrl: string;
         filename: string | null;
-        outputType: "pptx";
+        outputType: "pdf" | "pptx";
         status: "completed";
         updatedAt: IsoTimestamp | null;
       };

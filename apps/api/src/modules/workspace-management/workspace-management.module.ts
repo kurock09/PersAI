@@ -194,6 +194,7 @@ import { AssistantMediaJobCompletionTurnService } from "./application/assistant-
 import { AssistantMediaJobCompletionDeliveryService } from "./application/assistant-media-job-completion-delivery.service";
 import { AssistantDocumentJobCompletionTurnService } from "./application/assistant-document-job-completion-turn.service";
 import { AssistantDocumentJobDeliveryService } from "./application/assistant-document-job-delivery.service";
+import { AssistantDocumentOriginalDownloadService } from "./application/assistant-document-original-download.service";
 import { AssistantDocumentJobSchedulerService } from "./application/assistant-document-job-scheduler.service";
 import { AssistantMediaJobSchedulerService } from "./application/assistant-media-job-scheduler.service";
 import { AssistantDocumentJobService } from "./application/assistant-document-job.service";
@@ -569,6 +570,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AssistantMediaJobCompletionDeliveryService,
     AssistantDocumentJobCompletionTurnService,
     AssistantDocumentJobDeliveryService,
+    AssistantDocumentOriginalDownloadService,
     AssistantMediaJobSchedulerService,
     AssistantDocumentJobSchedulerService,
     AssistantDocumentJobService,

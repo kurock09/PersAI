@@ -3,6 +3,7 @@ import { BadRequestException } from "@nestjs/common";
 import { fileTypeFromBuffer } from "file-type";
 
 export const MAX_MEDIA_FILE_BYTES = 25 * 1024 * 1024;
+export const MAX_TOOL_OUTPUT_PRESENTATION_FILE_BYTES = 100 * 1024 * 1024;
 
 type MediaValidationSurface =
   | "chat_upload"
@@ -195,6 +196,22 @@ function isAudioMime(mime: string): boolean {
   return mime.startsWith("audio/");
 }
 
+function resolveMaxAllowedBytes(input: {
+  surface: MediaValidationSurface;
+  headerMime: string | null;
+  extensionMime: string | null;
+}): number {
+  const looksLikePresentation =
+    input.headerMime ===
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+    input.extensionMime ===
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  if (input.surface === "tool_output_persist" && looksLikePresentation) {
+    return MAX_TOOL_OUTPUT_PRESENTATION_FILE_BYTES;
+  }
+  return MAX_MEDIA_FILE_BYTES;
+}
+
 export type ValidatedMediaFile = {
   effectiveMimeType: string;
   normalizedExtension: string | null;
@@ -208,25 +225,29 @@ export async function validatePersaiMediaFile(params: {
   originalFilename?: string | null;
   surface: MediaValidationSurface;
 }): Promise<ValidatedMediaFile> {
-  if (params.buffer.length > MAX_MEDIA_FILE_BYTES) {
-    throw new BadRequestException(
-      `File exceeds maximum size of ${String(MAX_MEDIA_FILE_BYTES / (1024 * 1024))}MB.`
-    );
-  }
-
   const normalizedOriginalFilename = normalizeOriginalFilename(params.originalFilename);
   const normalizedExtension = normalizeExtension(normalizedOriginalFilename);
+  const headerMime = normalizeMime(params.mimeType);
+  const extensionMime = normalizedExtension
+    ? (SAFE_MIME_BY_EXTENSION[normalizedExtension] ?? null)
+    : null;
+  const maxAllowedBytes = resolveMaxAllowedBytes({
+    surface: params.surface,
+    headerMime,
+    extensionMime
+  });
+  if (params.buffer.length > maxAllowedBytes) {
+    throw new BadRequestException(
+      `File exceeds maximum size of ${String(maxAllowedBytes / (1024 * 1024))}MB.`
+    );
+  }
   if (normalizedExtension && DANGEROUS_FILE_EXTENSIONS.has(normalizedExtension)) {
     throw new BadRequestException(
       `Files with ${normalizedExtension} extension are blocked by security policy.`
     );
   }
 
-  const headerMime = normalizeMime(params.mimeType);
   const sniffedMime = normalizeMime((await fileTypeFromBuffer(params.buffer))?.mime ?? null);
-  const extensionMime = normalizedExtension
-    ? (SAFE_MIME_BY_EXTENSION[normalizedExtension] ?? null)
-    : null;
   const declaredOfficeMime =
     headerMime !== null && OFFICE_DOCUMENT_MIMES.has(headerMime)
       ? headerMime

@@ -14,6 +14,12 @@ import type { OpenAIProviderClient } from "../src/modules/providers/openai/opena
 import type { PdfMonkeyProviderClient } from "../src/modules/providers/pdfmonkey/pdfmonkey-provider.client";
 import type { PersaiInternalApiClientService } from "../src/modules/providers/persai-internal-api.client.service";
 
+function readPdfMonkeyTemplateId(input: ProviderGatewayDocumentGenerateRequest): string {
+  return input.credential.providerId === "pdfmonkey"
+    ? (input.providerOptions.pdfmonkeyTemplateId ?? "template-123")
+    : "template-123";
+}
+
 function createRequest(): ProviderGatewayImageGenerateRequest {
   return {
     prompt: "Generate a paper-cut forest scene",
@@ -135,10 +141,7 @@ class FakePdfMonkeyProviderClient {
       provider: "pdfmonkey",
       outputFormat: "pdf",
       documentId: "pdfmonkey-doc-1",
-      templateId:
-        input.providerOptions.outputFormat === "pdf"
-          ? input.providerOptions.pdfmonkeyTemplateId
-          : "template-123",
+      templateId: readPdfMonkeyTemplateId(input),
       filename: input.filename,
       bytesBase64: "JVBERi0xLjQK",
       mimeType: "application/pdf",
@@ -148,10 +151,7 @@ class FakePdfMonkeyProviderClient {
         provider: "pdfmonkey",
         state: "success",
         documentId: "pdfmonkey-doc-1",
-        documentTemplateId:
-          input.providerOptions.outputFormat === "pdf"
-            ? input.providerOptions.pdfmonkeyTemplateId
-            : "template-123",
+        documentTemplateId: readPdfMonkeyTemplateId(input),
         downloadUrl: "https://example.com/document.pdf",
         previewUrl: "https://example.com/preview",
         failureCause: null,
@@ -316,7 +316,14 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
   await assert.rejects(
     () =>
       documentService.generateDocument({
-        ...createDocumentRequest(),
+        htmlContent: "<!DOCTYPE html><html><body><h1>Test</h1></body></html>",
+        filename: "brief.pdf",
+        timeoutMs: 120000,
+        credential: {
+          toolCode: "document",
+          secretId: "tool/document/pdfmonkey/api-key",
+          providerId: "pdfmonkey"
+        },
         providerOptions: {
           outputFormat: "pdf",
           pdfmonkeyTemplateId: ""

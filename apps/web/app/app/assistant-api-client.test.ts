@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compactChat,
   cleanupAssistantFilesCache,
+  getAssistantDocumentOriginalDownloadUrl,
   getAssistantFileDownloadUrl,
   getAssistantFiles,
   getChatCompactionState,
@@ -427,6 +428,12 @@ describe("assistant files client", () => {
   it("adds explicit assistant file download mode when requested", () => {
     expect(getAssistantFileDownloadUrl("file-ref-1", { download: true })).toBe(
       "/api/assistant-file/file-ref-1?download=1"
+    );
+  });
+
+  it("builds a version-aware original presentation download url", () => {
+    expect(getAssistantDocumentOriginalDownloadUrl("doc-1", { versionId: "version-1" })).toBe(
+      "/api/assistant-document/doc-1/original?versionId=version-1"
     );
   });
 

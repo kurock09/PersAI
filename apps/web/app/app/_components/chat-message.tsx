@@ -49,7 +49,10 @@ import {
 } from "./chat-message-streaming";
 import { VoiceMessagePlayer } from "./voice-message-player";
 import { ImageLightbox } from "./image-lightbox";
-import { getAssistantFileDownloadUrl } from "../assistant-api-client";
+import {
+  getAssistantDocumentOriginalDownloadUrl,
+  getAssistantFileDownloadUrl
+} from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
 import { isAttachmentsOnlyPlaceholderText } from "./attachments-only-placeholder";
 
@@ -1025,8 +1028,8 @@ function AttachmentStrip({
             ? undefined
             : getAssistantFileDownloadUrl(att.fileRef, { download: true });
         const previewUrl = att.localPreviewUrl ?? inlineUrl;
+        const link = att.documentLink;
         const documentLabel = (() => {
-          const link = att.documentLink;
           if (!link) return null;
           return typeof link.versionNumber === "number" ? `v${link.versionNumber}` : null;
         })();
@@ -1166,6 +1169,12 @@ function AttachmentStrip({
             ) : null}
           </>
         );
+        const originalPresentationDownloadUrl =
+          link?.documentType === "presentation" &&
+          att.mimeType === "application/pdf" &&
+          typeof link.docId === "string"
+            ? getAssistantDocumentOriginalDownloadUrl(link.docId, { versionId: link.versionId })
+            : null;
 
         if (!downloadUrl) {
           return (
@@ -1175,6 +1184,31 @@ function AttachmentStrip({
               className="flex items-center gap-2 rounded-2xl border border-border-strong/70 bg-surface-raised/95 px-3.5 py-2.5 text-xs opacity-55 shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_22px_rgba(0,0,0,0.12)]"
             >
               {fileContent}
+            </div>
+          );
+        }
+
+        if (originalPresentationDownloadUrl !== null) {
+          return (
+            <div
+              key={att.id}
+              className="flex items-center gap-2 rounded-2xl border border-border-strong/70 bg-surface-raised/95 px-3.5 py-2.5 text-xs shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_22px_rgba(0,0,0,0.12)]"
+            >
+              <a
+                href={downloadUrl}
+                download={att.originalFilename ?? undefined}
+                className="flex min-w-0 flex-1 items-center gap-2 transition-colors hover:text-text hover:opacity-90"
+              >
+                {fileContent}
+              </a>
+              <a
+                href={originalPresentationDownloadUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="shrink-0 rounded-full border border-accent/20 bg-accent/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-accent/85 transition-colors hover:border-accent/35 hover:bg-accent/10 hover:text-accent"
+              >
+                PPTX
+              </a>
             </div>
           );
         }

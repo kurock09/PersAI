@@ -116,6 +116,7 @@ function createAttachments() {
       chatId: "chat-1",
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
+      assistantFileId: "file-chat-local-1",
       attachmentType: "image",
       storagePath: "chat-1/msg-1/a.png",
       originalFilename: "a.png",
@@ -135,6 +136,7 @@ function createAttachments() {
       chatId: "chat-1",
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
+      assistantFileId: "file-shared-1",
       attachmentType: "image",
       storagePath: "chat-1/msg-2/b.png",
       originalFilename: "b.png",
@@ -328,6 +330,9 @@ function createService(overrides?: {
       },
       async deletePrefix(prefix: string) {
         callOrder.push(`object-storage-delete:${prefix}`);
+      },
+      async deleteObject(objectKey: string) {
+        callOrder.push(`assistant-file-object-delete:${objectKey}`);
       }
     } as never,
     {
@@ -375,6 +380,20 @@ function createService(overrides?: {
       },
       runtimeSessionCompaction: {
         findMany: async () => []
+      },
+      assistantChatMessageAttachment: {
+        findMany: async () => [{ assistantFileId: "file-shared-1" }]
+      },
+      assistantFile: {
+        findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
+          where.id.in.map((id) => ({
+            id,
+            objectKey: `assistant-files/${id}`
+          })),
+        deleteMany: async ({ where }: { where: { id: { in: string[] } } }) => {
+          callOrder.push(`assistant-files-delete:${where.id.in.join(",")}`);
+          return { count: where.id.in.length };
+        }
       }
     } as never
   );
@@ -440,6 +459,8 @@ describe("ManageWebChatListService", () => {
       "object-storage-delete:assistant-media/assistants/assistant-1/chats/chat-1/",
       "attachments-delete",
       "repo-delete",
+      "assistant-files-delete:file-chat-local-1",
+      "assistant-file-object-delete:assistant-files/file-chat-local-1",
       "quota-web_chat_hard_delete-0"
     ]);
     assert.deepEqual(releasedBytes, [BigInt(5)]);

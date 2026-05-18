@@ -643,6 +643,8 @@ export class AssistantDocumentJobDeliveryService {
                 documentLink: {
                   docId: input.job.docId,
                   versionId: input.job.versionId,
+                  descriptorMode: input.payload.descriptorMode ?? null,
+                  documentType: this.inferDocumentType(input.payload),
                   renderJobId: input.job.id,
                   isCurrentOutput: true
                 }
@@ -984,5 +986,13 @@ export class AssistantDocumentJobDeliveryService {
       return message;
     }
     return `${message.slice(0, DOCUMENT_DELIVERY_LAST_ERROR_MAX_CHARS - 3)}...`;
+  }
+
+  private inferDocumentType(payload: PersistedDeliveryPayload): "document" | "presentation" | null {
+    if (payload.descriptorMode === "create_presentation") {
+      return "presentation";
+    }
+    const provider = (payload as Record<string, unknown>).provider;
+    return provider === "gamma" ? "presentation" : "document";
   }
 }

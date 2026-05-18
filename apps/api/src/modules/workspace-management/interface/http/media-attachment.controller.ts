@@ -25,6 +25,7 @@ import {
   AssistantFileRegistryService,
   type AssistantFileRegistryRecord
 } from "../../application/assistant-file-registry.service";
+import { AssistantDocumentOriginalDownloadService } from "../../application/assistant-document-original-download.service";
 import { GetAssistantByUserIdService } from "../../application/get-assistant-by-user-id.service";
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
 
@@ -33,7 +34,8 @@ export class MediaAttachmentController {
   constructor(
     private readonly manageChatMediaService: ManageChatMediaService,
     private readonly getAssistantByUserIdService: GetAssistantByUserIdService,
-    private readonly assistantFileRegistryService: AssistantFileRegistryService
+    private readonly assistantFileRegistryService: AssistantFileRegistryService,
+    private readonly assistantDocumentOriginalDownloadService: AssistantDocumentOriginalDownloadService
   ) {}
 
   @Post("assistant/chat/web/stage-attachment")
@@ -258,6 +260,38 @@ export class MediaAttachmentController {
 
     res.statusCode = 200;
     res.setHeader("Content-Length", String(totalSize));
+    res.end(payload.buffer);
+  }
+
+  @Get("assistant/documents/:docId/download-original")
+  async downloadOriginalPresentationDocument(
+    @Req() req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext,
+    @Param("docId") docId: string,
+    @Query("versionId") versionId?: string
+  ): Promise<void> {
+    const assistant = await this.resolveRequestAssistant(req);
+    const result = await this.assistantDocumentOriginalDownloadService.downloadOriginalPresentation(
+      {
+        assistantId: assistant.id,
+        workspaceId: assistant.workspaceId,
+        docId,
+        versionId: typeof versionId === "string" ? versionId : null
+      }
+    );
+    const payload = this.prepareDownloadPayload({
+      buffer: result.buffer,
+      contentType: result.contentType,
+      forceDownload: true
+    });
+    res.setHeader("Content-Type", payload.contentType);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.setHeader(
+      "Content-Disposition",
+      this.buildContentDisposition(result.filename, "attachment")
+    );
+    res.statusCode = 200;
+    res.setHeader("Content-Length", String(payload.buffer.length));
     res.end(payload.buffer);
   }
 

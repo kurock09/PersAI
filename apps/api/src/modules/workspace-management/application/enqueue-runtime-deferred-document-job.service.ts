@@ -208,7 +208,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         ? null
         : descriptorMode === "export_or_redeliver"
           ? null
-          : this.resolveExecutionShape(descriptorMode);
+          : this.resolveExecutionShape(
+              descriptorMode,
+              input.directToolExecution.request.outputFormat ?? null
+            );
     if (
       descriptorMode === "create_pdf_document" &&
       (await this.readPersistedPdfMonkeyTemplateId()) === null
@@ -274,6 +277,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
             input.sourceUserMessageText
           )
         : input.directToolExecution.request;
+    const persistedSourceJson = {
+      ...sourceJson,
+      outputFormat: sourceJson.outputFormat ?? resolvedShape.outputFormat
+    };
     const created = await this.assistantDocumentJobService.enqueue({
       assistantId: input.assistantId,
       userId: chat.userId,
@@ -289,7 +296,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         sourceUserMessageText: input.sourceUserMessageText,
         sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
         descriptorMode,
-        sourceJson,
+        sourceJson: persistedSourceJson,
         sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
       }
     });
@@ -402,7 +409,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     return requestedOutputFormat === context.currentOutputFormat;
   }
 
-  private resolveExecutionShape(descriptorMode: AssistantDocumentDescriptorMode): {
+  private resolveExecutionShape(
+    descriptorMode: AssistantDocumentDescriptorMode,
+    requestedOutputFormat: AssistantDocumentOutputFormat | null
+  ): {
     documentType: AssistantDocumentType;
     provider: AssistantDocumentRenderProvider;
     outputFormat: AssistantDocumentOutputFormat;
@@ -418,7 +428,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       return {
         documentType: "presentation",
         provider: "gamma",
-        outputFormat: "pptx"
+        outputFormat: requestedOutputFormat === "pptx" ? "pptx" : "pdf"
       };
     }
     if (descriptorMode === "revise_document") {
@@ -486,7 +496,12 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       };
     }
     const provider = revisionContext.documentType === "presentation" ? "gamma" : "pdfmonkey";
-    const outputFormat = revisionContext.documentType === "presentation" ? "pptx" : "pdf";
+    const outputFormat =
+      revisionContext.documentType === "presentation"
+        ? (input.request.sourceJson.outputFormat ??
+          revisionContext.currentSourceJson.outputFormat ??
+          "pdf")
+        : "pdf";
     const sourceJson =
       input.enrichPresentationTheme === true && revisionContext.documentType === "presentation"
         ? await this.applyGammaThemeSelection(
@@ -593,7 +608,14 @@ export class EnqueueRuntimeDeferredDocumentJobService {
 
     const requestedOutputFormat =
       input.request.sourceJson.outputFormat ?? exportContext.currentOutputFormat;
-    if (requestedOutputFormat !== exportContext.currentOutputFormat) {
+    const crossFormatPresentationExport =
+      exportContext.documentType === "presentation" &&
+      ((requestedOutputFormat === "pdf" && exportContext.currentOutputFormat === "pptx") ||
+        (requestedOutputFormat === "pptx" && exportContext.currentOutputFormat === "pdf"));
+    if (
+      requestedOutputFormat !== exportContext.currentOutputFormat &&
+      !crossFormatPresentationExport
+    ) {
       return {
         accepted: false,
         code: "document_export_format_not_supported",
@@ -607,7 +629,8 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     const provider = exportContext.documentType === "presentation" ? "gamma" : "pdfmonkey";
     const outputFormat = exportContext.currentOutputFormat;
     const created =
-      exportContext.latestDeliveredFile !== null
+      exportContext.latestDeliveredFile !== null &&
+      requestedOutputFormat === exportContext.currentOutputFormat
         ? await this.assistantDocumentJobService.enqueuePersistedFileRedelivery({
             assistantId: input.assistantId,
             userId: input.userId,

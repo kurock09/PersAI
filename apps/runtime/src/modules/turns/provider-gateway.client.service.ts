@@ -827,10 +827,10 @@ export class ProviderGatewayClientService {
         (providerStatus.provider === "gamma" &&
           typeof providerStatus.generationId === "string" &&
           typeof providerStatus.gammaId === "string" &&
-          typeof providerStatus.gammaUrl === "string" &&
+          (providerStatus.gammaUrl === null || typeof providerStatus.gammaUrl === "string") &&
           typeof providerStatus.exportUrl === "string" &&
           (providerStatus.filename === null || typeof providerStatus.filename === "string") &&
-          providerStatus.outputType === "pptx" &&
+          (providerStatus.outputType === "pdf" || providerStatus.outputType === "pptx") &&
           providerStatus.status === "completed" &&
           (providerStatus.updatedAt === null || typeof providerStatus.updatedAt === "string")))
     );

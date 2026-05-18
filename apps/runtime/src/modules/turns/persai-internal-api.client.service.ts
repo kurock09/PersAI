@@ -2152,7 +2152,8 @@ export class PersaiInternalApiClientService {
       row !== null &&
       (row.toolCode === "image_generate" ||
         row.toolCode === "image_edit" ||
-        row.toolCode === "video_generate") &&
+        row.toolCode === "video_generate" ||
+        row.toolCode === "document") &&
       typeof row.available === "boolean" &&
       typeof row.offerableNow === "boolean" &&
       (row.offerReason === "available" ||
@@ -2182,7 +2183,8 @@ export class PersaiInternalApiClientService {
       typeof row.id === "string" &&
       (row.toolCode === "image_generate" ||
         row.toolCode === "image_edit" ||
-        row.toolCode === "video_generate") &&
+        row.toolCode === "video_generate" ||
+        row.toolCode === "document") &&
       this.isNonNegativeInteger(row.units) &&
       this.isNonNegativeInteger(row.amountMinor) &&
       typeof row.currency === "string" &&

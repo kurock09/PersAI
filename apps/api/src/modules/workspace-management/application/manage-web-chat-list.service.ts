@@ -500,6 +500,14 @@ export class ManageWebChatListService {
       (sum, attachment) => sum + attachment.sizeBytes,
       BigInt(0)
     );
+    const assistantFileIdsToDelete = await this.resolveChatLocalAssistantFileIds({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      chatId: chat.id,
+      fileIds: attachments
+        .map((attachment) => attachment.assistantFileId)
+        .filter((fileId): fileId is string => typeof fileId === "string")
+    });
     await this.mediaObjectStorage.deletePrefix(
       this.mediaObjectStorage.buildChatPrefix({
         assistantId: assistant.id,
@@ -518,6 +526,11 @@ export class ManageWebChatListService {
     if (!deleted) {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
+    await this.deleteChatLocalAssistantFiles({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      fileIds: assistantFileIdsToDelete
+    });
     const activeWebChatsCurrent =
       await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
         assistant.id,
@@ -528,6 +541,75 @@ export class ManageWebChatListService {
       activeWebChatsCurrent,
       source: "web_chat_hard_delete"
     });
+  }
+
+  private async resolveChatLocalAssistantFileIds(input: {
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    fileIds: string[];
+  }): Promise<string[]> {
+    const uniqueFileIds = [...new Set(input.fileIds)];
+    if (uniqueFileIds.length === 0) {
+      return [];
+    }
+    const externalRefs = await this.prisma.assistantChatMessageAttachment.findMany({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        assistantFileId: { in: uniqueFileIds },
+        chatId: { not: input.chatId }
+      },
+      select: {
+        assistantFileId: true
+      }
+    });
+    const sharedFileIds = new Set(
+      externalRefs
+        .map((ref) => ref.assistantFileId)
+        .filter((fileId): fileId is string => typeof fileId === "string")
+    );
+    return uniqueFileIds.filter((fileId) => !sharedFileIds.has(fileId));
+  }
+
+  private async deleteChatLocalAssistantFiles(input: {
+    assistantId: string;
+    workspaceId: string;
+    fileIds: string[];
+  }): Promise<void> {
+    if (input.fileIds.length === 0) {
+      return;
+    }
+    const files = await this.prisma.assistantFile.findMany({
+      where: {
+        id: { in: input.fileIds },
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId
+      },
+      select: {
+        id: true,
+        objectKey: true
+      }
+    });
+    if (files.length === 0) {
+      return;
+    }
+    const fileIds = files.map((file) => file.id);
+    const deleted = await this.prisma.assistantFile.deleteMany({
+      where: {
+        id: { in: fileIds },
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        chatAttachments: { none: {} },
+        documentDeliveredFiles: { none: {} }
+      }
+    });
+    if (deleted.count !== files.length) {
+      return;
+    }
+    await Promise.all(
+      files.map((file) => this.mediaObjectStorage.deleteObject(file.objectKey).catch(() => {}))
+    );
   }
 
   private async resolveOwnedWebChatWithStats(

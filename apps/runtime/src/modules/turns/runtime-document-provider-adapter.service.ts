@@ -7,6 +7,7 @@ import type {
 import type {
   PersaiRuntimeModelRole,
   ProviderGatewayTextGenerateRequest,
+  RuntimeDocumentGammaCompanionOriginal,
   RuntimeDocumentJobRunRequest,
   RuntimeDocumentJobRunResult,
   RuntimeDocumentSourceFile,
@@ -186,7 +187,7 @@ export class RuntimeDocumentProviderAdapterService {
         }
       };
     }
-    const filename = this.resolveRequestedFilename(input.request);
+    const filename = this.resolveRequestedFilename(input.request, input.request.job.outputFormat);
     const timeoutMs = this.resolveWorkerTimeoutMs(input.bundle);
     let lastProviderFailure: {
       code: string | null;
@@ -420,10 +421,11 @@ export class RuntimeDocumentProviderAdapterService {
     credential: AssistantRuntimeBundleToolCredentialRef
   ): Promise<RuntimeDocumentJobRunResult> {
     const timeoutMs = this.resolveWorkerTimeoutMs(input.bundle);
-    const filename = this.resolveRequestedFilename(input.request);
+    const filename = this.resolveRequestedFilename(input.request, input.request.job.outputFormat);
+    const gammaInput = this.renderGammaInput(input.request);
     const providerOutcome = await this.providerGatewayClientService.generateDocumentOutcome(
       {
-        htmlContent: this.renderGammaInput(input.request),
+        htmlContent: gammaInput,
         filename,
         credential: {
           toolCode: "document",
@@ -431,7 +433,7 @@ export class RuntimeDocumentProviderAdapterService {
           providerId: "gamma"
         },
         providerOptions: {
-          outputFormat: "pptx",
+          outputFormat: input.request.job.outputFormat,
           presentationOptions: this.buildGammaPresentationOptions(input.request)
         }
       },
@@ -479,6 +481,15 @@ export class RuntimeDocumentProviderAdapterService {
       buffer: Buffer.from(providerResult.bytesBase64, "base64"),
       mimeType: providerResult.mimeType
     });
+    const companionOriginal =
+      input.request.job.outputFormat === "pdf"
+        ? await this.tryBuildGammaCompanionOriginal({
+            request: input.request,
+            credential,
+            timeoutMs,
+            htmlContent: gammaInput
+          })
+        : null;
     // Same rationale as the PDF path: worker returns assistantText: null
     // and the user-facing completion text is generated exactly once in
     // AssistantDocumentJobDeliveryService after delivery, with full chat
@@ -502,7 +513,8 @@ export class RuntimeDocumentProviderAdapterService {
         requestedName: filename,
         sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
         assistantFileRegistryAvailable:
-          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function",
+        ...(companionOriginal === null ? {} : { companionOriginal })
       }
     };
   }
@@ -528,11 +540,79 @@ export class RuntimeDocumentProviderAdapterService {
       : null;
   }
 
-  private resolveRequestedFilename(request: RuntimeDocumentJobRunRequest): string {
+  private async tryBuildGammaCompanionOriginal(input: {
+    request: RuntimeDocumentJobRunRequest;
+    credential: AssistantRuntimeBundleToolCredentialRef;
+    timeoutMs: number;
+    htmlContent: string;
+  }): Promise<RuntimeDocumentGammaCompanionOriginal> {
+    const filename = this.resolveRequestedFilename(input.request, "pptx");
+    try {
+      const outcome = await this.providerGatewayClientService.generateDocumentOutcome(
+        {
+          htmlContent: input.htmlContent,
+          filename,
+          credential: {
+            toolCode: "document",
+            secretId: input.credential.secretRef.id,
+            providerId: "gamma"
+          },
+          providerOptions: {
+            outputFormat: "pptx",
+            presentationOptions: this.buildGammaPresentationOptions(input.request)
+          }
+        },
+        { timeoutMs: input.timeoutMs }
+      );
+      if (!outcome.ok) {
+        return {
+          format: "pptx",
+          status: "unavailable",
+          filename,
+          errorCode: outcome.code ?? "provider_document_generation_failed",
+          message: outcome.message,
+          retryable: outcome.retryable,
+          ...(outcome.providerStatus === null ? {} : { providerFailure: outcome.providerStatus })
+        };
+      }
+      if (outcome.result.provider !== "gamma") {
+        return {
+          format: "pptx",
+          status: "unavailable",
+          filename,
+          errorCode: "provider_document_generation_failed",
+          message: "Gamma companion original returned an unexpected provider result."
+        };
+      }
+      return {
+        format: "pptx",
+        status: "ready",
+        generationId: outcome.result.providerStatus.generationId,
+        gammaId: outcome.result.providerStatus.gammaId,
+        gammaUrl: outcome.result.providerStatus.gammaUrl,
+        exportUrl: outcome.result.providerStatus.exportUrl,
+        filename,
+        outputType: "pptx",
+        updatedAt: outcome.result.providerStatus.updatedAt
+      };
+    } catch (error) {
+      return {
+        format: "pptx",
+        status: "unavailable",
+        filename,
+        message: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  private resolveRequestedFilename(
+    request: RuntimeDocumentJobRunRequest,
+    outputFormat: "pdf" | "pptx"
+  ): string {
     const requested = request.directToolExecution.request.requestedName?.trim() ?? "";
     const base =
       requested.length > 0 ? requested.replace(/[\\/:*?"<>|]+/g, " ").trim() : "document";
-    const extension = request.job.outputFormat === "pptx" ? "pptx" : "pdf";
+    const extension = outputFormat === "pptx" ? "pptx" : "pdf";
     const normalizedBase = this.stripMatchingExtensionSuffix(base, extension);
     return `${normalizedBase.length > 0 ? normalizedBase : "document"}.${extension}`;
   }

@@ -9,9 +9,9 @@ import type {
 import { projectRuntimeNativeTools } from "../src/modules/turns/native-tool-projection";
 import type {
   InternalQuotaCheckoutOutcome,
-  InternalQuotaStatusOutcome,
-  PersaiInternalApiClientService
+  InternalQuotaStatusOutcome
 } from "../src/modules/turns/persai-internal-api.client.service";
+import { PersaiInternalApiClientService } from "../src/modules/turns/persai-internal-api.client.service";
 import { RuntimeQuotaStatusToolService } from "../src/modules/turns/runtime-quota-status-tool.service";
 
 const KNOWLEDGE_ACCESS_EMPTY = {
@@ -382,6 +382,7 @@ class FakePersaiInternalApiClientService {
       ]
     },
     packagesAvailableByTool: {
+      document: true,
       image_generate: true,
       image_edit: true,
       video_generate: false
@@ -451,6 +452,30 @@ class FakePersaiInternalApiClientService {
           preferredUpgradePlanCode: null,
           upgradePlanCodes: [],
           offers: []
+        },
+        {
+          toolCode: "document",
+          available: true,
+          offerableNow: true,
+          offerReason: "available",
+          preferredOfferKind: "package_only",
+          preferredPackageIds: ["pkg-document-1"],
+          preferredUpgradePlanCode: null,
+          upgradePlanCodes: [],
+          offers: [
+            {
+              id: "pkg-document-1",
+              toolCode: "document",
+              units: 5,
+              amountMinor: 14900,
+              currency: "RUB",
+              displayOrder: 1,
+              highlighted: false,
+              title: { ru: "5 документов", en: "5 documents" },
+              subtitle: { ru: null, en: null },
+              ctaLabel: { ru: "Купить", en: "Buy" }
+            }
+          ]
         }
       ]
     }
@@ -493,6 +518,30 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   const service = new RuntimeQuotaStatusToolService(
     internalApi as unknown as PersaiInternalApiClientService
   );
+  const parserClient = new PersaiInternalApiClientService({
+    PERSAI_API_BASE_URL: "https://api.persai.test",
+    PERSAI_INTERNAL_API_TOKEN: "token"
+  } as never);
+  (
+    parserClient as unknown as {
+      fetchJson: () => Promise<{ ok: true; status: 200; body: unknown }>;
+    }
+  ).fetchJson = async () => ({
+    ok: true,
+    status: 200,
+    body: {
+      ok: true,
+      ...internalApi.outcome
+    }
+  });
+  const parsedQuotaStatus = await parserClient.readQuotaStatus({
+    assistantId: "assistant-1"
+  });
+  assert.equal(
+    parsedQuotaStatus.packageOffers.tools.find((tool) => tool.toolCode === "document")?.offers[0]
+      ?.id,
+    "pkg-document-1"
+  );
 
   const success = await service.executeToolCall({
     bundle,
@@ -519,13 +568,19 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.monthlyToolQuotas?.tools[0]?.usedUnits, 3);
   assert.equal(success.payload.monthlyToolQuotas?.tools[0]?.limitUnits, 30);
   assert.equal(success.payload.packagesAvailableByTool.image_generate, true);
+  assert.equal(success.payload.packagesAvailableByTool.document, true);
   assert.equal(success.payload.packagesAvailableByTool.video_generate, false);
   assert.equal(success.payload.packageOffers.tools[0]?.offers[0]?.id, "pkg-image-1");
+  assert.equal(
+    success.payload.packageOffers.tools.find((tool) => tool.toolCode === "document")?.offers[0]?.id,
+    "pkg-document-1"
+  );
   assert.equal(success.payload.packagesPurchase?.path, "/app/packages");
   assert.equal(success.payload.packagesPurchase?.url, "https://persai.dev/app/packages");
   assert.equal(success.payload.pricingPage?.path, "/app/pricing");
   assert.equal(success.payload.pricingPage?.url, "https://persai.dev/app/pricing");
   assert.deepEqual([...(success.payload.packagesPurchase?.availableTools ?? [])].sort(), [
+    "document",
     "image_edit",
     "image_generate"
   ]);

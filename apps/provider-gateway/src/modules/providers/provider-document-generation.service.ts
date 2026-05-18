@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
   PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS,
-  type PersaiRuntimeDocumentProviderId,
   type ProviderGatewayDocumentGenerateRequest,
   type ProviderGatewayDocumentGenerateResult
 } from "@persai/runtime-contract";
@@ -35,11 +34,7 @@ export class ProviderDocumentGenerationService {
 
   private normalizeInput(
     input: ProviderGatewayDocumentGenerateRequest
-  ): ProviderGatewayDocumentGenerateRequest & {
-    credential: ProviderGatewayDocumentGenerateRequest["credential"] & {
-      providerId: PersaiRuntimeDocumentProviderId;
-    };
-  } {
+  ): ProviderGatewayDocumentGenerateRequest {
     if (typeof input.htmlContent !== "string" || input.htmlContent.trim().length === 0) {
       throw new BadRequestException("htmlContent must be a non-empty string");
     }
@@ -59,13 +54,38 @@ export class ProviderDocumentGenerationService {
     ) {
       throw new BadRequestException("credential.secretId must be a non-empty string");
     }
-    if (
-      input.credential.providerId === null ||
-      !PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS.includes(input.credential.providerId)
-    ) {
+    if (!PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS.includes(input.credential.providerId)) {
       throw new BadRequestException("credential.providerId must be a supported document provider");
     }
-    const providerOptions = this.normalizeProviderOptions(input);
+    if (input.credential.providerId === "pdfmonkey") {
+      const providerOptions = this.normalizePdfMonkeyProviderOptions(
+        input as Extract<
+          ProviderGatewayDocumentGenerateRequest,
+          { credential: { providerId: "pdfmonkey" } }
+        >
+      );
+      return {
+        htmlContent: input.htmlContent,
+        filename:
+          input.filename === null || input.filename === undefined ? null : input.filename.trim(),
+        timeoutMs:
+          input.timeoutMs === null || input.timeoutMs === undefined
+            ? null
+            : this.normalizeOptionalPositiveInteger(input.timeoutMs, "timeoutMs"),
+        credential: {
+          toolCode: "document",
+          secretId: input.credential.secretId.trim(),
+          providerId: "pdfmonkey"
+        },
+        providerOptions
+      };
+    }
+    const providerOptions = this.normalizeGammaProviderOptions(
+      input as Extract<
+        ProviderGatewayDocumentGenerateRequest,
+        { credential: { providerId: "gamma" } }
+      >
+    );
     return {
       htmlContent: input.htmlContent,
       filename:
@@ -77,171 +97,162 @@ export class ProviderDocumentGenerationService {
       credential: {
         toolCode: "document",
         secretId: input.credential.secretId.trim(),
-        providerId: input.credential.providerId
+        providerId: "gamma"
       },
       providerOptions
     };
   }
 
-  private normalizeProviderOptions(
-    input: ProviderGatewayDocumentGenerateRequest
-  ): ProviderGatewayDocumentGenerateRequest["providerOptions"] {
-    if (input.credential.providerId === "pdfmonkey") {
-      if (
-        input.providerOptions.outputFormat !== "pdf" ||
-        typeof input.providerOptions.pdfmonkeyTemplateId !== "string" ||
-        input.providerOptions.pdfmonkeyTemplateId.trim().length === 0
-      ) {
-        throw new BadRequestException(
-          'PDFMonkey document generation requires providerOptions.outputFormat="pdf" and a non-empty providerOptions.pdfmonkeyTemplateId'
-        );
-      }
-      return {
-        pdfmonkeyTemplateId: input.providerOptions.pdfmonkeyTemplateId.trim(),
-        outputFormat: "pdf"
-      };
-    }
-    if (input.providerOptions.outputFormat !== "pptx") {
+  private normalizePdfMonkeyProviderOptions(
+    input: Extract<
+      ProviderGatewayDocumentGenerateRequest,
+      { credential: { providerId: "pdfmonkey" } }
+    >
+  ): Extract<
+    ProviderGatewayDocumentGenerateRequest,
+    { credential: { providerId: "pdfmonkey" } }
+  >["providerOptions"] {
+    if (
+      input.providerOptions.outputFormat !== "pdf" ||
+      typeof input.providerOptions.pdfmonkeyTemplateId !== "string" ||
+      input.providerOptions.pdfmonkeyTemplateId.trim().length === 0
+    ) {
       throw new BadRequestException(
-        'Gamma document generation requires providerOptions.outputFormat="pptx"'
+        'PDFMonkey document generation requires providerOptions.outputFormat="pdf" and a non-empty providerOptions.pdfmonkeyTemplateId'
       );
     }
     return {
-      outputFormat: "pptx",
+      pdfmonkeyTemplateId: input.providerOptions.pdfmonkeyTemplateId.trim(),
+      outputFormat: "pdf"
+    };
+  }
+
+  private normalizeGammaProviderOptions(
+    input: Extract<ProviderGatewayDocumentGenerateRequest, { credential: { providerId: "gamma" } }>
+  ): Extract<
+    ProviderGatewayDocumentGenerateRequest,
+    { credential: { providerId: "gamma" } }
+  >["providerOptions"] {
+    if (
+      input.providerOptions.outputFormat !== "pdf" &&
+      input.providerOptions.outputFormat !== "pptx"
+    ) {
+      throw new BadRequestException(
+        'Gamma document generation requires providerOptions.outputFormat="pdf" or "pptx"'
+      );
+    }
+    const presentationOptions =
+      "presentationOptions" in input.providerOptions
+        ? input.providerOptions.presentationOptions
+        : null;
+    return {
+      outputFormat: input.providerOptions.outputFormat,
       presentationOptions:
-        input.providerOptions.presentationOptions === null ||
-        input.providerOptions.presentationOptions === undefined
+        presentationOptions === null || presentationOptions === undefined
           ? null
           : {
               themeId:
-                typeof input.providerOptions.presentationOptions.themeId === "string" &&
-                input.providerOptions.presentationOptions.themeId.trim().length > 0
-                  ? input.providerOptions.presentationOptions.themeId.trim()
+                typeof presentationOptions.themeId === "string" &&
+                presentationOptions.themeId.trim().length > 0
+                  ? presentationOptions.themeId.trim()
                   : null,
               textMode:
-                input.providerOptions.presentationOptions.textMode === "generate" ||
-                input.providerOptions.presentationOptions.textMode === "condense" ||
-                input.providerOptions.presentationOptions.textMode === "preserve"
-                  ? input.providerOptions.presentationOptions.textMode
+                presentationOptions.textMode === "generate" ||
+                presentationOptions.textMode === "condense" ||
+                presentationOptions.textMode === "preserve"
+                  ? presentationOptions.textMode
                   : null,
               numCards:
-                input.providerOptions.presentationOptions.numCards === null ||
-                input.providerOptions.presentationOptions.numCards === undefined
+                presentationOptions.numCards === null || presentationOptions.numCards === undefined
                   ? null
                   : this.normalizeOptionalPositiveInteger(
-                      input.providerOptions.presentationOptions.numCards,
+                      presentationOptions.numCards,
                       "providerOptions.presentationOptions.numCards"
                     ),
               cardSplit:
-                input.providerOptions.presentationOptions.cardSplit === "auto" ||
-                input.providerOptions.presentationOptions.cardSplit === "inputTextBreaks"
-                  ? input.providerOptions.presentationOptions.cardSplit
+                presentationOptions.cardSplit === "auto" ||
+                presentationOptions.cardSplit === "inputTextBreaks"
+                  ? presentationOptions.cardSplit
                   : null,
               additionalInstructions:
-                typeof input.providerOptions.presentationOptions.additionalInstructions === "string"
-                  ? input.providerOptions.presentationOptions.additionalInstructions.trim() || null
+                typeof presentationOptions.additionalInstructions === "string"
+                  ? presentationOptions.additionalInstructions.trim() || null
                   : null,
               textOptions:
-                input.providerOptions.presentationOptions.textOptions === null ||
-                input.providerOptions.presentationOptions.textOptions === undefined
+                presentationOptions.textOptions === null ||
+                presentationOptions.textOptions === undefined
                   ? null
                   : {
                       amount:
-                        input.providerOptions.presentationOptions.textOptions.amount === "brief" ||
-                        input.providerOptions.presentationOptions.textOptions.amount === "medium" ||
-                        input.providerOptions.presentationOptions.textOptions.amount ===
-                          "detailed" ||
-                        input.providerOptions.presentationOptions.textOptions.amount === "extensive"
-                          ? input.providerOptions.presentationOptions.textOptions.amount
+                        presentationOptions.textOptions.amount === "brief" ||
+                        presentationOptions.textOptions.amount === "medium" ||
+                        presentationOptions.textOptions.amount === "detailed" ||
+                        presentationOptions.textOptions.amount === "extensive"
+                          ? presentationOptions.textOptions.amount
                           : null,
                       language:
-                        typeof input.providerOptions.presentationOptions.textOptions.language ===
-                          "string" &&
-                        input.providerOptions.presentationOptions.textOptions.language.trim()
-                          .length > 0
-                          ? input.providerOptions.presentationOptions.textOptions.language.trim()
+                        typeof presentationOptions.textOptions.language === "string" &&
+                        presentationOptions.textOptions.language.trim().length > 0
+                          ? presentationOptions.textOptions.language.trim()
                           : null,
                       tone:
-                        typeof input.providerOptions.presentationOptions.textOptions.tone ===
-                          "string" &&
-                        input.providerOptions.presentationOptions.textOptions.tone.trim().length > 0
-                          ? input.providerOptions.presentationOptions.textOptions.tone.trim()
+                        typeof presentationOptions.textOptions.tone === "string" &&
+                        presentationOptions.textOptions.tone.trim().length > 0
+                          ? presentationOptions.textOptions.tone.trim()
                           : null,
                       audience:
-                        typeof input.providerOptions.presentationOptions.textOptions.audience ===
-                          "string" &&
-                        input.providerOptions.presentationOptions.textOptions.audience.trim()
-                          .length > 0
-                          ? input.providerOptions.presentationOptions.textOptions.audience.trim()
+                        typeof presentationOptions.textOptions.audience === "string" &&
+                        presentationOptions.textOptions.audience.trim().length > 0
+                          ? presentationOptions.textOptions.audience.trim()
                           : null
                     },
               imageOptions:
-                input.providerOptions.presentationOptions.imageOptions === null ||
-                input.providerOptions.presentationOptions.imageOptions === undefined
+                presentationOptions.imageOptions === null ||
+                presentationOptions.imageOptions === undefined
                   ? null
                   : {
                       source:
-                        input.providerOptions.presentationOptions.imageOptions.source ===
-                          "webAllImages" ||
-                        input.providerOptions.presentationOptions.imageOptions.source ===
-                          "webFreeToUse" ||
-                        input.providerOptions.presentationOptions.imageOptions.source ===
-                          "webFreeToUseCommercially" ||
-                        input.providerOptions.presentationOptions.imageOptions.source ===
-                          "aiGenerated" ||
-                        input.providerOptions.presentationOptions.imageOptions.source ===
-                          "pictographic" ||
-                        input.providerOptions.presentationOptions.imageOptions.source === "giphy" ||
-                        input.providerOptions.presentationOptions.imageOptions.source ===
-                          "pexels" ||
-                        input.providerOptions.presentationOptions.imageOptions.source ===
-                          "placeholder" ||
-                        input.providerOptions.presentationOptions.imageOptions.source ===
-                          "noImages" ||
-                        input.providerOptions.presentationOptions.imageOptions.source ===
-                          "themeAccent"
-                          ? input.providerOptions.presentationOptions.imageOptions.source
+                        presentationOptions.imageOptions.source === "webAllImages" ||
+                        presentationOptions.imageOptions.source === "webFreeToUse" ||
+                        presentationOptions.imageOptions.source === "webFreeToUseCommercially" ||
+                        presentationOptions.imageOptions.source === "aiGenerated" ||
+                        presentationOptions.imageOptions.source === "pictographic" ||
+                        presentationOptions.imageOptions.source === "giphy" ||
+                        presentationOptions.imageOptions.source === "pexels" ||
+                        presentationOptions.imageOptions.source === "placeholder" ||
+                        presentationOptions.imageOptions.source === "noImages" ||
+                        presentationOptions.imageOptions.source === "themeAccent"
+                          ? presentationOptions.imageOptions.source
                           : null,
                       model:
-                        typeof input.providerOptions.presentationOptions.imageOptions.model ===
-                          "string" &&
-                        input.providerOptions.presentationOptions.imageOptions.model.trim().length >
-                          0
-                          ? input.providerOptions.presentationOptions.imageOptions.model.trim()
+                        typeof presentationOptions.imageOptions.model === "string" &&
+                        presentationOptions.imageOptions.model.trim().length > 0
+                          ? presentationOptions.imageOptions.model.trim()
                           : null,
                       style:
-                        typeof input.providerOptions.presentationOptions.imageOptions.style ===
-                          "string" &&
-                        input.providerOptions.presentationOptions.imageOptions.style.trim().length >
-                          0
-                          ? input.providerOptions.presentationOptions.imageOptions.style.trim()
+                        typeof presentationOptions.imageOptions.style === "string" &&
+                        presentationOptions.imageOptions.style.trim().length > 0
+                          ? presentationOptions.imageOptions.style.trim()
                           : null,
                       stylePreset:
-                        input.providerOptions.presentationOptions.imageOptions.stylePreset ===
-                          "illustration" ||
-                        input.providerOptions.presentationOptions.imageOptions.stylePreset ===
-                          "abstract" ||
-                        input.providerOptions.presentationOptions.imageOptions.stylePreset ===
-                          "3D" ||
-                        input.providerOptions.presentationOptions.imageOptions.stylePreset ===
-                          "lineArt" ||
-                        input.providerOptions.presentationOptions.imageOptions.stylePreset ===
-                          "custom"
-                          ? input.providerOptions.presentationOptions.imageOptions.stylePreset
+                        presentationOptions.imageOptions.stylePreset === "illustration" ||
+                        presentationOptions.imageOptions.stylePreset === "abstract" ||
+                        presentationOptions.imageOptions.stylePreset === "3D" ||
+                        presentationOptions.imageOptions.stylePreset === "lineArt" ||
+                        presentationOptions.imageOptions.stylePreset === "custom"
+                          ? presentationOptions.imageOptions.stylePreset
                           : null
                     },
               cardOptions:
-                input.providerOptions.presentationOptions.cardOptions === null ||
-                input.providerOptions.presentationOptions.cardOptions === undefined
+                presentationOptions.cardOptions === null ||
+                presentationOptions.cardOptions === undefined
                   ? null
                   : {
                       dimensions:
-                        input.providerOptions.presentationOptions.cardOptions.dimensions ===
-                          "16x9" ||
-                        input.providerOptions.presentationOptions.cardOptions.dimensions ===
-                          "4x3" ||
-                        input.providerOptions.presentationOptions.cardOptions.dimensions === "fluid"
-                          ? input.providerOptions.presentationOptions.cardOptions.dimensions
+                        presentationOptions.cardOptions.dimensions === "16x9" ||
+                        presentationOptions.cardOptions.dimensions === "4x3" ||
+                        presentationOptions.cardOptions.dimensions === "fluid"
+                          ? presentationOptions.cardOptions.dimensions
                           : null
                     }
             }

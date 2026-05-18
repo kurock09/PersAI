@@ -7,6 +7,12 @@ import type {
 } from "@persai/runtime-contract";
 import { RuntimeDocumentProviderAdapterService } from "../src/modules/turns/runtime-document-provider-adapter.service";
 
+function readPdfMonkeyTemplateId(input: ProviderGatewayDocumentGenerateRequest): string {
+  return input.credential.providerId === "pdfmonkey"
+    ? (input.providerOptions.pdfmonkeyTemplateId ?? "template-123")
+    : "template-123";
+}
+
 function createBundle() {
   return {
     metadata: {
@@ -144,10 +150,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
               provider: "pdfmonkey",
               outputFormat: "pdf",
               documentId: "doc-provider-1",
-              templateId:
-                input.providerOptions.outputFormat === "pdf"
-                  ? input.providerOptions.pdfmonkeyTemplateId
-                  : "template-123",
+              templateId: readPdfMonkeyTemplateId(input),
               filename: input.filename,
               bytesBase64: Buffer.concat([
                 Buffer.from("%PDF-1.4\n", "utf8"),
@@ -161,10 +164,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                 provider: "pdfmonkey",
                 state: "success",
                 documentId: "doc-provider-1",
-                documentTemplateId:
-                  input.providerOptions.outputFormat === "pdf"
-                    ? input.providerOptions.pdfmonkeyTemplateId
-                    : "template-123",
+                documentTemplateId: readPdfMonkeyTemplateId(input),
                 downloadUrl: "https://example.com/document.pdf",
                 previewUrl: "https://example.com/preview",
                 failureCause: null,
@@ -334,10 +334,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
               provider: "pdfmonkey",
               outputFormat: "pdf",
               documentId: "doc-provider-2",
-              templateId:
-                input.providerOptions.outputFormat === "pdf"
-                  ? input.providerOptions.pdfmonkeyTemplateId
-                  : "template-123",
+              templateId: readPdfMonkeyTemplateId(input),
               filename: input.filename,
               bytesBase64: Buffer.concat([
                 Buffer.from("%PDF-1.4\n", "utf8"),
@@ -351,10 +348,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                 provider: "pdfmonkey",
                 state: "success",
                 documentId: "doc-provider-2",
-                documentTemplateId:
-                  input.providerOptions.outputFormat === "pdf"
-                    ? input.providerOptions.pdfmonkeyTemplateId
-                    : "template-123",
+                documentTemplateId: readPdfMonkeyTemplateId(input),
                 downloadUrl: "https://example.com/document-2.pdf",
                 previewUrl: "https://example.com/preview-2",
                 failureCause: null,
@@ -500,10 +494,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
               provider: "pdfmonkey",
               outputFormat: "pdf",
               documentId: "doc-provider-fragment",
-              templateId:
-                input.providerOptions.outputFormat === "pdf"
-                  ? input.providerOptions.pdfmonkeyTemplateId
-                  : "template-123",
+              templateId: readPdfMonkeyTemplateId(input),
               filename: input.filename,
               bytesBase64: Buffer.concat([
                 Buffer.from("%PDF-1.4\n", "utf8"),
@@ -517,10 +508,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                 provider: "pdfmonkey",
                 state: "success",
                 documentId: "doc-provider-fragment",
-                documentTemplateId:
-                  input.providerOptions.outputFormat === "pdf"
-                    ? input.providerOptions.pdfmonkeyTemplateId
-                    : "template-123",
+                documentTemplateId: readPdfMonkeyTemplateId(input),
                 downloadUrl: "https://example.com/document-fragment.pdf",
                 previewUrl: "https://example.com/document-fragment/preview",
                 failureCause: null,
@@ -668,10 +656,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
               provider: "pdfmonkey",
               outputFormat: "pdf",
               documentId: "doc-provider-3",
-              templateId:
-                input.providerOptions.outputFormat === "pdf"
-                  ? input.providerOptions.pdfmonkeyTemplateId
-                  : "template-123",
+              templateId: readPdfMonkeyTemplateId(input),
               filename: input.filename,
               bytesBase64: Buffer.concat([
                 Buffer.from("%PDF-1.4\n", "utf8"),
@@ -685,10 +670,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                 provider: "pdfmonkey",
                 state: "success",
                 documentId: "doc-provider-3",
-                documentTemplateId:
-                  input.providerOptions.outputFormat === "pdf"
-                    ? input.providerOptions.pdfmonkeyTemplateId
-                    : "template-123",
+                documentTemplateId: readPdfMonkeyTemplateId(input),
                 downloadUrl: "https://example.com/document-3.pdf",
                 previewUrl: "https://example.com/preview-3",
                 failureCause: null,
@@ -1015,10 +997,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
               provider: "pdfmonkey",
               outputFormat: "pdf",
               documentId: `doc-provider-${attempt}`,
-              templateId:
-                input.providerOptions.outputFormat === "pdf"
-                  ? input.providerOptions.pdfmonkeyTemplateId
-                  : "template-123",
+              templateId: readPdfMonkeyTemplateId(input),
               filename: input.filename,
               bytesBase64: pdfBuffer.toString("base64"),
               mimeType: "application/pdf",
@@ -1028,10 +1007,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                 provider: "pdfmonkey",
                 state: "success",
                 documentId: `doc-provider-${attempt}`,
-                documentTemplateId:
-                  input.providerOptions.outputFormat === "pdf"
-                    ? input.providerOptions.pdfmonkeyTemplateId
-                    : "template-123",
+                documentTemplateId: readPdfMonkeyTemplateId(input),
                 downloadUrl: `https://example.com/document-${attempt}.pdf`,
                 previewUrl: `https://example.com/document-${attempt}/preview`,
                 failureCause: null,
@@ -1176,10 +1152,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
               provider: "pdfmonkey",
               outputFormat: "pdf",
               documentId: "doc-provider-uninspectable",
-              templateId:
-                input.providerOptions.outputFormat === "pdf"
-                  ? input.providerOptions.pdfmonkeyTemplateId
-                  : "template-123",
+              templateId: readPdfMonkeyTemplateId(input),
               filename: input.filename,
               bytesBase64: Buffer.concat([
                 Buffer.from("%PDF-1.4\n", "utf8"),
@@ -1193,10 +1166,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                 provider: "pdfmonkey",
                 state: "success",
                 documentId: "doc-provider-uninspectable",
-                documentTemplateId:
-                  input.providerOptions.outputFormat === "pdf"
-                    ? input.providerOptions.pdfmonkeyTemplateId
-                    : "template-123",
+                documentTemplateId: readPdfMonkeyTemplateId(input),
                 downloadUrl: "https://example.com/document-uninspectable.pdf",
                 previewUrl: "https://example.com/preview-uninspectable",
                 failureCause: null,
@@ -1336,10 +1306,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
               provider: "pdfmonkey",
               outputFormat: "pdf",
               documentId: "doc-not-a-pdf",
-              templateId:
-                input.providerOptions.outputFormat === "pdf"
-                  ? input.providerOptions.pdfmonkeyTemplateId
-                  : "template-123",
+              templateId: readPdfMonkeyTemplateId(input),
               filename: input.filename,
               bytesBase64: Buffer.alloc(2048, "Z").toString("base64"),
               mimeType: "application/pdf",
@@ -1349,10 +1316,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                 provider: "pdfmonkey",
                 state: "success",
                 documentId: "doc-not-a-pdf",
-                documentTemplateId:
-                  input.providerOptions.outputFormat === "pdf"
-                    ? input.providerOptions.pdfmonkeyTemplateId
-                    : "template-123",
+                documentTemplateId: readPdfMonkeyTemplateId(input),
                 downloadUrl: "https://example.com/not-a-pdf",
                 previewUrl: null,
                 failureCause: null,
@@ -1527,10 +1491,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
               provider: "pdfmonkey",
               outputFormat: "pdf",
               documentId: "doc-retry",
-              templateId:
-                input.providerOptions.outputFormat === "pdf"
-                  ? input.providerOptions.pdfmonkeyTemplateId
-                  : "template-123",
+              templateId: readPdfMonkeyTemplateId(input),
               filename: input.filename,
               bytesBase64: Buffer.concat([
                 Buffer.from("%PDF-1.4\n", "utf8"),
@@ -1547,10 +1508,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
                 provider: "pdfmonkey",
                 state: "success",
                 documentId: "doc-retry",
-                documentTemplateId:
-                  input.providerOptions.outputFormat === "pdf"
-                    ? input.providerOptions.pdfmonkeyTemplateId
-                    : "template-123",
+                documentTemplateId: readPdfMonkeyTemplateId(input),
                 downloadUrl: "https://example.com/retry.pdf",
                 previewUrl: null,
                 failureCause: null,
@@ -1909,6 +1867,179 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       0,
       `Gamma worker path must not call generateText (got ${String(generateTextCalls.length)} calls: ${generateTextCalls.map((c) => c.classification ?? "<no-classification>").join(", ")})`
     );
+  });
+
+  test("defaults Gamma presentations to PDF and keeps a quiet companion PPTX export", async () => {
+    const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText() {
+          throw new Error("Gamma path must not call generateText");
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          gatewayCalls.push(input);
+          const outputFormat = input.providerOptions.outputFormat;
+          return {
+            ok: true,
+            result: {
+              provider: "gamma",
+              outputFormat,
+              documentId: outputFormat === "pdf" ? "gamma-pdf-1" : "gamma-pptx-1",
+              templateId: null,
+              filename: input.filename,
+              bytesBase64: Buffer.from(
+                outputFormat === "pdf" ? "pdf-test" : "pptx-shadow"
+              ).toString("base64"),
+              mimeType:
+                outputFormat === "pdf"
+                  ? "application/pdf"
+                  : "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              respondedAt: "2026-05-18T11:40:00.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "gamma",
+                state: "success",
+                generationId: outputFormat === "pdf" ? "gen-pdf-1" : "gen-pptx-1",
+                gammaId: outputFormat === "pdf" ? "gamma-pdf-1" : "gamma-pptx-1",
+                gammaUrl:
+                  outputFormat === "pdf"
+                    ? "https://gamma.app/docs/gamma-pdf-1"
+                    : "https://gamma.app/docs/gamma-pptx-1",
+                exportUrl:
+                  outputFormat === "pdf"
+                    ? "https://gamma.app/export/gamma-pdf-1.pdf"
+                    : "https://gamma.app/export/gamma-pptx-1.pptx",
+                filename: input.filename,
+                outputType: outputFormat,
+                status: "completed",
+                updatedAt: "2026-05-18T11:40:00.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-pdf-default-1",
+          docId: "doc-pdf-default-1",
+          versionId: "version-pdf-default-1",
+          surface: "web",
+          chatId: "chat-pdf-default-1",
+          provider: "gamma",
+          outputFormat: "pdf",
+          sourceUserMessageId: "message-pdf-default-1",
+          sourceUserMessageText: "Сделай презентацию для совета директоров",
+          sourceUserMessageCreatedAt: "2026-05-18T11:35:00.000Z"
+        },
+        attachments: [],
+        sourceFiles: [],
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_presentation",
+          request: {
+            prompt: "Create a calm board presentation",
+            requestedName: "Board Deck",
+            visualStyle: "professional_modern",
+            imagePolicy: "text_only",
+            visualDensity: "balanced"
+          }
+        }
+      }
+    });
+
+    assert.equal(gatewayCalls.length, 2);
+    assert.equal(gatewayCalls[0]?.providerOptions.outputFormat, "pdf");
+    assert.equal(gatewayCalls[0]?.filename, "Board Deck.pdf");
+    assert.equal(gatewayCalls[1]?.providerOptions.outputFormat, "pptx");
+    assert.equal(gatewayCalls[1]?.filename, "Board Deck.pptx");
+    assert.equal(result.artifacts.length, 1);
+    assert.equal(result.artifacts[0]?.mimeType, "application/pdf");
+    assert.equal(result.providerStatus?.outputType, "pdf");
+    assert.deepEqual(result.providerStatus?.companionOriginal, {
+      provider: "gamma",
+      state: "success",
+      generationId: "gen-pptx-1",
+      gammaId: "gamma-pptx-1",
+      gammaUrl: "https://gamma.app/docs/gamma-pptx-1",
+      exportUrl: "https://gamma.app/export/gamma-pptx-1.pptx",
+      format: "pptx",
+      status: "ready",
+      filename: "Board Deck.pptx",
+      outputType: "pptx",
+      updatedAt: "2026-05-18T11:40:00.000Z"
+    });
   });
 
   test("injects enhanced print CSS with @page, thead repeat, tr break-inside, orphans/widows and cover-page page-break by default", () => {

@@ -400,7 +400,11 @@ export class AssistantDocumentJobService {
       currentVersionNumber: document.currentVersion.versionNumber,
       currentVersionStatus: document.currentVersion.status,
       currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
-      currentOutputFormat: document.documentType === "presentation" ? "pptx" : "pdf",
+      currentOutputFormat: this.resolveCurrentOutputFormat({
+        documentType: document.documentType,
+        sourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
+        deliveredMimeType: latestDeliveredAssistantFile?.mimeType ?? null
+      }),
       latestDeliveredFile:
         latestDeliveredAssistantFile === null
           ? null
@@ -626,7 +630,7 @@ export class AssistantDocumentJobService {
     return {
       prompt: current.prompt.trim().length > 0 ? current.prompt : revision.prompt,
       instructions: combinedInstructions.length > 0 ? combinedInstructions : null,
-      outputFormat: current.outputFormat ?? revision.outputFormat ?? null,
+      outputFormat: revision.outputFormat ?? current.outputFormat ?? null,
       docId: current.docId ?? revision.docId ?? null,
       requestedName: revision.requestedName ?? current.requestedName ?? null,
       visualStyle: revision.visualStyle ?? current.visualStyle ?? null,
@@ -649,7 +653,7 @@ export class AssistantDocumentJobService {
     return {
       prompt: current.prompt,
       instructions: current.instructions ?? null,
-      outputFormat: current.outputFormat ?? request.outputFormat ?? null,
+      outputFormat: request.outputFormat ?? current.outputFormat ?? null,
       docId: current.docId ?? request.docId ?? null,
       requestedName: request.requestedName ?? current.requestedName ?? null,
       visualStyle: request.visualStyle ?? current.visualStyle ?? null,
@@ -668,6 +672,26 @@ export class AssistantDocumentJobService {
           : undefined
       }
     };
+  }
+
+  private resolveCurrentOutputFormat(input: {
+    documentType: AssistantDocumentType;
+    sourceJson: AssistantDocumentSourcePayload;
+    deliveredMimeType: string | null;
+  }): AssistantDocumentOutputFormat {
+    if (input.sourceJson.outputFormat === "pdf" || input.sourceJson.outputFormat === "pptx") {
+      return input.sourceJson.outputFormat;
+    }
+    if (input.deliveredMimeType === "application/pdf") {
+      return "pdf";
+    }
+    if (
+      input.deliveredMimeType ===
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    ) {
+      return "pptx";
+    }
+    return "pdf";
   }
 
   private readPresentationVisualStyle(value: unknown): PersaiRuntimePresentationVisualStyle | null {

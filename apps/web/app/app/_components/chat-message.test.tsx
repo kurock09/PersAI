@@ -21,6 +21,13 @@ vi.mock("./image-lightbox", () => ({
 }));
 
 vi.mock("../assistant-api-client", () => ({
+  getAssistantDocumentOriginalDownloadUrl: (
+    docId: string,
+    options?: { versionId?: string | null }
+  ) =>
+    `/api/assistant-document/${docId}/original${
+      options?.versionId ? `?versionId=${options.versionId}` : ""
+    }`,
   getAssistantFileDownloadUrl: (fileRef: string, options?: { download?: boolean }) =>
     `/api/assistant-file/${fileRef}${options?.download ? "?download=1" : ""}`
 }));
@@ -402,6 +409,46 @@ describe("ChatMessageBubble — canonical file attachments", () => {
     expect(screen.getByRole("link", { name: /after-refresh\.pdf/i })).toHaveAttribute(
       "href",
       "/api/assistant-file/persisted-file-ref-1?download=1"
+    );
+  });
+
+  it("renders a quiet secondary PPTX action for PDF presentation attachments", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          attachments: [
+            {
+              id: "presentation-pdf-1",
+              fileRef: "presentation-file-ref-1",
+              attachmentType: "document",
+              originalFilename: "board-deck.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 4096,
+              processingStatus: "ready",
+              documentLink: {
+                docId: "doc-presentation-1",
+                versionId: "version-presentation-1",
+                versionNumber: 3,
+                descriptorMode: "create_presentation",
+                documentType: "presentation",
+                documentStatus: "ready",
+                versionStatus: "ready",
+                isCurrentOutput: true
+              },
+              createdAt: "2026-05-18T11:00:00.000Z"
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: /board-deck\.pdf/i })).toHaveAttribute(
+      "href",
+      "/api/assistant-file/presentation-file-ref-1?download=1"
+    );
+    expect(screen.getByRole("link", { name: "PPTX" })).toHaveAttribute(
+      "href",
+      "/api/assistant-document/doc-presentation-1/original?versionId=version-presentation-1"
     );
   });
 

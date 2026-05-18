@@ -45,20 +45,23 @@ export class PdfMonkeyProviderClient {
     input: ProviderGatewayDocumentGenerateRequest,
     options: { apiKey: string }
   ): Promise<ProviderGatewayDocumentGenerateResult> {
-    if (input.providerOptions.outputFormat !== "pdf") {
+    if (
+      input.credential.providerId !== "pdfmonkey" ||
+      input.providerOptions.outputFormat !== "pdf" ||
+      !("pdfmonkeyTemplateId" in input.providerOptions)
+    ) {
       throw new BadRequestException(
         'PDFMonkey provider requires providerOptions.outputFormat="pdf".'
       );
     }
+    const templateId = input.providerOptions.pdfmonkeyTemplateId;
     const timeoutMs = input.timeoutMs ?? this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     const startedAtMs = Date.now();
     const htmlBytes = Buffer.byteLength(input.htmlContent ?? "", "utf8");
     this.logger.log(
-      `[pdfmonkey-create-request] templateId=${input.providerOptions.pdfmonkeyTemplateId} filename=${
-        input.filename ?? "(none)"
-      } htmlBytes=${String(htmlBytes)} timeoutMs=${String(timeoutMs)}`
+      `[pdfmonkey-create-request] templateId=${templateId} filename=${input.filename ?? "(none)"} htmlBytes=${String(htmlBytes)} timeoutMs=${String(timeoutMs)}`
     );
     try {
       const createResponse = await fetch(new URL("/api/v1/documents/sync", PDFMONKEY_BASE_URL), {
@@ -69,7 +72,7 @@ export class PdfMonkeyProviderClient {
         },
         body: JSON.stringify({
           document: {
-            document_template_id: input.providerOptions.pdfmonkeyTemplateId,
+            document_template_id: templateId,
             status: "pending",
             payload: {
               htmlContent: input.htmlContent
@@ -86,20 +89,16 @@ export class PdfMonkeyProviderClient {
       });
       const body = await this.readJson(createResponse);
       this.logger.log(
-        `[pdfmonkey-create-response] templateId=${input.providerOptions.pdfmonkeyTemplateId} status=${String(
-          createResponse.status
-        )} elapsedMs=${String(Date.now() - startedAtMs)}`
+        `[pdfmonkey-create-response] templateId=${templateId} status=${String(createResponse.status)} elapsedMs=${String(Date.now() - startedAtMs)}`
       );
       if (!createResponse.ok) {
         this.logger.warn(
-          `[pdfmonkey-create-failed] templateId=${input.providerOptions.pdfmonkeyTemplateId} status=${String(
-            createResponse.status
-          )} body=${JSON.stringify(body).slice(0, 600)}`
+          `[pdfmonkey-create-failed] templateId=${templateId} status=${String(createResponse.status)} body=${JSON.stringify(body).slice(0, 600)}`
         );
         throw this.toPdfMonkeyCreateFailure({
           status: createResponse.status,
           body,
-          templateId: input.providerOptions.pdfmonkeyTemplateId,
+          templateId,
           filename: input.filename
         });
       }
@@ -183,7 +182,7 @@ export class PdfMonkeyProviderClient {
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         this.logger.warn(
-          `[pdfmonkey-timeout] templateId=${input.providerOptions.pdfmonkeyTemplateId} timeoutMs=${String(timeoutMs)} elapsedMs=${String(Date.now() - startedAtMs)}`
+          `[pdfmonkey-timeout] templateId=${templateId} timeoutMs=${String(timeoutMs)} elapsedMs=${String(Date.now() - startedAtMs)}`
         );
         throw new ServiceUnavailableException(`PDFMonkey request timed out after ${timeoutMs}ms.`);
       }

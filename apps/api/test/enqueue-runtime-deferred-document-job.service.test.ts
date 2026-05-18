@@ -129,6 +129,129 @@ async function runAcceptedCase(): Promise<void> {
   assert.equal(enqueueCalls, 1);
 }
 
+async function runPresentationDefaultsToPdfCase(): Promise<void> {
+  let capturedEnqueueInput: Record<string, unknown> | null = null;
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    {
+      async findMessageByIdForAssistant(messageId: string, assistantId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "user" as const,
+          createdAt: new Date("2026-05-18T11:00:00.000Z")
+        };
+      },
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "web" as const
+        };
+      }
+    } as never,
+    {
+      async countOpenJobsForChat() {
+        return 0;
+      },
+      async enqueue(input) {
+        capturedEnqueueInput = input as Record<string, unknown>;
+        return {
+          docId: "doc-default-pdf-1",
+          versionId: "version-default-pdf-1",
+          renderJobId: "render-default-pdf-1",
+          status: "queued" as const
+        };
+      }
+    } as never,
+    {
+      async build() {
+        return null;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          monthlyToolQuotas: {
+            planCode: "pro",
+            periodStartedAt: "2026-05-01T00:00:00.000Z",
+            periodEndsAt: "2026-06-01T00:00:00.000Z",
+            periodSource: "subscription_period" as const,
+            tools: [
+              {
+                toolCode: "document",
+                displayName: "Document",
+                usedUnits: 0,
+                reservedUnits: 0,
+                settledUnits: 0,
+                releasedUnits: 0,
+                reconciliationRequiredUnits: 0,
+                limitUnits: 10,
+                effectiveLimitUnits: 10,
+                remainingUnits: 10,
+                usageAvailable: true,
+                status: "ok" as const
+              }
+            ]
+          }
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          tools: [
+            {
+              toolCode: "document",
+              activationStatus: "active" as const
+            }
+          ]
+        };
+      }
+    } as never,
+    {
+      async resolveSecretValueByProviderKey() {
+        return "template-123";
+      }
+    } as never,
+    noopGammaThemePickerMock()
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Сделай презентацию для совета директоров",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "create_presentation",
+      request: {
+        prompt: "Board presentation about PersAI",
+        requestedName: "board-deck"
+      }
+    }
+  });
+
+  assert.equal(result.accepted, true);
+  assert.equal(
+    (capturedEnqueueInput as { outputFormat: string } | null)?.outputFormat,
+    "pdf",
+    "presentations should default to PDF delivery unless the tool explicitly asked for PPTX"
+  );
+  assert.equal(
+    (
+      capturedEnqueueInput as {
+        request: { sourceJson: { outputFormat: string } };
+      }
+    ).request.sourceJson.outputFormat,
+    "pdf",
+    "persisted sourceJson should carry the default PDF output format so later revisions/exports stay consistent"
+  );
+}
+
 async function runLimitReachedCase(): Promise<void> {
   let enqueueCalls = 0;
   const service = new EnqueueRuntimeDeferredDocumentJobService(
@@ -907,6 +1030,7 @@ async function runPresentationThemePickerPersistenceCase(): Promise<void> {
 
 async function run(): Promise<void> {
   await runAcceptedCase();
+  await runPresentationDefaultsToPdfCase();
   await runLimitReachedCase();
   await runRevisionAcceptedCase();
   await runRevisionFallsBackToLatestChatDocumentWhenDocIdIsNotUuid();

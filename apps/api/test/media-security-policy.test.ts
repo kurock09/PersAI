@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { validatePersaiMediaFile } from "../src/modules/workspace-management/application/media/media-security-policy";
+import {
+  MAX_MEDIA_FILE_BYTES,
+  validatePersaiMediaFile
+} from "../src/modules/workspace-management/application/media/media-security-policy";
 
 async function run(): Promise<void> {
   const pngBuffer = Buffer.from([
@@ -32,6 +35,28 @@ async function run(): Promise<void> {
   assert.equal(
     allowedPptx.effectiveMimeType,
     "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  );
+
+  const oversizedPresentation = await validatePersaiMediaFile({
+    buffer: Buffer.alloc(MAX_MEDIA_FILE_BYTES + 1024),
+    mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    originalFilename: "large-deck.pptx",
+    surface: "tool_output_persist"
+  });
+  assert.equal(
+    oversizedPresentation.effectiveMimeType,
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  );
+
+  await assert.rejects(
+    () =>
+      validatePersaiMediaFile({
+        buffer: Buffer.alloc(MAX_MEDIA_FILE_BYTES + 1024),
+        mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        originalFilename: "upload-deck.pptx",
+        surface: "chat_upload"
+      }),
+    /File exceeds maximum size of 25MB/
   );
 
   await assert.rejects(

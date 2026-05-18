@@ -14,6 +14,7 @@ import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 
 const GAMMA_BASE_URL = "https://public-api.gamma.app";
 const GAMMA_POLL_INTERVAL_MS = 5_000;
+const GAMMA_ALLOWED_EXPORT_HOST_SUFFIX = ".gamma.app";
 
 type GammaCreateResponse = {
   generationId: string;
@@ -42,6 +43,7 @@ export class GammaProviderClient {
     input: ProviderGatewayDocumentGenerateRequest,
     options: { apiKey: string }
   ): Promise<ProviderGatewayDocumentGenerateResult> {
+    const requestedOutputFormat = this.readRequestedOutputFormat(input);
     const timeoutMs = input.timeoutMs ?? this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -69,16 +71,16 @@ export class GammaProviderClient {
         controller.signal
       );
       if (settled.status === "failed") {
-        throw this.toGammaGenerationFailure(settled);
+        throw this.toGammaGenerationFailure(settled, requestedOutputFormat);
       }
       const exportUrl =
         typeof settled.exportUrl === "string" && settled.exportUrl.trim().length > 0
-          ? settled.exportUrl
+          ? this.readTrustedGammaExportUrl(settled.exportUrl)
           : null;
       if (exportUrl === null) {
         throw this.raiseFailure({
           code: "gamma_export_unavailable",
-          message: "Gamma completed the generation but did not provide a PPTX export URL.",
+          message: `Gamma completed the generation but did not provide a ${requestedOutputFormat.toUpperCase()} export URL.`,
           retryable: true,
           providerStatus: {
             provider: "gamma",
@@ -88,7 +90,7 @@ export class GammaProviderClient {
             gammaUrl: settled.gammaUrl ?? null,
             exportUrl: null,
             status: "completed_missing_export",
-            outputType: "pptx",
+            outputType: requestedOutputFormat,
             filename: input.filename,
             updatedAt: new Date().toISOString(),
             retryable: true
@@ -113,7 +115,7 @@ export class GammaProviderClient {
             exportUrl,
             status: "export_download_failed",
             httpStatus: downloadResponse.status,
-            outputType: "pptx",
+            outputType: requestedOutputFormat,
             filename: input.filename,
             updatedAt: new Date().toISOString(),
             retryable: true
@@ -124,8 +126,8 @@ export class GammaProviderClient {
       const buffer = Buffer.from(arrayBuffer);
       if (buffer.length === 0) {
         throw this.raiseFailure({
-          code: "gamma_empty_pptx_payload",
-          message: "Gamma returned an empty PPTX payload.",
+          code: "gamma_empty_export_payload",
+          message: `Gamma returned an empty ${requestedOutputFormat.toUpperCase()} payload.`,
           retryable: true,
           providerStatus: {
             provider: "gamma",
@@ -135,7 +137,7 @@ export class GammaProviderClient {
             gammaUrl: settled.gammaUrl ?? null,
             exportUrl,
             status: "export_empty",
-            outputType: "pptx",
+            outputType: requestedOutputFormat,
             filename: input.filename,
             updatedAt: new Date().toISOString(),
             retryable: true
@@ -144,10 +146,10 @@ export class GammaProviderClient {
       }
       const mimeType =
         downloadResponse.headers.get("content-type")?.split(";")[0]?.trim() ||
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        this.defaultMimeTypeForOutputFormat(requestedOutputFormat);
       return {
         provider: "gamma",
-        outputFormat: "pptx",
+        outputFormat: requestedOutputFormat,
         documentId: settled.gammaId ?? created.generationId,
         templateId: null,
         filename: input.filename,
@@ -163,10 +165,13 @@ export class GammaProviderClient {
           state: "success",
           generationId: created.generationId,
           gammaId: this.requiredString(settled.gammaId, "gammaId"),
-          gammaUrl: this.requiredString(settled.gammaUrl, "gammaUrl"),
+          gammaUrl:
+            typeof settled.gammaUrl === "string" && settled.gammaUrl.trim().length > 0
+              ? settled.gammaUrl.trim()
+              : null,
           exportUrl,
           filename: input.filename,
-          outputType: "pptx",
+          outputType: requestedOutputFormat,
           status: "completed",
           updatedAt: new Date().toISOString()
         }
@@ -184,8 +189,9 @@ export class GammaProviderClient {
   private buildCreatePayload(
     input: ProviderGatewayDocumentGenerateRequest
   ): Record<string, unknown> {
+    const requestedOutputFormat = this.readRequestedOutputFormat(input);
     const presentationOptions =
-      input.providerOptions.outputFormat === "pptx"
+      "presentationOptions" in input.providerOptions
         ? input.providerOptions.presentationOptions
         : null;
     const audience =
@@ -195,7 +201,7 @@ export class GammaProviderClient {
       inputText: this.toGammaInputText(input.htmlContent),
       textMode: presentationOptions?.textMode ?? "generate",
       format: "presentation",
-      exportAs: "pptx",
+      exportAs: requestedOutputFormat,
       ...(presentationOptions?.themeId === null || presentationOptions?.themeId === undefined
         ? {}
         : { themeId: presentationOptions.themeId }),
@@ -246,6 +252,33 @@ export class GammaProviderClient {
                 : { stylePreset: presentationOptions.imageOptions.stylePreset })
             }
     };
+  }
+
+  private readRequestedOutputFormat(
+    input: ProviderGatewayDocumentGenerateRequest
+  ): Extract<ProviderGatewayDocumentGenerateResult, { provider: "gamma" }>["outputFormat"] {
+    return input.providerOptions.outputFormat === "pdf" ? "pdf" : "pptx";
+  }
+
+  private defaultMimeTypeForOutputFormat(outputFormat: "pdf" | "pptx"): string {
+    return outputFormat === "pdf"
+      ? "application/pdf"
+      : "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  }
+
+  private readTrustedGammaExportUrl(value: string): string | null {
+    try {
+      const url = new URL(value.trim());
+      if (url.protocol !== "https:") {
+        return null;
+      }
+      const hostname = url.hostname.toLowerCase();
+      return hostname === "gamma.app" || hostname.endsWith(GAMMA_ALLOWED_EXPORT_HOST_SUFFIX)
+        ? url.toString()
+        : null;
+    } catch {
+      return null;
+    }
   }
 
   private async pollUntilSettled(
@@ -390,7 +423,7 @@ export class GammaProviderClient {
     });
   }
 
-  private toGammaGenerationFailure(input: GammaStatusResponse) {
+  private toGammaGenerationFailure(input: GammaStatusResponse, outputType: "pdf" | "pptx") {
     const message = input.error?.message?.trim() || "Gamma generation failed.";
     return this.raiseFailure({
       code: "gamma_generation_failed",
@@ -404,7 +437,7 @@ export class GammaProviderClient {
         gammaUrl: input.gammaUrl ?? null,
         exportUrl: input.exportUrl ?? null,
         status: "failed",
-        outputType: "pptx",
+        outputType,
         updatedAt: new Date().toISOString(),
         message,
         retryable: false

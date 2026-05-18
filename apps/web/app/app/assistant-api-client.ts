@@ -3792,6 +3792,20 @@ export function getAssistantFileDownloadUrl(
   return `${url.pathname}${url.search}`;
 }
 
+export function getAssistantDocumentOriginalDownloadUrl(
+  docId: string,
+  options: { versionId?: string | null }
+): string {
+  const url = new URL(
+    `/api/assistant-document/${encodeURIComponent(docId)}/original`,
+    "https://persai.local"
+  );
+  if (typeof options.versionId === "string" && options.versionId.trim().length > 0) {
+    url.searchParams.set("versionId", options.versionId.trim());
+  }
+  return `${url.pathname}${url.search}`;
+}
+
 export type UploadedAttachment = {
   id: string;
   fileRef: string | null;

@@ -21,11 +21,13 @@ function createConfig(): ProviderGatewayConfig {
   };
 }
 
-function createRequest(): ProviderGatewayDocumentGenerateRequest {
+function createRequest(
+  outputFormat: "pdf" | "pptx" = "pptx"
+): ProviderGatewayDocumentGenerateRequest {
   return {
     htmlContent:
       "<!DOCTYPE html><html><body><h1>PersAI deck</h1><p>Investor update with traction and roadmap.</p></body></html>",
-    filename: "persai-deck.pptx",
+    filename: `persai-deck.${outputFormat}`,
     timeoutMs: 120000,
     credential: {
       toolCode: "document",
@@ -33,7 +35,7 @@ function createRequest(): ProviderGatewayDocumentGenerateRequest {
       providerId: "gamma"
     },
     providerOptions: {
-      outputFormat: "pptx",
+      outputFormat,
       presentationOptions: {
         textMode: "generate",
         numCards: 8,
@@ -141,6 +143,53 @@ export async function runGammaProviderClientTest(): Promise<void> {
         stylePreset: "custom"
       }
     });
+
+    const pdfCalls: Array<{ url: string; body: unknown }> = [];
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      let body: unknown = null;
+      if (typeof init?.body === "string" && init.body.length > 0) {
+        body = JSON.parse(init.body);
+      }
+      pdfCalls.push({ url, body });
+
+      if (url.endsWith("/v1.0/generations")) {
+        return new Response(JSON.stringify({ generationId: "gen-pdf-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (url.endsWith("/v1.0/generations/gen-pdf-1")) {
+        return new Response(
+          JSON.stringify({
+            generationId: "gen-pdf-1",
+            status: "completed",
+            gammaId: "gamma-pdf-1",
+            gammaUrl: "https://gamma.app/docs/gamma-pdf-1",
+            exportUrl: "https://gamma.app/export/gamma-pdf-1.pdf"
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      if (url === "https://gamma.app/export/gamma-pdf-1.pdf") {
+        return new Response(Buffer.from("pdf-binary"), {
+          status: 200,
+          headers: { "Content-Type": "application/pdf" }
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const pdfResult = await client.generateDocument(createRequest("pdf"), { apiKey: "secret" });
+    assert.equal(pdfResult.provider, "gamma");
+    assert.equal(pdfResult.outputFormat, "pdf");
+    const pdfCreateCall = pdfCalls.find((entry) => entry.url.endsWith("/v1.0/generations"));
+    assert.ok(pdfCreateCall, "expected Gamma create-generation call for PDF");
+    assert.equal((pdfCreateCall.body as { exportAs?: string }).exportAs, "pdf");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -189,11 +238,98 @@ export async function runGammaProviderClientTest(): Promise<void> {
         const response = error.getResponse() as {
           error?: { code?: string; providerStatus?: { status?: string } };
         };
-        assert.equal(response.error?.code, "gamma_empty_pptx_payload");
+        assert.equal(response.error?.code, "gamma_empty_export_payload");
         assert.equal(response.error?.providerStatus?.status, "export_empty");
         return true;
       }
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  try {
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/v1.0/generations")) {
+        return new Response(JSON.stringify({ generationId: "gen-unsafe-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (url.endsWith("/v1.0/generations/gen-unsafe-1")) {
+        return new Response(
+          JSON.stringify({
+            generationId: "gen-unsafe-1",
+            status: "completed",
+            gammaId: "gamma-unsafe-1",
+            gammaUrl: "https://gamma.app/docs/gamma-unsafe-1",
+            exportUrl: "https://example.com/gamma-unsafe-1.pptx"
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => client.generateDocument(createRequest(), { apiKey: "secret" }),
+      (error: unknown) => {
+        assert.ok(error instanceof ServiceUnavailableException);
+        const response = error.getResponse() as {
+          error?: { code?: string; providerStatus?: { status?: string } };
+        };
+        assert.equal(response.error?.code, "gamma_export_unavailable");
+        assert.equal(response.error?.providerStatus?.status, "completed_missing_export");
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  try {
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/v1.0/generations")) {
+        return new Response(JSON.stringify({ generationId: "gen-no-gamma-url-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (url.endsWith("/v1.0/generations/gen-no-gamma-url-1")) {
+        return new Response(
+          JSON.stringify({
+            generationId: "gen-no-gamma-url-1",
+            status: "completed",
+            gammaId: "gamma-no-gamma-url-1",
+            exportUrl: "https://gamma.app/export/gamma-no-gamma-url-1.pptx"
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      if (url === "https://gamma.app/export/gamma-no-gamma-url-1.pptx") {
+        return new Response(Buffer.from("pptx-binary"), {
+          status: 200,
+          headers: {
+            "Content-Type":
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          }
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const result = await client.generateDocument(createRequest(), { apiKey: "secret" });
+    assert.equal(result.provider, "gamma");
+    assert.equal(result.providerStatus.gammaUrl, null);
   } finally {
     globalThis.fetch = originalFetch;
   }
