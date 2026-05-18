@@ -65,6 +65,10 @@ async function run(): Promise<void> {
     () => scopedRoleService.assertCanWriteGlobalKnowledge("user-1"),
     ForbiddenException
   );
+  await assert.rejects(
+    () => scopedRoleService.assertCanManagePlatformSitePages("user-1"),
+    ForbiddenException
+  );
 
   const globalKnowledgeWriter = createService({
     memberships: [
@@ -80,6 +84,10 @@ async function run(): Promise<void> {
     await globalKnowledgeWriter.assertCanWriteGlobalKnowledge("user-1");
   assert.equal(globalKnowledgeWriteContext.hasGlobalPlatformAdminScope, true);
   assert.equal(globalKnowledgeWriteContext.roles.includes("business_admin"), true);
+  const globalSitePagesContext =
+    await globalKnowledgeWriter.assertCanManagePlatformSitePages("user-1");
+  assert.equal(globalSitePagesContext.hasGlobalPlatformAdminScope, true);
+  assert.equal(globalSitePagesContext.roles.includes("business_admin"), true);
 
   const issuer = createService({
     memberships: [

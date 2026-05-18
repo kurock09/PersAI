@@ -5,7 +5,10 @@ import { PrismaService } from "../identity-access/infrastructure/persistence/pri
 import { AppBootstrapController } from "./interface/http/app-bootstrap.controller";
 import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
+import { AdminSitePagesController } from "./interface/http/admin-site-pages.controller";
 import { PublicPricingPlansController } from "./interface/http/public-pricing-plans.controller";
+import { PublicSitePagesController } from "./interface/http/public-site-pages.controller";
+import { PublicGeoHintController } from "./interface/http/public-geo-hint.controller";
 import { AdminBillingLifecycleSettingsController } from "./interface/http/admin-billing-lifecycle-settings.controller";
 import { AdminSecurityController } from "./interface/http/admin-security.controller";
 import { AdminAbuseControlsController } from "./interface/http/admin-abuse-controls.controller";
@@ -177,6 +180,7 @@ import { FindCrossSessionCarryOverService } from "./application/find-cross-sessi
 import { MarkCrossSessionCarryOverFiredService } from "./application/mark-cross-session-carry-over-fired.service";
 import { MaterializeAssistantPublishedVersionService } from "./application/materialize-assistant-published-version.service";
 import { ManageAdminPlansService } from "./application/manage-admin-plans.service";
+import { ManageSitePagesService } from "./application/manage-site-pages.service";
 import { ManageWebChatListService } from "./application/manage-web-chat-list.service";
 import { CompactNativeWebChatSessionService } from "./application/compact-native-web-chat-session.service";
 import { ResolveNativeWebChatSessionStateService } from "./application/resolve-native-web-chat-session-state.service";
@@ -323,7 +327,10 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AssistantBillingController,
     AssistantKnowledgeSourcesController,
     AdminPlansController,
+    AdminSitePagesController,
     PublicPricingPlansController,
+    PublicSitePagesController,
+    PublicGeoHintController,
     AdminBillingLifecycleSettingsController,
     AdminSecurityController,
     AdminAbuseControlsController,
@@ -377,6 +384,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     },
     AppendAssistantAuditEventService,
     AdminAuthorizationService,
+    ManageSitePagesService,
     ResolveAdminOpsCockpitService,
     AdminOpsUserDirectoryService,
     AdminDeleteUserService,

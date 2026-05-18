@@ -605,6 +605,24 @@ model AppUser {
   @@map("app_users")
 }
 
+model PlatformSitePage {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug         String    @db.VarChar(32)
+  market       String    @db.VarChar(16)
+  locale       String    @db.VarChar(8)
+  status       String    @db.VarChar(16)
+  title        String    @db.Text
+  bodyMarkdown String    @map("body_markdown") @db.Text
+  version      String?   @db.VarChar(64)
+  publishedAt  DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([slug, market, locale, status])
+  @@index([slug, market, locale])
+  @@map("platform_site_pages")
+}
+
 model Workspace {
   id                                String                              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                              String

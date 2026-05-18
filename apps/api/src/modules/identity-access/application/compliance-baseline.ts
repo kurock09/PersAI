@@ -1,5 +1,17 @@
-export const MVP_TERMS_OF_SERVICE_VERSION = "persai_tos_mvp_v1";
-export const MVP_PRIVACY_POLICY_VERSION = "persai_privacy_mvp_v1";
+import { resolveLegalDocumentVersion, type LegalMarket } from "@persai/types";
+
+export const MVP_TERMS_OF_SERVICE_VERSION = resolveLegalDocumentVersion("intl", "terms");
+export const MVP_PRIVACY_POLICY_VERSION = resolveLegalDocumentVersion("intl", "privacy");
+
+export function resolveMarketComplianceVersions(market: LegalMarket): {
+  termsOfServiceVersion: string;
+  privacyPolicyVersion: string;
+} {
+  return {
+    termsOfServiceVersion: resolveLegalDocumentVersion(market, "terms"),
+    privacyPolicyVersion: resolveLegalDocumentVersion(market, "privacy")
+  };
+}
 
 export type ComplianceRetentionDeleteBaseline = {
   retentionModel: "user_controlled_no_silent_ttl";

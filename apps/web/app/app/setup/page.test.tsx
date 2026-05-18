@@ -207,7 +207,10 @@ function makeMeResponse() {
         email: "user@example.com",
         displayName: "Alex",
         birthday: "1990-05-20T00:00:00.000Z",
-        gender: "male"
+        gender: "male",
+        countryCode: "DE",
+        preferredLocale: "en",
+        resolvedLocale: "en"
       },
       onboarding: {
         isComplete: true,
@@ -495,7 +498,12 @@ describe("SetupWizardPage", () => {
     await waitFor(() => {
       expect(assistantApiMocks.postAssistantSetupPreview).toHaveBeenCalledTimes(1);
     });
-    expect(meApiMocks.postOnboarding).toHaveBeenCalledWith(expect.any(String), expect.any(Object));
+    expect(meApiMocks.postOnboarding).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        countryCode: "DE"
+      })
+    );
     expect(assistantApiMocks.postAssistantCreate).toHaveBeenCalledWith(expect.any(String));
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledWith(
       expect.any(String),

@@ -7,3 +7,9 @@ export {
   type SupportedLocale,
   type ResolvePreferredLocaleInput
 } from "./locale";
+export {
+  resolveLegalDocumentVersion,
+  resolveLegalMarket,
+  type LegalDocumentKind,
+  type LegalMarket
+} from "./legal-market";

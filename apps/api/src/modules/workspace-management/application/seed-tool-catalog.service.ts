@@ -9,6 +9,7 @@ import {
 } from "../../../../prisma/tool-catalog-data";
 import { upsertToolCatalogEntry } from "../../../../prisma/tool-catalog-sync";
 import { PROMPT_TEMPLATE_DEFAULTS } from "../../../../prisma/bootstrap-preset-data";
+import { SITE_PAGE_SEEDS } from "../../../../prisma/site-page-seed-data";
 
 const DEFAULT_PLAN_CODE = "starter_trial";
 
@@ -25,6 +26,7 @@ export class SeedToolCatalogService implements OnModuleInit {
       await this.syncNonPlanManagedToolPolicyAcrossPlans();
       await this.backfillNullPlanGovernances();
       await this.syncPromptTemplates();
+      await this.syncPlatformSitePages();
     } catch (err) {
       this.logger.warn(
         `Platform data auto-seed failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`
@@ -45,6 +47,35 @@ export class SeedToolCatalogService implements OnModuleInit {
       upserted++;
     }
     this.logger.log(`Tool catalog synced: ${upserted} entries`);
+  }
+
+  private async syncPlatformSitePages(): Promise<void> {
+    let inserted = 0;
+    for (const page of SITE_PAGE_SEEDS) {
+      await this.prisma.platformSitePage.upsert({
+        where: {
+          slug_market_locale_status: {
+            slug: page.slug,
+            market: page.market,
+            locale: page.locale,
+            status: page.status
+          }
+        },
+        update: {},
+        create: {
+          slug: page.slug,
+          market: page.market,
+          locale: page.locale,
+          status: page.status,
+          title: page.title,
+          bodyMarkdown: page.bodyMarkdown,
+          version: page.version,
+          publishedAt: page.status === "published" ? new Date() : null
+        }
+      });
+      inserted++;
+    }
+    this.logger.log(`Platform site pages synced: ${inserted} seeded variants`);
   }
 
   private async ensureDefaultPlan(): Promise<void> {

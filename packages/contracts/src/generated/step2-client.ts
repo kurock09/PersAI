@@ -62,6 +62,7 @@ import type {
   GetAdminPlatformRolloutsResponse,
   GetAdminPromptTemplatesResponse,
   GetAdminRuntimeProviderSettingsResponse,
+  GetAdminSitePagesResponse,
   GetAdminSkillResponse,
   GetAdminSkillsParams,
   GetAdminSkillsResponse,
@@ -94,7 +95,10 @@ import type {
   GetNotificationQuietHoursResponse,
   GetNotificationTemplatesResponse,
   GetProductKnowledgeTextEntriesResponse,
+  GetPublicGeoHintResponse,
   GetPublicPricingPlansResponse,
+  GetPublicSitePageParams,
+  GetPublicSitePageResponse,
   GlobalKnowledgeSourceScope,
   ListNotificationDeadLettersParams,
   ListNotificationDeliveriesParams,
@@ -121,6 +125,8 @@ import type {
   PostAdminPlanResponse,
   PostAdminPlatformRolloutCancelPendingResponse,
   PostAdminPlatformRolloutRetryFailedResponse,
+  PostAdminSitePagePublishRequest,
+  PostAdminSitePagePublishResponse,
   PostAdminSkillAuthoringDraftResponse,
   PostAdminSkillDocumentReindexResponse,
   PostAdminSkillDocumentUploadBody,
@@ -146,10 +152,13 @@ import type {
   PostCloudpaymentsWebhookBody,
   PostProductKnowledgeTextEntryResponse,
   ProductKnowledgeTextEntryInput,
+  PublicSitePageSlug,
   PutAdminBillingLifecycleSettingsResponse,
   PutAdminBillingProviderCredentialsResponse,
   PutAdminDocumentProcessingSettingsResponse,
   PutAdminRuntimeProviderSettingsResponse,
+  PutAdminSitePageRequest,
+  PutAdminSitePageResponse,
   PutAssistantSkillAssignmentsRequest,
   ReplayNotificationDeadLetter200,
   SkillAuthoringDraftRequest,
@@ -216,11 +225,6 @@ export type postAssistantCreateResponse200 = {
   status: 200;
 };
 
-export type postAssistantCreateResponse400 = {
-  data: ErrorEnvelope;
-  status: 400;
-};
-
 export type postAssistantCreateResponse401 = {
   data: ErrorEnvelope;
   status: 401;
@@ -240,7 +244,6 @@ export type postAssistantCreateResponseSuccess = postAssistantCreateResponse200 
   headers: Headers;
 };
 export type postAssistantCreateResponseError = (
-  | postAssistantCreateResponse400
   | postAssistantCreateResponse401
   | postAssistantCreateResponse409
   | postAssistantCreateResponse500
@@ -324,11 +327,6 @@ export type patchAssistantDraftResponse200 = {
   status: 200;
 };
 
-export type patchAssistantDraftResponse400 = {
-  data: ErrorEnvelope;
-  status: 400;
-};
-
 export type patchAssistantDraftResponse401 = {
   data: ErrorEnvelope;
   status: 401;
@@ -348,7 +346,6 @@ export type patchAssistantDraftResponseSuccess = patchAssistantDraftResponse200 
   headers: Headers;
 };
 export type patchAssistantDraftResponseError = (
-  | patchAssistantDraftResponse400
   | patchAssistantDraftResponse401
   | patchAssistantDraftResponse404
   | patchAssistantDraftResponse500
@@ -7055,6 +7052,185 @@ export const patchAdminPromptTemplate = async (
 };
 
 /**
+ * @summary List admin-managed public site pages
+ */
+export type getAdminSitePagesResponse200 = {
+  data: GetAdminSitePagesResponse;
+  status: 200;
+};
+
+export type getAdminSitePagesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminSitePagesResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminSitePagesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminSitePagesResponseSuccess = getAdminSitePagesResponse200 & {
+  headers: Headers;
+};
+export type getAdminSitePagesResponseError = (
+  | getAdminSitePagesResponse401
+  | getAdminSitePagesResponse403
+  | getAdminSitePagesResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminSitePagesResponse =
+  | getAdminSitePagesResponseSuccess
+  | getAdminSitePagesResponseError;
+
+export const getGetAdminSitePagesUrl = () => {
+  return `/admin/site-pages`;
+};
+
+export const getAdminSitePages = async (
+  options?: RequestInit
+): Promise<getAdminSitePagesResponse> => {
+  return customFetch<getAdminSitePagesResponse>(getGetAdminSitePagesUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Save or update one admin-managed site-page draft
+ */
+export type putAdminSitePageResponse200 = {
+  data: PutAdminSitePageResponse;
+  status: 200;
+};
+
+export type putAdminSitePageResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAdminSitePageResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type putAdminSitePageResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type putAdminSitePageResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type putAdminSitePageResponseSuccess = putAdminSitePageResponse200 & {
+  headers: Headers;
+};
+export type putAdminSitePageResponseError = (
+  | putAdminSitePageResponse400
+  | putAdminSitePageResponse401
+  | putAdminSitePageResponse403
+  | putAdminSitePageResponse500
+) & {
+  headers: Headers;
+};
+
+export type putAdminSitePageResponse =
+  | putAdminSitePageResponseSuccess
+  | putAdminSitePageResponseError;
+
+export const getPutAdminSitePageUrl = (slug: PublicSitePageSlug) => {
+  return `/admin/site-pages/${slug}`;
+};
+
+export const putAdminSitePage = async (
+  slug: PublicSitePageSlug,
+  putAdminSitePageRequest: PutAdminSitePageRequest,
+  options?: RequestInit
+): Promise<putAdminSitePageResponse> => {
+  return customFetch<putAdminSitePageResponse>(getPutAdminSitePageUrl(slug), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(putAdminSitePageRequest)
+  });
+};
+
+/**
+ * @summary Publish one admin-managed site page for a market and locale
+ */
+export type postAdminSitePagePublishResponse200 = {
+  data: PostAdminSitePagePublishResponse;
+  status: 200;
+};
+
+export type postAdminSitePagePublishResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminSitePagePublishResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminSitePagePublishResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminSitePagePublishResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminSitePagePublishResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminSitePagePublishResponseSuccess = postAdminSitePagePublishResponse200 & {
+  headers: Headers;
+};
+export type postAdminSitePagePublishResponseError = (
+  | postAdminSitePagePublishResponse400
+  | postAdminSitePagePublishResponse401
+  | postAdminSitePagePublishResponse403
+  | postAdminSitePagePublishResponse404
+  | postAdminSitePagePublishResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminSitePagePublishResponse =
+  | postAdminSitePagePublishResponseSuccess
+  | postAdminSitePagePublishResponseError;
+
+export const getPostAdminSitePagePublishUrl = (slug: PublicSitePageSlug) => {
+  return `/admin/site-pages/${slug}/publish`;
+};
+
+export const postAdminSitePagePublish = async (
+  slug: PublicSitePageSlug,
+  postAdminSitePagePublishRequest: PostAdminSitePagePublishRequest,
+  options?: RequestInit
+): Promise<postAdminSitePagePublishResponse> => {
+  return customFetch<postAdminSitePagePublishResponse>(getPostAdminSitePagePublishUrl(slug), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(postAdminSitePagePublishRequest)
+  });
+};
+
+/**
  * @summary List model-facing tool descriptions and usage guidance
  */
 export type getAdminToolPromptMetadataResponse200 = {
@@ -7427,6 +7603,105 @@ export const getPublicPricingPlans = async (
   options?: RequestInit
 ): Promise<getPublicPricingPlansResponse> => {
   return customFetch<getPublicPricingPlansResponse>(getGetPublicPricingPlansUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Resolve guest geo defaults for country-based onboarding and legal pages
+ */
+export type getPublicGeoHintResponse200 = {
+  data: GetPublicGeoHintResponse;
+  status: 200;
+};
+
+export type getPublicGeoHintResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getPublicGeoHintResponseSuccess = getPublicGeoHintResponse200 & {
+  headers: Headers;
+};
+export type getPublicGeoHintResponseError = getPublicGeoHintResponse500 & {
+  headers: Headers;
+};
+
+export type getPublicGeoHintResponse =
+  | getPublicGeoHintResponseSuccess
+  | getPublicGeoHintResponseError;
+
+export const getGetPublicGeoHintUrl = () => {
+  return `/public/geo-hint`;
+};
+
+export const getPublicGeoHint = async (
+  options?: RequestInit
+): Promise<getPublicGeoHintResponse> => {
+  return customFetch<getPublicGeoHintResponse>(getGetPublicGeoHintUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Read the published public site page for a market and locale
+ */
+export type getPublicSitePageResponse200 = {
+  data: GetPublicSitePageResponse;
+  status: 200;
+};
+
+export type getPublicSitePageResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getPublicSitePageResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getPublicSitePageResponseSuccess = getPublicSitePageResponse200 & {
+  headers: Headers;
+};
+export type getPublicSitePageResponseError = (
+  | getPublicSitePageResponse404
+  | getPublicSitePageResponse500
+) & {
+  headers: Headers;
+};
+
+export type getPublicSitePageResponse =
+  | getPublicSitePageResponseSuccess
+  | getPublicSitePageResponseError;
+
+export const getGetPublicSitePageUrl = (
+  slug: PublicSitePageSlug,
+  params?: GetPublicSitePageParams
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/public/site-pages/${slug}?${stringifiedParams}`
+    : `/public/site-pages/${slug}`;
+};
+
+export const getPublicSitePage = async (
+  slug: PublicSitePageSlug,
+  params?: GetPublicSitePageParams,
+  options?: RequestInit
+): Promise<getPublicSitePageResponse> => {
+  return customFetch<getPublicSitePageResponse>(getGetPublicSitePageUrl(slug, params), {
     ...options,
     method: "GET"
   });

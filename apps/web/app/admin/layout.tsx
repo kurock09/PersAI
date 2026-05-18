@@ -31,6 +31,7 @@ const NAV_ITEMS = [
   { href: "/admin/runtime", label: "Runtime", icon: Server },
   { href: "/admin/tools", label: "Tools", icon: Wrench },
   { href: "/admin/presets", label: "Prompt Constructor", icon: FileText },
+  { href: "/admin/site-pages", label: "Site Pages", icon: FileText },
   { href: "/admin/knowledge", label: "Knowledge", icon: Library },
   { href: "/admin/skills", label: "Skills", icon: GraduationCap },
   { href: "/admin/plans", label: "Plans", icon: CreditCard },

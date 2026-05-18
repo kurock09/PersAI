@@ -4,6 +4,7 @@ import { GetCurrentUserStateService } from "./application/get-current-user-state
 import { ResolveAppUserService } from "./application/resolve-app-user.service";
 import { UpsertOnboardingService } from "./application/upsert-onboarding.service";
 import { UpdateUserPreferencesService } from "./application/update-user-preferences.service";
+import { ResolveComplianceBaselineService } from "./application/resolve-compliance-baseline.service";
 import { ClerkAuthService } from "./infrastructure/identity/clerk-auth.service";
 import { PrismaService } from "./infrastructure/persistence/prisma.service";
 import { ClerkAuthMiddleware } from "./interface/http/clerk-auth.middleware";
@@ -16,6 +17,7 @@ import { MeController } from "./interface/http/me.controller";
   providers: [
     ClerkAuthService,
     ResolveAppUserService,
+    ResolveComplianceBaselineService,
     GetCurrentUserStateService,
     UpsertOnboardingService,
     UpdateUserPreferencesService,
@@ -161,6 +163,9 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/assistants/ownership/transfer", method: RequestMethod.POST },
       { path: "api/v1/admin/assistants/ownership/recover", method: RequestMethod.POST },
       { path: "api/v1/admin/plans", method: RequestMethod.GET },
+      { path: "api/v1/admin/site-pages", method: RequestMethod.GET },
+      { path: "api/v1/admin/site-pages/:slug", method: RequestMethod.PUT },
+      { path: "api/v1/admin/site-pages/:slug/publish", method: RequestMethod.POST },
       { path: "api/v1/admin/plans/visibility", method: RequestMethod.GET },
       { path: "api/v1/admin/plans/packages", method: RequestMethod.GET },
       { path: "api/v1/admin/plans/packages", method: RequestMethod.POST },

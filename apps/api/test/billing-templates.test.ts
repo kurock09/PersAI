@@ -111,6 +111,10 @@ async function run(): Promise<void> {
     });
     assertDeterministic(renderTrialEnding, f, "en");
     assert.ok(r.html.includes("<!DOCTYPE html>"), "html starts with DOCTYPE");
+    assert.ok(
+      r.plainText.includes("https://persai.dev/terms?market=intl&locale=en"),
+      "plainText includes market-aware EN terms link"
+    );
     console.log("✓ trial-ending en: subject, html, plainText valid + deterministic");
   }
 
@@ -124,6 +128,10 @@ async function run(): Promise<void> {
       textContains: ["Pro", "Пробный"]
     });
     assertDeterministic(renderTrialEnding, f, "ru");
+    assert.ok(
+      r.plainText.includes("https://persai.dev/terms?market=rf&locale=ru"),
+      "plainText includes market-aware RU terms link"
+    );
     console.log("✓ trial-ending ru: deterministic + Russian content");
   }
 

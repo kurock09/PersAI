@@ -3,12 +3,9 @@ import { WorkspaceStatus } from "@prisma/client";
 import { PrismaService } from "../infrastructure/persistence/prisma.service";
 import { CurrentUserState, CurrentWorkspaceSummary } from "./current-user-state.types";
 import { ResolvedAppUser } from "./resolved-auth-user.types";
-import {
-  buildComplianceRetentionDeleteBaseline,
-  MVP_PRIVACY_POLICY_VERSION,
-  MVP_TERMS_OF_SERVICE_VERSION
-} from "./compliance-baseline";
+import { buildComplianceRetentionDeleteBaseline } from "./compliance-baseline";
 import { resolvePreferredLocale } from "./locale-resolution";
+import { ResolveComplianceBaselineService } from "./resolve-compliance-baseline.service";
 
 function toWorkspaceSummary(workspaceMember: {
   role: "owner" | "member";
@@ -32,7 +29,10 @@ function toWorkspaceSummary(workspaceMember: {
 
 @Injectable()
 export class GetCurrentUserStateService {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(
+    private readonly prismaService: PrismaService,
+    private readonly resolveComplianceBaselineService: ResolveComplianceBaselineService
+  ) {}
 
   async getCurrentUserState(resolvedAppUser: ResolvedAppUser): Promise<CurrentUserState> {
     const appUser = await this.prismaService.appUser.findUnique({
@@ -64,21 +64,31 @@ export class GetCurrentUserStateService {
     const workspaceSummary = fallbackWorkspaceLink
       ? toWorkspaceSummary(fallbackWorkspaceLink)
       : null;
+    const complianceBaseline = await this.resolveComplianceBaselineService.resolve(
+      appUser.countryCode
+    );
     const termsAccepted =
       appUser.termsOfServiceAcceptedAt !== null &&
-      appUser.termsOfServiceVersion === MVP_TERMS_OF_SERVICE_VERSION;
+      appUser.termsOfServiceVersion === complianceBaseline.termsOfServiceVersion;
     const privacyAccepted =
       appUser.privacyPolicyAcceptedAt !== null &&
-      appUser.privacyPolicyVersion === MVP_PRIVACY_POLICY_VERSION;
+      appUser.privacyPolicyVersion === complianceBaseline.privacyPolicyVersion;
     const onboardingComplete = workspaceSummary !== null && termsAccepted && privacyAccepted;
     const resolvedLocale = resolvePreferredLocale({
-      preferredLocale: resolvedAppUser.preferredLocale,
+      preferredLocale: appUser.preferredLocale,
       workspaceLocale: workspaceSummary?.locale ?? null
     });
 
     return {
       appUser: {
-        ...resolvedAppUser,
+        id: appUser.id,
+        clerkUserId: appUser.clerkUserId,
+        email: appUser.email,
+        displayName: appUser.displayName,
+        birthday: appUser.birthday ? appUser.birthday.toISOString().split("T")[0]! : null,
+        gender: appUser.gender,
+        preferredLocale: appUser.preferredLocale,
+        countryCode: appUser.countryCode,
         resolvedLocale
       },
       onboarding: {
@@ -87,13 +97,13 @@ export class GetCurrentUserStateService {
       },
       compliance: {
         termsOfService: {
-          requiredVersion: MVP_TERMS_OF_SERVICE_VERSION,
+          requiredVersion: complianceBaseline.termsOfServiceVersion,
           acceptedVersion: appUser.termsOfServiceVersion,
           acceptedAt: appUser.termsOfServiceAcceptedAt?.toISOString() ?? null,
           accepted: termsAccepted
         },
         privacyPolicy: {
-          requiredVersion: MVP_PRIVACY_POLICY_VERSION,
+          requiredVersion: complianceBaseline.privacyPolicyVersion,
           acceptedVersion: appUser.privacyPolicyVersion,
           acceptedAt: appUser.privacyPolicyAcceptedAt?.toISOString() ?? null,
           accepted: privacyAccepted

@@ -176,6 +176,9 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
       path: "api/v1/admin/skills/:skillId/documents/:documentId/reindex",
       method: RequestMethod.POST
     },
+    { path: "api/v1/admin/site-pages", method: RequestMethod.GET },
+    { path: "api/v1/admin/site-pages/:slug", method: RequestMethod.PUT },
+    { path: "api/v1/admin/site-pages/:slug/publish", method: RequestMethod.POST },
     { path: "api/v1/admin/tools/document-processing", method: RequestMethod.GET },
     { path: "api/v1/admin/tools/document-processing", method: RequestMethod.PUT },
     {

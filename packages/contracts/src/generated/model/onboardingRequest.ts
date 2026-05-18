@@ -15,6 +15,12 @@ export interface OnboardingRequest {
   birthday?: string | null;
   /** @nullable */
   gender?: OnboardingRequestGender;
+  /**
+   * @minLength 2
+   * @maxLength 2
+   * @nullable
+   */
+  countryCode?: string | null;
   acceptTermsOfService: boolean;
   acceptPrivacyPolicy: boolean;
   /**

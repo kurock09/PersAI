@@ -48,12 +48,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetAssistantResponse"
-        "400":
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
         "401":
           description: Unauthorized
           content:
@@ -122,12 +116,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetAssistantResponse"
-        "400":
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
         "401":
           description: Unauthorized
           content:
@@ -4825,6 +4813,141 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/site-pages:
+    get:
+      operationId: getAdminSitePages
+      summary: List admin-managed public site pages
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Site pages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminSitePagesResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/site-pages/{slug}:
+    put:
+      operationId: putAdminSitePage
+      summary: Save or update one admin-managed site-page draft
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            $ref: "#/components/schemas/PublicSitePageSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutAdminSitePageRequest"
+      responses:
+        "200":
+          description: Updated site page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PutAdminSitePageResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/site-pages/{slug}/publish:
+    post:
+      operationId: postAdminSitePagePublish
+      summary: Publish one admin-managed site page for a market and locale
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            $ref: "#/components/schemas/PublicSitePageSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAdminSitePagePublishRequest"
+      responses:
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "200":
+          description: Published site page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminSitePagePublishResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Site page not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/tools/metadata:
     get:
       operationId: getAdminToolPromptMetadata
@@ -5077,6 +5200,62 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetPublicPricingPlansResponse"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /public/geo-hint:
+    get:
+      operationId: getPublicGeoHint
+      summary: Resolve guest geo defaults for country-based onboarding and legal pages
+      responses:
+        "200":
+          description: Public geo hint
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPublicGeoHintResponse"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /public/site-pages/{slug}:
+    get:
+      operationId: getPublicSitePage
+      summary: Read the published public site page for a market and locale
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            $ref: "#/components/schemas/PublicSitePageSlug"
+        - in: query
+          name: market
+          required: false
+          schema:
+            $ref: "#/components/schemas/SitePageMarket"
+        - in: query
+          name: locale
+          required: false
+          schema:
+            $ref: "#/components/schemas/SitePageLocale"
+      responses:
+        "200":
+          description: Published site page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPublicSitePageResponse"
+        "404":
+          description: Site page not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           description: Internal error
           content:
@@ -5368,6 +5547,11 @@ components:
             - female
             - other
           nullable: true
+        countryCode:
+          type: string
+          minLength: 2
+          maxLength: 2
+          nullable: true
         acceptTermsOfService:
           type: boolean
           enum: [true]
@@ -5465,6 +5649,191 @@ components:
           enum:
             - completed
             - pending
+    PublicSitePageSlug:
+      type: string
+      enum:
+        - terms
+        - privacy
+        - requisites
+        - contacts
+    SitePageMarket:
+      type: string
+      enum:
+        - rf
+        - intl
+    SitePageLocale:
+      type: string
+      enum:
+        - ru
+        - en
+    SitePageStatus:
+      type: string
+      enum:
+        - draft
+        - published
+    SitePageVariantState:
+      type: object
+      required:
+        - market
+        - locale
+      properties:
+        market:
+          $ref: "#/components/schemas/SitePageMarket"
+        locale:
+          $ref: "#/components/schemas/SitePageLocale"
+    PublicGeoHintState:
+      type: object
+      required:
+        - suggestedCountryCode
+      properties:
+        suggestedCountryCode:
+          type: string
+          minLength: 2
+          maxLength: 2
+          nullable: true
+    GetPublicGeoHintResponse:
+      type: object
+      required:
+        - requestId
+        - hint
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        hint:
+          $ref: "#/components/schemas/PublicGeoHintState"
+    PublicSitePageState:
+      type: object
+      required:
+        - slug
+        - market
+        - locale
+        - title
+        - bodyMarkdown
+        - status
+        - version
+        - publishedAt
+        - updatedAt
+        - availableVariants
+      properties:
+        slug:
+          $ref: "#/components/schemas/PublicSitePageSlug"
+        market:
+          $ref: "#/components/schemas/SitePageMarket"
+        locale:
+          $ref: "#/components/schemas/SitePageLocale"
+        title:
+          type: string
+        bodyMarkdown:
+          type: string
+        status:
+          $ref: "#/components/schemas/SitePageStatus"
+        version:
+          type: string
+          nullable: true
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+        availableVariants:
+          type: array
+          items:
+            $ref: "#/components/schemas/SitePageVariantState"
+    GetPublicSitePageResponse:
+      type: object
+      required:
+        - requestId
+        - page
+        - resolvedMarket
+        - resolvedLocale
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        page:
+          $ref: "#/components/schemas/PublicSitePageState"
+        resolvedMarket:
+          $ref: "#/components/schemas/SitePageMarket"
+        resolvedLocale:
+          $ref: "#/components/schemas/SitePageLocale"
+    AdminSitePageState:
+      allOf:
+        - $ref: "#/components/schemas/PublicSitePageState"
+        - type: object
+          required:
+            - createdAt
+          properties:
+            createdAt:
+              type: string
+              format: date-time
+    GetAdminSitePagesResponse:
+      type: object
+      required:
+        - requestId
+        - pages
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminSitePageState"
+    PutAdminSitePageRequest:
+      type: object
+      required:
+        - market
+        - locale
+        - title
+        - bodyMarkdown
+      properties:
+        market:
+          $ref: "#/components/schemas/SitePageMarket"
+        locale:
+          $ref: "#/components/schemas/SitePageLocale"
+        title:
+          type: string
+        bodyMarkdown:
+          type: string
+        version:
+          type: string
+          maxLength: 64
+          nullable: true
+    PutAdminSitePageResponse:
+      type: object
+      required:
+        - requestId
+        - page
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        page:
+          $ref: "#/components/schemas/AdminSitePageState"
+    PostAdminSitePagePublishRequest:
+      type: object
+      required:
+        - market
+        - locale
+      properties:
+        market:
+          $ref: "#/components/schemas/SitePageMarket"
+        locale:
+          $ref: "#/components/schemas/SitePageLocale"
+    PostAdminSitePagePublishResponse:
+      type: object
+      required:
+        - requestId
+        - page
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        page:
+          $ref: "#/components/schemas/AdminSitePageState"
     ComplianceLegalAcceptanceState:
       type: object
       required:

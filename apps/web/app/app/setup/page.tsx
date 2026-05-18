@@ -62,6 +62,7 @@ import {
   findAssistantAvatarPresetByUrl
 } from "../_components/assistant-avatar-presets";
 import { useHistoryBackToClose } from "../_components/use-history-back-to-close";
+import { getCountryOptions } from "./country-options";
 
 type Gender = "male" | "female" | "other" | null;
 type SetupMode = "create" | "recover" | "recreate";
@@ -77,6 +78,22 @@ function detectTimezone(): string {
     return Intl.DateTimeFormat().resolvedOptions().timeZone;
   } catch {
     return "UTC";
+  }
+}
+
+async function fetchGeoHint(): Promise<string | null> {
+  try {
+    const response = await fetch("/api/v1/public/geo-hint", { cache: "no-store" });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = (await response.json()) as {
+      hint?: { suggestedCountryCode?: string | null };
+    };
+    const value = payload.hint?.suggestedCountryCode;
+    return typeof value === "string" && /^[A-Z]{2}$/.test(value) ? value : null;
+  } catch {
+    return null;
   }
 }
 
@@ -219,6 +236,7 @@ export default function SetupWizardPage() {
   const [userName, setUserName] = useState("");
   const [birthday, setBirthday] = useState("");
   const [gender, setGender] = useState<Gender>(null);
+  const [countryCode, setCountryCode] = useState<string>("");
   const [timezone, setTimezone] = useState("");
 
   // Step 1 — assistant identity
@@ -342,12 +360,31 @@ export default function SetupWizardPage() {
         if (u.displayName) setUserName(u.displayName);
         if (u.birthday) setBirthday(normalizeBirthdayForDateInput(u.birthday));
         if (u.gender) setGender(u.gender as Gender);
+        if (u.countryCode) {
+          setCountryCode(u.countryCode);
+        } else {
+          const suggestedCountryCode = await fetchGeoHint();
+          if (suggestedCountryCode) {
+            setCountryCode(suggestedCountryCode);
+          }
+        }
         if (me.me.workspace?.timezone) setTimezone(me.me.workspace.timezone);
       } catch {
         // Pre-fill is best-effort; ignore errors.
       }
     })();
   }, [getToken, router, setupMode]);
+
+  useEffect(() => {
+    if (!countryCode) {
+      return;
+    }
+    try {
+      document.cookie = `persai-country=${encodeURIComponent(countryCode)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    } catch {
+      // jsdom test environment may not provide a full cookie URL context.
+    }
+  }, [countryCode]);
 
   useEffect(() => {
     if (setupMode === "recover") {
@@ -404,7 +441,14 @@ export default function SetupWizardPage() {
   }, [customAvatarPreviewUrl]);
 
   const canProceed = useMemo(() => {
-    if (step === 0) return userName.trim().length >= 2 && gender !== null && timezone.length > 0;
+    if (step === 0) {
+      return (
+        userName.trim().length >= 2 &&
+        gender !== null &&
+        countryCode.length === 2 &&
+        timezone.length > 0
+      );
+    }
     if (step === 1)
       return (
         assistantName.trim().length >= 2 &&
@@ -415,6 +459,7 @@ export default function SetupWizardPage() {
     step,
     userName,
     gender,
+    countryCode,
     timezone,
     assistantName,
     selectedAvatarPresetId,
@@ -503,10 +548,11 @@ export default function SetupWizardPage() {
       timezone: timezone || "UTC",
       birthday: birthday || null,
       gender: gender ?? null,
+      countryCode: countryCode || null,
       acceptTermsOfService: true,
       acceptPrivacyPolicy: true
     }),
-    [birthday, gender, locale, timezone, userName]
+    [birthday, countryCode, gender, locale, timezone, userName]
   );
 
   const persistDraftForPreview = useCallback(async () => {
@@ -796,6 +842,15 @@ export default function SetupWizardPage() {
                         </button>
                       ))}
                     </div>
+                  </div>
+
+                  {/* Country */}
+                  <div>
+                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
+                      <Globe className="h-3.5 w-3.5" />
+                      {t("country")}
+                    </label>
+                    <CountrySelect locale={locale} value={countryCode} onChange={setCountryCode} />
                   </div>
 
                   {/* Timezone */}
@@ -1339,6 +1394,117 @@ function StepContainer({ children, className }: { children: React.ReactNode; cla
 /* ------------------------------------------------------------------ */
 /*  Custom timezone dropdown (dark, no page scroll)                    */
 /* ------------------------------------------------------------------ */
+
+function CountrySelect({
+  locale,
+  value,
+  onChange
+}: {
+  locale: string;
+  value: string;
+  onChange: (countryCode: string) => void;
+}) {
+  const t = useTranslations("setup");
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const options = useMemo(() => getCountryOptions(locale), [locale]);
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) {
+      return options;
+    }
+    return options.filter(
+      (option) =>
+        option.code.toLowerCase().includes(query) || option.label.toLowerCase().includes(query)
+    );
+  }, [options, search]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      setSearch("");
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [open]);
+
+  const selected = options.find((option) => option.code === value) ?? null;
+  const display = selected ? `${selected.label} (${selected.code})` : t("selectCountry");
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-2 rounded-xl border bg-surface-raised px-4 py-3 text-left transition-colors",
+          open ? "border-accent" : "border-border hover:border-border-strong"
+        )}
+      >
+        <span className={cn("flex-1 text-sm", selected ? "text-text" : "text-text-subtle")}>
+          {display}
+        </span>
+        <ChevronDown
+          className={cn("h-4 w-4 text-text-subtle transition-transform", open && "rotate-180")}
+        />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 bottom-full z-20 mb-1 rounded-xl border border-border bg-surface shadow-2xl">
+          <div className="border-b border-border px-3 py-2.5">
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("searchCountry")}
+              className="w-full bg-transparent text-sm text-text placeholder:text-text-subtle outline-none"
+            />
+          </div>
+          <div className="custom-scrollbar max-h-56 overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-text-subtle">{t("noMatches")}</p>
+            ) : (
+              filtered.map((option) => (
+                <button
+                  key={option.code}
+                  type="button"
+                  onClick={() => {
+                    onChange(option.code);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-left text-sm transition-colors",
+                    option.code === value
+                      ? "bg-accent/10 text-accent"
+                      : "text-text-muted hover:bg-surface-hover hover:text-text"
+                  )}
+                >
+                  <span>{option.label}</span>
+                  <span className="text-xs uppercase tracking-[0.16em] text-text-subtle">
+                    {option.code}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const ALL_TIMEZONES = (() => {
   try {

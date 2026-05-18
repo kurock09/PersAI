@@ -3,6 +3,7 @@ import { UnauthorizedException } from "@nestjs/common";
 import { AuthVerifyController } from "../src/modules/identity-access/interface/http/auth-verify.controller";
 import { MeController } from "../src/modules/identity-access/interface/http/me.controller";
 import { GetCurrentUserStateService } from "../src/modules/identity-access/application/get-current-user-state.service";
+import { ResolveComplianceBaselineService } from "../src/modules/identity-access/application/resolve-compliance-baseline.service";
 import { ResolveAppUserService } from "../src/modules/identity-access/application/resolve-app-user.service";
 import { UpsertOnboardingService } from "../src/modules/identity-access/application/upsert-onboarding.service";
 import { UpdateUserPreferencesService } from "../src/modules/identity-access/application/update-user-preferences.service";
@@ -248,6 +249,10 @@ class InMemoryPrisma {
     updateMany: async () => ({ count: 0 })
   };
 
+  readonly platformSitePage = {
+    findMany: async () => []
+  };
+
   async $transaction<T>(callback: (tx: this) => Promise<T>): Promise<T> {
     return callback(this);
   }
@@ -293,10 +298,15 @@ async function runStep2AuthFoundationSmoke(): Promise<void> {
     resolveAppUserService,
     requestContextStore
   );
-  const getCurrentUserStateService = new GetCurrentUserStateService(prisma as never);
+  const resolveComplianceBaselineService = new ResolveComplianceBaselineService(prisma as never);
+  const getCurrentUserStateService = new GetCurrentUserStateService(
+    prisma as never,
+    resolveComplianceBaselineService
+  );
   const upsertOnboardingService = new UpsertOnboardingService(
     prisma as never,
-    getCurrentUserStateService
+    getCurrentUserStateService,
+    resolveComplianceBaselineService
   );
   const updateUserPreferencesService = new UpdateUserPreferencesService(
     prisma as never,
@@ -396,11 +406,13 @@ async function runStep2AuthFoundationSmoke(): Promise<void> {
 
   const finalMeReq = await authorizeRequest("req-me-final");
   const finalMe = await meController.getCurrentUser(finalMeReq);
-  assert.equal(finalMe.me.onboarding.status, "completed");
+  assert.equal(finalMe.me.onboarding.status, "pending");
   assert.equal(finalMe.me.appUser.displayName, "User One Updated");
   assert.equal(finalMe.me.appUser.preferredLocale, "ru");
   assert.equal(finalMe.me.appUser.countryCode, "RU");
   assert.equal(finalMe.me.appUser.resolvedLocale, "ru");
+  assert.equal(finalMe.me.compliance.termsOfService.accepted, false);
+  assert.equal(finalMe.me.compliance.privacyPolicy.accepted, false);
 
   const snapshot = prisma.snapshot();
   assert.equal(snapshot.appUsers.length, 1);

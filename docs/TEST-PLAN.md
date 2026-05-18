@@ -27,6 +27,31 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
+## ADR-098 country-aware site pages focused checks
+
+When a change touches `platform_site_pages`, `/api/v1/public/site-pages`, `/api/v1/admin/site-pages`, market-aware compliance baselines, or setup country capture, run these focused checks before broad verification:
+
+```bash
+corepack pnpm contracts:generate
+corepack pnpm prisma:generate
+corepack pnpm --filter @persai/api exec tsx test/site-pages-and-compliance.test.ts
+corepack pnpm --filter @persai/api exec tsx test/admin-authorization.test.ts
+corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts
+corepack pnpm --filter @persai/api exec tsx test/billing-templates.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/site-pages/page.test.tsx app/app/setup/page.test.tsx app/page.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. `GET /api/v1/public/site-pages/:slug` must reject invalid explicit `market` / `locale` with `400`; it must not silently ignore bad query values.
+2. Public site-page payloads must expose only real published switch targets so the web UI cannot offer dead market/locale combinations.
+3. `/api/v1/admin/site-pages*` must stay platform-scoped; ordinary workspace-owner access is insufficient.
+4. Publishing from `Admin > Site Pages` must persist the current editor state before the publish call so unsaved edits cannot ship stale published text.
+5. Compliance fallback versions and billing-email legal links must stay market-aware even when published CMS rows are temporarily missing.
+6. Freshly migrated environments must not require a separate manual backfill just to serve baseline `/terms`, `/privacy`, `/requisites`, and `/contacts`.
+
 ## ADR-094 backfill + long-doc path focused checks
 
 When a change touches smart-inline backfill across non-document sources, multi-hit top-hit inline behavior, document-inspector visibility, or long-document/full-chat fetch behavior, add these focused checks before broad verification:

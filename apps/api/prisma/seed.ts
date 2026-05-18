@@ -12,6 +12,7 @@ import { TOOL_CATALOG, STARTER_TRIAL_TOOL_POLICY } from "./tool-catalog-data.js"
 import { PROMPT_TEMPLATE_DEFAULTS } from "./bootstrap-preset-data.js";
 import { PERSONA_ARCHETYPE_DEFAULTS } from "./persona-archetype-data.js";
 import { PRODUCT_KB_SEED_TEXT_ENTRIES } from "./product-kb-seed-data.js";
+import { SITE_PAGE_SEEDS } from "./site-page-seed-data.js";
 import { upsertToolCatalogEntry } from "./tool-catalog-sync.js";
 
 const prisma = new PrismaClient();
@@ -119,10 +120,37 @@ async function seedProductKbTextEntries(): Promise<void> {
   }
 }
 
+async function upsertPlatformSitePages(): Promise<void> {
+  for (const page of SITE_PAGE_SEEDS) {
+    await prisma.platformSitePage.upsert({
+      where: {
+        slug_market_locale_status: {
+          slug: page.slug,
+          market: page.market,
+          locale: page.locale,
+          status: page.status
+        }
+      },
+      update: {},
+      create: {
+        slug: page.slug,
+        market: page.market,
+        locale: page.locale,
+        status: page.status,
+        title: page.title,
+        bodyMarkdown: page.bodyMarkdown,
+        version: page.version,
+        publishedAt: page.status === "published" ? new Date() : null
+      }
+    });
+  }
+}
+
 async function main(): Promise<void> {
   await upsertToolCatalog();
   await upsertPromptTemplates();
   await upsertPersonaArchetypes();
+  await upsertPlatformSitePages();
 
   await prisma.appUser.upsert({
     where: { id: SEED_USER_ID },

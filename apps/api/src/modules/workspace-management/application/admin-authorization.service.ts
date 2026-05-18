@@ -142,6 +142,20 @@ export class AdminAuthorizationService {
     return context;
   }
 
+  async assertCanManagePlatformSitePages(userId: string): Promise<AdminAccessContext> {
+    await this.requireAdminEmailAllowlist(userId);
+    const context = await this.resolveAdminAccessContext(userId);
+    if (
+      !context.hasGlobalPlatformAdminScope ||
+      !this.hasAnyRole(context, ["ops_admin", "business_admin", "security_admin", "super_admin"])
+    ) {
+      throw new ForbiddenException(
+        "Platform site-page management requires a platform-scoped admin role."
+      );
+    }
+    return context;
+  }
+
   async assertCanManageAdminSystemNotifications(userId: string): Promise<AdminAccessContext> {
     await this.requireAdminEmailAllowlist(userId);
     const context = await this.resolveAdminAccessContext(userId);

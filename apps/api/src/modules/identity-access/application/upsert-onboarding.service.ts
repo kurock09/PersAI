@@ -4,8 +4,8 @@ import { PrismaService } from "../infrastructure/persistence/prisma.service";
 import { CurrentUserState } from "./current-user-state.types";
 import { GetCurrentUserStateService } from "./get-current-user-state.service";
 import { ResolvedAppUser } from "./resolved-auth-user.types";
-import { MVP_PRIVACY_POLICY_VERSION, MVP_TERMS_OF_SERVICE_VERSION } from "./compliance-baseline";
 import { normalizeLocaleInput, resolvePreferredLocale } from "./locale-resolution";
+import { ResolveComplianceBaselineService } from "./resolve-compliance-baseline.service";
 
 export interface OnboardingInput {
   displayName: string;
@@ -14,10 +14,11 @@ export interface OnboardingInput {
   timezone: string;
   birthday: string | null;
   gender: string | null;
+  countryCode: string | null;
   acceptTermsOfService: true;
   acceptPrivacyPolicy: true;
-  termsOfServiceVersion: string;
-  privacyPolicyVersion: string;
+  termsOfServiceVersion: string | null;
+  privacyPolicyVersion: string | null;
 }
 
 function normalizeRequiredField(value: unknown, fieldName: string): string {
@@ -28,9 +29,9 @@ function normalizeRequiredField(value: unknown, fieldName: string): string {
   return value.trim();
 }
 
-function normalizeOptionalVersion(value: unknown, fallback: string, fieldName: string): string {
-  if (value === undefined || value === null) {
-    return fallback;
+function normalizeOptionalVersion(value: unknown, fieldName: string): string | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
   }
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new BadRequestException(`${fieldName} must be a non-empty string when provided.`);
@@ -42,11 +43,26 @@ function normalizeOptionalVersion(value: unknown, fallback: string, fieldName: s
   return normalized;
 }
 
+function normalizeOptionalCountryCode(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new BadRequestException("countryCode must be a string or null.");
+  }
+  const normalized = value.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(normalized)) {
+    throw new BadRequestException("countryCode must be a two-letter ISO country code.");
+  }
+  return normalized;
+}
+
 @Injectable()
 export class UpsertOnboardingService {
   constructor(
     private readonly prismaService: PrismaService,
-    private readonly getCurrentUserStateService: GetCurrentUserStateService
+    private readonly getCurrentUserStateService: GetCurrentUserStateService,
+    private readonly resolveComplianceBaselineService: ResolveComplianceBaselineService
   ) {}
 
   parseInput(payload: unknown): OnboardingInput {
@@ -72,16 +88,15 @@ export class UpsertOnboardingService {
       timezone: normalizeRequiredField(body.timezone, "timezone"),
       birthday,
       gender,
+      countryCode: normalizeOptionalCountryCode(body.countryCode),
       acceptTermsOfService: true,
       acceptPrivacyPolicy: true,
       termsOfServiceVersion: normalizeOptionalVersion(
         body.termsOfServiceVersion,
-        MVP_TERMS_OF_SERVICE_VERSION,
         "termsOfServiceVersion"
       ),
       privacyPolicyVersion: normalizeOptionalVersion(
         body.privacyPolicyVersion,
-        MVP_PRIVACY_POLICY_VERSION,
         "privacyPolicyVersion"
       )
     };
@@ -102,6 +117,13 @@ export class UpsertOnboardingService {
       preferredLocale: normalizeLocaleInput(input.locale),
       workspaceLocale: null
     });
+    const complianceBaseline = await this.resolveComplianceBaselineService.resolve(
+      input.countryCode
+    );
+    const termsOfServiceVersion =
+      input.termsOfServiceVersion ?? complianceBaseline.termsOfServiceVersion;
+    const privacyPolicyVersion =
+      input.privacyPolicyVersion ?? complianceBaseline.privacyPolicyVersion;
 
     await this.prismaService.$transaction(async (tx) => {
       const existingUser = await tx.appUser.findUnique({
@@ -112,12 +134,12 @@ export class UpsertOnboardingService {
       }
       const now = new Date();
       const termsAcceptedAt =
-        existingUser.termsOfServiceVersion === input.termsOfServiceVersion &&
+        existingUser.termsOfServiceVersion === termsOfServiceVersion &&
         existingUser.termsOfServiceAcceptedAt !== null
           ? existingUser.termsOfServiceAcceptedAt
           : now;
       const privacyAcceptedAt =
-        existingUser.privacyPolicyVersion === input.privacyPolicyVersion &&
+        existingUser.privacyPolicyVersion === privacyPolicyVersion &&
         existingUser.privacyPolicyAcceptedAt !== null
           ? existingUser.privacyPolicyAcceptedAt
           : now;
@@ -126,11 +148,12 @@ export class UpsertOnboardingService {
         data: {
           displayName: input.displayName,
           preferredLocale: resolvedLocale,
+          countryCode: input.countryCode,
           ...(input.birthday !== null ? { birthday: new Date(input.birthday) } : {}),
           ...(input.gender !== null ? { gender: input.gender } : {}),
-          termsOfServiceVersion: input.termsOfServiceVersion,
+          termsOfServiceVersion,
           termsOfServiceAcceptedAt: termsAcceptedAt,
-          privacyPolicyVersion: input.privacyPolicyVersion,
+          privacyPolicyVersion,
           privacyPolicyAcceptedAt: privacyAcceptedAt
         }
       });

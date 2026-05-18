@@ -15,6 +15,15 @@
 
 const SITE = "https://persai.dev";
 
+function legalMarketForLocale(locale: string): "rf" | "intl" {
+  return resolvedLocale(locale) === "ru" ? "rf" : "intl";
+}
+
+function buildPublicLegalLink(path: string, locale: "ru" | "en"): string {
+  const market = legalMarketForLocale(locale);
+  return `${SITE}/${path}?market=${market}&locale=${locale}`;
+}
+
 const COPY = {
   en: {
     greeting: "Hi,",
@@ -126,11 +135,11 @@ export function buildHtml(params: {
 
   // Footer link row
   const footerLinks = [
-    { href: `${SITE}/#pricing`, label: c.linkPricing },
-    { href: `${SITE}/terms`, label: c.linkTerms },
-    { href: `${SITE}/privacy`, label: c.linkPrivacy },
-    { href: `${SITE}/contacts`, label: c.linkContacts },
-    { href: `${SITE}/requisites`, label: c.linkRequisites }
+    { href: `${SITE}/pricing`, label: c.linkPricing },
+    { href: buildPublicLegalLink("terms", lang), label: c.linkTerms },
+    { href: buildPublicLegalLink("privacy", lang), label: c.linkPrivacy },
+    { href: buildPublicLegalLink("contacts", lang), label: c.linkContacts },
+    { href: buildPublicLegalLink("requisites", lang), label: c.linkRequisites }
   ]
     .map(
       (lnk) =>
@@ -250,11 +259,11 @@ export function buildPlainText(params: {
   lines.push("");
   lines.push(
     [
-      `${c.linkPricing}: ${SITE}/#pricing`,
-      `${c.linkTerms}: ${SITE}/terms`,
-      `${c.linkPrivacy}: ${SITE}/privacy`,
-      `${c.linkContacts}: ${SITE}/contacts`,
-      `${c.linkRequisites}: ${SITE}/requisites`
+      `${c.linkPricing}: ${SITE}/pricing`,
+      `${c.linkTerms}: ${buildPublicLegalLink("terms", lang)}`,
+      `${c.linkPrivacy}: ${buildPublicLegalLink("privacy", lang)}`,
+      `${c.linkContacts}: ${buildPublicLegalLink("contacts", lang)}`,
+      `${c.linkRequisites}: ${buildPublicLegalLink("requisites", lang)}`
     ].join("  |  ")
   );
   lines.push("");

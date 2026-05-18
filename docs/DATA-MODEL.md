@@ -2,7 +2,7 @@
 
 This document describes the current active PersAI data-model truth at a high level.
 
-ADR-072 remains the historical migration record through the native-path closeout. ADR-078 is completed and archived as the consolidated follow-through program. ADR-080 is the active target-state decision for admin-controlled Knowledge authoring and Skill curation. ADR-081 is the active target-state decision for unified user-visible Files. ADR-087 is the active target-state decision for unified quota advisories and paid light mode. ADR-088 is the active target-state decision for the unified notification platform, control plane, and delivery architecture.
+ADR-072 remains the historical migration record through the native-path closeout. ADR-078 is completed and archived as the consolidated follow-through program. ADR-080 is the active target-state decision for admin-controlled Knowledge authoring and Skill curation. ADR-081 is the active target-state decision for unified user-visible Files. ADR-087 is the active target-state decision for unified quota advisories and paid light mode. ADR-088 is the active target-state decision for the unified notification platform, control plane, and delivery architecture. ADR-098 adds the active market-aware public site-page model and country-derived legal-market baseline.
 
 ## Control-plane ownership
 
@@ -15,6 +15,7 @@ PersAI is the source of truth for:
 - canonical chats and messages
 - canonical assistant chat attachments and media metadata
 - persisted app-user identity/profile state, including `app_users.preferred_locale` as the primary user language truth and `app_users.country_code` as separate regional metadata
+- `platform_site_pages` as the platform-owned persisted source for `/terms`, `/privacy`, `/requisites`, and `/contacts`, keyed by `slug + market + locale + status`
 - durable web-chat logical turn attempts keyed by `assistantId + userId + surfaceThreadKey + clientTurnId`, used for retry/replay/status reconciliation
 - canonical user-visible Files through `assistant_files` and durable `fileRef`, with runtime-owned model aliases resolving back to that canonical id
 - assistant-private knowledge source metadata plus platform/admin-managed Skill, Product KB, and global Knowledge metadata and indexed chunks
@@ -27,6 +28,7 @@ PersAI is the source of truth for:
 - destructive assistant/workspace deletion must clear newer assistant/workspace-owned registries (for example `assistant_files`, `assistant_web_chat_turn_attempts`, `assistant_media_jobs`, `assistant_background_tasks`, `assistant_background_task_runs`, retrieval rows, and period quota/billing rows) before the owning assistant/workspace/user rows are removed
 - durable quota-advisory threshold/dedupe state for active-surface warning delivery
 - durable notification control-plane state across assistant outbox delivery, billing lifecycle notification jobs, admin notification channels, delivery attempts, and workspace notification policy rows, with ADR-088 defining the target-state convergence of these currently split models
+- market-aware compliance-version reads: `app_users.country_code` resolves legal market, and published `platform_site_pages.version` on `terms` / `privacy` is the preferred required-version truth with historical MVP constants only as fallback
 - integration state such as Telegram binding/config
 - ADR-097 document-domain persistence (`assistant_documents`, `assistant_document_versions`, `assistant_document_render_jobs`, `assistant_document_provider_mappings`, `assistant_document_delivered_files`, `assistant_document_revision_logs`) for stable `doc_id`, version graph, render-job lifecycle, provider reconciliation metadata, delivery linkage, and revision history
 

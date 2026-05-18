@@ -17,14 +17,14 @@ export default async function HomePage() {
   const headlineLine2 = t("headlineLine2").trim();
   const footerLinks = [
     { label: t("plans"), href: "/pricing" },
-    { label: t("termsLink"), href: "#terms" },
-    { label: t("privacyLink"), href: "#privacy" },
-    { label: t("contactsLink"), href: "mailto:support@persai.app" },
-    { label: t("requisitesLink"), href: "#requisites" }
+    { label: t("termsLink"), href: "/terms" },
+    { label: t("privacyLink"), href: "/privacy" },
+    { label: t("contactsLink"), href: "/contacts" },
+    { label: t("requisitesLink"), href: "/requisites" }
   ];
 
   return (
-    <div className="relative h-screen overflow-hidden bg-chrome">
+    <div className="relative min-h-screen bg-chrome">
       {/* Aurora — three sage halos, soft blur, slow pulse */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-[5%] top-[10%] h-[600px] w-[600px] rounded-full bg-accent/[0.13] blur-[160px] animate-pulse-slow" />
@@ -46,7 +46,7 @@ export default async function HomePage() {
       {/* Top hairline — sage gradient */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
 
-      <div className="relative z-10 flex h-full flex-col px-5 sm:px-10">
+      <div className="relative z-10 flex min-h-screen flex-col px-5 sm:px-10">
         {/* Header */}
         <header className="flex shrink-0 items-center justify-between pt-5 sm:pt-7">
           <span className="select-none text-xs font-semibold uppercase tracking-[0.22em] text-text-muted">
@@ -125,25 +125,15 @@ export default async function HomePage() {
         <footer className="shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))] text-center">
           <LandingAndroidAppDownload cta={t("androidAppCta")} />
           <nav className="mx-auto flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[10px] font-medium text-text-subtle sm:gap-x-4 sm:text-[11px]">
-            {footerLinks.map((link) =>
-              link.href.startsWith("mailto:") || link.href.startsWith("#") ? (
-                <a
-                  key={link.label}
-                  href={link.href}
-                  className="transition-colors hover:text-text-muted"
-                >
-                  {link.label}
-                </a>
-              ) : (
-                <Link
-                  key={link.label}
-                  href={link.href as Route}
-                  className="transition-colors hover:text-text-muted"
-                >
-                  {link.label}
-                </Link>
-              )
-            )}
+            {footerLinks.map((link) => (
+              <Link
+                key={link.label}
+                href={link.href as Route}
+                className="transition-colors hover:text-text-muted"
+              >
+                {link.label}
+              </Link>
+            ))}
           </nav>
           <p className="mt-2 text-[10px] text-text-subtle/60">{t("terms")}</p>
         </footer>
