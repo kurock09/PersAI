@@ -1,6 +1,5 @@
 "use client";
 
-import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -44,6 +43,17 @@ interface PresentationOriginalDownloadActionProps {
  *  - We `fetch()` the BFF, then materialise the body as a Blob and trigger
  *    the browser save through a hidden `<a download>` so the chat keeps
  *    focus and Capacitor WebView keeps the same tab.
+ *  - The BFF (`/api/assistant-document/[docId]/original/route.ts`) does its
+ *    own server-side Clerk auth via `auth().getToken()` from the session
+ *    cookie. We deliberately do NOT attach an `Authorization: Bearer ...`
+ *    header on this client fetch, because Clerk middleware in front of the
+ *    BFF prefers a Bearer header over the session cookie when both are
+ *    present, and a client-side `getToken()` JWT is meant for forwarding to
+ *    upstream APIs — not for re-authing the request through Clerk's edge
+ *    middleware. Sending it produced live `401 text/html` rejections on
+ *    `persai.dev` even when the cookie session was perfectly valid. This
+ *    matches how the production-proven `/api/assistant-file/:fileRef`
+ *    surface is fetched (plain same-origin, cookies only).
  *  - Any non-2xx (auth, 410-gone, 500) opens a small in-page modal with
  *    honest "PDF still in chat" copy. Modal is dismissable.
  */
@@ -51,7 +61,6 @@ export function PresentationOriginalDownloadAction({
   href,
   filename
 }: PresentationOriginalDownloadActionProps): ReactElement {
-  const { getToken } = useAuth();
   const t = useTranslations("chat");
   const [state, setState] = useState<DownloadState>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
@@ -66,10 +75,6 @@ export function PresentationOriginalDownloadAction({
     setState({ status: "idle" });
   }, []);
 
-  const resolveDownloadToken = useCallback(async (): Promise<string | null> => {
-    return (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
-  }, [getToken]);
-
   const handleClick = useCallback(async () => {
     if (state.status === "downloading") return;
 
@@ -82,18 +87,8 @@ export function PresentationOriginalDownloadAction({
 
     setState({ status: "downloading" });
     try {
-      // Match the working Clerk-auth pattern used by other live buttons:
-      // force-fresh first, then fall back to the cached JWT if refresh is
-      // unavailable. The stale cached token path was producing 401s on live
-      // PPTX downloads after long-lived tabs.
-      const token = await resolveDownloadToken();
-      const headers = new Headers();
-      if (typeof token === "string" && token.trim().length > 0) {
-        headers.set("Authorization", `Bearer ${token}`);
-      }
       const response = await fetch(href, {
         credentials: "same-origin",
-        headers,
         signal: controller.signal
       });
       if (!response.ok) {
@@ -125,7 +120,7 @@ export function PresentationOriginalDownloadAction({
       console.warn("[presentation-pptx] download failed", error);
       setState({ status: "error", reason: "failed" });
     }
-  }, [filename, href, resolveDownloadToken, state.status]);
+  }, [filename, href, state.status]);
 
   const isModalOpen = state.status === "error";
   const modalTitleId = "presentation-pptx-download-modal-title";

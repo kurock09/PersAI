@@ -22,6 +22,30 @@
     "requisitesLink": "Реквизиты",
     "terms": "Продолжая, ты принимаешь Условия\u00a0использования"
   },
+  "legalPage": {
+    "footer": {
+      "pricing": "Тарифы",
+      "terms": "Условия",
+      "privacy": "Конфиденциальность",
+      "contacts": "Контакты",
+      "requisites": "Реквизиты",
+      "note": "Публичные страницы PersAI с учетом текущей локализации и рынка."
+    },
+    "pageLabels": {
+      "terms": "Условия",
+      "privacy": "Конфиденциальность",
+      "contacts": "Контакты",
+      "requisites": "Реквизиты"
+    },
+    "marketLabels": {
+      "rf": "РФ рынок",
+      "intl": "Международный"
+    },
+    "localeLabels": {
+      "ru": "Русский",
+      "en": "English"
+    }
+  },
   "auth": {
     "tagline": "Твой личный AI-ассистент",
     "signInTitle": "Войти",

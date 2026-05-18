@@ -22,6 +22,30 @@
     "requisitesLink": "Company details",
     "terms": "By continuing you agree to the Terms\u00a0of\u00a0Service"
   },
+  "legalPage": {
+    "footer": {
+      "pricing": "Pricing",
+      "terms": "Terms",
+      "privacy": "Privacy",
+      "contacts": "Contacts",
+      "requisites": "Company details",
+      "note": "PersAI public trust pages, bound to the current locale and market."
+    },
+    "pageLabels": {
+      "terms": "Terms",
+      "privacy": "Privacy",
+      "contacts": "Contacts",
+      "requisites": "Company details"
+    },
+    "marketLabels": {
+      "rf": "RF market",
+      "intl": "International"
+    },
+    "localeLabels": {
+      "ru": "Russian",
+      "en": "English"
+    }
+  },
   "auth": {
     "tagline": "Your personal AI assistant",
     "signInTitle": "Sign in",

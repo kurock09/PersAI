@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
 import type { Route } from "next";
+import { useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
@@ -7,20 +10,27 @@ import type {
   SitePageLocale,
   SitePageMarket
 } from "../_server/fetch-public-site-page";
+import { setLocaleCookie } from "../lib/locale-sync";
+
+export type PublicSitePageViewCopy = {
+  footerLinks: Array<{ label: string; href: Route }>;
+  pageLabel: string;
+  marketLabel: string;
+  localeLabel: string;
+  localeVariantRu: string;
+  localeVariantEn: string;
+  marketVariantRf: string;
+  marketVariantIntl: string;
+  footerNote: string;
+};
 
 export function PublicSitePageView(props: {
   page: PublicSitePageState;
   resolvedMarket: SitePageMarket;
   resolvedLocale: SitePageLocale;
+  copy: PublicSitePageViewCopy;
 }) {
-  const { page, resolvedMarket, resolvedLocale } = props;
-  const footerLinks = [
-    { label: "Pricing", href: "/pricing" as Route },
-    { label: "Terms", href: "/terms" as Route },
-    { label: "Privacy", href: "/privacy" as Route },
-    { label: "Contacts", href: "/contacts" as Route },
-    { label: "Legal", href: "/requisites" as Route }
-  ];
+  const { page, resolvedMarket, resolvedLocale, copy } = props;
   const buildHref = (market: SitePageMarket, locale: SitePageLocale) =>
     `/${page.slug}?market=${market}&locale=${locale}` as Route;
   const localeLinks = page.availableVariants.filter(
@@ -29,17 +39,15 @@ export function PublicSitePageView(props: {
   const marketLinks = page.availableVariants.filter(
     (variant) => variant.locale === resolvedLocale && variant.market !== resolvedMarket
   );
-  const marketLabel = resolvedMarket === "rf" ? "RF market" : "International market";
-  const localeLabel = resolvedLocale === "ru" ? "RU" : "EN";
-  const readingTimeLabel = page.slug === "contacts" ? "Public contact page" : "Public legal page";
-  const pageLabel =
-    page.slug === "terms"
-      ? "Terms"
-      : page.slug === "privacy"
-        ? "Privacy"
-        : page.slug === "requisites"
-          ? "Company details"
-          : "Contacts";
+
+  useEffect(() => {
+    setLocaleCookie(resolvedLocale);
+    if (resolvedMarket === "rf") {
+      document.cookie = "persai-country=RU;path=/;max-age=31536000;samesite=lax";
+      return;
+    }
+    document.cookie = "persai-country=;path=/;max-age=0;samesite=lax";
+  }, [resolvedLocale, resolvedMarket]);
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-chrome">
@@ -60,7 +68,7 @@ export function PublicSitePageView(props: {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
 
       <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-5 pb-10 pt-5 sm:px-8 sm:pb-12 sm:pt-7 lg:px-12">
-        <header className="flex flex-wrap items-start justify-between gap-5">
+        <header className="mx-auto flex w-full max-w-3xl flex-wrap items-start justify-between gap-5">
           <div className="flex flex-col gap-3">
             <Link
               href={"/" as Route}
@@ -71,13 +79,13 @@ export function PublicSitePageView(props: {
 
             <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium tracking-[0.12em] text-text-subtle">
               <span className="rounded-full border border-border/70 bg-surface-raised/20 px-3 py-1 uppercase">
-                {pageLabel}
+                {copy.pageLabel}
               </span>
               <span className="rounded-full border border-border/70 bg-surface-raised/20 px-3 py-1 uppercase">
-                {marketLabel}
+                {copy.marketLabel}
               </span>
               <span className="rounded-full border border-border/70 bg-surface-raised/20 px-3 py-1 uppercase">
-                {localeLabel}
+                {copy.localeLabel}
               </span>
               {page.version ? (
                 <span className="rounded-full border border-border/70 bg-surface-raised/20 px-3 py-1 tracking-[0.06em] text-text-muted">
@@ -94,7 +102,7 @@ export function PublicSitePageView(props: {
                 href={buildHref(variant.market, variant.locale)}
                 className="rounded-full border border-border/70 px-3 py-1.5 transition-colors hover:border-accent/35 hover:text-text"
               >
-                {variant.locale === "ru" ? "RU version" : "EN version"}
+                {variant.locale === "ru" ? copy.localeVariantRu : copy.localeVariantEn}
               </Link>
             ))}
             {marketLinks.map((variant) => (
@@ -103,49 +111,22 @@ export function PublicSitePageView(props: {
                 href={buildHref(variant.market, variant.locale)}
                 className="rounded-full border border-border/70 px-3 py-1.5 transition-colors hover:border-accent/35 hover:text-text"
               >
-                {variant.market === "rf" ? "RF market" : "International market"}
+                {variant.market === "rf" ? copy.marketVariantRf : copy.marketVariantIntl}
               </Link>
             ))}
           </div>
         </header>
 
-        <section className="mx-auto mt-14 w-full max-w-3xl sm:mt-20">
+        <section className="mx-auto mt-12 w-full max-w-3xl sm:mt-16">
           <div className="max-w-2xl">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.26em] text-text-subtle">
-              PersAI Legal
-            </p>
-            <h1 className="mt-4 text-[clamp(2.4rem,5vw,4.5rem)] font-semibold leading-[0.98] tracking-[-0.05em] text-text">
+            <h1 className="text-[clamp(2rem,4.25vw,3.75rem)] font-semibold leading-[1.02] tracking-[-0.05em] text-text">
               {page.title}
             </h1>
           </div>
 
-          <div className="mt-8 grid gap-8 border-t border-border/70 pt-6 sm:grid-cols-[minmax(0,1fr)_220px] sm:gap-10 sm:pt-8">
-            <div className="max-w-xl">
-              <p className="text-base leading-8 text-text-muted sm:text-[17px]">
-                A calm, readable public page rendered from the currently published PersAI version
-                for {marketLabel.toLowerCase()}.
-              </p>
-            </div>
+          <div className="mt-8 h-px bg-gradient-to-r from-accent/20 via-border to-transparent" />
 
-            <aside className="space-y-5 text-sm">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-subtle">
-                  Surface
-                </p>
-                <p className="mt-2 text-text">{readingTimeLabel}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-subtle">
-                  Version
-                </p>
-                <p className="mt-2 break-all text-text-muted">
-                  {page.version ?? "Live published copy"}
-                </p>
-              </div>
-            </aside>
-          </div>
-
-          <article className="mt-12 max-w-none">
+          <article className="mt-10 max-w-none">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -169,6 +150,32 @@ export function PublicSitePageView(props: {
                   <ul className="mt-6 space-y-3 pl-0 text-[15px] leading-8 text-text-muted sm:text-[16px]">
                     {children}
                   </ul>
+                ),
+                table: ({ children }) => (
+                  <div className="mt-8 overflow-x-auto rounded-2xl border border-border/70 bg-surface-raised/10">
+                    <table className="min-w-full border-collapse text-left text-[12px] leading-6 text-text-muted sm:text-[13px]">
+                      {children}
+                    </table>
+                  </div>
+                ),
+                thead: ({ children }) => (
+                  <thead className="border-b border-border/70 bg-surface-raised/20 text-text">
+                    {children}
+                  </thead>
+                ),
+                tbody: ({ children }) => <tbody>{children}</tbody>,
+                tr: ({ children }) => (
+                  <tr className="border-b border-border/40 last:border-b-0">{children}</tr>
+                ),
+                th: ({ children }) => (
+                  <th className="px-3 py-2.5 align-top text-[11px] font-semibold uppercase tracking-[0.08em] text-text sm:px-4">
+                    {children}
+                  </th>
+                ),
+                td: ({ children }) => (
+                  <td className="px-3 py-2.5 align-top text-[12px] leading-6 text-text-muted sm:px-4 sm:text-[13px]">
+                    {children}
+                  </td>
                 ),
                 li: ({ children }) => (
                   <li className="flex gap-3">
@@ -196,13 +203,11 @@ export function PublicSitePageView(props: {
               {page.bodyMarkdown}
             </ReactMarkdown>
           </article>
-
-          <div className="mt-16 h-px bg-gradient-to-r from-accent/20 via-border to-transparent" />
         </section>
 
-        <footer className="mt-14 shrink-0 text-center sm:mt-20">
+        <footer className="mx-auto mt-16 w-full max-w-3xl shrink-0 border-t border-border/70 pt-8 text-center sm:mt-20 sm:pt-10">
           <nav className="mx-auto flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[10px] font-medium text-text-subtle sm:gap-x-4 sm:text-[11px]">
-            {footerLinks.map((link) => (
+            {copy.footerLinks.map((link) => (
               <Link
                 key={link.label}
                 href={link.href}
@@ -212,9 +217,7 @@ export function PublicSitePageView(props: {
               </Link>
             ))}
           </nav>
-          <p className="mt-2 text-[10px] text-text-subtle/60">
-            PersAI public trust pages, rendered from live admin-managed content.
-          </p>
+          <p className="mt-2 text-[10px] text-text-subtle/60">{copy.footerNote}</p>
         </footer>
       </div>
     </main>
