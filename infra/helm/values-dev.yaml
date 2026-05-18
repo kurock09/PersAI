@@ -43,7 +43,7 @@ api:
     gcpServiceAccountEmail: api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: api
-    tag: f931331e06c69795d9a51cb9c1b8e583ce2023bc
+    tag: 2e6bcb9a78199fbcd05ec8fbd1c5fcbb02f4ae63
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -340,7 +340,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: f931331e06c69795d9a51cb9c1b8e583ce2023bc
+    tag: 2e6bcb9a78199fbcd05ec8fbd1c5fcbb02f4ae63
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -490,6 +490,7 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
 
 
 
