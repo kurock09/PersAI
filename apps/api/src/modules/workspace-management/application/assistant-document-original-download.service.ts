@@ -1,14 +1,30 @@
-import { GoneException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  GoneException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException
+} from "@nestjs/common";
 import type { RuntimeDocumentGammaCompanionOriginal } from "@persai/runtime-contract";
+import { TOOL_CREDENTIAL_IDS } from "./tool-credential-settings";
+import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const PPTX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const ORIGINAL_PPTX_GONE_MESSAGE =
   "Original PPTX is no longer available. The PDF preview is still available.";
 const GAMMA_ALLOWED_EXPORT_HOST_SUFFIX = ".gamma.app";
+const GAMMA_APP_API_BASE_URL = "https://api.gamma.app";
 
 type OriginalGammaExportRef = {
+  kind: "direct";
   exportUrl: string;
+  filename: string | null;
+};
+
+type OriginalGammaOnDemandExportRef = {
+  kind: "on_demand";
+  gammaDocId: string;
   filename: string | null;
 };
 
@@ -16,7 +32,10 @@ type OriginalGammaExportRef = {
 export class AssistantDocumentOriginalDownloadService {
   private readonly logger = new Logger(AssistantDocumentOriginalDownloadService.name);
 
-  constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
+  constructor(
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService
+  ) {}
 
   async downloadOriginalPresentation(input: {
     assistantId: string;
@@ -33,9 +52,14 @@ export class AssistantDocumentOriginalDownloadService {
       );
       throw new NotFoundException("Presentation document was not found.");
     }
+    const fallbackFilename = this.resolveFallbackPptxFilename(resolved.sourceJson);
     const originalExport = this.readOriginalPptxExport(
       resolved.providerMetadataJson,
-      this.resolveFallbackPptxFilename(resolved.sourceJson)
+      fallbackFilename
+    );
+    const legacyFallback = this.readLegacyOriginalPptxExport(
+      resolved.providerMetadataJson,
+      fallbackFilename
     );
     if (originalExport === null) {
       this.logger.log(
@@ -49,9 +73,34 @@ export class AssistantDocumentOriginalDownloadService {
     this.logger.log(
       `[document-original] streaming docId=${input.docId} versionId=${
         input.versionId ?? "current"
-      } filename=${originalExport.filename ?? "fallback"}`
+      } source=${originalExport.kind} filename=${originalExport.filename ?? "fallback"}`
     );
-    const response = await fetch(originalExport.exportUrl, { method: "GET" }).catch(() => null);
+    let response = await this.fetchOriginalExport(originalExport).catch(async (error: unknown) => {
+      if (originalExport.kind === "on_demand" && legacyFallback !== null) {
+        this.logger.warn(
+          `[document-original] on_demand_failed_fallback_legacy docId=${input.docId} versionId=${
+            input.versionId ?? "current"
+          } gammaDocId=${originalExport.gammaDocId}`
+        );
+        return this.fetchOriginalExport(legacyFallback).catch(() => null);
+      }
+      if (error instanceof GoneException) {
+        throw error;
+      }
+      return null;
+    });
+    if (
+      originalExport.kind === "on_demand" &&
+      legacyFallback !== null &&
+      (response === null || !response.ok)
+    ) {
+      this.logger.warn(
+        `[document-original] on_demand_asset_failed_fallback_legacy docId=${input.docId} versionId=${
+          input.versionId ?? "current"
+        } gammaDocId=${originalExport.gammaDocId} status=${response?.status ?? "no_response"}`
+      );
+      response = await this.fetchOriginalExport(legacyFallback).catch(() => null);
+    }
     if (response === null || !response.ok) {
       this.logger.log(
         `[document-original] export_fetch_failed docId=${input.docId} versionId=${
@@ -74,7 +123,7 @@ export class AssistantDocumentOriginalDownloadService {
     return {
       buffer,
       contentType: response.headers.get("content-type")?.split(";")[0]?.trim() || PPTX_MIME_TYPE,
-      filename: originalExport.filename ?? this.resolveFallbackPptxFilename(resolved.sourceJson)
+      filename: originalExport.filename ?? fallbackFilename
     };
   }
 
@@ -149,11 +198,32 @@ export class AssistantDocumentOriginalDownloadService {
   private readOriginalPptxExport(
     value: unknown,
     fallbackFilename: string
+  ): OriginalGammaExportRef | OriginalGammaOnDemandExportRef | null {
+    const row = this.asObject(value);
+    if (
+      row?.provider === "gamma" &&
+      typeof row.gammaId === "string" &&
+      row.gammaId.trim().length > 0 &&
+      (row.outputType === "pdf" || row.outputType === "pptx")
+    ) {
+      return {
+        kind: "on_demand",
+        gammaDocId: row.gammaId.trim(),
+        filename: this.readFilenameOrFallback(row.filename, fallbackFilename)
+      };
+    }
+    return this.readLegacyOriginalPptxExport(value, fallbackFilename);
+  }
+
+  private readLegacyOriginalPptxExport(
+    value: unknown,
+    fallbackFilename: string
   ): OriginalGammaExportRef | null {
     const row = this.asObject(value);
     const companionOriginal = this.readCompanionOriginal(row?.companionOriginal);
     if (companionOriginal !== null && companionOriginal.status === "ready") {
       return {
+        kind: "direct",
         exportUrl: companionOriginal.exportUrl,
         filename: this.readFilenameOrFallback(companionOriginal.filename, fallbackFilename)
       };
@@ -166,6 +236,7 @@ export class AssistantDocumentOriginalDownloadService {
     if (legacyCompanionOriginal?.format === "pptx" && legacyCompanionOriginal?.status === "ready") {
       if (legacyCompanionExportUrl !== null) {
         return {
+          kind: "direct",
           exportUrl: legacyCompanionExportUrl,
           filename: this.readFilenameOrFallback(legacyCompanionOriginal.filename, fallbackFilename)
         };
@@ -179,6 +250,7 @@ export class AssistantDocumentOriginalDownloadService {
       trustedTopLevelExportUrl !== null
     ) {
       return {
+        kind: "direct",
         exportUrl: trustedTopLevelExportUrl,
         filename: this.readFilenameOrFallback(row.filename, fallbackFilename)
       };
@@ -253,6 +325,53 @@ export class AssistantDocumentOriginalDownloadService {
 
   private readFilenameOrFallback(value: unknown, fallbackFilename: string): string {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallbackFilename;
+  }
+
+  private async fetchOriginalExport(
+    ref: OriginalGammaExportRef | OriginalGammaOnDemandExportRef
+  ): Promise<Response | null> {
+    const exportUrl =
+      ref.kind === "direct" ? ref.exportUrl : await this.createGammaExportUrl(ref.gammaDocId);
+    return fetch(exportUrl, { method: "GET" }).catch(() => null);
+  }
+
+  private async createGammaExportUrl(gammaDocId: string): Promise<string> {
+    const apiKey = await this.platformRuntimeProviderSecretStoreService
+      .resolveSecretValueById(TOOL_CREDENTIAL_IDS.tool_document_gamma)
+      .catch(() => null);
+    if (apiKey === null) {
+      throw new ServiceUnavailableException("Gamma export is temporarily unavailable.");
+    }
+    const response = await fetch(
+      `${GAMMA_APP_API_BASE_URL}/export/docs/${encodeURIComponent(gammaDocId)}/pptx/url`,
+      {
+        method: "POST",
+        headers: {
+          "X-API-KEY": apiKey,
+          Accept: "application/json"
+        }
+      }
+    ).catch(() => null);
+    if (response === null) {
+      throw new ServiceUnavailableException("Gamma export is temporarily unavailable.");
+    }
+    const body = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) {
+      if (response.status === 404 || response.status === 410) {
+        throw new GoneException(ORIGINAL_PPTX_GONE_MESSAGE);
+      }
+      throw new ServiceUnavailableException("Gamma export is temporarily unavailable.");
+    }
+    const exportUrl = this.readGammaExportCreateResponse(body);
+    if (exportUrl === null) {
+      throw new ServiceUnavailableException("Gamma export is temporarily unavailable.");
+    }
+    return exportUrl;
+  }
+
+  private readGammaExportCreateResponse(value: unknown): string | null {
+    const row = this.asObject(value);
+    return typeof row?.url === "string" ? this.readTrustedGammaExportUrl(row.url) : null;
   }
 
   private readTrustedGammaExportUrl(value: string): string | null {

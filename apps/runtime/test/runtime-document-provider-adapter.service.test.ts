@@ -1825,7 +1825,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     const presentationOptions = gammaProviderOptions.presentationOptions;
     assert.equal(presentationOptions?.themeId, "theme-ocean");
     assert.equal(presentationOptions?.textMode, "generate");
-    assert.equal(presentationOptions?.numCards, 4);
+    assert.equal(presentationOptions?.numCards, 8);
     assert.equal(presentationOptions?.cardSplit, "auto");
     assert.equal(presentationOptions?.textOptions?.amount, "medium");
     assert.equal(presentationOptions?.textOptions?.language, "en");
@@ -1869,7 +1869,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     );
   });
 
-  test("defaults Gamma presentations to PDF and keeps a quiet companion PPTX export", async () => {
+  test("defaults Gamma presentations to PDF without a second companion Gamma run", async () => {
     const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
     const service = new RuntimeDocumentProviderAdapterService(
       {
@@ -1886,31 +1886,20 @@ describe("RuntimeDocumentProviderAdapterService", () => {
             result: {
               provider: "gamma",
               outputFormat,
-              documentId: outputFormat === "pdf" ? "gamma-pdf-1" : "gamma-pptx-1",
+              documentId: "gamma-pdf-1",
               templateId: null,
               filename: input.filename,
-              bytesBase64: Buffer.from(
-                outputFormat === "pdf" ? "pdf-test" : "pptx-shadow"
-              ).toString("base64"),
-              mimeType:
-                outputFormat === "pdf"
-                  ? "application/pdf"
-                  : "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              bytesBase64: Buffer.from("pdf-test").toString("base64"),
+              mimeType: "application/pdf",
               respondedAt: "2026-05-18T11:40:00.000Z",
               warning: null,
               providerStatus: {
                 provider: "gamma",
                 state: "success",
-                generationId: outputFormat === "pdf" ? "gen-pdf-1" : "gen-pptx-1",
-                gammaId: outputFormat === "pdf" ? "gamma-pdf-1" : "gamma-pptx-1",
-                gammaUrl:
-                  outputFormat === "pdf"
-                    ? "https://gamma.app/docs/gamma-pdf-1"
-                    : "https://gamma.app/docs/gamma-pptx-1",
-                exportUrl:
-                  outputFormat === "pdf"
-                    ? "https://gamma.app/export/gamma-pdf-1.pdf"
-                    : "https://gamma.app/export/gamma-pptx-1.pptx",
+                generationId: "gen-pdf-1",
+                gammaId: "gamma-pdf-1",
+                gammaUrl: "https://gamma.app/docs/gamma-pdf-1",
+                exportUrl: "https://gamma.app/export/gamma-pdf-1.pdf",
                 filename: input.filename,
                 outputType: outputFormat,
                 status: "completed",
@@ -2019,27 +2008,13 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       }
     });
 
-    assert.equal(gatewayCalls.length, 2);
+    assert.equal(gatewayCalls.length, 1);
     assert.equal(gatewayCalls[0]?.providerOptions.outputFormat, "pdf");
     assert.equal(gatewayCalls[0]?.filename, "Board Deck.pdf");
-    assert.equal(gatewayCalls[1]?.providerOptions.outputFormat, "pptx");
-    assert.equal(gatewayCalls[1]?.filename, "Board Deck.pptx");
     assert.equal(result.artifacts.length, 1);
     assert.equal(result.artifacts[0]?.mimeType, "application/pdf");
     assert.equal(result.providerStatus?.outputType, "pdf");
-    assert.deepEqual(result.providerStatus?.companionOriginal, {
-      provider: "gamma",
-      state: "success",
-      generationId: "gen-pptx-1",
-      gammaId: "gamma-pptx-1",
-      gammaUrl: "https://gamma.app/docs/gamma-pptx-1",
-      exportUrl: "https://gamma.app/export/gamma-pptx-1.pptx",
-      format: "pptx",
-      status: "ready",
-      filename: "Board Deck.pptx",
-      outputType: "pptx",
-      updatedAt: "2026-05-18T11:40:00.000Z"
-    });
+    assert.equal(result.providerStatus?.companionOriginal, undefined);
   });
 
   test("injects enhanced print CSS with @page, thead repeat, tr break-inside, orphans/widows and cover-page page-break by default", () => {
@@ -2402,10 +2377,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     }
     const presentationOptions = schoolProviderOptions.presentationOptions;
     assert.ok(presentationOptions);
-    assert.ok(
-      (presentationOptions.numCards ?? 0) <= 5,
-      `expected compact school deck, got ${String(presentationOptions.numCards)} cards`
-    );
+    assert.equal(presentationOptions.numCards, 8);
     assert.equal(presentationOptions.textOptions?.amount, "medium");
     assert.match(presentationOptions.additionalInstructions ?? "", /title-plus-two-words cards/);
   });
