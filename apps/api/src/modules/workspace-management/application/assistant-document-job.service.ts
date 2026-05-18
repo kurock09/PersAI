@@ -29,6 +29,7 @@ export type AssistantDocumentSourcePayload = {
   visualStyle?: PersaiRuntimePresentationVisualStyle | null;
   imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
   visualDensity?: PersaiRuntimePresentationVisualDensity | null;
+  gammaThemeId?: string | null;
   outline?: unknown;
   metadata?: Record<string, unknown> | null;
 };
@@ -599,6 +600,7 @@ export class AssistantDocumentJobService {
       visualStyle: this.readPresentationVisualStyle(row.visualStyle),
       imagePolicy: this.readPresentationImagePolicy(row.imagePolicy),
       visualDensity: this.readPresentationVisualDensity(row.visualDensity),
+      gammaThemeId: this.readGammaThemeId(row.gammaThemeId),
       outline: row.outline,
       metadata:
         row.metadata !== null && typeof row.metadata === "object" && !Array.isArray(row.metadata)
@@ -630,6 +632,7 @@ export class AssistantDocumentJobService {
       visualStyle: revision.visualStyle ?? current.visualStyle ?? null,
       imagePolicy: revision.imagePolicy ?? current.imagePolicy ?? null,
       visualDensity: revision.visualDensity ?? current.visualDensity ?? null,
+      gammaThemeId: revision.gammaThemeId ?? current.gammaThemeId ?? null,
       outline: revision.outline ?? current.outline,
       metadata: {
         ...(current.metadata ?? {}),
@@ -652,6 +655,7 @@ export class AssistantDocumentJobService {
       visualStyle: request.visualStyle ?? current.visualStyle ?? null,
       imagePolicy: request.imagePolicy ?? current.imagePolicy ?? null,
       visualDensity: request.visualDensity ?? current.visualDensity ?? null,
+      gammaThemeId: current.gammaThemeId ?? request.gammaThemeId ?? null,
       outline: current.outline,
       metadata: {
         ...(current.metadata ?? {}),
@@ -690,6 +694,10 @@ export class AssistantDocumentJobService {
     return value === "balanced" || value === "visual_heavy" || value === "text_heavy"
       ? value
       : null;
+  }
+
+  private readGammaThemeId(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
   private toPersistedRuntimeArtifact(

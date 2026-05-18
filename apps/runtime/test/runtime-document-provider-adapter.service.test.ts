@@ -1844,7 +1844,8 @@ describe("RuntimeDocumentProviderAdapterService", () => {
             requestedName: "PersAI Deck",
             visualStyle: "bold_editorial",
             imagePolicy: "web_free_to_use",
-            visualDensity: "visual_heavy"
+            visualDensity: "visual_heavy",
+            gammaThemeId: "theme-ocean"
           }
         }
       }
@@ -1858,25 +1859,32 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       /Original deck source content that Gamma must preserve/,
       "Gamma input must receive API-extracted source file text"
     );
-    assert.deepEqual(gatewayCalls[0]!.providerOptions.presentationOptions, {
-      textMode: "generate",
-      numCards: 6,
-      cardSplit: "auto",
-      additionalInstructions:
-        "Design this as a polished presentation, not a text memo pasted onto slides. Prefer image-led cards, short copy blocks, clear hierarchy, and strong visual contrast. Use bold editorial layouts, large headlines, dramatic contrast, and dynamic compositions. Use visuals deliberately so the deck feels image-rich and presentation-native rather than document-like. Favor punchy slide titles, comparisons, timelines, grids, callouts, and section-divider cards when helpful. User guidance: Focus on traction and product vision. Use the extracted source file text supplied in the input as primary content when the user asks to rebuild, convert, summarize, or restyle an attached document.",
-      textOptions: {
-        amount: "brief",
-        language: "en",
-        tone: "Focus on traction and product vision.",
-        audience: "investors"
-      },
-      imageOptions: {
-        source: "webFreeToUseCommercially"
-      },
-      cardOptions: {
-        dimensions: "16x9"
-      }
+    const gammaProviderOptions = gatewayCalls[0]!.providerOptions;
+    assert.equal(gammaProviderOptions.outputFormat, "pptx");
+    if (gammaProviderOptions.outputFormat !== "pptx") {
+      throw new Error("expected pptx provider options");
+    }
+    const presentationOptions = gammaProviderOptions.presentationOptions;
+    assert.equal(presentationOptions?.themeId, "theme-ocean");
+    assert.equal(presentationOptions?.textMode, "generate");
+    assert.equal(presentationOptions?.numCards, 4);
+    assert.equal(presentationOptions?.cardSplit, "auto");
+    assert.equal(presentationOptions?.textOptions?.amount, "medium");
+    assert.equal(presentationOptions?.textOptions?.language, "en");
+    assert.equal(presentationOptions?.textOptions?.tone, "Focus on traction and product vision.");
+    assert.equal(presentationOptions?.textOptions?.audience, "investors");
+    assert.deepEqual(presentationOptions?.imageOptions, {
+      source: "webFreeToUseCommercially"
     });
+    assert.deepEqual(presentationOptions?.cardOptions, { dimensions: "16x9" });
+    assert.match(
+      presentationOptions?.additionalInstructions ?? "",
+      /Do not create empty hero slides/
+    );
+    assert.match(
+      presentationOptions?.additionalInstructions ?? "",
+      /fewer, fuller image-led cards/
+    );
     assert.equal(savedObjects.length, 1);
     assert.equal(
       savedObjects[0]!.mimeType,
@@ -1935,6 +1943,9 @@ describe("RuntimeDocumentProviderAdapterService", () => {
         /\.cover-page,\.title-page\{break-after:page;page-break-after:always;\}/
       );
       assert.match(result.html, /table\{[^}]*table-layout:fixed/);
+      assert.match(result.html, /blockquote\{[^}]*#f8fafc/);
+      assert.match(result.html, /\.callout[^}]*#f8fafc/);
+      assert.match(result.html, /body\{[^}]*background:#fff/);
     } finally {
       if (previousFlag === undefined) {
         delete process.env.RUNTIME_DOCUMENT_ENHANCED_PAGINATION;
@@ -2114,6 +2125,158 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.match(developer, /<thead>/);
     assert.match(developer, /keep-together/);
     assert.match(developer, /Do NOT insert manual page breaks/);
+    assert.match(developer, /restrained editorial document style/);
+    assert.match(developer, /white page background/);
+    assert.match(developer, /<section class="callout">/);
+  });
+
+  test("Gamma defaults prefer fewer fuller slides for compact school topics", async () => {
+    const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText() {
+          throw new Error("Gamma path must not call generateText");
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          gatewayCalls.push(input);
+          return {
+            ok: true,
+            result: {
+              provider: "gamma",
+              outputFormat: "pptx",
+              documentId: "gamma-school-1",
+              templateId: null,
+              filename: input.filename,
+              bytesBase64: Buffer.from("pptx-test").toString("base64"),
+              mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              respondedAt: "2026-05-18T12:00:00.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "gamma",
+                state: "success",
+                generationId: "gen-school-1",
+                gammaId: "g_school",
+                gammaUrl: "https://gamma.app/docs/g_school",
+                exportUrl: "https://gamma.app/export/g_school.pptx",
+                filename: input.filename,
+                outputType: "pptx",
+                status: "completed",
+                updatedAt: "2026-05-18T12:00:00.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+
+    await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-school-1",
+          docId: "doc-school-1",
+          versionId: "version-school-1",
+          surface: "web",
+          chatId: "chat-school-1",
+          provider: "gamma",
+          outputFormat: "pptx",
+          sourceUserMessageId: "message-school-1",
+          sourceUserMessageText: "Make a short school biology deck about ficus plants",
+          sourceUserMessageCreatedAt: "2026-05-18T12:00:00.000Z"
+        },
+        attachments: [],
+        sourceFiles: [],
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_presentation",
+          request: {
+            prompt: "Create a short school biology deck about ficus plants for students"
+          }
+        }
+      }
+    });
+
+    const schoolProviderOptions = gatewayCalls[0]!.providerOptions;
+    assert.equal(schoolProviderOptions.outputFormat, "pptx");
+    if (schoolProviderOptions.outputFormat !== "pptx") {
+      throw new Error("expected pptx provider options");
+    }
+    const presentationOptions = schoolProviderOptions.presentationOptions;
+    assert.ok(presentationOptions);
+    assert.ok(
+      (presentationOptions.numCards ?? 0) <= 5,
+      `expected compact school deck, got ${String(presentationOptions.numCards)} cards`
+    );
+    assert.equal(presentationOptions.textOptions?.amount, "medium");
+    assert.match(presentationOptions.additionalInstructions ?? "", /title-plus-two-words cards/);
   });
 
   test("buildPdfContentRequest inlines sourceFiles[].text into the user prompt and adds rebuild instructions when at least one source file has text", () => {

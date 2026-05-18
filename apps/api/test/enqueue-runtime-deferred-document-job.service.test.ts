@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { EnqueueRuntimeDeferredDocumentJobService } from "../src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service";
 
+function noopGammaThemePickerMock() {
+  return {
+    async pickTheme() {
+      return { themeId: null, reason: null };
+    }
+  } as never;
+}
+
 async function runAcceptedCase(): Promise<void> {
   let enqueueCalls = 0;
   const service = new EnqueueRuntimeDeferredDocumentJobService(
@@ -89,7 +97,8 @@ async function runAcceptedCase(): Promise<void> {
       async resolveSecretValueByProviderKey() {
         return "template-123";
       }
-    } as never
+    } as never,
+    noopGammaThemePickerMock()
   );
 
   const result = await service.execute({
@@ -213,7 +222,8 @@ async function runLimitReachedCase(): Promise<void> {
       async resolveSecretValueByProviderKey() {
         return null;
       }
-    } as never
+    } as never,
+    noopGammaThemePickerMock()
   );
 
   const result = await service.execute({
@@ -351,7 +361,8 @@ async function runRevisionAcceptedCase(): Promise<void> {
       async resolveSecretValueByProviderKey() {
         return "template-123";
       }
-    } as never
+    } as never,
+    noopGammaThemePickerMock()
   );
 
   const result = await service.execute({
@@ -520,7 +531,8 @@ async function runRevisionFallsBackToLatestChatDocumentWhenDocIdIsNotUuid(): Pro
       async resolveSecretValueByProviderKey() {
         return "template-123";
       }
-    } as never
+    } as never,
+    noopGammaThemePickerMock()
   );
 
   const result = await service.execute({
@@ -638,7 +650,8 @@ async function runPdfTemplateAdmissionRejectCase(): Promise<void> {
       async resolveSecretValueByProviderKey() {
         return null;
       }
-    } as never
+    } as never,
+    noopGammaThemePickerMock()
   );
 
   const result = await service.execute({
@@ -665,12 +678,241 @@ async function runPdfTemplateAdmissionRejectCase(): Promise<void> {
   assert.equal(enqueueCalls, 0);
 }
 
+async function runPdfCreateSkipsThemePickerCase(): Promise<void> {
+  let pickThemeCalls = 0;
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    {
+      async findMessageByIdForAssistant(messageId: string, assistantId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "user" as const,
+          createdAt: new Date("2026-05-15T12:00:00.000Z")
+        };
+      },
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "web" as const
+        };
+      }
+    } as never,
+    {
+      async countOpenJobsForChat() {
+        return 0;
+      },
+      async enqueue() {
+        return {
+          docId: "doc-pdf",
+          versionId: "version-pdf",
+          renderJobId: "render-pdf",
+          status: "queued" as const
+        };
+      }
+    } as never,
+    {
+      async build() {
+        return null;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          monthlyToolQuotas: {
+            planCode: "pro",
+            periodStartedAt: "2026-05-01T00:00:00.000Z",
+            periodEndsAt: "2026-06-01T00:00:00.000Z",
+            periodSource: "subscription_period" as const,
+            tools: [
+              {
+                toolCode: "document",
+                displayName: "Document",
+                usedUnits: 0,
+                reservedUnits: 0,
+                settledUnits: 0,
+                releasedUnits: 0,
+                reconciliationRequiredUnits: 0,
+                limitUnits: 10,
+                effectiveLimitUnits: 10,
+                remainingUnits: 10,
+                usageAvailable: true,
+                status: "ok" as const
+              }
+            ]
+          }
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          tools: [
+            {
+              toolCode: "document",
+              activationStatus: "active" as const
+            }
+          ]
+        };
+      }
+    } as never,
+    {
+      async resolveSecretValueByProviderKey() {
+        return "template-123";
+      }
+    } as never,
+    {
+      async pickTheme() {
+        pickThemeCalls += 1;
+        return { themeId: "theme-ocean", reason: "should not run for pdf" };
+      }
+    } as never
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Сделай PDF отчёт",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "create_pdf_document",
+      request: {
+        prompt: "Quarterly report"
+      }
+    }
+  });
+
+  assert.equal(result.accepted, true);
+  assert.equal(pickThemeCalls, 0);
+}
+
+async function runPresentationThemePickerPersistenceCase(): Promise<void> {
+  let capturedSourceJson: Record<string, unknown> | null = null;
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    {
+      async findMessageByIdForAssistant(messageId: string, assistantId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "user" as const,
+          createdAt: new Date("2026-05-15T12:00:00.000Z")
+        };
+      },
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "web" as const
+        };
+      }
+    } as never,
+    {
+      async countOpenJobsForChat() {
+        return 0;
+      },
+      async enqueue(input) {
+        capturedSourceJson = input.request.sourceJson as Record<string, unknown>;
+        return {
+          docId: "doc-theme",
+          versionId: "version-theme",
+          renderJobId: "render-theme",
+          status: "queued" as const
+        };
+      }
+    } as never,
+    {
+      async build() {
+        return null;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          monthlyToolQuotas: {
+            planCode: "pro",
+            periodStartedAt: "2026-05-01T00:00:00.000Z",
+            periodEndsAt: "2026-06-01T00:00:00.000Z",
+            periodSource: "subscription_period" as const,
+            tools: [
+              {
+                toolCode: "document",
+                displayName: "Document",
+                usedUnits: 0,
+                reservedUnits: 0,
+                settledUnits: 0,
+                releasedUnits: 0,
+                reconciliationRequiredUnits: 0,
+                limitUnits: 10,
+                effectiveLimitUnits: 10,
+                remainingUnits: 10,
+                usageAvailable: true,
+                status: "ok" as const
+              }
+            ]
+          }
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          tools: [
+            {
+              toolCode: "document",
+              activationStatus: "active" as const
+            }
+          ]
+        };
+      }
+    } as never,
+    {
+      async resolveSecretValueByProviderKey() {
+        return "template-123";
+      }
+    } as never,
+    {
+      async pickTheme() {
+        return { themeId: "theme-ocean", reason: "calm educational deck" };
+      }
+    } as never
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Сделай спокойную презентацию для школы",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "create_presentation",
+      request: {
+        prompt: "School lesson deck",
+        outputFormat: "pptx"
+      }
+    }
+  });
+
+  assert.equal(result.accepted, true);
+  assert.equal(capturedSourceJson?.gammaThemeId, "theme-ocean");
+}
+
 async function run(): Promise<void> {
   await runAcceptedCase();
   await runLimitReachedCase();
   await runRevisionAcceptedCase();
   await runRevisionFallsBackToLatestChatDocumentWhenDocIdIsNotUuid();
   await runPdfTemplateAdmissionRejectCase();
+  await runPdfCreateSkipsThemePickerCase();
+  await runPresentationThemePickerPersistenceCase();
 }
 
 void run();

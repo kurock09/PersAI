@@ -130,6 +130,10 @@ export class InternalRuntimeDocumentJobsController {
             request.visualDensity === null || request.visualDensity === undefined
               ? null
               : this.presentationVisualDensity(request.visualDensity),
+          gammaThemeId:
+            request.gammaThemeId === null || request.gammaThemeId === undefined
+              ? null
+              : this.stringValue(request.gammaThemeId, "directToolExecution.request.gammaThemeId"),
           outline: request.outline,
           metadata:
             request.metadata === null || request.metadata === undefined

@@ -113,6 +113,11 @@ export class ProviderDocumentGenerationService {
         input.providerOptions.presentationOptions === undefined
           ? null
           : {
+              themeId:
+                typeof input.providerOptions.presentationOptions.themeId === "string" &&
+                input.providerOptions.presentationOptions.themeId.trim().length > 0
+                  ? input.providerOptions.presentationOptions.themeId.trim()
+                  : null,
               textMode:
                 input.providerOptions.presentationOptions.textMode === "generate" ||
                 input.providerOptions.presentationOptions.textMode === "condense" ||

@@ -53,7 +53,8 @@ function createRequest(): ProviderGatewayDocumentGenerateRequest {
         },
         cardOptions: {
           dimensions: "16x9"
-        }
+        },
+        themeId: "theme-ocean"
       }
     }
   };
@@ -119,6 +120,7 @@ export async function runGammaProviderClientTest(): Promise<void> {
       textMode: "generate",
       format: "presentation",
       exportAs: "pptx",
+      themeId: "theme-ocean",
       title: "persai-deck",
       numCards: 8,
       cardSplit: "auto",

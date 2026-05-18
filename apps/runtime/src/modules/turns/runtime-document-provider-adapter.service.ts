@@ -46,50 +46,65 @@ const PDF_VALIDATION_TAIL_INSPECTION_BYTES = 2_048;
 // explicitly disabled via RUNTIME_DOCUMENT_ENHANCED_PAGINATION=off. Keep this
 // in sync with the pre-pagination baseline behavior so an off-switch reverts to
 // the exact previous render.
-const DOCUMENT_HTML_BASELINE_PRINT_CSS =
-  'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#1a1a1a;line-height:1.5;padding:32px 48px;}h1{font-size:24pt;margin:0 0 16pt;}h2{font-size:16pt;margin:24pt 0 8pt;}h3{font-size:13pt;margin:18pt 0 6pt;}p,li{font-size:11pt;margin:6pt 0;}ul,ol{padding-left:20pt;}table{border-collapse:collapse;width:100%;margin:12pt 0;}th,td{border:1px solid #d0d0d0;padding:6pt 10pt;text-align:left;font-size:10pt;vertical-align:top;}th{background:#f4f4f4;}';
+const DOCUMENT_HTML_EDITORIAL_STYLE_CSS = [
+  'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#1e293b;background:#fff;line-height:1.55;}',
+  "h1{font-size:26pt;font-weight:700;letter-spacing:-0.02em;color:#0f172a;margin:0 0 14pt;padding-bottom:8pt;border-bottom:1pt solid #e2e8f0;}",
+  "h2{font-size:17pt;font-weight:600;color:#0f172a;margin:22pt 0 8pt;}",
+  "h3{font-size:13.5pt;font-weight:600;color:#1e293b;margin:16pt 0 6pt;}",
+  "h4,h5,h6{font-size:11.5pt;font-weight:600;color:#334155;margin:12pt 0 4pt;}",
+  "p,li{font-size:11pt;margin:7pt 0;}",
+  "ul,ol{padding-left:20pt;margin:8pt 0;}",
+  "li{margin:4pt 0;}",
+  "strong,b{color:#0f172a;}",
+  "a{color:#2563eb;text-decoration:none;}",
+  "table{border-collapse:collapse;width:100%;margin:14pt 0;}",
+  "th,td{border:1px solid #dbe3ee;padding:7pt 10pt;text-align:left;font-size:10pt;vertical-align:top;}",
+  "th{background:#f1f5f9;color:#0f172a;font-weight:600;}",
+  "tr:nth-child(even) td{background:#fafbfc;}",
+  "blockquote{margin:12pt 0;padding:10pt 14pt;border-left:3pt solid #94a3b8;background:#f8fafc;color:#334155;}",
+  ".callout,.infocard,.info-box{margin:12pt 0;padding:10pt 12pt;border:1pt solid #e2e8f0;border-left:3pt solid #64748b;background:#f8fafc;}",
+  ".card,.kpi{margin:12pt 0;padding:10pt 12pt;border:1pt solid #e2e8f0;background:#fff;}",
+  "figure{margin:12pt 0;}",
+  "hr{border:none;border-top:1pt solid #e2e8f0;margin:18pt 0;}",
+  "dl{margin:10pt 0;}",
+  "dt{font-weight:600;color:#0f172a;margin-top:8pt;}",
+  "dd{margin:2pt 0 8pt 16pt;}"
+].join("");
 
-// Enhanced print CSS: baseline typography + Chromium-paginated CSS rules so
-// PDFs from PDFMonkey come out with proper page breaks. Key behaviors:
+const DOCUMENT_HTML_BASELINE_PRINT_CSS = `${DOCUMENT_HTML_EDITORIAL_STYLE_CSS}body{padding:32px 48px;}`;
+
+// Enhanced print CSS: restrained editorial typography + Chromium pagination rules.
+// Key behaviors:
 // - @page sets A4 size + margins and shows "page N / total" in the footer.
-// - thead { display: table-header-group } makes Chromium repeat <thead> on
-//   every page of a long table. tfoot does the same for table footers, so do
-//   not put "Total / Итого" rows in <tfoot> unless they should appear on every
-//   page; put them as the last <tbody> row instead.
-// - tr { break-inside: avoid } prevents a single row from being cut in half
-//   across a page boundary; Chromium falls back gracefully if a row is taller
-//   than a page (it splits instead of overflowing forever).
-// - p { orphans: 3; widows: 3 } prevents a single trailing/leading line of a
-//   paragraph from being marooned alone on the next/previous page.
-// - h1..h4 { break-after: avoid } prevents a heading from being orphaned at
-//   the bottom of a page while its first paragraph starts on the next page.
-// - .cover-page / .title-page { break-after: page } guarantees that the title
-//   block lives on its own page and the document body starts on page 2.
-// - .keep-together / .card / .kpi / figure / blockquote { break-inside: avoid }
-//   guarantees that small visual blocks (signature blocks, KPI rows, info
-//   cards) stay on one page rather than being cut in half.
-// - table-layout: fixed + word-break: break-word keeps wide tables inside the
-//   page width by wrapping long cell text instead of stretching the column.
+// - thead { display: table-header-group } repeats <thead> on every printed page.
+// - tr { break-inside: avoid } keeps rows intact when possible.
+// - p { orphans: 3; widows: 3 } reduces orphan/widow lines.
+// - h1..h6 { break-after: avoid } keeps headings with the content that follows.
+// - .cover-page / .title-page { break-after: page } isolates cover pages.
+// - .keep-together / .card / blockquote / callouts stay on one page when small.
+// - section rhythm + first-child margin reset reduce awkward top offsets after breaks.
 const DOCUMENT_HTML_ENHANCED_PRINT_CSS = [
   "@page{size:A4;margin:2cm 1.8cm;}",
-  '@page{@bottom-center{content:counter(page) " / " counter(pages);font-size:9pt;color:#666;}}',
-  'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#1a1a1a;line-height:1.5;padding:0;margin:0;}',
-  "h1{font-size:24pt;margin:0 0 16pt;break-after:avoid;page-break-after:avoid;}",
-  "h2{font-size:16pt;margin:24pt 0 8pt;break-after:avoid;page-break-after:avoid;}",
-  "h3{font-size:13pt;margin:18pt 0 6pt;break-after:avoid;page-break-after:avoid;}",
-  "h4,h5,h6{break-after:avoid;page-break-after:avoid;}",
-  "p,li{font-size:11pt;margin:6pt 0;orphans:3;widows:3;}",
-  "ul,ol{padding-left:20pt;}",
-  "table{border-collapse:collapse;width:100%;margin:12pt 0;table-layout:fixed;word-break:break-word;}",
+  '@page{@bottom-center{content:counter(page) " / " counter(pages);font-size:9pt;color:#64748b;}}',
+  DOCUMENT_HTML_EDITORIAL_STYLE_CSS,
+  "body{padding:0;margin:0;}",
+  "body > :first-child,section > :first-child{margin-top:0;}",
+  "section,article{margin:0 0 14pt;}",
+  "h1{break-after:avoid;page-break-after:avoid;}",
+  "h2,h3,h4,h5,h6{break-after:avoid;page-break-after:avoid;break-inside:avoid;page-break-inside:avoid;}",
+  "h2:not(:first-child),h3:not(:first-child){margin-top:20pt;padding-top:2pt;}",
+  "p,li{orphans:3;widows:3;}",
+  "ul,ol{break-inside:avoid-page;page-break-inside:avoid;}",
+  "table{table-layout:fixed;word-break:break-word;break-inside:auto;page-break-inside:auto;}",
   "thead{display:table-header-group;}",
   "tfoot{display:table-footer-group;}",
   "tr{page-break-inside:avoid;break-inside:avoid;}",
-  "th,td{border:1px solid #d0d0d0;padding:6pt 10pt;text-align:left;font-size:10pt;vertical-align:top;word-wrap:break-word;}",
-  "th{background:#f4f4f4;}",
+  "th,td{word-wrap:break-word;}",
   "img{max-width:100%;height:auto;break-inside:avoid;page-break-inside:avoid;}",
-  "figure,blockquote{break-inside:avoid;page-break-inside:avoid;margin:12pt 0;}",
-  ".card,.keep-together,.kpi,.infocard{break-inside:avoid;page-break-inside:avoid;}",
-  ".cover-page,.title-page{break-after:page;page-break-after:always;}"
+  "figure,blockquote,.callout,.infocard,.info-box,dl{break-inside:avoid;page-break-inside:avoid;}",
+  ".card,.keep-together,.kpi,.signature-block{break-inside:avoid;page-break-inside:avoid;}",
+  ".cover-page,.title-page{break-after:page;page-break-after:always;}",
+  ".cover-page > :first-child,.title-page > :first-child{margin-top:0;}"
 ].join("");
 const DOCUMENT_HTML_ENHANCED_PAGINATION_ENV_KEY = "RUNTIME_DOCUMENT_ENHANCED_PAGINATION";
 
@@ -593,11 +608,12 @@ export class RuntimeDocumentProviderAdapterService {
         cardOptions: {
           dimensions: "16x9";
         };
+        themeId?: string | null;
       } {
     const docRequest = request.directToolExecution.request;
     const language = this.resolveGammaLanguageCode(request);
-    const visualDensity = docRequest.visualDensity ?? "visual_heavy";
-    const visualStyle = docRequest.visualStyle ?? "professional_modern";
+    const visualDensity = docRequest.visualDensity ?? "balanced";
+    const visualStyle = docRequest.visualStyle ?? this.resolveGammaVisualStyleFromTopic(request);
     const imagePolicy = docRequest.imagePolicy ?? "ai_generated";
     const additionalInstructions = this.buildGammaAdditionalInstructions(request, {
       visualStyle,
@@ -605,17 +621,23 @@ export class RuntimeDocumentProviderAdapterService {
       visualDensity
     });
 
+    const gammaThemeId =
+      typeof docRequest.gammaThemeId === "string" && docRequest.gammaThemeId.trim().length > 0
+        ? docRequest.gammaThemeId.trim()
+        : null;
+
     return {
       textMode: "generate",
       numCards: this.estimateGammaCardCount(request, visualDensity),
       cardSplit: this.resolveGammaCardSplit(docRequest.outline),
       additionalInstructions,
+      ...(gammaThemeId === null ? {} : { themeId: gammaThemeId }),
       textOptions: {
         amount:
-          visualDensity === "visual_heavy"
-            ? "brief"
-            : visualDensity === "text_heavy"
-              ? "detailed"
+          visualDensity === "text_heavy"
+            ? "detailed"
+            : visualDensity === "visual_heavy"
+              ? "medium"
               : "medium",
         language,
         tone: this.resolveGammaTone(request, visualStyle),
@@ -646,19 +668,25 @@ export class RuntimeDocumentProviderAdapterService {
     );
     instructions.push(
       input.visualDensity === "visual_heavy"
-        ? "Prefer image-led cards, short copy blocks, clear hierarchy, and strong visual contrast."
+        ? "Prefer fewer, fuller image-led cards with substantive bullets, labels, and diagrams instead of many sparse title-only slides."
         : input.visualDensity === "text_heavy"
           ? "Keep the deck readable and content-rich, but still avoid text walls and preserve visual hierarchy."
-          : "Balance concise text with clear visuals, varied layouts, and strong slide-to-slide rhythm."
+          : "Prefer fewer, fuller slides with substantive bullets, comparisons, and visuals instead of many sparse title-only cards."
     );
     instructions.push(this.describeGammaVisualStyle(input.visualStyle));
     instructions.push(
       input.imagePolicy === "text_only"
         ? "Do not add extra images unless they are already explicitly provided in the source content."
-        : "Use visuals deliberately so the deck feels image-rich and presentation-native rather than document-like."
+        : "Use visuals deliberately—comparisons, process flows, timelines, labeled diagrams, grids, and image-led explainer cards—so the deck feels presentation-native rather than document-like."
     );
     instructions.push(
-      "Favor punchy slide titles, comparisons, timelines, grids, callouts, and section-divider cards when helpful."
+      "Do not create empty hero slides, title-plus-two-words cards, or decorative section dividers with almost no content."
+    );
+    instructions.push(
+      "Each card should earn its place with real teaching or storytelling value: a clear point, supporting bullets, and a visual when it improves comprehension."
+    );
+    instructions.push(
+      "Favor punchy slide titles, comparisons, timelines, grids, callouts, and section-divider cards only when they carry meaningful content."
     );
     if (typeof request.directToolExecution.request.instructions === "string") {
       const trimmed = request.directToolExecution.request.instructions.trim();
@@ -776,18 +804,113 @@ export class RuntimeDocumentProviderAdapterService {
   }
 
   private resolveGammaAudience(request: RuntimeDocumentJobRunRequest): string | null {
-    const normalized = [
-      request.directToolExecution.request.prompt,
-      request.directToolExecution.request.instructions ?? "",
-      request.job.sourceUserMessageText
-    ]
-      .join(" ")
-      .toLowerCase();
+    const normalized = this.collectGammaTopicText(request);
     if (normalized.includes("investor")) return "investors";
     if (normalized.includes("board")) return "board members and executives";
     if (normalized.includes("sales")) return "customers and prospects";
     if (normalized.includes("training")) return "learners and team members";
+    if (
+      normalized.includes("school") ||
+      normalized.includes("student") ||
+      normalized.includes("college") ||
+      normalized.includes("ученик") ||
+      normalized.includes("школ")
+    ) {
+      return "students and learners";
+    }
     return null;
+  }
+
+  private collectGammaTopicText(request: RuntimeDocumentJobRunRequest): string {
+    return [
+      request.directToolExecution.request.prompt,
+      request.directToolExecution.request.instructions ?? "",
+      request.job.sourceUserMessageText,
+      this.renderSourceFilesForProviderInput(request.sourceFiles ?? [])
+    ]
+      .join(" ")
+      .toLowerCase();
+  }
+
+  private resolveGammaVisualStyleFromTopic(
+    request: RuntimeDocumentJobRunRequest
+  ): "professional_modern" | "bold_editorial" | "minimal_clean" | "illustrated_storytelling" {
+    const normalized = this.collectGammaTopicText(request);
+    if (
+      normalized.includes("food") ||
+      normalized.includes("recipe") ||
+      normalized.includes("lifestyle") ||
+      normalized.includes("travel") ||
+      normalized.includes("еда") ||
+      normalized.includes("рецепт")
+    ) {
+      return "illustrated_storytelling";
+    }
+    if (
+      normalized.includes("school") ||
+      normalized.includes("student") ||
+      normalized.includes("biology") ||
+      normalized.includes("science class") ||
+      normalized.includes("lesson") ||
+      normalized.includes("учеб") ||
+      normalized.includes("школ") ||
+      normalized.includes("биолог")
+    ) {
+      return "illustrated_storytelling";
+    }
+    if (
+      normalized.includes("startup") ||
+      normalized.includes("saas") ||
+      normalized.includes("software") ||
+      normalized.includes("product") ||
+      normalized.includes("business") ||
+      normalized.includes("tech") ||
+      normalized.includes("engineering")
+    ) {
+      return "professional_modern";
+    }
+    if (
+      normalized.includes("minimal") ||
+      normalized.includes("clean") ||
+      normalized.includes("simple")
+    ) {
+      return "minimal_clean";
+    }
+    if (
+      normalized.includes("bold") ||
+      normalized.includes("editorial") ||
+      normalized.includes("brand")
+    ) {
+      return "bold_editorial";
+    }
+    return "professional_modern";
+  }
+
+  private inferGammaTopicProfile(request: RuntimeDocumentJobRunRequest): {
+    prefersCompactDeck: boolean;
+  } {
+    const normalized = this.collectGammaTopicText(request);
+    const compactTopic =
+      normalized.includes("school") ||
+      normalized.includes("student") ||
+      normalized.includes("lesson") ||
+      normalized.includes("biology") ||
+      normalized.includes("overview") ||
+      normalized.includes("intro") ||
+      normalized.includes("basics") ||
+      normalized.includes("кратк") ||
+      normalized.includes("обзор") ||
+      normalized.includes("школ") ||
+      normalized.includes("учеб");
+    const longFormTopic =
+      normalized.includes("report") ||
+      normalized.includes("thesis") ||
+      normalized.includes("roadmap") ||
+      normalized.includes("quarter") ||
+      normalized.includes("annual") ||
+      normalized.includes("отчет") ||
+      normalized.includes("доклад");
+    return { prefersCompactDeck: compactTopic && !longFormTopic };
   }
 
   private resolveGammaLanguageCode(request: RuntimeDocumentJobRunRequest): string {
@@ -806,27 +929,30 @@ export class RuntimeDocumentProviderAdapterService {
     request: RuntimeDocumentJobRunRequest,
     visualDensity: "balanced" | "visual_heavy" | "text_heavy"
   ): number {
+    const topicProfile = this.inferGammaTopicProfile(request);
+    const minCards = topicProfile.prefersCompactDeck ? 3 : 4;
+    const maxCards = topicProfile.prefersCompactDeck ? 5 : 12;
     const outline = request.directToolExecution.request.outline;
     if (Array.isArray(outline)) {
       const count = outline.filter((entry) => entry !== null).length;
       if (count > 0) {
-        return Math.max(6, Math.min(14, count));
+        return Math.max(minCards, Math.min(maxCards, count));
       }
     }
     if (typeof outline === "string") {
       const splitCount = outline.split(/\n---\n/g).filter((part) => part.trim().length > 0).length;
       if (splitCount > 1) {
-        return Math.max(6, Math.min(14, splitCount));
+        return Math.max(minCards, Math.min(maxCards, splitCount));
       }
     }
     const baseText = this.renderGammaInput(request);
     const approx =
       visualDensity === "visual_heavy"
-        ? Math.ceil(baseText.length / 450)
+        ? Math.ceil(baseText.length / 950)
         : visualDensity === "text_heavy"
-          ? Math.ceil(baseText.length / 850)
-          : Math.ceil(baseText.length / 650);
-    return Math.max(6, Math.min(14, approx));
+          ? Math.ceil(baseText.length / 1100)
+          : Math.ceil(baseText.length / 750);
+    return Math.max(minCards, Math.min(maxCards, approx));
   }
 
   private resolveGammaCardSplit(outline: unknown): "auto" | "inputTextBreaks" {
@@ -907,7 +1033,10 @@ export class RuntimeDocumentProviderAdapterService {
       "Do not include sections titled Prompt, Instructions, Source User Message, Outline, PersAI Document Draft, or any internal/debug labels.",
       "Do not mention templates, PDFMonkey, providers, job ids, system prompts, or internal architecture.",
       "Write the document in the user's apparent language unless the request clearly asks for another language.",
-      "Use coherent headings (<h1>/<h2>/<h3>), paragraphs, lists, and simple tables when helpful.",
+      "Default to a restrained editorial document style on a white page background: strong heading hierarchy, calm spacing, readable body copy, and light structural accents only where they help scanning.",
+      "Unless the user explicitly asks for bold branding, loud colors, or full-page backgrounds, avoid full-bleed colored pages, heavy gradients, and decorative color blocks.",
+      "Use semantic structure with coherent headings (<h1>/<h2>/<h3>), paragraphs, lists, blockquotes, and simple tables when helpful.",
+      'Use <blockquote> for quoted material, <section class="callout"> or <div class="card"> for short highlighted facts/KPIs/summary boxes, and keep tables clean with <thead>/<tbody> when a table has a header row.',
       "Close every tag you open. Never leave dangling <td>, <tr>, <ul>, <p>, or other elements unclosed.",
       "Do not embed external scripts, iframes, remote stylesheets, or remote images.",
       ...(hasInlinedSource
@@ -927,9 +1056,10 @@ export class RuntimeDocumentProviderAdapterService {
       '- If the document has a cover/title page, wrap it as <section class="cover-page">...</section>. It will start on its own printed page automatically.',
       "- For long tables, ALWAYS put the header row inside <thead> with <th> cells, and data rows inside <tbody>. The header repeats on every printed page automatically.",
       "- Do NOT put summary/total rows in <tfoot> unless they must repeat on every page; put them as the last <tbody> row instead.",
-      '- Wrap small blocks that must stay together on one page (KPI cards, signature blocks, info boxes, definition lists) in <section class="keep-together"> or <div class="card">.',
-      '- Do NOT insert manual page breaks like <div style="page-break-before:always"> or empty divs to push content. The renderer handles page breaks via CSS.',
-      "- Keep each heading and its first paragraph in the same <section> so the renderer does not orphan the heading at the bottom of a page."
+      '- Wrap small blocks that must stay together on one page (KPI cards, signature blocks, info boxes, definition lists, short quotes) in <section class="keep-together">, <section class="callout">, or <div class="card">.',
+      "- Group each major section under <section> with its heading and first paragraph/list/table together so page breaks do not leave a heading stranded at the bottom of a page.",
+      '- Do NOT insert manual page breaks like <div style="page-break-before:always"> or empty spacer divs. The renderer handles page breaks via CSS.',
+      "- Keep lists, quotes, tables, and callout/card blocks compact enough to respect print margins; prefer splitting long sections across pages at natural subsection boundaries instead of mid-paragraph."
     ];
     const retryInstructions = isSimplifiedRetry
       ? [

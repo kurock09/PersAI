@@ -1997,6 +1997,7 @@ export interface RuntimeDocumentJobRunRequest {
       visualStyle?: PersaiRuntimePresentationVisualStyle | null;
       imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
       visualDensity?: PersaiRuntimePresentationVisualDensity | null;
+      gammaThemeId?: string | null;
       outline?: unknown;
       metadata?: Record<string, unknown> | null;
     };
@@ -2263,6 +2264,7 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   "auto_extract_to_memory",
   "background_task_evaluation",
   "document_html_generation",
+  "document_presentation_theme_picker",
   "document_job_completion",
   "media_job_completion",
   "media_job_failure_explanation",
@@ -2381,6 +2383,7 @@ export interface ProviderGatewayDocumentGenerateRequest {
     | {
         outputFormat: "pptx";
         presentationOptions?: {
+          themeId?: string | null;
           textMode?: "generate" | "condense" | "preserve" | null;
           numCards?: number | null;
           cardSplit?: "auto" | "inputTextBreaks" | null;

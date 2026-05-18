@@ -44,6 +44,7 @@ type DocumentJobRequestPayload = {
     visualStyle?: PersaiRuntimePresentationVisualStyle | null;
     imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
     visualDensity?: PersaiRuntimePresentationVisualDensity | null;
+    gammaThemeId?: string | null;
     outline?: unknown;
     metadata?: Record<string, unknown> | null;
   };
@@ -670,6 +671,10 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           sourceJson.visualDensity === "visual_heavy" ||
           sourceJson.visualDensity === "text_heavy"
             ? sourceJson.visualDensity
+            : null,
+        gammaThemeId:
+          typeof sourceJson.gammaThemeId === "string" && sourceJson.gammaThemeId.trim().length > 0
+            ? sourceJson.gammaThemeId.trim()
             : null,
         outline: sourceJson.outline,
         metadata:

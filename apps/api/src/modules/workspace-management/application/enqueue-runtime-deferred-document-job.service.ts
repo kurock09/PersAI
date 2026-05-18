@@ -18,6 +18,7 @@ import { QuotaGroundedLimitCopyService } from "./quota-grounded-limit-copy.servi
 import { ReadInternalRuntimeQuotaStatusService } from "./read-internal-runtime-quota-status.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
+import { GammaThemePickerService } from "./gamma/gamma-theme-picker.service";
 import { DOCUMENT_PROVIDER_CONFIG_KEYS } from "./tool-credential-settings";
 
 const MAX_OPEN_DOCUMENT_JOBS_PER_CHAT = 2;
@@ -57,7 +58,8 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     private readonly quotaGroundedLimitCopyService: QuotaGroundedLimitCopyService,
     private readonly readInternalRuntimeQuotaStatusService: ReadInternalRuntimeQuotaStatusService,
     private readonly resolveInternalRuntimeToolDailyPolicyService: ResolveInternalRuntimeToolDailyPolicyService,
-    private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService
+    private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
+    private readonly gammaThemePickerService: GammaThemePickerService
   ) {}
 
   parseInput(payload: unknown): EnqueueRuntimeDeferredDocumentJobInput {
@@ -240,7 +242,8 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           sourceJson: input.directToolExecution.request,
           sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
         },
-        requestedDocId: input.directToolExecution.request.docId ?? null
+        requestedDocId: input.directToolExecution.request.docId ?? null,
+        enrichPresentationTheme: true
       });
     }
     if (descriptorMode === "export_or_redeliver") {
@@ -264,6 +267,13 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     if (resolvedShape === null) {
       throw new BadRequestException("Document execution shape could not be resolved.");
     }
+    const sourceJson =
+      descriptorMode === "create_presentation"
+        ? await this.applyGammaThemeSelection(
+            input.directToolExecution.request,
+            input.sourceUserMessageText
+          )
+        : input.directToolExecution.request;
     const created = await this.assistantDocumentJobService.enqueue({
       assistantId: input.assistantId,
       userId: chat.userId,
@@ -279,7 +289,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         sourceUserMessageText: input.sourceUserMessageText,
         sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
         descriptorMode,
-        sourceJson: input.directToolExecution.request,
+        sourceJson,
         sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
       }
     });
@@ -434,6 +444,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
     };
     requestedDocId: string | null;
+    enrichPresentationTheme?: boolean;
   }): Promise<
     | {
         accepted: true;
@@ -476,6 +487,13 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     }
     const provider = revisionContext.documentType === "presentation" ? "gamma" : "pdfmonkey";
     const outputFormat = revisionContext.documentType === "presentation" ? "pptx" : "pdf";
+    const sourceJson =
+      input.enrichPresentationTheme === true && revisionContext.documentType === "presentation"
+        ? await this.applyGammaThemeSelection(
+            input.request.sourceJson,
+            input.request.sourceUserMessageText
+          )
+        : input.request.sourceJson;
     const created = await this.assistantDocumentJobService.enqueueRevision({
       assistantId: input.assistantId,
       userId: input.userId,
@@ -486,7 +504,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       revisionContext,
       provider,
       outputFormat,
-      request: input.request
+      request: {
+        ...input.request,
+        sourceJson
+      }
     });
     return {
       accepted: true,
@@ -704,6 +725,24 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       throw new BadRequestException("directToolExecution.request.metadata must be an object.");
     }
     return value as Record<string, unknown>;
+  }
+
+  private async applyGammaThemeSelection(
+    request: AssistantDocumentSourcePayload,
+    sourceUserMessageText: string
+  ): Promise<AssistantDocumentSourcePayload> {
+    const picked = await this.gammaThemePickerService.pickTheme({
+      prompt: request.prompt,
+      instructions: request.instructions ?? null,
+      sourceUserMessageText,
+      visualStyle: request.visualStyle ?? null,
+      imagePolicy: request.imagePolicy ?? null,
+      visualDensity: request.visualDensity ?? null
+    });
+    return {
+      ...request,
+      gammaThemeId: picked.themeId
+    };
   }
 
   private async readPersistedPdfMonkeyTemplateId(): Promise<string | null> {

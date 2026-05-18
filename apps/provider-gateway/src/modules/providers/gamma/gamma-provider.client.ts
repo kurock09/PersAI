@@ -196,6 +196,9 @@ export class GammaProviderClient {
       textMode: presentationOptions?.textMode ?? "generate",
       format: "presentation",
       exportAs: "pptx",
+      ...(presentationOptions?.themeId === null || presentationOptions?.themeId === undefined
+        ? {}
+        : { themeId: presentationOptions.themeId }),
       ...(input.filename === null ? {} : { title: this.stripExtension(input.filename) }),
       ...(presentationOptions?.numCards === null || presentationOptions?.numCards === undefined
         ? { numCards: this.estimateCardCount(input.htmlContent) }
