@@ -67,8 +67,12 @@ export function PublicAuthShell(props: {
         </main>
 
         {showFooter ? (
-          <footer className="shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))] text-center">
-            {showDownloadCta ? <LandingAndroidAppDownload cta={t("androidAppCta")} /> : null}
+          <footer className="mx-auto mt-8 w-full max-w-3xl shrink-0 border-t border-border/70 pt-8 pb-[max(1rem,env(safe-area-inset-bottom))] text-center sm:mt-10 sm:pt-10">
+            {showDownloadCta ? (
+              <div className="mb-6">
+                <LandingAndroidAppDownload cta={t("androidAppCta")} />
+              </div>
+            ) : null}
             <nav className="mx-auto flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[10px] font-medium text-text-subtle sm:gap-x-4 sm:text-[11px]">
               {footerLinks.map((link) => (
                 <Link

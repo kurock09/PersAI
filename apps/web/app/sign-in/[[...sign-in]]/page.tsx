@@ -190,7 +190,7 @@ export default function SignInPage() {
 
   if (!authLoaded) {
     return (
-      <PublicAuthShell>
+      <PublicAuthShell showFooter>
         <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden />
       </PublicAuthShell>
     );
@@ -201,7 +201,7 @@ export default function SignInPage() {
   }
 
   return (
-    <PublicAuthShell>
+    <PublicAuthShell showFooter>
       <div className="flex w-full max-w-sm flex-col items-center animate-fade-in">
         <div className="w-full rounded-2xl border border-border/85 bg-surface-raised/88 p-6 shadow-[0_14px_36px_rgba(0,0,0,0.12)]">
           {stage === "form" && (

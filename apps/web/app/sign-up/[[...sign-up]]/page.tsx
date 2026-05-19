@@ -78,7 +78,7 @@ export default function SignUpPage() {
 
   if (!authLoaded) {
     return (
-      <PublicAuthShell>
+      <PublicAuthShell showFooter>
         <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden />
       </PublicAuthShell>
     );
@@ -95,7 +95,7 @@ export default function SignUpPage() {
   const fieldErrors = clerkErrors?.fields as unknown as Record<string, unknown> | undefined;
 
   return (
-    <PublicAuthShell>
+    <PublicAuthShell showFooter>
       <div className="flex w-full max-w-sm flex-col items-center animate-fade-in">
         <div className="w-full rounded-2xl border border-border/85 bg-surface-raised/88 p-6 shadow-[0_14px_36px_rgba(0,0,0,0.12)]">
           {stage === "form" && (
@@ -268,7 +268,7 @@ function SignUpCompleteSplash() {
   }, []);
 
   return (
-    <PublicAuthShell>
+    <PublicAuthShell showFooter>
       <div className="flex flex-col items-center gap-3">
         <Loader2 className="h-8 w-8 animate-spin text-accent" />
         <p className="text-sm text-text-muted">{t("signingIn")}</p>

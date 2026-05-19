@@ -1,5 +1,46 @@
 # SESSION-HANDOFF
 
+## 2026-05-20 — Dark SBP visibility + auth footer parity + narrow document-label cleanup
+
+### What landed
+
+- **SBP mark is now visible in dark mode.** In `apps/web/app/_components/landing/finale-section.tsx`, the small `SBP` logo inside the finale trust chip now gets a dark-mode invert/brightness treatment, so it no longer disappears into the dark footer surface.
+- **`sign-in` / `sign-up` now use the same footer treatment as legal pages.** `apps/web/app/_components/public-auth-shell.tsx` footer spacing and border rhythm now mirror the legal/static pages (`border-t`, centered max width, top padding). `apps/web/app/sign-in/[[...sign-in]]/page.tsx` and `apps/web/app/sign-up/[[...sign-in]]/page.tsx` now enable that footer in their loading, main, and sign-up-complete states.
+- **Document scene no longer ships fragile slide-count labels on narrow screens.** `apps/web/app/_components/landing/workflow-surface.tsx` removed the `Slide 1 / 12` captions from the `PDF`, `PPTX`, and `DOCX` cards and also dropped the small `12 slides` footer label from the `PPTX` card, leaving the document compositions clean and stable on narrow mobile widths.
+- **Landing workflow test was aligned to the new document-card truth.** `apps/web/app/page.test.tsx` no longer expects `Slide 1 / 12` inside the workflow scene.
+
+### Why
+
+Founder validated the previous mobile layout pass in production and flagged three remaining polish issues: the `SBP` mark was too faint in dark mode, auth pages still closed with a simpler footer than legal pages, and the slide-count labels inside document cards were the next thing to break on narrow screens. All three fixes are surface-level presentation adjustments with no product-flow change.
+
+### Files touched
+
+- `apps/web/app/_components/landing/finale-section.tsx`
+- `apps/web/app/_components/public-auth-shell.tsx`
+- `apps/web/app/sign-in/[[...sign-in]]/page.tsx`
+- `apps/web/app/sign-up/[[...sign-in]]/page.tsx`
+- `apps/web/app/_components/landing/workflow-section.tsx`
+- `apps/web/app/_components/landing/workflow-surface.tsx`
+- `apps/web/app/page.test.tsx`
+- `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint` — clean.
+- `corepack pnpm run format:check` — clean.
+- `corepack pnpm --filter @persai/api run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — `3/3` green.
+
+### Risks / residuals
+
+- The auth footer now uses legal-page framing through the shared `PublicAuthShell`, so public pricing inherits the same calmer footer rhythm as well. That is visually consistent with founder direction, but if pricing later needs a stronger merchandising footer it should become an explicit shell option rather than a silent divergence.
+- The `deckCaption` i18n keys still exist in locale files even though the workflow scene no longer renders them. They are harmless, but can be removed in a future cleanup pass if founder wants the message catalogs trimmed.
+
+### Next recommended step
+
+- Do one last visual pass in dark mode on the finale trust row and on `sign-in` / `sign-up` to confirm the new footer and `SBP` contrast feel correct in production, then stop the landing/public polish slice.
+
 ## 2026-05-19 — Workflow mobile width tuning for specific cards
 
 ### What landed

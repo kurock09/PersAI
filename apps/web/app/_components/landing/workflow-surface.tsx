@@ -40,7 +40,6 @@ export type PlansSurfaceStrings = {
 export type DocumentsSurfaceStrings = {
   prompt: string;
   reply: string;
-  deckCaption: string;
 };
 
 export type MediaSurfaceStrings = {
@@ -276,18 +275,9 @@ function DocumentsScene({ s }: { s: DocumentsSurfaceStrings }) {
       </div>
 
       <div className="relative col-span-7 h-full">
-        <PdfDocumentCard
-          caption={s.deckCaption}
-          className="absolute right-[8%] top-[10%] w-[66.5%] sm:w-[55%] [transform:rotate(-4deg)_translateZ(34px)]"
-        />
-        <PptxDocumentCard
-          caption={s.deckCaption}
-          className="absolute right-[20%] top-[34%] w-[72.5%] sm:w-[60%] [transform:rotate(2deg)_translateZ(20px)]"
-        />
-        <DocxDocumentCard
-          caption={s.deckCaption}
-          className="absolute right-[10%] top-[58%] w-[55%] sm:w-[50%] [transform:rotate(6deg)_translateZ(8px)]"
-        />
+        <PdfDocumentCard className="absolute right-[8%] top-[10%] w-[66.5%] sm:w-[55%] [transform:rotate(-4deg)_translateZ(34px)]" />
+        <PptxDocumentCard className="absolute right-[20%] top-[34%] w-[72.5%] sm:w-[60%] [transform:rotate(2deg)_translateZ(20px)]" />
+        <DocxDocumentCard className="absolute right-[10%] top-[58%] w-[55%] sm:w-[50%] [transform:rotate(6deg)_translateZ(8px)]" />
       </div>
     </div>
   );
@@ -295,12 +285,11 @@ function DocumentsScene({ s }: { s: DocumentsSurfaceStrings }) {
 
 function DocumentCardShell(props: {
   format: string;
-  caption: string;
   tone: "muted" | "accent";
   className?: string | undefined;
   children: ReactNode;
 }) {
-  const { format, caption, tone, className, children } = props;
+  const { format, tone, className, children } = props;
   return (
     <div
       className={cn(
@@ -320,18 +309,15 @@ function DocumentCardShell(props: {
         >
           {format}
         </span>
-        <span className="text-[9px] font-medium uppercase tracking-[0.18em] text-text-subtle/70">
-          {caption}
-        </span>
       </div>
       {children}
     </div>
   );
 }
 
-function PdfDocumentCard({ caption, className }: { caption: string; className?: string }) {
+function PdfDocumentCard({ className }: { className?: string }) {
   return (
-    <DocumentCardShell format="PDF" caption={caption} tone="muted" className={className}>
+    <DocumentCardShell format="PDF" tone="muted" className={className}>
       <div className="mt-3 space-y-1.5">
         <div className="h-2 w-3/4 rounded-full bg-text/45" />
         <div className="h-1.5 w-full rounded-full bg-text-subtle/30" />
@@ -347,9 +333,9 @@ function PdfDocumentCard({ caption, className }: { caption: string; className?: 
   );
 }
 
-function PptxDocumentCard({ caption, className }: { caption: string; className?: string }) {
+function PptxDocumentCard({ className }: { className?: string }) {
   return (
-    <DocumentCardShell format="PPTX" caption={caption} tone="accent" className={className}>
+    <DocumentCardShell format="PPTX" tone="accent" className={className}>
       {/* Mini slide preview — warm title strip + sage bullets + a tiny chart */}
       <div className="mt-3 overflow-hidden rounded-md border border-border/45 bg-surface-raised/70">
         <div className="h-2 w-full bg-gradient-to-r from-amber-400/70 via-amber-300/45 to-transparent dark:from-amber-300/60 dark:via-amber-200/30" />
@@ -373,23 +359,18 @@ function PptxDocumentCard({ caption, className }: { caption: string; className?:
           </div>
         </div>
       </div>
-      <div className="mt-2 flex items-center justify-between">
-        <div className="flex gap-1">
-          <span className="h-1.5 w-1.5 rounded-full bg-accent/80" aria-hidden />
-          <span className="h-1.5 w-1.5 rounded-full bg-text-subtle/35" aria-hidden />
-          <span className="h-1.5 w-1.5 rounded-full bg-text-subtle/35" aria-hidden />
-        </div>
-        <span className="text-[8px] font-medium uppercase tracking-[0.18em] text-text-subtle/70">
-          12 slides
-        </span>
+      <div className="mt-2 flex gap-1">
+        <span className="h-1.5 w-1.5 rounded-full bg-accent/80" aria-hidden />
+        <span className="h-1.5 w-1.5 rounded-full bg-text-subtle/35" aria-hidden />
+        <span className="h-1.5 w-1.5 rounded-full bg-text-subtle/35" aria-hidden />
       </div>
     </DocumentCardShell>
   );
 }
 
-function DocxDocumentCard({ caption, className }: { caption: string; className?: string }) {
+function DocxDocumentCard({ className }: { className?: string }) {
   return (
-    <DocumentCardShell format="DOCX" caption={caption} tone="muted" className={className}>
+    <DocumentCardShell format="DOCX" tone="muted" className={className}>
       <div className="mt-3 space-y-1.5">
         {/* Heading */}
         <div className="flex items-center gap-1.5">

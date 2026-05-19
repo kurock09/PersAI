@@ -68,7 +68,6 @@ const LANDING_MESSAGES: Record<string, string> = {
   "workflow.scenes.documents.body": "Creates PDFs and presentations.",
   "workflow.scenes.documents.surface.prompt": "Build a deck from this plan",
   "workflow.scenes.documents.surface.reply": "Done. Files attached.",
-  "workflow.scenes.documents.surface.deckCaption": "Slide 1 / 12",
   "workflow.scenes.media.tag": "Media",
   "workflow.scenes.media.title": "Images and video",
   "workflow.scenes.media.body": "Generates visuals and video.",
@@ -184,7 +183,6 @@ describe("Landing page", () => {
 
     // Surface labels live inside the schematic itself.
     expect(screen.getAllByText("What about week 2?").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Slide 1 / 12").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Cover for the launch").length).toBeGreaterThan(0);
     expect(screen.getAllByText("project-brief.pdf").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Aurora").length).toBeGreaterThan(0);

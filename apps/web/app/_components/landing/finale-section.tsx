@@ -74,7 +74,7 @@ export async function LandingFinaleSection() {
                   alt={item.iconAlt ?? ""}
                   width={18}
                   height={18}
-                  className="h-[18px] w-[18px] shrink-0"
+                  className="h-[18px] w-[18px] shrink-0 dark:invert dark:brightness-150"
                 />
               ) : null}
               <span>{item.label}</span>

@@ -60,8 +60,7 @@ export async function LandingWorkflowSection() {
       kind: "documents",
       values: {
         prompt: t("scenes.documents.surface.prompt"),
-        reply: t("scenes.documents.surface.reply"),
-        deckCaption: t("scenes.documents.surface.deckCaption")
+        reply: t("scenes.documents.surface.reply")
       }
     },
     media: {
