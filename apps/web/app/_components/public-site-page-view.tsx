@@ -14,6 +14,7 @@ import { setLocaleCookie } from "../lib/locale-sync";
 
 export type PublicSitePageViewCopy = {
   footerLinks: Array<{ label: string; href: Route }>;
+  brandTagline: string;
   pageLabel: string;
   marketLabel: string;
   localeLabel: string;
@@ -76,31 +77,15 @@ export function PublicSitePageView(props: {
             >
               Pers<span className="text-text">AI</span>
             </Link>
-
-            <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium tracking-[0.12em] text-text-subtle">
-              <span className="rounded-full border border-border/70 bg-surface-raised/20 px-3 py-1 uppercase">
-                {copy.pageLabel}
-              </span>
-              <span className="rounded-full border border-border/70 bg-surface-raised/20 px-3 py-1 uppercase">
-                {copy.marketLabel}
-              </span>
-              <span className="rounded-full border border-border/70 bg-surface-raised/20 px-3 py-1 uppercase">
-                {copy.localeLabel}
-              </span>
-              {page.version ? (
-                <span className="rounded-full border border-border/70 bg-surface-raised/20 px-3 py-1 tracking-[0.06em] text-text-muted">
-                  {page.version}
-                </span>
-              ) : null}
-            </div>
+            <p className="text-[11px] leading-5 text-text-subtle">{copy.brandTagline}</p>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2 text-[11px] text-text-subtle">
+          <div className="flex flex-wrap items-center justify-end gap-2 text-[10px] text-text-subtle sm:text-[11px]">
             {localeLinks.map((variant) => (
               <Link
                 key={`locale:${variant.market}:${variant.locale}`}
                 href={buildHref(variant.market, variant.locale)}
-                className="rounded-full border border-border/70 px-3 py-1.5 transition-colors hover:border-accent/35 hover:text-text"
+                className="rounded-full border border-border/60 px-2.5 py-1 transition-colors hover:border-accent/35 hover:text-text"
               >
                 {variant.locale === "ru" ? copy.localeVariantRu : copy.localeVariantEn}
               </Link>
@@ -109,7 +94,7 @@ export function PublicSitePageView(props: {
               <Link
                 key={`market:${variant.market}:${variant.locale}`}
                 href={buildHref(variant.market, variant.locale)}
-                className="rounded-full border border-border/70 px-3 py-1.5 transition-colors hover:border-accent/35 hover:text-text"
+                className="rounded-full border border-border/60 px-2.5 py-1 transition-colors hover:border-accent/35 hover:text-text"
               >
                 {variant.market === "rf" ? copy.marketVariantRf : copy.marketVariantIntl}
               </Link>
@@ -124,9 +109,21 @@ export function PublicSitePageView(props: {
             </h1>
           </div>
 
-          <div className="mt-8 h-px bg-gradient-to-r from-accent/20 via-border to-transparent" />
+          <div className="mt-6 h-px bg-gradient-to-r from-accent/20 via-border to-transparent" />
 
-          <article className="mt-10 max-w-none">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-medium tracking-[0.1em] text-text-subtle sm:text-[11px]">
+            <span className="rounded-full border border-border/60 bg-surface-raised/10 px-2.5 py-1 uppercase">
+              {copy.pageLabel}
+            </span>
+            <span className="rounded-full border border-border/60 bg-surface-raised/10 px-2.5 py-1 uppercase">
+              {copy.marketLabel}
+            </span>
+            <span className="rounded-full border border-border/60 bg-surface-raised/10 px-2.5 py-1 uppercase">
+              {copy.localeLabel}
+            </span>
+          </div>
+
+          <article className="mt-8 max-w-none">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{

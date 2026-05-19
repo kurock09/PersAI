@@ -57,6 +57,7 @@ export async function renderPublicSitePage(
       { label: t("footer.contacts"), href: buildPageHref("contacts") },
       { label: t("footer.requisites"), href: buildPageHref("requisites") }
     ],
+    brandTagline: t("brandTagline"),
     pageLabel: resolvePageLabel(t, result.page.slug),
     marketLabel: result.resolvedMarket === "rf" ? t("marketLabels.rf") : t("marketLabels.intl"),
     localeLabel: result.resolvedLocale.toUpperCase(),
