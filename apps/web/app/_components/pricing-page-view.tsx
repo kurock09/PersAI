@@ -508,11 +508,11 @@ export function PricingPageView({
                     <section
                       key={plan.code}
                       className={cn(
-                        "relative flex h-full flex-col overflow-hidden rounded-[32px] border bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.16)] backdrop-blur-sm transition-[transform,box-shadow,border-color,background-color] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_32px_96px_rgba(0,0,0,0.22)] sm:p-6 lg:min-h-[40rem]",
+                        "relative flex h-full flex-col overflow-hidden rounded-[30px] border bg-surface/84 p-5 shadow-[0_12px_36px_rgba(0,0,0,0.10)] transition-[transform,box-shadow,border-color,background-color] duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[0_18px_44px_rgba(0,0,0,0.14)] sm:p-6 lg:min-h-[40rem]",
                         isCurrent
-                          ? "border-border/80 bg-surface-raised/70 hover:border-border"
+                          ? "border-border/85 bg-surface-raised/82 hover:border-border"
                           : isPremiumHighlighted
-                            ? "border-transparent [background:linear-gradient(180deg,rgba(255,238,190,0.16),rgba(255,248,230,0.05))_padding-box,linear-gradient(135deg,rgba(255,226,150,0.82),rgba(214,170,70,0.48),rgba(255,248,230,0.24),rgba(176,132,33,0.58))_border-box] hover:[background:linear-gradient(180deg,rgba(255,238,190,0.22),rgba(255,248,230,0.08))_padding-box,linear-gradient(135deg,rgba(255,235,179,0.92),rgba(219,178,84,0.62),rgba(255,248,230,0.32),rgba(186,141,39,0.72))_border-box] dark:border-[rgba(212,168,66,0.55)] dark:[background:var(--surface)] dark:hover:border-[rgba(224,183,86,0.72)] dark:hover:[background:var(--surface)]"
+                            ? "border-accent-premium/30 bg-surface-raised/68 hover:border-accent-premium/45"
                             : "border-border/80 hover:border-accent/35"
                       )}
                     >
@@ -520,7 +520,7 @@ export function PricingPageView({
                         className={cn(
                           "absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent to-transparent",
                           isPremiumHighlighted
-                            ? "via-[#f0d48a]/80"
+                            ? "via-accent-premium/60"
                             : isCurrent
                               ? "via-text-subtle/25"
                               : "via-accent/40"
@@ -530,7 +530,14 @@ export function PricingPageView({
                       {badge ? (
                         <div className="flex min-h-8 items-center gap-2">
                           {badge ? (
-                            <span className="rounded-full border border-accent/25 bg-accent/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">
+                            <span
+                              className={cn(
+                                "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]",
+                                isPremiumHighlighted
+                                  ? "border border-accent-premium/25 bg-accent-premium/10 text-accent-premium"
+                                  : "border border-accent/25 bg-accent/10 text-accent"
+                              )}
+                            >
                               {badge}
                             </span>
                           ) : null}
@@ -544,7 +551,12 @@ export function PricingPageView({
                           {title}
                         </p>
                         {plan.presentation.highlighted ? (
-                          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-accent/80" />
+                          <Sparkles
+                            className={cn(
+                              "mt-0.5 h-4 w-4 shrink-0",
+                              isPremiumHighlighted ? "text-accent-premium/80" : "text-accent/80"
+                            )}
+                          />
                         ) : null}
                       </div>
 
@@ -584,7 +596,12 @@ export function PricingPageView({
                             key={item}
                             className="flex items-start gap-2.5 text-sm leading-6 text-text-muted"
                           >
-                            <Check className="mt-1 h-4 w-4 shrink-0 text-accent" />
+                            <Check
+                              className={cn(
+                                "mt-1 h-4 w-4 shrink-0",
+                                isPremiumHighlighted ? "text-accent-premium" : "text-accent"
+                              )}
+                            />
                             <span>{item}</span>
                           </li>
                         ))}
@@ -631,7 +648,7 @@ export function PricingPageView({
                               type="button"
                               disabled={submittingPlanKey !== null}
                               onClick={() => void startCheckout(plan)}
-                              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 text-sm font-semibold text-white shadow-[0_0_36px_var(--accent-glow)] transition-all hover:bg-accent-hover disabled:cursor-wait disabled:opacity-70"
+                              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 text-sm font-semibold text-white shadow-[0_0_18px_var(--accent-glow)] transition-all hover:bg-accent-hover disabled:cursor-wait disabled:opacity-70"
                             >
                               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                               {isSubmitting ? t("startingCheckout") : ctaLabel}
@@ -643,7 +660,7 @@ export function PricingPageView({
                         ) : (
                           <Link
                             href={signUpHref as Route}
-                            className="flex min-h-12 items-center justify-center rounded-2xl bg-accent px-4 text-sm font-semibold text-white shadow-[0_0_36px_var(--accent-glow)] transition-all hover:bg-accent-hover"
+                            className="flex min-h-12 items-center justify-center rounded-2xl bg-accent px-4 text-sm font-semibold text-white shadow-[0_0_18px_var(--accent-glow)] transition-all hover:bg-accent-hover"
                           >
                             {ctaLabel}
                           </Link>
@@ -658,8 +675,8 @@ export function PricingPageView({
         </div>
       </div>
       {reviewState ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 backdrop-blur-sm sm:items-center sm:p-6">
-          <div className="w-full max-w-lg overflow-hidden rounded-[28px] border border-white/10 bg-[color:var(--surface)] shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-3 backdrop-blur-sm sm:items-center sm:p-6">
+          <div className="w-full max-w-lg overflow-hidden rounded-[28px] border border-border/85 bg-[color:var(--surface)] shadow-[0_20px_60px_rgba(0,0,0,0.22)]">
             <div className="border-b border-border/70 px-5 py-4 sm:px-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -737,7 +754,7 @@ export function PricingPageView({
                     }
                     await submitPlanChange(reviewState.plan, token);
                   }}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-accent px-4 text-sm font-semibold text-white shadow-[0_0_36px_var(--accent-glow)] transition-all hover:bg-accent-hover disabled:cursor-wait disabled:opacity-70"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-accent px-4 text-sm font-semibold text-white shadow-[0_0_18px_var(--accent-glow)] transition-all hover:bg-accent-hover disabled:cursor-wait disabled:opacity-70"
                 >
                   {submittingPlanKey === reviewState.plan.code ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

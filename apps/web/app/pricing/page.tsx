@@ -16,11 +16,7 @@ export default async function PricingPage() {
   return (
     <>
       <BackButtonBridge />
-      <PublicAuthShell
-        showFooter
-        showDownloadCta
-        mainClassName="items-stretch justify-start py-4 sm:py-6"
-      >
+      <PublicAuthShell showFooter mainClassName="items-stretch justify-start py-4 sm:py-6">
         <PricingPageView
           plans={plans}
           currentPlanCode={currentPlanCode}

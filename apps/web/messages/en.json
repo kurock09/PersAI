@@ -135,6 +135,11 @@
       "titleLine1": "One step",
       "titleLine2": "to your own PersAI.",
       "body": "Set up your assistant in a minute. Start free \u2014 expand as your workflow grows.",
+      "trust": {
+        "fastStart": "Start in a couple of minutes",
+        "payment": "SBP and local cards",
+        "access": "Works without VPN"
+      },
       "ctaPrimary": "Start free",
       "ctaSecondary": "View pricing",
       "note": "No card required to start. Cancel anytime."

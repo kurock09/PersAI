@@ -59,9 +59,9 @@ export function PublicSitePageView(props: {
   return (
     <main className="relative min-h-screen overflow-hidden bg-chrome">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-[6%] top-[4%] h-[460px] w-[460px] rounded-full bg-accent/[0.11] blur-[150px]" />
-        <div className="absolute right-[10%] top-[22%] h-[320px] w-[320px] rounded-full bg-accent/[0.06] blur-[120px]" />
-        <div className="absolute bottom-[8%] left-[42%] h-[280px] w-[280px] rounded-full bg-accent/[0.08] blur-[110px]" />
+        <div className="absolute left-[6%] top-[4%] h-[420px] w-[420px] rounded-full bg-accent/[0.08] blur-[145px]" />
+        <div className="absolute right-[10%] top-[22%] h-[300px] w-[300px] rounded-full bg-accent/[0.045] blur-[115px]" />
+        <div className="absolute bottom-[8%] left-[42%] h-[250px] w-[250px] rounded-full bg-accent/[0.06] blur-[105px]" />
       </div>
 
       <div
@@ -99,7 +99,7 @@ export function PublicSitePageView(props: {
 
         <section className="mx-auto mt-12 w-full max-w-3xl sm:mt-16">
           <div className="max-w-2xl">
-            <h1 className="text-[clamp(2rem,4.25vw,3.75rem)] font-semibold leading-[1.02] tracking-[-0.05em] text-text">
+            <h1 className="text-[clamp(2rem,4vw,3.35rem)] font-semibold leading-[1.04] tracking-[-0.04em] text-text">
               {page.title}
             </h1>
           </div>
@@ -135,22 +135,22 @@ export function PublicSitePageView(props: {
               components={{
                 h1: () => null,
                 h2: ({ children }) => (
-                  <h2 className="mt-14 text-2xl font-semibold tracking-[-0.03em] text-text sm:text-3xl">
+                  <h2 className="mt-14 text-[1.65rem] font-semibold tracking-[-0.025em] text-text sm:text-[2rem]">
                     {children}
                   </h2>
                 ),
                 h3: ({ children }) => (
-                  <h3 className="mt-11 text-lg font-semibold tracking-[-0.02em] text-text sm:text-xl">
+                  <h3 className="mt-11 text-[1.05rem] font-semibold tracking-[-0.015em] text-text sm:text-[1.15rem]">
                     {children}
                   </h3>
                 ),
                 p: ({ children }) => (
-                  <p className="mt-5 text-[15px] leading-8 text-text-muted sm:text-[16px]">
+                  <p className="mt-5 text-[15px] leading-[1.9] text-text-muted sm:text-[16px]">
                     {children}
                   </p>
                 ),
                 ul: ({ children }) => (
-                  <ul className="mt-6 space-y-3 pl-0 text-[15px] leading-8 text-text-muted sm:text-[16px]">
+                  <ul className="mt-6 space-y-3 pl-0 text-[15px] leading-[1.9] text-text-muted sm:text-[16px]">
                     {children}
                   </ul>
                 ),

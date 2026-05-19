@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 const THEME_COOKIE = "persai-theme";
 const THEME_COLOR_DARK = "#161513";
-const THEME_COLOR_LIGHT = "#e0d8c8";
+const THEME_COLOR_LIGHT = "#f3f4ed";
 
 type ThemeChoice = "system" | "dark" | "light";
 type ResolvedTheme = "dark" | "light";
@@ -34,7 +34,7 @@ function isThemeChoice(value: string | undefined): value is ThemeChoice {
  * server-resolved. This is the documented first-visit path, not a parallel
  * source of truth.
  */
-const themeFallbackScript = `(function(){try{var m=document.cookie.match(/(?:^|; )persai-theme=([^;]+)/);var s=m?decodeURIComponent(m[1]):null;var c=(s==="system"||s==="dark"||s==="light")?s:"system";var r=c==="system"?(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):c;var d=document.documentElement;if(r==="light")d.classList.add("light");else d.classList.remove("light");d.style.colorScheme=r;var meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.setAttribute("content",r==="light"?"#e0d8c8":"#161513");if(!s){var sec=location.protocol==="https:"?"; Secure":"";document.cookie="persai-theme="+c+"; Path=/; Max-Age=31536000; SameSite=Lax"+sec;}try{if(window.PersaiNative&&typeof window.PersaiNative.setTheme==="function")window.PersaiNative.setTheme(r);}catch(e2){}}catch(e){}})();`;
+const themeFallbackScript = `(function(){try{var m=document.cookie.match(/(?:^|; )persai-theme=([^;]+)/);var s=m?decodeURIComponent(m[1]):null;var c=(s==="system"||s==="dark"||s==="light")?s:"system";var r=c==="system"?(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):c;var d=document.documentElement;if(r==="light")d.classList.add("light");else d.classList.remove("light");d.style.colorScheme=r;var meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.setAttribute("content",r==="light"?"#f3f4ed":"#161513");if(!s){var sec=location.protocol==="https:"?"; Secure":"";document.cookie="persai-theme="+c+"; Path=/; Max-Age=31536000; SameSite=Lax"+sec;}try{if(window.PersaiNative&&typeof window.PersaiNative.setTheme==="function")window.PersaiNative.setTheme(r);}catch(e2){}}catch(e){}})();`;
 
 const clerkAppearance = {
   variables: {

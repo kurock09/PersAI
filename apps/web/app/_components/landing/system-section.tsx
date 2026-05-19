@@ -39,10 +39,10 @@ export async function LandingSystemSection() {
         ))}
       </div>
 
-      {/* Channels — each tile carries a real branded squircle icon (PNG with
-          alpha + soft drop shadow, sliced from a single premium icon set so
-          the four read as one family). The tile background tint stays subtle
-          so the icon's own colored squircle does the visual lifting. */}
+      {/* Channels — keep the tile surface calm and mostly neutral so the
+          branded squircle itself carries the color. Founder feedback: once
+          every card gets its own tinted background the row starts reading like
+          four unrelated products instead of one PersAI system. */}
       <div className="mt-14 sm:mt-20">
         <p className="text-[10px] font-semibold uppercase tracking-[0.26em] text-text-subtle">
           {t("channels.eyebrow")}
@@ -138,10 +138,10 @@ function ChannelTile(props: {
   const tone = props.muted ? "muted" : props.tone;
   const wrap =
     tone === "sage"
-      ? "border-accent/35 bg-accent/[0.07] hover:border-accent/55 hover:bg-accent/[0.11]"
+      ? "border-border/45 bg-surface-raised/18 hover:border-accent/28 hover:bg-surface-raised/28"
       : tone === "sky"
-        ? "border-sky-300/45 bg-sky-50/55 hover:border-sky-300/65 hover:bg-sky-50/75 dark:border-sky-300/30 dark:bg-sky-300/[0.08] dark:hover:border-sky-300/45 dark:hover:bg-sky-300/[0.12]"
-        : "border-border/50 bg-surface-raised/25 hover:border-border/70 hover:bg-surface-raised/40";
+        ? "border-border/45 bg-surface-raised/18 hover:border-sky-300/28 hover:bg-surface-raised/28 dark:hover:border-sky-300/24"
+        : "border-border/45 bg-surface-raised/18 hover:border-border/60 hover:bg-surface-raised/28";
   return (
     <div
       className={cn(

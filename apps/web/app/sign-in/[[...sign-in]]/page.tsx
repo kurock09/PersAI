@@ -203,7 +203,7 @@ export default function SignInPage() {
   return (
     <PublicAuthShell>
       <div className="flex w-full max-w-sm flex-col items-center animate-fade-in">
-        <div className="w-full rounded-2xl border border-border bg-surface p-6 shadow-xl">
+        <div className="w-full rounded-2xl border border-border/85 bg-surface-raised/88 p-6 shadow-[0_14px_36px_rgba(0,0,0,0.12)]">
           {stage === "form" && (
             <>
               <PublicAuthCardHeader title={t("signInTitle")} description={t("signInWelcome")} />
@@ -266,7 +266,7 @@ export default function SignInPage() {
                 className={cn(
                   "mt-5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all",
                   email.trim() && password
-                    ? "bg-accent text-white shadow-lg shadow-accent-glow hover:bg-accent-hover"
+                    ? "bg-accent text-white shadow-[0_0_18px_var(--accent-glow)] hover:bg-accent-hover"
                     : "cursor-default bg-surface-raised text-text-subtle"
                 )}
               >
@@ -321,7 +321,7 @@ export default function SignInPage() {
                 className={cn(
                   "mt-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all",
                   code.trim()
-                    ? "bg-accent text-white shadow-lg shadow-accent-glow hover:bg-accent-hover"
+                    ? "bg-accent text-white shadow-[0_0_18px_var(--accent-glow)] hover:bg-accent-hover"
                     : "cursor-default bg-surface-raised text-text-subtle"
                 )}
               >
@@ -375,7 +375,7 @@ export default function SignInPage() {
                 className={cn(
                   "mt-5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all",
                   resetEmail.trim()
-                    ? "bg-accent text-white shadow-lg shadow-accent-glow hover:bg-accent-hover"
+                    ? "bg-accent text-white shadow-[0_0_18px_var(--accent-glow)] hover:bg-accent-hover"
                     : "cursor-default bg-surface-raised text-text-subtle"
                 )}
               >
@@ -422,7 +422,7 @@ export default function SignInPage() {
                 className={cn(
                   "mt-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all",
                   resetCode.trim()
-                    ? "bg-accent text-white shadow-lg shadow-accent-glow hover:bg-accent-hover"
+                    ? "bg-accent text-white shadow-[0_0_18px_var(--accent-glow)] hover:bg-accent-hover"
                     : "cursor-default bg-surface-raised text-text-subtle"
                 )}
               >

@@ -113,6 +113,9 @@ const LANDING_MESSAGES: Record<string, string> = {
   "finale.titleLine1": "One step",
   "finale.titleLine2": "to your own PersAI.",
   "finale.body": "Set up your assistant in a minute. Start free — expand as your workflow grows.",
+  "finale.trust.fastStart": "Start in a couple of minutes",
+  "finale.trust.payment": "SBP and local cards",
+  "finale.trust.access": "Works without VPN",
   "finale.ctaPrimary": "Start free",
   "finale.ctaSecondary": "View pricing",
   "finale.note": "No card required to start. Cancel anytime.",
@@ -204,6 +207,9 @@ describe("Landing page", () => {
     // Finale — typographic two-line headline (rhymes with hero).
     expect(screen.getByText("One step")).toBeInTheDocument();
     expect(screen.getByText("to your own PersAI.")).toBeInTheDocument();
+    expect(screen.getByText("Start in a couple of minutes")).toBeInTheDocument();
+    expect(screen.getByText("SBP and local cards")).toBeInTheDocument();
+    expect(screen.getByText("Works without VPN")).toBeInTheDocument();
     expect(screen.queryByText("Calm access")).not.toBeInTheDocument();
     expect(screen.getByText("No card required to start. Cancel anytime.")).toBeInTheDocument();
 

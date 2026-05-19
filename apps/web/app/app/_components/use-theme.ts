@@ -11,7 +11,7 @@ const COOKIE_KEY = "persai-theme";
 const COOKIE_MAX_AGE_SECONDS = 31_536_000;
 const CYCLE: readonly ThemeChoice[] = ["system", "light", "dark"];
 const THEME_COLOR_DARK = "#161513";
-const THEME_COLOR_LIGHT = "#e0d8c8";
+const THEME_COLOR_LIGHT = "#f3f4ed";
 
 function readCookieChoice(): ThemeChoice | null {
   if (typeof document === "undefined") return null;

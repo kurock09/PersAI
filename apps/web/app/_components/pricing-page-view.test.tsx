@@ -777,15 +777,11 @@ describe("PricingPageView", () => {
     const highlightedCard = screen.getByText("Pro").closest("section");
     const regularCard = screen.getByText("Ultima").closest("section");
 
-    expect(currentCard?.className).toContain("bg-surface-raised/70");
+    expect(currentCard?.className).toContain("bg-surface-raised/82");
     expect(currentCard?.className).not.toContain("border-transparent");
-    expect(highlightedCard?.className).toContain("border-transparent");
-    expect(highlightedCard?.className).toContain(
-      "[background:linear-gradient(180deg,rgba(255,238,190,0.16)"
-    );
-    expect(highlightedCard?.className).toContain("dark:[background:var(--surface)]");
-    expect(highlightedCard?.className).toContain("dark:border-[rgba(212,168,66,0.55)]");
-    expect(highlightedCard?.className).toContain("dark:hover:[background:var(--surface)]");
+    expect(highlightedCard?.className).toContain("border-accent-premium/30");
+    expect(highlightedCard?.className).toContain("bg-surface-raised/68");
+    expect(highlightedCard?.className).toContain("hover:border-accent-premium/45");
     expect(regularCard?.className).toContain("border-border/80");
   });
 

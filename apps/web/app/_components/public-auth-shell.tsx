@@ -28,8 +28,8 @@ export function PublicAuthShell(props: {
   return (
     <div className="relative min-h-screen min-h-[100svh] overflow-x-hidden bg-chrome">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute top-[12%] left-[7%] h-[380px] w-[380px] rounded-full bg-accent/[0.08] blur-[120px] animate-pulse-slow" />
-        <div className="absolute right-[6%] bottom-[18%] h-[320px] w-[320px] rounded-full bg-accent/[0.05] blur-[110px] animate-pulse-slow [animation-delay:2s]" />
+        <div className="absolute top-[12%] left-[7%] h-[380px] w-[380px] rounded-full bg-accent/[0.07] blur-[120px]" />
+        <div className="absolute right-[6%] bottom-[18%] h-[320px] w-[320px] rounded-full bg-accent/[0.04] blur-[110px]" />
       </div>
 
       <div

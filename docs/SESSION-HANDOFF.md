@@ -1,5 +1,110 @@
 # SESSION-HANDOFF
 
+## 2026-05-19 — Workflow mobile width tuning for specific cards
+
+### What landed
+
+- **Knowledge / Sources panel widened again on mobile.** In `apps/web/app/_components/landing/workflow-surface.tsx`, the `Источники` card inside `KnowledgeScene` now renders at `125%` width on mobile with a left offset, so it pushes further toward the right frame edge and gets visibly more usable width.
+- **Knowledge scene edge padding was reduced again on mobile.** The same scene now uses `px-1` / `min-[360px]:px-1.5` before `sm`, so the left and right side cards sit much closer to the frame boundary.
+- **Documents scene `PDF` and `PPTX` cards were widened again on mobile.** The two upper document cards now render at `66.5%` and `72.5%` on mobile respectively, while `DOCX` keeps the earlier widened mobile width and all three retain the original widths from `sm` upward.
+- **Personality / Tone card widened again on mobile.** The `Тон` panel now renders at `125%` width on mobile with the same left-offset approach, giving the chip stack more room inside the right-hand column.
+
+### Why
+
+Founder reviewed the first width pass in the forward preview and asked for one more step: make the outer scene margins visibly tighter and push the busiest right-side cards farther outward so they stop feeling constrained inside the mobile frame.
+
+### Files touched
+
+- `apps/web/app/_components/landing/workflow-surface.tsx`
+- `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`
+
+### Verification
+
+- Deferred by founder request. No checks run in this step yet.
+
+### Next recommended step
+
+- Review these three targeted width changes visually in the forward preview, then run the standard web verification gate only after founder confirms the mobile balance looks right.
+
+## 2026-05-19 — Workflow scenes stabilized for narrow-phone widths
+
+### What landed
+
+- **Workflow pseudo-3D surfaces now have a mobile-safe frame instead of using the desktop aspect on very narrow phones.** `apps/web/app/_components/landing/workflow-surface.tsx` now gives `SceneFrame` a fixed mobile height (`h-[18.5rem]`) before `sm`, then restores the original `16/10` aspect on larger breakpoints.
+- **The schematic itself now scales down on the narrowest widths.** Inside the same `SceneFrame`, the rendered scene content is wrapped in a centered responsive scale layer: `scale-[0.8]` on the smallest phones, `min-[360px]:scale-[0.88]`, and `sm:scale-100` afterwards. This keeps the personality / memory / media / documents / plans / knowledge compositions visually intact without rewriting each scene separately.
+- **Result:** the lower edge of the scene no longer clips on narrow Android widths, and the next scene heading no longer appears to collide with cropped pseudo-3D content during scroll.
+
+### Why
+
+Founder flagged the right issue from live phone screenshots: the workflow compositions were designed for desktop/tablet proportions and sat exactly on the edge of breaking on very narrow screens. The bug was not the art direction itself, but the lack of a shared narrow-phone safety mode. Fixing it once in `SceneFrame` keeps the existing six-scene system, avoids a risky refactor of every absolute-positioned child, and restores the intended calm scroll rhythm on phones.
+
+### Files touched
+
+- `apps/web/app/_components/landing/workflow-surface.tsx` (shared mobile-safe frame + scale rules for all workflow scenes)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md` (this entry)
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run lint` — clean.
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — `3/3` green.
+- Manual browser check at narrow mobile width confirmed the workflow cards no longer crop into the following section.
+
+### Risks / residuals
+
+- This is a shared mobile containment fix, not per-scene art retuning. If founder wants more aggressive mobile simplification later, the next step would be scene-specific layout reductions for the busiest compositions (`documents`, `media`, `knowledge`), but that is not required to resolve the current breakage.
+
+### Next recommended step
+
+- Do one quick RU + EN pass on a real phone for the three busiest workflow scenes (`media`, `documents`, `knowledge`) and only adjust scene-specific density if something still feels crowded.
+
+## 2026-05-19 — Finale trust row for RU/RF conversion + calmer public chrome
+
+### What landed
+
+- **Finale now closes with a quiet trust row instead of only abstract CTA copy.** `apps/web/app/_components/landing/finale-section.tsx` gained three compact trust chips between the body copy and CTA pair:
+  - RU: `«Быстрый старт за пару минут»`, `«СБП, Мир и карты РФ»`, `«Работает без VPN»`.
+  - EN fallback: `Start in a couple of minutes`, `SBP and local cards`, `Works without VPN`.
+  The payment chip now also carries a small local `apps/web/public/landing/sbp.svg` mark so `СБП` reads instantly without turning the row into a banner strip. This keeps the hero clean while moving the conversion-specific reassurance exactly where founder wanted it: low on the page, after the product story and channels, just before the action.
+- **Channels row was calmed down so branded squircle icons do the color work.** `apps/web/app/_components/landing/system-section.tsx` and `apps/web/app/_components/landing/android-channel-tile.tsx` no longer paint the tiles as separate sage / sky / amber cards. Surfaces are now near-neutral raised glass with only a light hover-border tint; Android keeps a small premium-toned arrow-chip as the single explicit download affordance.
+- **APK CTA removed from non-home public pricing.** `apps/web/app/pricing/page.tsx` no longer passes `showDownloadCta` into `PublicAuthShell`, so `Скачать APK` stays only on the landing's Android tile instead of reappearing under public pricing.
+- **Public chrome was aligned to the current light palette.** Earlier in this same session, `apps/web/app/layout.tsx` and `apps/web/app/app/_components/use-theme.ts` were updated so light `theme-color` now uses the actual sage off-white `#f3f4ed` instead of the older beige. `apps/web/app/_components/public-auth-shell.tsx`, `apps/web/app/_components/public-site-page-view.tsx`, `apps/web/app/sign-in/[[...sign-in]]/page.tsx`, `apps/web/app/sign-up/[[...sign-up]]/page.tsx`, and `apps/web/app/_components/pricing-page-view.tsx` were also softened: less pulse/glow/shadow, calmer legal-page typography, flatter auth cards, and pricing cards brought back into the same material family.
+
+### Why
+
+Founder review identified the exact weak point correctly: after the strong product story, the landing dropped into a beautiful but slightly generic finale. RU/RF conversion needs the last doubts answered quietly, not shouted in the hero. Putting `SBP / Мир / карты РФ / без VPN / быстрый старт` into a compact trust row near the final CTA makes the close more practical without turning the page into a payments landing. Calming the channels row and removing the extra public-pricing APK button keeps the lower half of the page from fragmenting into too many competing calls.
+
+### Files touched
+
+- `apps/web/app/_components/landing/finale-section.tsx` (trust row above finale CTA)
+- `apps/web/public/landing/sbp.svg` (local SBP logo asset for the payment chip)
+- `apps/web/messages/ru.json` (RU trust-row copy)
+- `apps/web/messages/en.json` (EN trust-row fallback copy)
+- `apps/web/app/page.test.tsx` (landing assertions extended to the new trust row)
+- `apps/web/app/_components/landing/system-section.tsx` (neutralized channel-card surfaces)
+- `apps/web/app/_components/landing/android-channel-tile.tsx` (neutral tile + premium arrow-chip only)
+- `apps/web/app/pricing/page.tsx` (drop public APK CTA)
+- `apps/web/app/layout.tsx`, `apps/web/app/app/_components/use-theme.ts` (light theme-color aligned to `#f3f4ed`)
+- `apps/web/app/_components/public-auth-shell.tsx` (static calmer halos)
+- `apps/web/app/_components/public-site-page-view.tsx` (calmer legal/static typography)
+- `apps/web/app/_components/pricing-page-view.tsx` (less decorative pricing cards)
+- `apps/web/app/sign-in/[[...sign-in]]/page.tsx`, `apps/web/app/sign-up/[[...sign-up]]/page.tsx` (flatter auth cards/buttons)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md` (this entry)
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run lint` — clean.
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — `3/3` green.
+
+### Risks / residuals
+
+- The RU/RF trust row is strong conversion copy, so it must continue to reflect actual product truth in production. If payment availability or `без VPN` reliability changes, update the copy immediately.
+- Android is now intentionally quieter inside the channels row. If founder wants stronger download focus later, prefer slightly stronger chip/border emphasis over reintroducing a full amber tile background.
+- During visual walkthrough a separate dev-only issue appeared on local legal pages (`/terms`) tied to the inline theme script render path in Next dev overlay. This is a local/dev concern surfaced during review, not part of the landing implementation itself, but it should be checked separately before using local legal-page preview as visual truth.
+
+### Next recommended step
+
+Founder visual acceptance of the lower half of the landing on RU light theme first: confirm that (a) the trust row strengthens the close without sounding loud, (b) Android still reads as the actionable tile, and (c) the finale now feels like a conversion close rather than a second hero. If accepted, commit the lower-half polish together.
+
 ## 2026-05-19 — Channel tiles unified to discrete-icon row + Telegram copy trim
 
 ### What landed

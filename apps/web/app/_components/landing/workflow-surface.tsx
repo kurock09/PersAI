@@ -109,13 +109,17 @@ function renderScene(strings: WorkflowSurfaceStrings) {
 
 function SceneFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="relative aspect-[16/10] w-full overflow-hidden rounded-2xl border border-border/40 bg-surface-raised/15 shadow-[0_30px_60px_-30px_rgba(0,0,0,0.45)]">
+    <div className="relative h-[18.5rem] w-full overflow-hidden rounded-2xl border border-border/40 bg-surface-raised/15 shadow-[0_30px_60px_-30px_rgba(0,0,0,0.45)] sm:h-auto sm:aspect-[16/10]">
       {/* Soft aurora glow behind the schematic — gives depth without competing. */}
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div className="absolute -left-12 top-1/3 h-72 w-72 rounded-full bg-accent/12 blur-[110px]" />
         <div className="absolute -right-14 bottom-1/4 h-64 w-64 rounded-full bg-accent/10 blur-[100px]" />
       </div>
-      <div className="relative h-full w-full [perspective:1100px]">{children}</div>
+      <div className="relative h-full w-full [perspective:1100px]">
+        <div className="h-full w-full origin-center scale-[0.84] min-[360px]:scale-[0.9] sm:scale-100">
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -137,7 +141,7 @@ function ChatBubble(props: {
     <div
       style={style}
       className={cn(
-        "relative rounded-2xl border p-3 backdrop-blur-sm shadow-[0_14px_30px_-18px_rgba(0,0,0,0.55)]",
+        "relative rounded-2xl border p-2.5 backdrop-blur-sm shadow-[0_14px_30px_-18px_rgba(0,0,0,0.55)] sm:p-3",
         isUser ? "border-border/55 bg-surface-raised/55" : "border-accent/35 bg-accent/[0.07]",
         className
       )}
@@ -192,7 +196,7 @@ function FloatingChip(props: {
 
 function MemoryScene({ s }: { s: MemorySurfaceStrings }) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center px-6 sm:px-10">
+    <div className="absolute inset-0 flex items-center justify-center px-3 min-[360px]:px-4 sm:px-10">
       <div className="relative w-full max-w-[22rem] [transform-style:preserve-3d] [transform:rotateY(-12deg)_rotateX(6deg)]">
         <div className="flex flex-col gap-3">
           <ChatBubble
@@ -251,7 +255,7 @@ function MemoryScene({ s }: { s: MemorySurfaceStrings }) {
 
 function DocumentsScene({ s }: { s: DocumentsSurfaceStrings }) {
   return (
-    <div className="absolute inset-0 grid grid-cols-12 items-center gap-4 px-6 sm:px-10">
+    <div className="absolute inset-0 grid grid-cols-12 items-center gap-2.5 px-3 min-[360px]:gap-3 min-[360px]:px-4 sm:gap-4 sm:px-10">
       <div className="col-span-5">
         <div className="space-y-3 [transform-style:preserve-3d] [transform:rotateY(-10deg)_rotateX(4deg)]">
           <ChatBubble
@@ -274,15 +278,15 @@ function DocumentsScene({ s }: { s: DocumentsSurfaceStrings }) {
       <div className="relative col-span-7 h-full">
         <PdfDocumentCard
           caption={s.deckCaption}
-          className="absolute right-[8%] top-[10%] w-[55%] [transform:rotate(-4deg)_translateZ(34px)]"
+          className="absolute right-[8%] top-[10%] w-[66.5%] sm:w-[55%] [transform:rotate(-4deg)_translateZ(34px)]"
         />
         <PptxDocumentCard
           caption={s.deckCaption}
-          className="absolute right-[20%] top-[34%] w-[60%] [transform:rotate(2deg)_translateZ(20px)]"
+          className="absolute right-[20%] top-[34%] w-[72.5%] sm:w-[60%] [transform:rotate(2deg)_translateZ(20px)]"
         />
         <DocxDocumentCard
           caption={s.deckCaption}
-          className="absolute right-[10%] top-[58%] w-[50%] [transform:rotate(6deg)_translateZ(8px)]"
+          className="absolute right-[10%] top-[58%] w-[55%] sm:w-[50%] [transform:rotate(6deg)_translateZ(8px)]"
         />
       </div>
     </div>
@@ -300,7 +304,7 @@ function DocumentCardShell(props: {
   return (
     <div
       className={cn(
-        "rounded-2xl border bg-surface-raised/55 p-3 backdrop-blur-sm shadow-[0_22px_40px_-22px_rgba(0,0,0,0.65)]",
+        "rounded-2xl border bg-surface-raised/55 p-2.5 backdrop-blur-sm shadow-[0_22px_40px_-22px_rgba(0,0,0,0.65)] sm:p-3",
         tone === "accent" ? "border-accent/45 bg-accent/[0.07]" : "border-border/55",
         className
       )}
@@ -413,7 +417,7 @@ function DocxDocumentCard({ caption, className }: { caption: string; className?:
 
 function MediaScene({ s }: { s: MediaSurfaceStrings }) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center px-6 sm:px-10">
+    <div className="absolute inset-0 flex items-center justify-center px-3 min-[360px]:px-4 sm:px-10">
       <div className="relative w-full max-w-[26rem] [transform-style:preserve-3d] [transform:rotateY(-10deg)_rotateX(4deg)]">
         <div className="space-y-3">
           <ChatBubble
@@ -582,7 +586,7 @@ function VideoTile({ className }: { className?: string }) {
 
 function KnowledgeScene({ s }: { s: KnowledgeSurfaceStrings }) {
   return (
-    <div className="absolute inset-0 grid grid-cols-12 items-center gap-3 px-6 sm:px-10">
+    <div className="absolute inset-0 grid grid-cols-12 items-center gap-2.5 px-1 min-[360px]:gap-3 min-[360px]:px-1.5 sm:px-10">
       <div className="col-span-4">
         <KnowledgePanel
           title={s.skillsLabel}
@@ -624,7 +628,7 @@ function KnowledgeScene({ s }: { s: KnowledgeSurfaceStrings }) {
       <div className="col-span-3">
         <KnowledgePanel
           title={s.sourcesLabel}
-          className="[transform:rotate(4deg)_translateZ(28px)]"
+          className="-ml-[15%] w-[125%] max-w-none sm:ml-0 sm:w-auto [transform:rotate(4deg)_translateZ(28px)]"
         >
           <div className="space-y-1.5">
             <SourceRow label="project-brief.pdf" type="pdf" highlighted />
@@ -642,7 +646,7 @@ function KnowledgePanel(props: { title: string; className?: string; children: Re
   return (
     <div
       className={cn(
-        "rounded-2xl border border-border/55 bg-surface-raised/55 p-3 backdrop-blur-sm shadow-[0_22px_40px_-22px_rgba(0,0,0,0.6)]",
+        "rounded-2xl border border-border/55 bg-surface-raised/55 p-2.5 backdrop-blur-sm shadow-[0_22px_40px_-22px_rgba(0,0,0,0.6)] sm:p-3",
         className
       )}
     >
@@ -725,7 +729,7 @@ function FileTypeGlyph({ type }: { type: "pdf" | "pptx" | "docx" }) {
 
 function PersonalityScene({ s }: { s: PersonalitySurfaceStrings }) {
   return (
-    <div className="absolute inset-0 grid grid-cols-12 items-center gap-3 px-6 sm:px-10">
+    <div className="absolute inset-0 grid grid-cols-12 items-center gap-2.5 px-3 min-[360px]:gap-3 min-[360px]:px-4 sm:px-10">
       {/* Left side — avatar + name panels */}
       <div className="col-span-4 flex flex-col gap-3">
         <AvatarTile className="[transform:rotate(-4deg)_translateZ(36px)]" />
@@ -763,7 +767,7 @@ function PersonalityScene({ s }: { s: PersonalitySurfaceStrings }) {
           warm={s.toneWarm}
           direct={s.toneDirect}
           formal={s.toneFormal}
-          className="[transform:rotate(3deg)_translateZ(28px)]"
+          className="-ml-[15%] w-[125%] max-w-none sm:ml-0 sm:w-auto [transform:rotate(3deg)_translateZ(28px)]"
         />
         <VoiceWaveformPanel
           label={s.voiceLabel}
@@ -800,7 +804,7 @@ function NameChip(props: { label: string; name: string; className?: string }) {
   return (
     <div
       className={cn(
-        "rounded-xl border border-border/55 bg-surface-raised/55 p-2.5 backdrop-blur-sm shadow-[0_12px_24px_-14px_rgba(0,0,0,0.55)]",
+        "rounded-xl border border-border/55 bg-surface-raised/55 p-2 backdrop-blur-sm shadow-[0_12px_24px_-14px_rgba(0,0,0,0.55)] sm:p-2.5",
         props.className
       )}
     >
@@ -829,7 +833,7 @@ function TonePanel(props: {
   return (
     <div
       className={cn(
-        "rounded-xl border border-border/55 bg-surface-raised/55 p-2.5 backdrop-blur-sm shadow-[0_12px_24px_-14px_rgba(0,0,0,0.55)]",
+        "rounded-xl border border-border/55 bg-surface-raised/55 p-2 backdrop-blur-sm shadow-[0_12px_24px_-14px_rgba(0,0,0,0.55)] sm:p-2.5",
         props.className
       )}
     >
@@ -898,7 +902,7 @@ function VoiceWaveformPanel({ label, className }: { label: string; className?: s
   return (
     <div
       className={cn(
-        "rounded-xl border border-accent/35 bg-accent/[0.07] p-2.5 backdrop-blur-sm shadow-[0_12px_24px_-14px_rgba(0,0,0,0.55)]",
+        "rounded-xl border border-accent/35 bg-accent/[0.07] p-2 backdrop-blur-sm shadow-[0_12px_24px_-14px_rgba(0,0,0,0.55)] sm:p-2.5",
         className
       )}
     >
@@ -926,7 +930,7 @@ function VoiceWaveformPanel({ label, className }: { label: string; className?: s
 
 function PlansScene({ s }: { s: PlansSurfaceStrings }) {
   return (
-    <div className="absolute inset-0 grid grid-cols-12 items-center gap-3 px-6 sm:px-10">
+    <div className="absolute inset-0 grid grid-cols-12 items-center gap-2.5 px-3 min-[360px]:gap-3 min-[360px]:px-4 sm:px-10">
       {/* Left: chat */}
       <div className="col-span-5">
         <div className="space-y-3 [transform-style:preserve-3d] [transform:rotateY(-10deg)_rotateX(4deg)]">
