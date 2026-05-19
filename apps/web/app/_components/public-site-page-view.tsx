@@ -75,23 +75,27 @@ export function PublicSitePageView(props: {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
 
       <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-5 pb-10 pt-5 sm:px-8 sm:pb-12 sm:pt-7 lg:px-12">
-        <header className="flex shrink-0 items-start justify-between gap-4">
-          <div className="flex flex-col gap-3">
-            <Link
-              href={"/" as Route}
-              className="w-fit text-xs font-semibold uppercase tracking-[0.22em] text-text-muted transition-colors hover:text-text"
-            >
-              Pers<span className="text-text">AI</span>
-            </Link>
-            <p className="text-[11px] leading-5 text-text-subtle">{copy.brandTagline}</p>
-          </div>
+        <div className="mx-auto w-full max-w-3xl">
+          <header className="flex shrink-0 items-start justify-between gap-4">
+            <div className="flex flex-col gap-3">
+              <Link
+                href={"/" as Route}
+                className="w-fit text-xs font-semibold uppercase tracking-[0.22em] text-text-muted transition-colors hover:text-text"
+              >
+                Pers<span className="text-text">AI</span>
+              </Link>
+              <p className="max-w-[14rem] text-[11px] leading-5 text-text-subtle">
+                {copy.brandTagline}
+              </p>
+            </div>
 
-          <div className="flex items-center gap-3">
-            <LandingThemeToggle />
-            <span className="hidden h-4 w-px bg-border sm:inline-block" />
-            <LandingLocaleSwitcher />
-          </div>
-        </header>
+            <div className="flex items-center gap-3">
+              <LandingThemeToggle />
+              <span className="hidden h-4 w-px bg-border sm:inline-block" />
+              <LandingLocaleSwitcher />
+            </div>
+          </header>
+        </div>
 
         <section className="mx-auto mt-12 w-full max-w-3xl sm:mt-16">
           <div className="max-w-2xl">

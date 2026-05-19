@@ -14,6 +14,8 @@ import { RedirectSignedInUserToApp } from "@/app/app/_components/redirect-signed
 import { mapClerkError } from "@/app/lib/clerk-error-messages";
 import { PasswordField } from "@/app/app/_components/password-field";
 import { useSearchParams } from "next/navigation";
+import { PublicAuthCardHeader } from "@/app/_components/public-auth-card-header";
+import { PublicAuthShell } from "@/app/_components/public-auth-shell";
 
 type Stage = "form" | "verify" | "forgot-request" | "forgot-code" | "forgot-password";
 
@@ -188,9 +190,9 @@ export default function SignInPage() {
 
   if (!authLoaded) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
+      <PublicAuthShell>
         <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden />
-      </div>
+      </PublicAuthShell>
     );
   }
 
@@ -199,21 +201,12 @@ export default function SignInPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center relative overflow-hidden px-4">
-      <div className="pointer-events-none absolute top-1/4 -left-32 h-[400px] w-[400px] rounded-full bg-accent/8 blur-[100px] animate-pulse-slow" />
-      <div className="pointer-events-none absolute bottom-1/3 -right-32 h-[350px] w-[350px] rounded-full bg-accent/5 blur-[90px] animate-pulse-slow [animation-delay:2s]" />
-
-      <div className="relative z-10 flex w-full max-w-sm flex-col items-center animate-fade-in">
-        <h1 className="mb-2 text-3xl font-bold tracking-tight sm:text-4xl">
-          Pers<span className="text-accent">AI</span>
-        </h1>
-        <p className="mb-8 text-sm text-text-muted">{t("tagline")}</p>
-
+    <PublicAuthShell>
+      <div className="flex w-full max-w-sm flex-col items-center animate-fade-in">
         <div className="w-full rounded-2xl border border-border bg-surface p-6 shadow-xl">
           {stage === "form" && (
             <>
-              <h2 className="text-lg font-semibold text-text">{t("signInTitle")}</h2>
-              <p className="mt-1 text-xs leading-relaxed text-text-muted">{t("signInWelcome")}</p>
+              <PublicAuthCardHeader title={t("signInTitle")} description={t("signInWelcome")} />
 
               {/* Email */}
               <label className="mb-1.5 block text-xs font-medium text-text-muted">
@@ -303,8 +296,10 @@ export default function SignInPage() {
               >
                 {t("back")}
               </button>
-              <h2 className="text-lg font-semibold text-text">{t("verifyTitle")}</h2>
-              <p className="mt-1 text-xs text-text-muted">{t("verifyDesc", { email })}</p>
+              <PublicAuthCardHeader
+                title={t("verifyTitle")}
+                description={t("verifyDesc", { email })}
+              />
 
               <input
                 type="text"
@@ -356,10 +351,10 @@ export default function SignInPage() {
               >
                 {t("back")}
               </button>
-              <h2 className="text-lg font-semibold text-text">{t("forgotPasswordTitle")}</h2>
-              <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                {t("forgotPasswordSubtitle")}
-              </p>
+              <PublicAuthCardHeader
+                title={t("forgotPasswordTitle")}
+                description={t("forgotPasswordSubtitle")}
+              />
 
               <label className="mt-5 mb-1.5 block text-xs font-medium text-text-muted">
                 {t("emailLabel")}
@@ -402,10 +397,10 @@ export default function SignInPage() {
               >
                 {t("back")}
               </button>
-              <h2 className="text-lg font-semibold text-text">{t("resetCodeTitle")}</h2>
-              <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                {t("resetCodeSubtitle", { email: resetEmail })}
-              </p>
+              <PublicAuthCardHeader
+                title={t("resetCodeTitle")}
+                description={t("resetCodeSubtitle", { email: resetEmail })}
+              />
 
               <input
                 type="text"
@@ -459,10 +454,10 @@ export default function SignInPage() {
               >
                 {t("back")}
               </button>
-              <h2 className="text-lg font-semibold text-text">{t("newPasswordTitle")}</h2>
-              <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                {t("newPasswordSubtitle", { email: resetEmail })}
-              </p>
+              <PublicAuthCardHeader
+                title={t("newPasswordTitle")}
+                description={t("newPasswordSubtitle", { email: resetEmail })}
+              />
 
               <label className="mt-5 mb-1.5 block text-xs font-medium text-text-muted">
                 {t("newPasswordLabel")}
@@ -522,6 +517,6 @@ export default function SignInPage() {
           </a>
         </p>
       </div>
-    </div>
+    </PublicAuthShell>
   );
 }

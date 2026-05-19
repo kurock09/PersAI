@@ -43,10 +43,18 @@ function readChoice(): ThemeChoice {
   return "system";
 }
 
+function getDarkModeMediaQuery(): MediaQueryList | null {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return null;
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)");
+}
+
 function resolveChoice(choice: ThemeChoice): ResolvedTheme {
   if (choice !== "system") return choice;
-  if (typeof window === "undefined") return "dark";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  const mq = getDarkModeMediaQuery();
+  if (!mq) return "dark";
+  return mq.matches ? "dark" : "light";
 }
 
 function applyResolved(resolved: ResolvedTheme): void {
@@ -106,15 +114,19 @@ export function useTheme() {
   // shift, manual toggle in System Preferences) without requiring a reload.
   useEffect(() => {
     if (theme !== "system") return;
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const mq = getDarkModeMediaQuery();
+    if (!mq) return;
     const handler = () => {
       const next: ResolvedTheme = mq.matches ? "dark" : "light";
       setResolvedTheme(next);
       applyResolved(next);
     };
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
+    if (typeof mq.addEventListener === "function" && typeof mq.removeEventListener === "function") {
+      mq.addEventListener("change", handler);
+      return () => mq.removeEventListener("change", handler);
+    }
+    mq.addListener(handler);
+    return () => mq.removeListener(handler);
   }, [theme]);
 
   const persistChoice = useCallback((next: ThemeChoice) => {

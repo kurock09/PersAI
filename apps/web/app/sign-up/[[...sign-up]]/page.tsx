@@ -14,6 +14,8 @@ import {
 import { RedirectSignedInUserToApp } from "@/app/app/_components/redirect-signed-in-to-app";
 import { PasswordField } from "@/app/app/_components/password-field";
 import { mapClerkError } from "@/app/lib/clerk-error-messages";
+import { PublicAuthCardHeader } from "@/app/_components/public-auth-card-header";
+import { PublicAuthShell } from "@/app/_components/public-auth-shell";
 
 type Stage = "form" | "verify";
 
@@ -76,9 +78,9 @@ export default function SignUpPage() {
 
   if (!authLoaded) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
+      <PublicAuthShell>
         <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden />
-      </div>
+      </PublicAuthShell>
     );
   }
 
@@ -93,21 +95,12 @@ export default function SignUpPage() {
   const fieldErrors = clerkErrors?.fields as unknown as Record<string, unknown> | undefined;
 
   return (
-    <div className="flex min-h-screen items-center justify-center relative overflow-hidden px-4">
-      <div className="pointer-events-none absolute top-1/4 -left-32 h-[400px] w-[400px] rounded-full bg-accent/8 blur-[100px] animate-pulse-slow" />
-      <div className="pointer-events-none absolute bottom-1/3 -right-32 h-[350px] w-[350px] rounded-full bg-accent/5 blur-[90px] animate-pulse-slow [animation-delay:2s]" />
-
-      <div className="relative z-10 flex w-full max-w-sm flex-col items-center animate-fade-in">
-        <h1 className="mb-2 text-3xl font-bold tracking-tight sm:text-4xl">
-          Pers<span className="text-accent">AI</span>
-        </h1>
-        <p className="mb-8 text-sm text-text-muted">{t("tagline")}</p>
-
+    <PublicAuthShell>
+      <div className="flex w-full max-w-sm flex-col items-center animate-fade-in">
         <div className="w-full rounded-2xl border border-border bg-surface p-6 shadow-xl">
           {stage === "form" && (
             <>
-              <h2 className="text-lg font-semibold text-text">{t("signUpTitle")}</h2>
-              <p className="mt-1 text-xs leading-relaxed text-text-muted">{t("signUpSubtitle")}</p>
+              <PublicAuthCardHeader title={t("signUpTitle")} description={t("signUpSubtitle")} />
 
               <label className="mb-1.5 block text-xs font-medium text-text-muted">
                 {t("emailLabel")}
@@ -191,8 +184,10 @@ export default function SignUpPage() {
               >
                 {t("back")}
               </button>
-              <h2 className="text-lg font-semibold text-text">{t("verifyEmailTitle")}</h2>
-              <p className="mt-1 text-xs text-text-muted">{t("verifyDesc", { email })}</p>
+              <PublicAuthCardHeader
+                title={t("verifyEmailTitle")}
+                description={t("verifyDesc", { email })}
+              />
 
               <input
                 type="text"
@@ -256,7 +251,7 @@ export default function SignUpPage() {
           </a>
         </p>
       </div>
-    </div>
+    </PublicAuthShell>
   );
 }
 
@@ -273,11 +268,11 @@ function SignUpCompleteSplash() {
   }, []);
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    <PublicAuthShell>
       <div className="flex flex-col items-center gap-3">
         <Loader2 className="h-8 w-8 animate-spin text-accent" />
         <p className="text-sm text-text-muted">{t("signingIn")}</p>
       </div>
-    </div>
+    </PublicAuthShell>
   );
 }
