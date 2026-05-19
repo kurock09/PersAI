@@ -39,11 +39,23 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async downloadOriginalPresentation() {
+      async execute(input: {
+        assistantId: string;
+        workspaceId: string;
+        docId: string;
+        versionId?: string | null;
+      }) {
+        assert.deepEqual(input, {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          docId: "doc-1",
+          versionId: "version-1"
+        });
         return {
-          buffer: Buffer.from("pptx-bytes"),
-          contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-          filename: "deck-original.pptx"
+          status: "queued" as const,
+          docId: input.docId,
+          versionId: input.versionId!,
+          renderJobId: "render-pptx-1"
         };
       }
     } as never
@@ -79,22 +91,16 @@ async function run(): Promise<void> {
   );
   assert.equal(inlineResponse.body!.toString("utf8"), "Привет\n");
 
-  const originalResponse = new FakeResponse();
-  await controller.downloadOriginalPresentationDocument(
-    req as never,
-    originalResponse as never,
-    "doc-1",
-    "version-1"
+  assert.deepEqual(
+    await controller.preparePresentationPptx(req as never, "doc-1", { versionId: "version-1" }),
+    {
+      requestId: "req-1",
+      status: "queued",
+      docId: "doc-1",
+      versionId: "version-1",
+      renderJobId: "render-pptx-1"
+    }
   );
-  assert.equal(
-    originalResponse.headers.get("Content-Type"),
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-  );
-  assert.equal(
-    originalResponse.headers.get("Content-Disposition"),
-    "attachment; filename=\"deck-original.pptx\"; filename*=UTF-8''deck-original.pptx"
-  );
-  assert.equal(originalResponse.body!.toString("utf8"), "pptx-bytes");
 }
 
 void run();

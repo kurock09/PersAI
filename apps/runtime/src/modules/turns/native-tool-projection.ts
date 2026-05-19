@@ -865,7 +865,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
       [
         "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
         "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to create a new version of an existing PersAI document, and export_or_redeliver to resend or re-render an existing document when supported.",
-        "Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document — PPTX is always reachable as the companion original via a separate download action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document.",
+        "Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
         "When the user has attached a source file (txt, md, csv, json, html, xml, pdf, docx) and asks to rebuild, convert, restyle, translate, or summarize it, the backend worker will AUTOMATICALLY inline that file's text content into document generation; you do not need to pre-read it. Simply call create_pdf_document with a prompt that describes the requested transformation and the worker will use the attached source verbatim.",
         "When the user attaches PDF or DOCX source material, do not use revise_document or export_or_redeliver unless the user explicitly targets an existing PersAI document docId. Treat attached files as source input for create_pdf_document.",
         "Never invent placeholder, generic-template, or test/demo content when the user has attached a source file. The worker auto-inlines supported text/PDF/DOCX content; unsupported binaries surface a structured note instead.",
@@ -903,7 +903,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           type: "string",
           enum: ["pdf", "pptx"],
           description:
-            "Optional requested output format. Chat delivery for create_presentation and presentation revise_document is always PDF — do not set this to pptx for those modes. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document."
+            "Optional requested output format. Chat delivery for create_presentation and presentation revise_document is always PDF — do not set this to pptx for those modes. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint."
         },
         docId: {
           type: "string",

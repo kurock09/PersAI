@@ -489,25 +489,28 @@ export class AssistantDocumentJobService {
     provider: AssistantDocumentRenderProvider;
     outputFormat: AssistantDocumentOutputFormat;
     request: AssistantDocumentRequestPayload;
+    preserveCurrentVersionStatus?: boolean;
   }): Promise<{ docId: string; versionId: string; renderJobId: string; status: "queued" }> {
     const sourceJson = this.buildExportOrRedeliverSourcePayload(
       input.exportContext.currentSourceJson,
       input.request.sourceJson
     );
     return this.prisma.$transaction(async (tx) => {
-      await tx.assistantDocument.update({
-        where: { id: input.exportContext.docId },
-        data: {
-          status: "rendering"
-        }
-      });
+      if (input.preserveCurrentVersionStatus !== true) {
+        await tx.assistantDocument.update({
+          where: { id: input.exportContext.docId },
+          data: {
+            status: "rendering"
+          }
+        });
 
-      await tx.assistantDocumentVersion.update({
-        where: { id: input.exportContext.currentVersionId },
-        data: {
-          status: "render_requested"
-        }
-      });
+        await tx.assistantDocumentVersion.update({
+          where: { id: input.exportContext.currentVersionId },
+          data: {
+            status: "render_requested"
+          }
+        });
+      }
 
       const renderJob = await tx.assistantDocumentRenderJob.create({
         data: {

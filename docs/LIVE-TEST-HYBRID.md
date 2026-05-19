@@ -104,14 +104,16 @@ Bounded first-pass validation should cover:
 2. `create_presentation`
 3. `revise_document` against an existing `docId`
 4. same-format `export_or_redeliver`
-5. intentional cross-format export rejection
+5. explicit presentation PPTX preparation from an existing PDF-first presentation
+6. rejection of model-emitted PPTX when the user did not explicitly ask for PPTX/PowerPoint
 
 Expected product truth for the current rollout:
 
 - the model may call `document` in chat
 - the assistant should acknowledge deferred work honestly
 - the final PDF/PPTX arrives later through the background document job lane
-- cross-format export remains intentionally unsupported
+- normal presentation creation/revision remains PDF-only in chat
+- editable PPTX preparation reuses the current version source/request snapshot with `outputFormat=pptx`; it is not a binary conversion of the delivered PDF
 
 The active path truth is:
 

@@ -66,8 +66,8 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/assistant/files/:fileRef", method: RequestMethod.DELETE },
       { path: "api/v1/assistant/files/:fileRef/download", method: RequestMethod.GET },
       {
-        path: "api/v1/assistant/documents/:docId/download-original",
-        method: RequestMethod.GET
+        path: "api/v1/assistant/documents/:docId/prepare-pptx",
+        method: RequestMethod.POST
       },
       { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.POST },
       { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.GET },

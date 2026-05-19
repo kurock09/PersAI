@@ -371,12 +371,11 @@ export class RuntimeDocumentToolService {
     outline?: unknown;
     metadata?: Record<string, unknown> | null;
   } {
-    // Chat-delivered presentations are PDF-only by system contract. PPTX is
-    // always available to the user as the on-demand original via the
-    // dedicated companion download endpoint, so the in-chat artifact never
-    // needs to be PPTX. We deliberately ignore outputFormat="pptx" coming
-    // from the model here — chat delivery is a system-owned UX decision and
-    // not a model-controlled parameter.
+    // Chat-delivered presentations are PDF-only by system contract. Editable
+    // PPTX is a separate explicit user-requested render, so the in-chat
+    // artifact never needs to be PPTX. We deliberately ignore
+    // outputFormat="pptx" coming from the model here — chat delivery is a
+    // system-owned UX decision and not a model-controlled parameter.
     if (input.descriptorMode !== "create_presentation") {
       return input.request;
     }

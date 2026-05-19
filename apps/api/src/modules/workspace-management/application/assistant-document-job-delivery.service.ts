@@ -618,12 +618,17 @@ export class AssistantDocumentJobDeliveryService {
         return false;
       }
 
+      const deliveredMimeTypes = Array.from(
+        new Set(input.attachments.map((attachment) => attachment.mimeType))
+      ).filter((mimeType) => mimeType.trim().length > 0);
+
       await tx.assistantDocumentDeliveredFile.updateMany({
         where: {
           docId: input.job.docId,
           versionId: input.job.versionId,
           isCurrentOutput: true,
-          renderJobId: { not: input.job.id }
+          renderJobId: { not: input.job.id },
+          ...(deliveredMimeTypes.length === 0 ? {} : { outputMimeType: { in: deliveredMimeTypes } })
         },
         data: {
           isCurrentOutput: false

@@ -208,10 +208,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         ? null
         : descriptorMode === "export_or_redeliver"
           ? null
-          : this.resolveExecutionShape(
-              descriptorMode,
-              input.directToolExecution.request.outputFormat ?? null
-            );
+          : this.resolveExecutionShape(descriptorMode);
     if (
       descriptorMode === "create_pdf_document" &&
       (await this.readPersistedPdfMonkeyTemplateId()) === null
@@ -279,7 +276,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         : input.directToolExecution.request;
     const persistedSourceJson = {
       ...sourceJson,
-      outputFormat: sourceJson.outputFormat ?? resolvedShape.outputFormat
+      outputFormat: resolvedShape.outputFormat
     };
     const created = await this.assistantDocumentJobService.enqueue({
       assistantId: input.assistantId,
@@ -409,10 +406,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     return requestedOutputFormat === context.currentOutputFormat;
   }
 
-  private resolveExecutionShape(
-    descriptorMode: AssistantDocumentDescriptorMode,
-    requestedOutputFormat: AssistantDocumentOutputFormat | null
-  ): {
+  private resolveExecutionShape(descriptorMode: AssistantDocumentDescriptorMode): {
     documentType: AssistantDocumentType;
     provider: AssistantDocumentRenderProvider;
     outputFormat: AssistantDocumentOutputFormat;
@@ -428,7 +422,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       return {
         documentType: "presentation",
         provider: "gamma",
-        outputFormat: requestedOutputFormat === "pptx" ? "pptx" : "pdf"
+        // First-class chat presentation delivery is PDF by backend contract.
+        // The model may still emit outputFormat=pptx, but it cannot opt the
+        // ordinary create path into PPTX; editable PPTX is prepared separately.
+        outputFormat: "pdf"
       };
     }
     if (descriptorMode === "revise_document") {
@@ -498,9 +495,9 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     const provider = revisionContext.documentType === "presentation" ? "gamma" : "pdfmonkey";
     // Chat delivery is PDF-only for presentations, by system contract. We do
     // not inherit the previous version's outputFormat AND we do not honour a
-    // model-supplied outputFormat=pptx on revisions either. PPTX is always
-    // reachable as the companion download artifact, so the in-chat file for
-    // a presentation revision is always the PDF.
+    // model-supplied outputFormat=pptx on revisions either. Editable PPTX is
+    // prepared as a separate explicit user action, so the in-chat file for a
+    // presentation revision is always the PDF.
     const outputFormat: AssistantDocumentOutputFormat =
       revisionContext.documentType === "presentation" ? "pdf" : "pdf";
     const requestSourceJson: AssistantDocumentSourcePayload = {
@@ -613,26 +610,40 @@ export class EnqueueRuntimeDeferredDocumentJobService {
 
     const requestedOutputFormat =
       input.request.sourceJson.outputFormat ?? exportContext.currentOutputFormat;
-    const crossFormatPresentationExport =
+    const explicitSecondaryPptxRender =
       exportContext.documentType === "presentation" &&
-      ((requestedOutputFormat === "pdf" && exportContext.currentOutputFormat === "pptx") ||
-        (requestedOutputFormat === "pptx" && exportContext.currentOutputFormat === "pdf"));
+      exportContext.currentOutputFormat === "pdf" &&
+      requestedOutputFormat === "pptx";
     if (
       requestedOutputFormat !== exportContext.currentOutputFormat &&
-      !crossFormatPresentationExport
+      !explicitSecondaryPptxRender
     ) {
       return {
         accepted: false,
         code: "document_export_format_not_supported",
-        message:
-          "Cross-format document export is not wired yet for existing documents in this rollout.",
+        message: "Preparing a different output format is not supported for this document.",
         guidance:
           "For now, redeliver the existing ready file in its current format, or revise the document to create a new version."
       };
     }
+    if (
+      explicitSecondaryPptxRender &&
+      !this.isExplicitPptxPreparationRequest(
+        input.request.sourceUserMessageText,
+        input.request.sourceJson
+      )
+    ) {
+      return {
+        accepted: false,
+        code: "presentation_pptx_requires_explicit_request",
+        message: "Preparing an editable PPTX requires an explicit user request.",
+        guidance:
+          "Ask for an editable PPTX/PowerPoint copy explicitly, or use the presentation PPTX button under the delivered PDF."
+      };
+    }
 
     const provider = exportContext.documentType === "presentation" ? "gamma" : "pdfmonkey";
-    const outputFormat = exportContext.currentOutputFormat;
+    const outputFormat = requestedOutputFormat;
     const created =
       exportContext.latestDeliveredFile !== null &&
       requestedOutputFormat === exportContext.currentOutputFormat
@@ -658,7 +669,8 @@ export class EnqueueRuntimeDeferredDocumentJobService {
             exportContext,
             provider,
             outputFormat,
-            request: input.request
+            request: input.request,
+            preserveCurrentVersionStatus: explicitSecondaryPptxRender
           });
     return {
       accepted: true,
@@ -726,6 +738,17 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         metadata: this.optionalRecord(request.metadata)
       }
     };
+  }
+
+  private isExplicitPptxPreparationRequest(
+    sourceUserMessageText: string,
+    sourceJson: AssistantDocumentSourcePayload
+  ): boolean {
+    if (sourceJson.metadata?.explicitUserRequestedPptx === true) {
+      return true;
+    }
+    const text = `${sourceUserMessageText}\n${sourceJson.prompt}\n${sourceJson.instructions ?? ""}`;
+    return /\b(?:pptx|powerpoint|power\s+point)\b|\.pptx\b|пптх|пауэрпоинт|powerpoint/i.test(text);
   }
 
   private optionalTargetSlideCount(value: unknown): number | null {

@@ -58,6 +58,7 @@ Current active truth for the narrow PDFMonkey-first rollout:
 - PersAI remains the source of truth for `doc_id`, version graph, render-job lifecycle, quota settlement, and delivered-file truth
 - provider-side ids/status are reconciliation metadata only; they are persisted on both success and terminal failure and must not replace PersAI job truth
 - `AssistantDocumentDeliveredFile` + canonical `assistant_files` remain the only delivered-file path; provider URLs are operational metadata, not product truth
+- presentation PPTX preparation is represented as a second `assistant_document_render_jobs` row for the same current version with `output_format=pptx`; it reuses the version's persisted source/request snapshot rather than converting the delivered PDF bytes, is idempotent against existing delivered PPTX rows or active PPTX jobs, and uses normal success-only `document` quota settlement
 - no document-domain row may be reinterpreted through `assistant_media_jobs`; the media lane remains a separate model for image/audio/video work
 
 ## Web chat send reliability

@@ -192,7 +192,9 @@ Gamma may own:
 - provider-side generation/remix lifecycle
 - presentation editing/remix state
 - provider deck ids used for continuity/reconciliation
-- PPTX export object before PersAI downloads it
+- generated PDF/PPTX export objects before PersAI downloads them
+
+PersAI does not depend on Gamma's internal web-app export endpoints for user PPTX downloads. When a user asks for editable PPTX from a PDF-first presentation, PersAI starts a separate, explicit Gamma `pptx` render through the document-job lane and treats it as a normal generated document output.
 
 PersAI must not outsource:
 
@@ -543,6 +545,6 @@ Sandbox may be reconsidered later for:
 
 1. Should monthly document units be plan-only at first, or should paid add-on packages for documents be designed later after media package behavior proves stable?
 2. Should PDFMonkey/Gamma completion use webhooks in v1, or start with polling and add webhooks after provider behavior is observed?
-3. Should `export_or_redeliver` consume quota only when it creates a new provider render, or should all exports count?
+3. Same-format redelivery reuses persisted file truth without a new quota charge; explicit presentation PPTX preparation reuses the current version's source/request snapshot with `outputFormat=pptx`, creates a new provider render, and consumes the normal successful document quota.
 4. How much structured source state is enough for v1: section/slide blocks only, or a richer document AST?
 5. Should active document jobs appear as their own `activeDocumentJobs` projection or be generalized with media jobs later?

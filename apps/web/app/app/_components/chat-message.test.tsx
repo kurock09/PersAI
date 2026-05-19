@@ -27,11 +27,8 @@ vi.mock("./image-lightbox", () => ({
 }));
 
 vi.mock("../assistant-api-client", () => ({
-  getAssistantDocumentOriginalDownloadUrl: (
-    docId: string,
-    options?: { versionId?: string | null }
-  ) =>
-    `/api/assistant-document/${docId}/original${
+  getAssistantDocumentPptxPrepareUrl: (docId: string, options?: { versionId?: string | null }) =>
+    `/api/assistant-document/${docId}/prepare-pptx${
       options?.versionId ? `?versionId=${options.versionId}` : ""
     }`,
   getAssistantFileDownloadUrl: (fileRef: string, options?: { download?: boolean }) =>

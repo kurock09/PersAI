@@ -49,9 +49,9 @@ import {
 } from "./chat-message-streaming";
 import { VoiceMessagePlayer } from "./voice-message-player";
 import { ImageLightbox } from "./image-lightbox";
-import { PresentationOriginalDownloadAction } from "./presentation-original-download-action";
+import { PresentationPptxPrepareAction } from "./presentation-pptx-prepare-action";
 import {
-  getAssistantDocumentOriginalDownloadUrl,
+  getAssistantDocumentPptxPrepareUrl,
   getAssistantFileDownloadUrl
 } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
@@ -1175,9 +1175,9 @@ function AttachmentStrip({
             link?.descriptorMode === "create_presentation") &&
           (att.mimeType === "application/pdf" ||
             (att.originalFilename ?? "").toLowerCase().endsWith(".pdf"));
-        const originalPresentationDownloadUrl =
+        const pptxPrepareUrl =
           isPresentationAttachment && typeof link?.docId === "string"
-            ? getAssistantDocumentOriginalDownloadUrl(link.docId, { versionId: link.versionId })
+            ? getAssistantDocumentPptxPrepareUrl(link.docId, { versionId: link.versionId })
             : null;
 
         if (!downloadUrl) {
@@ -1192,11 +1192,10 @@ function AttachmentStrip({
           );
         }
 
-        if (originalPresentationDownloadUrl !== null) {
-          // PDF is the primary deliverable; the original PPTX is offered as a
-          // quiet text link under the banner (not a competing pill inside the
-          // banner) and the click is handled in-page so an expired Gamma
-          // export never bounces the user off the chat.
+        if (pptxPrepareUrl !== null) {
+          // PDF is the primary deliverable; PPTX is explicitly prepared as a
+          // second Gamma render only when the user asks for it from the quiet
+          // action below the banner.
           return (
             <div key={att.id} className="flex flex-col items-start">
               <a
@@ -1206,8 +1205,8 @@ function AttachmentStrip({
               >
                 {fileContent}
               </a>
-              <PresentationOriginalDownloadAction
-                href={originalPresentationDownloadUrl}
+              <PresentationPptxPrepareAction
+                href={pptxPrepareUrl}
                 filename={att.originalFilename}
               />
             </div>

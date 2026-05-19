@@ -11,6 +11,7 @@ function noopGammaThemePickerMock() {
 
 async function runAcceptedCase(): Promise<void> {
   let enqueueCalls = 0;
+  let capturedEnqueueInput: Record<string, unknown> | null = null;
   const service = new EnqueueRuntimeDeferredDocumentJobService(
     {
       async findMessageByIdForAssistant(messageId: string, assistantId: string) {
@@ -36,8 +37,9 @@ async function runAcceptedCase(): Promise<void> {
       async countOpenJobsForChat() {
         return 0;
       },
-      async enqueue() {
+      async enqueue(input) {
         enqueueCalls += 1;
+        capturedEnqueueInput = input as Record<string, unknown>;
         return {
           docId: "doc-1",
           versionId: "version-1",
@@ -127,6 +129,20 @@ async function runAcceptedCase(): Promise<void> {
     documentType: "presentation"
   });
   assert.equal(enqueueCalls, 1);
+  assert.equal(
+    (capturedEnqueueInput as { outputFormat: string } | null)?.outputFormat,
+    "pdf",
+    "create_presentation must stay PDF even if the model emits outputFormat=pptx"
+  );
+  assert.equal(
+    (
+      capturedEnqueueInput as {
+        request: { sourceJson: { outputFormat: string } };
+      }
+    ).request.sourceJson.outputFormat,
+    "pdf",
+    "persisted sourceJson must reflect backend-resolved PDF, not model-emitted PPTX"
+  );
 }
 
 async function runPresentationDefaultsToPdfCase(): Promise<void> {
@@ -526,8 +542,8 @@ async function runRevisionAcceptedCase(): Promise<void> {
     "Shorten slide 3"
   );
   // Even though the new revision request explicitly asked for outputFormat=pptx,
-  // chat delivery for presentations is PDF-only by system contract — PPTX is
-  // always reachable via the companion download endpoint, never as the in-chat
+  // chat delivery for presentations is PDF-only by system contract. Editable
+  // PPTX is a separate explicit user action, never the ordinary in-chat
   // artifact. The persisted sourceJson.outputFormat must reflect the resolved
   // PDF, not the model-requested PPTX.
   assert.equal(
@@ -1176,6 +1192,183 @@ async function runPresentationRevisionDefaultsToPdfWhenOutputFormatOmitted(): Pr
   assert.equal(captured?.request.sourceJson.targetSlideCount, 7);
 }
 
+async function runPresentationPdfToPptxExportQueuesPptxRender(): Promise<void> {
+  let exportRenderCalls = 0;
+  let capturedExportRender: {
+    outputFormat: "pdf" | "pptx";
+    preserveCurrentVersionStatus?: boolean;
+    request: { sourceJson: { outputFormat?: string | null; docId?: string | null } };
+  } | null = null;
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    {
+      async findMessageByIdForAssistant(messageId: string, assistantId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "user" as const,
+          createdAt: new Date("2026-05-19T09:00:00.000Z")
+        };
+      },
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "web" as const
+        };
+      }
+    } as never,
+    {
+      async countOpenJobsForChat() {
+        return 0;
+      },
+      async findExportOrRedeliverContext() {
+        return {
+          docId: "12345678-1234-4234-9234-1234567890ab",
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          documentType: "presentation" as const,
+          currentVersionId: "version-1",
+          currentVersionNumber: 1,
+          currentVersionStatus: "ready" as const,
+          currentSourceJson: {
+            prompt: "Create a deck",
+            outputFormat: "pdf"
+          },
+          currentOutputFormat: "pdf" as const,
+          latestDeliveredFile: {
+            fileRef: "file-pdf-1",
+            origin: "runtime_output" as const,
+            sourceToolCode: "document",
+            objectKey: "objects/deck.pdf",
+            relativePath: "deck.pdf",
+            displayName: "deck.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 1000,
+            logicalSizeBytes: 1000
+          }
+        };
+      },
+      async enqueuePersistedFileRedelivery() {
+        throw new Error("secondary PPTX preparation must not reuse the existing PDF file");
+      },
+      async enqueueExportRender(input) {
+        exportRenderCalls += 1;
+        capturedExportRender = input as typeof capturedExportRender;
+        return {
+          docId: "12345678-1234-4234-9234-1234567890ab",
+          versionId: "version-1",
+          renderJobId: "render-pptx-1",
+          status: "queued" as const
+        };
+      }
+    } as never,
+    {
+      async build() {
+        return null;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          monthlyToolQuotas: {
+            planCode: "pro",
+            periodStartedAt: "2026-05-01T00:00:00.000Z",
+            periodEndsAt: "2026-06-01T00:00:00.000Z",
+            periodSource: "subscription_period" as const,
+            tools: [
+              {
+                toolCode: "document",
+                displayName: "Document",
+                usedUnits: 0,
+                reservedUnits: 0,
+                settledUnits: 0,
+                releasedUnits: 0,
+                reconciliationRequiredUnits: 0,
+                limitUnits: 10,
+                effectiveLimitUnits: 10,
+                remainingUnits: 10,
+                usageAvailable: true,
+                status: "ok" as const
+              }
+            ]
+          }
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "pro",
+          tools: [
+            {
+              toolCode: "document",
+              activationStatus: "active" as const
+            }
+          ]
+        };
+      }
+    } as never,
+    {
+      async resolveSecretValueByProviderKey() {
+        return "template-123";
+      }
+    } as never,
+    noopGammaThemePickerMock()
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Prepare PPTX",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "export_or_redeliver",
+      request: {
+        prompt: "Prepare PPTX",
+        docId: "12345678-1234-4234-9234-1234567890ab",
+        outputFormat: "pptx"
+      }
+    }
+  });
+
+  assert.equal(result.accepted, true);
+  assert.equal(exportRenderCalls, 1);
+  assert.equal(capturedExportRender?.outputFormat, "pptx");
+  assert.equal(capturedExportRender?.preserveCurrentVersionStatus, true);
+  assert.equal(capturedExportRender?.request.sourceJson.outputFormat, "pptx");
+
+  const implicitResult = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Redeliver the presentation",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "export_or_redeliver",
+      request: {
+        prompt: "Send the presentation again",
+        docId: "12345678-1234-4234-9234-1234567890ab",
+        outputFormat: "pptx"
+      }
+    }
+  });
+
+  assert.equal(implicitResult.accepted, false);
+  assert.equal(
+    implicitResult.accepted === false ? implicitResult.code : null,
+    "presentation_pptx_requires_explicit_request"
+  );
+  assert.equal(
+    exportRenderCalls,
+    1,
+    "model-emitted PPTX must not start a render without explicit user intent"
+  );
+}
+
 async function run(): Promise<void> {
   await runAcceptedCase();
   await runPresentationDefaultsToPdfCase();
@@ -1186,6 +1379,7 @@ async function run(): Promise<void> {
   await runPdfTemplateAdmissionRejectCase();
   await runPdfCreateSkipsThemePickerCase();
   await runPresentationThemePickerPersistenceCase();
+  await runPresentationPdfToPptxExportQueuesPptxRender();
 }
 
 void run();

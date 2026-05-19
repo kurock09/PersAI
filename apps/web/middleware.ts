@@ -4,12 +4,9 @@ const isProtectedRoute = createRouteMatcher([
   "/app(.*)",
   "/admin(.*)",
   "/api/assistant-file(.*)",
-  // The BFF that streams Gamma's original PPTX export reads `auth().getToken()`
-  // and forwards it as `Authorization: Bearer ...` to the API. Without
-  // protected-route status Clerk would not run the full session check on the
-  // standalone download tab, so `getToken()` could return a stale value the
-  // API rejects with 401 — surfacing as "PPTX download unavailable" right
-  // after click. Treat it the same as `/api/assistant-file(.*)`.
+  // The presentation PPTX BFF reads Clerk auth server-side and forwards a
+  // Bearer token to the API, with a same-origin fresh-token fallback for
+  // long-lived tabs. Treat it the same as `/api/assistant-file(.*)`.
   "/api/assistant-document(.*)"
 ]);
 export const middlewareMatcherForTests = [

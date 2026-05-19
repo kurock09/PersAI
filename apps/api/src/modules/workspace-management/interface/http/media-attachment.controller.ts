@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Delete,
   Controller,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   Patch,
@@ -25,7 +27,7 @@ import {
   AssistantFileRegistryService,
   type AssistantFileRegistryRecord
 } from "../../application/assistant-file-registry.service";
-import { AssistantDocumentOriginalDownloadService } from "../../application/assistant-document-original-download.service";
+import { PrepareAssistantDocumentPptxService } from "../../application/prepare-assistant-document-pptx.service";
 import { GetAssistantByUserIdService } from "../../application/get-assistant-by-user-id.service";
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
 
@@ -35,7 +37,7 @@ export class MediaAttachmentController {
     private readonly manageChatMediaService: ManageChatMediaService,
     private readonly getAssistantByUserIdService: GetAssistantByUserIdService,
     private readonly assistantFileRegistryService: AssistantFileRegistryService,
-    private readonly assistantDocumentOriginalDownloadService: AssistantDocumentOriginalDownloadService
+    private readonly prepareAssistantDocumentPptxService: PrepareAssistantDocumentPptxService
   ) {}
 
   @Post("assistant/chat/web/stage-attachment")
@@ -263,36 +265,27 @@ export class MediaAttachmentController {
     res.end(payload.buffer);
   }
 
-  @Get("assistant/documents/:docId/download-original")
-  async downloadOriginalPresentationDocument(
+  @HttpCode(202)
+  @Post("assistant/documents/:docId/prepare-pptx")
+  async preparePresentationPptx(
     @Req() req: RequestWithPlatformContext,
-    @Res() res: ResponseWithPlatformContext,
     @Param("docId") docId: string,
-    @Query("versionId") versionId?: string
-  ): Promise<void> {
+    @Body() body: { versionId?: unknown }
+  ) {
     const assistant = await this.resolveRequestAssistant(req);
-    const result = await this.assistantDocumentOriginalDownloadService.downloadOriginalPresentation(
-      {
-        assistantId: assistant.id,
-        workspaceId: assistant.workspaceId,
-        docId,
-        versionId: typeof versionId === "string" ? versionId : null
-      }
-    );
-    const payload = this.prepareDownloadPayload({
-      buffer: result.buffer,
-      contentType: result.contentType,
-      forceDownload: true
+    const result = await this.prepareAssistantDocumentPptxService.execute({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      docId,
+      versionId: typeof body.versionId === "string" ? body.versionId : null
     });
-    res.setHeader("Content-Type", payload.contentType);
-    res.setHeader("Cache-Control", "private, max-age=300");
-    res.setHeader(
-      "Content-Disposition",
-      this.buildContentDisposition(result.filename, "attachment")
-    );
-    res.statusCode = 200;
-    res.setHeader("Content-Length", String(payload.buffer.length));
-    res.end(payload.buffer);
+    if (result.status === "rejected") {
+      throw new ConflictException(result);
+    }
+    return {
+      requestId: req.requestId ?? null,
+      ...result
+    };
   }
 
   // RFC 7233 single-range parser. Returns null for unsupported / malformed /
