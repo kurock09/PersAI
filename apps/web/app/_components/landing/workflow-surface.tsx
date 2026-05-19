@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/app/lib/utils";
 
@@ -423,7 +424,6 @@ function MediaScene({ s }: { s: MediaSurfaceStrings }) {
         <SunsetTile className="absolute right-[-6%] top-[18%] h-20 w-20 [transform:rotate(-6deg)_translateZ(40px)]" />
         <AbstractTile className="absolute right-[14%] top-[44%] h-24 w-24 [transform:rotate(3deg)_translateZ(28px)]" />
         <VideoTile className="absolute right-[-8%] top-[60%] h-24 w-32 [transform:rotate(-2deg)_translateZ(50px)]" />
-        <PortraitTile className="absolute left-[-4%] top-[78%] h-16 w-20 [transform:rotate(8deg)_translateZ(18px)]" />
       </div>
     </div>
   );
@@ -502,26 +502,6 @@ function AbstractTile({ className }: { className?: string }) {
       <span
         aria-hidden
         className="absolute bottom-[14%] left-[30%] h-5 w-7 rounded-full bg-rose-300/70 mix-blend-multiply blur-[1px] dark:bg-rose-400/55 dark:mix-blend-screen"
-      />
-    </MediaTileShell>
-  );
-}
-
-function PortraitTile({ className }: { className?: string }) {
-  return (
-    <MediaTileShell
-      className={className}
-      bg="bg-gradient-to-b from-stone-200/85 via-stone-300/65 to-stone-400/55 dark:from-stone-700/55 dark:via-stone-800/55 dark:to-stone-900/55"
-    >
-      {/* Head */}
-      <span
-        aria-hidden
-        className="absolute left-1/2 top-[22%] h-4 w-4 -translate-x-1/2 rounded-full bg-stone-100/90 dark:bg-stone-200/85"
-      />
-      {/* Shoulders */}
-      <span
-        aria-hidden
-        className="absolute bottom-0 left-1/2 h-1/2 w-3/4 -translate-x-1/2 rounded-tl-full rounded-tr-full bg-stone-100/70 dark:bg-stone-200/55"
       />
     </MediaTileShell>
   );
@@ -763,20 +743,11 @@ function AvatarTile({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "relative h-16 w-16 self-start overflow-hidden rounded-2xl border border-border/55 bg-gradient-to-br from-accent/35 via-amber-200/40 to-rose-200/40 shadow-[0_14px_30px_-18px_rgba(0,0,0,0.55)] dark:from-accent/40 dark:via-amber-300/25 dark:to-rose-400/25",
+        "relative h-16 w-16 self-start overflow-hidden rounded-2xl border border-border/55 bg-surface-raised/70 shadow-[0_14px_30px_-18px_rgba(0,0,0,0.55)]",
         className
       )}
     >
-      {/* head */}
-      <span
-        aria-hidden
-        className="absolute left-1/2 top-[28%] h-4 w-4 -translate-x-1/2 rounded-full bg-stone-100/95 dark:bg-stone-200/85"
-      />
-      {/* shoulders */}
-      <span
-        aria-hidden
-        className="absolute bottom-0 left-1/2 h-1/2 w-3/4 -translate-x-1/2 rounded-tl-full rounded-tr-full bg-stone-100/70 dark:bg-stone-200/55"
-      />
+      <Image src="/avatar-presets/luma.png" alt="" fill sizes="64px" className="object-cover" />
     </div>
   );
 }

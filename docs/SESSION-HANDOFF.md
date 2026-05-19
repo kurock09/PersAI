@@ -1,5 +1,37 @@
 # SESSION-HANDOFF
 
+## 2026-05-20 — Preset avatar in personality scene + media portrait tile removal
+
+### What landed
+
+- **`Name, voice, character` now uses a real PersAI preset avatar instead of the placeholder silhouette tile.** In `apps/web/app/_components/landing/workflow-surface.tsx`, `AvatarTile` now renders `apps/web/public/avatar-presets/luma.png` via `next/image`, keeping the same card size and frame treatment but replacing the schematic head/shoulders drawing with an actual product preset.
+- **`Images and video` no longer includes the intrusive schematic portrait tile.** The extra portrait-style media tile that sat at the lower-left and visually climbed into the message area was removed from `MediaScene`, leaving the image, abstract, and video artifacts as the only outputs around the chat.
+
+### Why
+
+Founder review in production surfaced two clarity issues: the placeholder avatar in the personality scene looked too schematic compared with the rest of the product, and the portrait tile in the media scene read as accidental overlap rather than a useful artifact. Replacing the first with a real preset and removing the second makes both scenes feel more intentional.
+
+### Files touched
+
+- `apps/web/app/_components/landing/workflow-surface.tsx`
+- `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint` — clean.
+- `corepack pnpm run format:check` — clean.
+- `corepack pnpm --filter @persai/api run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — `3/3` green.
+
+### Risks / residuals
+
+- `luma.png` is now part of the active landing visual language, not only the assistant setup/catalog surface. If founder later wants the workflow scenes to stay more abstract, the follow-up would be to swap it for a smaller cropped preset variant rather than return to the old placeholder illustration.
+
+### Next recommended step
+
+- Quick production glance at `Name, voice, character` and `Images and video` in both light and dark themes, then leave the workflow scenes alone unless another concrete mobile overlap appears.
+
 ## 2026-05-20 — Document-job live UI continuity for PPTX prep + chat-list activity
 
 ### What landed
