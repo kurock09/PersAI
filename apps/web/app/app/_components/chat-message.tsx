@@ -343,6 +343,7 @@ interface ChatMessageBubbleProps {
    */
   onRetryPendingSend?: (() => void) | undefined;
   onCancelPendingSend?: (() => void) | undefined;
+  onDocumentJobAccepted?: (() => void) | undefined;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -991,12 +992,14 @@ function AttachmentStrip({
   attachments,
   className,
   compactBubble = false,
-  variant = "default"
+  variant = "default",
+  onDocumentJobAccepted
 }: {
   attachments: ChatAttachment[];
   className?: string;
   compactBubble?: boolean;
   variant?: "default" | "user-media";
+  onDocumentJobAccepted?: (() => void) | undefined;
 }) {
   const t = useTranslations("chat");
   // Lightbox state is keyed by attachment id so we can open/close
@@ -1208,6 +1211,7 @@ function AttachmentStrip({
               <PresentationPptxPrepareAction
                 href={pptxPrepareUrl}
                 filename={att.originalFilename}
+                onAccepted={onDocumentJobAccepted}
               />
             </div>
           );
@@ -1248,6 +1252,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   onAssistantAction,
   onRetryPendingSend,
   onCancelPendingSend,
+  onDocumentJobAccepted,
   preResponseStatus
 }: ChatMessageBubbleProps) {
   const t = useTranslations("chat");
@@ -1345,6 +1350,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                     compactBubble
                     variant="user-media"
                     className="mt-0 gap-1.5"
+                    onDocumentJobAccepted={onDocumentJobAccepted}
                   />
                 </div>
                 {hasUserCaption ? (
@@ -1380,6 +1386,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                     className={cn(
                       hideUserVoiceTranscript || hideUserTextForAttachmentsOnly ? "mt-0" : "mt-2"
                     )}
+                    onDocumentJobAccepted={onDocumentJobAccepted}
                   />
                 )}
               </div>
@@ -1464,7 +1471,10 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               </>
             )}
             {message.attachments && message.attachments.length > 0 && (
-              <AttachmentStrip attachments={message.attachments} />
+              <AttachmentStrip
+                attachments={message.attachments}
+                onDocumentJobAccepted={onDocumentJobAccepted}
+              />
             )}
           </div>
         )}

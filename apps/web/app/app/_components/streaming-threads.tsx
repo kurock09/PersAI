@@ -27,6 +27,8 @@ export interface StreamingThreadsRegistry {
   readonly activeThreads: ReadonlySet<string>;
   /** Set of `threadKey`s with background media jobs currently in flight. */
   readonly activeMediaThreads: ReadonlySet<string>;
+  /** Set of `threadKey`s with background document jobs currently in flight. */
+  readonly activeDocumentThreads: ReadonlySet<string>;
   /**
    * Mark a `threadKey` as streaming (`active: true`) or idle (`active: false`).
    * Idempotent — repeated calls with the same value do not trigger a
@@ -35,6 +37,8 @@ export interface StreamingThreadsRegistry {
   markStreaming(threadKey: string, active: boolean): void;
   /** Mark a `threadKey` as having active media jobs or not. */
   markMediaActive(threadKey: string, active: boolean): void;
+  /** Mark a `threadKey` as having active document jobs or not. */
+  markDocumentActive(threadKey: string, active: boolean): void;
 }
 
 const StreamingThreadsContext = createContext<StreamingThreadsRegistry | null>(null);
@@ -42,6 +46,9 @@ const StreamingThreadsContext = createContext<StreamingThreadsRegistry | null>(n
 function useRegistryState(): StreamingThreadsRegistry {
   const [activeThreads, setActiveThreads] = useState<ReadonlySet<string>>(() => new Set());
   const [activeMediaThreads, setActiveMediaThreads] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const [activeDocumentThreads, setActiveDocumentThreads] = useState<ReadonlySet<string>>(
     () => new Set()
   );
 
@@ -75,9 +82,38 @@ function useRegistryState(): StreamingThreadsRegistry {
     });
   }, []);
 
+  const markDocumentActive = useCallback((threadKey: string, active: boolean) => {
+    setActiveDocumentThreads((prev) => {
+      if (active) {
+        if (prev.has(threadKey)) return prev;
+        const next = new Set(prev);
+        next.add(threadKey);
+        return next;
+      }
+      if (!prev.has(threadKey)) return prev;
+      const next = new Set(prev);
+      next.delete(threadKey);
+      return next;
+    });
+  }, []);
+
   return useMemo(
-    () => ({ activeThreads, activeMediaThreads, markStreaming, markMediaActive }),
-    [activeMediaThreads, activeThreads, markMediaActive, markStreaming]
+    () => ({
+      activeThreads,
+      activeMediaThreads,
+      activeDocumentThreads,
+      markStreaming,
+      markMediaActive,
+      markDocumentActive
+    }),
+    [
+      activeDocumentThreads,
+      activeMediaThreads,
+      activeThreads,
+      markDocumentActive,
+      markMediaActive,
+      markStreaming
+    ]
   );
 }
 
@@ -110,4 +146,9 @@ export function useIsThreadStreaming(threadKey: string): boolean {
 export function useHasThreadActiveMediaJobs(threadKey: string): boolean {
   const { activeMediaThreads } = useStreamingThreadsRegistry();
   return activeMediaThreads.has(threadKey);
+}
+
+export function useHasThreadActiveDocumentJobs(threadKey: string): boolean {
+  const { activeDocumentThreads } = useStreamingThreadsRegistry();
+  return activeDocumentThreads.has(threadKey);
 }

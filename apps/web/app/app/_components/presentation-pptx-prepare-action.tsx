@@ -26,11 +26,13 @@ type PrepareState =
 interface PresentationPptxPrepareActionProps {
   href: string;
   filename: string | null;
+  onAccepted?: (() => void) | undefined;
 }
 
 export function PresentationPptxPrepareAction({
   href,
-  filename
+  filename,
+  onAccepted
 }: PresentationPptxPrepareActionProps): ReactElement {
   const t = useTranslations("chat");
   const { getToken } = useAuth();
@@ -97,12 +99,13 @@ export function PresentationPptxPrepareAction({
           ? payload.status
           : "queued";
       setState({ status: "accepted", result });
+      onAccepted?.();
     } catch (error) {
       if (controller.signal.aborted) return;
       console.warn("[presentation-pptx] prepare failed", error);
       setState({ status: "error" });
     }
-  }, [getToken, href, state.status]);
+  }, [getToken, href, onAccepted, state.status]);
 
   useEffect(() => {
     if (!isModalOpen) return;

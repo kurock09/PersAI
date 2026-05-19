@@ -89,6 +89,28 @@ describe("PresentationPptxPrepareAction", () => {
     ).toBeInTheDocument();
   });
 
+  it("notifies the parent when the PPTX preparation is accepted", async () => {
+    getTokenMock.mockResolvedValue(null);
+    global.fetch = vi.fn().mockResolvedValue(Response.json({ status: "queued" })) as typeof fetch;
+    const onAccepted = vi.fn();
+
+    render(
+      <PresentationPptxPrepareAction
+        href="/api/assistant-document/doc-1/prepare-pptx"
+        filename="deck.pdf"
+        onAccepted={onAccepted}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "presentationDownloadPptxAction" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "presentationDownloadPptxConfirmAction" })
+    );
+
+    await waitFor(() => {
+      expect(onAccepted).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("shows a failed modal for non-2xx preparation responses", async () => {
     getTokenMock.mockResolvedValue(null);
     global.fetch = vi

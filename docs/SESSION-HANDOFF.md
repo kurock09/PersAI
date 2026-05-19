@@ -1,5 +1,74 @@
 # SESSION-HANDOFF
 
+## 2026-05-20 — Document-job live UI continuity for PPTX prep + chat-list activity
+
+### What landed
+
+- **PPTX preparation now materializes as active work immediately in the current chat.**
+  `apps/web/app/app/_components/presentation-pptx-prepare-action.tsx` now
+  notifies the parent when the explicit PPTX render request is accepted, and
+  `apps/web/app/app/chat/page.tsx` routes that through
+  `useChat.noteDocumentJobStarted()` plus `reloadChats()`. Result: the chat
+  starts showing document work without a manual page refresh, and the existing
+  history refresh loop can materialize the finished PPTX banner as soon as
+  delivery lands.
+- **`useChat` now tracks document-job activity through the shared live-thread path.**
+  `apps/web/app/app/_components/use-chat.ts` now marks active document jobs in
+  the shared registry the same way it already marked media jobs, including an
+  optimistic queued job when PPTX preparation is accepted.
+- **Sidebar live indicators now include document jobs.**
+  `apps/web/app/app/_components/streaming-threads.tsx` gained document-job
+  tracking, and `apps/web/app/app/_components/sidebar.tsx` now treats either
+  registry-tracked document work or server-provided `activeDocumentJobs` as
+  enough to show the pulsing indicator in the chat list.
+- **Focused regression coverage was extended.**
+  `presentation-pptx-prepare-action.test.tsx` now asserts the parent
+  notification callback, and `sidebar.test.tsx` now covers document-job-driven
+  live indicators.
+
+### Why
+
+Founder reported two remaining UX failures in the new PPTX flow: after
+confirming the second PPTX render, the chat still looked idle until a manual
+refresh, and background document jobs did not pulse in the sidebar like
+streaming or media work. Backend job truth was already correct; the gap was
+entirely in frontend continuity between "accepted" and "visible as active".
+
+### Files touched
+
+- `apps/web/app/app/_components/presentation-pptx-prepare-action.tsx`
+- `apps/web/app/app/_components/presentation-pptx-prepare-action.test.tsx`
+- `apps/web/app/app/_components/chat-message.tsx`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/_components/chat-area.test.tsx`
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/streaming-threads.tsx`
+- `apps/web/app/app/_components/sidebar.tsx`
+- `apps/web/app/app/_components/sidebar.test.tsx`
+- `apps/web/app/app/chat/page.tsx`
+- `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/presentation-pptx-prepare-action.test.tsx app/app/_components/sidebar.test.tsx app/app/_components/chat-area.test.tsx app/app/_components/streaming-threads.test.tsx`
+  — `36/36` green.
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+
+### Risks / residuals
+
+- The optimistic document-job marker is intentionally generic (`queued`) until
+  the server snapshot comes back. That keeps UI continuity honest, but if
+  future product asks for richer per-job copy in the gap between accept and
+  first refresh, the optimistic local shape may need a small UX-specific label
+  field instead of borrowing backend job fields only.
+
+### Next recommended step
+
+- Run one real browser pass on the deployed chat surface: confirm the PPTX
+  "working" state appears immediately after confirmation, the final PPTX banner
+  lands without full-page reload, and the same thread pulses in the sidebar
+  throughout the background render.
+
 ## 2026-05-20 — Dark SBP visibility + auth footer parity + narrow document-label cleanup
 
 ### What landed
@@ -105,7 +174,7 @@ Founder flagged the right issue from live phone screenshots: the workflow compos
 - **Finale now closes with a quiet trust row instead of only abstract CTA copy.** `apps/web/app/_components/landing/finale-section.tsx` gained three compact trust chips between the body copy and CTA pair:
   - RU: `«Быстрый старт за пару минут»`, `«СБП, Мир и карты РФ»`, `«Работает без VPN»`.
   - EN fallback: `Start in a couple of minutes`, `SBP and local cards`, `Works without VPN`.
-  The payment chip now also carries a small local `apps/web/public/landing/sbp.svg` mark so `СБП` reads instantly without turning the row into a banner strip. This keeps the hero clean while moving the conversion-specific reassurance exactly where founder wanted it: low on the page, after the product story and channels, just before the action.
+    The payment chip now also carries a small local `apps/web/public/landing/sbp.svg` mark so `СБП` reads instantly without turning the row into a banner strip. This keeps the hero clean while moving the conversion-specific reassurance exactly where founder wanted it: low on the page, after the product story and channels, just before the action.
 - **Channels row was calmed down so branded squircle icons do the color work.** `apps/web/app/_components/landing/system-section.tsx` and `apps/web/app/_components/landing/android-channel-tile.tsx` no longer paint the tiles as separate sage / sky / amber cards. Surfaces are now near-neutral raised glass with only a light hover-border tint; Android keeps a small premium-toned arrow-chip as the single explicit download affordance.
 - **APK CTA removed from non-home public pricing.** `apps/web/app/pricing/page.tsx` no longer passes `showDownloadCta` into `PublicAuthShell`, so `Скачать APK` stays only on the landing's Android tile instead of reappearing under public pricing.
 - **Public chrome was aligned to the current light palette.** Earlier in this same session, `apps/web/app/layout.tsx` and `apps/web/app/app/_components/use-theme.ts` were updated so light `theme-color` now uses the actual sage off-white `#f3f4ed` instead of the older beige. `apps/web/app/_components/public-auth-shell.tsx`, `apps/web/app/_components/public-site-page-view.tsx`, `apps/web/app/sign-in/[[...sign-in]]/page.tsx`, `apps/web/app/sign-up/[[...sign-up]]/page.tsx`, and `apps/web/app/_components/pricing-page-view.tsx` were also softened: less pulse/glow/shadow, calmer legal-page typography, flatter auth cards, and pricing cards brought back into the same material family.

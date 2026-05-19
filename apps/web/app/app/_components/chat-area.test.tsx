@@ -126,6 +126,7 @@ function createChat(
     stop: vi.fn(),
     clearIssue: vi.fn(),
     reportIssue: vi.fn(),
+    noteDocumentJobStarted: vi.fn(),
     loadHistory: vi.fn(async () => undefined),
     markHistoryEmpty: vi.fn(),
     loadOlderMessages: options?.loadOlderMessages ?? vi.fn(async () => undefined),

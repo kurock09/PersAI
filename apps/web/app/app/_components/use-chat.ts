@@ -114,6 +114,7 @@ export interface UseChatReturn {
   stop: () => void;
   clearIssue: () => void;
   reportIssue: (error: unknown) => void;
+  noteDocumentJobStarted: () => void;
   loadHistory: (chatId: string) => Promise<void>;
   /**   * Mark the active thread as "no history will be loaded" so the empty-state   * UI can render. Used by `chat/page.tsx` when the active threadKey does not   * correspond to any existing chat row (i.e. it's a brand-new conversation).   * See the `historyLoading` optimistic-true reset in the threadKey-change   * branch below for the rationale.   */ markHistoryEmpty: () => void;
   loadOlderMessages: () => Promise<void>;
@@ -899,6 +900,7 @@ export function useChat(threadKey: string): UseChatReturn {
   const [activeDocumentJobs, setActiveDocumentJobs] = useState<WebChatActiveDocumentJobState[]>([]);
   /* Slice 1.1 ��� per-thread streaming flag. */ /*  */ /* `isStreaming` used to be a single `useState(false)` local to this hook. */ /* That meant Chat A's in-flight stream blocked the composer in Chat B as */ /* soon as the user switched threads. We now lift "which threads are */ /* streaming?" into a shared registry keyed by `surfaceThreadKey`, so each */ /* thread has its own independent boolean and AbortController. */ /* See `streaming-threads.tsx`. */ const {
     activeThreads,
+    markDocumentActive,
     markMediaActive,
     markStreaming
   } = useStreamingThreadsRegistry();
@@ -1111,10 +1113,14 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     [markMediaActive]
   );
-  const replaceActiveDocumentJobs = useCallback((next: WebChatActiveDocumentJobState[]) => {
-    activeDocumentJobsRef.current = next;
-    setActiveDocumentJobs(next);
-  }, []);
+  const replaceActiveDocumentJobs = useCallback(
+    (next: WebChatActiveDocumentJobState[]) => {
+      activeDocumentJobsRef.current = next;
+      setActiveDocumentJobs(next);
+      markDocumentActive(currentThreadKeyRef.current, next.length > 0);
+    },
+    [markDocumentActive]
+  );
   const clearSoftDetachReconcileTimer = useCallback((targetThreadKey: string) => {
     const timer = softDetachReconcileTimersByThreadRef.current.get(targetThreadKey);
     if (timer !== undefined) {
@@ -1526,6 +1532,7 @@ export function useChat(threadKey: string): UseChatReturn {
             });
           }
           markMediaActive(cachedThreadKey, nextActiveMediaJobs.length > 0);
+          markDocumentActive(cachedThreadKey, nextActiveDocumentJobs.length > 0);
           historyLoadedRef.current.add(targetChatId);
           void refreshCompactionState(targetChatId);
           if (
@@ -1551,6 +1558,28 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     [applyThreadMessages, getToken, refreshCompactionState, setThreadPendingSend]
   );
+  const noteDocumentJobStarted = useCallback(() => {
+    const nowIso = new Date().toISOString();
+    if (activeDocumentJobsRef.current.length === 0) {
+      replaceActiveDocumentJobs([
+        {
+          id: `optimistic-document-job-${nowIso}`,
+          documentType: "presentation",
+          descriptorMode: "export_or_redeliver",
+          status: "queued",
+          createdAt: nowIso,
+          startedAt: null,
+          updatedAt: nowIso
+        }
+      ]);
+    } else {
+      replaceActiveDocumentJobs(activeDocumentJobsRef.current);
+    }
+    const knownChatId = resolveKnownChatIdForThread(currentThreadKeyRef.current);
+    if (knownChatId !== null) {
+      void refreshLatestHistory(knownChatId, { targetThreadKey: currentThreadKeyRef.current });
+    }
+  }, [refreshLatestHistory, replaceActiveDocumentJobs, resolveKnownChatIdForThread]);
   const applyTurnStatusState = useCallback(
     (
       targetThreadKey: string,
@@ -3001,6 +3030,10 @@ export function useChat(threadKey: string): UseChatReturn {
               });
             }
             markMediaActive(cachedThreadKey, nextActiveMediaJobs.length > 0);
+            markDocumentActive(
+              cachedThreadKey,
+              (nextActiveDocumentJobs ?? cachedSnapshot?.activeDocumentJobs ?? []).length > 0
+            );
           }
           if (resolvedChatId) {
             void refreshCompactionState(resolvedChatId, {
@@ -4033,6 +4066,7 @@ export function useChat(threadKey: string): UseChatReturn {
     stop,
     clearIssue,
     reportIssue,
+    noteDocumentJobStarted,
     loadHistory,
     markHistoryEmpty,
     loadOlderMessages,

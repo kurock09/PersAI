@@ -43,6 +43,7 @@ interface ChatAreaProps {
   showShadowRoutingBadge?: boolean | undefined;
   onTitleChanged?: (() => void) | undefined;
   onUserSend?: (() => void) | undefined;
+  onDocumentJobAccepted?: (() => void) | undefined;
   billingReturnKind?: "success" | "failed" | "pending" | undefined;
   billingPlanCode?: string | undefined;
   billingPaymentIntentId?: string | undefined;
@@ -74,6 +75,7 @@ export function ChatArea({
   showShadowRoutingBadge = false,
   onTitleChanged,
   onUserSend,
+  onDocumentJobAccepted,
   billingReturnKind,
   billingPlanCode,
   billingPaymentIntentId
@@ -537,6 +539,7 @@ export function ChatArea({
                   assistantAvatarUrl={assistantAvatarUrl}
                   assistantAvatarEmoji={assistantAvatarEmoji}
                   onAssistantAction={handleAssistantAction}
+                  onDocumentJobAccepted={onDocumentJobAccepted}
                   onDoNotRemember={
                     entry.message.role === "assistant" &&
                     entry.message.status === "committed" &&

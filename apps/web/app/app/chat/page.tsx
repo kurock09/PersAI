@@ -388,6 +388,11 @@ function ChatPageInner() {
       showShadowRoutingBadge={canSeeShadowRoutingBadge}
       onTitleChanged={appData.reloadChats}
       onUserSend={() => appData.markChatListActivity(threadKey)}
+      onDocumentJobAccepted={() => {
+        chat.noteDocumentJobStarted();
+        appData.markChatListActivity(threadKey);
+        void appData.reloadChats();
+      }}
       billingReturnKind={billingBanner.kind}
       billingPlanCode={billingBanner.planCode}
       billingPaymentIntentId={billingBanner.paymentIntentId}

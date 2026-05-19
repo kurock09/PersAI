@@ -42,7 +42,11 @@ import {
   postAssistantWebChatArchive,
   deleteAssistantWebChat
 } from "../assistant-api-client";
-import { useHasThreadActiveMediaJobs, useIsThreadStreaming } from "./streaming-threads";
+import {
+  useHasThreadActiveDocumentJobs,
+  useHasThreadActiveMediaJobs,
+  useIsThreadStreaming
+} from "./streaming-threads";
 import { PullToRefresh } from "./pull-to-refresh";
 
 interface SidebarProps {
@@ -765,7 +769,12 @@ function ChatListItem({
   // the thread is idle.
   const isThreadStreaming = useIsThreadStreaming(item.chat.surfaceThreadKey);
   const hasThreadActiveMediaJobs = useHasThreadActiveMediaJobs(item.chat.surfaceThreadKey);
-  const showLiveIndicator = isThreadStreaming || hasThreadActiveMediaJobs;
+  const hasThreadActiveDocumentJobs = useHasThreadActiveDocumentJobs(item.chat.surfaceThreadKey);
+  const showLiveIndicator =
+    isThreadStreaming ||
+    hasThreadActiveMediaJobs ||
+    hasThreadActiveDocumentJobs ||
+    (item.activeDocumentJobs?.length ?? 0) > 0;
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
