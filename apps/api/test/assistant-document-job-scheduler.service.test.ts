@@ -368,6 +368,177 @@ describe("AssistantDocumentJobSchedulerService", () => {
     assert.equal(topLevelUpdates[0]?.data?.providerStatusJson?.retryable, true);
   });
 
+  test("creates a chat message when provider execution terminally fails", async () => {
+    let capturedFailureMessageInput: Record<string, unknown> | null = null;
+    let capturedPostFailureUpdate: Record<string, unknown> | null = null;
+    const service = new AssistantDocumentJobSchedulerService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [],
+            assistantDocumentRenderJob: {
+              update: async () => undefined,
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantDocumentVersion: {
+              update: async () => undefined
+            },
+            assistantDocument: {
+              findUnique: async () => ({
+                currentVersionId: "version-1"
+              }),
+              update: async () => undefined
+            },
+            assistantDocumentProviderMapping: {
+              findFirst: async () => null,
+              create: async () => undefined,
+              update: async () => undefined
+            }
+          }),
+        assistantDocumentRenderJob: {
+          update: async (input: Record<string, unknown>) => {
+            capturedPostFailureUpdate = input;
+            return undefined;
+          },
+          updateMany: async () => ({ count: 1 })
+        }
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        async resolveCurrent() {
+          return {
+            runtimeBundleDocument: JSON.stringify({
+              metadata: {
+                assistantId: "assistant-1",
+                workspaceId: "workspace-1",
+                publishedVersionId: "version-1"
+              },
+              runtime: {},
+              promptConstructor: {}
+            })
+          };
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          return {
+            runtimeTier: "paid_shared_restricted"
+          };
+        }
+      } as never,
+      {
+        async run() {
+          return {
+            ok: false,
+            retryable: false,
+            code: "gamma_request_invalid",
+            message: "Gamma returned HTTP 400.",
+            providerStatus: {
+              provider: "gamma",
+              state: "failed",
+              status: "create_failed",
+              httpStatus: 400,
+              retryable: false
+            }
+          };
+        }
+      } as never,
+      {
+        async extractSourceFiles() {
+          return [];
+        }
+      } as never,
+      {
+        async deliverReadyJob() {
+          throw new Error("delivery should not run in this test");
+        },
+        async createTerminalExecutionFailureMessage(input: Record<string, unknown>) {
+          capturedFailureMessageInput = input;
+          return "message-failure-1";
+        }
+      } as never,
+      {
+        async getLeaseState() {
+          return null;
+        },
+        async acquire() {
+          return null;
+        },
+        async heartbeat() {
+          return true;
+        },
+        async release() {}
+      } as never,
+      {
+        recordTickSkipped() {},
+        recordTickAcquired() {},
+        recordLeaseLost() {},
+        recordLeaseExpiredRecovered() {}
+      } as never
+    );
+
+    await (
+      service as unknown as { processQueuedJob: (job: Record<string, unknown>) => Promise<void> }
+    ).processQueuedJob({
+      id: "job-gamma-failed-1",
+      docId: "doc-1",
+      versionId: "version-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      provider: "gamma",
+      outputFormat: "pdf",
+      sourceUserMessageId: "message-1",
+      requestJson: {
+        sourceUserMessageText: "Сделай презентацию про рынок",
+        sourceUserMessageCreatedAt: "2026-05-15T12:00:00.000Z",
+        descriptorMode: "create_presentation",
+        sourceJson: {
+          prompt: "Сделай презентацию про рынок"
+        }
+      },
+      attemptCount: 1,
+      maxAttempts: 1,
+      claimToken: "claim-1"
+    });
+
+    assert.equal(capturedFailureMessageInput?.descriptorMode, "create_presentation");
+    assert.equal(
+      (capturedFailureMessageInput?.failure as { code?: string } | undefined)?.code,
+      "gamma_request_invalid"
+    );
+    assert.equal(
+      (
+        capturedPostFailureUpdate?.data as
+          | { providerStatusJson?: { completionAssistantMessageId?: string } }
+          | undefined
+      )?.providerStatusJson?.completionAssistantMessageId,
+      "message-failure-1"
+    );
+  });
+
   test("passes revise_document through to the runtime request", async () => {
     let capturedRuntimeRequest: Record<string, unknown> | null = null;
     const service = new AssistantDocumentJobSchedulerService(

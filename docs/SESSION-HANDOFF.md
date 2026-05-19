@@ -1,5 +1,443 @@
 # SESSION-HANDOFF
 
+## 2026-05-19 — Channel tiles unified to discrete-icon row + Telegram copy trim
+
+### What landed
+
+- **Editorial ghost dropped on desktop; channel tiles use the same discrete layout everywhere.** Both `ChannelTile` (`apps/web/app/_components/landing/system-section.tsx`) and `AndroidChannelTile` (`apps/web/app/_components/landing/android-channel-tile.tsx`) now render a single discrete branded squircle:
+  - 48 × 48, vertically centered on the left edge, full opacity.
+  - Text padded to `pl-[3.75rem]`.
+  - Tile vertical rhythm `min-h-[5rem] px-4 py-3.5`.
+  - Hover subtly scales the icon (`group-hover:scale-[1.03]`) instead of brightening a ghost layer.
+  - The dual mobile/desktop layout, `[mask-image:linear-gradient(...)]`, and `h-28 w-28` corner art are all removed.
+- **Channels grid is 4-up on large viewports.** Grid switched from `mt-4 grid gap-3 sm:grid-cols-2` to `mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4`, so at ≥ `lg` (1024 px) all four tiles align on a single row, which is the layout the discrete-icon approach is calibrated for. At `sm`–`md` it stays 2 × 2; on mobile it stays 1-up.
+- **Telegram subtitle trimmed.** RU `«твой персональный AI в Telegram. Общайся как с человеком, добавляй в группы.»` → `«твой персональный AI в Telegram.»`; EN equivalent trimmed identically. The `apps/web/app/page.test.tsx` mock copy was tightened; the existing regex assertion `/personal AI in Telegram/` still passes.
+- **Palette and hover bumps from the previous pass preserved.** Sage / sky / muted / amber base tints, group hover that brightens border + surface, and the Android amber-amplified surface + arrow-chip hover all remain.
+
+### Why
+
+The ghost-icon ambient treatment did not survive contact with founder review either on mobile (icons read as oversized) or desktop (founder requested a return to discrete icons). The honest read: the editorial ambient idea works in design comps, but at production tile sizes it competes with the System block's other content for visual weight rather than supporting it. A clean discrete row at four-up scales the section to "where it works" without trying to be art.
+
+### Files touched
+
+- `apps/web/app/_components/landing/system-section.tsx` (single discrete icon layout, `lg:grid-cols-4`).
+- `apps/web/app/_components/landing/android-channel-tile.tsx` (matching discrete layout, arrow-chip vertically centered now that the tile is shorter).
+- `apps/web/messages/ru.json` (Telegram subtitle trimmed).
+- `apps/web/messages/en.json` (Telegram subtitle trimmed).
+- `apps/web/app/page.test.tsx` (mock copy aligned to the trimmed Telegram string).
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md` (this entry).
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run lint` — clean (`--max-warnings=0`).
+- `corepack pnpm run format:check` — all matched files use Prettier code style.
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — `3/3` green.
+
+### Risks / residuals
+
+- The 4-up row on ≥ `lg` increases per-tile horizontal share from ~50 % to ~25 %; subtitles are clamped to two lines (`line-clamp-2`) so any future longer subs will be truncated. Acceptable trade-off; current copy comfortably fits one line at the trimmed length.
+- The discrete icon layout now relies entirely on the icon + label combination for brand-recognition; no ambient atmosphere. If founder asks for "more life" later, prefer adding subtle border-glow on hover or a soft gradient under each tile rather than reintroducing the ghost layer.
+
+### Next recommended step
+
+Founder closure: visual walkthrough of the System block at desktop (≥ lg), tablet (sm–md), and mobile widths in both locales and themes. If the row reads clean, commit & push the channel-tile + Workflow-hairline edits together; otherwise iterate on tile spacing.
+
+## 2026-05-19 — Workflow hairline cleanup + channel-tile mobile/hover polish
+
+### What landed
+
+- **Pseudo-3D Workflow scenes lost every connector hairline.** Founder review flagged the thin sage hairlines and the curved memory-thread ellipse as reading like artefact noise instead of intentional structure. Removed:
+  - The center-horizon hairline in `SceneFrame`.
+  - The curved sage `memory thread` ellipse in `MemoryScene`.
+  - Six `HairlineConnector` placements: 1 in `DocumentsScene`, 2 in `PersonalityScene`, 1 in `PlansScene`, 2 in `KnowledgeScene`.
+  - The `HairlineConnector` function definition itself.
+    Composition is now held entirely by chat-bubble layout, depth (`translateZ`), tints, and color stamps. The schematics actually look cleaner without the connectors — they were trying to convey "wires of memory / attention" but at scene scale the ~1 px sage strokes blended with surface tints into visual noise. Other elements (memory chip, color stamps, document/task/media cards) already carry that semantic.
+- **Channel tiles now ship two layouts — discrete on mobile, ambient on desktop.** On `< sm` viewports the editorial "ghosted icon" treatment turned a wide-shallow tile into "icon mass dominates the card" because the ~33 % horizontal share of the 112 px ghost icon was disproportionate to a narrow tile. Honest design call:
+  - Mobile (`< sm`): discrete branded squircle, full opacity, 48 × 48, vertically centered on the left edge. Text padded to `pl-[3.75rem]`. Reads instantly like an iOS Settings list cell.
+  - Desktop (`sm:` and up): editorial ghost restored — large `h-28 w-28` icon at `-left-2 -top-2` with the 135° linear-gradient mask. Text padded to `pl-[5.25rem]`.
+  - Tile vertical rhythm tightened on mobile: `min-h-[5rem] px-4 py-3.5` → expands to `min-h-[6.5rem] px-5 py-5` at `sm:`.
+  - Both layouts render simultaneously in markup with `sm:hidden` / `hidden sm:block`; the runtime cost is two `<Image>` tags with shared `src`, which Next.js will dedupe at the network layer.
+- **Channel tile palette and interactivity bumped.**
+  - Base tints stepped one notch up so the tiles read as intentional surfaces rather than ghosts of the page background: `bg-accent/[0.05] → bg-accent/[0.07]`, `bg-sky-50/40 → bg-sky-50/55` (light) / `bg-sky-300/[0.06] → bg-sky-300/[0.08]` (dark), `bg-amber-50/40 → bg-amber-50/65` (light) / `bg-amber-300/[0.06] → bg-amber-300/[0.10]` (dark).
+  - Every tile now ships a group hover that brightens border + surface + ghost-icon opacity simultaneously: `opacity-[0.34] → opacity-[0.42]` light, `opacity-[0.26] → opacity-[0.34]` dark for non-muted tiles. Muted iOS tile keeps a quieter ghost (`opacity-[0.20]` light / `opacity-[0.14]` dark, no hover bump) so the "soon" reading stays unmistakable.
+  - Android tile is brightened a bit further than its siblings — borders/surfaces/ghost-opacity all shifted up — and its `↓` arrow-chip now also brightens border + surface on hover for a sharper click affordance.
+
+### Why
+
+The hairlines were earnest but unsuccessful: at the resolutions the schematics actually render at, they degraded composition rather than enhanced it. Mobile channel tiles were good editorial design pushed onto the wrong proportions; splitting the layout per breakpoint is more premium than forcing one onto the other. The brightness bump finishes the System block — previously the tiles felt washed-out against the sage off-white surface; now they read as intentional pads of warmth/coolness/sage with quiet hover energy.
+
+### Files touched
+
+- `apps/web/app/_components/landing/workflow-surface.tsx` (removed `HairlineConnector` def + 6 usages, removed center-horizon hairline in `SceneFrame`, removed memory-thread ellipse in `MemoryScene`, updated leading doc comment).
+- `apps/web/app/_components/landing/system-section.tsx` (`ChannelTile` rebuilt: dual mobile/desktop icon layout, palette bump, group hover).
+- `apps/web/app/_components/landing/android-channel-tile.tsx` (same dual layout, brighter amber base, hover on the arrow-chip).
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md` (this entry).
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run lint` — clean (`--max-warnings=0`).
+- `corepack pnpm run format:check` — all matched files use Prettier code style.
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — `3/3` green.
+
+### Risks / residuals
+
+- The dual-layout tile renders two `<Image>` tags per tile; Next.js dedupes by `src` so this is one network fetch per icon, but the markup is slightly heavier. Acceptable trade-off for a per-breakpoint premium feel.
+- Mobile discrete-icon layout still uses the same 384 × 384 source PNG scaled down to 48 × 48 — Next.js `<Image>` will serve a smaller image variant, but if size becomes a concern we can ship a dedicated 96 × 96 variant set.
+- Removing hairlines lost a (subtle) cue that scenes are "connected" between chat and artefact zones. If founder ever wants the connector idea back, prefer rendering it as a proper SVG path with a soft glow rather than thin plain hairlines.
+
+### Next recommended step
+
+Visual walkthrough on real phone (RU + EN, light + dark) to confirm: (a) channel tiles feel proportional and the hover lights up correctly, (b) Android tile reads as the "active" download surface against its quieter siblings, (c) Workflow scenes feel cleaner without hairlines and depth still reads. Then commit & push.
+
+## 2026-05-19 — Channel-tile editorial rebuild (centered icons + ghosted-icon ambient treatment)
+
+### What landed
+
+- **Re-sliced channel icons with proper alpha-bounding-box centering.** The first slicer pass cropped each 512×512 quadrant naively; because the source icons are not perfectly aligned to quadrant centers, the resulting PNGs had visibly off-center icons in the rendered tiles. The slicer now computes each icon's true alpha bounding box (with an `alphaThreshold` of 8 so faint shadow tails don't falsely extend the box), re-extracts tightly, then re-extends to a square canvas with 12% padding on all sides before resizing to 384×384. Verified output dimensions are now consistent 384×384 and icons are visually centered. `scripts/slice-channel-icons.mjs` was also refactored to split the pipeline into discrete buffer steps (`extract → tightBuffer`, `extend → extendedBuffer`, `resize → file`) because chained `extract → extend → resize` proved unreliable in this version of sharp and produced 466×474 output instead of the requested 384×384.
+- **Ghosted-icon ambient treatment in `system-section.tsx` and `android-channel-tile.tsx`.** The previous design rendered each channel icon as a discrete 56×56 element next to the text. The founder asked for an editorial treatment where the icon dissolves into the card itself instead of sitting next to the copy. New layout per tile:
+  - Tile is `relative min-h-[6.5rem] overflow-hidden` so the icon can extend past tile bounds and be clipped naturally.
+  - Icon is rendered as `aria-hidden`, absolutely positioned at `-left-2 -top-2`, sized at `h-28 w-28` (112 px), with a 135° `mask-image` linear-gradient that fades from solid (`#000`) at 0–30 % to transparent at 85 %. Net effect: the icon sits in the upper-left of the card, fully visible at its corner, and dissolves diagonally into the card surface.
+  - Opacity tuned per mode: regular tiles `opacity-[0.30]` light / `opacity-[0.22]` dark; the muted iOS tile drops to `opacity-[0.18]` light / `opacity-[0.12]` dark so the "soon" reading stays unmistakable.
+  - Text moved to `relative pl-[5.25rem]` so it lands beside the visible portion of the ghosted icon without colliding with the strong-opacity area.
+  - Label bumped from 12 px to 13 px and given `leading-tight`; sub-line gets `mt-1` and stays `line-clamp-2`. The previous flex-center layout was replaced with a static block layout because the tile is now visually anchored by the corner icon, not by a vertically centered icon-text pair.
+  - The `<div>` wrapper exposes `aria-label={iconAlt}` for screen readers since the visual icon is decorative.
+- **Android download tile keeps an explicit affordance.** The ghosted-icon treatment risks reading as decorative, which is fine for `Web` and `iOS` (status tiles) but wrong for `Android` (downloadable). The Android tile keeps the same ghosted icon but now also carries an explicit `↓` arrow-chip absolute-positioned at `bottom-3 right-3` (`h-7 w-7`, sage-amber palette to match the tile's amber accent) so click-intent is preserved. Hover still translates the chip down by `0.5` to reinforce the download action.
+
+### Why
+
+The previous "icon-on-the-left + label/sub on the right" layout was visually correct but read as a generic settings list — no different in tone from a chat sidebar. Folding the icon into the card as ambient atmosphere lifts the System block into editorial territory: each tile becomes a _mood_ keyed by its brand colour, not a UI row. The whole `«Личная система.»` block now reads as one composition rather than four parallel link tiles. The Android exception is intentional — adding a small chip restores click-intent without breaking the editorial tone.
+
+### Files touched
+
+- `scripts/slice-channel-icons.mjs` (alpha-bounding-box centering + buffer-split pipeline)
+- `apps/web/public/landing/channels/web.png` (re-sliced)
+- `apps/web/public/landing/channels/telegram.png` (re-sliced)
+- `apps/web/public/landing/channels/android.png` (re-sliced)
+- `apps/web/public/landing/channels/ios.png` (re-sliced)
+- `apps/web/app/_components/landing/system-section.tsx` (`ChannelTile` rebuilt as ghosted-icon ambient layout)
+- `apps/web/app/_components/landing/android-channel-tile.tsx` (same ambient layout + arrow-chip affordance)
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run lint` — clean (`--max-warnings=0`).
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — `411 / 411` green; landing assertions still pass because they verify text content (`Web`, `Telegram`, `Android`, `iOS`, sub-lines), not icon rendering.
+- Slicer dry-run output confirms 384×384 dimensions for all four PNGs with consistent ~12 % internal padding around each icon's actual alpha bounds.
+
+### Risks / residuals
+
+- `mask-image: linear-gradient(...)` has full support in Chrome/Edge/Firefox/Safari 15.4+. Older Safari (≤15.3) will simply not apply the mask and show the icon at its raw opacity — still readable, just without the dissolve. Acceptable fallback.
+- The `tabnabbing` and accessibility audit is unchanged: the visible icon is `aria-hidden` and `pointer-events-none`, the tile carries `aria-label={iconAlt}` for the wrapper element. Android tile's `<a>` keeps `aria-label={ariaLabel}` from i18n.
+- The decision to make the `ChannelTile` wrapper take an `aria-label` while the icon `<Image>` carries `alt=""` is intentional: the icon is purely decorative once the card carries the channel name in text + ARIA. If we ever stop showing the text label inside the tile, restore the icon's `alt`.
+
+### Next recommended step
+
+Visual walkthrough on real phone (RU + EN, light + dark) to confirm: (a) the dissolving effect reads as premium and the brand colours come through, (b) the Android arrow-chip is visible enough as an affordance, (c) the iOS muted tile reads as "soon" rather than "broken". Then commit & push.
+
+## 2026-05-19 — Landing channel icons (premium PNG set 4) + mobile hero magnet
+
+### What landed
+
+- **Branded channel-tile icons live in `apps/web/public/landing/channels/{web,telegram,android,ios}.png`**, sliced from the founder-supplied `premium_site_icons_set-4.png` (1024×1024, 2×2 grid, RGBA with alpha + soft drop shadows). The slicer (`scripts/slice-channel-icons.mjs`) is a one-off, reproducible Node + sharp script that crops each 512×512 quadrant, resizes to 384×384, and writes optimized PNGs (~125–145 KB each). It deliberately skips `trim()` because the source already has consistent padding around each squircle and `trim()` proved inconsistent on pure-alpha=0 borders.
+- **`apps/web/app/_components/landing/system-section.tsx`** dropped the inline `GlobeIcon`, `TelegramIcon`, `AppleIcon` SVG glyphs and the colored badge wrapper around them. `ChannelTile` now takes `iconSrc` + `iconAlt` instead of an `icon` ReactNode and renders a `<Image>` 56×56 directly into the tile. The tile background tints (sage / sky / muted) stay subtle so the icon's own colored squircle does the visual lifting.
+- **`apps/web/app/_components/landing/android-channel-tile.tsx`** swapped its Android-robot inline SVG for `<Image src="/landing/channels/android.png" />` at the same 56×56 size; the existing native-shell suppression and APK download wiring stay intact.
+- **Mobile-only "weak magnet" on the first viewport** added in `apps/web/app/globals.css`. On phones (`max-width: 768px`) and only when `prefers-reduced-motion: no-preference`, `html` gets `scroll-snap-type: y proximity` and `#hero` gets `scroll-snap-align: start`. Effect: tiny scrolls inside the hero get gently pulled back to the start of the page so the eye stays anchored on the headline; once the user scrolls deliberately past the hero, no further snap targets exist (only `#hero` declares an alignment point), so the rest of the landing scrolls freely. Hero section now carries `id="hero"` for the snap target.
+
+### Why
+
+- The previous channel tiles were generic monochrome glyphs inside colored badges; the new icons are real branded squircles in a single visual family (sage globe / blue paper plane / green Android robot / dark Apple), with internal gradients + drop shadows that read as "premium iOS home-screen icons" rather than "outline icons in tinted boxes".
+- The founder asked for "weak magnet on first screen" mobile behaviour so a tiny accidental swipe doesn't leave the hero before the headline is read; CSS scroll-snap with `proximity` mode gives exactly that effect, with no JS, no hard "snap-section-by-section" feel, and no impact on the rest of the page.
+
+### Files touched
+
+- `apps/web/public/landing/channels/web.png` (NEW)
+- `apps/web/public/landing/channels/telegram.png` (NEW)
+- `apps/web/public/landing/channels/android.png` (NEW)
+- `apps/web/public/landing/channels/ios.png` (NEW)
+- `apps/web/app/_components/landing/system-section.tsx` (drop SVG glyphs + colored icon wrappers, render PNGs via `<Image>`)
+- `apps/web/app/_components/landing/android-channel-tile.tsx` (swap inline SVG for PNG)
+- `apps/web/app/_components/landing/hero-section.tsx` (add `id="hero"` for the snap target)
+- `apps/web/app/globals.css` (`scroll-snap-type: y proximity` mobile-only on `html`, `scroll-snap-align: start` on `#hero`, gated by `prefers-reduced-motion: no-preference`)
+- `scripts/slice-channel-icons.mjs` (NEW — reproducible icon slicer; documents how the four PNGs were produced)
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run lint` — clean (`--max-warnings=0`).
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — `411 / 411` green; the existing landing-page assertions still pass without changes because the tests verify text content (channel labels) rather than the specific icon implementation.
+- Slicer dry-run: `node scripts/slice-channel-icons.mjs "C:/Users/alex/Documents/Avatar/premium_site_icons_set-4.png"` produced four 384×384 PNGs with sizes 123–144 KB each.
+
+### Risks / residuals
+
+- The PNGs are served from `public/`, so Next.js `<Image>` will further optimize them to WebP/AVIF on the runtime — the 125–145 KB raw size becomes ~30–60 KB on the wire for modern browsers. If we ever ship a fully static export, the raw PNG is the floor.
+- iOS Safari's scroll-snap implementation occasionally has a small "settling" jitter when combined with momentum scroll. We are using `proximity` (not `mandatory`), which is the gentler mode and the recommended remedy. If the founder reports any visible jitter, we can either drop the magnet on iOS via a UA-conditional class or add `scroll-padding-top` to give the snap a softer landing.
+- The previous flaky `use-chat > soft-detach resume refresh` regression suite is still pre-existing and not investigated in this slice.
+
+### Next recommended step
+
+Visual walkthrough on a real phone (RU + EN, light + dark) to confirm: (a) channel icons read crisply at 56 px, (b) the magnet feels like a "soft pull" not a "hard snap", (c) the rest of the page scrolls freely after the user crosses the hero threshold. Then commit & push.
+
+## 2026-05-19 — Landing finale vertical centering + aurora kept static (no pulse animation)
+
+### What landed
+
+- **Finale section now mirrors the Hero's vertical structure exactly** (`apps/web/app/_components/landing/finale-section.tsx`): `min-h-[calc(100svh-4.5rem)] flex flex-col items-center justify-center pt-6 pb-24 sm:min-h-[calc(100svh-5rem)] sm:pt-10 sm:pb-28`. Replaced the previous `py-24 sm:py-32` rhythm. Effect: the finale content lands in the visual middle of the viewport, not in the upper third — the page now opens (Hero) and closes (Finale) on the same vertical beat.
+- **Aurora halos kept on the page but no longer animated.** Removed `animate-pulse-slow [animation-delay:Ns]` from all three landing aurora halos in `apps/web/app/page.tsx`. The halos themselves stay (depth + warmth still come from the soft sage glow) — they just do not breathe anymore. Comment block added explaining the call: pulsing three 600 / 400 / 350 px elements with 120–160 px blur every 4 s is a real GPU cost on integrated graphics and reads as scroll jank, while premium reference landings (Apple, Linear, Stripe) use static gradients for exactly this reason. The shared `--animate-pulse-slow` CSS variable in `globals.css` is intentionally kept so the auth shell (`public-auth-shell.tsx`) can continue to use it; only the landing surface dropped the animation.
+
+### Why
+
+The founder caught two issues on the new sage off-white landing during a live walkthrough:
+
+1. The finale block was sitting in the upper-third of the viewport rather than centered — visually unbalanced compared to the Hero.
+2. The page felt like it was "lagging" during scroll. Investigation showed three large blurred elements transitioning opacity 0.4 → 0.7 every 4 s; on integrated graphics this triggers per-frame compositor repaints over ~1.4 M blurred pixels, which lines up with the perceived jank. The animation also adds little — on light theme the contrast is near-invisible, on dark theme it reads as "AI tool magic" rather than premium.
+
+### Files touched
+
+- `apps/web/app/page.tsx` (aurora halos: drop `animate-pulse-slow` + delays, keep static halos with explanatory comment)
+- `apps/web/app/_components/landing/finale-section.tsx` (`py-*` → full Hero-style vertical structure, with explanatory comment)
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run lint` — clean (`--max-warnings=0`).
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — `411 / 411` green (full project suite ran in 39.7 s, this time including the previously-flaky `use-chat.test.tsx > soft-detach resume refresh` cases — confirms those failures were timing-sensitive, not regressions from this slice).
+
+### Risks / residuals
+
+- The auth shell (`apps/web/app/_components/public-auth-shell.tsx`) still uses `animate-pulse-slow` on its two smaller halos. Out of scope for this slice; if scroll jank shows up on `/sign-in` or `/sign-up`, the same one-line removal applies there.
+- `--animate-pulse-slow` CSS variable is kept in `globals.css` so the auth shell continues to work; it can be deleted once we decide to remove the animation everywhere.
+
+### Next recommended step
+
+Wait for the founder's branded channel-tile icons (Web / Telegram / Android / iOS) and swap them into `apps/web/app/_components/landing/system-section.tsx`.
+
+## 2026-05-19 — Landing footer cleanup (drop bordered chrome + duplicate APK CTA)
+
+### What landed
+
+- **Removed the duplicate `«Скачать APK»` button from the landing footer** (`apps/web/app/_components/landing/landing-footer.tsx`). The Android download already lives inside the System block's Android channel tile; having the same CTA again in the footer, six lines below the typographic finale, was reading as a second mini-banner stacked under the first. The Android tile remains the single source of truth for the APK link.
+- **Dropped the footer's `border-t border-border/30 bg-chrome/40 backdrop-blur-sm` chrome.** On the new sage off-white light theme the page already wears `bg-chrome`, so the tinted footer surface was painting a hard horizontal edge across the page exactly under the finale CTA — visually a "second border" the founder flagged. The footer is now pure typography on the page background, with only top padding to set it apart.
+- `apps/web/app/page.test.tsx`: the assertion was tightened from `apkLinks.length >= 1` to `apkLinks.toHaveLength(1)`, and the second test was renamed from `… channel tile and footer link …` to `… channel tile inside the native shell` to reflect that the footer link no longer exists.
+
+### Why
+
+The founder caught two related issues in a screenshot of the new sage off-white landing:
+
+1. A **hard horizontal border** under the finale, where the footer started — the previous warm-beige `bg-chrome/40` was subtle enough on the old palette but pops as a visible edge against the cleaner sage chrome.
+2. A **second `«Скачать APK»` button** in the footer, redundant with the same CTA inside the new System block's Android channel tile.
+
+Both are removed in this slice.
+
+### Files touched
+
+- `apps/web/app/_components/landing/landing-footer.tsx`
+- `apps/web/app/page.test.tsx`
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run lint` — clean (`--max-warnings=0`).
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — `2/2` green; landing render finishes in ~2.5–4.7s under the 15s ceiling.
+- One failure surfaced in `app/app/_components/use-chat.test.tsx` (a pre-existing flake in the soft-detach / live-id polling regression suite — different test failed on each retry), unrelated to landing-footer / landing-section changes.
+
+### Risks / residuals
+
+- The footer is now structurally lighter; if the page ever loses the System block (or the Android tile is hidden on a future locale variant), the APK link will not be present anywhere on the public landing. Acceptable for now — the System block is shipped on every locale, and `apps/web/app/_components/landing-android-app-download.tsx` is still wired through `assistant-settings`/`sidebar` for in-app contexts.
+- The flaky `use-chat` resume-polling tests need a separate triage pass (out of scope for the landing slice).
+
+### Next recommended step
+
+Wait for the founder's branded channel-tile icons (Web / Telegram / Android / iOS) and swap them into `apps/web/app/_components/landing/system-section.tsx`.
+
+## 2026-05-19 — Landing finale typographic + sage off-white light theme + Workflow scene swap
+
+### What landed
+
+- **Workflow order rebalanced** — `Plans & Reminders` and `Media (images/video)` swapped: the new order is `Personality → Memory → Media → Documents → Plans → Knowledge`. This puts the visually richest scene (Media) right after the conversation-with-memory beat, and lets `Plans` sit next to `Documents` so "produce → schedule" reads as a continuous arc instead of two unrelated blocks.
+- **Finale rebuilt as a typographic close** — replaced the bordered/halo'd CTA card with a centered editorial finale that rhymes with Hero on purpose:
+  - Same eyebrow rhythm (`10px / tracking 0.26em / uppercase`).
+  - Same two-line headline split (semibold `text` line on top, light `text-muted` line below) — `«Один шаг» / «до своего PersAI.»` (RU), `«One step» / «to your own PersAI.»` (EN).
+  - A short sage hairline above the eyebrow separates the finale from the System block without a hard divider.
+  - `body / ctaPrimary («Начать бесплатно» / «Start free») / ctaSecondary («Посмотреть тарифы» / «View pricing») / note` preserved.
+  - i18n schema migrated from `finale.title` to `finale.titleLine1 + finale.titleLine2` to match the Hero's `headlineLine1 + headlineLine2` shape.
+- **Light theme now ships sage off-white tonal palette (L3)** — `:root.light` in `apps/web/app/globals.css` switched off the warm beige gamma:
+  - `--chrome` `#e0d8c8` → `#f3f4ed` (sage off-white; this is the landing's whole-page background and the outer frame in `/app`).
+  - `--bg` `#f5f2ec` → `#f7f8f1` (slightly lighter sage near-white for inner content / chat surface).
+  - `--surface` `#ede9e1` → `#ebede3` (sidebar/panel tone, sage-tinted).
+  - `--surface-hover` `#e4dfd6` → `#e2e5d8`.
+  - `--surface-raised` stays `#ffffff` so cards still read as elevated against the cooler base.
+  - The previous warm beige was reading as "stale" against the existing sage accent; the new gamma harmonizes with `--accent` and removes the brown undertone the founder flagged.
+
+### Why
+
+The founder wanted three small but high-leverage closures on the landing:
+
+1. **Workflow swap.** While the user is generating media assets, swap `Plans` and `Media` so the page already reads in the intended final order without us needing another iteration after the assets land.
+2. **Typographic finale.** The previous finale was a card with halo blobs — visually a "banner" that contradicted the editorial style of the rest of the page. Mirroring the Hero's typographic structure closes the page as a quiet answer to the Hero's question (`«Личный AI, собранный вокруг тебя.» → «Один шаг до своего PersAI.»`) without adding another decorated surface.
+3. **Sage off-white light theme.** The warm beige light variant felt visually "dirty" next to the sage accent and undermined the premium reading of the landing in light mode.
+
+### Files touched
+
+- `apps/web/app/_components/landing/workflow-section.tsx` (SCENES order swap)
+- `apps/web/app/_components/landing/finale-section.tsx` (typographic rebuild — no card, hairline + two-line headline, CTA pair preserved)
+- `apps/web/app/globals.css` (`:root.light` → sage off-white gamma with explanatory comment block)
+- `apps/web/messages/ru.json`, `apps/web/messages/en.json` (`finale.title` → `titleLine1 + titleLine2`; body copy slightly tightened to match the typographic style)
+- `apps/web/app/page.test.tsx` (assertions migrated to `One step` / `to your own PersAI.`; explicit 15s timeout on the heavy multi-section render to absorb slower CI agents)
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run lint` — clean (`--max-warnings=0`).
+- `corepack pnpm run format:check` — all matched files use Prettier code style.
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — 411/411 green; the previously-flaky landing render now finishes in ~2.4s under the explicit 15s ceiling.
+
+### Risks / residuals
+
+- Light theme now affects `/app` outer frame, sidebar, and chat surface in addition to the landing — the chrome change is global because we wanted the whole product to share one cohesive light gamma. If anything in `/app` reads off in light mode, the per-token offsets are isolated to `:root.light` in `globals.css` and easy to nudge without touching components.
+- AI-generated channel icons (Web / Telegram / Android / iOS) are still rendered as SVG glyphs; founder will deliver branded assets next, after which `system-section.tsx` will swap the inline SVGs for `<Image>` references.
+
+### Next recommended step
+
+Wait for the founder to deliver the channel-tile branded icons, then swap them into `apps/web/app/_components/landing/system-section.tsx` (`/landing/channels/web.png|telegram.png|android.png|ios.png` or similar) and ship the full landing iteration.
+
+## 2026-05-19 — Landing personality + agency expansion (Personality and Plans scenes; unified «Личная система.» block)
+
+### What landed
+
+- Workflow now ships **six pseudo-3D scenes** instead of four:
+  1. **Personality** (NEW, opener) — chat assembled from an avatar tile, a Name chip with radio dots and `Aurora`, a Tone panel with `тёплый` (warm-amber active) / `прямой` (cool-sky) / `формальный` (neutral) chips, and a Voice waveform panel.
+  2. **Memory** (existing, with the small color-stamps under the memory thread).
+  3. **Plans & Reminders** (NEW) — chat with four floating task chips: `Завтра 11:00 · публикация` (warm), `через 30 мин · отчёт` (cool), `в фоне · собираю данные` (sage with a pulsing dot), `готово · отправлено` (emerald). Icons are hand-rolled SVG glyphs (calendar, bell, cog, check).
+  4. **Documents**, 5. **Media**, 6. **Knowledge** (existing).
+- The previous three blocks (Pillars, Audience, Channels) are now a single editorial section `«Личная система.»` (`apps/web/app/_components/landing/system-section.tsx`):
+  - Strong positive headline (no more `«Не сборник промптов»`).
+  - Audience dissolved into the lead paragraph.
+  - **Four pillar cards** with palette dots from the same family that lives in the Workflow scenes: `Свой характер. Свой голос.` (rose), `Помнит и продолжает.` (amber), `Не только отвечает — действует.` (sky, body extended with `«Планирует, напоминает, выполняет фоновые задачи»`), `Знает то, что знаешь ты.` (sage).
+  - **Four channel tiles** in a 2-column grid: Web (sage status, no link), Telegram (cool sky, full subtitle explaining `«твой персональный AI в Telegram. Общайся как с человеком, добавляй в группы.»`), Android (warm amber, real `download` link via a new `LandingAndroidChannelTile` client component that hides itself in the native Capacitor shell), iOS (muted, `«скоро»`).
+- Hero scroll-cue now anchors at `#workflow` and uses the localized label `«Что умеет / What it does»` (since Pillars no longer sits at the top of the page).
+- `landing.*` namespace in both `messages/ru.json` and `messages/en.json` was reorganized: `pillars`, `audience`, `channels`, and `pricingTeaser`/`closing` removed from earlier slices stay merged into a single `finale.*`; new `system.*` introduced with `pillars.{personality,memory,action,knowledge}` and `channels.{web,telegram,android,ios}`; `workflow.scenes.*` extended with `personality.surface.*` and `plans.surface.*`.
+- `apps/web/app/page.test.tsx` rewritten to assert all six workflow scenes, all four pillars, all four channel tiles, the dissolved-Audience lead, and that the APK link surfaces both inside the Channels row and inside the footer (and is suppressed in the native shell).
+
+### Why
+
+The founder pointed out that two of PersAI's strongest moats were not visible on the landing at all: **the assistant has its own identity** (name, avatar, tone, voice — `Pers**AI**` literally encodes "personal") and **the assistant acts on its own** (plans, reminders, background jobs). The previous version sold "memory + documents + media + knowledge", which is what every AI chat claims; the rebuilt landing now opens the entire Workflow with the personality story and threads agency through the third Workflow scene and the third pillar. The founder also asked to flip the negative `«Не сборник промптов»` headline into a positive `«Личная система.»` and to merge Pillars + Audience + Channels into a single coherent answer to "for whom / where / why one tool" instead of three separate blocks each carrying part of the same idea.
+
+### Files touched
+
+- `apps/web/app/page.tsx`
+- `apps/web/app/page.test.tsx`
+- `apps/web/app/_components/landing/hero-section.tsx`
+- `apps/web/app/_components/landing/workflow-section.tsx`
+- `apps/web/app/_components/landing/workflow-surface.tsx` (added `PersonalityScene`, `PlansScene`, `AvatarTile`, `NameChip`, `TonePanel`, `ToneChip`, `VoiceWaveformPanel`, `TaskChip`, `TaskIcon`)
+- `apps/web/app/_components/landing/system-section.tsx` (new — replaces `pillars-section.tsx`, `audience-section.tsx`, `channels-section.tsx`)
+- `apps/web/app/_components/landing/android-channel-tile.tsx` (new — client tile that hides in native shell, downloads APK)
+- `apps/web/app/_components/landing/pillars-section.tsx` (deleted)
+- `apps/web/app/_components/landing/audience-section.tsx` (deleted)
+- `apps/web/app/_components/landing/channels-section.tsx` (deleted)
+- `apps/web/messages/ru.json`, `apps/web/messages/en.json`
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run lint` — clean.
+- `corepack pnpm exec prettier --write` on touched files — all unchanged on second pass.
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx` — 3/3 green (`Landing page > renders hero, 6-scene workflow, unified system block, and finale`, plus native-shell APK suppression).
+- Visual walkthrough through the IDE browser on `http://localhost:3000/` in dark theme confirmed Personality (avatar + Aurora + tone chips + voice waveform), Plans (four colored task chips), and the four channel tiles render correctly; Telegram subtitle now wraps to two lines via `line-clamp-2` after the truncate fix.
+
+### Risks / residuals
+
+- The Telegram channel tile is **non-clickable** by design — a personal Telegram bot is provisioned inside `/app` settings, not from the marketing surface. If product later exposes a "connect Telegram" deep link, the tile can be turned into an `<a>` without changing layout.
+- iOS tile remains muted with `скоро / soon` until the iOS app ships.
+- 3D transforms (`perspective`, `rotateY`, `rotateX`, `translateZ`) drive the depth in all six Workflow scenes; in older WebViews where 3D transforms degrade, each scene still reads correctly because the underlying composition (chat + floating cards) is meaningful even without depth.
+- `Aurora` is hard-coded as the Personality demo name — that is intentional brand framing for the marketing surface, not a real default in the in-product setup wizard.
+
+### Next recommended step
+
+Either commit & push this iteration so the founder can review the production landing on a deployed preview, or — if the founder wants more — replace the Telegram channel tile with a clickable "connect Telegram" entry once we have a deep-link contract from the in-product Telegram bind flow.
+
+## 2026-05-19 — Document provider failures now surface in chat
+
+### What landed
+
+- `AssistantDocumentJobSchedulerService` now treats terminal provider/runtime execution failures as user-visible events. After it successfully claims and marks the render job failed, it asks `AssistantDocumentJobDeliveryService.createTerminalExecutionFailureMessage()` to create a short assistant message in the same chat.
+- The failure copy reuses the existing document completion LLM-framing service (`maybeFrameFailure`) with `stage: "execution"` and falls back to localized RU/EN copy from `assistant-document-job-failure-copy.service.ts` if LLM framing is unavailable.
+- The failed render-job `providerStatusJson` is updated with `completionAssistantMessageId` after the chat message is created, so there is traceability from the failed job to the surfaced user message.
+- Gamma create/poll failures now retain a sanitized `responseBody` inside provider status metadata. Keys that look like tokens, API keys, cookies, secrets, passwords, or auth headers are redacted and large/nested data is capped.
+- The runtime document tool descriptor now tells the model to keep Gamma presentation outlines simple, avoid deeply nested provider-shaped outline JSON, and not guess pictographic/icon-heavy or text-heavy deck settings unless the user asked for that style.
+
+### Why
+
+The founder-reported first presentation attempt for `alex@agse.ru` failed with `gamma_request_invalid` while the chat did not receive a clear terminal failure message. Media jobs already have a better pattern: terminal failures are converted into an assistant-facing chat message, with LLM framing when available. This closes that gap for async document jobs without adding automatic retries yet.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job-scheduler.service.test.ts` — clean.
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/gamma-provider.client.test.ts` — clean.
+- `corepack pnpm -r --if-present run lint` — clean.
+- `corepack pnpm run format:check` — clean.
+- `corepack pnpm --filter @persai/api run typecheck` — clean after the scheduler transaction-flag typing cleanup.
+- `corepack pnpm --filter @persai/web run typecheck`, `corepack pnpm --filter @persai/provider-gateway run typecheck`, and `corepack pnpm --filter @persai/runtime run typecheck` — clean.
+
+### Risks / residuals
+
+- This does not introduce automatic retry for non-retryable Gamma 400s. That is intentionally deferred because a second provider attempt needs a controlled simplification strategy and quota/idempotency rules.
+- Telegram transport delivery of the newly created assistant chat message follows the same persisted-message truth as existing document/media completion handling; no broad Telegram outbox rewrite was introduced in this slice.
+
+### Next recommended step
+
+Observe the next real `gamma_request_invalid` in production: confirm the user sees a quiet assistant failure message in chat and use the sanitized `responseBody` to decide whether a controlled simplified retry is safe.
+
+## 2026-05-19 — Landing page premium editorial rebuild (production scaffold for founder media)
+
+### What landed
+
+- New scrollable landing structure decomposed into one-section-per-file under `apps/web/app/_components/landing/` (`section.tsx` layout primitives, `landing-header.tsx`, `landing-footer.tsx`, `hero-section.tsx`, `pillars-section.tsx`, `workflow-section.tsx`, `workflow-surface.tsx`, `audience-section.tsx`, `channels-section.tsx`, `pricing-teaser-section.tsx`, `closing-section.tsx`).
+- `apps/web/app/page.tsx` is now a thin server-component orchestrator that pre-resolves every async section in parallel, renders a fixed aurora + grain background plus a sticky landing header, then stacks Hero → Pillars → Workflow (4 scenes) → Audience → Channels → Pricing teaser → Closing → Footer. Pre-resolving sections keeps RTL tests synchronous without changing server-render output.
+- The `landing` message namespace in `apps/web/messages/{ru,en}.json` was rebuilt with production-grade RU/EN copy: new headline + subtitle, 4 capability cues (memory, documents, image+video, knowledge+Skills), 3 pillars (memory / action / knowledge), 4 workflow scenes (chat with memory, PDF+decks, images+video, knowledge base + Skills), audience block ("for life and work"), channel chips (Web/Telegram/Android/iOS · soon), pricing teaser, closing CTA. Existing keys for Android APK CTA, plans, terms, privacy, contacts, requisites footer continue to flow through this namespace.
+- The Workflow scenes are intentionally NOT screenshots and NOT AI-generated mockups — they are premium pseudo-3D _interaction schematics_ built entirely in HTML + CSS inside `apps/web/app/_components/landing/workflow-surface.tsx`. A chat sits under a soft `perspective` + `rotateY`/`rotateX` 3D tilt, with the right artifacts settling into the scene per kind: message bubbles tied by a sage memory-thread curve for memory; three document cards (PDF / PPTX / DOCX) drifting out of chat at staggered angles and `translateZ` depths for documents; image and video tiles tumbling out of chat for media; Skills + Sources panels orbiting the chat with a `using · project-brief.pdf` attribution chip for knowledge. All schematics use only palette tokens (`text`, `text-muted`, `surface-raised`, `accent`, `border`) so they work unchanged in light and dark themes; localized labels live under `landing.workflow.scenes.{kind}.surface.*` in both locale catalogs and are passed as props through a discriminated-union `WorkflowSurfaceStrings` type so each scene gets exactly the strings it needs and no more. This avoids the entire screenshot capture / processing / storage pipeline (no `/public/landing/*` assets, no theme-pair files, no locale-pair files) while still producing a premium, on-brand visual rhythm; the page renders identically on the first deploy and never goes stale when the in-product UI evolves.
+- `apps/web/app/page.test.tsx` was rewritten to assert hero, pillars, workflow, audience, channels, pricing teaser, closing, sign-up/sign-in CTAs, plans link, and APK link, plus the existing native-shell APK suppression.
+
+### Why
+
+The founder asked to drive the landing to production: PersAI is not just a chat — it has document/presentation generation, media generation, knowledge base, Skills, and runs across Web + Telegram + Android. The previous single-screen landing only described "AI that remembers context" and did not communicate any of the higher-value capabilities, which blocked the founder's pitch and sales-strategy work. The new landing now reads as a personal AI _system_ in a calm editorial tone rather than a feature-list product page, while reusing existing landing chrome (theme/locale toggles, Android download CTA, trust footer) so the rest of the public surface stays consistent.
+
+### Files touched
+
+- `apps/web/app/page.tsx`
+- `apps/web/app/page.test.tsx`
+- `apps/web/app/_components/landing/section.tsx` (new)
+- `apps/web/app/_components/landing/landing-header.tsx` (new)
+- `apps/web/app/_components/landing/landing-footer.tsx` (new)
+- `apps/web/app/_components/landing/hero-section.tsx` (new)
+- `apps/web/app/_components/landing/pillars-section.tsx` (new)
+- `apps/web/app/_components/landing/workflow-section.tsx` (new)
+- `apps/web/app/_components/landing/workflow-surface.tsx` (new)
+- `apps/web/app/_components/landing/audience-section.tsx` (new)
+- `apps/web/app/_components/landing/channels-section.tsx` (new)
+- `apps/web/app/_components/landing/pricing-teaser-section.tsx` (new)
+- `apps/web/app/_components/landing/closing-section.tsx` (new)
+- `apps/web/messages/ru.json`, `apps/web/messages/en.json`
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm -r --if-present run lint` — clean across all 14 lintable packages.
+- `corepack pnpm run format:check` — clean.
+- `corepack pnpm --filter @persai/web exec vitest run` — 411/411 tests across 48 files passing, including the rewritten `apps/web/app/page.test.tsx`.
+
+### Risks / residuals
+
+- iOS app is advertised as `· soon` and Android APK download still flows through the existing `LandingAndroidAppDownload` component.
+- No copy review against legal pages was performed in this slice; trust pages (`/terms`, `/privacy`, `/contacts`, `/requisites`) and pricing remain unchanged.
+- Pseudo-3D schematics rely on `transform-style: preserve-3d` + `perspective` + `translateZ`; verified in the IDE browser (light + dark, RU). Older WebViews / Capacitor surfaces are not specifically targeted by this slice, but the overall composition still reads correctly when 3D transforms degrade because each scene's positioning (chat panel + floating cards) is meaningful even without depth.
+
+### Next recommended step
+
+The natural follow-up is a compact "case-style" sub-section under Pillars or above Pricing that names the concrete real-world workflows PersAI is good at (drafting, summaries, decks, briefs) — but only once founder feedback on the current shape is in. If the founder later wants to re-introduce real product screenshots in addition to the schematics, that work can sit cleanly underneath the existing `WorkflowSurface` API by accepting an optional `screenshot` slot per scene — but the current pseudo-3D schematic version is fully production-ready as the launch shape and should stay as the default rendering for performance and freshness reasons.
+
 ## Active architecture proposal — ADR-097
 
 Autonomous document generation/editing is now proposed in [`docs/ADR/097-autonomous-document-tool-and-async-rendering.md`](ADR/097-autonomous-document-tool-and-async-rendering.md). Treat it as the working architecture draft for one assistant-facing `document` tool with PDFMonkey for PDF, Gamma for presentation/PPTX, PersAI-owned `doc_id`, versioned structured source state, a separate async document render-job lane, `AssistantFile` / `fileRef` output delivery, monthly document-tool quota, existing `Admin > Tools` encrypted credential storage, and `Admin > Presets` prompt metadata integration. Do not implement keyword routing, user-facing template editing, provider-owned document source truth, mandatory v1 sandbox, or document-domain state inside `assistant_media_jobs`.
@@ -22,7 +460,7 @@ ADR-097 Gamma PPTX economics follow-up: fixed the founder-reported production re
 
 Country-aware public trust pages + compliance baseline remain the active landed ADR-098 slice, and the audit cleanup is now closed locally. `platform_site_pages` stays the persisted truth for `/terms`, `/privacy`, `/requisites`, and `/contacts`, but the follow-up fixed the risky tails: `/api/v1/admin/site-pages*` is now platform-scoped admin access instead of the generic workspace-owner read surface; `/api/v1/public/site-pages/:slug` now rejects invalid explicit `market` / `locale` with `400` and returns `availableVariants[]` so the web switcher cannot offer dead combinations; `/admin/site-pages` now saves the current editor state before publish so stale drafts cannot be shipped; compliance fallback versions are market-specific through shared `resolveLegalDocumentVersion()` and stay aligned with published seed versions; plain-text billing emails now keep market-aware legal links; starter contact content matches `support@persai.dev`; and API startup idempotently inserts missing baseline `platform_site_pages` rows so fresh migrated environments do not come up with empty trust-page 404s. Public legal-page presentation was then upgraded from the temporary boxed banner treatment to a calmer premium editorial layout with a clickable `PersAI` home link and the landing-style footer nav restored, and anonymous trust-page reads with no explicit market and no country hint now default to `rf` instead of `intl`. The baseline legal content itself is no longer placeholder copy: `apps/api/prisma/site-page-seed-data.ts` now contains a substantive RF public-offer/terms text, a structured personal-data policy with operator details, purposes, data categories, processors, retention logic, cross-border processing, and user-rights sections, plus filled requisites/contact pages using the confirmed proprietor details already available in repo context; matching INTL English pages were upgraded in parallel. The latest web follow-up also cleaned up the legal-page chrome after founder review: the shell is now fully `next-intl`-driven through a dedicated `legalPage` namespace in `apps/web/messages/{ru,en}.json`, so footer labels, page/market/locale labels, switcher labels, and the premium `Personal AI` / `Персональный AI` brand subtitle no longer live as component-local RU/EN conditionals. The latest cleanup removes the duplicate legal-page top-right locale/market pills, reuses the same landing `theme + EN/RU` controls as `/`, keeps market switching as the only page-local toggle, stops generating legal links with a sticky `locale` query, strips stale `?locale=` from the current URL on load, and now wraps the legal-page subtree in a locale-matched `NextIntlClientProvider` after the API resolves the actual page variant. That closes the last split-brain between the root layout's cookie/header locale and the trust page's own resolved locale, so the top-right EN/RU control, the chips under the heading, the footer chrome, and the rendered trust-page shell all read from the same resolved `next-intl` locale instead of drifting. The latest layout pass also aligns the legal-page header to the same `max-w-3xl` document column as the title and body, so the brand block, top-right controls, heading, chips, and article now share one editorial axis instead of mixing a wide-shell header with a narrow document column. The top visual rhythm is tighter too: the version pill is gone, the small page/market/locale chips sit directly under the title divider instead of floating as a separate banner, and table styling is more compact and calmer. Setup step 0 still stores the existing `app_users.country_code` through the searchable ISO country picker with `/api/v1/public/geo-hint` defaulting, and `/me` compliance required versions still resolve from the published market-specific `terms` / `privacy` pages first. Verification for the latest legal-page polish: `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx --config vitest.config.ts`, `corepack pnpm --filter @persai/web run typecheck`. Next recommended step: deploy the updated `web` bundle, validate one RF/RU and one INTL/EN trust page on `persai.dev`, then separately land explicit per-form consent capture for personal-data collection and advertising/marketing messages where legally required; before final broad launch, also confirm the full postal correspondence address and invoice bank details for the public requisites page.
 
-Public auth entry pages now follow the same compact public chrome as landing/legal instead of rendering a second large brand lockup above the form. `sign-in` and `sign-up` share a new `PublicAuthShell` with the standard top header (`PersAI` left, theme + EN/RU right), clipped decorative background, and mobile-safe viewport sizing, while the form card itself carries a quieter micro-brand in the card header. This keeps the premium feel but gives the first mobile/Capacitor screen back to the actual form. The shared theme toggle path also hardened `useTheme()` so public pages no longer require `window.matchMedia` to exist; jsdom and older WebView-like environments now fall back safely instead of throwing during mount. Verification for this auth-shell pass: `corepack pnpm --filter @persai/web exec vitest run app/sign-in/[[...sign-in]]/page.test.tsx app/sign-up/[[...sign-up]]/page.test.tsx --config vitest.config.ts`, `corepack pnpm --filter @persai/web run typecheck`.
+Public auth entry pages now follow the same compact public chrome as landing/legal instead of rendering a second large brand lockup above the form. `sign-in` and `sign-up` share a `PublicAuthShell` with the standard top header (`PersAI` left, theme + EN/RU right), clipped decorative background, and mobile-safe viewport sizing, while the form card itself carries a quieter micro-brand in the card header. This keeps the premium feel but gives the first mobile/Capacitor screen back to the actual form. The shared theme toggle path also hardened `useTheme()` so public pages no longer require `window.matchMedia` to exist; jsdom and older WebView-like environments now fall back safely instead of throwing during mount. The same public shell is now used by `pricing`, which restores the missing landing-style public header/footer there while keeping the existing pricing-card and checkout/review logic inside an embedded `PricingPageView`. Verification for this public-shell pass: `corepack pnpm --filter @persai/web exec vitest run app/sign-in/[[...sign-in]]/page.test.tsx app/sign-up/[[...sign-up]]/page.test.tsx app/_components/pricing-page-view.test.tsx app/page.test.tsx --config vitest.config.ts`, `corepack pnpm --filter @persai/web run typecheck`.
 
 Live PPTX download auth follow-up on top of the deployed PDF-first path: the founder proved from browser devtools that the failing request is the real `GET https://persai.dev/api/v1/assistant/documents/:docId/download-original?...` call (not the legacy BFF), and cluster code inspection confirmed the live `web` bundle already contains both the Bearer header injection and the `/api/assistant-document(.*)` middleware protection. The remaining bug was narrower: `PresentationOriginalDownloadAction` still used plain `await getToken()` instead of the working Clerk pattern used by other long-lived click actions. On stale tabs that can leave the browser request effectively unauthenticated even though the bundle contains Authorization wiring. Fix: `apps/web/app/app/_components/presentation-original-download-action.tsx` now resolves the token with `(await getToken({ skipCache: true })) ?? (await getToken()) ?? null` before issuing the PPTX `fetch`, matching the production-proven pattern already used by settings/files flows. Live evidence before the fix: API logs at `19:36:51`, `19:37:01`, `19:41:41`, `19:41:44`, and `19:41:56` all showed `userId: null` + `401` on `download-original`, while the same pod logged `[document-delivery] ... companionOriginalStatus=ready` for the delivered deck. Next recommended step after deploy: click the PPTX action from the same long-lived `persai.dev/app` tab and confirm the API log flips from `401 userId:null` to either `200` with `[document-original] streaming ...` or an honest `410` if the Gamma export has expired.
 

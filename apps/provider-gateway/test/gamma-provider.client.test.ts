@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ServiceUnavailableException } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type { ProviderGatewayDocumentGenerateRequest } from "@persai/runtime-contract";
 import { GammaProviderClient } from "../src/modules/providers/gamma/gamma-provider.client";
@@ -330,6 +330,58 @@ export async function runGammaProviderClientTest(): Promise<void> {
     const result = await client.generateDocument(createRequest(), { apiKey: "secret" });
     assert.equal(result.provider, "gamma");
     assert.equal(result.providerStatus.gammaUrl, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  try {
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/v1.0/generations")) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: "Invalid generation request",
+              details: {
+                field: "outline",
+                apiKey: "must-not-persist"
+              }
+            }
+          }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => client.generateDocument(createRequest(), { apiKey: "secret" }),
+      (error: unknown) => {
+        assert.ok(error instanceof BadRequestException);
+        const response = error.getResponse() as {
+          error?: {
+            code?: string;
+            providerStatus?: {
+              responseBody?: { error?: { details?: { field?: string; apiKey?: string } } };
+            };
+          };
+        };
+        assert.equal(response.error?.code, "gamma_request_invalid");
+        assert.equal(
+          response.error?.providerStatus?.responseBody?.error?.details?.field,
+          "outline"
+        );
+        assert.equal(
+          response.error?.providerStatus?.responseBody?.error?.details?.apiKey,
+          "[redacted]"
+        );
+        return true;
+      }
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

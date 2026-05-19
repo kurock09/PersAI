@@ -1,15 +1,144 @@
 {
   "landing": {
-    "eyebrow": "Personal AI · context that stays with you",
-    "headlineLine1": "Your AI that remembers context.",
-    "headlineLine2": "",
-    "subtitle": "Chats, tasks, and context always nearby.",
-    "capabilityMemory": "Remembers context",
-    "capabilityChannels": "Web and Telegram",
-    "capabilityTasks": "Carries tasks forward",
-    "soon": "soon",
-    "cta": "Get started free",
+    "eyebrow": "Personal AI · your context, your tools",
+    "headlineLine1": "Personal AI,",
+    "headlineLine2": "built around you.",
+    "subtitle": "Chat, documents, media, knowledge, and skills in one system. For life and work.",
+    "cta": "Start free",
     "ctaSecondary": "Sign in",
+    "scrollHint": "What it does",
+    "soon": "soon",
+    "workflow": {
+      "eyebrow": "What PersAI does",
+      "title": "One assistant. One continuous workflow.",
+      "subtitle": "From conversation to finished artifact \u2014 without restating context or switching tools.",
+      "scenes": {
+        "personality": {
+          "tag": "Your assistant",
+          "title": "Name, voice, character",
+          "body": "Give your assistant a name, avatar, tone, and voice. Talk to PersAI and hear it back \u2014 it becomes yours, not a faceless chatbot.",
+          "surface": {
+            "prompt": "What should I call you?",
+            "reply": "I'm Aurora. How can I help?",
+            "nameLabel": "Name",
+            "chosenName": "Aurora",
+            "toneLabel": "Tone",
+            "toneWarm": "warm",
+            "toneDirect": "direct",
+            "toneFormal": "formal",
+            "voiceLabel": "Voice"
+          }
+        },
+        "memory": {
+          "tag": "Conversation",
+          "title": "Conversation with memory",
+          "body": "PersAI carries your thread, role, and style across sessions.",
+          "surface": {
+            "prompt": "Plan a 4-week launch",
+            "reply": "Prep \u2192 Warm-up \u2192 Launch \u2192 Review",
+            "recall": "What about week 2?",
+            "memoryTag": "memory"
+          }
+        },
+        "plans": {
+          "tag": "Acts",
+          "title": "Plans and reminds",
+          "body": "PersAI schedules tasks, reminds you on time, and quietly runs jobs in the background while you focus elsewhere.",
+          "surface": {
+            "prompt": "Prep a post for launch",
+            "reply": "Scheduled. I'll remind you in the morning.",
+            "task1": "Tomorrow 11:00 \u00b7 post",
+            "task2": "in 30 min \u00b7 report",
+            "task3": "in background \u00b7 gathering data",
+            "task4": "done \u00b7 sent"
+          }
+        },
+        "documents": {
+          "tag": "Documents",
+          "title": "PDFs, decks, reports",
+          "body": "Creates PDFs, presentations, and editable formats from your inputs or from scratch.",
+          "surface": {
+            "prompt": "Build a deck from this plan",
+            "reply": "Done. Files attached.",
+            "deckCaption": "Slide 1 / 12"
+          }
+        },
+        "media": {
+          "tag": "Media",
+          "title": "Images and video",
+          "body": "Generates visuals and video for presentations, projects, and publications.",
+          "surface": {
+            "prompt": "Cover for the launch",
+            "reply": "Here are options"
+          }
+        },
+        "knowledge": {
+          "tag": "Knowledge",
+          "title": "Knowledge base and Skills",
+          "body": "Connect your documents and activate specialized Skills. The assistant works in your context.",
+          "surface": {
+            "prompt": "What did we miss in the plan?",
+            "reply": "Per sources \u2014 two items.",
+            "skillsLabel": "Skills",
+            "sourcesLabel": "Sources",
+            "usingLabel": "using",
+            "sourceFile": "project-brief.pdf"
+          }
+        }
+      }
+    },
+    "system": {
+      "eyebrow": "Personal system",
+      "title": "Personal system.",
+      "lead": "PersAI stays with you \u2014 in the dense context of the day and in the work with documents and materials. One tool, not five separate AI chats.",
+      "pillars": {
+        "personality": {
+          "title": "Your character. Your voice.",
+          "body": "Name, avatar, tone, and voice \u2014 the assistant becomes yours. Talk to PersAI and hear it back."
+        },
+        "memory": {
+          "title": "Remembers and continues.",
+          "body": "Keeps your context, preferences, and important details. You don't repeat yourself."
+        },
+        "action": {
+          "title": "Not just answers \u2014 action.",
+          "body": "Plans, reminds, runs background jobs. Creates documents, decks, images, and video."
+        },
+        "knowledge": {
+          "title": "Knows what you know.",
+          "body": "Knowledge base, files, and Skills work in your professional context."
+        }
+      },
+      "channels": {
+        "eyebrow": "Where it works",
+        "web": {
+          "label": "Web",
+          "sub": "you're here"
+        },
+        "telegram": {
+          "label": "Telegram",
+          "sub": "your personal AI in Telegram."
+        },
+        "android": {
+          "label": "Android",
+          "sub": "Download APK",
+          "ariaLabel": "Download PersAI for Android (APK)"
+        },
+        "ios": {
+          "label": "iOS",
+          "sub": "soon"
+        }
+      }
+    },
+    "finale": {
+      "eyebrow": "Get started",
+      "titleLine1": "One step",
+      "titleLine2": "to your own PersAI.",
+      "body": "Set up your assistant in a minute. Start free \u2014 expand as your workflow grows.",
+      "ctaPrimary": "Start free",
+      "ctaSecondary": "View pricing",
+      "note": "No card required to start. Cancel anytime."
+    },
     "androidAppEyebrow": "Android release",
     "androidAppTitle": "PersAI for Android",
     "androidAppBody": "Install the APK to use PersAI as an app: the same web product, native sharing, and faster access from your phone.",

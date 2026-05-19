@@ -398,6 +398,7 @@ export class GammaProviderClient {
         status: "create_failed",
         httpStatus: input.status,
         message,
+        responseBody: this.sanitizeProviderErrorBody(input.body),
         retryable
       }
     });
@@ -418,6 +419,7 @@ export class GammaProviderClient {
         status: "poll_failed",
         httpStatus: input.status,
         message,
+        responseBody: this.sanitizeProviderErrorBody(input.body),
         retryable
       }
     });
@@ -478,6 +480,34 @@ export class GammaProviderClient {
       return error.message.trim();
     }
     return `Gamma returned HTTP ${status}.`;
+  }
+
+  private sanitizeProviderErrorBody(value: unknown, depth = 0): unknown {
+    if (depth > 4) {
+      return "[Max depth]";
+    }
+    if (value === null || typeof value === "number" || typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "string") {
+      return value.length > 2_000 ? `${value.slice(0, 2_000)}...` : value;
+    }
+    if (Array.isArray(value)) {
+      return value.slice(0, 20).map((entry) => this.sanitizeProviderErrorBody(entry, depth + 1));
+    }
+    const row = this.asObject(value);
+    if (row === null) {
+      return String(value);
+    }
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(row).slice(0, 50)) {
+      if (/(authorization|api[-_]?key|token|secret|cookie|password)/i.test(key)) {
+        sanitized[key] = "[redacted]";
+        continue;
+      }
+      sanitized[key] = this.sanitizeProviderErrorBody(entry, depth + 1);
+    }
+    return sanitized;
   }
 
   private toGammaInputText(html: string): string {

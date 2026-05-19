@@ -869,7 +869,8 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         "When the user has attached a source file (txt, md, csv, json, html, xml, pdf, docx) and asks to rebuild, convert, restyle, translate, or summarize it, the backend worker will AUTOMATICALLY inline that file's text content into document generation; you do not need to pre-read it. Simply call create_pdf_document with a prompt that describes the requested transformation and the worker will use the attached source verbatim.",
         "When the user attaches PDF or DOCX source material, do not use revise_document or export_or_redeliver unless the user explicitly targets an existing PersAI document docId. Treat attached files as source input for create_pdf_document.",
         "Never invent placeholder, generic-template, or test/demo content when the user has attached a source file. The worker auto-inlines supported text/PDF/DOCX content; unsupported binaries surface a structured note instead.",
-        "For school, educational, explainer, and ordinary client decks, do not choose imagePolicy=text_only or visualDensity=text_heavy unless the user explicitly asks for text-only slides or unusually dense slide copy.",
+        "For school, educational, explainer, and ordinary client decks, do not choose imagePolicy=text_only or visualDensity=text_heavy unless the user explicitly asks for text-only slides or unusually dense slide copy. Prefer balanced density and ordinary visual policies; do not force pictographic/business icon decks unless the user asked for that exact style.",
+        "For Gamma presentations, keep outline simple when you provide it: a short flat list of slide titles or title plus brief bullets. Do not send deeply nested JSON outlines, speaker notes, layout directives, or provider-specific theme guesses.",
         'For create_presentation and for presentation revise_document, you SHOULD set targetSlideCount to a concrete integer between 1 and 30 — even when the user did not specify one. If the user did mention a number ("7 slides", "deck of 10", "до 5 слайдов", "увеличь до 8"), you MUST set targetSlideCount to that exact integer. If the user did not specify a number, pick a reasonable count from the topic (typical school/explainer deck is 7-10, ordinary client deck is 8-12, deep report is 12-16) and pass that integer.',
         "If the tool returns action='deferred', acknowledge only that the document is being prepared and will arrive separately when ready.",
         "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and call quota_status if the user needs concrete package or upgrade options."
@@ -929,7 +930,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           type: "string",
           enum: ["ai_generated", "web_free_to_use", "pictographic", "text_only"],
           description:
-            "Optional presentation-only image policy for create_presentation. Prefer ai_generated, web_free_to_use, or pictographic when the user wants a normal visual deck. Use text_only only when they explicitly want no images."
+            "Optional presentation-only image policy for create_presentation. Prefer ai_generated or web_free_to_use when the user wants a normal visual deck. Use pictographic only for explicitly icon/diagram-heavy decks, and text_only only when they explicitly want no images."
         },
         visualDensity: {
           type: "string",
@@ -945,7 +946,8 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
             'Optional presentation-only authoritative slide count for create_presentation and revise_document of presentations. Set this to the integer the user explicitly asked for (e.g. "7 slides" => 7). Leave unset when the user did not specify a count.'
         },
         outline: {
-          description: "Optional document outline or structured content seed."
+          description:
+            "Optional document outline or structured content seed. For create_presentation, keep this as a simple flat list of slide titles or concise slide bullets; avoid deeply nested objects, speaker notes, layout directives, or provider-specific schema details."
         },
         metadata: {
           type: "object",

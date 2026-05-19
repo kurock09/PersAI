@@ -3,11 +3,27 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Route } from "next";
+import { useTranslations } from "next-intl";
+import { cn } from "@/app/lib/utils";
 import { LandingLocaleSwitcher } from "./landing-locale-switcher";
 import { LandingThemeToggle } from "./landing-theme-toggle";
+import { LandingAndroidAppDownload } from "./landing-android-app-download";
 
-export function PublicAuthShell(props: { children: ReactNode }) {
-  const { children } = props;
+export function PublicAuthShell(props: {
+  children: ReactNode;
+  showFooter?: boolean;
+  showDownloadCta?: boolean;
+  mainClassName?: string;
+}) {
+  const { children, showFooter = false, showDownloadCta = false, mainClassName } = props;
+  const t = useTranslations("landing");
+  const footerLinks = [
+    { label: t("plans"), href: "/pricing" as Route },
+    { label: t("termsLink"), href: "/terms" as Route },
+    { label: t("privacyLink"), href: "/privacy" as Route },
+    { label: t("contactsLink"), href: "/contacts" as Route },
+    { label: t("requisitesLink"), href: "/requisites" as Route }
+  ];
 
   return (
     <div className="relative min-h-screen min-h-[100svh] overflow-x-hidden bg-chrome">
@@ -26,8 +42,8 @@ export function PublicAuthShell(props: { children: ReactNode }) {
 
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
 
-      <div className="relative z-10 flex min-h-screen min-h-[100svh] flex-col px-4 pb-6 pt-5 sm:px-6 sm:pb-8 sm:pt-7">
-        <header className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
+      <div className="relative z-10 flex min-h-screen min-h-[100svh] flex-col px-5 pb-6 pt-5 sm:px-10 sm:pb-8 sm:pt-7">
+        <header className="flex w-full items-center justify-between gap-4">
           <Link
             href={"/" as Route}
             className="select-none text-xs font-semibold uppercase tracking-[0.22em] text-text-muted transition-colors hover:text-text"
@@ -41,9 +57,32 @@ export function PublicAuthShell(props: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex min-h-0 flex-1 items-center justify-center py-6 sm:py-8">
+        <main
+          className={cn(
+            "flex min-h-0 flex-1 items-center justify-center py-6 sm:py-8",
+            mainClassName
+          )}
+        >
           {children}
         </main>
+
+        {showFooter ? (
+          <footer className="shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))] text-center">
+            {showDownloadCta ? <LandingAndroidAppDownload cta={t("androidAppCta")} /> : null}
+            <nav className="mx-auto flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[10px] font-medium text-text-subtle sm:gap-x-4 sm:text-[11px]">
+              {footerLinks.map((link) => (
+                <Link
+                  key={link.label}
+                  href={link.href}
+                  className="transition-colors hover:text-text-muted"
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </nav>
+            <p className="mt-2 text-[10px] text-text-subtle/60">{t("terms")}</p>
+          </footer>
+        ) : null}
       </div>
     </div>
   );

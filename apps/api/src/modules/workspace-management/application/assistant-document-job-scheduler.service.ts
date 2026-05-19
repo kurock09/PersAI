@@ -378,7 +378,10 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
 
       const assistant = await this.assistantRepository.findById(job.assistantId);
       if (assistant === null) {
-        await this.failJob(job, "assistant_not_found", "Assistant not found.");
+        await this.failJob(job, "assistant_not_found", "Assistant not found.", null, {
+          requestPayload,
+          retryable: false
+        });
         return;
       }
       const resolvedRuntimeContext =
@@ -391,7 +394,9 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         await this.failJob(
           job,
           "runtime_bundle_missing",
-          "Assistant runtime bundle is not materialized."
+          "Assistant runtime bundle is not materialized.",
+          null,
+          { requestPayload, retryable: false }
         );
         return;
       }
@@ -454,7 +459,8 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           job,
           outcome.code ?? "document_execution_failed",
           outcome.message,
-          outcome.providerStatus
+          outcome.providerStatus,
+          { requestPayload, retryable: outcome.retryable }
         );
         return;
       }
@@ -480,7 +486,8 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
             job,
             "document_template_not_configured",
             'Document provider "pdfmonkey" requires an operator-configured template id.',
-            outcome.result.providerStatus ?? null
+            outcome.result.providerStatus ?? null,
+            { requestPayload, retryable: false }
           );
           return;
         }
@@ -488,7 +495,11 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           job,
           "document_artifacts_missing",
           "Document job worker completed without deliverable artifacts.",
-          outcome.result.providerStatus ?? null
+          outcome.result.providerStatus ?? null,
+          {
+            requestPayload,
+            retryable: this.readProviderRetryable(outcome.result.providerStatus) === true
+          }
         );
         return;
       }
@@ -544,8 +555,10 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
     job: ClaimedDocumentJob,
     code: string,
     message: string,
-    providerStatus: Record<string, unknown> | null = null
+    providerStatus: Record<string, unknown> | null = null,
+    options?: { requestPayload?: DocumentJobRequestPayload; retryable?: boolean }
   ): Promise<void> {
+    let claimedJobCount = 0;
     await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.assistantDocumentRenderJob.updateMany({
         where: { id: job.id, schedulerClaimToken: job.claimToken },
@@ -568,6 +581,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
       if (claimed.count === 0) {
         return;
       }
+      claimedJobCount = claimed.count;
       await tx.assistantDocumentVersion.update({
         where: { id: job.versionId },
         data: { status: "failed" }
@@ -589,6 +603,33 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           "failed",
         providerMetadataJson: this.buildFailureProviderMetadata(code, message, providerStatus)
       });
+    });
+    if (claimedJobCount === 0 || options?.requestPayload === undefined) {
+      return;
+    }
+    const completionAssistantMessageId =
+      await this.assistantDocumentJobDeliveryService.createTerminalExecutionFailureMessage({
+        job,
+        descriptorMode: options.requestPayload.descriptorMode,
+        sourceUserMessageText: options.requestPayload.sourceUserMessageText,
+        sourceUserMessageCreatedAt: options.requestPayload.sourceUserMessageCreatedAt,
+        failure: {
+          code,
+          message,
+          retryable: options.retryable === true
+        }
+      });
+    if (completionAssistantMessageId === null) {
+      return;
+    }
+    await this.prisma.assistantDocumentRenderJob.update({
+      where: { id: job.id },
+      data: {
+        providerStatusJson: this.buildFailedRenderJobProviderStatusJson(
+          providerStatus,
+          completionAssistantMessageId
+        )
+      }
     });
   }
 
@@ -818,6 +859,16 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
       ...providerStatus,
       errorCode: code,
       errorMessage: message
+    } as Prisma.InputJsonValue;
+  }
+
+  private buildFailedRenderJobProviderStatusJson(
+    providerStatus: Record<string, unknown> | null,
+    completionAssistantMessageId: string
+  ): Prisma.InputJsonValue {
+    return {
+      ...(providerStatus === null ? {} : { providerStatus }),
+      completionAssistantMessageId
     } as Prisma.InputJsonValue;
   }
 

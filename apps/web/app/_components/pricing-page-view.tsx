@@ -148,12 +148,14 @@ export function PricingPageView({
   plans,
   currentPlanCode,
   signedIn,
-  containedScroll = false
+  containedScroll = false,
+  embedded = false
 }: {
   plans: PublicPricingPlanState[];
   currentPlanCode?: string | null;
   signedIn: boolean;
   containedScroll?: boolean;
+  embedded?: boolean;
 }) {
   const t = useTranslations("pricing");
   const locale = useLocale();
@@ -400,14 +402,18 @@ export function PricingPageView({
   return (
     <div
       className={cn(
-        "bg-chrome text-text",
-        containedScroll ? "flex h-dvh flex-col overflow-hidden" : "min-h-dvh"
+        "w-full text-text",
+        embedded
+          ? "flex min-h-0 flex-1 flex-col"
+          : containedScroll
+            ? "flex h-dvh flex-col overflow-hidden bg-chrome"
+            : "min-h-dvh bg-chrome"
       )}
     >
       <div
         className={cn(
           "mx-auto flex w-full max-w-7xl flex-col px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 lg:px-8",
-          containedScroll ? "h-full" : "min-h-dvh"
+          containedScroll ? "h-full" : embedded ? "min-h-0" : "min-h-dvh"
         )}
       >
         <div className={cn("min-h-0", containedScroll && "flex-1 overflow-y-auto pr-1")}>

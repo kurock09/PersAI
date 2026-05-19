@@ -55,11 +55,18 @@
 
 :root.light {
   color-scheme: light;
-  --chrome: #e0d8c8;
-  --bg: #f5f2ec;
-  --surface: #ede9e1;
+  /*
+   * Light tonal palette — "Sage off-white" (2026-05, ADR-078).
+   * Cool achromatic green-grey gamma; chrome is the page-edge tone (also the
+   * landing background), bg/surface step lighter for inner content, raised
+   * stays pure white so cards still read as elevated. Replaces the previous
+   * warm beige gamma which was reading as "stale" against the sage accent.
+   */
+  --chrome: #f3f4ed;
+  --bg: #f7f8f1;
+  --surface: #ebede3;
   --surface-raised: #ffffff;
-  --surface-hover: #e4dfd6;
+  --surface-hover: #e2e5d8;
   --border: rgba(31, 26, 18, 0.08);
   --border-strong: rgba(31, 26, 18, 0.16);
   --ring: rgba(90, 120, 100, 0.25);
@@ -108,6 +115,7 @@
   --animate-fade-in-up: fade-in-up 0.7s ease-out;
   --animate-fade-in-up-delay: fade-in-up 0.7s ease-out 0.15s both;
   --animate-pulse-slow: pulse-slow 4s ease-in-out infinite;
+  --animate-scroll-cue: scroll-cue 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 /* Assistant response UI blocks */
@@ -383,6 +391,41 @@ textarea::-webkit-resizer {
   }
   50% {
     opacity: 0.7;
+  }
+}
+
+/* Landing magnet — a "weak magnet" on the first viewport, mobile-only.
+   On phones, tiny scrolls inside the hero get pulled back to the start of
+   the page so the eye stays anchored on the headline; once the user makes
+   a deliberate swipe past the threshold, no further snap targets exist
+   (only #hero declares an alignment point) so the rest of the page scrolls
+   freely. We honour reduced-motion preferences and skip the magnet entirely
+   for users who asked the OS for less motion. */
+@media (max-width: 768px) and (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-snap-type: y proximity;
+  }
+  #hero {
+    scroll-snap-align: start;
+  }
+}
+
+/* Hero scroll-cue — a slow, calm dot drifting down a sage hairline. The
+   cubic-bezier easing gives it a quiet "breath" rather than a hard bounce. */
+@keyframes scroll-cue {
+  0% {
+    transform: translate(-50%, -2px);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, 28px);
+    opacity: 0;
   }
 }
 

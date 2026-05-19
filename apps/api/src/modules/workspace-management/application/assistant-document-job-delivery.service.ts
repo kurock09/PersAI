@@ -68,6 +68,34 @@ type PersistedDeliveryPayload = {
   providerStatus?: Record<string, unknown> | null;
 };
 
+type TerminalExecutionFailureInput = {
+  job: {
+    id: string;
+    docId: string;
+    versionId: string;
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    surface: "web" | "telegram";
+    outputFormat: "pdf" | "pptx";
+    sourceUserMessageId: string;
+    attemptCount: number;
+    maxAttempts: number;
+  };
+  descriptorMode:
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver";
+  sourceUserMessageText: string;
+  sourceUserMessageCreatedAt: string;
+  failure: {
+    code: string;
+    message: string;
+    retryable: boolean;
+  };
+};
+
 type CanonicalDeliveredAttachment = {
   fileRef: string;
   mimeType: string;
@@ -90,6 +118,40 @@ export class AssistantDocumentJobDeliveryService {
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly assistantDocumentJobCompletionTurnService: AssistantDocumentJobCompletionTurnService
   ) {}
+
+  async createTerminalExecutionFailureMessage(
+    input: TerminalExecutionFailureInput
+  ): Promise<string | null> {
+    const locale = inferAssistantDocumentJobLocale({
+      preferredLocale: null,
+      sourceText: input.sourceUserMessageText
+    });
+    const llmAuthored = await this.tryLlmAuthoredExecutionFailureCopy(input);
+    const failureMessage =
+      llmAuthored ??
+      buildAssistantDocumentJobFailureMessage({
+        code: input.failure.code,
+        message: input.failure.message,
+        locale
+      });
+
+    try {
+      const created = await this.assistantChatRepository.createMessage({
+        chatId: input.job.chatId,
+        assistantId: input.job.assistantId,
+        author: "assistant",
+        content: failureMessage
+      });
+      return created.id;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to create terminal document execution-failure message for ${input.job.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    }
+  }
 
   async deliverReadyJob(job: ClaimedReadyDocumentJob): Promise<void> {
     const heartbeat = setInterval(() => {
@@ -854,6 +916,42 @@ export class AssistantDocumentJobDeliveryService {
     } catch (error) {
       this.logger.warn(
         `LLM document failure-framing threw for job ${input.job.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    }
+  }
+
+  private async tryLlmAuthoredExecutionFailureCopy(
+    input: TerminalExecutionFailureInput
+  ): Promise<string | null> {
+    try {
+      return await this.assistantDocumentJobCompletionTurnService.maybeFrameFailure({
+        id: input.job.id,
+        docId: input.job.docId,
+        versionId: input.job.versionId,
+        assistantId: input.job.assistantId,
+        workspaceId: input.job.workspaceId,
+        chatId: input.job.chatId,
+        surface: input.job.surface,
+        outputFormat: input.job.outputFormat,
+        descriptorMode: input.descriptorMode,
+        sourceUserMessageId: input.job.sourceUserMessageId,
+        sourceUserMessageText: input.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
+        failure: {
+          code: input.failure.code,
+          message: input.failure.message,
+          attemptCount: input.job.attemptCount,
+          maxAttempts: input.job.maxAttempts,
+          retryable: input.failure.retryable,
+          stage: "execution"
+        }
+      });
+    } catch (error) {
+      this.logger.warn(
+        `LLM document execution-failure framing threw for job ${input.job.id}: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
