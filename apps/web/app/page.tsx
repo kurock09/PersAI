@@ -24,9 +24,9 @@ export default async function HomePage() {
   ];
 
   return (
-    <div className="relative min-h-screen bg-chrome">
+    <div className="relative min-h-screen min-h-[100svh] overflow-x-hidden bg-chrome">
       {/* Aurora — three sage halos, soft blur, slow pulse */}
-      <div className="pointer-events-none absolute inset-0">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute left-[5%] top-[10%] h-[600px] w-[600px] rounded-full bg-accent/[0.13] blur-[160px] animate-pulse-slow" />
         <div className="absolute right-[5%] top-[30%] h-[400px] w-[400px] rounded-full bg-accent/[0.07] blur-[130px] animate-pulse-slow [animation-delay:2s]" />
         <div className="absolute bottom-[5%] left-[35%] h-[350px] w-[350px] rounded-full bg-accent/[0.09] blur-[120px] animate-pulse-slow [animation-delay:4s]" />
@@ -46,7 +46,7 @@ export default async function HomePage() {
       {/* Top hairline — sage gradient */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
 
-      <div className="relative z-10 flex min-h-screen flex-col px-5 sm:px-10">
+      <div className="relative z-10 flex min-h-screen min-h-[100svh] flex-col px-5 sm:px-10">
         {/* Header */}
         <header className="flex shrink-0 items-center justify-between pt-5 sm:pt-7">
           <span className="select-none text-xs font-semibold uppercase tracking-[0.22em] text-text-muted">

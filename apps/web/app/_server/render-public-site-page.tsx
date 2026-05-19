@@ -1,7 +1,8 @@
+import { NextIntlClientProvider } from "next-intl";
 import { headers } from "next/headers";
 import type { Route } from "next";
 import { notFound } from "next/navigation";
-import { getTranslations } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import {
   PublicSitePageView,
   type PublicSitePageViewCopy
@@ -29,17 +30,16 @@ export async function renderPublicSitePage(
   searchParams?: Promise<Record<string, string | string[] | undefined>>
 ) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
+  const requestedLocale = await getLocale();
   const requestHeaders = await headers();
   const cookieHeader = requestHeaders.get("cookie");
   const acceptLanguage = requestHeaders.get("accept-language");
   const market =
     typeof resolvedSearchParams.market === "string" ? resolvedSearchParams.market : undefined;
-  const locale =
-    typeof resolvedSearchParams.locale === "string" ? resolvedSearchParams.locale : undefined;
   const result = await fetchPublicSitePage({
     slug,
     market,
-    locale,
+    locale: requestedLocale,
     cookieHeader,
     acceptLanguage
   });
@@ -47,8 +47,9 @@ export async function renderPublicSitePage(
     notFound();
   }
   const t = await getTranslations({ locale: result.resolvedLocale, namespace: "legalPage" });
+  const messages = (await import(`../../messages/${result.resolvedLocale}.json`)).default;
   const buildPageHref = (targetSlug: PublicSitePageSlug) =>
-    `/${targetSlug}?market=${result.resolvedMarket}&locale=${result.resolvedLocale}` as Route;
+    `/${targetSlug}?market=${result.resolvedMarket}` as Route;
   const copy: PublicSitePageViewCopy = {
     footerLinks: [
       { label: t("footer.pricing"), href: "/pricing" as Route },
@@ -60,19 +61,18 @@ export async function renderPublicSitePage(
     brandTagline: t("brandTagline"),
     pageLabel: resolvePageLabel(t, result.page.slug),
     marketLabel: result.resolvedMarket === "rf" ? t("marketLabels.rf") : t("marketLabels.intl"),
-    localeLabel: result.resolvedLocale.toUpperCase(),
-    localeVariantRu: t("localeLabels.ru"),
-    localeVariantEn: t("localeLabels.en"),
     marketVariantRf: t("marketLabels.rf"),
     marketVariantIntl: t("marketLabels.intl"),
     footerNote: t("footer.note")
   };
   return (
-    <PublicSitePageView
-      page={result.page}
-      resolvedMarket={result.resolvedMarket}
-      resolvedLocale={result.resolvedLocale}
-      copy={copy}
-    />
+    <NextIntlClientProvider locale={result.resolvedLocale} messages={messages}>
+      <PublicSitePageView
+        page={result.page}
+        resolvedMarket={result.resolvedMarket}
+        resolvedLocale={result.resolvedLocale}
+        copy={copy}
+      />
+    </NextIntlClientProvider>
   );
 }

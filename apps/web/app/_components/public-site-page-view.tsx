@@ -10,6 +10,8 @@ import type {
   SitePageLocale,
   SitePageMarket
 } from "../_server/fetch-public-site-page";
+import { LandingLocaleSwitcher } from "./landing-locale-switcher";
+import { LandingThemeToggle } from "./landing-theme-toggle";
 import { setLocaleCookie } from "../lib/locale-sync";
 
 export type PublicSitePageViewCopy = {
@@ -17,9 +19,6 @@ export type PublicSitePageViewCopy = {
   brandTagline: string;
   pageLabel: string;
   marketLabel: string;
-  localeLabel: string;
-  localeVariantRu: string;
-  localeVariantEn: string;
   marketVariantRf: string;
   marketVariantIntl: string;
   footerNote: string;
@@ -32,11 +31,7 @@ export function PublicSitePageView(props: {
   copy: PublicSitePageViewCopy;
 }) {
   const { page, resolvedMarket, resolvedLocale, copy } = props;
-  const buildHref = (market: SitePageMarket, locale: SitePageLocale) =>
-    `/${page.slug}?market=${market}&locale=${locale}` as Route;
-  const localeLinks = page.availableVariants.filter(
-    (variant) => variant.market === resolvedMarket && variant.locale !== resolvedLocale
-  );
+  const buildHref = (market: SitePageMarket) => `/${page.slug}?market=${market}` as Route;
   const marketLinks = page.availableVariants.filter(
     (variant) => variant.locale === resolvedLocale && variant.market !== resolvedMarket
   );
@@ -49,6 +44,17 @@ export function PublicSitePageView(props: {
     }
     document.cookie = "persai-country=;path=/;max-age=0;samesite=lax";
   }, [resolvedLocale, resolvedMarket]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("locale")) {
+      return;
+    }
+    url.searchParams.delete("locale");
+    const normalized =
+      url.searchParams.size > 0 ? `${url.pathname}?${url.searchParams}` : url.pathname;
+    window.history.replaceState(window.history.state, "", normalized + url.hash);
+  }, []);
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-chrome">
@@ -69,7 +75,7 @@ export function PublicSitePageView(props: {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
 
       <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-5 pb-10 pt-5 sm:px-8 sm:pb-12 sm:pt-7 lg:px-12">
-        <header className="mx-auto flex w-full max-w-3xl flex-wrap items-start justify-between gap-5">
+        <header className="flex shrink-0 items-start justify-between gap-4">
           <div className="flex flex-col gap-3">
             <Link
               href={"/" as Route}
@@ -80,25 +86,10 @@ export function PublicSitePageView(props: {
             <p className="text-[11px] leading-5 text-text-subtle">{copy.brandTagline}</p>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2 text-[10px] text-text-subtle sm:text-[11px]">
-            {localeLinks.map((variant) => (
-              <Link
-                key={`locale:${variant.market}:${variant.locale}`}
-                href={buildHref(variant.market, variant.locale)}
-                className="rounded-full border border-border/60 px-2.5 py-1 transition-colors hover:border-accent/35 hover:text-text"
-              >
-                {variant.locale === "ru" ? copy.localeVariantRu : copy.localeVariantEn}
-              </Link>
-            ))}
-            {marketLinks.map((variant) => (
-              <Link
-                key={`market:${variant.market}:${variant.locale}`}
-                href={buildHref(variant.market, variant.locale)}
-                className="rounded-full border border-border/60 px-2.5 py-1 transition-colors hover:border-accent/35 hover:text-text"
-              >
-                {variant.market === "rf" ? copy.marketVariantRf : copy.marketVariantIntl}
-              </Link>
-            ))}
+          <div className="flex items-center gap-3">
+            <LandingThemeToggle />
+            <span className="hidden h-4 w-px bg-border sm:inline-block" />
+            <LandingLocaleSwitcher />
           </div>
         </header>
 
@@ -111,16 +102,27 @@ export function PublicSitePageView(props: {
 
           <div className="mt-6 h-px bg-gradient-to-r from-accent/20 via-border to-transparent" />
 
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-medium tracking-[0.1em] text-text-subtle sm:text-[11px]">
-            <span className="rounded-full border border-border/60 bg-surface-raised/10 px-2.5 py-1 uppercase">
-              {copy.pageLabel}
-            </span>
-            <span className="rounded-full border border-border/60 bg-surface-raised/10 px-2.5 py-1 uppercase">
-              {copy.marketLabel}
-            </span>
-            <span className="rounded-full border border-border/60 bg-surface-raised/10 px-2.5 py-1 uppercase">
-              {copy.localeLabel}
-            </span>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[10px] font-medium tracking-[0.1em] text-text-subtle sm:text-[11px]">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-border/60 bg-surface-raised/10 px-2.5 py-1 uppercase">
+                {copy.pageLabel}
+              </span>
+              <span className="rounded-full border border-border/60 bg-surface-raised/10 px-2.5 py-1 uppercase">
+                {copy.marketLabel}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {marketLinks.map((variant) => (
+                <Link
+                  key={`market:${variant.market}:${variant.locale}`}
+                  href={buildHref(variant.market)}
+                  className="rounded-full border border-border/60 px-2.5 py-1 transition-colors hover:border-accent/35 hover:text-text"
+                >
+                  {variant.market === "rf" ? copy.marketVariantRf : copy.marketVariantIntl}
+                </Link>
+              ))}
+            </div>
           </div>
 
           <article className="mt-8 max-w-none">
