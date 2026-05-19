@@ -308,6 +308,181 @@ describe("SendNativeTelegramTurnService", () => {
     }
   });
 
+  test("recovers an accepted Telegram stream by replaying the runtime receipt", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+    let fetchCount = 0;
+    const capturedRequestIds: string[] = [];
+
+    globalThis.fetch = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      fetchCount += 1;
+      const body = init?.body ? (JSON.parse(init.body as string) as { requestId: string }) : null;
+      if (body !== null) {
+        capturedRequestIds.push(body.requestId);
+      }
+
+      if (fetchCount === 1) {
+        const encoder = new TextEncoder();
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode(
+                  `${JSON.stringify({
+                    type: "started",
+                    requestId: "runtime-request-recover",
+                    sessionId: "runtime-session-recover"
+                  })}\n`
+                )
+              );
+              setTimeout(() => controller.error(new Error("runtime stream socket closed")), 0);
+            }
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/x-ndjson"
+            }
+          }
+        );
+      }
+
+      if (fetchCount === 2) {
+        return new Response(
+          JSON.stringify({
+            statusCode: 409,
+            message: 'Turn "runtime-request-recover" is already accepted and still processing.',
+            error: "Conflict"
+          }),
+          {
+            status: 409,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
+
+      return new Response(
+        [
+          JSON.stringify({
+            type: "completed",
+            result: {
+              requestId: "runtime-request-recover",
+              sessionId: "runtime-session-recover",
+              assistantText: "replayed telegram answer",
+              artifacts: [],
+              respondedAt: "2026-04-12T10:00:02.000Z",
+              usage: null
+            }
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new SendNativeTelegramTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      const result = await service.execute({
+        assistantId: "assistant-1",
+        publishedVersionId: "version-1",
+        runtimeTier: "paid_shared_restricted",
+        workspaceId: "workspace-1",
+        threadId: "telegram-chat-1",
+        externalUserKey: "telegram-user-1",
+        mode: "direct",
+        userMessageId: "message-recover",
+        userMessage: "search the web",
+        attachments: []
+      });
+
+      assert.equal(result.assistantMessage, "replayed telegram answer");
+      assert.equal(fetchCount, 3);
+      assert.equal(new Set(capturedRequestIds).size, 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("keeps Telegram tool callbacks best-effort", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-tool-callback",
+            sessionId: "runtime-session-tool-callback"
+          }),
+          JSON.stringify({
+            type: "tool_started",
+            requestId: "runtime-request-tool-callback",
+            sessionId: "runtime-session-tool-callback",
+            toolCallId: "tool-1",
+            toolName: "web_search"
+          }),
+          JSON.stringify({
+            type: "completed",
+            result: {
+              requestId: "runtime-request-tool-callback",
+              sessionId: "runtime-session-tool-callback",
+              assistantText: "tool callback did not break delivery",
+              artifacts: [],
+              respondedAt: "2026-04-12T10:00:03.000Z",
+              usage: null
+            }
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new SendNativeTelegramTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      const result = await service.execute(
+        {
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          workspaceId: "workspace-1",
+          threadId: "telegram-chat-1",
+          externalUserKey: "telegram-user-1",
+          mode: "direct",
+          userMessageId: "message-tool-callback",
+          userMessage: "search the web",
+          attachments: []
+        },
+        {
+          onTool: () => {
+            throw new Error("chat action failed");
+          }
+        }
+      );
+
+      assert.equal(result.assistantMessage, "tool callback did not break delivery");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("surfaces native runtime conflicts as inbound conflicts", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;

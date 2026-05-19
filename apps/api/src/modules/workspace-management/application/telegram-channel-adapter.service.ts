@@ -833,6 +833,11 @@ export class TelegramChannelAdapterService {
         };
       }
       const failure = toAssistantInboundFailurePayload(error, config.locale);
+      this.logger.warn(
+        `[telegram-turn] inbound turn failed assistantId=${config.assistantId} chatId=${event.chatId} updateId=${String(event.updateId ?? "none")} code=${failure.code}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
       const fallbackMessage =
         failure.message.trim().length > 0
           ? failure.message

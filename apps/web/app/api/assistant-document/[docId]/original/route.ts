@@ -11,13 +11,14 @@ const RESPONSE_PASSTHROUGH_HEADERS = [
   "Last-Modified",
   "ETag"
 ] as const;
+const SESSION_TOKEN_HEADER = "x-persai-session-token";
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<unknown> }
 ): Promise<Response> {
   const { getToken } = await auth();
-  const token = await getToken();
+  const token = (await getToken()) ?? readSessionTokenHeader(request);
   if (!token) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -64,6 +65,11 @@ export async function GET(
   }
 
   return new Response(res.body, { status: res.status, headers: passthroughHeaders });
+}
+
+function readSessionTokenHeader(request: Request): string | null {
+  const value = request.headers.get(SESSION_TOKEN_HEADER)?.trim();
+  return value && value.length > 0 ? value : null;
 }
 
 async function readUpstreamErrorMessage(response: Response): Promise<string> {

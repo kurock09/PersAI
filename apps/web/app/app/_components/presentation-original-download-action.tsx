@@ -1,9 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactElement
+} from "react";
+import { useAuth } from "@clerk/nextjs";
 import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
+
+const SESSION_TOKEN_HEADER = "X-PersAI-Session-Token";
 
 type DownloadState =
   | { status: "idle" }
@@ -43,17 +54,13 @@ interface PresentationOriginalDownloadActionProps {
  *  - We `fetch()` the BFF, then materialise the body as a Blob and trigger
  *    the browser save through a hidden `<a download>` so the chat keeps
  *    focus and Capacitor WebView keeps the same tab.
- *  - The BFF (`/api/assistant-document/[docId]/original/route.ts`) does its
- *    own server-side Clerk auth via `auth().getToken()` from the session
- *    cookie. We deliberately do NOT attach an `Authorization: Bearer ...`
- *    header on this client fetch, because Clerk middleware in front of the
- *    BFF prefers a Bearer header over the session cookie when both are
- *    present, and a client-side `getToken()` JWT is meant for forwarding to
- *    upstream APIs — not for re-authing the request through Clerk's edge
- *    middleware. Sending it produced live `401 text/html` rejections on
- *    `persai.dev` even when the cookie session was perfectly valid. This
- *    matches how the production-proven `/api/assistant-file/:fileRef`
- *    surface is fetched (plain same-origin, cookies only).
+ *  - The BFF (`/api/assistant-document/[docId]/original/route.ts`) first tries
+ *    server-side Clerk auth from the session cookie. For long-lived tabs where
+ *    that server token can be null on the route handler, the client also sends
+ *    a fresh Clerk token in a PersAI-owned same-origin header. We deliberately
+ *    do NOT attach `Authorization: Bearer ...` on this client fetch because
+ *    Clerk middleware in front of the BFF treats that as request auth and can
+ *    reject before the route handler can forward the token upstream.
  *  - Any non-2xx (auth, 410-gone, 500) opens a small in-page modal with
  *    honest "PDF still in chat" copy. Modal is dismissable.
  */
@@ -62,8 +69,12 @@ export function PresentationOriginalDownloadAction({
   filename
 }: PresentationOriginalDownloadActionProps): ReactElement {
   const t = useTranslations("chat");
+  const { getToken } = useAuth();
   const [state, setState] = useState<DownloadState>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const modalTitleId = useId();
 
   useEffect(() => {
     return () => {
@@ -73,7 +84,20 @@ export function PresentationOriginalDownloadAction({
 
   const closeModal = useCallback(() => {
     setState({ status: "idle" });
+    window.setTimeout(() => {
+      triggerRef.current?.focus();
+    }, 0);
   }, []);
+
+  const handleDialogKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeModal();
+      }
+    },
+    [closeModal]
+  );
 
   const handleClick = useCallback(async () => {
     if (state.status === "downloading") return;
@@ -87,8 +111,11 @@ export function PresentationOriginalDownloadAction({
 
     setState({ status: "downloading" });
     try {
+      const token = await resolveFreshSessionToken(getToken);
+      const headers = token === null ? undefined : { [SESSION_TOKEN_HEADER]: token };
       const response = await fetch(href, {
         credentials: "same-origin",
+        ...(headers === undefined ? {} : { headers }),
         signal: controller.signal
       });
       if (!response.ok) {
@@ -113,21 +140,30 @@ export function PresentationOriginalDownloadAction({
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);
-      URL.revokeObjectURL(objectUrl);
+      window.setTimeout(() => {
+        URL.revokeObjectURL(objectUrl);
+      }, 0);
       setState({ status: "idle" });
     } catch (error) {
       if (controller.signal.aborted) return;
       console.warn("[presentation-pptx] download failed", error);
       setState({ status: "error", reason: "failed" });
     }
-  }, [filename, href, state.status]);
+  }, [filename, getToken, href, state.status]);
 
   const isModalOpen = state.status === "error";
-  const modalTitleId = "presentation-pptx-download-modal-title";
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+    window.setTimeout(() => {
+      closeButtonRef.current?.focus();
+    }, 0);
+  }, [isModalOpen]);
 
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => {
           void handleClick();
@@ -151,6 +187,17 @@ export function PresentationOriginalDownloadAction({
           </span>
         )}
       </button>
+      <span className="sr-only" role="status" aria-live="polite">
+        {state.status === "downloading"
+          ? t("presentationDownloadPptxStarting")
+          : state.status === "error"
+            ? t(
+                state.reason === "unavailable"
+                  ? "presentationDownloadPptxUnavailableTitle"
+                  : "presentationDownloadPptxFailedTitle"
+              )
+            : ""}
+      </span>
 
       {isModalOpen ? (
         <div
@@ -159,6 +206,7 @@ export function PresentationOriginalDownloadAction({
           aria-labelledby={modalTitleId}
           className="fixed inset-0 z-[9000] flex items-center justify-center bg-bg/85 px-5 backdrop-blur-sm"
           onClick={closeModal}
+          onKeyDown={handleDialogKeyDown}
         >
           <div
             className="w-full max-w-sm rounded-2xl border border-border-strong/70 bg-surface-raised/98 p-5 text-text shadow-[0_24px_60px_rgba(0,0,0,0.45)]"
@@ -182,6 +230,7 @@ export function PresentationOriginalDownloadAction({
             </p>
             <div className="flex justify-end">
               <button
+                ref={closeButtonRef}
                 type="button"
                 onClick={closeModal}
                 className="inline-flex h-9 items-center justify-center rounded-full border border-border-strong/70 bg-bg px-4 text-sm font-medium text-text transition-colors hover:border-accent/50 hover:text-accent"
@@ -194,6 +243,16 @@ export function PresentationOriginalDownloadAction({
       ) : null}
     </>
   );
+}
+
+async function resolveFreshSessionToken(
+  getToken: ReturnType<typeof useAuth>["getToken"]
+): Promise<string | null> {
+  try {
+    return (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

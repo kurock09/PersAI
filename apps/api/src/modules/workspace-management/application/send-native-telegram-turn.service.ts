@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import type {
   RuntimeFailedEvent,
@@ -29,6 +29,8 @@ import type { RuntimeTier } from "./runtime-assignment";
 
 const HIDDEN_RUNTIME_TOOL_NAMES = new Set<string>();
 const DEGRADED_TOOL_OUTPUT_MESSAGE = "Tool completed, but follow-up text was interrupted.";
+const ACCEPTED_TURN_REPLAY_POLL_INTERVAL_MS = 1_000;
+const ACCEPTED_TURN_REPLAY_MAX_WAIT_MS = 60_000;
 
 export interface SendNativeTelegramTurnInput {
   assistantId: string;
@@ -68,6 +70,8 @@ interface JsonResponse {
 
 @Injectable()
 export class SendNativeTelegramTurnService {
+  private readonly logger = new Logger(SendNativeTelegramTurnService.name);
+
   constructor(
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository
@@ -148,125 +152,17 @@ export class SendNativeTelegramTurnService {
       config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS
     );
 
+    const streamUrl = new URL("/api/v1/turns/stream", baseUrl).toString();
+    const streamState = { accepted: false };
     const { signal, dispose } = this.createTimedSignal(timeoutMs);
     try {
-      const response = await this.fetchStreamResponse(
-        new URL("/api/v1/turns/stream", baseUrl).toString(),
+      return await this.executeRuntimeStreamOnce({
+        url: streamUrl,
         request,
-        signal
-      );
-      if (!response.ok) {
-        const body = await this.readBody(response);
-        this.throwForFailedResponse({
-          ok: false,
-          status: response.status,
-          body
-        });
-      }
-      if (response.body === null) {
-        throw new AssistantRuntimeError(
-          "invalid_response",
-          "Native runtime returned an empty Telegram stream response body."
-        );
-      }
-
-      const emittedArtifactIds = new Set<string>();
-      const collectedMedia: AssistantRuntimeWebChatTurnResult["media"] = [];
-      const collectArtifacts = (artifacts: RuntimeOutputArtifact[]) => {
-        const remainingArtifacts = artifacts.filter((artifact) => {
-          if (emittedArtifactIds.has(artifact.artifactId)) {
-            return false;
-          }
-          emittedArtifactIds.add(artifact.artifactId);
-          return true;
-        });
-        if (remainingArtifacts.length > 0) {
-          collectedMedia.push(...runtimeOutputArtifactsToMediaArtifacts(remainingArtifacts));
-        }
-      };
-
-      for await (const event of this.readRuntimeStream(response)) {
-        switch (event.type) {
-          case "started":
-          case "text_delta":
-            continue;
-          case "tool_started":
-            if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
-              continue;
-            }
-            await callbacks?.onTool?.({
-              phase: "start",
-              toolName: event.toolName,
-              toolCallId: event.toolCallId,
-              isError: false
-            });
-            continue;
-          case "tool_finished":
-            if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
-              continue;
-            }
-            await callbacks?.onTool?.({
-              phase: "end",
-              toolName: event.toolName,
-              toolCallId: event.toolCallId,
-              isError: event.isError
-            });
-            continue;
-          case "artifact":
-            if (!emittedArtifactIds.has(event.artifact.artifactId)) {
-              emittedArtifactIds.add(event.artifact.artifactId);
-              collectedMedia.push(...runtimeOutputArtifactsToMediaArtifacts([event.artifact]));
-            }
-            continue;
-          case "interrupted": {
-            collectArtifacts(event.artifacts ?? []);
-            if (collectedMedia.length > 0) {
-              return {
-                assistantMessage: this.resolveDegradedAssistantMessage(event.assistantText),
-                respondedAt: event.respondedAt ?? new Date().toISOString(),
-                media: collectedMedia,
-                ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })
-              };
-            }
-            throw this.toInterruptedRuntimeError(event);
-          }
-          case "failed": {
-            collectArtifacts(event.artifacts ?? []);
-            if (collectedMedia.length > 0) {
-              return {
-                assistantMessage: DEGRADED_TOOL_OUTPUT_MESSAGE,
-                respondedAt: new Date().toISOString(),
-                media: collectedMedia,
-                ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })
-              };
-            }
-            throw this.toRuntimeFailedError(event);
-          }
-          case "completed": {
-            collectArtifacts(event.result.artifacts);
-            return {
-              assistantMessage: event.result.assistantText,
-              respondedAt: event.result.respondedAt,
-              media: collectedMedia,
-              ...(event.result.usageAccounting === undefined
-                ? {}
-                : { usageAccounting: event.result.usageAccounting }),
-              ...(event.result.deferredMediaJobs === undefined
-                ? {}
-                : { deferredMediaJobs: event.result.deferredMediaJobs }),
-              ...(event.result.autoCompaction === undefined
-                ? {}
-                : { autoCompaction: event.result.autoCompaction }),
-              ...(event.result.trace === undefined ? {} : { runtimeTrace: event.result.trace })
-            };
-          }
-        }
-      }
-
-      throw new AssistantRuntimeError(
-        "invalid_response",
-        "Native runtime Telegram stream completed without a terminal done event."
-      );
+        signal,
+        callbacks,
+        streamState
+      });
     } catch (error) {
       if (this.isAbortError(error)) {
         throw new AssistantRuntimeError(
@@ -274,12 +170,206 @@ export class SendNativeTelegramTurnService {
           `Native runtime Telegram stream timed out after ${config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS}ms.`
         );
       }
+      if (streamState.accepted && this.shouldReplayAcceptedTurnAfterStreamError(error)) {
+        this.logger.warn(
+          `[telegram-runtime-stream] accepted stream failed before terminal event; attempting idempotent replay assistantId=${input.assistantId} threadId=${input.threadId} requestId=${request.requestId} idempotencyKey=${request.idempotencyKey}: ${this.formatError(error)}`
+        );
+        return await this.replayAcceptedTurnUntilTerminal({
+          url: streamUrl,
+          request,
+          signal,
+          callbacks,
+          timeoutMs,
+          originalError: error
+        });
+      }
       if (error instanceof AssistantRuntimeError) {
         throw error;
       }
       throw error;
     } finally {
       dispose();
+    }
+  }
+
+  private async replayAcceptedTurnUntilTerminal(params: {
+    url: string;
+    request: RuntimeTurnRequest;
+    signal: AbortSignal;
+    callbacks: SendNativeTelegramTurnCallbacks | undefined;
+    timeoutMs: number;
+    originalError: unknown;
+  }): Promise<AssistantRuntimeWebChatTurnResult> {
+    const deadlineAt = Date.now() + Math.min(params.timeoutMs, ACCEPTED_TURN_REPLAY_MAX_WAIT_MS);
+    let lastError: unknown = params.originalError;
+
+    while (!params.signal.aborted && Date.now() <= deadlineAt) {
+      await this.sleep(ACCEPTED_TURN_REPLAY_POLL_INTERVAL_MS, params.signal);
+      const replayState = { accepted: false };
+      try {
+        return await this.executeRuntimeStreamOnce({
+          url: params.url,
+          request: params.request,
+          signal: params.signal,
+          callbacks: params.callbacks,
+          streamState: replayState
+        });
+      } catch (error) {
+        lastError = error;
+        if (!this.isReplayPendingConflict(error)) {
+          throw error;
+        }
+      }
+    }
+
+    if (this.isAbortError(lastError)) {
+      throw lastError;
+    }
+    if (lastError instanceof AssistantRuntimeError) {
+      throw lastError;
+    }
+    throw params.originalError;
+  }
+
+  private async executeRuntimeStreamOnce(params: {
+    url: string;
+    request: RuntimeTurnRequest;
+    signal: AbortSignal;
+    callbacks: SendNativeTelegramTurnCallbacks | undefined;
+    streamState: { accepted: boolean };
+  }): Promise<AssistantRuntimeWebChatTurnResult> {
+    const response = await this.fetchStreamResponse(params.url, params.request, params.signal);
+    if (!response.ok) {
+      const body = await this.readBody(response);
+      this.throwForFailedResponse({
+        ok: false,
+        status: response.status,
+        body
+      });
+    }
+    if (response.body === null) {
+      throw new AssistantRuntimeError(
+        "invalid_response",
+        "Native runtime returned an empty Telegram stream response body."
+      );
+    }
+
+    const emittedArtifactIds = new Set<string>();
+    const collectedMedia: AssistantRuntimeWebChatTurnResult["media"] = [];
+    const collectArtifacts = (artifacts: RuntimeOutputArtifact[]) => {
+      const remainingArtifacts = artifacts.filter((artifact) => {
+        if (emittedArtifactIds.has(artifact.artifactId)) {
+          return false;
+        }
+        emittedArtifactIds.add(artifact.artifactId);
+        return true;
+      });
+      if (remainingArtifacts.length > 0) {
+        collectedMedia.push(...runtimeOutputArtifactsToMediaArtifacts(remainingArtifacts));
+      }
+    };
+
+    for await (const event of this.readRuntimeStream(response)) {
+      switch (event.type) {
+        case "started":
+          params.streamState.accepted = true;
+          continue;
+        case "text_delta":
+          continue;
+        case "tool_started":
+          if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
+            continue;
+          }
+          await this.emitToolEvent(params.callbacks, {
+            phase: "start",
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+            isError: false
+          });
+          continue;
+        case "tool_finished":
+          if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
+            continue;
+          }
+          await this.emitToolEvent(params.callbacks, {
+            phase: "end",
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+            isError: event.isError
+          });
+          continue;
+        case "artifact":
+          if (!emittedArtifactIds.has(event.artifact.artifactId)) {
+            emittedArtifactIds.add(event.artifact.artifactId);
+            collectedMedia.push(...runtimeOutputArtifactsToMediaArtifacts([event.artifact]));
+          }
+          continue;
+        case "interrupted": {
+          collectArtifacts(event.artifacts ?? []);
+          if (collectedMedia.length > 0) {
+            return {
+              assistantMessage: this.resolveDegradedAssistantMessage(event.assistantText),
+              respondedAt: event.respondedAt ?? new Date().toISOString(),
+              media: collectedMedia,
+              ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })
+            };
+          }
+          throw this.toInterruptedRuntimeError(event);
+        }
+        case "failed": {
+          collectArtifacts(event.artifacts ?? []);
+          if (collectedMedia.length > 0) {
+            return {
+              assistantMessage: DEGRADED_TOOL_OUTPUT_MESSAGE,
+              respondedAt: new Date().toISOString(),
+              media: collectedMedia,
+              ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })
+            };
+          }
+          throw this.toRuntimeFailedError(event);
+        }
+        case "completed": {
+          collectArtifacts(event.result.artifacts);
+          return {
+            assistantMessage: event.result.assistantText,
+            respondedAt: event.result.respondedAt,
+            media: collectedMedia,
+            ...(event.result.usageAccounting === undefined
+              ? {}
+              : { usageAccounting: event.result.usageAccounting }),
+            ...(event.result.deferredMediaJobs === undefined
+              ? {}
+              : { deferredMediaJobs: event.result.deferredMediaJobs }),
+            ...(event.result.autoCompaction === undefined
+              ? {}
+              : { autoCompaction: event.result.autoCompaction }),
+            ...(event.result.trace === undefined ? {} : { runtimeTrace: event.result.trace })
+          };
+        }
+      }
+    }
+
+    throw new AssistantRuntimeError(
+      "invalid_response",
+      "Native runtime Telegram stream completed without a terminal done event."
+    );
+  }
+
+  private async emitToolEvent(
+    callbacks: SendNativeTelegramTurnCallbacks | undefined,
+    payload: {
+      phase: "start" | "end";
+      toolName: string;
+      toolCallId: string;
+      isError: boolean;
+    }
+  ): Promise<void> {
+    try {
+      await callbacks?.onTool?.(payload);
+    } catch (error) {
+      this.logger.warn(
+        `[telegram-runtime-stream] ignored Telegram tool callback failure tool=${payload.toolName} phase=${payload.phase}: ${this.formatError(error)}`
+      );
     }
   }
 
@@ -573,6 +663,57 @@ export class SendNativeTelegramTurnService {
         row.executionMode === "reasoning") &&
       (row.source === "precheck" || row.source === "llm" || row.source === "fallback")
     );
+  }
+
+  private shouldReplayAcceptedTurnAfterStreamError(error: unknown): boolean {
+    if (this.isAbortError(error)) {
+      return false;
+    }
+    if (error instanceof AssistantRuntimeError) {
+      return error.code === "invalid_response";
+    }
+    if (this.readInboundErrorCode(error) !== null) {
+      return false;
+    }
+    return true;
+  }
+
+  private isReplayPendingConflict(error: unknown): boolean {
+    return this.readInboundErrorCode(error) === "native_runtime_conflict";
+  }
+
+  private readInboundErrorCode(error: unknown): string | null {
+    const row = this.asObject(error);
+    const errorObject = this.asObject(row?.errorObject);
+    const code = errorObject?.code;
+    return typeof code === "string" && code.trim().length > 0 ? code : null;
+  }
+
+  private async sleep(ms: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) {
+      throw this.createAbortError();
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(resolve, ms);
+      const onAbort = () => {
+        clearTimeout(timeout);
+        reject(this.createAbortError());
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  private createAbortError(): Error {
+    const error = new Error("Operation aborted.");
+    error.name = "AbortError";
+    return error;
+  }
+
+  private formatError(error: unknown): string {
+    if (error instanceof Error) {
+      return `${error.name}: ${error.message}`;
+    }
+    return String(error);
   }
 
   private createTimedSignal(timeoutMs: number): { signal: AbortSignal; dispose: () => void } {

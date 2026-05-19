@@ -95,10 +95,16 @@ Trust-page boundary rules:
 
 - Telegram webhook ingress remains `/telegram-webhook/*` through `apps/api`.
 - ordinary Telegram text turns still use the native request-time execution path.
+- once a Telegram text/tool turn has been accepted by runtime (`started` on the native stream), API treats a stream/bridge failure before a terminal event as ambiguous rather than terminal: it retries the same runtime stream request with the same `idempotencyKey` and waits for the persisted runtime turn receipt to replay the completed result before sending any fallback copy.
 - ADR-087 applies the same quota/advisory semantics to Telegram as to web: when an in-scope finite limit reaches the advisory threshold, backend-owned delivery may append one assistant-authored follow-up message in the same Telegram thread rather than surfacing only transport-layer fixed error copy.
 - accepted generated-media Telegram requests now complete the webhook quickly with an honest acknowledgement assistant reply plus a durable `assistant_media_jobs` enqueue instead of waiting for final provider/media completion inside the webhook lifecycle.
 - the same backend `assistant_media_jobs` scheduler and `POST /api/v1/internal/runtime/media-jobs/run` seam now execute Telegram media work too.
 - before final delivery, backend completion processing may call `POST /api/v1/internal/runtime/media-jobs/complete` with current canonical chat history to get optional fresh-history framing text; backend completion delivery still owns terminal state and actual web/Telegram delivery.
+
+### Web document-original BFF
+
+- `apps/web/app/api/assistant-document/[docId]/original/route.ts` is the authenticated same-origin BFF for optional Gamma original PPTX downloads.
+- The client must not send an `Authorization` header to this BFF because Clerk middleware can treat it as request auth instead of using the browser session cookie. The route first resolves a token with server-side `auth().getToken()` from cookies; when that is null in a long-lived-tab route-handler context, it may fall back to the PersAI-owned same-origin `X-PersAI-Session-Token` header and then forward the chosen token upstream as `Authorization: Bearer ...`.
 
 ## Knowledge boundaries
 
