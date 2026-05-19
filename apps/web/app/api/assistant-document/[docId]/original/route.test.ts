@@ -112,6 +112,26 @@ describe("assistant document original BFF route", () => {
     });
   });
 
+  it("prefers the fresh same-origin session header over a stale server cookie token", async () => {
+    authMock.mockResolvedValue({
+      getToken: vi.fn().mockResolvedValue("stale-server-token")
+    });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response("pptx-bytes", { status: 200 })) as typeof fetch;
+
+    const response = await GET(
+      requestWithSessionHeader("/api/assistant-document/doc-1/original", "fresh-client-token"),
+      params()
+    );
+
+    expect(response.status).toBe(200);
+    const [, init] = vi.mocked(global.fetch).mock.calls[0] ?? [];
+    expect((init as RequestInit | undefined)?.headers).toEqual({
+      Authorization: "Bearer fresh-client-token"
+    });
+  });
+
   it("maps an upstream 410 to the quiet standalone gone page for non-JS navigations", async () => {
     authMock.mockResolvedValue({
       getToken: vi.fn().mockResolvedValue("server-token")

@@ -18,7 +18,7 @@ export async function GET(
   { params }: { params: Promise<unknown> }
 ): Promise<Response> {
   const { getToken } = await auth();
-  const token = (await getToken()) ?? readSessionTokenHeader(request);
+  const token = readSessionTokenHeader(request) ?? (await getToken());
   if (!token) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }

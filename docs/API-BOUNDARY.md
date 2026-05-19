@@ -104,7 +104,7 @@ Trust-page boundary rules:
 ### Web document-original BFF
 
 - `apps/web/app/api/assistant-document/[docId]/original/route.ts` is the authenticated same-origin BFF for optional Gamma original PPTX downloads.
-- The client must not send an `Authorization` header to this BFF because Clerk middleware can treat it as request auth instead of using the browser session cookie. The route first resolves a token with server-side `auth().getToken()` from cookies; when that is null in a long-lived-tab route-handler context, it may fall back to the PersAI-owned same-origin `X-PersAI-Session-Token` header and then forward the chosen token upstream as `Authorization: Bearer ...`.
+- The client must not send an `Authorization` header to this BFF because Clerk middleware can treat it as request auth instead of using the browser session cookie. The route prefers the PersAI-owned same-origin `X-PersAI-Session-Token` header when present because the client obtains it with a fresh Clerk token call; otherwise it falls back to server-side `auth().getToken()` from cookies. The chosen token is forwarded upstream as `Authorization: Bearer ...`.
 
 ## Knowledge boundaries
 
