@@ -26,6 +26,35 @@ function normalizeSpacing(value: string | null | undefined): string | null {
   return typeof value === "string" ? value.replace(/\u00a0/g, " ") : null;
 }
 
+function buildPackageOfferMock(input: {
+  id: string;
+  toolCode: "image_generate" | "image_edit" | "video_generate" | "document";
+  units: number;
+  amountMinor: number;
+  currency: string;
+  displayOrder: number;
+  highlighted: boolean;
+  title: { ru: string; en: string };
+}) {
+  const amountMajor = Number((input.amountMinor / 100).toFixed(input.amountMinor % 100 === 0 ? 0 : 2));
+  const formatPrice = (locale: string) =>
+    new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: input.currency,
+      maximumFractionDigits: input.amountMinor % 100 === 0 ? 0 : 2
+    }).format(input.amountMinor / 100);
+  return {
+    ...input,
+    amountMajor,
+    subtitle: { ru: null, en: null },
+    ctaLabel: { ru: "Купить", en: "Buy" },
+    priceLabel: {
+      ru: formatPrice("ru-RU"),
+      en: formatPrice("en-US")
+    }
+  };
+}
+
 const WORKER_TOOLS_CONFIG = {
   tools: []
 } satisfies RuntimeWorkerToolsConfig;
@@ -404,7 +433,7 @@ class FakePersaiInternalApiClientService {
           preferredUpgradePlanCode: null,
           upgradePlanCodes: [],
           offers: [
-            {
+            buildPackageOfferMock({
               id: "pkg-image-1",
               toolCode: "image_generate",
               units: 10,
@@ -412,10 +441,8 @@ class FakePersaiInternalApiClientService {
               currency: "RUB",
               displayOrder: 0,
               highlighted: true,
-              title: { ru: "10 генераций", en: "10 generations" },
-              subtitle: { ru: null, en: null },
-              ctaLabel: { ru: "Купить", en: "Buy" }
-            }
+              title: { ru: "10 генераций", en: "10 generations" }
+            })
           ]
         },
         {
@@ -428,7 +455,7 @@ class FakePersaiInternalApiClientService {
           preferredUpgradePlanCode: null,
           upgradePlanCodes: [],
           offers: [
-            {
+            buildPackageOfferMock({
               id: "pkg-edit-1",
               toolCode: "image_edit",
               units: 10,
@@ -436,10 +463,8 @@ class FakePersaiInternalApiClientService {
               currency: "RUB",
               displayOrder: 0,
               highlighted: false,
-              title: { ru: "10 правок", en: "10 edits" },
-              subtitle: { ru: null, en: null },
-              ctaLabel: { ru: "Купить", en: "Buy" }
-            }
+              title: { ru: "10 правок", en: "10 edits" }
+            })
           ]
         },
         {
@@ -463,7 +488,7 @@ class FakePersaiInternalApiClientService {
           preferredUpgradePlanCode: null,
           upgradePlanCodes: [],
           offers: [
-            {
+            buildPackageOfferMock({
               id: "pkg-document-1",
               toolCode: "document",
               units: 5,
@@ -471,10 +496,8 @@ class FakePersaiInternalApiClientService {
               currency: "RUB",
               displayOrder: 1,
               highlighted: false,
-              title: { ru: "5 документов", en: "5 documents" },
-              subtitle: { ru: null, en: null },
-              ctaLabel: { ru: "Купить", en: "Buy" }
-            }
+              title: { ru: "5 документов", en: "5 documents" }
+            })
           ]
         }
       ]
