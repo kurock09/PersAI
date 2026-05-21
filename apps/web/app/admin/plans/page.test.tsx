@@ -1,7 +1,15 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AdminPlanState } from "@persai/contracts";
-import { ToolActivationsEdit, draftToPayload, planToDraft, validatePlanDraft } from "./page";
+import {
+  ToolActivationsEdit,
+  draftToPayload,
+  isCreateFormDirty,
+  isPlanDraftDirty,
+  normalizePlanDraftForCompare,
+  planToDraft,
+  validatePlanDraft
+} from "./page";
 
 function createPlanState(): AdminPlanState {
   return {
@@ -393,5 +401,29 @@ describe("admin plans page helpers", () => {
     const fallbackSelects = screen.getAllByDisplayValue("sora-2");
     fireEvent.change(fallbackSelects.at(-1)!, { target: { value: "" } });
     expect(onVideoGenerateFallbackModelKeyChange).toHaveBeenCalledWith("");
+  });
+});
+
+describe("plan draft dirty detection", () => {
+  it("detects draft field changes and ignores tool activation order", () => {
+    const baseline = planToDraft(createPlanState());
+    const snapshot = normalizePlanDraftForCompare(baseline);
+    expect(isPlanDraftDirty(snapshot, baseline)).toBe(false);
+
+    const changed = { ...baseline, displayName: "Pro Plus" };
+    expect(isPlanDraftDirty(snapshot, changed)).toBe(true);
+
+    const reorderedTools = {
+      ...baseline,
+      toolActivations: [...baseline.toolActivations].reverse()
+    };
+    expect(isPlanDraftDirty(snapshot, reorderedTools)).toBe(false);
+  });
+
+  it("detects create form code changes separately from draft body", () => {
+    const draft = planToDraft(createPlanState());
+    const baseline = { draft: normalizePlanDraftForCompare(draft), code: "" };
+    expect(isCreateFormDirty(baseline, draft, "")).toBe(false);
+    expect(isCreateFormDirty(baseline, draft, "pro_plus")).toBe(true);
   });
 });

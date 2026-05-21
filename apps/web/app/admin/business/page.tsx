@@ -25,26 +25,28 @@ import { cn } from "@/app/lib/utils";
 function Fold({
   t,
   open: init = false,
+  stretch = false,
   children
 }: {
   t: string;
   open?: boolean;
+  stretch?: boolean;
   children: React.ReactNode;
 }) {
   const [o, setO] = useState(init);
   return (
-    <section>
+    <section className={cn(stretch && "flex h-full flex-col")}>
       <button
         type="button"
         onClick={() => setO((v) => !v)}
-        className="flex w-full cursor-pointer items-center gap-1.5 py-0.5"
+        className="flex w-full shrink-0 cursor-pointer items-center gap-1.5 py-0.5"
       >
         <ChevronDown
           className={cn("h-3 w-3 text-text-subtle transition-transform", !o && "-rotate-90")}
         />
         <span className="text-[9px] font-bold uppercase tracking-widest text-text-muted">{t}</span>
       </button>
-      {o && <div className="mt-1">{children}</div>}
+      {o && <div className={cn("mt-1", stretch && "flex flex-1 flex-col")}>{children}</div>}
     </section>
   );
 }
@@ -55,6 +57,20 @@ const CH_LABELS: Record<string, string> = {
   whatsapp: "WhatsApp",
   max: "Max"
 };
+
+function formatPaidMinor(totalMinor: number, currency: string): string {
+  const amount = totalMinor / 100;
+  try {
+    return new Intl.NumberFormat("ru-RU", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`;
+  }
+}
 
 function formatCurrencyMicros(totalCostMicros: number, currency: string): string {
   const amount = totalCostMicros / 1_000_000;
@@ -241,10 +257,9 @@ export default function AdminBusinessPage() {
           </Fold>
 
           {/* Quota pressure + Channels side by side */}
-          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-            {/* Quota Pressure */}
-            <Fold t="Workspace Token Pressure" open>
-              <div className="grid grid-cols-3 gap-1">
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 sm:items-stretch">
+            <Fold t="Workspace Token Pressure" open stretch>
+              <div className="grid h-full flex-1 grid-cols-3 gap-1.5">
                 {(
                   [
                     { k: "low", c: "text-success border-success/20 bg-success/5" },
@@ -252,20 +267,25 @@ export default function AdminBusinessPage() {
                     { k: "high", c: "text-destructive border-destructive/20 bg-destructive/5" }
                   ] as const
                 ).map(({ k, c }) => (
-                  <div key={k} className={cn("rounded border px-2 py-1.5 text-center", c)}>
+                  <div
+                    key={k}
+                    className={cn(
+                      "flex min-h-[5.5rem] flex-col items-center justify-center rounded border px-2 py-2 text-center sm:min-h-0 sm:h-full",
+                      c
+                    )}
+                  >
                     <p className="text-[9px] font-bold uppercase">{k}</p>
-                    <p className="text-xl font-bold tabular-nums">
+                    <p className="mt-1 text-xl font-bold tabular-nums">
                       {p.quotaPressureDistribution[k]}
                     </p>
-                    <p className="text-[8px] text-text-subtle">workspaces</p>
+                    <p className="mt-0.5 text-[8px] text-text-subtle">workspaces</p>
                   </div>
                 ))}
               </div>
             </Fold>
 
-            {/* Channel Adoption */}
-            <Fold t="Channel Adoption · Global" open>
-              <div className="divide-y divide-border/30 rounded border border-border/40 bg-surface">
+            <Fold t="Channel Adoption · Global" open stretch>
+              <div className="flex h-full flex-1 flex-col divide-y divide-border/30 rounded border border-border/40 bg-surface">
                 {(["webChat", "telegram", "whatsapp", "max"] as const).map((k) => {
                   const v = p.channelAdoption[k];
                   const pct =
@@ -275,7 +295,7 @@ export default function AdminBusinessPage() {
                   return (
                     <div
                       key={k}
-                      className="flex items-center justify-between px-2.5 py-1 text-[11px]"
+                      className="flex flex-1 items-center justify-between px-2.5 py-1.5 text-[11px]"
                     >
                       <span className="font-medium text-text">{CH_LABELS[k] ?? k}</span>
                       <span className="tabular-nums">
@@ -289,19 +309,25 @@ export default function AdminBusinessPage() {
             </Fold>
           </div>
 
-          <Fold t="Ledger-backed Model Cost · Global · 7 days" open>
+          <Fold t="Ledger-backed Model Cost · Global · all time" open>
             <div className="space-y-1.5">
+              <p className="text-[10px] text-text-muted">
+                Cumulative since platform start · {p.ledgerBackedModelCost.totalEvents} ledger
+                events ({p.ledgerBackedModelCost.periodSource.replaceAll("_", " ")})
+              </p>
               <p className="rounded border border-accent/20 bg-accent/5 px-2.5 py-1.5 text-[10px] leading-relaxed text-text-muted">
                 {p.ledgerBackedModelCost.coverageNote}
               </p>
 
-              {p.ledgerBackedModelCost.currencyTotals.length === 0 ? (
+              {p.ledgerBackedModelCost.currencyTotals.length === 0 &&
+              p.platformPaymentRevenueAllTime.rubTotalMinor === 0 &&
+              p.platformPaymentRevenueAllTime.usdTotalMinor === 0 ? (
                 <p className="rounded border border-border/40 bg-surface px-2.5 py-2 text-[11px] text-text-muted">
-                  No ledger-backed cost rows were recorded in the last 7 days.
+                  No ledger-backed cost rows or succeeded payments recorded yet.
                 </p>
               ) : (
                 <>
-                  <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
                     {p.ledgerBackedModelCost.currencyTotals.map((entry) => (
                       <div
                         key={entry.currency}
@@ -314,32 +340,58 @@ export default function AdminBusinessPage() {
                           {formatCurrencyMicros(entry.totalCostMicros, entry.currency)}
                         </p>
                         <p className="text-[10px] leading-tight text-text-muted">
-                          {entry.eventCount} ledger events
+                          {entry.eventCount} ledger events · all time
                         </p>
                       </div>
                     ))}
-                    <div className="rounded border border-border/40 bg-surface px-2.5 py-2">
+                    <div className="rounded border border-emerald-500/25 bg-emerald-500/5 px-2.5 py-2">
                       <p className="text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
-                        Tracked Workspaces
+                        Payments · RUB
                       </p>
                       <p className="mt-0.5 text-lg font-bold tabular-nums text-text">
-                        {p.ledgerBackedModelCost.trackedWorkspaces}
+                        {formatPaidMinor(p.platformPaymentRevenueAllTime.rubTotalMinor, "RUB")}
                       </p>
                       <p className="text-[10px] leading-tight text-text-muted">
-                        with ledger-backed cost
+                        {p.platformPaymentRevenueAllTime.rubSucceededPayments} succeeded
+                        {p.platformPaymentRevenueAllTime.rubSucceededPayments === 1
+                          ? " payment"
+                          : " payments"}
+                        {" · all time"}
                       </p>
+                      {p.platformPaymentRevenueAllTime.usdTotalMinor > 0 ? (
+                        <p className="mt-1 border-t border-border/30 pt-1 text-[10px] tabular-nums text-text-muted">
+                          International ·{" "}
+                          {formatPaidMinor(p.platformPaymentRevenueAllTime.usdTotalMinor, "USD")} (
+                          {p.platformPaymentRevenueAllTime.usdSucceededPayments})
+                        </p>
+                      ) : null}
                     </div>
-                    <div className="rounded border border-border/40 bg-surface px-2.5 py-2">
-                      <p className="text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
-                        Tracked Users
-                      </p>
-                      <p className="mt-0.5 text-lg font-bold tabular-nums text-text">
-                        {p.ledgerBackedModelCost.trackedUsers}
-                      </p>
-                      <p className="text-[10px] leading-tight text-text-muted">
-                        across {p.ledgerBackedModelCost.totalEvents} events
-                      </p>
-                    </div>
+                    {p.ledgerBackedModelCost.totalEvents > 0 ? (
+                      <>
+                        <div className="rounded border border-border/40 bg-surface px-2.5 py-2">
+                          <p className="text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
+                            Tracked Workspaces
+                          </p>
+                          <p className="mt-0.5 text-lg font-bold tabular-nums text-text">
+                            {p.ledgerBackedModelCost.trackedWorkspaces}
+                          </p>
+                          <p className="text-[10px] leading-tight text-text-muted">
+                            with ledger-backed cost
+                          </p>
+                        </div>
+                        <div className="rounded border border-border/40 bg-surface px-2.5 py-2">
+                          <p className="text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
+                            Tracked Users
+                          </p>
+                          <p className="mt-0.5 text-lg font-bold tabular-nums text-text">
+                            {p.ledgerBackedModelCost.trackedUsers}
+                          </p>
+                          <p className="text-[10px] leading-tight text-text-muted">
+                            across {p.ledgerBackedModelCost.totalEvents} events
+                          </p>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
 
                   {p.ledgerBackedModelCost.hasMultipleCurrencies && (

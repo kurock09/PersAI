@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   AlertCircle,
@@ -597,6 +597,33 @@ function describeContextPolicySummaryBudget(policy: AdminPlanState["contextPolic
   return policy.sharedCompactionSummaryBudgetTokens === undefined
     ? `auto (${String(derived)})`
     : String(policy.sharedCompactionSummaryBudgetTokens);
+}
+
+const DISCARD_UNSAVED_MESSAGE = "Discard unsaved changes? Your edits will be lost.";
+
+function confirmDiscardUnsavedChanges(): boolean {
+  return window.confirm(DISCARD_UNSAVED_MESSAGE);
+}
+
+export function normalizePlanDraftForCompare(draft: PlanDraft): string {
+  return JSON.stringify({
+    ...draft,
+    toolActivations: [...draft.toolActivations].sort((left, right) =>
+      left.toolCode.localeCompare(right.toolCode)
+    )
+  });
+}
+
+export function isPlanDraftDirty(baselineSnapshot: string, draft: PlanDraft): boolean {
+  return baselineSnapshot !== normalizePlanDraftForCompare(draft);
+}
+
+export function isCreateFormDirty(
+  baseline: { draft: string; code: string },
+  draft: PlanDraft,
+  code: string
+): boolean {
+  return baseline.draft !== normalizePlanDraftForCompare(draft) || baseline.code !== code.trim();
 }
 
 function isDraftTrialFieldsInvalid(
@@ -1552,23 +1579,78 @@ function FieldRow({ label, tip, children }: { label: string; tip: string; childr
 
 /* ─── Tool activations (read-only inline) ─── */
 
-function ToolActivationsInline({ activations }: { activations: AdminPlanToolActivation[] }) {
-  const visibleActivations = activations.filter((ta) => ta.policyClass !== "hidden_internal");
-  if (visibleActivations.length === 0) {
-    return <span className="text-[10px] text-text-subtle italic">none configured</span>;
+function countVisibleTools(activations: AdminPlanToolActivation[]): {
+  active: number;
+  total: number;
+} {
+  const visible = activations.filter((ta) => ta.policyClass !== "hidden_internal");
+  return {
+    active: visible.filter((ta) => ta.active).length,
+    total: visible.length
+  };
+}
+
+function formatStorageLimit(bytes: number | null | undefined): string {
+  if (bytes == null) {
+    return "default";
   }
+  return `${String(Math.round(bytes / 1048576))} MB`;
+}
+
+function formatMonthlyQuotaLimit(value: number | null | undefined): string {
+  if (value == null) {
+    return "default";
+  }
+  return `${String(value)}/mo`;
+}
+
+type MonthlyMediaQuotaRow = { label: string; value: string };
+
+function buildMonthlyMediaQuotaRows(plan: AdminPlanState): MonthlyMediaQuotaRow[] {
+  const limits = plan.quotaLimits;
+  return [
+    {
+      label: "Image generate",
+      value: formatMonthlyQuotaLimit(limits?.imageGenerateMonthlyUnitsLimit)
+    },
+    { label: "Image edit", value: formatMonthlyQuotaLimit(limits?.imageEditMonthlyUnitsLimit) },
+    {
+      label: "Video generate",
+      value: formatMonthlyQuotaLimit(limits?.videoGenerateMonthlyUnitsLimit)
+    },
+    {
+      label: "Document generate",
+      value: formatMonthlyQuotaLimit(limits?.documentMonthlyUnitsLimit)
+    }
+  ];
+}
+
+function formatMonthlyMediaCollapsedSummary(plan: AdminPlanState): string {
+  const rows = buildMonthlyMediaQuotaRows(plan);
+  const configured = rows.filter((row) => row.value !== "default");
+  if (configured.length === 0) {
+    return "all default";
+  }
+  return configured
+    .map((row) => {
+      const short =
+        row.label === "Image generate"
+          ? "Img gen"
+          : row.label === "Image edit"
+            ? "Img edit"
+            : row.label === "Video generate"
+              ? "Video"
+              : "Doc";
+      return `${short} ${row.value.replace("/mo", "")}`;
+    })
+    .join(" · ");
+}
+
+function SummaryStat({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-      {visibleActivations.map((ta) => (
-        <span key={ta.toolCode} className="text-[10px]">
-          <span className={ta.active ? "text-emerald-400" : "text-text-muted line-through"}>
-            {ta.displayName}
-          </span>
-          {ta.dailyCallLimit !== null && !MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) && (
-            <span className="ml-0.5 text-text-subtle">({ta.dailyCallLimit}/d)</span>
-          )}
-        </span>
-      ))}
+    <div className="min-w-[7rem] flex-1 rounded border border-border/70 bg-surface px-2 py-1.5">
+      <div className="text-[9px] font-bold uppercase tracking-wider text-text-subtle">{label}</div>
+      <div className="mt-0.5 text-[11px] leading-snug text-text">{value}</div>
     </div>
   );
 }
@@ -1646,7 +1728,7 @@ export function ToolActivationsEdit({
     "w-full appearance-none rounded border border-border bg-surface px-2 py-1 pr-7 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50";
 
   return (
-    <div className="grid gap-2 md:grid-cols-2">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {activations.map((ta, idx) => {
         const description = TOOL_CARD_DESCRIPTION[ta.toolCode];
         const defaultCap = TOOL_PER_TURN_CAP_DEFAULT[ta.toolCode];
@@ -1656,148 +1738,149 @@ export function ToolActivationsEdit({
         return (
           <div
             key={ta.toolCode}
-            className="rounded-md border border-border/80 bg-surface-raised px-3 py-2.5"
+            className={cn(
+              "flex flex-col gap-2.5 rounded-lg border bg-surface-raised px-3 py-2.5",
+              ta.active ? "border-border" : "border-border/60 opacity-80"
+            )}
           >
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(170px,200px)]">
-              {/* LEFT: enable + title + description + pills */}
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={ta.active}
-                    onChange={() => toggle(idx)}
-                    aria-label={`${ta.displayName} enabled`}
-                    className="h-3.5 w-3.5 shrink-0 rounded border-border bg-surface text-accent focus:ring-1 focus:ring-accent/50"
-                  />
-                  <span className="truncate text-[12px] font-semibold text-text">
-                    {ta.displayName}
-                  </span>
-                  <span className="truncate font-mono text-[10px] text-text-subtle">
-                    {ta.toolCode}
-                  </span>
-                </div>
-                {description ? (
-                  <p className="mt-1 text-[10.5px] leading-snug text-text-subtle">{description}</p>
-                ) : null}
-                <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                  <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
-                    {ta.toolClass === "cost_driving" ? "cost" : "util"}
-                  </Pill>
-                  <Pill variant="dim">{getPolicyClassLabel(ta.policyClass)}</Pill>
+            <div className="min-w-0 border-b border-border/50 pb-2">
+              <div className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={ta.active}
+                  onChange={() => toggle(idx)}
+                  aria-label={`${ta.displayName} enabled`}
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-border bg-surface text-accent focus:ring-1 focus:ring-accent/50"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <span className="text-[12px] font-semibold text-text">{ta.displayName}</span>
+                    <span className="font-mono text-[10px] text-text-subtle">{ta.toolCode}</span>
+                  </div>
+                  {description ? (
+                    <p className="mt-1 text-[10.5px] leading-snug text-text-subtle">
+                      {description}
+                    </p>
+                  ) : null}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                    <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
+                      {ta.toolClass === "cost_driving" ? "cost" : "util"}
+                    </Pill>
+                    <Pill variant="dim">{getPolicyClassLabel(ta.policyClass)}</Pill>
+                  </div>
                 </div>
               </div>
+            </div>
 
-              {/* RIGHT: stacked fields, each on its own row with `?` tooltip */}
-              <div className="grid gap-1.5">
-                {ta.toolCode === "image_generate" ? (
-                  <>
-                    <FieldRow
-                      label="Primary model"
-                      tip="Default provider model used for image generation. Empty = provider default."
-                    >
-                      <ModelOptionSelect
-                        value={imageGenerateModelKey}
-                        onChange={onImageGenerateModelKeyChange}
-                        options={availableImageModelKeys}
-                        placeholder="default (provider)"
-                        className={modelSelectClasses}
-                      />
-                    </FieldRow>
-                    <FieldRow
-                      label="Fallback model"
-                      tip="Optional fallback for capability-specific cases like transparent background. Empty = skip instead of hard provider failure."
-                    >
-                      <ModelOptionSelect
-                        value={imageGenerateFallbackModelKey}
-                        onChange={onImageGenerateFallbackModelKeyChange}
-                        options={availableImageModelKeys}
-                        placeholder="none"
-                        className={modelSelectClasses}
-                      />
-                    </FieldRow>
-                  </>
-                ) : null}
-                {ta.toolCode === "image_edit" ? (
-                  <>
-                    <FieldRow
-                      label="Primary model"
-                      tip="Default provider model used for image edits. Empty = provider default."
-                    >
-                      <ModelOptionSelect
-                        value={imageEditModelKey}
-                        onChange={onImageEditModelKeyChange}
-                        options={availableImageModelKeys}
-                        placeholder="default (provider)"
-                        className={modelSelectClasses}
-                      />
-                    </FieldRow>
-                    <FieldRow
-                      label="Fallback model"
-                      tip="Optional fallback for capability-specific cases like transparent background. Empty = skip instead of hard provider failure."
-                    >
-                      <ModelOptionSelect
-                        value={imageEditFallbackModelKey}
-                        onChange={onImageEditFallbackModelKeyChange}
-                        options={availableImageModelKeys}
-                        placeholder="none"
-                        className={modelSelectClasses}
-                      />
-                    </FieldRow>
-                  </>
-                ) : null}
-                {ta.toolCode === "video_generate" ? (
-                  <>
-                    <FieldRow label="Primary model" tip={TOOL_FIELD_HELP.videoModel}>
-                      <ModelOptionSelect
-                        value={videoGenerateModelKey}
-                        onChange={onVideoGenerateModelKeyChange}
-                        options={availableVideoModelKeys}
-                        placeholder="default (provider)"
-                        className={modelSelectClasses}
-                      />
-                    </FieldRow>
-                    <FieldRow
-                      label="Fallback model"
-                      tip="Optional backup model for future capability gating or provider restrictions."
-                    >
-                      <ModelOptionSelect
-                        value={videoGenerateFallbackModelKey}
-                        onChange={onVideoGenerateFallbackModelKeyChange}
-                        options={availableVideoModelKeys}
-                        placeholder="none"
-                        className={modelSelectClasses}
-                      />
-                    </FieldRow>
-                  </>
-                ) : null}
-                {MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) ? (
-                  <p className="rounded border border-border/70 bg-bg/60 px-2 py-1 text-[10px] text-text-subtle">
-                    Paid media usage is governed by the monthly delivery-confirmed quotas in Plan
-                    limits. The per-turn cap here remains a safety control.
-                  </p>
-                ) : (
-                  <FieldRow label="Daily cap" tip={TOOL_FIELD_HELP.dailyCap}>
-                    <input
-                      type="number"
-                      min={0}
-                      value={ta.dailyCallLimit ?? ""}
-                      onChange={(e) => setLimit(idx, e.target.value)}
-                      placeholder="unlimited"
-                      className={numericInputClasses}
+            <div className="grid gap-2 sm:grid-cols-2">
+              {ta.toolCode === "image_generate" ? (
+                <>
+                  <FieldRow
+                    label="Primary model"
+                    tip="Default provider model used for image generation. Empty = provider default."
+                  >
+                    <ModelOptionSelect
+                      value={imageGenerateModelKey}
+                      onChange={onImageGenerateModelKeyChange}
+                      options={availableImageModelKeys}
+                      placeholder="default (provider)"
+                      className={modelSelectClasses}
                     />
                   </FieldRow>
-                )}
-                <FieldRow label="Per-turn cap" tip={TOOL_FIELD_HELP.perTurnCap}>
+                  <FieldRow
+                    label="Fallback model"
+                    tip="Optional fallback for capability-specific cases like transparent background. Empty = skip instead of hard provider failure."
+                  >
+                    <ModelOptionSelect
+                      value={imageGenerateFallbackModelKey}
+                      onChange={onImageGenerateFallbackModelKeyChange}
+                      options={availableImageModelKeys}
+                      placeholder="none"
+                      className={modelSelectClasses}
+                    />
+                  </FieldRow>
+                </>
+              ) : null}
+              {ta.toolCode === "image_edit" ? (
+                <>
+                  <FieldRow
+                    label="Primary model"
+                    tip="Default provider model used for image edits. Empty = provider default."
+                  >
+                    <ModelOptionSelect
+                      value={imageEditModelKey}
+                      onChange={onImageEditModelKeyChange}
+                      options={availableImageModelKeys}
+                      placeholder="default (provider)"
+                      className={modelSelectClasses}
+                    />
+                  </FieldRow>
+                  <FieldRow
+                    label="Fallback model"
+                    tip="Optional fallback for capability-specific cases like transparent background. Empty = skip instead of hard provider failure."
+                  >
+                    <ModelOptionSelect
+                      value={imageEditFallbackModelKey}
+                      onChange={onImageEditFallbackModelKeyChange}
+                      options={availableImageModelKeys}
+                      placeholder="none"
+                      className={modelSelectClasses}
+                    />
+                  </FieldRow>
+                </>
+              ) : null}
+              {ta.toolCode === "video_generate" ? (
+                <>
+                  <FieldRow label="Primary model" tip={TOOL_FIELD_HELP.videoModel}>
+                    <ModelOptionSelect
+                      value={videoGenerateModelKey}
+                      onChange={onVideoGenerateModelKeyChange}
+                      options={availableVideoModelKeys}
+                      placeholder="default (provider)"
+                      className={modelSelectClasses}
+                    />
+                  </FieldRow>
+                  <FieldRow
+                    label="Fallback model"
+                    tip="Optional backup model for future capability gating or provider restrictions."
+                  >
+                    <ModelOptionSelect
+                      value={videoGenerateFallbackModelKey}
+                      onChange={onVideoGenerateFallbackModelKeyChange}
+                      options={availableVideoModelKeys}
+                      placeholder="none"
+                      className={modelSelectClasses}
+                    />
+                  </FieldRow>
+                </>
+              ) : null}
+              {MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) ? (
+                <p className="rounded border border-border/70 bg-bg/60 px-2 py-1 text-[10px] text-text-subtle">
+                  Paid media usage is governed by the monthly delivery-confirmed quotas in Plan
+                  limits. The per-turn cap here remains a safety control.
+                </p>
+              ) : (
+                <FieldRow label="Daily cap" tip={TOOL_FIELD_HELP.dailyCap}>
                   <input
                     type="number"
-                    min={1}
-                    value={ta.perTurnCap ?? ""}
-                    onChange={(e) => setPerTurnCap(idx, e.target.value)}
-                    placeholder={perTurnPlaceholder}
+                    min={0}
+                    value={ta.dailyCallLimit ?? ""}
+                    onChange={(e) => setLimit(idx, e.target.value)}
+                    placeholder="unlimited"
                     className={numericInputClasses}
                   />
                 </FieldRow>
-              </div>
+              )}
+              <FieldRow label="Per-turn cap" tip={TOOL_FIELD_HELP.perTurnCap}>
+                <input
+                  type="number"
+                  min={1}
+                  value={ta.perTurnCap ?? ""}
+                  onChange={(e) => setPerTurnCap(idx, e.target.value)}
+                  placeholder={perTurnPlaceholder}
+                  className={numericInputClasses}
+                />
+              </FieldRow>
             </div>
           </div>
         );
@@ -1843,38 +1926,114 @@ function ToolActivationReadOnlyGroup({
   title,
   emptyLabel,
   activations,
-  showLimits = true
+  showLimits = true,
+  defaultActiveOnly = false
 }: {
   title: string;
   emptyLabel: string;
   activations: AdminPlanToolActivation[];
   showLimits?: boolean;
+  defaultActiveOnly?: boolean;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const activeActivations = activations.filter((ta) => ta.active);
+  const inactiveCount = activations.length - activeActivations.length;
+  const visibleActivations = defaultActiveOnly && !showAll ? activeActivations : activations;
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-border/60 bg-surface/40 px-2.5 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[9px] font-bold uppercase tracking-wider text-text-subtle">
+          {title}
+          <span className="ml-1.5 font-normal normal-case text-text-muted">
+            {activeActivations.length}/{activations.length} active
+          </span>
+        </span>
+        {defaultActiveOnly && inactiveCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowAll((current) => !current)}
+            className="rounded border border-border/80 bg-surface px-2 py-0.5 text-[10px] text-text-muted transition-colors hover:border-accent/40 hover:text-text"
+          >
+            {showAll ? "Active only" : `Show inactive (+${String(inactiveCount)})`}
+          </button>
+        ) : null}
+      </div>
+      {activations.length === 0 ? (
+        <span className="text-[10px] text-text-subtle italic">{emptyLabel}</span>
+      ) : visibleActivations.length === 0 ? (
+        <span className="text-[10px] text-text-subtle italic">No active tools in this group.</span>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {visibleActivations.map((ta) => (
+            <span
+              key={ta.toolCode}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px]",
+                ta.active
+                  ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300"
+                  : "border-border/60 bg-surface text-text-muted line-through"
+              )}
+            >
+              <span className="font-medium">{ta.displayName}</span>
+              {showLimits &&
+              ta.dailyCallLimit !== null &&
+              !MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) ? (
+                <span className="text-text-subtle">{ta.dailyCallLimit}/d</span>
+              ) : null}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlanEditorStickyActions({
+  saving,
+  submitLabel,
+  onCancel,
+  dirty,
+  submitDisabled,
+  validationHint
+}: {
+  saving: boolean;
+  submitLabel: string;
+  onCancel: () => void;
+  dirty: boolean;
+  submitDisabled: boolean;
+  validationHint?: ReactNode;
 }) {
   return (
-    <div className="space-y-1">
-      <Sec label={title}>
-        {activations.length === 0 ? (
-          <span className="text-[10px] text-text-subtle italic">{emptyLabel}</span>
-        ) : (
-          <div className="flex flex-wrap gap-x-3 gap-y-1">
-            {activations.map((ta) => (
-              <span key={ta.toolCode} className="text-[10px]">
-                <span className={ta.active ? "text-emerald-400" : "text-text-muted line-through"}>
-                  {ta.displayName}
-                </span>
-                <span className="ml-1 text-text-subtle">
-                  ({getPolicyClassLabel(ta.policyClass)})
-                </span>
-                {showLimits &&
-                ta.dailyCallLimit !== null &&
-                !MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) ? (
-                  <span className="ml-0.5 text-text-subtle">({ta.dailyCallLimit}/d)</span>
-                ) : null}
-              </span>
-            ))}
-          </div>
-        )}
-      </Sec>
+    <div className="sticky bottom-0 z-10 -mx-3 mt-4 border-t border-border/80 bg-surface-raised/95 px-3 py-2.5 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.45)] backdrop-blur-md supports-[backdrop-filter]:bg-surface-raised/80">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="submit"
+            disabled={submitDisabled}
+            className="rounded bg-accent px-3 py-1.5 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
+          >
+            {saving ? <Loader2 className="inline h-3 w-3 animate-spin" /> : submitLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="rounded border border-border px-3 py-1.5 text-[11px] text-text-muted hover:bg-surface-hover hover:text-text disabled:opacity-40"
+          >
+            Cancel
+          </button>
+          {dirty ? (
+            <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-hidden />
+              Unsaved changes
+            </span>
+          ) : null}
+        </div>
+        {validationHint ? (
+          <div className="text-[10px] font-medium text-red-500/80 sm:ml-auto">{validationHint}</div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1913,9 +2072,16 @@ function PlanForm({
   return (
     <div className="space-y-2.5">
       {/* row 1: code + name + description */}
-      <div className={cn("grid gap-2", showCode ? "grid-cols-[120px_1fr_1fr]" : "grid-cols-2")}>
+      <div
+        className={cn(
+          "grid gap-2",
+          showCode
+            ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)]"
+            : "grid-cols-1 sm:grid-cols-2"
+        )}
+      >
         {showCode && (
-          <div>
+          <div className="sm:col-span-2 lg:col-span-1">
             <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">
               Code
             </label>
@@ -1928,7 +2094,7 @@ function PlanForm({
           </label>
           <Input value={draft.displayName} onValue={(v) => onPatch({ displayName: v })} />
         </div>
-        <div>
+        <div className={showCode ? "sm:col-span-2 lg:col-span-1" : undefined}>
           <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">
             Description
           </label>
@@ -3272,103 +3438,123 @@ function PlanCardReadOnly({
     e.channelsAndSurfaces.max && "Max"
   ].filter(Boolean);
 
-  const toolClasses = [
-    e.toolClasses.costDrivingTools && "Cost",
-    e.toolClasses.utilityTools && "Util",
-    e.toolClasses.costDrivingQuotaGoverned && "CostQ",
-    e.toolClasses.utilityQuotaGoverned && "UtilQ"
-  ].filter(Boolean);
+  const visibleTools = [...planManaged, ...platformManaged];
+  const toolCounts = countVisibleTools(visibleTools);
+  const toolClassSummary = [
+    e.toolClasses.costDrivingTools && "cost",
+    e.toolClasses.utilityTools && "util",
+    e.toolClasses.costDrivingQuotaGoverned && "costQ",
+    e.toolClasses.utilityQuotaGoverned && "utilQ"
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const monthlyMediaRows = buildMonthlyMediaQuotaRows(plan);
+  const cardPrice =
+    plan.presentation.price.amount !== null && plan.presentation.price.currency
+      ? `${plan.presentation.price.amount} ${plan.presentation.price.currency}${
+          plan.presentation.price.billingPeriod ? ` / ${plan.presentation.price.billingPeriod}` : ""
+        }`
+      : null;
 
   return (
     <div className="rounded-lg border border-border bg-surface-raised">
-      {/* header line */}
-      <div className="flex items-center gap-2 px-3 py-2">
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          className="text-text-muted hover:text-text"
-        >
-          {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
-          )}
-        </button>
-        <span className="text-xs font-semibold text-text">{plan.displayName}</span>
-        <span className="font-mono text-[10px] text-text-muted">{plan.code}</span>
-        <Pill variant={plan.status === "active" ? "default" : "dim"}>{plan.status}</Pill>
-        {plan.defaultOnRegistration && <Pill variant="green">default</Pill>}
-        {plan.trialEnabled && <Pill variant="amber">trial {plan.trialDurationDays}d</Pill>}
-        {plan.trialEnabled && plan.lifecyclePolicy.trialFallbackPlanCode && (
-          <Pill variant="dim">fallback {plan.lifecyclePolicy.trialFallbackPlanCode}</Pill>
-        )}
-        {plan.lifecyclePolicy.paidFallbackPlanCode && (
-          <Pill variant="dim">paid fallback {plan.lifecyclePolicy.paidFallbackPlanCode}</Pill>
-        )}
-        <span className="flex-1" />
-        <span className="text-[10px] text-text-subtle">
-          {new Date(plan.updatedAt).toLocaleDateString()}
-        </span>
-        <button
-          type="button"
-          onClick={onEdit}
-          disabled={disabled}
-          className="ml-1 inline-flex items-center gap-0.5 rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text-muted hover:bg-surface-hover hover:text-text disabled:opacity-40"
-        >
-          <Pencil className="h-2.5 w-2.5" /> Edit
-        </button>
-        {onDelete ? (
+      <div className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={onDelete}
-            disabled={disabled || deleting}
-            className="ml-1 inline-flex items-center gap-0.5 rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300 hover:bg-red-500/15 disabled:opacity-40"
+            onClick={() => setExpanded(!expanded)}
+            className="shrink-0 text-text-muted hover:text-text"
+            aria-expanded={expanded}
+            aria-label={expanded ? "Collapse plan details" : "Expand plan details"}
           >
-            {deleting ? (
-              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
             ) : (
-              <Trash2 className="h-2.5 w-2.5" />
+              <ChevronRight className="h-3.5 w-3.5" />
             )}
-            Delete
           </button>
-        ) : null}
+          <span className="text-xs font-semibold text-text">{plan.displayName}</span>
+          <span className="font-mono text-[10px] text-text-muted">{plan.code}</span>
+          <Pill variant={plan.status === "active" ? "default" : "dim"}>{plan.status}</Pill>
+          {plan.defaultOnRegistration && <Pill variant="green">default</Pill>}
+          {plan.trialEnabled && <Pill variant="amber">trial {plan.trialDurationDays}d</Pill>}
+          {plan.trialEnabled && plan.lifecyclePolicy.trialFallbackPlanCode && (
+            <Pill variant="dim">fallback {plan.lifecyclePolicy.trialFallbackPlanCode}</Pill>
+          )}
+          {plan.lifecyclePolicy.paidFallbackPlanCode && (
+            <Pill variant="dim">paid fallback {plan.lifecyclePolicy.paidFallbackPlanCode}</Pill>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
+          <span className="text-[10px] text-text-subtle">
+            {new Date(plan.updatedAt).toLocaleDateString()}
+          </span>
+          <button
+            type="button"
+            onClick={onEdit}
+            disabled={disabled}
+            className="inline-flex items-center gap-0.5 rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-text-muted hover:bg-surface-hover hover:text-text disabled:opacity-40"
+          >
+            <Pencil className="h-2.5 w-2.5" /> Edit
+          </button>
+          {onDelete ? (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={disabled || deleting}
+              className="inline-flex items-center gap-0.5 rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300 hover:bg-red-500/15 disabled:opacity-40"
+            >
+              {deleting ? (
+                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-2.5 w-2.5" />
+              )}
+              Delete
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      {/* collapsed summary line */}
       {!expanded && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-t border-border/50 px-3 py-1.5 text-[10px]">
-          <KV label="Pricing">
-            {plan.presentation.showOnPricingPage
-              ? `#${String(plan.presentation.displayOrder)}`
-              : "hidden"}
-          </KV>
-          <KV label="Channels">{channels.join(", ")}</KV>
-          <KV label="Tools">{toolClasses.join(", ")}</KV>
-          <KV label="Skills">{plan.skillPolicy?.maxEnabledSkills ?? "unlimited"}</KV>
-          <KV label="Context">{plan.contextPolicy.preset}</KV>
-          <span className="text-text-subtle">|</span>
-          <ToolActivationsInline activations={[...planManaged, ...platformManaged]} />
+        <div className="flex flex-wrap gap-2 border-t border-border/50 px-3 py-2">
+          <SummaryStat
+            label="Pricing"
+            value={
+              plan.presentation.showOnPricingPage
+                ? `visible #${String(plan.presentation.displayOrder)}`
+                : "hidden"
+            }
+          />
+          <SummaryStat label="Channels" value={channels.length > 0 ? channels.join(" · ") : "—"} />
+          <SummaryStat
+            label="Tools"
+            value={
+              <>
+                {toolCounts.active}/{toolCounts.total} active
+                {toolClassSummary ? (
+                  <span className="text-text-muted"> · {toolClassSummary}</span>
+                ) : null}
+              </>
+            }
+          />
+          <SummaryStat label="Monthly media" value={formatMonthlyMediaCollapsedSummary(plan)} />
+          <SummaryStat
+            label="Skills"
+            value={String(plan.skillPolicy?.maxEnabledSkills ?? "unlimited")}
+          />
+          <SummaryStat label="Context" value={plan.contextPolicy.preset} />
+          {cardPrice ? <SummaryStat label="Price" value={cardPrice} /> : null}
         </div>
       )}
 
-      {/* expanded details */}
       {expanded && (
-        <div className="space-y-2 border-t border-border/50 px-3 py-2">
-          <div className="flex flex-wrap gap-x-6 gap-y-1">
+        <div className="space-y-3 border-t border-border/50 px-3 py-2.5">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px]">
             <KV label="Description">{plan.description ?? "—"}</KV>
-            <KV label="Pricing page">
-              {plan.presentation.showOnPricingPage
-                ? `visible (#${String(plan.presentation.displayOrder)})`
-                : "hidden"}
-            </KV>
-            {plan.presentation.price.amount !== null && plan.presentation.price.currency && (
-              <KV label="Card price">
-                {plan.presentation.price.amount} {plan.presentation.price.currency}
-                {plan.presentation.price.billingPeriod
-                  ? ` / ${plan.presentation.price.billingPeriod}`
-                  : ""}
-              </KV>
-            )}
+            {cardPrice ? <KV label="Card price">{cardPrice}</KV> : null}
+            {plan.metadata.commercialTag && <KV label="Tag">{plan.metadata.commercialTag}</KV>}
+            {plan.presentation.title.ru && <KV label="Title RU">{plan.presentation.title.ru}</KV>}
+            {plan.presentation.title.en && <KV label="Title EN">{plan.presentation.title.en}</KV>}
             {plan.trialEnabled && (
               <KV label="Trial fallback">
                 {plan.lifecyclePolicy.trialFallbackPlanCode ?? "missing"}
@@ -3377,169 +3563,213 @@ function PlanCardReadOnly({
             <KV label="Paid fallback">
               {plan.lifecyclePolicy.paidFallbackPlanCode ?? "global billing setting"}
             </KV>
-            {plan.metadata.commercialTag && <KV label="Tag">{plan.metadata.commercialTag}</KV>}
-            {plan.metadata.notes && <KV label="Notes">{plan.metadata.notes}</KV>}
-            {plan.presentation.title.ru && <KV label="Title RU">{plan.presentation.title.ru}</KV>}
-            {plan.presentation.title.en && <KV label="Title EN">{plan.presentation.title.en}</KV>}
           </div>
-          <div className="grid grid-cols-3 gap-x-4 gap-y-1 rounded border border-border bg-surface px-3 py-1.5">
-            <Sec label="Tool classes">
-              <div className="flex flex-wrap gap-1">
-                {[
-                  { l: "Cost-driving", on: e.toolClasses.costDrivingTools },
-                  { l: "Utility", on: e.toolClasses.utilityTools },
-                  { l: "Cost quota", on: e.toolClasses.costDrivingQuotaGoverned },
-                  { l: "Util quota", on: e.toolClasses.utilityQuotaGoverned }
-                ].map((c) => (
-                  <Pill key={c.l} variant={c.on ? "default" : "dim"}>
-                    {c.l}
-                  </Pill>
+
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <Panel title="Channels & classes">
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-1">
+                  {[
+                    { l: "Web", on: e.channelsAndSurfaces.webChat },
+                    { l: "TG", on: e.channelsAndSurfaces.telegram },
+                    { l: "WA", on: e.channelsAndSurfaces.whatsapp },
+                    { l: "Max", on: e.channelsAndSurfaces.max }
+                  ].map((c) => (
+                    <Pill key={c.l} variant={c.on ? "default" : "dim"}>
+                      {c.l}
+                    </Pill>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {[
+                    { l: "Cost-driving", on: e.toolClasses.costDrivingTools },
+                    { l: "Utility", on: e.toolClasses.utilityTools },
+                    { l: "Cost quota", on: e.toolClasses.costDrivingQuotaGoverned },
+                    { l: "Util quota", on: e.toolClasses.utilityQuotaGoverned }
+                  ].map((c) => (
+                    <Pill key={c.l} variant={c.on ? "default" : "dim"}>
+                      {c.l}
+                    </Pill>
+                  ))}
+                </div>
+              </div>
+            </Panel>
+
+            <Panel title="Monthly media quotas">
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {monthlyMediaRows.map((row) => (
+                  <div
+                    key={row.label}
+                    className="rounded border border-border/60 bg-bg/40 px-2 py-1.5 text-[10px]"
+                  >
+                    <div className="text-text-muted">{row.label}</div>
+                    <div className="mt-0.5 font-medium text-text">{row.value}</div>
+                  </div>
                 ))}
               </div>
-            </Sec>
-            <Sec label="Channels">
-              <div className="flex flex-wrap gap-1">
-                {[
-                  { l: "Web", on: e.channelsAndSurfaces.webChat },
-                  { l: "TG", on: e.channelsAndSurfaces.telegram },
-                  { l: "WA", on: e.channelsAndSurfaces.whatsapp },
-                  { l: "Max", on: e.channelsAndSurfaces.max }
-                ].map((c) => (
-                  <Pill key={c.l} variant={c.on ? "default" : "dim"}>
-                    {c.l}
-                  </Pill>
-                ))}
+            </Panel>
+
+            <Panel title="Quota & storage">
+              <div className="grid gap-1.5 text-[10px] text-text-subtle">
+                <div>
+                  <span className="text-text-muted">Token budget</span> ·{" "}
+                  {plan.quotaLimits?.tokenBudgetLimit ?? "default"}
+                </div>
+                <div>
+                  <span className="text-text-muted">Web chats</span> ·{" "}
+                  {plan.quotaLimits?.activeWebChatsLimit ?? "default"}
+                </div>
+                <div>
+                  <span className="text-text-muted">Msgs / chat</span> ·{" "}
+                  {plan.quotaLimits?.messagesPerChat ?? "unlimited"}
+                </div>
+                <div>
+                  <span className="text-text-muted">Media storage</span> ·{" "}
+                  {formatStorageLimit(plan.quotaLimits?.mediaStorageBytesLimit)}
+                </div>
+                <div>
+                  <span className="text-text-muted">Knowledge</span> ·{" "}
+                  {formatStorageLimit(plan.quotaLimits?.knowledgeStorageBytesLimit)}
+                </div>
+                <div>
+                  <span className="text-text-muted">Workspace</span> ·{" "}
+                  {formatStorageLimit(plan.quotaLimits?.workspaceStorageBytesLimit)}
+                </div>
+                <div>
+                  <span className="text-text-muted">Skills cap</span> ·{" "}
+                  {plan.skillPolicy?.maxEnabledSkills ?? "unlimited"}
+                </div>
               </div>
-            </Sec>
-            <div className="space-y-1">
-              <Sec label="Quota limits">
-                <div className="space-y-0.5 text-[10px] text-text-subtle">
-                  <div>Token budget: {plan.quotaLimits?.tokenBudgetLimit ?? "default"}</div>
-                  <div>
-                    Active web chats (internal):{" "}
-                    {plan.quotaLimits?.activeWebChatsLimit ?? "default"}
-                  </div>
-                  <div>Messages per chat: {plan.quotaLimits?.messagesPerChat ?? "unlimited"}</div>
-                  <div>
-                    Media upload budget:{" "}
-                    {plan.quotaLimits?.mediaStorageBytesLimit != null
-                      ? `${String(Math.round(plan.quotaLimits.mediaStorageBytesLimit / 1048576))} MB`
-                      : "default"}
-                  </div>
-                  <div>
-                    Knowledge storage:{" "}
-                    {plan.quotaLimits?.knowledgeStorageBytesLimit != null
-                      ? `${String(Math.round(plan.quotaLimits.knowledgeStorageBytesLimit / 1048576))} MB`
-                      : "default"}
-                  </div>
-                  <div>Max enabled Skills: {plan.skillPolicy?.maxEnabledSkills ?? "unlimited"}</div>
+            </Panel>
+
+            <Panel title="AI models">
+              <div className="grid gap-1 text-[10px] text-text-subtle">
+                <div>
+                  <span className="text-text-muted">Normal</span> ·{" "}
+                  {plan.primaryModelKey ?? "platform default"}
                 </div>
-              </Sec>
-              <Sec label="AI model slots">
-                <div className="space-y-0.5 text-[10px] text-text-subtle">
-                  <div>Normal: {plan.primaryModelKey ?? "platform default"}</div>
-                  <div>Premium: {plan.premiumModelKey ?? "normal reply"}</div>
-                  <div>Reasoning: {plan.reasoningModelKey ?? "premium reply"}</div>
-                  <div>System tool: {plan.systemToolModelKey ?? "normal reply"}</div>
-                  <div>Retrieval: {plan.retrievalModelKey ?? "system/runtime default"}</div>
-                  <div>
-                    Embedding: {plan.embeddingModelKey ?? "retrieval helper / runtime default"}
-                  </div>
+                <div>
+                  <span className="text-text-muted">Premium</span> ·{" "}
+                  {plan.premiumModelKey ?? "normal reply"}
                 </div>
-              </Sec>
-              <Sec label="Retrieval policy">
-                <div className="space-y-0.5 text-[10px] text-text-subtle">
-                  <div>
-                    Results: {plan.retrievalPolicy.defaultMaxResults} /{" "}
-                    {plan.retrievalPolicy.maxMaxResults}
-                  </div>
-                  <div>
-                    Candidate pools: {plan.retrievalPolicy.lexicalCandidateLimit} lexical,{" "}
-                    {plan.retrievalPolicy.vectorCandidateLimit} vector
-                  </div>
-                  <div>
-                    Fetch radius: {plan.retrievalPolicy.knowledgeFetchWindowRadius} doc,{" "}
-                    {plan.retrievalPolicy.chatFetchWindowRadius} chat
-                  </div>
-                  <div>Fetch max chars: {plan.retrievalPolicy.fetchMaxChars}</div>
-                  <div>
-                    Helper: {plan.retrievalPolicy.helperEnabled ? "on" : "off"} /{" "}
-                    {plan.retrievalPolicy.helperCandidateLimit} candidates /{" "}
-                    {plan.retrievalPolicy.helperMaxOutputTokens} tokens
-                  </div>
-                  <div>
-                    Embedding search: {plan.retrievalPolicy.embeddingSearchEnabled ? "on" : "off"}
-                  </div>
-                  <div>
-                    Smart inline bands: short ≤ {plan.retrievalPolicy.smartSearchShortDocChars} ·
-                    section ≤ {plan.retrievalPolicy.smartSearchMediumDocChars}
-                  </div>
-                  <div>
-                    Chat section radius: {plan.retrievalPolicy.chatSectionDefaultRadius} messages
-                  </div>
-                  <div>
-                    Fetch full cap: {plan.retrievalPolicy.fetchFullModeMaxChars} chars ·{" "}
-                    {plan.retrievalPolicy.fetchFullModeMaxChatMessages} chat messages
-                  </div>
+                <div>
+                  <span className="text-text-muted">Reasoning</span> ·{" "}
+                  {plan.reasoningModelKey ?? "premium reply"}
                 </div>
-              </Sec>
-              <Sec label="Media models">
-                <div className="space-y-0.5 text-[10px] text-text-subtle">
-                  <div>
-                    Image generate: {plan.imageGenerateModelKey ?? "provider default"} / fallback{" "}
-                    {plan.imageGenerateFallbackModelKey ?? "none"}
-                  </div>
-                  <div>
-                    Image edit: {plan.imageEditModelKey ?? "provider default"} / fallback{" "}
-                    {plan.imageEditFallbackModelKey ?? "none"}
-                  </div>
-                  <div>
-                    Video generate: {plan.videoGenerateModelKey ?? "provider default"} / fallback{" "}
-                    {plan.videoGenerateFallbackModelKey ?? "none"}
-                  </div>
+                <div>
+                  <span className="text-text-muted">System</span> ·{" "}
+                  {plan.systemToolModelKey ?? "normal reply"}
                 </div>
-              </Sec>
-              <Sec label="Context policy">
-                <div className="space-y-0.5 text-[10px] text-text-subtle">
-                  <div>Preset: {plan.contextPolicy.preset}</div>
-                  <div>Budget: {plan.contextPolicy.targetContextBudget}</div>
-                  <div>Trigger: {plan.contextPolicy.compactionTriggerThreshold}</div>
-                  <div>Keep recent: {plan.contextPolicy.keepRecentMinimum}</div>
-                  <div>Knowledge: {plan.contextPolicy.knowledgeHydrationBudget}</div>
-                  <div>
-                    Shared summary: {describeContextPolicySummaryBudget(plan.contextPolicy)}
-                  </div>
-                  <div>
-                    Auto web / TG: {plan.contextPolicy.autoCompactionWeb ? "on" : "off"} /{" "}
-                    {plan.contextPolicy.autoCompactionTelegram ? "on" : "off"}
-                  </div>
-                  <div>
-                    Cross-session carry-over TTL: {plan.contextPolicy.crossSessionCarryOverTtlDays}d
-                    {" / idle "}
-                    {plan.contextPolicy.crossSessionCarryOverIdleHours}h{" / cooldown "}
-                    {plan.contextPolicy.crossSessionCarryOverCooldownHours}h
-                  </div>
+                <div>
+                  <span className="text-text-muted">Retrieval</span> ·{" "}
+                  {plan.retrievalModelKey ?? "runtime default"}
                 </div>
-              </Sec>
-            </div>
+                <div>
+                  <span className="text-text-muted">Embedding</span> ·{" "}
+                  {plan.embeddingModelKey ?? "runtime default"}
+                </div>
+              </div>
+            </Panel>
+
+            <Panel title="Retrieval">
+              <div className="grid gap-1 text-[10px] text-text-subtle">
+                <div>
+                  Results {plan.retrievalPolicy.defaultMaxResults}→
+                  {plan.retrievalPolicy.maxMaxResults} · pools{" "}
+                  {plan.retrievalPolicy.lexicalCandidateLimit}/
+                  {plan.retrievalPolicy.vectorCandidateLimit}
+                </div>
+                <div>
+                  Fetch r{plan.retrievalPolicy.knowledgeFetchWindowRadius}/
+                  {plan.retrievalPolicy.chatFetchWindowRadius} · max{" "}
+                  {plan.retrievalPolicy.fetchMaxChars} chars
+                </div>
+                <div>
+                  Helper {plan.retrievalPolicy.helperEnabled ? "on" : "off"} ·{" "}
+                  {plan.retrievalPolicy.helperCandidateLimit}c ·{" "}
+                  {plan.retrievalPolicy.helperMaxOutputTokens}tok
+                </div>
+                <div>
+                  Embedding {plan.retrievalPolicy.embeddingSearchEnabled ? "on" : "off"} · chat §
+                  {plan.retrievalPolicy.chatSectionDefaultRadius}
+                </div>
+              </div>
+            </Panel>
+
+            <Panel title="Media models">
+              <div className="grid gap-1 text-[10px] text-text-subtle">
+                <div>
+                  Image gen · {plan.imageGenerateModelKey ?? "default"} /{" "}
+                  {plan.imageGenerateFallbackModelKey ?? "—"}
+                </div>
+                <div>
+                  Image edit · {plan.imageEditModelKey ?? "default"} /{" "}
+                  {plan.imageEditFallbackModelKey ?? "—"}
+                </div>
+                <div>
+                  Video · {plan.videoGenerateModelKey ?? "default"} /{" "}
+                  {plan.videoGenerateFallbackModelKey ?? "—"}
+                </div>
+              </div>
+            </Panel>
+
+            <Panel title="Context">
+              <div className="grid gap-1 text-[10px] text-text-subtle">
+                <div>
+                  {plan.contextPolicy.preset} · budget {plan.contextPolicy.targetContextBudget} ·
+                  trigger {plan.contextPolicy.compactionTriggerThreshold}
+                </div>
+                <div>
+                  Keep {plan.contextPolicy.keepRecentMinimum} · knowledge{" "}
+                  {plan.contextPolicy.knowledgeHydrationBudget} ·{" "}
+                  {describeContextPolicySummaryBudget(plan.contextPolicy)}
+                </div>
+                <div>
+                  Auto {plan.contextPolicy.autoCompactionWeb ? "web" : "—"} /{" "}
+                  {plan.contextPolicy.autoCompactionTelegram ? "tg" : "—"} · carry{" "}
+                  {plan.contextPolicy.crossSessionCarryOverTtlDays}d / idle{" "}
+                  {plan.contextPolicy.crossSessionCarryOverIdleHours}h
+                </div>
+              </div>
+            </Panel>
           </div>
-          <ToolActivationReadOnlyGroup
-            title="Plan-managed tools"
-            emptyLabel="No editable tools configured."
-            activations={planManaged}
-          />
-          <ToolActivationReadOnlyGroup
-            title="Platform-managed tools"
-            emptyLabel="No platform-managed tools."
-            activations={platformManaged}
-            showLimits={false}
-          />
-          <ToolActivationReadOnlyGroup
-            title="Hidden internal tools"
-            emptyLabel="No hidden internal tools."
-            activations={hiddenInternal}
-            showLimits={false}
-          />
+          <div className="space-y-2">
+            <ToolActivationReadOnlyGroup
+              title="Plan-managed tools"
+              emptyLabel="No editable tools configured."
+              activations={planManaged}
+              defaultActiveOnly
+            />
+            <ToolActivationReadOnlyGroup
+              title="Platform-managed tools"
+              emptyLabel="No platform-managed tools."
+              activations={platformManaged}
+              showLimits={false}
+              defaultActiveOnly
+            />
+            {hiddenInternal.length > 0 ? (
+              <details className="rounded-md border border-dashed border-border/70 bg-surface/30 px-2.5 py-2">
+                <summary className="cursor-pointer text-[10px] font-medium text-text-muted hover:text-text">
+                  Hidden internal tools ({hiddenInternal.length})
+                </summary>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {hiddenInternal.map((ta) => (
+                    <span
+                      key={ta.toolCode}
+                      className={cn(
+                        "inline-flex items-center rounded-md border px-2 py-1 text-[10px]",
+                        ta.active
+                          ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-300/90"
+                          : "border-border/50 text-text-muted line-through"
+                      )}
+                    >
+                      {ta.displayName}
+                    </span>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+          </div>
         </div>
       )}
     </div>
@@ -3561,8 +3791,12 @@ export default function AdminPlansPage() {
   const [createDraft, setCreateDraft] = useState<PlanDraft>(() => emptyDraft());
   const [createValidationErrors, setCreateValidationErrors] = useState<DraftValidationErrors>({});
   const [createCode, setCreateCode] = useState("");
+  const [createBaseline, setCreateBaseline] = useState<{ draft: string; code: string } | null>(
+    null
+  );
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<PlanDraft | null>(null);
+  const [editBaseline, setEditBaseline] = useState<string | null>(null);
   const [editValidationErrors, setEditValidationErrors] = useState<DraftValidationErrors>({});
   const [availableModelKeys, setAvailableModelKeys] = useState<
     { provider: string; model: string }[]
@@ -3665,6 +3899,34 @@ export default function AdminPlansPage() {
     return () => window.clearTimeout(t);
   }, [feedback]);
 
+  const createDirty = useMemo(() => {
+    if (!createOpen || !createBaseline) {
+      return false;
+    }
+    return isCreateFormDirty(createBaseline, createDraft, createCode);
+  }, [createOpen, createBaseline, createDraft, createCode]);
+
+  const editDirty = useMemo(() => {
+    if (!editingCode || !editBaseline || !editDraft) {
+      return false;
+    }
+    return isPlanDraftDirty(editBaseline, editDraft);
+  }, [editingCode, editBaseline, editDraft]);
+
+  const hasUnsavedChanges = createDirty || editDirty;
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) {
+      return;
+    }
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedChanges]);
+
   const patchCreate = useCallback((p: Partial<PlanDraft>) => {
     setCreateDraft((d) => ({ ...d, ...p }));
     setCreateValidationErrors((current) => clearValidationErrors(current, p));
@@ -3674,9 +3936,28 @@ export default function AdminPlansPage() {
     setEditValidationErrors((current) => clearValidationErrors(current, p));
   }, []);
 
+  const closeCreate = useCallback(() => {
+    setCreateOpen(false);
+    setCreateBaseline(null);
+    setCreateDraft(emptyDraft());
+    setCreateValidationErrors({});
+    setCreateCode("");
+  }, []);
+
   const openCreate = useCallback(() => {
+    if (createOpen) {
+      if (createDirty && !confirmDiscardUnsavedChanges()) {
+        return;
+      }
+      closeCreate();
+      return;
+    }
+    if (editDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
     setEditingCode(null);
     setEditDraft(null);
+    setEditBaseline(null);
     const draft = emptyDraft();
     const templatePlan = plans.find(
       (p) => (p.toolActivations ?? []).filter((ta) => ta.visibleInPlanEditor).length > 0
@@ -3697,30 +3978,47 @@ export default function AdminPlansPage() {
     setCreateDraft(draft);
     setCreateValidationErrors({});
     setCreateCode("");
-    setCreateOpen((o) => !o);
+    setCreateBaseline({ draft: normalizePlanDraftForCompare(draft), code: "" });
+    setCreateOpen(true);
     setFeedback(null);
-  }, [plans]);
+  }, [createOpen, createDirty, editDirty, closeCreate, plans]);
 
-  const closeCreate = useCallback(() => {
-    setCreateOpen(false);
-    setCreateDraft(emptyDraft());
-    setCreateValidationErrors({});
-    setCreateCode("");
-  }, []);
+  const requestCloseCreate = useCallback(() => {
+    if (createDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+    closeCreate();
+  }, [createDirty, closeCreate]);
 
-  const startEdit = useCallback((plan: AdminPlanState) => {
-    setCreateOpen(false);
-    setEditingCode(plan.code);
-    setEditDraft(planToDraft(plan));
-    setEditValidationErrors({});
-    setFeedback(null);
-  }, []);
+  const startEdit = useCallback(
+    (plan: AdminPlanState) => {
+      if (editDirty && !confirmDiscardUnsavedChanges()) {
+        return;
+      }
+      if (createDirty && !confirmDiscardUnsavedChanges()) {
+        return;
+      }
+      setCreateOpen(false);
+      setCreateBaseline(null);
+      const draft = planToDraft(plan);
+      setEditingCode(plan.code);
+      setEditDraft(draft);
+      setEditBaseline(normalizePlanDraftForCompare(draft));
+      setEditValidationErrors({});
+      setFeedback(null);
+    },
+    [createDirty, editDirty]
+  );
 
   const cancelEdit = useCallback(() => {
+    if (editDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
     setEditingCode(null);
     setEditDraft(null);
+    setEditBaseline(null);
     setEditValidationErrors({});
-  }, []);
+  }, [editDirty]);
 
   async function onCreateSubmit(e: FormEvent) {
     e.preventDefault();
@@ -3882,7 +4180,7 @@ export default function AdminPlansPage() {
       {createOpen && (
         <form
           onSubmit={(ev) => void onCreateSubmit(ev)}
-          className="mb-4 rounded-lg border border-accent/20 bg-surface-raised p-3"
+          className="relative mb-4 rounded-lg border border-accent/20 bg-surface-raised p-3 pb-20"
         >
           <h2 className="mb-2 text-xs font-semibold text-text">New plan</h2>
           <PlanForm
@@ -3901,38 +4199,25 @@ export default function AdminPlansPage() {
             availableImageModelKeys={availableImageModelKeys}
             availableVideoModelKeys={availableVideoModelKeys}
           />
-          <div className="mt-3 flex gap-2">
-            <button
-              type="submit"
-              disabled={
-                saving ||
-                isDraftTrialFieldsInvalid(createDraft) ||
-                isDraftPricingFieldsInvalid(createDraft)
-              }
-              className="rounded bg-accent px-3 py-1 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
-            >
-              {saving ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "Save"}
-            </button>
-            <button
-              type="button"
-              onClick={closeCreate}
-              disabled={saving}
-              className="rounded border border-border px-3 py-1 text-[11px] text-text-muted hover:text-text disabled:opacity-40"
-            >
-              Cancel
-            </button>
-            {isDraftTrialFieldsInvalid(createDraft) && (
-              <span className="self-center text-[10px] font-medium text-red-500/80">
-                Trial plan needs duration and fallback plan
-              </span>
-            )}
-            {!isDraftTrialFieldsInvalid(createDraft) &&
-              isDraftPricingFieldsInvalid(createDraft) && (
-                <span className="self-center text-[10px] font-medium text-red-500/80">
-                  Visible pricing card needs RU/EN titles, amount, currency, and billing period
-                </span>
-              )}
-          </div>
+          <PlanEditorStickyActions
+            saving={saving}
+            submitLabel="Save"
+            onCancel={requestCloseCreate}
+            dirty={createDirty}
+            submitDisabled={
+              saving ||
+              isDraftTrialFieldsInvalid(createDraft) ||
+              isDraftPricingFieldsInvalid(createDraft)
+            }
+            validationHint={
+              isDraftTrialFieldsInvalid(createDraft) ? (
+                <>Trial plan needs duration and fallback plan</>
+              ) : !isDraftTrialFieldsInvalid(createDraft) &&
+                isDraftPricingFieldsInvalid(createDraft) ? (
+                <>Visible pricing card needs RU/EN titles, amount, currency, and billing period</>
+              ) : undefined
+            }
+          />
         </form>
       )}
 
@@ -3948,7 +4233,7 @@ export default function AdminPlansPage() {
                 <form
                   key={plan.code}
                   onSubmit={(ev) => void onEditSubmit(ev)}
-                  className="rounded-lg border border-accent/20 bg-surface-raised p-3"
+                  className="relative rounded-lg border border-accent/20 bg-surface-raised p-3 pb-20"
                 >
                   <div className="mb-2 flex items-center justify-between">
                     <h2 className="text-xs font-semibold text-text">
@@ -3957,7 +4242,8 @@ export default function AdminPlansPage() {
                     <button
                       type="button"
                       onClick={cancelEdit}
-                      className="text-text-muted hover:text-text"
+                      className="rounded p-1 text-text-muted hover:bg-surface-hover hover:text-text"
+                      aria-label="Close editor"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -3978,43 +4264,28 @@ export default function AdminPlansPage() {
                     availableImageModelKeys={availableImageModelKeys}
                     availableVideoModelKeys={availableVideoModelKeys}
                   />
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="submit"
-                      disabled={
-                        saving ||
-                        isDraftTrialFieldsInvalid(editDraft) ||
-                        isDraftPricingFieldsInvalid(editDraft)
-                      }
-                      className="rounded bg-accent px-3 py-1 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
-                    >
-                      {saving ? (
-                        <Loader2 className="inline h-3 w-3 animate-spin" />
-                      ) : (
-                        "Save changes"
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelEdit}
-                      disabled={saving}
-                      className="rounded border border-border px-3 py-1 text-[11px] text-text-muted hover:text-text disabled:opacity-40"
-                    >
-                      Cancel
-                    </button>
-                    {isDraftTrialFieldsInvalid(editDraft) && (
-                      <span className="self-center text-[10px] font-medium text-red-500/80">
-                        Trial plan needs duration and fallback plan
-                      </span>
-                    )}
-                    {!isDraftTrialFieldsInvalid(editDraft) &&
-                      isDraftPricingFieldsInvalid(editDraft) && (
-                        <span className="self-center text-[10px] font-medium text-red-500/80">
+                  <PlanEditorStickyActions
+                    saving={saving}
+                    submitLabel="Save changes"
+                    onCancel={cancelEdit}
+                    dirty={editDirty}
+                    submitDisabled={
+                      saving ||
+                      isDraftTrialFieldsInvalid(editDraft) ||
+                      isDraftPricingFieldsInvalid(editDraft)
+                    }
+                    validationHint={
+                      isDraftTrialFieldsInvalid(editDraft) ? (
+                        <>Trial plan needs duration and fallback plan</>
+                      ) : !isDraftTrialFieldsInvalid(editDraft) &&
+                        isDraftPricingFieldsInvalid(editDraft) ? (
+                        <>
                           Visible pricing card needs RU/EN titles, amount, currency, and billing
                           period
-                        </span>
-                      )}
-                  </div>
+                        </>
+                      ) : undefined
+                    }
+                  />
                 </form>
               );
             }

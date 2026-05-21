@@ -2,6 +2,8 @@
 
 > Archive: entries from 2026-05-19 and earlier moved to `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`. Keep using this file for current work, including all 2026-05-20 ADR-099 entries.
 
+- **Admin UI + Business all-time economics (`apps/api`, `apps/runtime`, `apps/web`, `packages/contracts`, `docs`; 2026-05-21):** Admin Plans/Tools/Ops layout polish; Business global ledger window switched from rolling 7d to all time with `platformPaymentRevenueAllTime` (RUB succeeded payments, optional USD); Ops ledger panel stretch layout; runtime TTS artifacts set `sourceToolCode: "tts"` for persisted billing-facts ledger append. Verification: lint, format:check, typecheck, api/runtime/web tests, build.
+
 - **ADR-099 Block 2 — shipped on `main` (`27868c40`; 2026-05-21):** atomic commit lands Steps A–D (tool-path pricing catalog, admin economics API/UI, billing facts + ledger append, Ops layout polish). Verification: lint, format:check, typecheck, full test, build.
 
 - **ADR-099 Block 2 Step D — Admin Tools economics UI (`apps/api`, `apps/web`, `docs`; 2026-05-21):** Admin → Tools now edits tool-path unit prices (web_search, web_fetch, browser, document_render) via `GET/PUT /api/v1/admin/tools/economics`, with default document_render tier seeds and Ops/Business ledger purpose labels for tool-path rows. Verification: `tool-path-pricing-catalog.test.ts`, `apps/web/app/admin/tools/page.test.tsx`, `@persai/api` / `@persai/web` typecheck.

@@ -29,13 +29,17 @@ export function ToolPathEconomicsPanel({
           Ledger COGS on successful calls. Separate from API keys above.
         </p>
       </div>
-      {visibleRows.map((row) => (
-        <ToolPathEconomicsRowCard
-          key={row.pathKey}
-          row={row}
-          onChange={(nextRow) => onRowsChange(updateEconomicsRow(rows, row.pathKey, () => nextRow))}
-        />
-      ))}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {visibleRows.map((row) => (
+          <ToolPathEconomicsRowCard
+            key={row.pathKey}
+            row={row}
+            onChange={(nextRow) =>
+              onRowsChange(updateEconomicsRow(rows, row.pathKey, () => nextRow))
+            }
+          />
+        ))}
+      </div>
     </div>
   );
 }

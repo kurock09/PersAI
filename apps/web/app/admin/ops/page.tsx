@@ -276,27 +276,30 @@ function CardShell({
   icon: Icon,
   children,
   tone = "default",
-  compact = false
+  compact = false,
+  fillHeight = false
 }: {
   title: string;
   icon: ComponentType<{ className?: string }>;
   children: ReactNode;
   tone?: "default" | "muted";
   compact?: boolean;
+  fillHeight?: boolean;
 }) {
   return (
     <section
       className={cn(
         "rounded border",
         tone === "muted" ? "border-border/35 bg-surface/70" : "border-border/50 bg-surface",
-        compact ? "p-2" : "p-2.5"
+        compact ? "p-2" : "p-2.5",
+        fillHeight && "flex h-full flex-col"
       )}
     >
-      <div className="mb-2 flex items-center gap-1.5">
+      <div className="mb-2 flex shrink-0 items-center gap-1.5">
         <Icon className="h-3 w-3 text-accent" />
         <h2 className="text-[10px] font-bold uppercase tracking-widest text-text-muted">{title}</h2>
       </div>
-      <div className="flex flex-col gap-2">{children}</div>
+      <div className={cn("flex flex-col gap-2", fillHeight && "flex-1")}>{children}</div>
     </section>
   );
 }
@@ -1543,13 +1546,18 @@ export default function AdminOpsPage() {
                     chatStats ||
                     channelBindings.length > 0 ||
                     cockpit?.periodEconomics) &&
-                  "xl:grid-cols-2 xl:items-start"
+                  "xl:grid-cols-2 xl:items-stretch"
               )}
             >
               {modelCostLedger && (
-                <div className="min-w-0 xl:sticky xl:top-2 xl:self-start">
-                  <CardShell title="Ledger-backed Model Cost" icon={BarChart3} tone="muted">
-                    <div className="space-y-3">
+                <div className="flex min-w-0 flex-col">
+                  <CardShell
+                    title="Ledger-backed Model Cost"
+                    icon={BarChart3}
+                    tone="muted"
+                    fillHeight
+                  >
+                    <div className="flex flex-1 flex-col gap-3">
                       <p className="rounded border border-border/40 bg-surface-raised/80 px-2.5 py-2 text-[10px] leading-relaxed text-text-muted">
                         {modelCostLedger.coverageNote}
                       </p>
@@ -1595,13 +1603,13 @@ export default function AdminOpsPage() {
                       </div>
                       {(modelCostLedger.byPurpose.length > 0 ||
                         modelCostLedger.topBreakdown.length > 0) && (
-                        <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+                        <div className="grid flex-1 grid-cols-1 gap-2 lg:grid-cols-2 lg:items-stretch">
                           {modelCostLedger.byPurpose.length > 0 && (
-                            <div className="space-y-1.5">
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                            <div className="flex flex-col rounded-lg border border-border/45 bg-surface-raised/60 p-2">
+                              <p className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
                                 By purpose
                               </p>
-                              <div className="grid grid-cols-1 gap-1">
+                              <div className="mt-1.5 flex flex-1 flex-col justify-start gap-1">
                                 {modelCostLedger.byPurpose.map((entry) => (
                                   <div
                                     key={entry.key}
@@ -1617,15 +1625,15 @@ export default function AdminOpsPage() {
                             </div>
                           )}
                           {modelCostLedger.topBreakdown.length > 0 && (
-                            <div className="space-y-1.5">
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                            <div className="flex flex-col rounded-lg border border-border/45 bg-surface-raised/60 p-2">
+                              <p className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
                                 Top model rows
                               </p>
-                              <div className="space-y-1">
+                              <div className="mt-1.5 flex flex-1 flex-col justify-start gap-1">
                                 {modelCostLedger.topBreakdown.slice(0, 5).map((entry) => (
                                   <div
                                     key={`${entry.provider}-${entry.model}-${entry.purpose}-${entry.surface}-${entry.currency}`}
-                                    className="rounded border border-border/50 bg-surface-raised px-2 py-1.5"
+                                    className="rounded border border-border/50 bg-surface px-2 py-1.5"
                                   >
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="text-[11px] font-medium text-text">

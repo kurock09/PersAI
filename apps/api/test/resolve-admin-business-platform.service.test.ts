@@ -115,9 +115,25 @@ async function run(): Promise<void> {
           return 0;
         }
       },
+      workspacePaymentIntent: {
+        async groupBy(args: { by: string[]; where?: { status?: string } }) {
+          assert.equal(args.where?.status, "succeeded");
+          if (args.by.join(",") === "currency") {
+            return [
+              {
+                currency: "RUB",
+                _sum: { amountMinor: 56100 },
+                _count: { _all: 3 }
+              }
+            ];
+          }
+          throw new Error(`Unexpected workspacePaymentIntent groupBy: ${args.by.join(",")}`);
+        }
+      },
       modelCostLedgerEvent: {
         async groupBy(args: { by: string[]; where?: { occurredAt?: { gte?: Date; lt?: Date } } }) {
           assert.ok(args.where?.occurredAt?.gte instanceof Date);
+          assert.equal(args.where?.occurredAt?.gte.getTime(), 0);
           const key = args.by.join(",");
           if (key === "currency") {
             return [
@@ -296,7 +312,11 @@ async function run(): Promise<void> {
     total: 14
   });
   assert.equal(result.publishApplyHealth.applySuccessPercent, 63);
-  assert.equal(result.ledgerBackedModelCost.windowLabel, "last_7_days");
+  assert.equal(result.ledgerBackedModelCost.windowLabel, "all_time");
+  assert.equal(result.ledgerBackedModelCost.periodSource, "all_time");
+  assert.equal(result.platformPaymentRevenueAllTime.rubTotalMinor, 56100);
+  assert.equal(result.platformPaymentRevenueAllTime.rubSucceededPayments, 3);
+  assert.equal(result.platformPaymentRevenueAllTime.usdTotalMinor, 0);
   assert.equal(result.ledgerBackedModelCost.coverageScope, "adr099_block1_model_priced_paths");
   assert.match(result.ledgerBackedModelCost.coverageNote, /background-task evaluator/i);
   assert.equal(result.ledgerBackedModelCost.totalEvents, 4);

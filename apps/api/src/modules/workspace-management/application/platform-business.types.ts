@@ -1,4 +1,5 @@
 import type { AdminModelCostLedgerWindowState } from "./model-cost-ledger-read-model";
+import type { AdminPlatformPaymentRevenueAllTime } from "./admin-ops-period-economics";
 
 export type PlanDistributionEntry = {
   planCode: string;
@@ -57,6 +58,7 @@ export type AdminBusinessPlatformState = {
     defaultRegistrationPlanCode: string | null;
   };
   ledgerBackedModelCost: AdminModelCostLedgerWindowState;
+  platformPaymentRevenueAllTime: AdminPlatformPaymentRevenueAllTime;
   runtimeTurnAverages: RuntimeTurnAverages;
   updatedAt: string;
 };

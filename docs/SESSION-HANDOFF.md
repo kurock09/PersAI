@@ -2,6 +2,23 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-21 — Admin UI polish + Business all-time economics
+
+### What landed
+
+- **Admin → Plans:** compact collapsed cards, structured expanded read-only panels, aligned tool-activation edit grid, sticky Save/Cancel with unsaved-change guard.
+- **Admin → Tools / Ops:** full-width tools layout, shared field styles, Ops ledger card stretches to column height (no inner scroll).
+- **Admin → Business:** ledger-backed model cost is **all time** (`periodSource: all_time`); new **Payments · RUB** card (succeeded `workspace_payment_intents` all time; USD line when international payments exist).
+- **Runtime TTS:** `sourceToolCode: "tts"` on artifacts so delivered TTS can append ledger rows from persisted billing facts.
+
+### Verification (session)
+
+- `pnpm -r --if-present run lint`, `pnpm run format:check`, `pnpm run typecheck`, `pnpm --filter @persai/api|runtime|web run test`, `pnpm run build` — all green.
+
+### Next recommended step
+
+- Redeploy `api` + `runtime` + `web` to `persai-dev`; smoke Business all-time totals vs Ops per-user subscription-period ledger; record new TTS after runtime deploy to confirm ledger row.
+
 ## 2026-05-21 — ADR-099 Block 2 — committed & pushed (`27868c40`)
 
 - **Git:** `feat(adr099): land Block 2 tool-path economics and ledger wiring` on `main`, pushed to `origin/main`.

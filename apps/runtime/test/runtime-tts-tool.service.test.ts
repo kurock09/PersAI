@@ -415,6 +415,8 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   assert.deepEqual(result.payload.attemptedProviders, ["openai"]);
   assert.equal(result.payload.artifact?.voiceNote, true);
   assert.equal(result.payload.artifact?.mimeType, "audio/ogg");
+  assert.equal(result.payload.artifact?.sourceToolCode, "tts");
+  assert.equal(result.artifacts[0]?.sourceToolCode, "tts");
   assert.equal(result.artifacts.length, 1);
   assert.equal(providerGatewayClientService.speechCalls.length, 1);
   assert.equal(providerGatewayClientService.speechCalls[0]?.credential.providerId, "openai");

@@ -3,7 +3,8 @@ import type { WorkspaceManagementPrismaService } from "../infrastructure/persist
 export type AdminModelCostLedgerPeriodSource =
   | "rolling_7d"
   | "subscription_period"
-  | "calendar_month_fallback";
+  | "calendar_month_fallback"
+  | "all_time";
 
 export type AdminModelCostLedgerCurrencyTotal = {
   currency: string;

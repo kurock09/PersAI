@@ -10,6 +10,7 @@ import type { AdminBusinessPlatformStateChannelAdoption } from "./adminBusinessP
 import type { AdminBusinessPlatformStatePublishApplyHealth } from "./adminBusinessPlatformStatePublishApplyHealth";
 import type { AdminBusinessPlatformStatePlanCatalog } from "./adminBusinessPlatformStatePlanCatalog";
 import type { AdminModelCostLedgerWindowState } from "./adminModelCostLedgerWindowState";
+import type { AdminPlatformPaymentRevenueAllTime } from "./adminPlatformPaymentRevenueAllTime";
 import type { RuntimeTurnAverages } from "./runtimeTurnAverages";
 
 export interface AdminBusinessPlatformState {
@@ -25,6 +26,7 @@ export interface AdminBusinessPlatformState {
   publishApplyHealth: AdminBusinessPlatformStatePublishApplyHealth;
   planCatalog: AdminBusinessPlatformStatePlanCatalog;
   ledgerBackedModelCost: AdminModelCostLedgerWindowState;
+  platformPaymentRevenueAllTime: AdminPlatformPaymentRevenueAllTime;
   runtimeTurnAverages: RuntimeTurnAverages;
   updatedAt: string;
 }

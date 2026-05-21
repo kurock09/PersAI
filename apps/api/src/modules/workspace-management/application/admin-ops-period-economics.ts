@@ -8,6 +8,47 @@ export type AdminOpsPeriodEconomicsSnapshot = {
   modelCostUsdMicros: number;
 };
 
+export type AdminPlatformPaymentRevenueAllTime = {
+  rubTotalMinor: number;
+  rubSucceededPayments: number;
+  usdTotalMinor: number;
+  usdSucceededPayments: number;
+};
+
+function readCurrencyPaymentAggregate(
+  rows: Array<{
+    currency: string;
+    _sum: { amountMinor: number | null };
+    _count: { _all: number };
+  }>,
+  currency: string
+): { totalMinor: number; paymentCount: number } {
+  const row = rows.find((entry) => entry.currency.toUpperCase() === currency);
+  return {
+    totalMinor: row?._sum.amountMinor ?? 0,
+    paymentCount: row?._count._all ?? 0
+  };
+}
+
+export async function readPlatformSucceededPaymentsAllTime(
+  prisma: WorkspaceManagementPrismaService
+): Promise<AdminPlatformPaymentRevenueAllTime> {
+  const rows = await prisma.workspacePaymentIntent.groupBy({
+    by: ["currency"],
+    where: { status: "succeeded" },
+    _sum: { amountMinor: true },
+    _count: { _all: true }
+  });
+  const rub = readCurrencyPaymentAggregate(rows, "RUB");
+  const usd = readCurrencyPaymentAggregate(rows, "USD");
+  return {
+    rubTotalMinor: rub.totalMinor,
+    rubSucceededPayments: rub.paymentCount,
+    usdTotalMinor: usd.totalMinor,
+    usdSucceededPayments: usd.paymentCount
+  };
+}
+
 export async function readWorkspacePaidInPeriod(
   prisma: WorkspaceManagementPrismaService,
   input: {

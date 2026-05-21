@@ -323,6 +323,7 @@ export class RuntimeTtsToolService {
       fileRef: runtimeFileRef.fileRef,
       file: runtimeFileRef,
       kind: "audio",
+      sourceToolCode: "tts",
       objectKey: stored.objectKey,
       mimeType: stored.mimeType,
       filename,

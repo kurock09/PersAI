@@ -591,187 +591,178 @@ export default function AdminToolsPage() {
         </div>
       )}
 
-      <div className="max-w-6xl space-y-6">
-        <div className="grid gap-6 lg:grid-cols-2">
-          {documentProcessingState && documentProcessingPolicyInput && (
-            <section className="rounded-xl border border-border bg-surface-raised p-4 lg:col-span-2">
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-accent" />
-                  <div>
-                    <p className="text-sm font-semibold text-text">Document Processing</p>
-                    <p className="text-[11px] text-text-muted">
-                      Configure OCR/parser providers for Knowledge and future Skill documents.
-                    </p>
-                  </div>
+      <div className="w-full space-y-6">
+        {documentProcessingState && documentProcessingPolicyInput && (
+          <section className="rounded-xl border border-border bg-surface-raised p-4">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-accent" />
+                <div>
+                  <p className="text-sm font-semibold text-text">Document Processing</p>
+                  <p className="text-[11px] text-text-muted">
+                    Configure OCR/parser providers for Knowledge and future Skill documents.
+                  </p>
                 </div>
               </div>
+            </div>
 
-              {documentProcessingState.notes.length > 0 && (
-                <ul className="mb-4 list-disc space-y-1 pl-4 text-[11px] text-text-subtle">
-                  {documentProcessingState.notes.map((note, index) => (
-                    <li key={index}>{note}</li>
-                  ))}
-                </ul>
-              )}
+            {documentProcessingState.notes.length > 0 && (
+              <ul className="mb-4 list-disc space-y-1 pl-4 text-[11px] text-text-subtle">
+                {documentProcessingState.notes.map((note, index) => (
+                  <li key={index}>{note}</li>
+                ))}
+              </ul>
+            )}
 
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="block">
-                  <span className="mb-1 block text-[11px] text-text-muted">Default provider</span>
-                  <select
-                    value={documentProcessingPolicyInput.defaultProvider}
-                    onChange={(e) =>
-                      updateDocumentPolicy({
-                        defaultProvider: e.target.value as DocumentProcessingProviderKey
-                      })
-                    }
-                    className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                  >
-                    <option value="local">Local parser</option>
-                    <option value="mistral">Mistral OCR</option>
-                    <option value="llamaparse">LlamaParse</option>
-                  </select>
-                </label>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-[11px] text-text-muted">Default provider</span>
+                <select
+                  value={documentProcessingPolicyInput.defaultProvider}
+                  onChange={(e) =>
+                    updateDocumentPolicy({
+                      defaultProvider: e.target.value as DocumentProcessingProviderKey
+                    })
+                  }
+                  className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                >
+                  <option value="local">Local parser</option>
+                  <option value="mistral">Mistral OCR</option>
+                  <option value="llamaparse">LlamaParse</option>
+                </select>
+              </label>
 
-                <label className="block">
-                  <span className="mb-1 block text-[11px] text-text-muted">
-                    High-quality fallback
-                  </span>
-                  <select
-                    value={documentProcessingPolicyInput.highQualityFallbackProvider}
-                    onChange={(e) =>
-                      updateDocumentPolicy({
-                        highQualityFallbackProvider: e.target.value as DocumentProcessingProviderKey
-                      })
-                    }
-                    className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                  >
-                    <option value="mistral">Mistral OCR</option>
-                    <option value="llamaparse">LlamaParse</option>
-                  </select>
-                </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] text-text-muted">
+                  High-quality fallback
+                </span>
+                <select
+                  value={documentProcessingPolicyInput.highQualityFallbackProvider}
+                  onChange={(e) =>
+                    updateDocumentPolicy({
+                      highQualityFallbackProvider: e.target.value as DocumentProcessingProviderKey
+                    })
+                  }
+                  className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                >
+                  <option value="mistral">Mistral OCR</option>
+                  <option value="llamaparse">LlamaParse</option>
+                </select>
+              </label>
 
-                <label className="flex items-center gap-2 rounded-lg border border-border bg-surface p-3 text-xs text-text">
-                  <input
-                    type="checkbox"
-                    checked={documentProcessingPolicyInput.localFallbackEnabled}
-                    onChange={(e) =>
-                      updateDocumentPolicy({ localFallbackEnabled: e.target.checked })
-                    }
-                  />
-                  Local fallback enabled
-                </label>
+              <label className="flex items-center gap-2 rounded-lg border border-border bg-surface p-3 text-xs text-text">
+                <input
+                  type="checkbox"
+                  checked={documentProcessingPolicyInput.localFallbackEnabled}
+                  onChange={(e) => updateDocumentPolicy({ localFallbackEnabled: e.target.checked })}
+                />
+                Local fallback enabled
+              </label>
 
-                <label className="flex items-center gap-2 rounded-lg border border-border bg-surface p-3 text-xs text-text">
-                  <input
-                    type="checkbox"
-                    checked={documentProcessingPolicyInput.autoFallbackEnabled}
-                    onChange={(e) =>
-                      updateDocumentPolicy({ autoFallbackEnabled: e.target.checked })
-                    }
-                  />
-                  Auto high-quality fallback
-                </label>
+              <label className="flex items-center gap-2 rounded-lg border border-border bg-surface p-3 text-xs text-text">
+                <input
+                  type="checkbox"
+                  checked={documentProcessingPolicyInput.autoFallbackEnabled}
+                  onChange={(e) => updateDocumentPolicy({ autoFallbackEnabled: e.target.checked })}
+                />
+                Auto high-quality fallback
+              </label>
 
-                <label className="block md:col-span-2">
-                  <span className="mb-1 block text-[11px] text-text-muted">
-                    Needs-review threshold
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={documentProcessingThresholdInput}
-                    onChange={(e) => updateDocumentThresholdInput(e.target.value)}
-                    className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                  />
-                </label>
-              </div>
+              <label className="block md:col-span-2">
+                <span className="mb-1 block text-[11px] text-text-muted">
+                  Needs-review threshold
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={documentProcessingThresholdInput}
+                  onChange={(e) => updateDocumentThresholdInput(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
+                />
+              </label>
+            </div>
 
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {(["mistral", "llamaparse"] as const).map((providerKey) => {
-                  const provider = documentProcessingState.providers.find(
-                    (item) => item.providerKey === providerKey
-                  );
-                  return (
-                    <div
-                      key={providerKey}
-                      className="rounded-lg border border-border bg-surface p-3"
-                    >
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-medium text-text">
-                            {providerLabel(providerKey)}
-                          </p>
-                          <p className="text-[10px] text-text-muted">
-                            {provider?.role ?? "provider"}
-                          </p>
-                        </div>
-                        {provider?.configured ? (
-                          <span className="text-[11px] text-success">Configured</span>
-                        ) : (
-                          <span className="text-[11px] text-text-subtle">Not set</span>
-                        )}
-                      </div>
-                      <input
-                        type="password"
-                        value={documentProcessingKeyInputs[providerKey] ?? ""}
-                        onChange={(e) =>
-                          setDocumentProcessingKeyInputs((prev) => ({
-                            ...prev,
-                            [providerKey]: e.target.value
-                          }))
-                        }
-                        placeholder={
-                          provider?.configured
-                            ? `••••${provider.lastFour ?? ""}`
-                            : "Enter API key..."
-                        }
-                        className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-                      />
-                      {provider?.updatedAt && (
-                        <p className="mt-1 text-[10px] text-text-muted">
-                          Last updated: {new Date(provider.updatedAt).toLocaleString()}
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {(["mistral", "llamaparse"] as const).map((providerKey) => {
+                const provider = documentProcessingState.providers.find(
+                  (item) => item.providerKey === providerKey
+                );
+                return (
+                  <div key={providerKey} className="rounded-lg border border-border bg-surface p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium text-text">
+                          {providerLabel(providerKey)}
                         </p>
+                        <p className="text-[10px] text-text-muted">
+                          {provider?.role ?? "provider"}
+                        </p>
+                      </div>
+                      {provider?.configured ? (
+                        <span className="text-[11px] text-success">Configured</span>
+                      ) : (
+                        <span className="text-[11px] text-text-subtle">Not set</span>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => void handleTestDocumentProvider(providerKey)}
-                        disabled={testingProvider === providerKey}
-                        className="mt-2 flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[11px] text-text-muted transition-colors hover:border-border-strong disabled:opacity-50"
-                      >
-                        {testingProvider === providerKey ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <PlugZap className="h-3 w-3" />
-                        )}
-                        Test connection
-                      </button>
                     </div>
-                  );
-                })}
-              </div>
+                    <input
+                      type="password"
+                      value={documentProcessingKeyInputs[providerKey] ?? ""}
+                      onChange={(e) =>
+                        setDocumentProcessingKeyInputs((prev) => ({
+                          ...prev,
+                          [providerKey]: e.target.value
+                        }))
+                      }
+                      placeholder={
+                        provider?.configured ? `••••${provider.lastFour ?? ""}` : "Enter API key..."
+                      }
+                      className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                    />
+                    {provider?.updatedAt && (
+                      <p className="mt-1 text-[10px] text-text-muted">
+                        Last updated: {new Date(provider.updatedAt).toLocaleString()}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleTestDocumentProvider(providerKey)}
+                      disabled={testingProvider === providerKey}
+                      className="mt-2 flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[11px] text-text-muted transition-colors hover:border-border-strong disabled:opacity-50"
+                    >
+                      {testingProvider === providerKey ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <PlugZap className="h-3 w-3" />
+                      )}
+                      Test connection
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
 
-              <button
-                type="button"
-                disabled={savingDocumentProcessing}
-                onClick={() => void handleSaveDocumentProcessing()}
-                className="mt-4 flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-              >
-                {savingDocumentProcessing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="h-3.5 w-3.5" />
-                )}
-                Save document processing
-              </button>
-              {documentProcessingFeedback && (
-                <p className="mt-2 text-xs text-text-muted">{documentProcessingFeedback}</p>
+            <button
+              type="button"
+              disabled={savingDocumentProcessing}
+              onClick={() => void handleSaveDocumentProcessing()}
+              className="mt-4 flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            >
+              {savingDocumentProcessing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
               )}
-            </section>
-          )}
+              Save document processing
+            </button>
+            {documentProcessingFeedback && (
+              <p className="mt-2 text-xs text-text-muted">{documentProcessingFeedback}</p>
+            )}
+          </section>
+        )}
 
-          {state && (
-            <div className="space-y-6">
+        {state && (
+          <div className="grid w-full gap-6 lg:grid-cols-2 lg:items-start">
+            <div className="min-w-0 space-y-6">
               <section className="rounded-xl border border-border bg-surface-raised p-4">
                 <div className="mb-4 flex items-start gap-2">
                   <FileOutput className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
@@ -859,7 +850,7 @@ export default function AdminToolsPage() {
                     </p>
                   </div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {pickCredentials(state.credentials, WEB_CREDENTIAL_KEYS).map((cred) => (
                     <ToolCredentialCard
                       key={cred.credentialKey}
@@ -919,7 +910,7 @@ export default function AdminToolsPage() {
                     </select>
                   </label>
                 )}
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {pickCredentials(state.credentials, TTS_CREDENTIAL_KEYS).map((cred) => (
                     <ToolCredentialCard
                       key={cred.credentialKey}
@@ -933,36 +924,7 @@ export default function AdminToolsPage() {
                 </div>
               </section>
 
-              <section className="rounded-xl border border-border bg-surface-raised p-4">
-                <div className="mb-4 flex items-start gap-2">
-                  <ImageIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
-                  <div>
-                    <p className="text-sm font-semibold text-text">Media</p>
-                    <p className="text-[11px] text-text-muted">
-                      Shared OpenAI key for image (and related) tool paths. Token and time pricing
-                      for image/video models is configured on{" "}
-                      <Link href="/admin/runtime" className="text-accent hover:underline">
-                        Admin → Runtime
-                      </Link>
-                      .
-                    </p>
-                  </div>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {pickCredentials(state.credentials, MEDIA_CREDENTIAL_KEYS).map((cred) => (
-                    <ToolCredentialCard
-                      key={cred.credentialKey}
-                      cred={cred}
-                      keyInputs={keyInputs}
-                      providerInputs={providerInputs}
-                      onKeyChange={updateKeyInput}
-                      onProviderChange={updateProviderInput}
-                    />
-                  ))}
-                </div>
-              </section>
-
-              <div className="space-y-3">
+              <div className="space-y-3 rounded-xl border border-border bg-surface-raised p-4">
                 <button
                   type="button"
                   disabled={saving}
@@ -999,157 +961,185 @@ export default function AdminToolsPage() {
                 )}
               </div>
             </div>
-          )}
 
-          <div className="space-y-6">
-            {billingState && (
-              <section className="rounded-xl border border-border bg-surface-raised p-4">
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="h-4 w-4 text-accent" />
+            <div className="min-w-0 space-y-6">
+              {billingState && (
+                <section className="rounded-xl border border-border bg-surface-raised p-4">
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-accent" />
+                      <div>
+                        <p className="text-sm font-semibold text-text">Billing Providers</p>
+                        <p className="text-[11px] text-text-muted">
+                          Encrypted credentials for payment-provider verification and future billing
+                          API calls.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {billingState.notes.length > 0 && (
+                    <ul className="mb-4 list-disc space-y-1 pl-4 text-[11px] text-text-subtle">
+                      {billingState.notes.map((note, index) => (
+                        <li key={index}>{note}</li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <div className="space-y-3">
+                    {billingState.providers.map((provider) => (
+                      <div
+                        key={provider.providerKey}
+                        className="rounded-lg border border-border bg-surface p-3"
+                      >
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium text-text">{provider.displayName}</p>
+                            <p className="text-[11px] text-text-muted">{provider.description}</p>
+                          </div>
+                          {provider.apiSecret.configured && provider.publicTerminalId.configured ? (
+                            <span className="text-[11px] text-success">Configured</span>
+                          ) : (
+                            <span className="text-[11px] text-text-subtle">Incomplete</span>
+                          )}
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div>
+                            <p className="mb-1 text-[11px] font-medium text-text">API Secret</p>
+                            <input
+                              type="password"
+                              value={billingKeyInputs.cloudpaymentsApiSecret ?? ""}
+                              onChange={(e) =>
+                                setBillingKeyInputs((prev) => ({
+                                  ...prev,
+                                  cloudpaymentsApiSecret: e.target.value
+                                }))
+                              }
+                              placeholder={
+                                provider.apiSecret.configured
+                                  ? `••••${provider.apiSecret.lastFour ?? ""}`
+                                  : "Enter API secret..."
+                              }
+                              className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                            />
+                            {provider.apiSecret.updatedAt && (
+                              <p className="mt-1 text-[10px] text-text-muted">
+                                Last updated:{" "}
+                                {new Date(provider.apiSecret.updatedAt).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            <p className="mb-1 text-[11px] font-medium text-text">
+                              Public Terminal ID
+                            </p>
+                            <input
+                              type="text"
+                              value={billingKeyInputs.cloudpaymentsPublicTerminalId ?? ""}
+                              onChange={(e) =>
+                                setBillingKeyInputs((prev) => ({
+                                  ...prev,
+                                  cloudpaymentsPublicTerminalId: e.target.value
+                                }))
+                              }
+                              placeholder={
+                                provider.publicTerminalId.configured
+                                  ? `••••${provider.publicTerminalId.lastFour ?? ""}`
+                                  : "Enter public terminal id..."
+                              }
+                              className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                            />
+                            {provider.publicTerminalId.updatedAt && (
+                              <p className="mt-1 text-[10px] text-text-muted">
+                                Last updated:{" "}
+                                {new Date(provider.publicTerminalId.updatedAt).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={savingBilling}
+                    onClick={() => void handleSaveBilling()}
+                    className="mt-4 flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                  >
+                    {savingBilling ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Save className="h-3.5 w-3.5" />
+                    )}
+                    Save billing credentials
+                  </button>
+                  {billingFeedback && (
+                    <p className="mt-2 text-xs text-text-muted">{billingFeedback}</p>
+                  )}
+                </section>
+              )}
+
+              {state.credentials.some((c) => c.toolCode === "notifications") && (
+                <section className="rounded-xl border border-border bg-surface-raised p-4">
+                  <div className="mb-4 flex items-start gap-2">
+                    <Bell className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
                     <div>
-                      <p className="text-sm font-semibold text-text">Billing Providers</p>
+                      <p className="text-sm font-semibold text-text">Notifications</p>
                       <p className="text-[11px] text-text-muted">
-                        Encrypted credentials for payment-provider verification and future billing
-                        API calls.
+                        Postmark credentials for transactional email. Save with{" "}
+                        <span className="font-medium text-text">Save tool credentials</span> below.
                       </p>
                     </div>
                   </div>
-                </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {state.credentials
+                      .filter((c) => c.toolCode === "notifications")
+                      .map((cred) => (
+                        <ToolCredentialCard
+                          key={cred.credentialKey}
+                          cred={cred}
+                          keyInputs={keyInputs}
+                          providerInputs={providerInputs}
+                          onKeyChange={updateKeyInput}
+                          onProviderChange={updateProviderInput}
+                        />
+                      ))}
+                  </div>
+                </section>
+              )}
 
-                {billingState.notes.length > 0 && (
-                  <ul className="mb-4 list-disc space-y-1 pl-4 text-[11px] text-text-subtle">
-                    {billingState.notes.map((note, index) => (
-                      <li key={index}>{note}</li>
-                    ))}
-                  </ul>
-                )}
-
-                <div className="space-y-3">
-                  {billingState.providers.map((provider) => (
-                    <div
-                      key={provider.providerKey}
-                      className="rounded-lg border border-border bg-surface p-3"
-                    >
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-medium text-text">{provider.displayName}</p>
-                          <p className="text-[11px] text-text-muted">{provider.description}</p>
-                        </div>
-                        {provider.apiSecret.configured && provider.publicTerminalId.configured ? (
-                          <span className="text-[11px] text-success">Configured</span>
-                        ) : (
-                          <span className="text-[11px] text-text-subtle">Incomplete</span>
-                        )}
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div>
-                          <p className="mb-1 text-[11px] font-medium text-text">API Secret</p>
-                          <input
-                            type="password"
-                            value={billingKeyInputs.cloudpaymentsApiSecret ?? ""}
-                            onChange={(e) =>
-                              setBillingKeyInputs((prev) => ({
-                                ...prev,
-                                cloudpaymentsApiSecret: e.target.value
-                              }))
-                            }
-                            placeholder={
-                              provider.apiSecret.configured
-                                ? `••••${provider.apiSecret.lastFour ?? ""}`
-                                : "Enter API secret..."
-                            }
-                            className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-                          />
-                          {provider.apiSecret.updatedAt && (
-                            <p className="mt-1 text-[10px] text-text-muted">
-                              Last updated:{" "}
-                              {new Date(provider.apiSecret.updatedAt).toLocaleString()}
-                            </p>
-                          )}
-                        </div>
-                        <div>
-                          <p className="mb-1 text-[11px] font-medium text-text">
-                            Public Terminal ID
-                          </p>
-                          <input
-                            type="text"
-                            value={billingKeyInputs.cloudpaymentsPublicTerminalId ?? ""}
-                            onChange={(e) =>
-                              setBillingKeyInputs((prev) => ({
-                                ...prev,
-                                cloudpaymentsPublicTerminalId: e.target.value
-                              }))
-                            }
-                            placeholder={
-                              provider.publicTerminalId.configured
-                                ? `••••${provider.publicTerminalId.lastFour ?? ""}`
-                                : "Enter public terminal id..."
-                            }
-                            className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-                          />
-                          {provider.publicTerminalId.updatedAt && (
-                            <p className="mt-1 text-[10px] text-text-muted">
-                              Last updated:{" "}
-                              {new Date(provider.publicTerminalId.updatedAt).toLocaleString()}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  disabled={savingBilling}
-                  onClick={() => void handleSaveBilling()}
-                  className="mt-4 flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-                >
-                  {savingBilling ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Save className="h-3.5 w-3.5" />
-                  )}
-                  Save billing credentials
-                </button>
-                {billingFeedback && (
-                  <p className="mt-2 text-xs text-text-muted">{billingFeedback}</p>
-                )}
-              </section>
-            )}
-
-            {state && state.credentials.some((c) => c.toolCode === "notifications") && (
               <section className="rounded-xl border border-border bg-surface-raised p-4">
                 <div className="mb-4 flex items-start gap-2">
-                  <Bell className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                  <ImageIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
                   <div>
-                    <p className="text-sm font-semibold text-text">Notifications</p>
+                    <p className="text-sm font-semibold text-text">Media</p>
                     <p className="text-[11px] text-text-muted">
-                      Postmark credentials for transactional email. Use{" "}
-                      <span className="font-medium text-text">Save tool credentials</span> in the
-                      left column after editing keys here.
+                      Shared OpenAI key for image (and related) tool paths. Token and time pricing
+                      for image/video models is configured on{" "}
+                      <Link href="/admin/runtime" className="text-accent hover:underline">
+                        Admin → Runtime
+                      </Link>
+                      .
                     </p>
                   </div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {state.credentials
-                    .filter((c) => c.toolCode === "notifications")
-                    .map((cred) => (
-                      <ToolCredentialCard
-                        key={cred.credentialKey}
-                        cred={cred}
-                        keyInputs={keyInputs}
-                        providerInputs={providerInputs}
-                        onKeyChange={updateKeyInput}
-                        onProviderChange={updateProviderInput}
-                      />
-                    ))}
+                  {pickCredentials(state.credentials, MEDIA_CREDENTIAL_KEYS).map((cred) => (
+                    <ToolCredentialCard
+                      key={cred.credentialKey}
+                      cred={cred}
+                      keyInputs={keyInputs}
+                      providerInputs={providerInputs}
+                      onKeyChange={updateKeyInput}
+                      onProviderChange={updateProviderInput}
+                    />
+                  ))}
                 </div>
               </section>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

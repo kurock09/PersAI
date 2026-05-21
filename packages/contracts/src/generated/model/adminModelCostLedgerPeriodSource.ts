@@ -12,5 +12,6 @@ export type AdminModelCostLedgerPeriodSource =
 export const AdminModelCostLedgerPeriodSource = {
   rolling_7d: "rolling_7d",
   subscription_period: "subscription_period",
-  calendar_month_fallback: "calendar_month_fallback"
+  calendar_month_fallback: "calendar_month_fallback",
+  all_time: "all_time"
 } as const;

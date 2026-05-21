@@ -12690,6 +12690,23 @@ components:
         - rolling_7d
         - subscription_period
         - calendar_month_fallback
+        - all_time
+    AdminPlatformPaymentRevenueAllTime:
+      type: object
+      required:
+        - rubTotalMinor
+        - rubSucceededPayments
+        - usdTotalMinor
+        - usdSucceededPayments
+      properties:
+        rubTotalMinor:
+          type: integer
+        rubSucceededPayments:
+          type: integer
+        usdTotalMinor:
+          type: integer
+        usdSucceededPayments:
+          type: integer
     AdminModelCostLedgerCurrencyTotal:
       type: object
       required:
@@ -13008,6 +13025,7 @@ components:
         - publishApplyHealth
         - planCatalog
         - ledgerBackedModelCost
+        - platformPaymentRevenueAllTime
         - runtimeTurnAverages
         - updatedAt
       properties:
@@ -13088,6 +13106,8 @@ components:
               nullable: true
         ledgerBackedModelCost:
           $ref: "#/components/schemas/AdminModelCostLedgerWindowState"
+        platformPaymentRevenueAllTime:
+          $ref: "#/components/schemas/AdminPlatformPaymentRevenueAllTime"
         runtimeTurnAverages:
           $ref: "#/components/schemas/RuntimeTurnAverages"
         updatedAt:

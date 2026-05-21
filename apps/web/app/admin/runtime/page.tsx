@@ -1479,7 +1479,7 @@ function ProviderSelect({
         value={value}
         onChange={(event) => onChange(event.target.value as ManagedRuntimeProvider)}
         aria-label="Provider"
-        className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-border-strong"
+        className="persai-select w-full"
       >
         <option value="openai">OpenAI</option>
         <option value="anthropic">Anthropic</option>
@@ -1507,7 +1507,7 @@ function ModelSelect({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-border-strong"
+        className="persai-select w-full"
       >
         <option value="">{emptyLabel}</option>
         {options.map((option) => (
@@ -2080,7 +2080,7 @@ function Field({
         autoCorrect="off"
         autoCapitalize="off"
         spellCheck={false}
-        className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+        className="persai-field-control w-full"
       />
     </div>
   );
@@ -2138,7 +2138,7 @@ function NumberField({
         }}
         aria-label={label}
         autoComplete="off"
-        className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-border-strong"
+        className="persai-field-control w-full"
       />
     </div>
   );
@@ -2192,7 +2192,7 @@ function SelectField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         aria-label={label}
-        className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-border-strong"
+        className="persai-select w-full"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>

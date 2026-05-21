@@ -62,11 +62,17 @@ function createBusinessPlatformState(): AdminBusinessPlatformState {
       inactivePlans: 1,
       defaultRegistrationPlanCode: "starter"
     },
+    platformPaymentRevenueAllTime: {
+      rubTotalMinor: 56100,
+      rubSucceededPayments: 3,
+      usdTotalMinor: 0,
+      usdSucceededPayments: 0
+    },
     ledgerBackedModelCost: {
-      windowLabel: "last_7_days",
-      startedAt: "2026-05-13T00:00:00.000Z",
+      windowLabel: "all_time",
+      startedAt: "1970-01-01T00:00:00.000Z",
       endedAt: null,
-      periodSource: "rolling_7d",
+      periodSource: "all_time",
       coverageScope: "adr099_block1_model_priced_paths",
       coverageNote: "Coverage note from shared ledger payload.",
       totalEvents: 3,
@@ -155,7 +161,9 @@ describe("AdminBusinessPage", () => {
 
     await waitFor(() => expect(apiMocks.getAdminBusinessPlatform).toHaveBeenCalledWith("token-1"));
 
-    expect(screen.getByText("Ledger-backed Model Cost · Global · 7 days")).toBeInTheDocument();
+    expect(screen.getByText("Ledger-backed Model Cost · Global · all time")).toBeInTheDocument();
     expect(screen.getByText("Coverage note from shared ledger payload.")).toBeInTheDocument();
+    expect(screen.getByText("Payments · RUB")).toBeInTheDocument();
+    expect(screen.getByText("561 ₽")).toBeInTheDocument();
   });
 });
