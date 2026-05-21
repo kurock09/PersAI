@@ -36,7 +36,9 @@ function buildPackageOfferMock(input: {
   highlighted: boolean;
   title: { ru: string; en: string };
 }) {
-  const amountMajor = Number((input.amountMinor / 100).toFixed(input.amountMinor % 100 === 0 ? 0 : 2));
+  const amountMajor = Number(
+    (input.amountMinor / 100).toFixed(input.amountMinor % 100 === 0 ? 0 : 2)
+  );
   const formatPrice = (locale: string) =>
     new Intl.NumberFormat(locale, {
       style: "currency",
