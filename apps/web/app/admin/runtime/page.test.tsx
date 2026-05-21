@@ -1,9 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdminRuntimeProviderSettingsState } from "@persai/contracts";
 import AdminRuntimePage, {
   buildRouterPrecheckRuleOverrides,
   buildSkillRoutingPolicyInput,
+  normalizeDecimalInputText,
+  parseDecimalInputText,
   parseRouterTriggerTerms
 } from "./page";
 
@@ -152,9 +154,11 @@ describe("AdminRuntimePage", () => {
     fireEvent.change(screen.getByLabelText("Match value"), {
       target: { value: "1024x1024" }
     });
-    fireEvent.change(screen.getByLabelText("Price"), {
+    const tierPrice = screen.getByLabelText("Price");
+    fireEvent.change(tierPrice, {
       target: { value: "0.08" }
     });
+    fireEvent.blur(tierPrice);
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
@@ -217,6 +221,58 @@ describe("AdminRuntimePage", () => {
       active: false
     });
     expect(imageProfiles[0].effectiveTo).toBeTruthy();
+  });
+});
+
+describe("admin runtime decimal inputs", () => {
+  it("parses dot and comma decimals for per-1M pricing fields", () => {
+    expect(normalizeDecimalInputText("0,075")).toBe("0.075");
+    expect(parseDecimalInputText("0.075")).toBe(0.075);
+    expect(parseDecimalInputText("0,")).toBeNull();
+    expect(parseDecimalInputText("0.")).toBeNull();
+  });
+});
+
+describe("AdminRuntimePage decimal pricing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clerkMocks.getToken.mockResolvedValue("token-1");
+    apiMocks.getAdminRuntimeProviderSettings.mockResolvedValue(createRuntimeSettingsState());
+    apiMocks.putAdminRuntimeProviderSettings.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("keeps fractional per-1M pricing while typing", async () => {
+    render(<AdminRuntimePage />);
+
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+
+    const inputPer1M = screen.getByLabelText("Input / 1M");
+    await act(async () => {
+      fireEvent.focus(inputPer1M);
+      fireEvent.change(inputPer1M, { target: { value: "0,075" } });
+      fireEvent.blur(inputPer1M);
+    });
+    await waitFor(() => expect(inputPer1M).toHaveValue("0.075"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+
+    await waitFor(() => {
+      const request = apiMocks.putAdminRuntimeProviderSettings.mock.calls[0]![1];
+      const chatProfile = request.availableModelCatalogByProvider.openai.models.find(
+        (profile: { model: string }) => profile.model === "gpt-5.4"
+      );
+      expect(chatProfile?.providerPriceMetadata.tokenPricing.inputPer1M).toBe(0.075);
+    });
   });
 });
 

@@ -270,6 +270,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         SELECT
           "id",
           "assistant_id" AS "assistantId",
+          "user_id" AS "userId",
           "workspace_id" AS "workspaceId",
           "chat_id" AS "chatId",
           "surface"::text AS "surface",

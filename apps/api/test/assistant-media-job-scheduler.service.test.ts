@@ -299,6 +299,39 @@ describe("AssistantMediaJobSchedulerService", () => {
     );
   });
 
+  test("does not process claimed rows when userId is missing from the claim query", async () => {
+    const { service, txUpdates } = createService({
+      queryRows: [
+        {
+          id: "job-missing-user",
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          surface: "web",
+          kind: "image",
+          sourceUserMessageId: "user-message-1",
+          requestJson: {
+            attachments: [],
+            sourceUserMessageText: "draw a sunset",
+            sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            directToolExecution: {
+              toolCode: "image_generate",
+              request: { prompt: "sunset" }
+            }
+          },
+          attemptCount: 0,
+          maxAttempts: 5
+        }
+      ]
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 0);
+    assert.equal(txUpdates.length, 1);
+    assert.equal(txUpdates[0]?.data?.status, "running");
+  });
+
   test("passes direct tool execution payloads through to runtime", async () => {
     let capturedRunInput: Record<string, unknown> | null = null;
     const { service } = createService({

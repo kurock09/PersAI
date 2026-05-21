@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { ChevronDown, Loader2, Save, Server } from "lucide-react";
 import type {
@@ -22,6 +22,37 @@ type RuntimeProviderModelProfileForMode<M extends RuntimeProviderBillingModeStat
   RuntimeProviderModelProfileState,
   { billingMode: M }
 >;
+type RuntimeProviderPriceMetadataMerger = (
+  current: RuntimeProviderPriceMetadataState
+) => RuntimeProviderPriceMetadataState;
+
+/** Accepts `0.075` and `0,075` while typing; incomplete fragments like `0.` stay in the field until blur. */
+export function normalizeDecimalInputText(raw: string): string {
+  return raw.trim().replace(/\s+/g, "").replace(",", ".");
+}
+
+export function parseDecimalInputText(raw: string): number | null {
+  const normalized = normalizeDecimalInputText(raw);
+  if (normalized.length === 0) {
+    return null;
+  }
+  if (normalized === "." || normalized.endsWith(".")) {
+    return null;
+  }
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function formatDecimalInputValue(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  const asString = String(value);
+  if (asString.includes("e") || asString.includes("E")) {
+    return value.toFixed(6).replace(/\.?0+$/, "");
+  }
+  return asString;
+}
 
 export function parseRouterTriggerTerms(value: string): string[] {
   return Array.from(
@@ -617,8 +648,10 @@ export default function AdminRuntimePage() {
   ] = useState("5");
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
+  const modelCatalogRef = useRef<RuntimeProviderModelCatalogByProviderState>(createEmptyCatalog());
   const [modelCatalogByProvider, setModelCatalogByProvider] =
     useState<RuntimeProviderModelCatalogByProviderState>(createEmptyCatalog());
+  modelCatalogRef.current = modelCatalogByProvider;
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -713,7 +746,7 @@ export default function AdminRuntimePage() {
     setSaving(true);
     setFeedback(null);
     try {
-      const parsedModelCatalog = modelCatalogByProvider;
+      const parsedModelCatalog = modelCatalogRef.current;
       const parsedCatalog = deriveAvailableModelsByProvider(parsedModelCatalog);
 
       if (!parsedCatalog[primaryProvider].includes(primaryModel.trim())) {
@@ -1049,6 +1082,14 @@ export default function AdminRuntimePage() {
                       onChange={(nextProfile) =>
                         updateCatalogProfile(provider, index, () => nextProfile)
                       }
+                      onProviderPriceMetadataChange={(merge) =>
+                        updateCatalogProfile(provider, index, (currentProfile) => {
+                          const currentMeta =
+                            currentProfile.providerPriceMetadata ??
+                            createDefaultProviderPriceMetadata(currentProfile.billingMode);
+                          return replacePriceMetadata(currentProfile, merge(currentMeta));
+                        })
+                      }
                       onDuplicate={() => duplicateCatalogProfile(provider, index)}
                       onArchive={() => archiveCatalogProfile(provider, index)}
                     />
@@ -1376,12 +1417,14 @@ function ModelProfileEditor({
   provider,
   profile,
   onChange,
+  onProviderPriceMetadataChange,
   onDuplicate,
   onArchive
 }: {
   provider: ManagedRuntimeProvider;
   profile: RuntimeProviderModelProfileState;
   onChange: (profile: RuntimeProviderModelProfileState) => void;
+  onProviderPriceMetadataChange: (merge: RuntimeProviderPriceMetadataMerger) => void;
   onDuplicate: () => void;
   onArchive: () => void;
 }) {
@@ -1542,12 +1585,7 @@ function ModelProfileEditor({
         />
       </div>
 
-      <PriceMetadataEditor
-        profile={profile}
-        onChange={(providerPriceMetadata) =>
-          onChange(replacePriceMetadata(profile, providerPriceMetadata))
-        }
-      />
+      <PriceMetadataEditor profile={profile} onChange={onProviderPriceMetadataChange} />
 
       <div>
         <label className="mb-1 block text-[10px] font-medium text-text-muted">Notes</label>
@@ -1573,7 +1611,7 @@ function PriceMetadataEditor({
   onChange
 }: {
   profile: RuntimeProviderModelProfileState;
-  onChange: (value: RuntimeProviderPriceMetadataState) => void;
+  onChange: (merge: RuntimeProviderPriceMetadataMerger) => void;
 }) {
   const pricing =
     profile.providerPriceMetadata ?? createDefaultProviderPriceMetadata(profile.billingMode);
@@ -1586,11 +1624,11 @@ function PriceMetadataEditor({
   return (
     <div className="space-y-2 rounded border border-border/50 bg-surface-raised/70 p-2">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <Field
+        <SelectField
           label="Currency"
-          value={pricing.currency}
-          onChange={(currency) => onChange({ ...pricing, currency: currency.toUpperCase() })}
-          placeholder="USD"
+          value="USD"
+          onChange={() => onChange((current) => ({ ...current, currency: "USD" }))}
+          options={[{ value: "USD", label: "USD" }]}
         />
       </div>
 
@@ -1600,9 +1638,14 @@ function PriceMetadataEditor({
             label="Input / 1M"
             value={tokenPricing.inputPer1M}
             onChange={(next) =>
-              onChange({
-                ...pricing,
-                tokenPricing: { ...tokenPricing, inputPer1M: next }
+              onChange((current) => {
+                if (!("tokenPricing" in current)) {
+                  return current;
+                }
+                return {
+                  ...current,
+                  tokenPricing: { ...current.tokenPricing, inputPer1M: next }
+                };
               })
             }
           />
@@ -1610,9 +1653,14 @@ function PriceMetadataEditor({
             label="Cached / 1M"
             value={tokenPricing.cachedInputPer1M}
             onChange={(next) =>
-              onChange({
-                ...pricing,
-                tokenPricing: { ...tokenPricing, cachedInputPer1M: next }
+              onChange((current) => {
+                if (!("tokenPricing" in current)) {
+                  return current;
+                }
+                return {
+                  ...current,
+                  tokenPricing: { ...current.tokenPricing, cachedInputPer1M: next }
+                };
               })
             }
           />
@@ -1620,9 +1668,14 @@ function PriceMetadataEditor({
             label="Output / 1M"
             value={tokenPricing.outputPer1M}
             onChange={(next) =>
-              onChange({
-                ...pricing,
-                tokenPricing: { ...tokenPricing, outputPer1M: next }
+              onChange((current) => {
+                if (!("tokenPricing" in current)) {
+                  return current;
+                }
+                return {
+                  ...current,
+                  tokenPricing: { ...current.tokenPricing, outputPer1M: next }
+                };
               })
             }
           />
@@ -1635,9 +1688,14 @@ function PriceMetadataEditor({
             label="Time unit"
             value={timePricing.unit}
             onChange={(unit) =>
-              onChange({
-                ...pricing,
-                timePricing: { ...timePricing, unit: unit as "second" | "minute" }
+              onChange((current) => {
+                if (!("timePricing" in current)) {
+                  return current;
+                }
+                return {
+                  ...current,
+                  timePricing: { ...current.timePricing, unit: unit as "second" | "minute" }
+                };
               })
             }
             options={[
@@ -1649,9 +1707,14 @@ function PriceMetadataEditor({
             label="Price / unit"
             value={timePricing.pricePerUnit}
             onChange={(next) =>
-              onChange({
-                ...pricing,
-                timePricing: { ...timePricing, pricePerUnit: next }
+              onChange((current) => {
+                if (!("timePricing" in current)) {
+                  return current;
+                }
+                return {
+                  ...current,
+                  timePricing: { ...current.timePricing, pricePerUnit: next }
+                };
               })
             }
           />
@@ -1664,12 +1727,17 @@ function PriceMetadataEditor({
             label="Price / 1M chars"
             value={pricing.textCharsPricing.pricePer1MChars}
             onChange={(next) =>
-              onChange({
-                ...pricing,
-                textCharsPricing: {
-                  ...pricing.textCharsPricing,
-                  pricePer1MChars: next
+              onChange((current) => {
+                if (!("textCharsPricing" in current)) {
+                  return current;
                 }
+                return {
+                  ...current,
+                  textCharsPricing: {
+                    ...current.textCharsPricing,
+                    pricePer1MChars: next
+                  }
+                };
               })
             }
           />
@@ -1682,12 +1750,17 @@ function PriceMetadataEditor({
             label="Operation label"
             value={fixedOperationPricing.unitLabel ?? ""}
             onChange={(unitLabel) =>
-              onChange({
-                ...pricing,
-                fixedOperationPricing: {
-                  ...fixedOperationPricing,
-                  unitLabel: unitLabel.trim().length > 0 ? unitLabel : null
+              onChange((current) => {
+                if (!("fixedOperationPricing" in current)) {
+                  return current;
                 }
+                return {
+                  ...current,
+                  fixedOperationPricing: {
+                    ...current.fixedOperationPricing,
+                    unitLabel: unitLabel.trim().length > 0 ? unitLabel : null
+                  }
+                };
               })
             }
             placeholder="render"
@@ -1696,12 +1769,17 @@ function PriceMetadataEditor({
             label="Price / operation"
             value={fixedOperationPricing.pricePerOperation}
             onChange={(next) =>
-              onChange({
-                ...pricing,
-                fixedOperationPricing: {
-                  ...fixedOperationPricing,
-                  pricePerOperation: next
+              onChange((current) => {
+                if (!("fixedOperationPricing" in current)) {
+                  return current;
                 }
+                return {
+                  ...current,
+                  fixedOperationPricing: {
+                    ...current.fixedOperationPricing,
+                    pricePerOperation: next
+                  }
+                };
               })
             }
           />
@@ -1715,12 +1793,17 @@ function PriceMetadataEditor({
               label="Tier unit label"
               value={tieredOperationPricing.unitLabel ?? ""}
               onChange={(unitLabel) =>
-                onChange({
-                  ...pricing,
-                  tieredOperationPricing: {
-                    ...tieredOperationPricing,
-                    unitLabel: unitLabel.trim().length > 0 ? unitLabel : null
+                onChange((current) => {
+                  if (!("tieredOperationPricing" in current)) {
+                    return current;
                   }
+                  return {
+                    ...current,
+                    tieredOperationPricing: {
+                      ...current.tieredOperationPricing,
+                      unitLabel: unitLabel.trim().length > 0 ? unitLabel : null
+                    }
+                  };
                 })
               }
               placeholder="image"
@@ -1729,15 +1812,20 @@ function PriceMetadataEditor({
               <button
                 type="button"
                 onClick={() =>
-                  onChange({
-                    ...pricing,
-                    tieredOperationPricing: {
-                      ...tieredOperationPricing,
-                      tiers: [
-                        ...tieredOperationPricing.tiers,
-                        { label: "", matchValue: null, price: 0 }
-                      ]
+                  onChange((current) => {
+                    if (!("tieredOperationPricing" in current)) {
+                      return current;
                     }
+                    return {
+                      ...current,
+                      tieredOperationPricing: {
+                        ...current.tieredOperationPricing,
+                        tiers: [
+                          ...current.tieredOperationPricing.tiers,
+                          { label: "", matchValue: null, price: 0 }
+                        ]
+                      }
+                    };
                   })
                 }
                 className="rounded border border-border/60 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted hover:border-border-strong hover:text-text"
@@ -1756,14 +1844,19 @@ function PriceMetadataEditor({
                   label="Tier label"
                   value={tier.label}
                   onChange={(label) =>
-                    onChange({
-                      ...pricing,
-                      tieredOperationPricing: {
-                        ...tieredOperationPricing,
-                        tiers: tieredOperationPricing.tiers.map((entry, entryIndex) =>
-                          entryIndex === tierIndex ? { ...entry, label } : entry
-                        )
+                    onChange((current) => {
+                      if (!("tieredOperationPricing" in current)) {
+                        return current;
                       }
+                      return {
+                        ...current,
+                        tieredOperationPricing: {
+                          ...current.tieredOperationPricing,
+                          tiers: current.tieredOperationPricing.tiers.map((entry, entryIndex) =>
+                            entryIndex === tierIndex ? { ...entry, label } : entry
+                          )
+                        }
+                      };
                     })
                   }
                   placeholder="hd"
@@ -1772,19 +1865,24 @@ function PriceMetadataEditor({
                   label="Match value"
                   value={tier.matchValue ?? ""}
                   onChange={(matchValue) =>
-                    onChange({
-                      ...pricing,
-                      tieredOperationPricing: {
-                        ...tieredOperationPricing,
-                        tiers: tieredOperationPricing.tiers.map((entry, entryIndex) =>
-                          entryIndex === tierIndex
-                            ? {
-                                ...entry,
-                                matchValue: matchValue.trim().length > 0 ? matchValue : null
-                              }
-                            : entry
-                        )
+                    onChange((current) => {
+                      if (!("tieredOperationPricing" in current)) {
+                        return current;
                       }
+                      return {
+                        ...current,
+                        tieredOperationPricing: {
+                          ...current.tieredOperationPricing,
+                          tiers: current.tieredOperationPricing.tiers.map((entry, entryIndex) =>
+                            entryIndex === tierIndex
+                              ? {
+                                  ...entry,
+                                  matchValue: matchValue.trim().length > 0 ? matchValue : null
+                                }
+                              : entry
+                          )
+                        }
+                      };
                     })
                   }
                   placeholder="1024x1024"
@@ -1793,14 +1891,19 @@ function PriceMetadataEditor({
                   label="Price"
                   value={tier.price}
                   onChange={(next) =>
-                    onChange({
-                      ...pricing,
-                      tieredOperationPricing: {
-                        ...tieredOperationPricing,
-                        tiers: tieredOperationPricing.tiers.map((entry, entryIndex) =>
-                          entryIndex === tierIndex ? { ...entry, price: next } : entry
-                        )
+                    onChange((current) => {
+                      if (!("tieredOperationPricing" in current)) {
+                        return current;
                       }
+                      return {
+                        ...current,
+                        tieredOperationPricing: {
+                          ...current.tieredOperationPricing,
+                          tiers: current.tieredOperationPricing.tiers.map((entry, entryIndex) =>
+                            entryIndex === tierIndex ? { ...entry, price: next } : entry
+                          )
+                        }
+                      };
                     })
                   }
                 />
@@ -1808,14 +1911,19 @@ function PriceMetadataEditor({
                   <button
                     type="button"
                     onClick={() =>
-                      onChange({
-                        ...pricing,
-                        tieredOperationPricing: {
-                          ...tieredOperationPricing,
-                          tiers: tieredOperationPricing.tiers.filter(
-                            (_, entryIndex) => entryIndex !== tierIndex
-                          )
+                      onChange((current) => {
+                        if (!("tieredOperationPricing" in current)) {
+                          return current;
                         }
+                        return {
+                          ...current,
+                          tieredOperationPricing: {
+                            ...current.tieredOperationPricing,
+                            tiers: current.tieredOperationPricing.tiers.filter(
+                              (_, entryIndex) => entryIndex !== tierIndex
+                            )
+                          }
+                        };
                       })
                     }
                     className="rounded border border-rose-500/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-700 hover:bg-rose-500/10 dark:text-rose-300"
@@ -1874,27 +1982,55 @@ function Field({
 function NumberField({
   label,
   value,
-  onChange,
-  step = "0.01"
+  onChange
 }: {
   label: string;
   value: number;
   onChange: (value: number) => void;
-  step?: string;
 }) {
+  const inputId = useId();
+  const isFocusedRef = useRef(false);
+  const [draft, setDraft] = useState(() => formatDecimalInputValue(value));
+
+  useEffect(() => {
+    if (!isFocusedRef.current) {
+      setDraft(formatDecimalInputValue(value));
+    }
+  }, [value]);
+
   return (
     <div>
-      <label className="mb-1 block text-[10px] font-medium text-text-muted">{label}</label>
+      <label htmlFor={inputId} className="mb-1 block text-[10px] font-medium text-text-muted">
+        {label}
+      </label>
       <input
-        type="number"
-        value={Number.isFinite(value) ? String(value) : "0"}
+        id={inputId}
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        onFocus={() => {
+          isFocusedRef.current = true;
+        }}
         onChange={(event) => {
-          const nextValue =
-            event.target.value.trim().length === 0 ? 0 : Number.parseFloat(event.target.value);
-          onChange(Number.isFinite(nextValue) ? nextValue : 0);
+          const next = event.target.value;
+          if (next.length > 0 && !/^[\d.,]*$/.test(next)) {
+            return;
+          }
+          setDraft(next);
+          const parsed = parseDecimalInputText(next);
+          if (parsed !== null && parsed >= 0) {
+            onChange(parsed);
+          }
+        }}
+        onBlur={() => {
+          isFocusedRef.current = false;
+          const parsed = parseDecimalInputText(draft);
+          const final = parsed !== null && parsed >= 0 ? parsed : 0;
+          onChange(final);
+          setDraft(formatDecimalInputValue(final));
         }}
         aria-label={label}
-        step={step}
+        autoComplete="off"
         className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-border-strong"
       />
     </div>
