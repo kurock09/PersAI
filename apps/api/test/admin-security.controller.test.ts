@@ -11,8 +11,7 @@ async function run(): Promise<void> {
         return {
           context: {
             workspaceId: "ws-1",
-            roles: ["business_admin"],
-            hasLegacyOwnerFallback: false
+            roles: ["business_admin"]
           },
           challenge: {
             token: "step-up-token",

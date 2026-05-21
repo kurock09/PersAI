@@ -144,8 +144,7 @@ export class ManageAdminAbuseControlsService {
         email: normalizedEmail,
         matchedAssistantCount: result.length,
         matchedAssistantIds: result.map((item) => item.assistantId),
-        actorRoles: context.roles,
-        legacyOwnerFallback: context.hasLegacyOwnerFallback
+        actorRoles: context.roles
       }
     });
     return result;
@@ -258,8 +257,7 @@ export class ManageAdminAbuseControlsService {
         adminOverrideUntil: adminOverrideUntil.toISOString(),
         affectedUserRows: applyResult.userRows,
         affectedAssistantRows: applyResult.assistantRows,
-        actorRoles: context.roles,
-        legacyOwnerFallback: context.hasLegacyOwnerFallback
+        actorRoles: context.roles
       }
     });
     return {

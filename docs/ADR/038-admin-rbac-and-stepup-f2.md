@@ -20,9 +20,7 @@ F2 requires explicit admin roles and hardened dangerous-action protection withou
      - `super_admin`
    - roles can be workspace-scoped and optionally global (`workspace_id = null`).
 
-2. Keep a narrow compatibility fallback:
-   - `workspace_members.role=owner` maps to implicit `business_admin` access for existing flows.
-   - this preserves prior owner-based admin access while RBAC becomes explicit.
+2. ~~Keep a narrow compatibility fallback~~ **Removed (2026-05-21):** `workspace_members.role=owner` no longer grants implicit admin access. Admin surfaces require an explicit row in `app_user_admin_roles` (plus optional `PERSAI_ADMIN_ALLOWLIST_EMAILS` when configured).
 
 3. Read/admin visibility authorization:
    - `/api/v1/admin/plans` and `/api/v1/admin/plans/visibility` require one of:
@@ -30,14 +28,13 @@ F2 requires explicit admin roles and hardened dangerous-action protection withou
      - `business_admin`
      - `security_admin`
      - `super_admin`
-     - or legacy owner fallback.
 
 4. Dangerous admin writes require both role and step-up:
    - actions:
      - `admin.plan.create`
      - `admin.plan.update`
    - role requirement:
-     - `business_admin` or `super_admin` (or legacy owner fallback)
+     - `business_admin` or `super_admin`
    - step-up requirement:
      - short-lived signed token from `POST /api/v1/admin/step-up/challenge`
      - token bound to actor, workspace, action, and expiry.

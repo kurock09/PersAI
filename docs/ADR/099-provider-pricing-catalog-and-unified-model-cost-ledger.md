@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Implemented (2026-05-21). Core Block 1 and Block 2 scope landed on `main`; see **Current code audit summary** for optional follow-ups outside this ADR.
 
 ## Date
 
@@ -280,7 +280,7 @@ Ledger purposes (same immutable `model_cost_ledger_events` table):
 
 - `web_search`, `web_fetch`, `browser`, `document_render`
 
-Writer: `RecordModelCostLedgerService.recordToolPathBillingFactsEvent()` prices `RuntimeBillingFacts` with tool-path capabilities against the tool-path catalog snapshot at `occurredAt`. Runtime/provider-gateway emission of those billing facts and Admin Tools price fields UI are follow-up slices (Steps C/D).
+Writer: `RecordModelCostLedgerService.recordToolPathBillingFactsEvent()` prices `RuntimeBillingFacts` with tool-path capabilities against the tool-path catalog snapshot at `occurredAt`. **Shipped (2026-05-21):** provider-gateway/runtime emit tool-path `billingFacts`; API appends ledger rows on web/Telegram turns and document-job delivery; Admin → Tools economics UI binds `GET/PUT /admin/tools/economics`.
 
 ## Execution rules for Cursor agents and subagents
 
@@ -327,48 +327,43 @@ An agent may combine adjacent sessions only when the combined scope remains smal
 ### Prompt for a future implementation session
 
 ```text
-Continue ADR-099 provider pricing catalog and unified model cost ledger.
+ADR-099 is Implemented. Do not reopen Block 1/2 unless a new ADR or explicit founder request.
 
-Read before coding:
+For optional follow-ups, read this ADR § Current code audit summary and docs/SESSION-HANDOFF.md.
+
+Before any economics code change:
 1. AGENTS.md
 2. docs/SESSION-HANDOFF.md
-3. docs/CHANGELOG.md
-4. docs/ADR/099-provider-pricing-catalog-and-unified-model-cost-ledger.md
-5. docs/ARCHITECTURE.md
-6. docs/API-BOUNDARY.md
-7. docs/DATA-MODEL.md
-8. docs/TEST-PLAN.md
-
-Session rules:
-- one bounded slice only
-- parent agent owns all edits and final decisions
-- subagents may be used only for readonly audit / search / verification support
-- do not change user-facing quota semantics
-- do not start Block 2 unless explicitly directed and Block 1 foundation is already landed
-
-Current target:
-- choose exactly one bounded Block 1 slice
-- keep downstream model selection by active model list unchanged
-- move economics toward one provider pricing catalog and one unified model cost ledger
-
-Before ending:
-- run focused checks for changed code
-- run AGENTS verification gates when code/contracts changed
-- update docs/SESSION-HANDOFF.md and docs/CHANGELOG.md
-- state the next recommended ADR-099 slice
+3. docs/ADR/099-provider-pricing-catalog-and-unified-model-cost-ledger.md
+4. docs/API-BOUNDARY.md
+5. docs/DATA-MODEL.md
 ```
 
 ## Current code audit summary
 
-Current repo truth relevant to this ADR (2026-05-21):
+Repo truth after ADR-099 implementation closeout (2026-05-21):
 
-- `TrackWorkspaceQuotaUsageService` remains product quota logic; it is not the money ledger
-- **Session A landed:** structured Admin Runtime provider/model catalog with versioned pricing metadata
-- **Session B landed:** `model_cost_ledger_events` + `RecordModelCostLedgerService` with replay-safe deterministic ids
-- **Block 1 model-priced ledger writes landed** for: ordinary web/Telegram chat (main reply + router), background-task evaluator, persisted media job + attachment billing facts (image/video/STT/TTS), retrieval-helper reranker, async media/document completion framing (`chat_helper`), standalone voice HTTP transcribe, and Mistral OCR (`ocr_or_document_parsing`)
-- **Admin > Business / Ops** read compact ledger-backed aggregates with `coverageScope=adr099_block1_model_priced_paths` and an explicit coverage note
-- **Still outside Block 1 ledger (honest):** provider document render jobs without model-priced billing facts (PdfMonkey/Gamma — Block 2 / non-model economics); async failure-framing LLM calls (no persisted usage); knowledge **embedding** indexing (no ledger row yet); ADR purpose stubs not yet wired (`tool_helper`, `notification_generation`, `document_generation` for external render)
-- **Block 2 foundation landed (catalog + ledger purposes):** `tool_path_pricing_catalog` JSON on platform settings, `GET/PUT /admin/tools/economics`, and `recordToolPathBillingFactsEvent` for `web_search` / `web_fetch` / `browser` / `document_render` capabilities. Runtime billing-facts emission and Tools UI price editors remain follow-up.
+### Landed (in scope)
+
+- **Product quota unchanged:** `TrackWorkspaceQuotaUsageService` remains user-facing quota; it is not the money ledger.
+- **Block 1 — catalog:** structured Admin Runtime provider/model catalog with versioned `providerPriceMetadata` (Session A).
+- **Block 1 — ledger:** `model_cost_ledger_events` + `RecordModelCostLedgerService` with replay-safe deterministic ids (Session B).
+- **Block 1 — writers** for model-priced paths when catalog + durable usage/billing facts exist: ordinary web/Telegram chat (main reply + router), background-task evaluator, persisted media job and attachment billing facts (image/video/STT/TTS), retrieval-helper reranker, knowledge indexing embeddings (`knowledge_embedding`), async media/document completion framing (`chat_helper`), standalone voice HTTP transcribe, Mistral OCR (`ocr_or_document_parsing`).
+- **Block 1 — admin read models:** `Admin > Business` and `Admin > Ops` expose ledger-backed aggregates via `readAdminModelCostLedgerWindow()` with an explicit `coverageNote` (scope id remains `adr099_block1_model_priced_paths` for contract stability). Business also shows all-time succeeded payment totals; Ops cockpit shows per-user period paid vs USD model-cost spend.
+- **Block 2 — tool-path economics:** `tool_path_pricing_catalog` on `platform_runtime_provider_settings`, `GET/PUT /api/v1/admin/tools/economics`, provider-gateway/runtime `billingFacts` for `web_search`, `web_fetch`, `browser`, `document_render`, `RecordToolPathLedgerFromToolInvocationsService` on web/Telegram turns, document delivery via `recordPersistedBillingFactsEvent`, Admin → Tools economics UI (shipped `27868c40` and follow-ups on `main`).
+- **Prisma migrations:** `20260520215000_adr099_session_b_ledger_foundation`, `20260521153000_adr099_block1_ledger_coverage_completion`, `20260521160000_adr099_block2_tool_path_pricing_catalog`.
+
+### Optional follow-ups (out of ADR-099 closeout; new slice or ADR if pursued)
+
+- **Business target-state gaps:** average cost / revenue / margin **per plan** and cost-class splits by plan (ADR § Business and Ops read models ambition beyond current compact ledger cards).
+- **Ledger purposes not wired:** `tool_helper`, `notification_generation`, `document_generation` (model-priced stub purposes from the ADR purpose list).
+- **No ledger row:** async failure-framing LLM calls (no persisted usage today).
+- **Contract naming:** rename `coverageScope` to a neutral `adr099` id when a breaking API change is acceptable.
+- **Operations:** set real tool-path tariffs in dev/prod; smoke ledger rows after deploy; CI/local gate must run full `pnpm run lint` + `pnpm run typecheck` (not single-package checks only).
+
+### Related but outside ADR-099
+
+- **`quota_status` package pricing UX** (`amountMajor` / `priceLabel` on `packageOffers`) — product fix on `main`, not part of ADR-099 economics core.
 
 ## Non-goals
 

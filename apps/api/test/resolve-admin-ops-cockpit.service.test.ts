@@ -81,7 +81,6 @@ function createService(
           userId,
           workspaceId: "ws-admin",
           roles: ["ops_admin"],
-          hasLegacyOwnerFallback: false,
           hasGlobalPlatformAdminScope: true
         };
       }

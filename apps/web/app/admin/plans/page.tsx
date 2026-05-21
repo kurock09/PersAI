@@ -1646,8 +1646,7 @@ function formatMonthlyMediaCollapsedSummary(plan: AdminPlanState): string {
     .join(" · ");
 }
 
-const ADMIN_STAT_CHIP_CLASS =
-  "min-w-0 border-l-2 border-l-border/55 bg-transparent py-0.5 pl-2.5 pr-1";
+const ADMIN_STAT_CHIP_CLASS = "rounded-md border border-border/70 bg-surface-raised px-2 py-1.5";
 
 function SummaryStat({ label, value }: { label: string; value: ReactNode }) {
   return (

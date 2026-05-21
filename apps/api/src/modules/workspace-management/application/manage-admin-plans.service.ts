@@ -604,7 +604,6 @@ export class ManageAdminPlansService {
       details: {
         action: "admin.plan.create" as DangerousAdminActionCode,
         actorRoles: access.roles,
-        legacyOwnerFallback: access.hasLegacyOwnerFallback,
         stepUpVerified: true,
         code: created.code,
         status: created.status,
@@ -684,7 +683,6 @@ export class ManageAdminPlansService {
       details: {
         action: "admin.plan.update" as DangerousAdminActionCode,
         actorRoles: access.roles,
-        legacyOwnerFallback: access.hasLegacyOwnerFallback,
         stepUpVerified: true,
         code: updated.code,
         status: updated.status,
@@ -752,7 +750,6 @@ export class ManageAdminPlansService {
       details: {
         action: "admin.plan.delete" as DangerousAdminActionCode,
         actorRoles: access.roles,
-        legacyOwnerFallback: access.hasLegacyOwnerFallback,
         stepUpVerified: true,
         code: normalizedCode
       }

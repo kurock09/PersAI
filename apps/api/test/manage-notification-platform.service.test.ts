@@ -35,7 +35,6 @@ async function run(): Promise<void> {
             userId: "admin-1",
             workspaceId: "ws-admin",
             roles: ["ops_admin"],
-            hasLegacyOwnerFallback: false,
             hasGlobalPlatformAdminScope
           };
         }
@@ -134,7 +133,6 @@ async function run(): Promise<void> {
             userId: "admin-1",
             workspaceId: "ws-admin",
             roles: ["ops_admin"],
-            hasLegacyOwnerFallback: false,
             hasGlobalPlatformAdminScope: true
           };
         }
@@ -194,7 +192,6 @@ async function run(): Promise<void> {
             userId: "admin-1",
             workspaceId: "ws-admin",
             roles: ["ops_admin"],
-            hasLegacyOwnerFallback: false,
             hasGlobalPlatformAdminScope: true
           };
         }
@@ -261,7 +258,6 @@ async function run(): Promise<void> {
             userId: "admin-1",
             workspaceId: "ws-admin",
             roles: ["ops_admin"],
-            hasLegacyOwnerFallback: false,
             hasGlobalPlatformAdminScope: true
           };
         }
@@ -301,7 +297,6 @@ async function run(): Promise<void> {
             userId: "admin-1",
             workspaceId: "ws-admin",
             roles: ["ops_admin"],
-            hasLegacyOwnerFallback: false,
             hasGlobalPlatformAdminScope: true
           };
         }

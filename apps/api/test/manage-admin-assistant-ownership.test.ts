@@ -8,8 +8,7 @@ async function run(): Promise<void> {
       assertCanPerformDangerousAdminAction: async () => ({
         userId: "admin-1",
         workspaceId: "ws-1",
-        roles: ["ops_admin"],
-        hasLegacyOwnerFallback: false
+        roles: ["ops_admin"]
       })
     } as never,
     {

@@ -1,7 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { ApiConfig, loadApiConfig } from "@persai/config";
-import { AppUserAdminRoleCode, WorkspaceRole } from "@prisma/client";
+import { AppUserAdminRoleCode } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 export type SupportedAdminRole = "ops_admin" | "business_admin" | "security_admin" | "super_admin";
@@ -23,7 +23,6 @@ export interface AdminAccessContext {
   userId: string;
   workspaceId: string;
   roles: SupportedAdminRole[];
-  hasLegacyOwnerFallback: boolean;
   /**
    * At least one admin role row in `app_user_admin_roles` with `workspace_id` null
    * (platform-wide scope), not tied to a single tenant workspace.
@@ -123,7 +122,7 @@ export class AdminAuthorizationService {
       !this.hasAnyRole(context, ["ops_admin", "business_admin", "security_admin", "super_admin"])
     ) {
       throw new ForbiddenException(
-        "Admin read surface requires ops/business/security/super-admin role or legacy owner fallback."
+        "Admin read surface requires an explicit ops/business/security/super-admin role."
       );
     }
     return context;
@@ -162,7 +161,7 @@ export class AdminAuthorizationService {
     const context = await this.resolveAdminAccessContext(userId);
     if (!this.hasAnyRole(context, ["ops_admin", "security_admin", "super_admin"])) {
       throw new ForbiddenException(
-        "Admin system-notification channel management requires ops/security/super-admin role or legacy owner fallback."
+        "Admin system-notification channel management requires an explicit ops/security/super-admin role."
       );
     }
     return context;
@@ -173,7 +172,7 @@ export class AdminAuthorizationService {
     const context = await this.resolveAdminAccessContext(userId);
     if (!this.hasAnyRole(context, ["ops_admin", "security_admin", "super_admin"])) {
       throw new ForbiddenException(
-        "Abuse/rate-limit admin controls require ops/security/super-admin role or legacy owner fallback."
+        "Abuse/rate-limit admin controls require an explicit ops/security/super-admin role."
       );
     }
     return context;
@@ -189,7 +188,7 @@ export class AdminAuthorizationService {
     const requiredRoles = requiredRolesForDangerousAction(action);
     if (!this.hasAnyRole(context, requiredRoles)) {
       throw new ForbiddenException(
-        "Dangerous admin actions require action-scoped admin role with step-up confirmation (legacy owner fallback allowed)."
+        "Dangerous admin actions require an explicit action-scoped admin role with step-up confirmation."
       );
     }
     this.verifyStepUpToken(context, action, stepUpToken);
@@ -273,10 +272,6 @@ export class AdminAuthorizationService {
       }
       roleSet.add(row.roleCode);
     }
-    const hasLegacyOwnerFallback = membership.role === WorkspaceRole.owner;
-    if (hasLegacyOwnerFallback) {
-      roleSet.add("business_admin");
-    }
     const globalPlatformAdminRoles = new Set<AppUserAdminRoleCode>([
       AppUserAdminRoleCode.ops_admin,
       AppUserAdminRoleCode.business_admin,
@@ -290,7 +285,6 @@ export class AdminAuthorizationService {
       userId,
       workspaceId: membership.workspaceId,
       roles: Array.from(roleSet),
-      hasLegacyOwnerFallback,
       hasGlobalPlatformAdminScope
     };
   }

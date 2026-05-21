@@ -58,7 +58,6 @@ async function run(): Promise<void> {
 
   const scopedContext = await scopedRoleService.assertCanManageAdminSystemNotifications("user-1");
   assert.equal(scopedContext.workspaceId, "ws-owner");
-  assert.equal(scopedContext.hasLegacyOwnerFallback, true);
   assert.equal(scopedContext.hasGlobalPlatformAdminScope, false);
   assert.equal(scopedContext.roles.includes("security_admin"), true);
   await assert.rejects(
@@ -146,7 +145,7 @@ async function run(): Promise<void> {
     ForbiddenException
   );
 
-  const allowlistedOwner = createService({
+  const allowlistedOwnerWithoutAdminRole = createService({
     memberships: [
       {
         workspaceId: "ws-1",
@@ -158,7 +157,24 @@ async function run(): Promise<void> {
     env: { PERSAI_ADMIN_ALLOWLIST_EMAILS: "allowed@test.com" },
     appUserEmail: "allowed@test.com"
   });
-  await allowlistedOwner.assertCanReadAdminSurface("user-1");
+  await assert.rejects(
+    () => allowlistedOwnerWithoutAdminRole.assertCanReadAdminSurface("user-1"),
+    ForbiddenException
+  );
+
+  const allowlistedExplicitAdmin = createService({
+    memberships: [
+      {
+        workspaceId: "ws-1",
+        role: "owner",
+        createdAt: new Date("2026-03-20T10:00:00.000Z")
+      }
+    ],
+    adminRoles: [{ roleCode: "super_admin", workspaceId: null }],
+    env: { PERSAI_ADMIN_ALLOWLIST_EMAILS: "allowed@test.com" },
+    appUserEmail: "allowed@test.com"
+  });
+  await allowlistedExplicitAdmin.assertCanReadAdminSurface("user-1");
 
   const blockedByAllowlist = createService({
     memberships: [

@@ -236,14 +236,12 @@ function createHarness() {
         userId: "admin-1",
         workspaceId: "ws-1",
         roles: ["security_admin"],
-        hasLegacyOwnerFallback: false,
         hasGlobalPlatformAdminScope: false
       }),
       assertCanWriteGlobalKnowledge: async () => ({
         userId: "admin-1",
         workspaceId: "ws-1",
         roles: ["security_admin"],
-        hasLegacyOwnerFallback: false,
         hasGlobalPlatformAdminScope: false
       })
     } as never,

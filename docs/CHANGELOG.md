@@ -2,6 +2,8 @@
 
 > Archive: entries from 2026-05-19 and earlier moved to `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`. Keep using this file for current work, including all 2026-05-20 ADR-099 entries.
 
+- **ADR-099 — status Implemented, docs reconciled (`docs`; 2026-05-21):** marked `docs/ADR/099-provider-pricing-catalog-and-unified-model-cost-ledger.md` as **Implemented** with an updated audit summary (Block 1 + Block 2 landed; optional follow-ups listed). Updated `docs/API-BOUNDARY.md` tool-path economics text and `docs/SESSION-HANDOFF.md` closeout. No code changes.
+
 - **Media package quota_status price labels + Admin Plans stat chips (`apps/api`, `apps/web`, `packages/contracts`, `packages/runtime-contract`, `docs`; 2026-05-21):** `packageOffers` now expose `amountMajor` and localized `priceLabel` per catalog row; `quota_status` bootstrap guidance forbids quoting raw `amountMinor`. Admin Plans collapsed stats and media package rows use read-only styling distinct from form inputs. Verification: `quota-offers.test.ts`, `read-internal-runtime-quota-status.service.test.ts`, lint, format:check, typecheck, api/web test.
 
 - **Admin UI + Business all-time economics (`apps/api`, `apps/runtime`, `apps/web`, `packages/contracts`, `docs`; 2026-05-21):** Admin Plans/Tools/Ops layout polish; Business global ledger window switched from rolling 7d to all time with `platformPaymentRevenueAllTime` (RUB succeeded payments, optional USD); Ops ledger panel stretch layout; runtime TTS artifacts set `sourceToolCode: "tts"` for persisted billing-facts ledger append. Verification: lint, format:check, typecheck, api/runtime/web tests, build.

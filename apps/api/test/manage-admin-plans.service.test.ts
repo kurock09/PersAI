@@ -620,8 +620,7 @@ async function run(): Promise<void> {
       async assertCanPerformDangerousAdminAction() {
         return {
           workspaceId: "ws-1",
-          roles: ["business_admin"],
-          hasLegacyOwnerFallback: false
+          roles: ["business_admin"]
         };
       }
     },
@@ -817,8 +816,7 @@ async function run(): Promise<void> {
       async assertCanPerformDangerousAdminAction() {
         return {
           workspaceId: "ws-1",
-          roles: ["business_admin"],
-          hasLegacyOwnerFallback: false
+          roles: ["business_admin"]
         };
       }
     },
@@ -1096,8 +1094,7 @@ async function run(): Promise<void> {
       async assertCanPerformDangerousAdminAction() {
         return {
           workspaceId: "ws-1",
-          roles: ["business_admin"],
-          hasLegacyOwnerFallback: false
+          roles: ["business_admin"]
         };
       }
     },
@@ -1127,8 +1124,7 @@ async function run(): Promise<void> {
       async assertCanPerformDangerousAdminAction() {
         return {
           workspaceId: "ws-1",
-          roles: ["business_admin"],
-          hasLegacyOwnerFallback: false
+          roles: ["business_admin"]
         };
       }
     }

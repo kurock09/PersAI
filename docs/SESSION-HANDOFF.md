@@ -2,6 +2,24 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-21 — ADR-099 doc closeout — **Implemented**
+
+### What changed (docs only)
+
+- **`docs/ADR/099-provider-pricing-catalog-and-unified-model-cost-ledger.md`:** status **Implemented**; audit summary reconciled with `main` (Block 1 + Block 2 shipped; optional follow-ups listed explicitly).
+- **`docs/API-BOUNDARY.md`:** tool-path economics boundary updated — emission + ledger append + Admin Tools UI are no longer marked as follow-up.
+- **No code changes** in this slice.
+
+### Repo truth (unchanged code)
+
+- Block 1 + Block 2 economics core on `main` (see ADR § Current code audit summary).
+- Migrations: `20260520215000_adr099_session_b_ledger_foundation`, `20260521153000_adr099_block1_ledger_coverage_completion`, `20260521160000_adr099_block2_tool_path_pricing_catalog`.
+
+### Next recommended step (post-ADR-099)
+
+- Pick work from **ADR-078** or a **new ADR** for Business margin-by-plan / extra ledger purposes — do not reopen ADR-099 Block 1/2 without founder direction.
+- **Operations:** deploy `api` + `web` + `runtime` to `persai-dev`; set tool-path tariffs; smoke `web_search` + `document_render` ledger rows; confirm `quota_status` quotes package prices via `priceLabel` (200 ₽ not 20 000).
+
 ## 2026-05-21 — Media package price labels for quota_status + Admin Plans stat styling
 
 ### What landed

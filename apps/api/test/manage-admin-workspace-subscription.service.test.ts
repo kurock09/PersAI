@@ -93,7 +93,6 @@ async function run(): Promise<void> {
           userId,
           workspaceId: "ws-admin",
           roles: ["business_admin"],
-          hasLegacyOwnerFallback: false,
           hasGlobalPlatformAdminScope: false
         };
       }

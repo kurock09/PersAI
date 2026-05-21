@@ -81,7 +81,6 @@ export class AdminSecurityController {
       details: {
         action: input.action,
         actorRoles: context.roles,
-        legacyOwnerFallback: context.hasLegacyOwnerFallback,
         expiresAt: challenge.expiresAt
       }
     });
