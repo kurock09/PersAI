@@ -9704,12 +9704,14 @@ components:
         - toolCode
         - units
         - amountMinor
+        - amountMajor
         - currency
         - displayOrder
         - highlighted
         - title
         - subtitle
         - ctaLabel
+        - priceLabel
       properties:
         id:
           type: string
@@ -9726,6 +9728,8 @@ components:
         amountMinor:
           type: integer
           minimum: 0
+        amountMajor:
+          type: number
         currency:
           type: string
         displayOrder:
@@ -9738,6 +9742,8 @@ components:
         subtitle:
           $ref: "#/components/schemas/AdminPlanLocalizedText"
         ctaLabel:
+          $ref: "#/components/schemas/AdminPlanLocalizedText"
+        priceLabel:
           $ref: "#/components/schemas/AdminPlanLocalizedText"
     UserPlanVisibilityPackageToolOffers:
       type: object

@@ -186,8 +186,8 @@ function PackageRow({
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-md border border-border/70 bg-surface px-2.5 py-1.5 transition-colors",
-        item.highlighted && "border-accent/40 bg-accent/5",
+        "flex items-center gap-2 rounded-lg border-0 bg-surface-raised/25 px-2.5 py-1.5 transition-colors",
+        item.highlighted && "bg-accent/10 ring-1 ring-inset ring-accent/25",
         !item.isActive && "opacity-50"
       )}
       title={item.title.ru || item.title.en || undefined}

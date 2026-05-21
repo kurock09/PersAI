@@ -1,4 +1,5 @@
 import type { MediaPackageCatalogItemState, MediaPackageType } from "./media-package.types";
+import { formatCurrencyAmountLabel, toMajorCurrencyUnits } from "./currency-amount-display";
 
 export const DEFAULT_QUOTA_PACKAGES_PAGE_PATH = "/app/packages" as const;
 export const QUOTA_PACKAGE_PAYMENT_METHOD_CLASSES = ["card", "sbp_qr"] as const;
@@ -30,12 +31,14 @@ export type QuotaOfferState = {
       toolCode: MediaPackageType;
       units: number;
       amountMinor: number;
+      amountMajor: number;
       currency: string;
       displayOrder: number;
       highlighted: boolean;
       title: QuotaOfferLocalizedText;
       subtitle: QuotaOfferLocalizedText;
       ctaLabel: QuotaOfferLocalizedText;
+      priceLabel: QuotaOfferLocalizedText;
     }>;
   }>;
 };
@@ -207,27 +210,43 @@ export function buildQuotaOfferState(input: {
       preferredPackageIds: offerableNow ? resolvePreferredPackageIds(offers) : [],
       preferredUpgradePlanCode: upgradePlanCodes[0] ?? null,
       upgradePlanCodes,
-      offers: offers.map((offer) => ({
-        id: offer.id,
-        toolCode,
-        units: offer.units,
-        amountMinor: offer.amountMinor,
-        currency: offer.currency,
-        displayOrder: offer.displayOrder,
-        highlighted: offer.highlighted,
-        title: {
-          ru: offer.title.ru || null,
-          en: offer.title.en || null
-        },
-        subtitle: {
-          ru: offer.subtitle.ru || null,
-          en: offer.subtitle.en || null
-        },
-        ctaLabel: {
-          ru: offer.ctaLabel.ru || null,
-          en: offer.ctaLabel.en || null
-        }
-      }))
+      offers: offers.map((offer) => {
+        const amountMajor = toMajorCurrencyUnits(offer.amountMinor) ?? 0;
+        return {
+          id: offer.id,
+          toolCode,
+          units: offer.units,
+          amountMinor: offer.amountMinor,
+          amountMajor,
+          currency: offer.currency,
+          displayOrder: offer.displayOrder,
+          highlighted: offer.highlighted,
+          title: {
+            ru: offer.title.ru || null,
+            en: offer.title.en || null
+          },
+          subtitle: {
+            ru: offer.subtitle.ru || null,
+            en: offer.subtitle.en || null
+          },
+          ctaLabel: {
+            ru: offer.ctaLabel.ru || null,
+            en: offer.ctaLabel.en || null
+          },
+          priceLabel: {
+            ru: formatCurrencyAmountLabel({
+              amountMinor: offer.amountMinor,
+              currency: offer.currency,
+              locale: "ru-RU"
+            }),
+            en: formatCurrencyAmountLabel({
+              amountMinor: offer.amountMinor,
+              currency: offer.currency,
+              locale: "en-US"
+            })
+          }
+        };
+      })
     };
   });
 

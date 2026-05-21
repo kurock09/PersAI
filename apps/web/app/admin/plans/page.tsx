@@ -1646,9 +1646,12 @@ function formatMonthlyMediaCollapsedSummary(plan: AdminPlanState): string {
     .join(" · ");
 }
 
+const ADMIN_STAT_CHIP_CLASS =
+  "min-w-0 border-l-2 border-l-border/55 bg-transparent py-0.5 pl-2.5 pr-1";
+
 function SummaryStat({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="min-w-[7rem] flex-1 rounded border border-border/70 bg-surface px-2 py-1.5">
+    <div className={cn("min-w-[7rem] flex-1", ADMIN_STAT_CHIP_CLASS)}>
       <div className="text-[9px] font-bold uppercase tracking-wider text-text-subtle">{label}</div>
       <div className="mt-0.5 text-[11px] leading-snug text-text">{value}</div>
     </div>

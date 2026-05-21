@@ -299,6 +299,11 @@ async function run(): Promise<void> {
     result.packageOffers.tools.find((tool) => tool.toolCode === "document")?.offers[0]?.id,
     "pkg-document-1"
   );
+  const documentOffer = result.packageOffers.tools.find((tool) => tool.toolCode === "document")
+    ?.offers[0];
+  assert.equal(documentOffer?.amountMinor, 14900);
+  assert.equal(documentOffer?.amountMajor, 149);
+  assert.equal(normalizeSpacing(documentOffer?.priceLabel.ru), "149 ₽");
   assert.equal(result.advisoryCandidates.length, 0);
 
   const hiddenFreePlanService = new ReadInternalRuntimeQuotaStatusService(

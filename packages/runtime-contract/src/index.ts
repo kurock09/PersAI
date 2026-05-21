@@ -1076,12 +1076,14 @@ export interface RuntimeQuotaStatusPackageOffer {
   toolCode: "image_generate" | "image_edit" | "video_generate" | "document";
   units: number;
   amountMinor: number;
+  amountMajor: number;
   currency: string;
   displayOrder: number;
   highlighted: boolean;
   title: RuntimeQuotaStatusLocalizedText;
   subtitle: RuntimeQuotaStatusLocalizedText;
   ctaLabel: RuntimeQuotaStatusLocalizedText;
+  priceLabel: RuntimeQuotaStatusLocalizedText;
 }
 
 export interface RuntimeQuotaStatusPackageToolOffers {

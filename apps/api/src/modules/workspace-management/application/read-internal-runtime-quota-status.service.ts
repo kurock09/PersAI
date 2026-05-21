@@ -13,6 +13,7 @@ import type { UserPlanVisibilityState } from "./plan-visibility.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ManageMediaPackageCatalogService } from "./manage-media-package-catalog.service";
 import { buildQuotaOfferState, type QuotaOfferState } from "./quota-offers";
+import { formatPlanPriceLabel, toMajorCurrencyUnits } from "./currency-amount-display";
 import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
   type AssistantPlanCatalogRepository
@@ -39,44 +40,6 @@ const MONTHLY_TOOL_QUOTA_TOOL_CODES = new Set([
   "video_generate",
   "document"
 ]);
-
-function toMajorCurrencyUnits(amountMinor: number | null): number | null {
-  if (typeof amountMinor !== "number" || !Number.isFinite(amountMinor)) {
-    return null;
-  }
-  return Number((amountMinor / 100).toFixed(amountMinor % 100 === 0 ? 0 : 2));
-}
-
-function formatPlanPriceLabel(params: {
-  amountMinor: number | null;
-  currency: string | null;
-  billingPeriod: "month" | "year" | null;
-  locale: string;
-}): string | null {
-  if (
-    typeof params.amountMinor !== "number" ||
-    !Number.isFinite(params.amountMinor) ||
-    typeof params.currency !== "string" ||
-    params.currency.trim().length === 0 ||
-    (params.billingPeriod !== "month" && params.billingPeriod !== "year")
-  ) {
-    return null;
-  }
-  const formatted = new Intl.NumberFormat(params.locale, {
-    style: "currency",
-    currency: params.currency,
-    maximumFractionDigits: params.amountMinor % 100 === 0 ? 0 : 2
-  }).format(params.amountMinor / 100);
-  const suffix =
-    params.billingPeriod === "year"
-      ? params.locale.startsWith("ru")
-        ? " / год"
-        : " / year"
-      : params.locale.startsWith("ru")
-        ? " / месяц"
-        : " / month";
-  return `${formatted}${suffix}`;
-}
 
 function resolveHighestVisiblePaidPlan(
   input: Array<{

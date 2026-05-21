@@ -14,6 +14,7 @@ export interface UserPlanVisibilityPackageOffer {
   units: number;
   /** @minimum 0 */
   amountMinor: number;
+  amountMajor: number;
   currency: string;
   /** @minimum 0 */
   displayOrder: number;
@@ -21,4 +22,5 @@ export interface UserPlanVisibilityPackageOffer {
   title: AdminPlanLocalizedText;
   subtitle: AdminPlanLocalizedText;
   ctaLabel: AdminPlanLocalizedText;
+  priceLabel: AdminPlanLocalizedText;
 }

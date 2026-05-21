@@ -2,6 +2,22 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-21 — Media package price labels for quota_status + Admin Plans stat styling
+
+### What landed
+
+- **`quota_status` / package offers:** each media package offer now includes `amountMajor` and `priceLabel` (ru/en) so the model quotes 200 ₽ instead of misreading `amountMinor` 20000 as rubles.
+- **`quota_status` tool guidance:** bootstrap copy tells the model to use `priceLabel` / `amountMajor`, never raw `amountMinor`, for plans and packages.
+- **Admin → Plans:** collapsed plan summary chips and package preset rows restyled (left-accent stats, soft package tiles) so they do not look like text inputs.
+
+### Verification (session)
+
+- `pnpm -r --if-present run lint`, `pnpm run format:check`, `@persai/api` + `@persai/web` typecheck, `@persai/api` + `@persai/web` test — all green.
+
+### Next recommended step
+
+- Redeploy `api` + `web` to `persai-dev`; ask the assistant for document package pricing and confirm it says **200 ₽** (not 20 000) when catalog has `amountMinor: 20000`.
+
 ## 2026-05-21 — Admin UI polish + Business all-time economics
 
 ### What landed
