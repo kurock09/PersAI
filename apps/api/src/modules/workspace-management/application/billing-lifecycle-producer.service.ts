@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { AdminSystemNotificationProducerService } from "./admin-system-notification-producer.service";
 import { NotificationIntentService } from "./notifications/notification-intent.service";
 import type { BillingLifecycleFactPayload } from "./notifications/templates/billing/billing-lifecycle-fact-payload";
 import { ResolveUserLocaleService } from "./resolve-user-locale.service";
@@ -94,6 +95,7 @@ export class BillingLifecycleProducerService {
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly adminSystemNotificationProducerService: AdminSystemNotificationProducerService,
     private readonly notificationIntentService: NotificationIntentService,
     private readonly resolveUserLocaleService: ResolveUserLocaleService
   ) {}
@@ -234,6 +236,35 @@ export class BillingLifecycleProducerService {
           });
         }
       }
+
+      void this.adminSystemNotificationProducerService
+        .emitEvent({
+          eventCode: ruleInfo.rule,
+          summary: this.buildAdminSystemSummary(ruleInfo.rule, event, planDisplayName, supplement),
+          details: {
+            sourceWorkspaceId: event.workspaceId,
+            sourceUserId: event.userId,
+            lifecycleEventId: eventId,
+            planCode: event.nextPlanCode,
+            planDisplayName,
+            amount: supplement.amount,
+            currency: supplement.currency,
+            recipientEmail: event.user?.email ?? null
+          },
+          traceId: eventId,
+          occurredAt: event.createdAt.toISOString(),
+          scheduledAt: ruleInfo.scheduledAt,
+          priority: ruleInfo.scheduledAt.getTime() > Date.now() ? "scheduled" : "immediate"
+        })
+        .catch((error: unknown) => {
+          this.logger.warn({
+            event: "billing_lifecycle_producer.admin_system_failed",
+            rule: ruleInfo.rule,
+            workspaceId: event.workspaceId,
+            lifecycleEventId: eventId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        });
     }
   }
 
@@ -351,6 +382,40 @@ export class BillingLifecycleProducerService {
     }
 
     return supplement;
+  }
+
+  private buildAdminSystemSummary(
+    rule: BillingRuleCode,
+    event: LifecycleEventRow,
+    planDisplayName: string | null,
+    supplement: LifecycleFactSupplement
+  ): string {
+    const plan = planDisplayName ?? event.nextPlanCode ?? "current plan";
+    const amount =
+      supplement.amount !== null && supplement.currency !== null
+        ? ` (${supplement.currency.toUpperCase()} ${supplement.amount})`
+        : "";
+
+    switch (rule) {
+      case "payment_activated":
+        return `Payment activated for ${plan}${amount}.`;
+      case "renewal_succeeded":
+        return `Renewal succeeded for ${plan}${amount}.`;
+      case "renewal_failed":
+        return `Renewal failed for ${plan}.`;
+      case "payment_recovered":
+        return `Payment recovered for ${plan}${amount}.`;
+      case "grace_ending":
+        return `Grace period is ending for ${plan}.`;
+      case "grace_expired":
+        return `Grace period expired for ${plan}.`;
+      case "trial_ending":
+        return `Trial is ending for ${plan}.`;
+      case "trial_expired":
+        return `Trial expired for ${plan}.`;
+      default:
+        return `Billing lifecycle event ${rule} for ${plan}.`;
+    }
   }
 }
 

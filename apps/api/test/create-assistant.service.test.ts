@@ -13,6 +13,7 @@ async function run(): Promise<void> {
   const createdAssistants: Array<{ userId: string; workspaceId: string }> = [];
   const lifecycleInitCalls: Array<{ workspaceId: string; userId: string; source: string }> = [];
   const auditEvents: Array<{ workspaceId: string; assistantId: string; actorUserId: string }> = [];
+  const adminSystemEvents: Array<Record<string, unknown>> = [];
 
   const makeService = (options?: { subscriptionExists?: boolean }) =>
     new CreateAssistantService(
@@ -81,12 +82,25 @@ async function run(): Promise<void> {
             };
           }
         },
+        appUser: {
+          async findUnique() {
+            return {
+              email: "user@example.com"
+            };
+          }
+        },
         workspaceSubscription: {
           async findUnique() {
             return options?.subscriptionExists ? { id: "sub-1" } : null;
           }
         }
       } as unknown as WorkspaceManagementPrismaService,
+      {
+        async emitEvent(input: Record<string, unknown>) {
+          adminSystemEvents.push(input);
+          return 1;
+        }
+      } as { emitEvent(input: Record<string, unknown>): Promise<number> },
       {
         async execute(input: { workspaceId: string; assistantId: string; actorUserId: string }) {
           auditEvents.push({
@@ -140,17 +154,44 @@ async function run(): Promise<void> {
       actorUserId: "user-1"
     }
   ]);
+  assert.deepEqual(adminSystemEvents, [
+    {
+      eventCode: "new_user_registered",
+      summary: "New user registered: user@example.com",
+      details: {
+        sourceWorkspaceId: "ws-1",
+        sourceAssistantId: "assistant-1",
+        sourceUserId: "user-1",
+        email: "user@example.com"
+      },
+      traceId: "assistant-created:assistant-1"
+    }
+  ]);
 
   callOrder.length = 0;
   createdAssistants.length = 0;
   lifecycleInitCalls.length = 0;
   auditEvents.length = 0;
+  adminSystemEvents.length = 0;
 
   const serviceWithExistingSubscription = makeService({ subscriptionExists: true });
   await serviceWithExistingSubscription.execute("user-2");
   assert.deepEqual(lifecycleInitCalls, []);
   assert.deepEqual(callOrder, ["assistant.create"]);
   assert.deepEqual(createdAssistants, [{ userId: "user-2", workspaceId: "ws-1" }]);
+  assert.deepEqual(adminSystemEvents, [
+    {
+      eventCode: "new_user_registered",
+      summary: "New user registered: user@example.com",
+      details: {
+        sourceWorkspaceId: "ws-1",
+        sourceAssistantId: "assistant-1",
+        sourceUserId: "user-2",
+        email: "user@example.com"
+      },
+      traceId: "assistant-created:assistant-1"
+    }
+  ]);
 }
 
 void run();

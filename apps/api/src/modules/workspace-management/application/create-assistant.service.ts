@@ -12,6 +12,7 @@ import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assist
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
+import { AdminSystemNotificationProducerService } from "./admin-system-notification-producer.service";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 
@@ -25,6 +26,7 @@ export class CreateAssistantService {
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly adminSystemNotificationProducerService: AdminSystemNotificationProducerService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
   ) {}
@@ -73,6 +75,10 @@ export class CreateAssistantService {
     const materialization = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
       assistant.id
     );
+    const appUser = await this.prisma.appUser.findUnique({
+      where: { id: userId },
+      select: { email: true }
+    });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,
@@ -84,6 +90,19 @@ export class CreateAssistantService {
         governanceBaselineCreated: true
       }
     });
+    void this.adminSystemNotificationProducerService
+      .emitEvent({
+        eventCode: "new_user_registered",
+        summary: `New user registered: ${appUser?.email ?? userId}`,
+        details: {
+          sourceWorkspaceId: assistant.workspaceId,
+          sourceAssistantId: assistant.id,
+          sourceUserId: userId,
+          email: appUser?.email ?? null
+        },
+        traceId: `assistant-created:${assistant.id}`
+      })
+      .catch(() => {});
     return toAssistantLifecycleState(assistant, null, governance, materialization);
   }
 }

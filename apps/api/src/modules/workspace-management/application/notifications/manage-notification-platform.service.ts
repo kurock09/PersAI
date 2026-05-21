@@ -1,4 +1,10 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException
+} from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import {
@@ -28,6 +34,10 @@ import {
   type NotificationQuietHoursDefault,
   type NotificationPolicyDefault
 } from "./defaults/notification-defaults";
+import {
+  isValidAdminSystemDailyReportTimeLocal,
+  parseAdminSystemPolicyConfig
+} from "./admin-system-config";
 
 // ── Response types ────────────────────────────────────────────────────────────
 
@@ -295,6 +305,15 @@ export class ManageNotificationPlatformService {
     return context.workspaceId;
   }
 
+  private async requireGlobalNotificationPlatformAccess(userId: string): Promise<void> {
+    const context = await this.adminAuth.assertCanManageAdminSystemNotifications(userId);
+    if (!context.hasGlobalPlatformAdminScope) {
+      throw new ForbiddenException(
+        "Notification platform control-plane access requires a platform-scoped admin role."
+      );
+    }
+  }
+
   private async resolveDeliveryWorkspaceScope(userId: string): Promise<string | null> {
     const context = await this.adminAuth.assertCanManageAdminSystemNotifications(userId);
     return context.hasGlobalPlatformAdminScope ? null : context.workspaceId;
@@ -307,13 +326,13 @@ export class ManageNotificationPlatformService {
    * endpoint on the surface.
    */
   async assertAdminAccess(userId: string): Promise<void> {
-    await this.resolveWorkspaceId(userId);
+    await this.requireGlobalNotificationPlatformAccess(userId);
   }
 
   // ── Channels ──────────────────────────────────────────────────────────────
 
   async listChannels(userId: string): Promise<NotificationChannelView[]> {
-    await this.resolveWorkspaceId(userId);
+    await this.requireGlobalNotificationPlatformAccess(userId);
     const rows = await this.prisma.notificationChannelRegistry.findMany({
       orderBy: { channelType: "asc" }
     });
@@ -336,7 +355,7 @@ export class ManageNotificationPlatformService {
     if (!VALID_CHANNEL_TYPES.includes(channelType as never)) {
       throw new BadRequestException(`Unknown channel type: ${channelType}`);
     }
-    await this.resolveWorkspaceId(userId);
+    await this.requireGlobalNotificationPlatformAccess(userId);
     const existing = await this.getOrCreateChannelRow(channelType);
 
     const updated = await this.prisma.notificationChannelRegistry.update({
@@ -357,7 +376,7 @@ export class ManageNotificationPlatformService {
   }
 
   async listTemplates(userId: string): Promise<NotificationTemplateCatalogView> {
-    await this.resolveWorkspaceId(userId);
+    await this.requireGlobalNotificationPlatformAccess(userId);
     return {
       templateIds: this.templateRenderer.listTemplateIds()
     };
@@ -379,6 +398,7 @@ export class ManageNotificationPlatformService {
     if (!VALID_CHANNEL_TYPES.includes(channelType as never)) {
       throw new BadRequestException(`Unknown channel type: ${channelType}`);
     }
+    await this.requireGlobalNotificationPlatformAccess(userId);
     const workspaceId = await this.resolveWorkspaceId(userId);
 
     const channelRow = await this.getOrCreateChannelRow(channelType);
@@ -574,6 +594,7 @@ export class ManageNotificationPlatformService {
     if (!VALID_NOTIFICATION_SOURCES.includes(source as never)) {
       throw new BadRequestException(`Unknown notification source: ${source}`);
     }
+    await this.requireGlobalNotificationPlatformAccess(userId);
     const workspaceId = await this.resolveWorkspaceId(userId);
 
     // Resolve policy to get the default channel and config (incl. postmarkTemplateId).
@@ -584,11 +605,30 @@ export class ManageNotificationPlatformService {
       policyRow && typeof policyRow.config === "object"
         ? (policyRow.config as Record<string, unknown>)
         : {};
-    const policyChannels: string[] = policyRow?.channels ?? [];
+    const policyChannels: string[] =
+      source === "admin_system" ? ["user_preferred"] : (policyRow?.channels ?? []);
+    const adminSystemConfig =
+      source === "admin_system" ? parseAdminSystemPolicyConfig(policyConfig) : null;
 
     // Look up the admin's assistant once — used both for semantic-channel
     // resolution and for building the synthetic intent later.
-    const adminAssistant = await this.prisma.assistant.findUnique({ where: { userId } });
+    const fallbackAdminAssistantId = await this.prisma.assistant
+      .findUnique({ where: { userId }, select: { id: true } })
+      .then((row) => row?.id ?? null);
+    const adminAssistantId =
+      adminSystemConfig?.recipientAssistantIds[0] ?? fallbackAdminAssistantId ?? null;
+    const adminAssistant =
+      adminAssistantId === null
+        ? null
+        : await this.prisma.assistant.findUnique({
+            where: { id: adminAssistantId },
+            select: {
+              id: true,
+              userId: true,
+              workspaceId: true,
+              preferredNotificationChannel: true
+            }
+          });
 
     // Resolve the concrete channel using the same semantics as the real delivery
     // worker. Semantic channels (user_preferred, current_thread) are expanded
@@ -664,7 +704,7 @@ export class ManageNotificationPlatformService {
 
     // Resolve admin email for recipient
     const adminEmail = await this.prisma.appUser
-      .findUnique({ where: { id: userId }, select: { email: true } })
+      .findUnique({ where: { id: adminAssistant?.userId ?? userId }, select: { email: true } })
       .then((u) => u?.email ?? null);
 
     // Build demo facts
@@ -697,6 +737,27 @@ export class ManageNotificationPlatformService {
       };
       templateId = `billing.${eventCode}`;
       renderStrategy = NotificationRenderStrategy.template;
+    } else if (source === "admin_system" && input.eventCode === "daily_report") {
+      factPayload = {
+        eventCode: "daily_report",
+        message: [
+          "PersAI daily admin report",
+          "",
+          "Today",
+          "- New users: 3",
+          "- Successful payments: 2",
+          "- Revenue: RUB 123.45",
+          "- Cost: USD 2.50",
+          "- Runtime apply failed: 1",
+          "- Runtime apply degraded: 0",
+          "- Unresolved dead letters: 1",
+          "",
+          "All time",
+          "- Revenue: RUB 456.78",
+          "- Cost: USD 10.00"
+        ].join("\n"),
+        ...(adminEmail !== null ? { recipientEmail: adminEmail } : {})
+      };
     } else {
       factPayload = {
         message: `Test notification for source "${source}" — PersAI`,
@@ -720,14 +781,16 @@ export class ManageNotificationPlatformService {
 
     const syntheticIntent: NotificationIntentRecord = {
       id: randomUUID(),
-      workspaceId,
+      workspaceId: adminAssistant?.workspaceId ?? workspaceId,
       assistantId: adminAssistant?.id ?? null,
-      userId,
+      userId: adminAssistant?.userId ?? userId,
       source: source as NotificationIntentRecord["source"],
       class:
         source === "billing_lifecycle"
           ? NotificationClass.transactional
-          : NotificationClass.operational,
+          : source === "admin_system"
+            ? NotificationClass.administrative
+            : NotificationClass.operational,
       priority: NotificationPriority.immediate,
       lifecycleStatus: NotificationLifecycleStatus.pending,
       renderStrategy,
@@ -803,7 +866,7 @@ export class ManageNotificationPlatformService {
   // ── Policies ──────────────────────────────────────────────────────────────
 
   async listPolicies(userId: string): Promise<NotificationPolicyView[]> {
-    await this.resolveWorkspaceId(userId);
+    await this.requireGlobalNotificationPlatformAccess(userId);
     const rows = await this.prisma.notificationPolicy.findMany({
       orderBy: { source: "asc" }
     });
@@ -826,6 +889,8 @@ export class ManageNotificationPlatformService {
     source: string,
     input: PatchPolicyInput
   ): Promise<NotificationPolicyView> {
+    await this.requireGlobalNotificationPlatformAccess(userId);
+
     if (!VALID_NOTIFICATION_SOURCES.includes(source as never)) {
       throw new BadRequestException(`Unknown notification source: ${source}`);
     }
@@ -856,6 +921,39 @@ export class ManageNotificationPlatformService {
       }
     }
 
+    if (
+      source === "admin_system" &&
+      input.config !== undefined &&
+      Object.hasOwn(input.config, "dailyReportTimeLocal") &&
+      !isValidAdminSystemDailyReportTimeLocal(input.config["dailyReportTimeLocal"])
+    ) {
+      throw new BadRequestException(
+        "admin_system config.dailyReportTimeLocal must be a valid HH:MM local time."
+      );
+    }
+
+    const normalizedInput =
+      source === "admin_system" && input.config !== undefined
+        ? {
+            ...input,
+            channels: ["user_preferred"],
+            config: parseAdminSystemPolicyConfig(input.config) as Record<string, unknown>
+          }
+        : source === "admin_system"
+          ? { ...input, channels: ["user_preferred"] }
+          : input;
+
+    if (source === "admin_system" && normalizedInput.channels !== undefined) {
+      const badChannels = normalizedInput.channels.filter(
+        (channel) => channel !== "user_preferred"
+      );
+      if (badChannels.length > 0) {
+        throw new BadRequestException(
+          `admin_system policy only supports channel(s): user_preferred. Received: ${badChannels.join(", ")}.`
+        );
+      }
+    }
+
     await this.resolveWorkspaceId(userId);
 
     // Use the code-level default as the base for upsert create so that
@@ -865,47 +963,57 @@ export class ManageNotificationPlatformService {
       where: { source: source as never },
       create: {
         source: source as never,
-        enabled: input.enabled ?? def?.enabled ?? false,
+        enabled: normalizedInput.enabled ?? def?.enabled ?? false,
         // ADR-090: persist input.channels when supplied; fall back to defaults.
-        channels: input.channels ?? def?.channels ?? [],
-        cooldownMinutes: input.cooldownMinutes ?? def?.cooldownMinutes ?? null,
-        maxPerDay: input.maxPerDay ?? def?.maxPerDay ?? null,
-        escalationAfterMinutes: input.escalationAfterMinutes ?? def?.escalationAfterMinutes ?? null,
-        escalationChannel: input.escalationChannel ?? def?.escalationChannel ?? null,
-        respectQuietHours: input.respectQuietHours ?? def?.respectQuietHours ?? true,
-        renderStrategy: (input.renderStrategy as never) ?? (def?.renderStrategy as never),
-        renderInstructionRef: input.renderInstructionRef ?? def?.renderInstructionRef ?? null,
-        templateId: input.templateId ?? def?.templateId ?? null,
+        channels: normalizedInput.channels ?? def?.channels ?? [],
+        cooldownMinutes: normalizedInput.cooldownMinutes ?? def?.cooldownMinutes ?? null,
+        maxPerDay: normalizedInput.maxPerDay ?? def?.maxPerDay ?? null,
+        escalationAfterMinutes:
+          normalizedInput.escalationAfterMinutes ?? def?.escalationAfterMinutes ?? null,
+        escalationChannel: normalizedInput.escalationChannel ?? def?.escalationChannel ?? null,
+        respectQuietHours: normalizedInput.respectQuietHours ?? def?.respectQuietHours ?? true,
+        renderStrategy: (normalizedInput.renderStrategy as never) ?? (def?.renderStrategy as never),
+        renderInstructionRef:
+          normalizedInput.renderInstructionRef ?? def?.renderInstructionRef ?? null,
+        templateId: normalizedInput.templateId ?? def?.templateId ?? null,
         // ADR-090: preserve the code-level default config on first create
         // when the operator did not pass an explicit config object.
         config:
-          (input.config as Prisma.InputJsonValue | undefined) ??
+          (normalizedInput.config as Prisma.InputJsonValue | undefined) ??
           (def?.config as Prisma.InputJsonValue | undefined) ??
           ({} as Prisma.InputJsonValue)
       },
       update: {
-        ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+        ...(normalizedInput.enabled !== undefined ? { enabled: normalizedInput.enabled } : {}),
         // ADR-090: persist input.channels on update too (was previously dropped).
-        ...(input.channels !== undefined ? { channels: input.channels } : {}),
-        ...(input.cooldownMinutes !== undefined ? { cooldownMinutes: input.cooldownMinutes } : {}),
-        ...(input.maxPerDay !== undefined ? { maxPerDay: input.maxPerDay } : {}),
-        ...(input.escalationAfterMinutes !== undefined
-          ? { escalationAfterMinutes: input.escalationAfterMinutes }
+        ...(normalizedInput.channels !== undefined ? { channels: normalizedInput.channels } : {}),
+        ...(normalizedInput.cooldownMinutes !== undefined
+          ? { cooldownMinutes: normalizedInput.cooldownMinutes }
           : {}),
-        ...(input.escalationChannel !== undefined
-          ? { escalationChannel: input.escalationChannel }
+        ...(normalizedInput.maxPerDay !== undefined
+          ? { maxPerDay: normalizedInput.maxPerDay }
           : {}),
-        ...(input.respectQuietHours !== undefined
-          ? { respectQuietHours: input.respectQuietHours }
+        ...(normalizedInput.escalationAfterMinutes !== undefined
+          ? { escalationAfterMinutes: normalizedInput.escalationAfterMinutes }
           : {}),
-        ...(input.renderStrategy !== undefined
-          ? { renderStrategy: input.renderStrategy as never }
+        ...(normalizedInput.escalationChannel !== undefined
+          ? { escalationChannel: normalizedInput.escalationChannel }
           : {}),
-        ...(input.renderInstructionRef !== undefined
-          ? { renderInstructionRef: input.renderInstructionRef }
+        ...(normalizedInput.respectQuietHours !== undefined
+          ? { respectQuietHours: normalizedInput.respectQuietHours }
           : {}),
-        ...(input.templateId !== undefined ? { templateId: input.templateId } : {}),
-        ...(input.config !== undefined ? { config: input.config as Prisma.InputJsonValue } : {})
+        ...(normalizedInput.renderStrategy !== undefined
+          ? { renderStrategy: normalizedInput.renderStrategy as never }
+          : {}),
+        ...(normalizedInput.renderInstructionRef !== undefined
+          ? { renderInstructionRef: normalizedInput.renderInstructionRef }
+          : {}),
+        ...(normalizedInput.templateId !== undefined
+          ? { templateId: normalizedInput.templateId }
+          : {}),
+        ...(normalizedInput.config !== undefined
+          ? { config: normalizedInput.config as Prisma.InputJsonValue }
+          : {})
       }
     });
     return this.policyToView(updated);
@@ -914,13 +1022,13 @@ export class ManageNotificationPlatformService {
   // ── Quiet hours ───────────────────────────────────────────────────────────
 
   async getQuietHours(userId: string): Promise<QuietHoursView | null> {
-    await this.resolveWorkspaceId(userId);
+    await this.requireGlobalNotificationPlatformAccess(userId);
     const row = await this.prisma.notificationQuietHours.findFirst({});
     return row ? this.quietHoursToView(row) : this.quietHoursDefaultToView();
   }
 
   async patchQuietHours(userId: string, input: PatchQuietHoursInput): Promise<QuietHoursView> {
-    await this.resolveWorkspaceId(userId);
+    await this.requireGlobalNotificationPlatformAccess(userId);
 
     const updated = await this.prisma.notificationQuietHours.upsert({
       where: { singleton: true },
@@ -1137,7 +1245,7 @@ export class ManageNotificationPlatformService {
   // ── Preview ───────────────────────────────────────────────────────────────
 
   async preview(userId: string, input: PreviewInput): Promise<PreviewResult> {
-    await this.resolveWorkspaceId(userId);
+    await this.requireGlobalNotificationPlatformAccess(userId);
 
     if (!VALID_RENDER_STRATEGIES.includes(input.renderStrategy)) {
       throw new BadRequestException(`Unknown render strategy: ${input.renderStrategy}`);
@@ -1233,20 +1341,25 @@ export class ManageNotificationPlatformService {
     config: unknown;
     updatedAt: Date;
   }): NotificationPolicyView {
+    const isAdminSystem = r.source === "admin_system";
+    const normalizedConfig = isAdminSystem
+      ? (parseAdminSystemPolicyConfig(r.config) as Record<string, unknown>)
+      : ((r.config as Record<string, unknown>) ?? {});
+
     return {
       id: r.id,
       source: r.source,
       enabled: r.enabled,
-      channels: r.channels,
+      channels: isAdminSystem ? ["user_preferred"] : r.channels,
       cooldownMinutes: r.cooldownMinutes,
       maxPerDay: r.maxPerDay,
       escalationAfterMinutes: r.escalationAfterMinutes,
       escalationChannel: r.escalationChannel,
       respectQuietHours: r.respectQuietHours,
-      renderStrategy: r.renderStrategy,
+      renderStrategy: isAdminSystem ? "static_fallback" : r.renderStrategy,
       renderInstructionRef: r.renderInstructionRef,
       templateId: r.templateId,
-      config: (r.config as Record<string, unknown>) ?? {},
+      config: normalizedConfig,
       updatedAt: r.updatedAt.toISOString()
     };
   }

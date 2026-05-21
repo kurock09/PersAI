@@ -1464,8 +1464,8 @@ async function run(): Promise<void> {
         "-e",
         [
           "const { spawn } = require('node:child_process');",
-          "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 4000)'], { stdio: 'ignore' });",
-          "setTimeout(() => {}, 4000);"
+          "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 15000)'], { stdio: 'ignore' });",
+          "setTimeout(() => {}, 15000);"
         ].join(" ")
       ],
       {
@@ -1478,7 +1478,7 @@ async function run(): Promise<void> {
         throw new Error("Expected spawned root process to expose a pid");
       }
       let usage: Awaited<ReturnType<typeof processGuardTestAccess.readProcessTreeUsage>> = null;
-      const usageDeadline = Date.now() + 3_000;
+      const usageDeadline = Date.now() + (process.platform === "win32" ? 8_000 : 3_000);
       while (Date.now() < usageDeadline) {
         usage = await processGuardTestAccess.readProcessTreeUsage(sampledRootPid);
         if (usage !== null && usage.processCount >= 2) {

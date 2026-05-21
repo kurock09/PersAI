@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { ForbiddenException } from "@nestjs/common";
 import { ManageNotificationPlatformService } from "../src/modules/workspace-management/application/notifications/manage-notification-platform.service";
 
 async function run(): Promise<void> {
@@ -53,6 +54,14 @@ async function run(): Promise<void> {
     assert.equal(deliveryWhereCalls[0]?.workspaceId, "ws-admin");
     assert.equal(deadLetterWhereCalls[0]?.workspaceId, "ws-admin");
     console.log("✓ scoped admins only see notification history for their workspace");
+  }
+
+  {
+    const scopedService = makeService(false);
+    await assert.rejects(() => scopedService.listPolicies("admin-1"), ForbiddenException);
+    await assert.rejects(() => scopedService.listChannels("admin-1"), ForbiddenException);
+    await assert.rejects(() => scopedService.getQuietHours("admin-1"), ForbiddenException);
+    console.log("✓ scoped admins cannot edit global notification control-plane singletons");
   }
 
   deliveryWhereCalls.length = 0;
@@ -175,6 +184,107 @@ async function run(): Promise<void> {
       "billing.renewal_succeeded"
     ]);
     console.log("✓ billing lifecycle admin test-send supports payment success templates");
+  }
+
+  {
+    const deliveredBodies: string[] = [];
+    const service = new ManageNotificationPlatformService(
+      {
+        notificationPolicy: {
+          async findUnique() {
+            return {
+              source: "admin_system",
+              channels: ["user_preferred"],
+              config: {
+                recipientAssistantIds: ["assistant-target"],
+                eventCodes: ["runtime_apply_failed"],
+                dailyReportEnabled: true,
+                dailyReportTimeLocal: "21:00"
+              },
+              escalationChannel: null
+            };
+          }
+        },
+        assistant: {
+          async findUnique(args: { where: { id?: string; userId?: string } }) {
+            if (args.where.id === "assistant-target") {
+              return {
+                id: "assistant-target",
+                userId: "user-target",
+                workspaceId: "ws-target",
+                preferredNotificationChannel: "web"
+              };
+            }
+            return { id: "assistant-fallback" };
+          }
+        },
+        appUser: {
+          async findUnique() {
+            return { email: "admin@persai.dev" };
+          }
+        },
+        notificationChannelRegistry: {
+          async upsert() {
+            return {
+              id: "channel-web-nc",
+              channelType: "web_notification_center",
+              enabled: true,
+              config: {},
+              healthStatus: "healthy",
+              consecutiveFailures: 0,
+              lastDeliveryAt: null,
+              lastFailureAt: null,
+              createdAt: new Date("2026-05-01T00:00:00.000Z"),
+              updatedAt: new Date("2026-05-01T00:00:00.000Z")
+            };
+          },
+          async update() {
+            return null;
+          }
+        }
+      } as never,
+      {
+        async assertCanManageAdminSystemNotifications() {
+          return {
+            userId: "admin-1",
+            workspaceId: "ws-admin",
+            roles: ["ops_admin"],
+            hasGlobalPlatformAdminScope: true
+          };
+        }
+      } as never,
+      {} as never,
+      {} as never,
+      {
+        async render(intent: { factPayload: Record<string, unknown> }) {
+          return {
+            subject: undefined,
+            body: String(intent.factPayload["message"] ?? ""),
+            html: undefined,
+            plainText: String(intent.factPayload["message"] ?? "")
+          };
+        }
+      } as never,
+      { forUserInWorkspace: async () => "en" as const } as never,
+      [
+        {
+          channelType: "web_notification_center",
+          async deliver(_intent, rendered) {
+            deliveredBodies.push(rendered.body);
+            return { status: "delivered" };
+          }
+        }
+      ] as never
+    );
+
+    const result = await service.testSendForSource("admin-1", "admin_system", {
+      eventCode: "daily_report"
+    });
+
+    assert.equal(result.status, "delivered");
+    assert.match(deliveredBodies[0] ?? "", /PersAI daily admin report/);
+    assert.match(deliveredBodies[0] ?? "", /Successful payments: 2/);
+    console.log("✓ admin_system test-send supports synthetic daily report delivery");
   }
 
   {
@@ -313,6 +423,47 @@ async function run(): Promise<void> {
     assert.equal(quietHours?.startLocal, "22:00");
     assert.equal(quietHours?.endLocal, "08:00");
     console.log("✓ getQuietHours falls back to global defaults when DB row is missing");
+  }
+
+  {
+    const service = new ManageNotificationPlatformService(
+      {
+        notificationPolicy: {
+          async upsert() {
+            throw new Error("should_not_reach_upsert");
+          }
+        }
+      } as never,
+      {
+        async assertCanManageAdminSystemNotifications() {
+          return {
+            userId: "admin-1",
+            workspaceId: "ws-admin",
+            roles: ["ops_admin"],
+            hasGlobalPlatformAdminScope: true
+          };
+        }
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { forUserInWorkspace: async () => "en" as const } as never,
+      []
+    );
+
+    await assert.rejects(
+      () =>
+        service.patchPolicy("admin-1", "admin_system", {
+          config: {
+            recipientAssistantIds: ["assistant-1"],
+            eventCodes: ["runtime_apply_failed"],
+            dailyReportEnabled: true,
+            dailyReportTimeLocal: "99:99"
+          }
+        }),
+      /dailyReportTimeLocal/
+    );
+    console.log("✓ admin_system rejects malformed daily report time values");
   }
 }
 

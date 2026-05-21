@@ -4,6 +4,7 @@ export const LEASE_ACQUIRE_TIMEOUT_MS = 5_000;
 
 export const SCHEDULER_KEYS = [
   "idle_reengagement",
+  "admin_system_daily_report",
   "background_task",
   "background_compaction",
   "media_job",

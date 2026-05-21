@@ -61,7 +61,7 @@ const DEFAULT_CHANNEL_OPTIONS: Record<string, readonly string[]> = {
   reminder: ["user_preferred", "telegram_thread", "web_notification_center", "email"],
   background_task_push: ["user_preferred", "telegram_thread", "web_notification_center", "email"],
   quota_advisory: ["current_thread"],
-  admin_system: ["admin_webhook"]
+  admin_system: ["user_preferred"]
 };
 
 const BILLING_EVENT_CODES = [
@@ -71,6 +71,23 @@ const BILLING_EVENT_CODES = [
   "grace_ending",
   "grace_expired",
   "payment_recovered"
+] as const;
+
+const ADMIN_SYSTEM_EVENT_OPTIONS = [
+  { code: "new_user_registered", label: "New user registered" },
+  { code: "trial_ending", label: "Trial ending" },
+  { code: "trial_expired", label: "Trial expired" },
+  { code: "payment_activated", label: "Payment activated" },
+  { code: "renewal_succeeded", label: "Renewal succeeded" },
+  { code: "renewal_failed", label: "Renewal failed" },
+  { code: "payment_recovered", label: "Payment recovered" },
+  { code: "grace_ending", label: "Grace ending" },
+  { code: "grace_expired", label: "Grace expired" },
+  { code: "runtime_apply_succeeded", label: "Runtime apply succeeded" },
+  { code: "runtime_apply_degraded", label: "Runtime apply degraded" },
+  { code: "runtime_apply_failed", label: "Runtime apply failed" },
+  { code: "admin_plan_created", label: "Admin plan created" },
+  { code: "admin_plan_updated", label: "Admin plan updated" }
 ] as const;
 
 type DraftState = {
@@ -84,6 +101,10 @@ type DraftState = {
   respectQuietHours: boolean;
   idleHours: string;
   postmarkTemplateId: string;
+  recipientAssistantIdsText: string;
+  adminEventCodes: string[];
+  dailyReportEnabled: boolean;
+  dailyReportTimeLocal: string;
 };
 
 function policyToDraft(policy: NotificationPolicyView): DraftState {
@@ -103,6 +124,12 @@ function policyToDraft(policy: NotificationPolicyView): DraftState {
       : typeof config["idleHours"] === "string"
         ? config["idleHours"]
         : "";
+  const recipientAssistantIds = Array.isArray(config["recipientAssistantIds"])
+    ? config["recipientAssistantIds"].filter((value): value is string => typeof value === "string")
+    : [];
+  const eventCodes = Array.isArray(config["eventCodes"])
+    ? config["eventCodes"].filter((value): value is string => typeof value === "string")
+    : [];
   return {
     rawConfig: config,
     enabled: policy.enabled,
@@ -114,7 +141,12 @@ function policyToDraft(policy: NotificationPolicyView): DraftState {
     defaultChannel: policy.channels[0] ?? "",
     respectQuietHours: policy.respectQuietHours,
     idleHours,
-    postmarkTemplateId
+    postmarkTemplateId,
+    recipientAssistantIdsText: recipientAssistantIds.join("\n"),
+    adminEventCodes: eventCodes,
+    dailyReportEnabled: config["dailyReportEnabled"] === true,
+    dailyReportTimeLocal:
+      typeof config["dailyReportTimeLocal"] === "string" ? config["dailyReportTimeLocal"] : "21:00"
   };
 }
 
@@ -169,6 +201,7 @@ function PolicyRow({
 
   const isBilling = policy.source === "billing_lifecycle";
   const isIdleReengagement = policy.source === "idle_reengagement";
+  const isAdminSystem = policy.source === "admin_system";
   const defaultChannelOptions = DEFAULT_CHANNEL_OPTIONS[policy.source] ?? REAL_TRANSPORT_CHANNELS;
   const label = SOURCE_LABELS[policy.source] ?? policy.source;
   const effectiveChannel = policy.channels[0] ?? "—";
@@ -192,6 +225,15 @@ function PolicyRow({
         config["idleHours"] = Number(draft.idleHours.trim());
       } else if (isIdleReengagement) {
         delete config["idleHours"];
+      }
+      if (isAdminSystem) {
+        config["recipientAssistantIds"] = draft.recipientAssistantIdsText
+          .split(/\r?\n|,/)
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0);
+        config["eventCodes"] = draft.adminEventCodes;
+        config["dailyReportEnabled"] = draft.dailyReportEnabled;
+        config["dailyReportTimeLocal"] = draft.dailyReportTimeLocal.trim() || "21:00";
       }
 
       const input: PatchNotificationPolicyRequest = {
@@ -229,6 +271,24 @@ function PolicyRow({
       setTestResult(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Test failed.");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function runDailyReportTest(): Promise<void> {
+    const token = await getToken();
+    if (!token) return;
+    setTesting(true);
+    setTestResult(null);
+    setError(null);
+    try {
+      const result = await testSendNotificationForSource(token, policy.source, {
+        eventCode: "daily_report"
+      });
+      setTestResult(result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Daily report test failed.");
     } finally {
       setTesting(false);
     }
@@ -340,6 +400,107 @@ function PolicyRow({
                   Runtime starts evaluating idle re-engagement only after this many hours since the
                   last user message.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {isAdminSystem && (
+            <div className="space-y-3 rounded-lg border border-border/50 bg-surface px-3 py-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                Admin Recipients
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-text-muted">
+                  Recipient assistant IDs
+                </label>
+                <textarea
+                  value={draft.recipientAssistantIdsText}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, recipientAssistantIdsText: e.target.value }))
+                  }
+                  rows={5}
+                  placeholder={"assistant-id-1\nassistant-id-2"}
+                  className="w-full rounded border border-border bg-bg px-2 py-1.5 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                <p className="text-[10px] leading-relaxed text-text-muted">
+                  Each recipient is a normal assistant. Delivery goes through its current{" "}
+                  <code className="rounded bg-surface-hover px-0.5 font-mono">user_preferred</code>{" "}
+                  channel, so the final push lands in Telegram or the web notification center using
+                  the standard reminder path.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <div className="text-[10px] font-medium text-text-muted">Realtime events</div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {ADMIN_SYSTEM_EVENT_OPTIONS.map((event) => {
+                    const checked = draft.adminEventCodes.includes(event.code);
+                    return (
+                      <label
+                        key={event.code}
+                        className="flex items-center gap-2 rounded border border-border/60 bg-bg px-2 py-1.5 text-xs text-text"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            setDraft((current) => ({
+                              ...current,
+                              adminEventCodes: e.target.checked
+                                ? Array.from(new Set([...current.adminEventCodes, event.code]))
+                                : current.adminEventCodes.filter((code) => code !== event.code)
+                            }))
+                          }
+                          className="h-3.5 w-3.5 accent-accent"
+                        />
+                        {event.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex items-center gap-2 text-xs text-text">
+                  <input
+                    type="checkbox"
+                    checked={draft.dailyReportEnabled}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, dailyReportEnabled: e.target.checked }))
+                    }
+                    className="h-3.5 w-3.5 accent-accent"
+                  />
+                  Daily report enabled
+                </label>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-medium text-text-muted">
+                    Daily report time
+                  </label>
+                  <input
+                    type="time"
+                    value={draft.dailyReportTimeLocal}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, dailyReportTimeLocal: e.target.value }))
+                    }
+                    className="rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void runDailyReportTest()}
+                  disabled={testing || saving}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-muted transition hover:border-accent/50 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {testing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Send className="h-3.5 w-3.5" />
+                  )}
+                  Test daily report
+                </button>
+                <span className="text-[10px] text-text-muted">
+                  Sends a synthetic digest to the first configured recipient assistant.
+                </span>
               </div>
             </div>
           )}

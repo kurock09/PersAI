@@ -60,7 +60,7 @@ If `current_thread` cannot be expanded (no surface context on intent):
 | `background_task_push` | `["user_preferred"]` | `web_notification_center` |
 | `billing_lifecycle` | `["email"]` | `admin_webhook` |
 | `system_event` | `["admin_webhook"]` | `null` |
-| `admin_system` | `["admin_webhook"]` | `null` |
+| `admin_system` | `["user_preferred"]` | `null` |
 
 ### D5 — Producer cleanup
 
@@ -68,6 +68,7 @@ Hardcoded `allowedChannels` overrides removed from user-facing producers:
 - `quota-advisory-follow-up.service.ts` — no longer passes `["telegram_thread"]`/`["web_thread"]`; passes `surface` + `chatId` so `current_thread` can be expanded by the worker.
 - `billing-lifecycle-producer.service.ts` — intentionally kept (`["email"]` primary, `["web_notification_center"]` optional push). These are direct producer decisions, not policy shortcuts.
 - `system-event-notification-producer.service.ts` — kept (`["admin_webhook"]`); operational.
+- `admin-system-notification-producer.service.ts` — `admin_system` is reactivated as the single admin push/digest source. Operators configure recipient assistant ids, enabled event codes, and the daily report time in `notification_policies.config`; delivery then reuses the ordinary `user_preferred` reminder path for those assistants.
 
 ### D6 — Postmark TemplatedEmail
 
@@ -118,6 +119,7 @@ Per-source form changes:
 ## Consequences
 
 - Operators now configure `user_preferred` / `current_thread` in policies; the platform delivers to each user's actual preferred surface.
+- `admin_system` is no longer a dead legacy row: it now owns admin realtime push + daily digest delivery through configured admin assistants instead of a dedicated transport-specific channel concept.
 - Billing escalates to `admin_webhook` on email failure rather than silently dead-lettering.
 - Postmark template integration is now a one-field configuration, not a code-level template ID.
 - No breaking changes to existing intents or delivery attempts. Old `telegram_thread`/`web_thread` entries in `notification_intents.allowed_channels` continue to route correctly through existing adapter paths.

@@ -17,6 +17,7 @@ import {
   NotificationRenderStrategy,
   NotificationSource
 } from "@prisma/client";
+import { DEFAULT_ADMIN_SYSTEM_POLICY_CONFIG } from "../admin-system-config";
 
 /**
  * Resolved per-source notification policy as consumed by callers.
@@ -151,16 +152,16 @@ export const NOTIFICATION_POLICY_DEFAULTS: Record<NotificationSource, Notificati
     source: NotificationSource.admin_system,
     class: "administrative",
     enabled: true,
-    channels: ["admin_webhook"],
+    channels: ["user_preferred"],
     cooldownMinutes: null,
     maxPerDay: null,
     escalationAfterMinutes: null,
     escalationChannel: null,
     respectQuietHours: false,
-    renderStrategy: NotificationRenderStrategy.template,
+    renderStrategy: NotificationRenderStrategy.static_fallback,
     renderInstructionRef: null,
     templateId: null,
-    config: {}
+    config: DEFAULT_ADMIN_SYSTEM_POLICY_CONFIG
   },
   system_event: {
     source: NotificationSource.system_event,

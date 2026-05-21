@@ -2,6 +2,75 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-22 — `admin_system` daily-report test button — **Implemented**
+
+### What changed
+
+- **Admin UI:** `Admin -> Notifications -> admin_system` now exposes a dedicated **Test daily report** button next to the digest settings.
+- **Backend test-send path:** `ManageNotificationPlatformService.testSendForSource(..., source="admin_system", eventCode="daily_report")` now builds a synthetic daily digest body and sends it through the first configured recipient assistant's effective `user_preferred` channel, so operators can validate the digest end-to-end without waiting for the scheduler.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-notification-platform.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Residual / note
+
+- `corepack pnpm run test` still fails in unrelated `apps/sandbox/test/sandbox.service.test.ts` (`assert.ok(usage !== null)`), outside the admin notifications slice.
+
+### Next recommended step
+
+- Smoke the button in dev with a real `recipientAssistantIds` config and confirm the synthetic digest lands in the expected Telegram or web notification surface for that assistant.
+
+## 2026-05-22 — `admin_system` audit cleanup — **Implemented**
+
+### What changed
+
+- **Billing timing:** admin-system billing fan-out now preserves future lead-time scheduling for `trial_ending` / `grace_ending` instead of pushing those alerts immediately at lifecycle-event ingest time.
+- **Daily digest resilience:** the scheduler now ticks immediately on module init, and digest eligibility is “after target local time, once per local day” rather than a fragile 5-minute-only window. Dedupe remains per recipient/day.
+- **Legacy row normalization:** effective `admin_system` routing/test-send is forced to `user_preferred` even if an older persisted `notification_policies` row still contains `admin_webhook`.
+- **Auth boundary:** global notification control-plane singleton actions (channels, policies, quiet hours, preview/test) now require `hasGlobalPlatformAdminScope`; scoped admins still only see delivery/dead-letter history for their own workspace.
+- **Validation:** malformed `admin_system.config.dailyReportTimeLocal` values are rejected at write time instead of being silently accepted and later disabling the report.
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-system-notification-producer.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-producer.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-notification-platform.service.test.ts`
+
+### Next recommended step
+
+- Run one real dev smoke for each path: a scoped admin trying to open/edit `Admin -> Notifications`, a lead-time billing event (`trial_started` or `grace_started`), and a same-day late API restart after the configured digest time to confirm the intended once-per-day behavior on live data.
+
+## 2026-05-22 — `admin_system` admin push + daily report — **Implemented**
+
+### What changed
+
+- **API notification control plane / producers:** `admin_system` is now the single source for admin push delivery. Its policy config stores `recipientAssistantIds[]`, enabled admin event codes, and `dailyReportEnabled` + `dailyReportTimeLocal`. New `AdminSystemNotificationProducerService` fans out deterministic `admin_system` intents to configured admin assistants through the existing `user_preferred` delivery path; sources wired in this slice are first-assistant registration/onboarding completion (`CreateAssistantService`), billing lifecycle events, and selected admin/runtime audit events appended via `AppendAssistantAuditEventService`.
+- **API scheduler:** new `AdminSystemDailyReportSchedulerService` (leased like the other singleton schedulers) checks each configured admin assistant in its own workspace timezone and emits one deduplicated daily digest at the configured local wall-clock time.
+- **Admin UI:** `Admin -> Notifications -> Policies -> admin_system` now exposes recipient assistant IDs, event checkboxes, and a daily report toggle/time input directly inside the existing policy editor. No separate "Admin PUSH" entity/channel was introduced.
+- **Semantics cleanup:** `admin_system` default routing moved from `admin_webhook` to `user_preferred`; render strategy is now deterministic `static_fallback`. `system_event` remains separate and webhook-oriented.
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-system-notification-producer.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-notification-platform.service.test.ts`
+
+### Next recommended step
+
+- Configure real `recipientAssistantIds` in `Admin -> Notifications -> admin_system`, enable the desired event checklist, and smoke one real billing/admin/runtime event plus the 21:00 digest on dev to confirm delivery lands in the chosen assistants' actual preferred surfaces.
+
 ## 2026-05-21 — ADR-099 doc closeout — **Implemented**
 
 ### What changed (docs only)

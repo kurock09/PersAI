@@ -11,6 +11,7 @@ import type { NotificationIntentService } from "../src/modules/workspace-managem
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 type IntentInput = Record<string, unknown>;
+type AdminSystemEventInput = Record<string, unknown>;
 
 function makeEvent(
   overrides: Partial<{
@@ -56,6 +57,7 @@ function makeService(opts: {
   assistantPushEnabled?: boolean;
   rulesOverride?: Record<string, { enabled: boolean; offsetDays: number | null }>;
   createdIntents: IntentInput[];
+  createdAdminSystemEvents?: AdminSystemEventInput[];
   existingDedupeKeys?: Set<string>;
 }) {
   const { event, policyEnabled = true, assistantPushEnabled = false, createdIntents } = opts;
@@ -133,9 +135,17 @@ function makeService(opts: {
   const resolveUserLocaleService = {
     forUserInWorkspace: async () => "en" as const
   };
+  const adminSystemEvents = opts.createdAdminSystemEvents ?? [];
+  const adminSystemNotificationProducerService = {
+    async emitEvent(input: AdminSystemEventInput) {
+      adminSystemEvents.push(input);
+      return 1;
+    }
+  };
 
   return new BillingLifecycleProducerService(
     prisma as never,
+    adminSystemNotificationProducerService as never,
     intentService,
     resolveUserLocaleService as never
   );
@@ -253,6 +263,7 @@ async function run(): Promise<void> {
   // 4. trial_started produces trial_ending intent
   {
     const intents: IntentInput[] = [];
+    const adminSystemEvents: AdminSystemEventInput[] = [];
     const svc = makeService({
       event: makeEvent({
         eventCode: "trial_started",
@@ -260,12 +271,20 @@ async function run(): Promise<void> {
         workspaceId: "ws-4",
         trialEndsAt: new Date("2026-05-25T00:00:00.000Z")
       }),
-      createdIntents: intents
+      createdIntents: intents,
+      createdAdminSystemEvents: adminSystemEvents
     });
     await svc.emitForLifecycleEventId("ev-ts-1");
 
     assert.equal(intents.length, 1);
     assert.equal(intents[0]!["templateId"], "billing.trial_ending");
+    assert.equal(adminSystemEvents.length, 1);
+    assert.equal(adminSystemEvents[0]!["eventCode"], "trial_ending");
+    assert.equal(
+      (adminSystemEvents[0]!["scheduledAt"] as Date).toISOString(),
+      "2026-05-22T00:00:00.000Z"
+    );
+    assert.equal(adminSystemEvents[0]!["priority"], "scheduled");
     console.log("✓ trial_started → trial_ending intent");
   }
 
