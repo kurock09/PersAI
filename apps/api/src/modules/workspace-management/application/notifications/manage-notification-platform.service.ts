@@ -259,7 +259,8 @@ const VALID_NOTIFICATION_SOURCES = [
   "background_task_push",
   "billing_lifecycle",
   "admin_system",
-  "system_event"
+  "system_event",
+  "user_support"
 ] as const;
 const VALID_NOTIFICATION_CLASSES = [
   "conversational",

@@ -1,5 +1,4 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { BillingLifecycleFactPayload } from "../templates/billing/billing-lifecycle-fact-payload";
 import renderGraceEnding from "../templates/billing/grace-ending.template";
 import renderGraceEndingShort from "../templates/billing/grace-ending.short.template";
 import renderGraceExpired from "../templates/billing/grace-expired.template";
@@ -16,6 +15,7 @@ import renderTrialEnding from "../templates/billing/trial-ending.template";
 import renderTrialEndingShort from "../templates/billing/trial-ending.short.template";
 import renderTrialExpired from "../templates/billing/trial-expired.template";
 import renderTrialExpiredShort from "../templates/billing/trial-expired.short.template";
+import renderSupportReply from "../templates/support/support-reply.template";
 import type { NotificationIntentRecord, RenderedPayload } from "../notification-platform.types";
 
 /**
@@ -108,8 +108,9 @@ export class TemplateRendererService {
         kind: "billing",
         render: renderRenewalSucceededShort
       }
-    ]
-  ]);
+    ],
+    ["support.reply", { id: "support.reply", kind: "support", render: renderSupportReply }]
+  ] as Array<[string, TemplateDefinition]>);
 
   async render(intent: NotificationIntentRecord): Promise<RenderedPayload> {
     const templateId = intent.templateId;
@@ -162,7 +163,7 @@ export class TemplateRendererService {
       factPayload["locale"].toLowerCase().startsWith("en")
         ? "en"
         : "ru";
-    const rendered = template.render(factPayload as BillingLifecycleFactPayload, locale);
+    const rendered = template.render(factPayload as Record<string, unknown>, locale);
     return {
       subject: rendered.subject,
       body: rendered.plainText,
@@ -174,9 +175,9 @@ export class TemplateRendererService {
 
 type TemplateDefinition = {
   id: string;
-  kind: "billing";
+  kind: "billing" | "support";
   render: (
-    facts: BillingLifecycleFactPayload,
+    facts: Record<string, unknown>,
     locale: "ru" | "en"
   ) => { subject: string; html: string; plainText: string };
 };

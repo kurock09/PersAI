@@ -5088,3 +5088,172 @@ export async function transcribeVoice(
   const data = JSON.parse(res.responseText) as { text: string };
   return data.text;
 }
+
+export type SupportTicketStatus = "open" | "pending" | "answered" | "closed";
+
+export type SupportTicketSummary = {
+  id: string;
+  shortId: string;
+  status: SupportTicketStatus;
+  subject: string | null;
+  preview: string;
+  createdAt: string;
+  updatedAt: string;
+  answeredAt: string | null;
+  closedAt: string | null;
+  userEmail?: string;
+};
+
+export type SupportTicketMessage = {
+  id: string;
+  author: "user" | "admin" | "system";
+  body: string;
+  createdAt: string;
+  adminDisplayName: string | null;
+};
+
+export type SupportTicketDetail = SupportTicketSummary & {
+  assistantId: string;
+  workspaceId: string;
+  userId: string;
+  userEmail: string;
+  assistantDisplayName: string | null;
+  messages: SupportTicketMessage[];
+};
+
+export async function postAssistantSupportTicket(
+  token: string,
+  payload: { assistantId: string; body: string; subject: string | null }
+): Promise<SupportTicketDetail> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/support/tickets`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to create support ticket."));
+  }
+  const data = (await res.json()) as { ticket?: SupportTicketDetail };
+  if (!data.ticket) throw new Error("Support ticket response missing ticket.");
+  return data.ticket;
+}
+
+export async function getAssistantSupportTickets(
+  token: string,
+  assistantId: string
+): Promise<SupportTicketSummary[]> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/support/assistants/${encodeURIComponent(assistantId)}/tickets`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load support tickets."));
+  }
+  const data = (await res.json()) as { tickets?: SupportTicketSummary[] };
+  return data.tickets ?? [];
+}
+
+export async function getAssistantSupportTicket(
+  token: string,
+  ticketId: string
+): Promise<SupportTicketDetail> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/support/tickets/${encodeURIComponent(ticketId)}`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load support ticket."));
+  }
+  const data = (await res.json()) as { ticket?: SupportTicketDetail };
+  if (!data.ticket) throw new Error("Support ticket response missing ticket.");
+  return data.ticket;
+}
+
+export async function getAdminSupportTickets(
+  token: string,
+  params?: { status?: string; limit?: number }
+): Promise<SupportTicketSummary[]> {
+  const base = getApiBaseUrl();
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  if (params?.limit) query.set("limit", String(params.limit));
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  const res = await fetch(`${base}/admin/support/tickets${suffix}`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load admin support tickets."));
+  }
+  const data = (await res.json()) as { tickets?: SupportTicketSummary[] };
+  return data.tickets ?? [];
+}
+
+export async function getAdminSupportTicket(
+  token: string,
+  ticketId: string
+): Promise<SupportTicketDetail> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/support/tickets/${encodeURIComponent(ticketId)}`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load admin support ticket."));
+  }
+  const data = (await res.json()) as { ticket?: SupportTicketDetail };
+  if (!data.ticket) throw new Error("Support ticket response missing ticket.");
+  return data.ticket;
+}
+
+export async function postAdminSupportTicketReply(
+  token: string,
+  ticketId: string,
+  body: string
+): Promise<SupportTicketDetail> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/support/tickets/${encodeURIComponent(ticketId)}/reply`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ body })
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to send support reply."));
+  }
+  const data = (await res.json()) as { ticket?: SupportTicketDetail };
+  if (!data.ticket) throw new Error("Support reply response missing ticket.");
+  return data.ticket;
+}
+
+export async function postAdminSupportTicketPending(
+  token: string,
+  ticketId: string
+): Promise<SupportTicketDetail> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/support/tickets/${encodeURIComponent(ticketId)}/pending`, {
+    method: "POST",
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to mark ticket pending."));
+  }
+  const data = (await res.json()) as { ticket?: SupportTicketDetail };
+  if (!data.ticket) throw new Error("Support pending response missing ticket.");
+  return data.ticket;
+}
+
+export async function postAdminSupportTicketClose(
+  token: string,
+  ticketId: string
+): Promise<SupportTicketDetail> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/support/tickets/${encodeURIComponent(ticketId)}/close`, {
+    method: "POST",
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to close support ticket."));
+  }
+  const data = (await res.json()) as { ticket?: SupportTicketDetail };
+  if (!data.ticket) throw new Error("Support close response missing ticket.");
+  return data.ticket;
+}

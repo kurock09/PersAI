@@ -84,6 +84,12 @@ export const ADMIN_SYSTEM_EVENT_DEFINITIONS = [
     label: "Admin plan updated",
     description: "An existing plan was updated in Admin.",
     notificationClass: NotificationClass.administrative
+  },
+  {
+    code: "support_ticket_opened",
+    label: "Support ticket opened",
+    description: "A user submitted a new support request.",
+    notificationClass: NotificationClass.operational
   }
 ] as const;
 
@@ -100,7 +106,8 @@ export const DEFAULT_ADMIN_SYSTEM_EVENT_CODES: AdminSystemEventCode[] = [
   "payment_recovered",
   "grace_expired",
   "runtime_apply_failed",
-  "runtime_apply_degraded"
+  "runtime_apply_degraded",
+  "support_ticket_opened"
 ];
 
 export type AdminSystemPolicyConfig = {

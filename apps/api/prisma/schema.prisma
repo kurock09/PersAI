@@ -580,6 +580,8 @@ model AppUser {
   publishedAssistantVersion              AssistantPublishedVersion[]         @relation("AssistantVersionPublisher")
   assistantAuditEvents                   AssistantAuditEvent[]               @relation("AssistantAuditActor")
   adminRoles                             AppUserAdminRole[]
+  supportTickets                         SupportTicket[]
+  supportTicketMessagesAuthored          SupportTicketMessage[] @relation("SupportTicketMessageAdminAuthor")
   createdPlatformRollouts                AssistantPlatformRollout[]
   platformRolloutItems                   AssistantPlatformRolloutItem[]
   abuseGuardStates                       AssistantAbuseGuardState[]
@@ -677,6 +679,7 @@ model Workspace {
   materializationRollouts           MaterializationRollout[]
   materializationRolloutItems       MaterializationRolloutItem[]
   notificationDeadLetters           NotificationDeadLetter[]        @relation("NotificationDeadLetterWorkspace")
+  supportTickets                    SupportTicket[]
   mediaPackageGrants                WorkspaceMediaPackageGrant[]
 
   @@map("workspaces")
@@ -773,6 +776,7 @@ model Assistant {
   assistantWorkspaceLeases             AssistantWorkspaceLease[]
   assistantFiles                       AssistantFile[]
   backgroundCompactionJobs             AssistantBackgroundCompactionJob[]
+  supportTickets                       SupportTicket[]
   webChatTurnAttempts                  AssistantWebChatTurnAttempt[]
   mediaJobs                            AssistantMediaJob[]
   voiceTranscriptionEvents             AssistantVoiceTranscriptionEvent[]
@@ -2940,6 +2944,20 @@ enum NotificationSource {
   billing_lifecycle
   admin_system
   system_event
+  user_support
+}
+
+enum SupportTicketStatus {
+  open
+  pending
+  answered
+  closed
+}
+
+enum SupportTicketMessageAuthor {
+  user
+  admin
+  system
 }
 
 enum NotificationClass {
@@ -3133,4 +3151,42 @@ model NotificationDeadLetter {
 
   @@index([workspaceId, resolvedAt, createdAt(sort: Desc)])
   @@map("notification_dead_letters")
+}
+
+// ─── User support tickets ───────────────────────────────────────────────────
+
+model SupportTicket {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String              @map("user_id") @db.Uuid
+  workspaceId String              @map("workspace_id") @db.Uuid
+  assistantId String              @map("assistant_id") @db.Uuid
+  status      SupportTicketStatus @default(open)
+  subject     String?             @db.VarChar(200)
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  answeredAt  DateTime?           @map("answered_at") @db.Timestamptz(6)
+  closedAt    DateTime?           @map("closed_at") @db.Timestamptz(6)
+  user        AppUser             @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant   Assistant           @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  messages    SupportTicketMessage[]
+
+  @@index([userId, assistantId, createdAt(sort: Desc)])
+  @@index([status, updatedAt(sort: Desc)])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@map("support_tickets")
+}
+
+model SupportTicketMessage {
+  id           String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ticketId     String                     @map("ticket_id") @db.Uuid
+  author       SupportTicketMessageAuthor
+  body         String                     @db.Text
+  adminUserId  String?                    @map("admin_user_id") @db.Uuid
+  createdAt    DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  ticket       SupportTicket              @relation(fields: [ticketId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  adminUser    AppUser?                   @relation("SupportTicketMessageAdminAuthor", fields: [adminUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([ticketId, createdAt(sort: Asc)])
+  @@map("support_ticket_messages")
 }

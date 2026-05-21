@@ -13,6 +13,7 @@ import {
   Brain,
   ListTodo,
   Send,
+  MessageCircle,
   BarChart3,
   Loader2,
   AlertTriangle,
@@ -76,6 +77,7 @@ import {
   type AssistantSkillsState
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
+import { AssistantSupportSection } from "./assistant-support-section";
 import { resolveBillingSummaryCopy } from "./billing-summary";
 import {
   filterVoiceOptions,
@@ -121,6 +123,7 @@ type SettingsSectionId =
   | "memory"
   | "tasks"
   | "channels"
+  | "support"
   | "limits";
 
 function normalizeInitialSection(value: string | undefined): SettingsSectionId {
@@ -131,6 +134,7 @@ function normalizeInitialSection(value: string | undefined): SettingsSectionId {
     case "memory":
     case "tasks":
     case "channels":
+    case "support":
     case "limits":
     case "character":
       return value;
@@ -2786,6 +2790,18 @@ export function AssistantSettings({
           <FeedbackLine fb={notificationFb} />
         </div>
       </Section>
+
+      {assistant?.id ? (
+        <Section
+          icon={<MessageCircle className="h-4 w-4" />}
+          title={t("support")}
+          open={openSection === "support"}
+          onToggle={() => setOpenSection((current) => (current === "support" ? null : "support"))}
+          className="order-9"
+        >
+          <AssistantSupportSection assistantId={assistant.id} />
+        </Section>
+      ) : null}
 
       {/* 6. Limits & Plan */}
       <Section

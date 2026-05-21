@@ -177,6 +177,23 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/plans/packages/:id", method: RequestMethod.DELETE },
       { path: "api/v1/admin/billing/lifecycle-settings", method: RequestMethod.GET },
       { path: "api/v1/admin/billing/lifecycle-settings", method: RequestMethod.PUT },
+      { path: "api/v1/support/tickets", method: RequestMethod.POST },
+      { path: "api/v1/support/assistants/:assistantId/tickets", method: RequestMethod.GET },
+      { path: "api/v1/support/tickets/:ticketId", method: RequestMethod.GET },
+      { path: "api/v1/admin/support/tickets", method: RequestMethod.GET },
+      { path: "api/v1/admin/support/tickets/:ticketId", method: RequestMethod.GET },
+      {
+        path: "api/v1/admin/support/tickets/:ticketId/reply",
+        method: RequestMethod.POST
+      },
+      {
+        path: "api/v1/admin/support/tickets/:ticketId/pending",
+        method: RequestMethod.POST
+      },
+      {
+        path: "api/v1/admin/support/tickets/:ticketId/close",
+        method: RequestMethod.POST
+      },
       { path: "api/v1/admin/ops/cockpit", method: RequestMethod.GET },
       { path: "api/v1/admin/ops/users", method: RequestMethod.GET },
       { path: "api/v1/admin/ops/users/:userId/reapply", method: RequestMethod.POST },

@@ -21,7 +21,8 @@ import {
   Settings,
   Menu,
   X,
-  Loader2
+  Loader2,
+  MessageCircle
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { getAdminPlanVisibility } from "@/app/app/assistant-api-client";
@@ -37,6 +38,7 @@ const NAV_ITEMS = [
   { href: "/admin/plans", label: "Plans", icon: CreditCard },
   { href: "/admin/billing-settings", label: "Billing Settings", icon: Settings },
   { href: "/admin/ops", label: "Ops Cockpit", icon: Activity },
+  { href: "/admin/support", label: "Support", icon: MessageCircle },
   { href: "/admin/business", label: "Business", icon: TrendingUp },
   { href: "/admin/rollouts", label: "Rollouts", icon: Layers },
   { href: "/admin/abuse", label: "Abuse Controls", icon: ShieldAlert },

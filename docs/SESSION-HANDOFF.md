@@ -2,6 +2,29 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-22 — User support tickets (base system) — **Implemented**
+
+### What changed
+
+- **Data model:** `support_tickets` + `support_ticket_messages` with statuses `open | pending | answered | closed`.
+- **User APIs:** `POST /api/v1/support/tickets`, `GET /api/v1/support/assistants/:assistantId/tickets`, `GET /api/v1/support/tickets/:ticketId`.
+- **Admin APIs:** `GET/POST` under `/api/v1/admin/support/tickets` for list, detail, reply, pending, close.
+- **Notifications:** new `user_support` source (email `support.reply` + `user_preferred` push on admin reply); `admin_system` event `support_ticket_opened` on new ticket.
+- **UI:** `Admin -> Support` queue page; assistant settings section **Поддержка** with ticket list + thread.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-user-support.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-support.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/support-reply.template.test.ts`
+
+### Next recommended step
+
+- Apply migration `20260522120000_user_support_tickets` on dev, enable `support_ticket_opened` in `admin_system` recipients if needed, smoke: user submits ticket -> admin replies -> user sees `answered` + email/push.
+
 ## 2026-05-22 — `admin_system` daily-report test button — **Implemented**
 
 ### What changed

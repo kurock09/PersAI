@@ -163,6 +163,21 @@ export const NOTIFICATION_POLICY_DEFAULTS: Record<NotificationSource, Notificati
     templateId: null,
     config: DEFAULT_ADMIN_SYSTEM_POLICY_CONFIG
   },
+  user_support: {
+    source: NotificationSource.user_support,
+    class: "transactional",
+    enabled: true,
+    channels: ["email", "user_preferred"],
+    cooldownMinutes: null,
+    maxPerDay: null,
+    escalationAfterMinutes: null,
+    escalationChannel: "web_notification_center",
+    respectQuietHours: false,
+    renderStrategy: NotificationRenderStrategy.template,
+    renderInstructionRef: null,
+    templateId: "support.reply",
+    config: { assistantPushEnabled: true }
+  },
   system_event: {
     source: NotificationSource.system_event,
     class: "operational",

@@ -84,6 +84,11 @@ import { ResolveAdminKnowledgeConnectorsService } from "./application/resolve-ad
 import { OverviewLatencyTraceService } from "./application/overview-latency-trace.service";
 import { ManageAdminOverviewLatencyTraceService } from "./application/manage-admin-overview-latency-trace.service";
 import { AdminSystemNotificationProducerService } from "./application/admin-system-notification-producer.service";
+import { ManageUserSupportService } from "./application/support/manage-user-support.service";
+import { ManageAdminSupportService } from "./application/support/manage-admin-support.service";
+import { UserSupportNotificationProducerService } from "./application/support/user-support-notification-producer.service";
+import { UserSupportController } from "./interface/http/user-support.controller";
+import { AdminSupportController } from "./interface/http/admin-support.controller";
 import { AdminSystemDailyReportSchedulerService } from "./application/admin-system-daily-report-scheduler.service";
 import { SystemEventNotificationProducerService } from "./application/system-event-notification-producer.service";
 import { NotificationIntentService } from "./application/notifications/notification-intent.service";
@@ -331,6 +336,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
   controllers: [
     AppBootstrapController,
     AssistantController,
+    UserSupportController,
     AssistantBillingController,
     AssistantKnowledgeSourcesController,
     AdminPlansController,
@@ -343,6 +349,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AdminAbuseControlsController,
     AdminAssistantOwnershipController,
     AdminOpsController,
+    AdminSupportController,
     AdminBusinessController,
     AdminOverviewDashboardController,
     AdminNotificationsController,
@@ -406,6 +413,9 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     OverviewLatencyTraceService,
     ManageAdminOverviewLatencyTraceService,
     AdminSystemNotificationProducerService,
+    ManageUserSupportService,
+    ManageAdminSupportService,
+    UserSupportNotificationProducerService,
     AdminSystemDailyReportSchedulerService,
     SystemEventNotificationProducerService,
     // ADR-088: Unified notification platform – Slice 1
