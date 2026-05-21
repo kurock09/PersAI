@@ -2,6 +2,8 @@
 
 > Archive: entries from 2026-05-19 and earlier moved to `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`. Keep using this file for current work, including all 2026-05-20 ADR-099 entries.
 
+- **ADR-099 Block 2 — shipped on `main` (`27868c40`; 2026-05-21):** atomic commit lands Steps A–D (tool-path pricing catalog, admin economics API/UI, billing facts + ledger append, Ops layout polish). Verification: lint, format:check, typecheck, full test, build.
+
 - **ADR-099 Block 2 Step D — Admin Tools economics UI (`apps/api`, `apps/web`, `docs`; 2026-05-21):** Admin → Tools now edits tool-path unit prices (web_search, web_fetch, browser, document_render) via `GET/PUT /api/v1/admin/tools/economics`, with default document_render tier seeds and Ops/Business ledger purpose labels for tool-path rows. Verification: `tool-path-pricing-catalog.test.ts`, `apps/web/app/admin/tools/page.test.tsx`, `@persai/api` / `@persai/web` typecheck.
 
 - **ADR-099 Block 2 Step C — tool-path billing facts + ledger append (`apps/api`, `apps/runtime`, `apps/provider-gateway`, `packages/runtime-contract`, `docs`; 2026-05-21):** provider-gateway now emits normalized `billingFacts` for successful web_search, web_fetch, browser, and document_render calls; runtime forwards them on tool invocations and document artifacts; API appends non-blocking `model_cost_ledger_events` via `RecordToolPathLedgerFromToolInvocationsService` on ordinary web/Telegram turns and document-job delivery. Verification: `provider-web-search.service.test.ts`, `record-model-cost-ledger.service.test.ts`, `@persai/api` / `@persai/runtime` / `@persai/provider-gateway` typecheck.

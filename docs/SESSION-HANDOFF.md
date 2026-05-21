@@ -2,6 +2,12 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-21 — ADR-099 Block 2 — committed & pushed (`27868c40`)
+
+- **Git:** `feat(adr099): land Block 2 tool-path economics and ledger wiring` on `main`, pushed to `origin/main`.
+- **Verification (session):** lint, format:check, typecheck, full `pnpm run test`, `pnpm run build` — all green. `prisma:migrate:check` skipped locally (no Postgres on `localhost:5432`).
+- **CI note:** Prisma schema + migration → full CI / dev deploy needs `persai-dev-migrations` approval before GitOps pin.
+
 ## 2026-05-21 — ADR-099 Block 2 Step D (Admin Tools economics UI) — complete
 
 ### What landed
