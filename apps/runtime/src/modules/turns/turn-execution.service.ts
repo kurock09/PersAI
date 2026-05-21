@@ -58,6 +58,7 @@ import {
   type RuntimeRetrievedKnowledgeContext,
   type RuntimeRetrievedKnowledgeContextItem,
   type RuntimeRetrievalActivitySource,
+  type RuntimeBillingFacts,
   type RuntimeWebSearchToolResult,
   type RuntimeWebFetchToolResult,
   type RuntimeUsageAccounting,
@@ -2874,7 +2875,8 @@ export class TurnExecutionService {
         externalContent: providerResult.externalContent,
         action: "results",
         reason: null,
-        warning: providerResult.warning
+        warning: providerResult.warning,
+        billingFacts: providerResult.billingFacts ?? null
       });
     } catch (error) {
       if (error instanceof HttpException) {
@@ -2991,7 +2993,8 @@ export class TurnExecutionService {
         },
         action: "fetched",
         reason: null,
-        warning: providerResult.warning
+        warning: providerResult.warning,
+        billingFacts: providerResult.billingFacts ?? null
       });
     } catch (error) {
       if (error instanceof HttpException) {
@@ -3835,18 +3838,37 @@ export class TurnExecutionService {
     }
   }
 
+  private extractBillingFactsFromToolPayload(
+    payload: ToolExecutionOutcome["payload"]
+  ): RuntimeBillingFacts | null {
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+      return null;
+    }
+    const candidate = (payload as { billingFacts?: unknown }).billingFacts;
+    if (candidate === null || candidate === undefined) {
+      return null;
+    }
+    if (typeof candidate !== "object" || Array.isArray(candidate)) {
+      return null;
+    }
+    return candidate as RuntimeBillingFacts;
+  }
+
   private applyToolExecutionOutcome(
     turnState: TurnExecutionState,
     outcome: ToolExecutionOutcome,
     iteration: number
   ): void {
+    const billingFacts = this.extractBillingFactsFromToolPayload(outcome.payload);
     turnState.toolInvocations.push({
       name: outcome.exchange.toolCall.name,
       iteration,
       ok: outcome.exchange.toolResult.isError !== true,
+      toolCallId: outcome.exchange.toolCall.id,
       ...(this.resolveToolInvocationExecutionMode(outcome.payload) === undefined
         ? {}
-        : { executionMode: this.resolveToolInvocationExecutionMode(outcome.payload)! })
+        : { executionMode: this.resolveToolInvocationExecutionMode(outcome.payload)! }),
+      ...(billingFacts === null ? {} : { billingFacts })
     });
     const closedOpenLoopRef = this.extractClosedOpenLoopRef(outcome.payload);
     if (closedOpenLoopRef !== null && !turnState.closedOpenLoopRefs.includes(closedOpenLoopRef)) {

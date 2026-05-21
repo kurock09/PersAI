@@ -308,6 +308,8 @@ export class IdentityAccessModule implements NestModule {
       },
       { path: "api/v1/admin/tools/document-processing", method: RequestMethod.GET },
       { path: "api/v1/admin/tools/document-processing", method: RequestMethod.PUT },
+      { path: "api/v1/admin/tools/economics", method: RequestMethod.GET },
+      { path: "api/v1/admin/tools/economics", method: RequestMethod.PUT },
       {
         path: "api/v1/admin/tools/document-processing/test-connection",
         method: RequestMethod.POST

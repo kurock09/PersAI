@@ -35,6 +35,17 @@ export const ALL_TOOL_CREDENTIAL_KEYS: ToolCredentialKey[] = Object.keys(
   TOOL_CREDENTIAL_IDS
 ) as ToolCredentialKey[];
 
+/** Legacy secret slot; retrieval/embeddings use Runtime OpenAI + internal API, not this key. */
+export const HIDDEN_ADMIN_TOOL_CREDENTIAL_KEYS = new Set<ToolCredentialKey>(["tool_memory_search"]);
+
+export function isAdminVisibleToolCredentialKey(credentialKey: ToolCredentialKey): boolean {
+  return !HIDDEN_ADMIN_TOOL_CREDENTIAL_KEYS.has(credentialKey);
+}
+
+export const ADMIN_TOOL_CREDENTIAL_KEYS: ToolCredentialKey[] = ALL_TOOL_CREDENTIAL_KEYS.filter(
+  (credentialKey) => isAdminVisibleToolCredentialKey(credentialKey)
+);
+
 export const TOOL_CODE_BY_CREDENTIAL_KEY: Record<ToolCredentialKey, string> = {
   tool_web_search: "web_search",
   tool_web_fetch: "web_fetch",
@@ -301,7 +312,7 @@ export function buildAdminToolCredentialsState(params: {
 
   return {
     schema: "persai.adminToolCredentials.v2",
-    credentials: ALL_TOOL_CREDENTIAL_KEYS.map((credentialKey) => {
+    credentials: ADMIN_TOOL_CREDENTIAL_KEYS.map((credentialKey) => {
       const metadata = params.keyMetadata[credentialKey] ?? EMPTY_METADATA;
       return {
         credentialKey,
@@ -331,6 +342,7 @@ export function buildAdminToolCredentialsState(params: {
       "Document generation stores provider-specific keys for PDFMonkey and Gamma as global admin-managed credentials.",
       "PDFMonkey template selection is persisted as operator-owned Admin > Tools configuration and materialized into the runtime bundle for document jobs.",
       "TTS stores provider-specific keys plus one global primary-provider selection.",
+      "Knowledge search and indexing do not use a separate external API key; embeddings and retrieval helper costs are tracked via Admin > Runtime model catalog.",
       "Raw keys are write-only and stored encrypted in PersAI."
     ]
   };

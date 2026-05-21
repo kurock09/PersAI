@@ -74,7 +74,11 @@ async function run(): Promise<void> {
     }
   });
 
-  assert.equal(state.credentials.length, 12); // 10 tool credentials + 2 notification credentials
+  assert.equal(state.credentials.length, 11); // 9 visible tool credentials + 2 notification credentials
+  assert.equal(
+    state.credentials.find((credential) => credential.credentialKey === "tool_memory_search"),
+    undefined
+  );
   assert.equal(state.ttsPrimaryProviderId, "elevenlabs");
   assert.deepEqual(state.documentProviderConfigs, [
     {

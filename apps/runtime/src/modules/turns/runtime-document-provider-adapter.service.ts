@@ -204,6 +204,7 @@ export class RuntimeDocumentProviderAdapterService {
       bytesBase64: string;
       mimeType: string;
       providerStatus: Record<string, unknown>;
+      billingFacts?: RuntimeOutputArtifact["billingFacts"];
     } | null = null;
 
     this.logger.log(
@@ -375,7 +376,8 @@ export class RuntimeDocumentProviderAdapterService {
       requestId: input.request.job.id,
       filename,
       buffer: Buffer.from(successfulProviderResult.bytesBase64, "base64"),
-      mimeType: successfulProviderResult.mimeType
+      mimeType: successfulProviderResult.mimeType,
+      billingFacts: successfulProviderResult.billingFacts ?? null
     });
 
     // Worker intentionally returns assistantText: null. The user-facing
@@ -392,6 +394,7 @@ export class RuntimeDocumentProviderAdapterService {
       assistantText: null,
       artifacts: [artifact],
       usage: null,
+      billingFacts: artifact.billingFacts ?? null,
       toolInvocations: [
         {
           name: "document",
@@ -478,7 +481,8 @@ export class RuntimeDocumentProviderAdapterService {
       requestId: input.request.job.id,
       filename,
       buffer: Buffer.from(providerResult.bytesBase64, "base64"),
-      mimeType: providerResult.mimeType
+      mimeType: providerResult.mimeType,
+      billingFacts: providerResult.billingFacts ?? null
     });
     // Same rationale as the PDF path: worker returns assistantText: null
     // and the user-facing completion text is generated exactly once in
@@ -488,6 +492,7 @@ export class RuntimeDocumentProviderAdapterService {
       assistantText: null,
       artifacts: [artifact],
       usage: null,
+      billingFacts: artifact.billingFacts ?? null,
       toolInvocations: [
         {
           name: "document",
@@ -1333,6 +1338,7 @@ export class RuntimeDocumentProviderAdapterService {
     filename: string;
     buffer: Buffer;
     mimeType: string;
+    billingFacts?: RuntimeOutputArtifact["billingFacts"];
   }): Promise<RuntimeOutputArtifact> {
     const extension = this.extensionForMimeType(input.mimeType);
     if (extension === null) {
@@ -1375,7 +1381,10 @@ export class RuntimeDocumentProviderAdapterService {
       mimeType: stored.mimeType,
       filename: input.filename,
       sizeBytes: stored.sizeBytes,
-      voiceNote: false
+      voiceNote: false,
+      ...(input.billingFacts === undefined || input.billingFacts === null
+        ? {}
+        : { billingFacts: input.billingFacts })
     };
   }
 

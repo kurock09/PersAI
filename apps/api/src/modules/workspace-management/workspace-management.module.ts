@@ -20,6 +20,7 @@ import { AdminNotificationsController } from "./interface/http/admin-notificatio
 import { AdminPlatformRolloutsController } from "./interface/http/admin-platform-rollouts.controller";
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
 import { AdminDocumentProcessingSettingsController } from "./interface/http/admin-document-processing-settings.controller";
+import { AdminToolPathPricingController } from "./interface/http/admin-tool-path-pricing.controller";
 import { AdminBillingProviderCredentialsController } from "./interface/http/admin-billing-provider-credentials.controller";
 import { AdminToolCredentialsController } from "./interface/http/admin-tool-credentials.controller";
 import { AdminPromptTemplatesController } from "./interface/http/admin-bootstrap-presets.controller";
@@ -103,6 +104,8 @@ import { NOTIFICATION_CHANNEL_ADAPTERS } from "./infrastructure/notifications/ch
 import { InternalNotificationsPostmarkWebhookController } from "./interface/http/internal-notifications-postmark-webhook.controller";
 import { ManageAdminRuntimeProviderSettingsService } from "./application/manage-admin-runtime-provider-settings.service";
 import { ManageAdminDocumentProcessingSettingsService } from "./application/manage-admin-document-processing-settings.service";
+import { ManageAdminToolPathPricingService } from "./application/manage-admin-tool-path-pricing.service";
+import { ResolveToolPathPricingCatalogService } from "./application/resolve-tool-path-pricing-catalog.service";
 import { ManageAdminBillingProviderCredentialsService } from "./application/manage-admin-billing-provider-credentials.service";
 import { ManageAdminToolCredentialsService } from "./application/manage-admin-tool-credentials.service";
 import { ManageAdminToolPromptMetadataService } from "./application/manage-admin-tool-prompt-metadata.service";
@@ -187,6 +190,7 @@ import { ResolveNativeWebChatSessionStateService } from "./application/resolve-n
 import { PublishAssistantDraftService } from "./application/publish-assistant-draft.service";
 import { RecordWebChatMemoryTurnService } from "./application/record-web-chat-memory-turn.service";
 import { RecordModelCostLedgerService } from "./application/record-model-cost-ledger.service";
+import { RecordToolPathLedgerFromToolInvocationsService } from "./application/record-tool-path-ledger-from-tool-invocations.service";
 import { ReapplyAssistantService } from "./application/reapply-assistant.service";
 import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
@@ -344,6 +348,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AdminPlatformRolloutsController,
     AdminRuntimeProviderSettingsController,
     AdminDocumentProcessingSettingsController,
+    AdminToolPathPricingController,
     AdminBillingProviderCredentialsController,
     AdminToolCredentialsController,
     AdminToolMetadataController,
@@ -439,6 +444,8 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ResolveWorkspaceNotificationChannelsService,
     ManageAdminRuntimeProviderSettingsService,
     ManageAdminDocumentProcessingSettingsService,
+    ManageAdminToolPathPricingService,
+    ResolveToolPathPricingCatalogService,
     ManageAdminBillingProviderCredentialsService,
     ManageAdminToolCredentialsService,
     ManageAdminToolPromptMetadataService,
@@ -544,6 +551,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     EnforceAssistantCapabilityAndQuotaService,
     TrackWorkspaceQuotaUsageService,
     RecordModelCostLedgerService,
+    RecordToolPathLedgerFromToolInvocationsService,
     CompactNativeWebChatSessionService,
     ResolveNativeWebChatSessionStateService,
     ManageWebChatListService,

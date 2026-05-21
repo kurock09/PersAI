@@ -2,6 +2,59 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-21 — ADR-099 Block 2 Step D (Admin Tools economics UI) — complete
+
+### What landed
+
+- **Admin → Tools** economics panels on Web & Browser and Document Generation: per-provider unit prices bound to `GET/PUT /api/v1/admin/tools/economics` with step-up `admin.tool_path_pricing.update`.
+- **Default tier seeds** for `document_render` (pdfmonkey pdf tier; gamma pdf/pptx tiers) so PUT validates without empty tier arrays.
+- **Ledger read-model** purpose labels (`web_search`, `web_fetch`, `browser`, `document_render`) and updated coverage note for Block 2 tool paths.
+- **Verification:** `@persai/web` + `@persai/api` typecheck; `app/admin/tools/page.test.tsx`; `tool-path-pricing-catalog.test.ts`; ledger tool-path subtest in `record-model-cost-ledger.service.test.ts`.
+
+### Next recommended step
+
+- Dev/prod: set real tool-path tariffs on Admin → Tools (use the same numeric scale as Runtime fixed-operation prices — ledger stores `actualCostMicros` as `round(operationCount × pricePerOperation)` with no extra FX multiplier). Smoke: one `web_search` turn + one `document_render` job, confirm `model_cost_ledger_events` purposes `web_search` / `document_render`.
+- Optional: expand Business/Ops breakdown filters if operators need tool-path purposes isolated in charts.
+- Optional UX: economics field helper text clarifying micro-unit scale (fractional inputs like `0.05` round to `0` cost today).
+
+## 2026-05-21 — ADR-099 Block 2 Step C (tool-path billing facts + ledger append)
+
+### What landed
+
+- **Shared builders** `buildToolPathOperationBillingFacts` / `buildToolPathTimeBillingFacts` in `@persai/runtime-contract`.
+- **Provider-gateway** emits `billingFacts` on successful web_search, web_fetch (firecrawl), browser (browserless), document_render (pdfmonkey/gamma).
+- **Runtime** passes facts through tool payloads, `RuntimeTurnToolInvocation` (`toolCallId`, `billingFacts`), document job artifacts, and stream `done` chunks (`toolInvocations`).
+- **API ledger** `RecordToolPathLedgerFromToolInvocationsService` appends non-blocking tool-path rows from ordinary web sync/stream + Telegram sync; document jobs record via `assistant-document-job-delivery.service.ts` on delivery start.
+
+### Next recommended step
+
+- **Block 2 Step D:** Admin Tools UI price fields bound to `GET/PUT /admin/tools/economics`; optional Ops/Business purpose labels for tool-path ledger rows.
+
+## 2026-05-21 — ADR-099 Block 2 Step B (tool-path pricing catalog + ledger purposes)
+
+### What landed
+
+- **Tool-path pricing catalog** (`persai.toolPathPricingCatalog.v1`) on `platform_runtime_provider_settings.tool_path_pricing_catalog` with default rows for web_search, web_fetch, browser, document_render providers.
+- **Admin API** `GET/PUT /api/v1/admin/tools/economics` + step-up `admin.tool_path_pricing.update`.
+- **Ledger** `RecordModelCostLedgerService.recordToolPathBillingFactsEvent()` and purposes `web_search`, `web_fetch`, `browser`, `document_render`; `RuntimeBillingFacts` capabilities extended in `@persai/runtime-contract`.
+- **OpenAPI/contracts** schemas for tool-path economics state/request.
+
+### Next recommended step
+
+- **Block 2 Step C:** provider-gateway/runtime emit `billingFacts` on successful web_search, web_fetch, browser, document_render paths.
+- **Block 2 Step D:** Admin Tools UI price fields per section + non-blocking ledger append at persistence boundaries.
+
+## 2026-05-21 — Admin Tools Step A (Block 2 UI regroup)
+
+### What landed
+
+- **Admin → Tools:** two-column layout (`max-w-6xl`, `lg:grid-cols-2`); sections Document Processing (full width), Document Generation, Web & Browser, Text to Speech, Media (link to Runtime), Billing, Notifications; single **Save tool credentials** for grouped runtime keys + Postmark.
+- **Removed from admin surface:** `tool_memory_search` / “Knowledge Search / Embedding Index API Key” — hidden via `ADMIN_TOOL_CREDENTIAL_KEYS` in `buildAdminToolCredentialsState` (retrieval/embeddings use Runtime OpenAI + internal API).
+
+### Next recommended step
+
+- Block 2 Step C/D (billing facts wiring + Tools price UI); catalog API is ready at `/admin/tools/economics`.
+
 ## 2026-05-21 — ADR-099 image token + video per-second billing facts
 
 ### What landed

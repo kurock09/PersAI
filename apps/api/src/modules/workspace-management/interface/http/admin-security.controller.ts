@@ -24,6 +24,7 @@ function parseStepUpAction(value: unknown): DangerousAdminActionCode {
     value === "admin.runtime_provider_settings.update" ||
     value === "admin.document_processing_settings.update" ||
     value === "admin.tool_credentials.update" ||
+    value === "admin.tool_path_pricing.update" ||
     value === "admin.assistant.transfer_ownership" ||
     value === "admin.assistant.recover_ownership" ||
     value === "admin.force_reapply_all"
@@ -31,7 +32,7 @@ function parseStepUpAction(value: unknown): DangerousAdminActionCode {
     return value;
   }
   throw new BadRequestException(
-    "action must be one of: admin.plan.create, admin.plan.update, admin.plan.delete, admin.billing_lifecycle_settings.update, admin.billing_provider_credentials.update, admin.runtime_provider_settings.update, admin.document_processing_settings.update, admin.tool_credentials.update, admin.assistant.transfer_ownership, admin.assistant.recover_ownership, admin.force_reapply_all."
+    "action must be one of: admin.plan.create, admin.plan.update, admin.plan.delete, admin.billing_lifecycle_settings.update, admin.billing_provider_credentials.update, admin.runtime_provider_settings.update, admin.document_processing_settings.update, admin.tool_credentials.update, admin.tool_path_pricing.update, admin.assistant.transfer_ownership, admin.assistant.recover_ownership, admin.force_reapply_all."
   );
 }
 

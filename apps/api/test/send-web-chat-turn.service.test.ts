@@ -3,6 +3,12 @@ import { describe, test } from "node:test";
 import { SendWebChatTurnService } from "../src/modules/workspace-management/application/send-web-chat-turn.service";
 import { createAssistantInboundConflict } from "../src/modules/workspace-management/application/assistant-inbound-error";
 
+const noopRecordToolPathLedgerFromToolInvocationsService = {
+  async recordFromToolInvocations() {
+    return undefined;
+  }
+} as never;
+
 function createOverviewLatencyTraceServiceMock() {
   return {
     start() {
@@ -149,6 +155,7 @@ describe("SendWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
@@ -270,6 +277,7 @@ describe("SendWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [
@@ -417,6 +425,7 @@ describe("SendWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
@@ -554,6 +563,7 @@ describe("SendWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
@@ -690,6 +700,7 @@ describe("SendWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
@@ -861,6 +872,7 @@ describe("SendWebChatTurnService", () => {
           return 1;
         }
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
@@ -992,6 +1004,7 @@ describe("SendWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
@@ -1109,6 +1122,7 @@ describe("SendWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],

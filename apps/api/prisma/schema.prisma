@@ -921,6 +921,7 @@ model PlatformRuntimeProviderSettings {
   availableModelsByProvider       Json                            @map("available_models_by_provider") @db.JsonB
   availableModelCatalogByProvider Json                            @default("{\"openai\":{\"models\":[]},\"anthropic\":{\"models\":[]}}") @map("available_model_catalog_by_provider") @db.JsonB
   documentProcessingPolicy        Json                            @default("{}") @map("document_processing_policy") @db.JsonB
+  toolPathPricingCatalog          Json                            @default("{\"schema\":\"persai.toolPathPricingCatalog.v1\",\"rows\":[]}") @map("tool_path_pricing_catalog") @db.JsonB
   adminKnowledgeRetrievalPolicy   Json                            @default("{}") @map("admin_knowledge_retrieval_policy") @db.JsonB
   updatedByUserId                 String?                         @map("updated_by_user_id") @db.Uuid
   createdAt                       DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)

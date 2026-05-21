@@ -122,6 +122,36 @@ export class AssistantDocumentJobDeliveryService {
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService
   ) {}
 
+  private async persistDocumentRenderBillingFacts(input: {
+    job: Pick<ClaimedReadyDocumentJob, "id" | "assistantId" | "workspaceId" | "surface">;
+    artifacts: RuntimeOutputArtifact[];
+  }): Promise<void> {
+    const billingFacts =
+      input.artifacts.find((artifact) => artifact.billingFacts)?.billingFacts ?? null;
+    if (billingFacts === null) {
+      return;
+    }
+    const assistant = await this.assistantRepository.findById(input.job.assistantId);
+    if (assistant === null) {
+      return;
+    }
+    try {
+      await this.recordModelCostLedgerService.recordPersistedBillingFactsEvent({
+        workspaceId: input.job.workspaceId,
+        assistantId: input.job.assistantId,
+        userId: assistant.userId,
+        surface: input.job.surface,
+        source: "document_job_completion",
+        sourceEventId: `document_job:${input.job.id}`,
+        billingFacts
+      });
+    } catch (error) {
+      this.logger.warn(
+        `document_job_render_ledger_append_failed jobId=${input.job.id} message=${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
   private async persistDocumentCompletionFramingLedger(input: {
     job: Pick<ClaimedReadyDocumentJob, "id" | "assistantId" | "workspaceId" | "surface">;
     userId: string;
@@ -208,6 +238,11 @@ export class AssistantDocumentJobDeliveryService {
         );
         return;
       }
+
+      await this.persistDocumentRenderBillingFacts({
+        job,
+        artifacts: currentPayload.artifacts
+      });
 
       let completionAssistantMessageId = currentPayload.completionAssistantMessageId ?? null;
       if (

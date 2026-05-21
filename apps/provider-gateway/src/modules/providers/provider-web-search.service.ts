@@ -1,6 +1,7 @@
 import { BadGatewayException, BadRequestException, Inject, Injectable } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import {
+  buildToolPathOperationBillingFacts,
   PERSAI_RUNTIME_WEB_SEARCH_PROVIDER_IDS,
   type PersaiRuntimeWebSearchProviderId,
   type ProviderGatewayWebSearchRequest,
@@ -51,6 +52,7 @@ export class ProviderWebSearchService {
       count: normalized.count,
       apiKey
     });
+    const occurredAt = new Date().toISOString();
     return {
       provider: normalized.providerId,
       query: normalized.query,
@@ -62,7 +64,12 @@ export class ProviderWebSearchService {
         untrusted: true,
         source: "web_search",
         provider: normalized.providerId
-      }
+      },
+      billingFacts: buildToolPathOperationBillingFacts({
+        capability: "web_search",
+        providerKey: normalized.providerId,
+        occurredAt
+      })
     };
   }
 

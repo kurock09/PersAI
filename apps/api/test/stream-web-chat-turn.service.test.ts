@@ -4,6 +4,12 @@ import { createAssistantInboundConflict } from "../src/modules/workspace-managem
 import { StreamWebChatTurnService } from "../src/modules/workspace-management/application/stream-web-chat-turn.service";
 import { PrismaAssistantChatRepository } from "../src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository";
 
+const noopRecordToolPathLedgerFromToolInvocationsService = {
+  async recordFromToolInvocations() {
+    return undefined;
+  }
+} as never;
+
 function createOverviewLatencyTraceServiceMock(options?: { enabled?: boolean }) {
   const enabled = options?.enabled === true;
   return {
@@ -247,6 +253,7 @@ describe("StreamWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
@@ -447,6 +454,7 @@ describe("StreamWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
@@ -674,6 +682,7 @@ describe("StreamWebChatTurnService", () => {
           return 1;
         }
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
@@ -856,6 +865,7 @@ describe("StreamWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
@@ -1047,6 +1057,7 @@ describe("StreamWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
@@ -1244,6 +1255,7 @@ describe("StreamWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
@@ -1391,6 +1403,7 @@ describe("StreamWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
@@ -1527,6 +1540,7 @@ describe("StreamWebChatTurnService", () => {
       {
         recordChatMainReplyEvents: async () => 0
       } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
@@ -1701,6 +1715,7 @@ function buildToolStreamingServiceForTraceTest(options: {
     {
       recordChatMainReplyEvents: async () => 0
     } as never,
+    noopRecordToolPathLedgerFromToolInvocationsService,
     {
       markUndeliveredArtifactsReconciliationRequired: async () => undefined,
       deliver: async () => ({ attachments: [] })

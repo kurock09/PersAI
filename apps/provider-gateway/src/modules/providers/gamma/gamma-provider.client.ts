@@ -6,9 +6,10 @@ import {
   UnauthorizedException
 } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
-import type {
-  ProviderGatewayDocumentGenerateRequest,
-  ProviderGatewayDocumentGenerateResult
+import {
+  buildToolPathOperationBillingFacts,
+  type ProviderGatewayDocumentGenerateRequest,
+  type ProviderGatewayDocumentGenerateResult
 } from "@persai/runtime-contract";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 
@@ -147,6 +148,7 @@ export class GammaProviderClient {
       const mimeType =
         downloadResponse.headers.get("content-type")?.split(";")[0]?.trim() ||
         this.defaultMimeTypeForOutputFormat(requestedOutputFormat);
+      const respondedAt = new Date().toISOString();
       return {
         provider: "gamma",
         outputFormat: requestedOutputFormat,
@@ -155,11 +157,17 @@ export class GammaProviderClient {
         filename: input.filename,
         bytesBase64: buffer.toString("base64"),
         mimeType,
-        respondedAt: new Date().toISOString(),
+        respondedAt,
         warning:
           typeof created.warnings === "string" && created.warnings.trim().length > 0
             ? created.warnings
             : null,
+        billingFacts: buildToolPathOperationBillingFacts({
+          capability: "document_render",
+          providerKey: "gamma",
+          dimensions: { outputFormat: requestedOutputFormat },
+          occurredAt: respondedAt
+        }),
         providerStatus: {
           provider: "gamma",
           state: "success",

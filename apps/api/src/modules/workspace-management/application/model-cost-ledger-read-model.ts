@@ -48,7 +48,7 @@ export type AdminModelCostLedgerWindowState = {
 };
 
 export const ADMIN_MODEL_COST_LEDGER_COVERAGE_NOTE =
-  "Current ledger-backed model cost covers ADR-099 Block 1 model-priced paths when Admin Runtime catalog rows match the event timestamp: ordinary web/Telegram chat (main reply + router), background-task evaluator usage, persisted media job and attachment billing facts (image/video/STT/TTS), retrieval-helper reranker usage, knowledge indexing embedding calls, async media/document completion framing usage, standalone voice HTTP transcribe events, and Mistral OCR document extraction. Provider render jobs without model-priced billing facts and non-model tool paths remain outside this ledger.";
+  "Current ledger-backed model cost covers model-priced paths when Admin Runtime catalog rows match the event timestamp: ordinary web/Telegram chat (main reply + router), background-task evaluator usage, persisted media job and attachment billing facts (image/video/STT/TTS), retrieval-helper reranker usage, knowledge indexing embedding calls, async media/document completion framing usage, standalone voice HTTP transcribe events, and Mistral OCR document extraction. Tool-path economics (web_search, web_fetch, browser, document_render) price from Admin > Tools when billing facts and tool-path catalog rows match the event timestamp. Other non-ledger tool paths remain outside this summary.";
 
 function asNumber(value: bigint | number | null | undefined): number {
   if (typeof value === "bigint") {
@@ -86,6 +86,14 @@ function labelPurpose(value: string): string {
       return "OCR / document parsing";
     case "knowledge_embedding":
       return "Knowledge indexing (embeddings)";
+    case "web_search":
+      return "Web search";
+    case "web_fetch":
+      return "Web fetch";
+    case "browser":
+      return "Browser";
+    case "document_render":
+      return "Document render";
     default:
       return value.replaceAll("_", " ");
   }

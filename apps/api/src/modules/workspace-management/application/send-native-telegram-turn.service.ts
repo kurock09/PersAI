@@ -337,6 +337,9 @@ export class SendNativeTelegramTurnService {
             ...(event.result.usageAccounting === undefined
               ? {}
               : { usageAccounting: event.result.usageAccounting }),
+            ...(event.result.toolInvocations === undefined
+              ? {}
+              : { toolInvocations: event.result.toolInvocations }),
             ...(event.result.deferredMediaJobs === undefined
               ? {}
               : { deferredMediaJobs: event.result.deferredMediaJobs }),

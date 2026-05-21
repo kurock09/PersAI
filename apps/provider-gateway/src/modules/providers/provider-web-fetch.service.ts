@@ -1,6 +1,7 @@
 import { BadGatewayException, BadRequestException, Inject, Injectable } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import {
+  buildToolPathOperationBillingFacts,
   PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
   type PersaiRuntimeWebFetchExtractMode,
   type ProviderGatewayWebFetchRequest,
@@ -87,6 +88,7 @@ export class ProviderWebFetchService {
         ? payload.warning.trim()
         : null;
 
+    const fetchedAt = new Date().toISOString();
     return {
       provider: "firecrawl",
       url: normalized.url,
@@ -103,14 +105,19 @@ export class ProviderWebFetchService {
       extractMode: normalized.extractMode,
       status: Number.isInteger(metadata?.statusCode) ? Number(metadata?.statusCode) : null,
       truncated: truncated.truncated,
-      fetchedAt: new Date().toISOString(),
+      fetchedAt,
       tookMs: Date.now() - startedAt,
       warning: [UNTRUSTED_CONTENT_WARNING, providerWarning].filter(Boolean).join(" "),
       externalContent: {
         untrusted: true,
         source: "web_fetch",
         provider: "firecrawl"
-      }
+      },
+      billingFacts: buildToolPathOperationBillingFacts({
+        capability: "web_fetch",
+        providerKey: "firecrawl",
+        occurredAt: fetchedAt
+      })
     };
   }
 

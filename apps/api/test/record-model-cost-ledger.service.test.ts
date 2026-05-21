@@ -97,7 +97,17 @@ describe("RecordModelCostLedgerService", () => {
       })
     } as ResolvePlatformRuntimeProviderSettingsService;
 
-    const service = new RecordModelCostLedgerService(prisma, settingsResolver);
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
 
     const writtenCount = await service.recordChatMainReplyEvents({
       workspaceId: "workspace-1",
@@ -275,7 +285,17 @@ describe("RecordModelCostLedgerService", () => {
       })
     } as ResolvePlatformRuntimeProviderSettingsService;
 
-    const service = new RecordModelCostLedgerService(prisma, settingsResolver);
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
 
     const writtenCount = await service.recordChatMainReplyEvents({
       workspaceId: "workspace-1",
@@ -388,7 +408,17 @@ describe("RecordModelCostLedgerService", () => {
       })
     } as ResolvePlatformRuntimeProviderSettingsService;
 
-    const service = new RecordModelCostLedgerService(prisma, settingsResolver);
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
     const input = {
       workspaceId: "workspace-1",
       assistantId: "assistant-1",
@@ -514,7 +544,17 @@ describe("RecordModelCostLedgerService", () => {
       })
     } as ResolvePlatformRuntimeProviderSettingsService;
 
-    const service = new RecordModelCostLedgerService(prisma, settingsResolver);
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
     const input = {
       workspaceId: "workspace-1",
       assistantId: "assistant-1",
@@ -642,7 +682,17 @@ describe("RecordModelCostLedgerService", () => {
       })
     } as ResolvePlatformRuntimeProviderSettingsService;
 
-    const service = new RecordModelCostLedgerService(prisma, settingsResolver);
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
     const billingFacts = {
       providerKey: "openai",
       modelKey: "gpt-image-1",
@@ -770,7 +820,17 @@ describe("RecordModelCostLedgerService", () => {
       })
     } as ResolvePlatformRuntimeProviderSettingsService;
 
-    const service = new RecordModelCostLedgerService(prisma, settingsResolver);
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
     const writtenCount = await service.recordPersistedBillingFactsEvent({
       workspaceId: "workspace-1",
       assistantId: "assistant-1",
@@ -868,7 +928,17 @@ describe("RecordModelCostLedgerService", () => {
       })
     } as ResolvePlatformRuntimeProviderSettingsService;
 
-    const service = new RecordModelCostLedgerService(prisma, settingsResolver);
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
     const writtenCount = await service.recordPersistedBillingFactsEvent({
       workspaceId: "workspace-1",
       assistantId: "assistant-1",
@@ -967,7 +1037,17 @@ describe("RecordModelCostLedgerService", () => {
       })
     } as ResolvePlatformRuntimeProviderSettingsService;
 
-    const service = new RecordModelCostLedgerService(prisma, settingsResolver);
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
     const writtenCount = await service.recordRetrievalHelperEvent({
       workspaceId: "workspace-1",
       assistantId: "assistant-1",
@@ -1049,7 +1129,17 @@ describe("RecordModelCostLedgerService", () => {
       })
     } as ResolvePlatformRuntimeProviderSettingsService;
 
-    const service = new RecordModelCostLedgerService(prisma, settingsResolver);
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
     const writtenCount = await service.recordCompletionFramingUsageEvent({
       workspaceId: "workspace-1",
       assistantId: "assistant-1",
@@ -1136,7 +1226,17 @@ describe("RecordModelCostLedgerService", () => {
       })
     } as ResolvePlatformRuntimeProviderSettingsService;
 
-    const service = new RecordModelCostLedgerService(prisma, settingsResolver);
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
     const writtenCount = await service.recordKnowledgeIndexingEmbeddingEvent({
       workspaceId: "workspace-1",
       assistantId: "assistant-1",
@@ -1153,5 +1253,103 @@ describe("RecordModelCostLedgerService", () => {
     assert.equal(createdRows[0]?.purpose, "knowledge_embedding");
     assert.equal(createdRows[0]?.source, "knowledge_indexing_embedding");
     assert.equal(createdRows[0]?.surface, "background");
+  });
+
+  test("records tool-path billing facts from Admin Tools economics catalog", async () => {
+    const createdRows: Array<Record<string, unknown>> = [];
+    const prisma = {
+      modelCostLedgerEvent: {
+        createMany: async (input: {
+          data: Array<Record<string, unknown>>;
+          skipDuplicates?: boolean;
+        }) => {
+          createdRows.push(...input.data);
+          return { count: input.data.length };
+        }
+      }
+    } as unknown as WorkspaceManagementPrismaService;
+
+    const settingsResolver = {
+      execute: async () => ({
+        schema: "persai.runtimeProviderProfile.v1",
+        mode: "admin_managed",
+        derivedFrom: {
+          policyEnvelopeSchema: "persai.runtimeProviderProfile.v1",
+          secretRefsSchema: "persai.runtimeProviderCredentialRefs.v1"
+        },
+        allowedProviders: ["openai", "anthropic"],
+        availableModelsByProvider: { openai: [], anthropic: [] },
+        availableModelCatalogByProvider: { openai: { models: [] }, anthropic: { models: [] } },
+        primary: {
+          provider: "openai",
+          model: "gpt-5-mini",
+          credentialRef: {
+            refKey: "env:openai:OPENAI_API_KEY",
+            secretRef: { source: "env", provider: "openai", id: "OPENAI_API_KEY" },
+            updatedAt: null
+          }
+        },
+        fallback: null,
+        notes: []
+      })
+    } as ResolvePlatformRuntimeProviderSettingsService;
+
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: [
+          {
+            pathKey: "web_search:tavily",
+            toolCode: "web_search",
+            providerId: "tavily",
+            active: true,
+            billingMode: "fixed_operation",
+            effectiveFrom: null,
+            effectiveTo: null,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: {
+              currency: "USD",
+              fixedOperationPricing: {
+                unitLabel: "search call",
+                pricePerOperation: 8
+              }
+            }
+          }
+        ]
+      })
+    };
+
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
+    const writtenCount = await service.recordToolPathBillingFactsEvent({
+      workspaceId: "workspace-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surface: "web",
+      source: "native_tool_web_search",
+      sourceEventId: "tool_invocation:inv-1",
+      billingFacts: {
+        providerKey: "tavily",
+        modelKey: "web_search:tavily",
+        capability: "web_search",
+        occurredAt: "2026-05-20T20:00:00.000Z",
+        metering: {
+          meteringKind: "operation_metered",
+          operationCount: 1,
+          dimensions: { providerId: "tavily" }
+        }
+      }
+    });
+
+    assert.equal(writtenCount, 1);
+    assert.equal(createdRows[0]?.purpose, "web_search");
+    assert.equal(createdRows[0]?.capability, "web_search");
+    assert.equal(createdRows[0]?.model, "web_search:tavily");
+    assert.equal(createdRows[0]?.billingMode, "fixed_operation");
+    assert.equal(createdRows[0]?.actualCostMicros, 8n);
   });
 });

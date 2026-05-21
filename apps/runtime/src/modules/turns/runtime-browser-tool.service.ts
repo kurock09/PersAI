@@ -166,7 +166,8 @@ export class RuntimeBrowserToolService {
           },
           action: request.action === "snapshot" ? "snapshot" : "acted",
           reason: null,
-          warning: providerResult.warning
+          warning: providerResult.warning,
+          billingFacts: providerResult.billingFacts ?? null
         },
         isError: false
       };

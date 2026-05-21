@@ -32,6 +32,7 @@ import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
+import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
@@ -88,6 +89,7 @@ export class HandleInternalTelegramTurnService {
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
+    private readonly recordToolPathLedgerFromToolInvocationsService: RecordToolPathLedgerFromToolInvocationsService,
     @Optional()
     private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
     @Optional()
@@ -470,6 +472,7 @@ export class HandleInternalTelegramTurnService {
     respondedAt: string;
     traceId: string;
     usageAccounting?: AssistantRuntimeWebChatTurnResult["usageAccounting"];
+    toolInvocations?: AssistantRuntimeWebChatTurnResult["toolInvocations"];
   }): Promise<void> {
     try {
       await this.recordModelCostLedgerService.recordChatMainReplyEvents({
@@ -491,6 +494,17 @@ export class HandleInternalTelegramTurnService {
         }`
       );
     }
+
+    await this.recordToolPathLedgerFromToolInvocationsService.recordFromToolInvocations({
+      workspaceId: input.workspaceId,
+      assistantId: input.assistantId,
+      userId: input.userId,
+      surface: "telegram",
+      source: "native_tool_inline",
+      assistantMessageId: input.assistantMessageId,
+      requestCorrelationId: input.traceId,
+      ...(input.toolInvocations === undefined ? {} : { toolInvocations: input.toolInvocations })
+    });
   }
 
   private buildDeduplicatedResult(): InternalTelegramTurnResult {

@@ -1530,120 +1530,41 @@ export default function AdminOpsPage() {
             </p>
           )}
 
-          {(quotaUsage || modelCostLedger || chatStats || channelBindings.length > 0) && (
-            <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,0.9fr)]">
-              {quotaUsage && (
-                <CardShell title="Quota & Usage" icon={Gauge}>
-                  <div className="space-y-3">
-                    <QuotaBar
-                      label="Token Budget"
-                      used={quotaUsage.tokenBudgetUsed}
-                      limit={quotaUsage.tokenBudgetLimit}
-                      formatValue={formatTokens}
-                    />
-                    <QuotaBar
-                      label="Media Storage"
-                      used={quotaUsage.mediaStorageBytesUsed}
-                      limit={quotaUsage.mediaStorageBytesLimit}
-                      formatValue={formatStorageMb}
-                    />
-                    <div className="grid grid-cols-2 gap-2 rounded border border-border/30 bg-surface-raised/60 px-2 py-1 text-center">
-                      <div>
-                        <p className="text-sm font-semibold tabular-nums text-text">
-                          {quotaUsage.activeWebChats}
-                        </p>
-                        <p className="text-[9px] uppercase tracking-wide text-text-subtle">
-                          Active Web Chats
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold tabular-nums text-text">
-                          {formatQuotaCount(quotaUsage.activeWebChatsLimit)}
-                        </p>
-                        <p className="text-[9px] uppercase tracking-wide text-text-subtle">
-                          Chat Cap
-                        </p>
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                        Monthly package tools
-                      </p>
-                      <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2 xl:grid-cols-4">
-                        {quotaUsage.monthlyMediaTools.map((tool) => (
-                          <div
-                            key={tool.toolCode}
-                            className="rounded border border-border/60 bg-surface-raised px-2 py-1.5 text-[10px]"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-text-muted">{tool.displayName}</span>
-                              <span className="font-medium tabular-nums text-text">
-                                {tool.usedUnits} / {formatQuotaCount(tool.effectiveLimitUnits)}
-                              </span>
-                            </div>
-                            {tool.bonusLimitUnits > 0 ? (
-                              <p className="mt-1 text-[9px] text-accent">
-                                Package bonus: +{tool.bonusLimitUnits}
-                                {tool.limitUnits !== null ? ` over base ${tool.limitUnits}` : ""}
-                                {tool.bonusExpiresAt
-                                  ? ` until ${formatShortDate(tool.bonusExpiresAt)}`
-                                  : ""}
-                              </p>
-                            ) : tool.limitUnits !== null ? (
-                              <p className="mt-1 text-[9px] text-text-subtle">
-                                Base limit: {tool.limitUnits}
-                              </p>
-                            ) : (
-                              <p className="mt-1 text-[9px] text-text-subtle">
-                                Base limit: unlimited
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </CardShell>
+          {(quotaUsage ||
+            modelCostLedger ||
+            chatStats ||
+            channelBindings.length > 0 ||
+            cockpit?.periodEconomics) && (
+            <div
+              className={cn(
+                "grid grid-cols-1 gap-2",
+                modelCostLedger &&
+                  (quotaUsage ||
+                    chatStats ||
+                    channelBindings.length > 0 ||
+                    cockpit?.periodEconomics) &&
+                  "xl:grid-cols-2 xl:items-start"
               )}
-
-              <div className="grid grid-cols-1 gap-1.5">
-                {cockpit?.periodEconomics && (
-                  <CardShell title="Period economics" icon={BarChart3} tone="muted" compact>
-                    <div className="space-y-2 text-[11px]">
-                      <DetailRow
-                        label="Window"
-                        value={`${formatTs(cockpit.periodEconomics.periodStartedAt)} → ${formatTs(cockpit.periodEconomics.periodEndsAt)}`}
-                      />
-                      <DetailRow
-                        label="Paid (subscription + packages)"
-                        value={formatPaidMinor(
-                          cockpit.periodEconomics.paidTotalMinor,
-                          cockpit.periodEconomics.paidCurrency
-                        )}
-                      />
-                      <DetailRow
-                        label="Model cost (USD ledger)"
-                        value={formatCurrencyMicros(
-                          cockpit.periodEconomics.modelCostUsdMicros,
-                          "USD"
-                        )}
-                      />
-                    </div>
-                  </CardShell>
-                )}
-
-                {modelCostLedger && (
-                  <CardShell title="Ledger-backed Model Cost" icon={BarChart3} tone="muted" compact>
-                    <div className="space-y-2">
-                      <p className="text-[10px] leading-relaxed text-text-muted">
+            >
+              {modelCostLedger && (
+                <div className="min-w-0 xl:sticky xl:top-2 xl:self-start">
+                  <CardShell title="Ledger-backed Model Cost" icon={BarChart3} tone="muted">
+                    <div className="space-y-3">
+                      <p className="rounded border border-border/40 bg-surface-raised/80 px-2.5 py-2 text-[10px] leading-relaxed text-text-muted">
                         {modelCostLedger.coverageNote}
                       </p>
-                      <DetailRow
-                        label="Window"
-                        value={`${formatTs(modelCostLedger.startedAt)} → ${formatTs(modelCostLedger.endedAt)} (${formatLedgerPeriodSource(modelCostLedger.periodSource)})`}
-                      />
-                      <DetailRow label="Ledger events" value={modelCostLedger.totalEvents} />
-                      <div className="space-y-1">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <DetailRow
+                          label="Window"
+                          value={`${formatTs(modelCostLedger.startedAt)} → ${formatTs(modelCostLedger.endedAt)}`}
+                        />
+                        <DetailRow
+                          label="Period source"
+                          value={formatLedgerPeriodSource(modelCostLedger.periodSource)}
+                        />
+                        <DetailRow label="Ledger events" value={modelCostLedger.totalEvents} />
+                      </div>
+                      <div className="space-y-1.5">
                         <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
                           Totals
                         </p>
@@ -1652,128 +1573,265 @@ export default function AdminOpsPage() {
                             No ledger-backed cost rows in this period.
                           </p>
                         ) : (
-                          modelCostLedger.currencyTotals.map((entry) => (
-                            <div
-                              key={entry.currency}
-                              className="flex items-center justify-between rounded border border-border/50 bg-surface-raised px-2 py-1.5 text-[11px]"
-                            >
-                              <div>
-                                <p className="font-medium text-text">{entry.currency}</p>
-                                <p className="text-[10px] text-text-muted">
-                                  {entry.eventCount} events
-                                </p>
-                              </div>
-                              <span className="font-semibold tabular-nums text-text">
-                                {formatCurrencyMicros(entry.totalCostMicros, entry.currency)}
-                              </span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                      {modelCostLedger.byPurpose.length > 0 && (
-                        <div className="space-y-1">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                            By purpose
-                          </p>
-                          <div className="grid grid-cols-1 gap-1">
-                            {modelCostLedger.byPurpose.map((entry) => (
+                          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                            {modelCostLedger.currencyTotals.map((entry) => (
                               <div
-                                key={entry.key}
-                                className="flex items-center justify-between rounded border border-border/40 bg-surface px-2 py-1 text-[10px]"
+                                key={entry.currency}
+                                className="flex items-center justify-between rounded-lg border border-border/50 bg-surface-raised px-3 py-2 text-[11px]"
                               >
-                                <span className="text-text">{entry.label}</span>
-                                <span className="font-medium tabular-nums text-text-muted">
-                                  {entry.eventCount}
+                                <div>
+                                  <p className="font-medium text-text">{entry.currency}</p>
+                                  <p className="text-[10px] text-text-muted">
+                                    {entry.eventCount} events
+                                  </p>
+                                </div>
+                                <span className="text-sm font-semibold tabular-nums text-text">
+                                  {formatCurrencyMicros(entry.totalCostMicros, entry.currency)}
                                 </span>
                               </div>
                             ))}
                           </div>
+                        )}
+                      </div>
+                      {(modelCostLedger.byPurpose.length > 0 ||
+                        modelCostLedger.topBreakdown.length > 0) && (
+                        <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+                          {modelCostLedger.byPurpose.length > 0 && (
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                                By purpose
+                              </p>
+                              <div className="grid grid-cols-1 gap-1">
+                                {modelCostLedger.byPurpose.map((entry) => (
+                                  <div
+                                    key={entry.key}
+                                    className="flex items-center justify-between rounded border border-border/40 bg-surface px-2 py-1.5 text-[10px]"
+                                  >
+                                    <span className="text-text">{entry.label}</span>
+                                    <span className="font-medium tabular-nums text-text-muted">
+                                      {entry.eventCount}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {modelCostLedger.topBreakdown.length > 0 && (
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                                Top model rows
+                              </p>
+                              <div className="space-y-1">
+                                {modelCostLedger.topBreakdown.slice(0, 5).map((entry) => (
+                                  <div
+                                    key={`${entry.provider}-${entry.model}-${entry.purpose}-${entry.surface}-${entry.currency}`}
+                                    className="rounded border border-border/50 bg-surface-raised px-2 py-1.5"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[11px] font-medium text-text">
+                                        {entry.provider} / {entry.model}
+                                      </span>
+                                      <span className="text-[10px] font-semibold tabular-nums text-text">
+                                        {formatCurrencyMicros(
+                                          entry.totalCostMicros,
+                                          entry.currency
+                                        )}
+                                      </span>
+                                    </div>
+                                    <p className="mt-0.5 text-[9px] text-text-muted">
+                                      {entry.purposeLabel} · {entry.surfaceLabel} ·{" "}
+                                      {entry.eventCount} events
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
-                      {modelCostLedger.topBreakdown.length > 0 && (
-                        <div className="space-y-1">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                            Top model rows
-                          </p>
-                          {modelCostLedger.topBreakdown.slice(0, 3).map((entry) => (
-                            <div
-                              key={`${entry.provider}-${entry.model}-${entry.purpose}-${entry.surface}-${entry.currency}`}
-                              className="rounded border border-border/50 bg-surface-raised px-2 py-1.5"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[11px] font-medium text-text">
-                                  {entry.provider} / {entry.model}
+                    </div>
+                  </CardShell>
+                </div>
+              )}
+
+              {(quotaUsage ||
+                chatStats ||
+                channelBindings.length > 0 ||
+                cockpit?.periodEconomics) && (
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  {cockpit?.periodEconomics && (
+                    <CardShell title="Period economics" icon={BarChart3} tone="muted" compact>
+                      <div className="space-y-2 text-[11px]">
+                        <DetailRow
+                          label="Window"
+                          value={`${formatTs(cockpit.periodEconomics.periodStartedAt)} → ${formatTs(cockpit.periodEconomics.periodEndsAt)}`}
+                        />
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <div className="rounded-lg border border-accent/20 bg-accent/5 px-2.5 py-2">
+                            <p className="text-[9px] font-semibold uppercase tracking-wide text-text-subtle">
+                              Paid
+                            </p>
+                            <p className="mt-0.5 text-sm font-semibold tabular-nums text-text">
+                              {formatPaidMinor(
+                                cockpit.periodEconomics.paidTotalMinor,
+                                cockpit.periodEconomics.paidCurrency
+                              )}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-border/50 bg-surface-raised px-2.5 py-2">
+                            <p className="text-[9px] font-semibold uppercase tracking-wide text-text-subtle">
+                              Model cost (USD)
+                            </p>
+                            <p className="mt-0.5 text-sm font-semibold tabular-nums text-text">
+                              {formatCurrencyMicros(
+                                cockpit.periodEconomics.modelCostUsdMicros,
+                                "USD"
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </CardShell>
+                  )}
+
+                  {quotaUsage && (
+                    <CardShell title="Quota & Usage" icon={Gauge} compact>
+                      <div className="space-y-2.5">
+                        <QuotaBar
+                          label="Token Budget"
+                          used={quotaUsage.tokenBudgetUsed}
+                          limit={quotaUsage.tokenBudgetLimit}
+                          formatValue={formatTokens}
+                        />
+                        <QuotaBar
+                          label="Media Storage"
+                          used={quotaUsage.mediaStorageBytesUsed}
+                          limit={quotaUsage.mediaStorageBytesLimit}
+                          formatValue={formatStorageMb}
+                        />
+                        <div className="grid grid-cols-2 gap-2 rounded border border-border/30 bg-surface-raised/60 px-2 py-1.5 text-center">
+                          <div>
+                            <p className="text-sm font-semibold tabular-nums text-text">
+                              {quotaUsage.activeWebChats}
+                            </p>
+                            <p className="text-[9px] uppercase tracking-wide text-text-subtle">
+                              Active Web Chats
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold tabular-nums text-text">
+                              {formatQuotaCount(quotaUsage.activeWebChatsLimit)}
+                            </p>
+                            <p className="text-[9px] uppercase tracking-wide text-text-subtle">
+                              Chat Cap
+                            </p>
+                          </div>
+                        </div>
+                        {quotaUsage.monthlyMediaTools.length > 0 && (
+                          <div className="space-y-1.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                              Monthly package tools
+                            </p>
+                            <div className="grid grid-cols-1 gap-1.5">
+                              {quotaUsage.monthlyMediaTools.map((tool) => (
+                                <div
+                                  key={tool.toolCode}
+                                  className="rounded border border-border/60 bg-surface-raised px-2 py-1.5 text-[10px]"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-text-muted">{tool.displayName}</span>
+                                    <span className="font-medium tabular-nums text-text">
+                                      {tool.usedUnits} /{" "}
+                                      {formatQuotaCount(tool.effectiveLimitUnits)}
+                                    </span>
+                                  </div>
+                                  {tool.bonusLimitUnits > 0 ? (
+                                    <p className="mt-1 text-[9px] text-accent">
+                                      Package bonus: +{tool.bonusLimitUnits}
+                                      {tool.limitUnits !== null
+                                        ? ` over base ${tool.limitUnits}`
+                                        : ""}
+                                      {tool.bonusExpiresAt
+                                        ? ` until ${formatShortDate(tool.bonusExpiresAt)}`
+                                        : ""}
+                                    </p>
+                                  ) : tool.limitUnits !== null ? (
+                                    <p className="mt-1 text-[9px] text-text-subtle">
+                                      Base limit: {tool.limitUnits}
+                                    </p>
+                                  ) : (
+                                    <p className="mt-1 text-[9px] text-text-subtle">
+                                      Base limit: unlimited
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </CardShell>
+                  )}
+
+                  {(chatStats || channelBindings.length > 0) && (
+                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                      {chatStats && (
+                        <CardShell title="Chat Stats" icon={Activity} tone="muted" compact>
+                          <div className="grid grid-cols-3 gap-2 text-center">
+                            <div>
+                              <p className="text-lg font-bold tabular-nums text-text">
+                                {chatStats.totalChats}
+                              </p>
+                              <p className="text-[10px] text-text-muted">Total</p>
+                            </div>
+                            <div>
+                              <p className="text-lg font-bold tabular-nums text-text">
+                                {chatStats.activeWebChats}
+                              </p>
+                              <p className="text-[10px] text-text-muted">Active Web</p>
+                            </div>
+                            <div>
+                              <p className="text-lg font-bold tabular-nums text-text">
+                                {chatStats.archivedWebChats}
+                              </p>
+                              <p className="text-[10px] text-text-muted">Archived</p>
+                            </div>
+                          </div>
+                        </CardShell>
+                      )}
+
+                      {channelBindings.length > 0 && (
+                        <CardShell title="Channels" icon={Server} tone="muted" compact>
+                          <div className="space-y-1.5">
+                            {channelBindings.map((channel, i) => (
+                              <div
+                                key={`${channel.provider}-${channel.surface}-${i}`}
+                                className="flex items-center justify-between rounded-md border border-border bg-surface px-2 py-1.5"
+                              >
+                                <span className="min-w-0 truncate text-[11px] font-medium text-text">
+                                  {channel.provider} / {channel.surface}
                                 </span>
-                                <span className="text-[10px] font-semibold tabular-nums text-text">
-                                  {formatCurrencyMicros(entry.totalCostMicros, entry.currency)}
+                                <span
+                                  className={cn(
+                                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                                    channel.state === "active"
+                                      ? "bg-success/15 text-success"
+                                      : channel.state === "inactive"
+                                        ? "bg-warning/15 text-warning"
+                                        : "bg-muted/15 text-text-muted"
+                                  )}
+                                >
+                                  {channel.state}
                                 </span>
                               </div>
-                              <p className="mt-0.5 text-[9px] text-text-muted">
-                                {entry.purposeLabel} · {entry.surfaceLabel} · {entry.eventCount}{" "}
-                                events
-                              </p>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        </CardShell>
                       )}
                     </div>
-                  </CardShell>
-                )}
-
-                {chatStats && (
-                  <CardShell title="Chat Stats" icon={Activity} tone="muted" compact>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div>
-                        <p className="text-lg font-bold tabular-nums text-text">
-                          {chatStats.totalChats}
-                        </p>
-                        <p className="text-[10px] text-text-muted">Total</p>
-                      </div>
-                      <div>
-                        <p className="text-lg font-bold tabular-nums text-text">
-                          {chatStats.activeWebChats}
-                        </p>
-                        <p className="text-[10px] text-text-muted">Active Web</p>
-                      </div>
-                      <div>
-                        <p className="text-lg font-bold tabular-nums text-text">
-                          {chatStats.archivedWebChats}
-                        </p>
-                        <p className="text-[10px] text-text-muted">Archived</p>
-                      </div>
-                    </div>
-                  </CardShell>
-                )}
-
-                {channelBindings.length > 0 && (
-                  <CardShell title="Channels" icon={Server} tone="muted" compact>
-                    <div className="space-y-1.5">
-                      {channelBindings.map((channel, i) => (
-                        <div
-                          key={`${channel.provider}-${channel.surface}-${i}`}
-                          className="flex items-center justify-between rounded-md border border-border bg-surface px-2 py-1.5"
-                        >
-                          <span className="text-[11px] font-medium text-text">
-                            {channel.provider} / {channel.surface}
-                          </span>
-                          <span
-                            className={cn(
-                              "rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                              channel.state === "active"
-                                ? "bg-success/15 text-success"
-                                : channel.state === "inactive"
-                                  ? "bg-warning/15 text-warning"
-                                  : "bg-muted/15 text-text-muted"
-                            )}
-                          >
-                            {channel.state}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardShell>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

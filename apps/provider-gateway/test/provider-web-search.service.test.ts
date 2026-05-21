@@ -175,6 +175,9 @@ export async function runProviderWebSearchServiceTest(): Promise<void> {
     );
     assert.match(String(requests[0]?.init?.body ?? ""), /"max_results":5/);
     assert.equal(tavilyResult.provider, "tavily");
+    assert.equal(tavilyResult.billingFacts?.capability, "web_search");
+    assert.equal(tavilyResult.billingFacts?.providerKey, "tavily");
+    assert.equal(tavilyResult.billingFacts?.metering.meteringKind, "operation_metered");
     assert.equal(tavilyResult.query, "persai runtime");
     assert.equal(tavilyResult.summary, "Tavily summary");
     assert.deepEqual(tavilyResult.hits, [

@@ -17,6 +17,7 @@ import type {
   AdminRuntimeProviderSettingsRequest,
   AdminSkillUpsertRequest,
   AdminStepUpChallengeRequest,
+  AdminToolPathPricingCatalogRequest,
   AssistantDraftUpdateRequest,
   AssistantMemoryDoNotRememberRequest,
   AssistantRollbackRequest,
@@ -68,6 +69,7 @@ import type {
   GetAdminSkillResponse,
   GetAdminSkillsParams,
   GetAdminSkillsResponse,
+  GetAdminToolPathPricingCatalogResponse,
   GetAdminToolPromptMetadataResponse,
   GetAppBootstrapResponse,
   GetAssistantBillingPaymentIntentResponse,
@@ -161,6 +163,7 @@ import type {
   PutAdminRuntimeProviderSettingsResponse,
   PutAdminSitePageRequest,
   PutAdminSitePageResponse,
+  PutAdminToolPathPricingCatalogResponse,
   PutAssistantSkillAssignmentsRequest,
   ReplayNotificationDeadLetter200,
   SkillAuthoringDraftRequest,
@@ -5364,6 +5367,125 @@ export const postAdminDocumentProcessingTestConnection = async (
       method: "POST",
       headers: { "Content-Type": "application/json", ...options?.headers },
       body: JSON.stringify(adminDocumentProcessingTestConnectionRequest)
+    }
+  );
+};
+
+/**
+ * @summary Read tool-path economics catalog for non-model paid tools
+ */
+export type getAdminToolPathPricingCatalogResponse200 = {
+  data: GetAdminToolPathPricingCatalogResponse;
+  status: 200;
+};
+
+export type getAdminToolPathPricingCatalogResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminToolPathPricingCatalogResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminToolPathPricingCatalogResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminToolPathPricingCatalogResponseSuccess =
+  getAdminToolPathPricingCatalogResponse200 & {
+    headers: Headers;
+  };
+export type getAdminToolPathPricingCatalogResponseError = (
+  | getAdminToolPathPricingCatalogResponse401
+  | getAdminToolPathPricingCatalogResponse403
+  | getAdminToolPathPricingCatalogResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminToolPathPricingCatalogResponse =
+  | getAdminToolPathPricingCatalogResponseSuccess
+  | getAdminToolPathPricingCatalogResponseError;
+
+export const getGetAdminToolPathPricingCatalogUrl = () => {
+  return `/admin/tools/economics`;
+};
+
+export const getAdminToolPathPricingCatalog = async (
+  options?: RequestInit
+): Promise<getAdminToolPathPricingCatalogResponse> => {
+  return customFetch<getAdminToolPathPricingCatalogResponse>(
+    getGetAdminToolPathPricingCatalogUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Update tool-path economics catalog
+ */
+export type putAdminToolPathPricingCatalogResponse200 = {
+  data: PutAdminToolPathPricingCatalogResponse;
+  status: 200;
+};
+
+export type putAdminToolPathPricingCatalogResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAdminToolPathPricingCatalogResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type putAdminToolPathPricingCatalogResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type putAdminToolPathPricingCatalogResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type putAdminToolPathPricingCatalogResponseSuccess =
+  putAdminToolPathPricingCatalogResponse200 & {
+    headers: Headers;
+  };
+export type putAdminToolPathPricingCatalogResponseError = (
+  | putAdminToolPathPricingCatalogResponse400
+  | putAdminToolPathPricingCatalogResponse401
+  | putAdminToolPathPricingCatalogResponse403
+  | putAdminToolPathPricingCatalogResponse500
+) & {
+  headers: Headers;
+};
+
+export type putAdminToolPathPricingCatalogResponse =
+  | putAdminToolPathPricingCatalogResponseSuccess
+  | putAdminToolPathPricingCatalogResponseError;
+
+export const getPutAdminToolPathPricingCatalogUrl = () => {
+  return `/admin/tools/economics`;
+};
+
+export const putAdminToolPathPricingCatalog = async (
+  adminToolPathPricingCatalogRequest: AdminToolPathPricingCatalogRequest,
+  options?: RequestInit
+): Promise<putAdminToolPathPricingCatalogResponse> => {
+  return customFetch<putAdminToolPathPricingCatalogResponse>(
+    getPutAdminToolPathPricingCatalogUrl(),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminToolPathPricingCatalogRequest)
     }
   );
 };

@@ -835,7 +835,8 @@ export class ProviderGatewayClientService {
           (providerStatus.filename === null || typeof providerStatus.filename === "string") &&
           (providerStatus.outputType === "pdf" || providerStatus.outputType === "pptx") &&
           providerStatus.status === "completed" &&
-          (providerStatus.updatedAt === null || typeof providerStatus.updatedAt === "string")))
+          (providerStatus.updatedAt === null || typeof providerStatus.updatedAt === "string"))) &&
+      this.isBillingFacts(row.billingFacts)
     );
   }
 
@@ -942,7 +943,8 @@ export class ProviderGatewayClientService {
       (typeof row.warning === "string" || row.warning === null) &&
       externalContent?.untrusted === true &&
       externalContent.source === "web_search" &&
-      externalContent.provider === row.provider
+      externalContent.provider === row.provider &&
+      this.isBillingFacts(row.billingFacts)
     );
   }
 
@@ -964,7 +966,8 @@ export class ProviderGatewayClientService {
       (typeof row.warning === "string" || row.warning === null) &&
       externalContent?.untrusted === true &&
       externalContent.source === "web_fetch" &&
-      externalContent.provider === "firecrawl"
+      externalContent.provider === "firecrawl" &&
+      this.isBillingFacts(row.billingFacts)
     );
   }
 
@@ -999,7 +1002,8 @@ export class ProviderGatewayClientService {
       (typeof row.warning === "string" || row.warning === null) &&
       externalContent?.untrusted === true &&
       externalContent.source === "browser" &&
-      externalContent.provider === "browserless"
+      externalContent.provider === "browserless" &&
+      this.isBillingFacts(row.billingFacts)
     );
   }
 

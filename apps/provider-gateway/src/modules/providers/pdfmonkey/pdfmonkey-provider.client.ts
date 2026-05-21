@@ -8,9 +8,10 @@ import {
   UnauthorizedException
 } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
-import type {
-  ProviderGatewayDocumentGenerateRequest,
-  ProviderGatewayDocumentGenerateResult
+import {
+  buildToolPathOperationBillingFacts,
+  type ProviderGatewayDocumentGenerateRequest,
+  type ProviderGatewayDocumentGenerateResult
 } from "@persai/runtime-contract";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 
@@ -155,6 +156,7 @@ export class PdfMonkeyProviderClient {
           }
         });
       }
+      const respondedAt = new Date().toISOString();
       return {
         provider: "pdfmonkey",
         outputFormat: "pdf",
@@ -163,8 +165,14 @@ export class PdfMonkeyProviderClient {
         filename: card.filename,
         bytesBase64: buffer.toString("base64"),
         mimeType: "application/pdf",
-        respondedAt: new Date().toISOString(),
+        respondedAt,
         warning: null,
+        billingFacts: buildToolPathOperationBillingFacts({
+          capability: "document_render",
+          providerKey: "pdfmonkey",
+          dimensions: { outputFormat: "pdf" },
+          occurredAt: respondedAt
+        }),
         providerStatus: {
           provider: "pdfmonkey",
           state: "success",

@@ -358,7 +358,11 @@ export const RUNTIME_BILLING_FACT_CAPABILITIES = [
   "video",
   "speech_to_text",
   "text_to_speech",
-  "ocr_or_document_parsing"
+  "ocr_or_document_parsing",
+  "web_search",
+  "web_fetch",
+  "browser",
+  "document_render"
 ] as const;
 export type RuntimeBillingFactCapability = (typeof RUNTIME_BILLING_FACT_CAPABILITIES)[number];
 
@@ -400,6 +404,49 @@ export interface RuntimeBillingFacts {
   capability: RuntimeBillingFactCapability;
   occurredAt: IsoTimestamp;
   metering: RuntimeBillingFactMetering;
+}
+
+export function buildToolPathOperationBillingFacts(input: {
+  capability: Extract<RuntimeBillingFactCapability, "web_search" | "web_fetch" | "document_render">;
+  providerKey: string;
+  operationCount?: number;
+  dimensions?: Record<string, string | number | boolean | null> | null;
+  occurredAt?: IsoTimestamp;
+}): RuntimeBillingFacts {
+  const providerKey = input.providerKey.trim();
+  return {
+    providerKey,
+    modelKey: `${input.capability}:${providerKey}`,
+    capability: input.capability,
+    occurredAt: input.occurredAt ?? new Date().toISOString(),
+    metering: {
+      meteringKind: "operation_metered",
+      operationCount: input.operationCount ?? 1,
+      dimensions: input.dimensions ?? null
+    }
+  };
+}
+
+export function buildToolPathTimeBillingFacts(input: {
+  providerKey: string;
+  durationMs: number;
+  occurredAt?: IsoTimestamp;
+}): RuntimeBillingFacts {
+  const providerKey = input.providerKey.trim();
+  const safeDurationMs =
+    Number.isFinite(input.durationMs) && input.durationMs > 0 ? input.durationMs : 0;
+  const durationSeconds = safeDurationMs / 1000;
+  return {
+    providerKey,
+    modelKey: `browser:${providerKey}`,
+    capability: "browser",
+    occurredAt: input.occurredAt ?? new Date().toISOString(),
+    metering: {
+      meteringKind: "time_metered",
+      durationMs: safeDurationMs,
+      durationSeconds
+    }
+  };
 }
 
 export const RUNTIME_ORDINARY_SOURCE_PRIORITY_MODES = [
@@ -1328,6 +1375,7 @@ export interface RuntimeBrowserToolResult extends RuntimeBrowserResult {
   action: "snapshot" | "acted" | "skipped";
   reason: string | null;
   warning: string | null;
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export const PERSAI_RUNTIME_IMAGE_GENERATE_PROVIDER_IDS = ["openai"] as const;
@@ -1695,6 +1743,7 @@ export interface RuntimeWebSearchResult {
     source: "web_search";
     provider: PersaiRuntimeWebSearchProviderId;
   } | null;
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export interface RuntimeWebSearchToolResult extends RuntimeWebSearchResult {
@@ -2066,6 +2115,7 @@ export interface RuntimeDocumentJobRunResult {
   toolInvocations: RuntimeTurnToolInvocation[];
   rawText: string | null;
   providerStatus?: Record<string, unknown> | null;
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export type RuntimeDocumentGammaCompanionOriginal =
@@ -2221,6 +2271,8 @@ export interface RuntimeTurnToolInvocation {
   iteration: number;
   ok: boolean;
   executionMode?: PersaiRuntimeToolExecutionMode;
+  toolCallId?: string;
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export interface RuntimeDeferredMediaJobSummary {
@@ -2533,6 +2585,7 @@ export type ProviderGatewayDocumentGenerateResult =
         status: "success";
         updatedAt: IsoTimestamp | null;
       };
+      billingFacts?: RuntimeBillingFacts | null;
     }
   | {
       provider: "gamma";
@@ -2556,6 +2609,7 @@ export type ProviderGatewayDocumentGenerateResult =
         status: "completed";
         updatedAt: IsoTimestamp | null;
       };
+      billingFacts?: RuntimeBillingFacts | null;
     };
 
 export interface ProviderGatewayImageGenerateRequest {
@@ -2682,6 +2736,7 @@ export interface ProviderGatewayWebSearchResult {
     source: "web_search";
     provider: PersaiRuntimeWebSearchProviderId;
   };
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export interface ProviderGatewayWebFetchRequest {
@@ -2713,6 +2768,7 @@ export interface ProviderGatewayWebFetchResult {
     source: "web_fetch";
     provider: "firecrawl";
   };
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export interface ProviderGatewayBrowserActionRequest {
@@ -2745,6 +2801,7 @@ export interface ProviderGatewayBrowserActionResult {
     source: "browser";
     provider: PersaiRuntimeBrowserProviderId;
   };
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export interface ProviderGatewayTextDeltaEvent {

@@ -13,6 +13,15 @@ import {
 } from "@persai/runtime-contract";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
+import { ResolveToolPathPricingCatalogService } from "./resolve-tool-path-pricing-catalog.service";
+import {
+  findToolPathPricingRowForTimestamp,
+  isToolPathCode,
+  resolveToolPathKeyFromBillingFacts,
+  resolveToolPathLedgerPurpose,
+  toToolPathPricingProfileForLedger,
+  type ToolPathLedgerPurpose
+} from "./tool-path-pricing-catalog";
 import {
   findRuntimeProviderCatalogProfileAcrossProvidersForTimestamp,
   findRuntimeProviderCatalogProfileForTimestamp,
@@ -39,7 +48,8 @@ export type ModelCostLedgerPurpose =
   | "stt"
   | "tts"
   | "ocr_or_document_parsing"
-  | "knowledge_embedding";
+  | "knowledge_embedding"
+  | ToolPathLedgerPurpose;
 
 type RecordModelCostLedgerInput = {
   workspaceId: string | null;
@@ -362,15 +372,59 @@ function resolvePurposeFromBillingFacts(facts: RuntimeBillingFacts): ModelCostLe
       return "tts";
     case "ocr_or_document_parsing":
       return "ocr_or_document_parsing";
+    case "web_search":
+    case "web_fetch":
+    case "browser":
+    case "document_render":
+      return resolveToolPathLedgerPurpose(facts.capability);
     default:
       return null;
   }
+}
+
+function toolPathProfileSupportsBillingFacts(
+  profile: ReturnType<typeof toToolPathPricingProfileForLedger>,
+  facts: RuntimeBillingFacts
+): boolean {
+  switch (facts.metering.meteringKind) {
+    case "operation_metered":
+      return (
+        profile.billingMode === "fixed_operation" || profile.billingMode === "tiered_operation"
+      );
+    case "time_metered":
+      return profile.billingMode === "time_metered";
+    default:
+      return false;
+  }
+}
+
+function buildToolPathPriceCatalogSnapshot(input: {
+  facts: RuntimeBillingFacts;
+  row: ReturnType<typeof findToolPathPricingRowForTimestamp>;
+}): BillingFactsPriceCatalogSnapshot | null {
+  if (input.row === null) {
+    return null;
+  }
+  const profile = toToolPathPricingProfileForLedger(input.row);
+  return {
+    provider: input.facts.providerKey,
+    model: input.row.pathKey,
+    capability: input.facts.capability,
+    billingMode: profile.billingMode,
+    effectiveFrom: profile.effectiveFrom,
+    effectiveTo: profile.effectiveTo,
+    currency: profile.providerPriceMetadata.currency,
+    providerPriceMetadata: profile.providerPriceMetadata
+  };
 }
 
 function profileSupportsBillingFacts(
   profile: RuntimeProviderModelProfile,
   facts: RuntimeBillingFacts
 ): boolean {
+  if (isToolPathCode(facts.capability)) {
+    return false;
+  }
   if (!profile.capabilities.includes(facts.capability)) {
     return false;
   }
@@ -521,7 +575,8 @@ function buildBillingFactsDeterministicLedgerEventId(input: {
 export class RecordModelCostLedgerService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
+    private readonly resolveToolPathPricingCatalogService: ResolveToolPathPricingCatalogService
   ) {}
 
   async recordBackgroundTaskEvaluationEvent(input: {
@@ -853,6 +908,94 @@ export class RecordModelCostLedgerService {
     return result.count;
   }
 
+  async recordToolPathBillingFactsEvent(input: {
+    workspaceId: string;
+    assistantId: string;
+    userId: string;
+    surface: ModelCostLedgerSurface;
+    source: string;
+    sourceEventId: string;
+    requestCorrelationId?: string | null;
+    billingFacts: RuntimeBillingFacts | unknown;
+  }): Promise<number> {
+    const facts = normalizeRuntimeBillingFacts(input.billingFacts);
+    if (facts === null || !isToolPathCode(facts.capability)) {
+      return 0;
+    }
+    const purpose = resolveToolPathLedgerPurpose(facts.capability);
+    const pathKey = resolveToolPathKeyFromBillingFacts(facts);
+    if (pathKey === null) {
+      return 0;
+    }
+    const occurredAt = new Date(facts.occurredAt);
+    if (Number.isNaN(occurredAt.getTime())) {
+      return 0;
+    }
+
+    const catalog = await this.resolveToolPathPricingCatalogService.execute();
+    const pricingRow = findToolPathPricingRowForTimestamp(catalog, pathKey, occurredAt);
+    if (pricingRow === null) {
+      return 0;
+    }
+    const profile = toToolPathPricingProfileForLedger(pricingRow);
+    if (!toolPathProfileSupportsBillingFacts(profile, facts)) {
+      return 0;
+    }
+
+    const actualCostMicros = calculateBillingFactsCostMicros(facts, profile);
+    if (actualCostMicros === null) {
+      return 0;
+    }
+
+    const priceCatalogSnapshot = buildToolPathPriceCatalogSnapshot({ facts, row: pricingRow });
+    if (priceCatalogSnapshot === null) {
+      return 0;
+    }
+    const priceCatalogVersion = buildBillingFactsPriceCatalogVersion(priceCatalogSnapshot);
+    const row: Prisma.ModelCostLedgerEventCreateManyInput = {
+      id: buildBillingFactsDeterministicLedgerEventId({
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        userId: input.userId,
+        surface: input.surface,
+        purpose,
+        source: input.source,
+        sourceEventId: input.sourceEventId,
+        provider: facts.providerKey,
+        model: pricingRow.pathKey,
+        capability: facts.capability
+      }),
+      workspaceId: input.workspaceId,
+      assistantId: input.assistantId,
+      userId: input.userId,
+      provider: facts.providerKey,
+      model: pricingRow.pathKey,
+      capability: facts.capability,
+      purpose,
+      surface: input.surface,
+      source: input.source,
+      billingMode: profile.billingMode,
+      rawUsage: {
+        billingFacts: facts,
+        metering: facts.metering,
+        toolPathKey: pricingRow.pathKey
+      } as unknown as Prisma.InputJsonValue,
+      actualCostMicros,
+      currency: profile.providerPriceMetadata.currency,
+      priceCatalogVersion,
+      priceCatalogSnapshot: priceCatalogSnapshot as Prisma.InputJsonValue,
+      sourceEventId: input.sourceEventId,
+      requestCorrelationId: input.requestCorrelationId ?? null,
+      occurredAt
+    };
+
+    const result = await this.prisma.modelCostLedgerEvent.createMany({
+      data: [row],
+      skipDuplicates: true
+    });
+    return result.count;
+  }
+
   async recordPersistedBillingFactsEvent(input: {
     workspaceId: string;
     assistantId: string;
@@ -866,6 +1009,9 @@ export class RecordModelCostLedgerService {
     const facts = normalizeRuntimeBillingFacts(input.billingFacts);
     if (facts === null) {
       return 0;
+    }
+    if (isToolPathCode(facts.capability)) {
+      return this.recordToolPathBillingFactsEvent(input);
     }
     const purpose = resolvePurposeFromBillingFacts(facts);
     if (purpose === null) {

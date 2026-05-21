@@ -8,6 +8,12 @@ const noopRecordModelCostLedgerService = {
   }
 } as never;
 
+const noopRecordToolPathLedgerFromToolInvocationsService = {
+  async recordFromToolInvocations() {
+    return undefined;
+  }
+} as never;
+
 type ClaimState = {
   telegramLastHandledUpdateId?: number;
   telegramLastHandledUpdateAt?: string;
@@ -259,7 +265,8 @@ async function run(): Promise<void> {
         return 0;
       }
     } as never,
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    noopRecordToolPathLedgerFromToolInvocationsService
   );
   const first = concurrentService.execute({
     assistantId: "assistant-1",
@@ -355,7 +362,8 @@ async function run(): Promise<void> {
         return 0;
       }
     } as never,
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    noopRecordToolPathLedgerFromToolInvocationsService
   );
 
   await assert.rejects(() =>
@@ -453,7 +461,8 @@ async function run(): Promise<void> {
         return 0;
       }
     } as never,
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    noopRecordToolPathLedgerFromToolInvocationsService
   );
 
   const rewrittenMedia = await mediaRewriteService.execute({
@@ -531,6 +540,7 @@ async function run(): Promise<void> {
       }
     } as never,
     noopRecordModelCostLedgerService,
+    noopRecordToolPathLedgerFromToolInvocationsService,
     { maybeCreateFollowUp: async () => null } as never
   );
 
@@ -613,7 +623,8 @@ async function run(): Promise<void> {
         return 0;
       }
     } as never,
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    noopRecordToolPathLedgerFromToolInvocationsService
   );
 
   const recoveredAfterAssistantSaveFailure = await persistenceFailureService.execute({
@@ -731,6 +742,7 @@ async function run(): Promise<void> {
         return 2;
       }
     } as never,
+    noopRecordToolPathLedgerFromToolInvocationsService,
     undefined,
     undefined,
     undefined
@@ -823,7 +835,8 @@ async function run(): Promise<void> {
         return 0;
       }
     } as never,
-    noopRecordModelCostLedgerService
+    noopRecordModelCostLedgerService,
+    noopRecordToolPathLedgerFromToolInvocationsService
   );
 
   const recoveredAfterCompletionFailure = await completionFailureService.execute({
@@ -910,6 +923,7 @@ async function run(): Promise<void> {
       }
     } as never,
     noopRecordModelCostLedgerService,
+    noopRecordToolPathLedgerFromToolInvocationsService,
     undefined,
     undefined,
     {

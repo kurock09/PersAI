@@ -1,6 +1,7 @@
 import { BadGatewayException, BadRequestException, Inject, Injectable } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import {
+  buildToolPathTimeBillingFacts,
   DEFAULT_RUNTIME_BROWSER_MAX_CHARS,
   DEFAULT_RUNTIME_BROWSER_TIMEOUT_MS,
   MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS,
@@ -345,6 +346,7 @@ export class ProviderBrowserService {
     const finalUrl = this.readNonEmptyString(data.finalUrl, "Browserless finalUrl");
     const content = typeof data.content === "string" ? data.content.trim() : "";
     const observedAt = new Date().toISOString();
+    const tookMs = Date.now() - startedAt;
     return {
       provider: normalized.providerId,
       action: normalized.action,
@@ -356,13 +358,18 @@ export class ProviderBrowserService {
       truncated: data.truncated === true,
       elements: this.normalizeElements(data.elements),
       observedAt,
-      tookMs: Date.now() - startedAt,
+      tookMs,
       warning: UNTRUSTED_CONTENT_WARNING,
       externalContent: {
         untrusted: true,
         source: "browser",
         provider: normalized.providerId
-      }
+      },
+      billingFacts: buildToolPathTimeBillingFacts({
+        providerKey: normalized.providerId,
+        durationMs: tookMs,
+        occurredAt: observedAt
+      })
     };
   }
 

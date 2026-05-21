@@ -162,6 +162,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   accumulated?: string;
   respondedAt?: string;
   usageAccounting?: RuntimeUsageAccounting;
+  toolInvocations?: RuntimeTurnToolInvocation[];
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   code?: string;

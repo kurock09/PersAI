@@ -14,6 +14,7 @@ export type DangerousAdminActionCode =
   | "admin.runtime_provider_settings.update"
   | "admin.document_processing_settings.update"
   | "admin.tool_credentials.update"
+  | "admin.tool_path_pricing.update"
   | "admin.assistant.transfer_ownership"
   | "admin.assistant.recover_ownership"
   | "admin.force_reapply_all";
@@ -62,7 +63,7 @@ function requiredRolesForDangerousAction(action: DangerousAdminActionCode): Supp
   ) {
     return ["ops_admin", "super_admin"];
   }
-  if (action === "admin.tool_credentials.update") {
+  if (action === "admin.tool_credentials.update" || action === "admin.tool_path_pricing.update") {
     return ["ops_admin", "super_admin"];
   }
   if (action === "admin.force_reapply_all") {

@@ -3602,6 +3602,86 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tools/economics:
+    get:
+      operationId: getAdminToolPathPricingCatalog
+      summary: Read tool-path economics catalog for non-model paid tools
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Tool-path pricing catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminToolPathPricingCatalogResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: putAdminToolPathPricingCatalog
+      summary: Update tool-path economics catalog
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.tool_path_pricing.update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminToolPathPricingCatalogRequest"
+      responses:
+        "200":
+          description: Updated tool-path pricing catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PutAdminToolPathPricingCatalogResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/tools/billing:
     get:
       operationId: getAdminBillingProviderCredentials
@@ -8763,6 +8843,95 @@ components:
           nullable: true
         result:
           $ref: "#/components/schemas/DocumentProcessingTestConnectionState"
+    ToolPathPricingRow:
+      type: object
+      required:
+        - pathKey
+        - toolCode
+        - providerId
+        - billingMode
+        - active
+        - providerPriceMetadata
+      properties:
+        pathKey:
+          type: string
+        toolCode:
+          type: string
+          enum: [web_search, web_fetch, browser, document_render]
+        providerId:
+          type: string
+        billingMode:
+          type: string
+          enum: [fixed_operation, time_metered, tiered_operation]
+        active:
+          type: boolean
+        effectiveFrom:
+          type: string
+          format: date-time
+          nullable: true
+        effectiveTo:
+          type: string
+          format: date-time
+          nullable: true
+        displayLabel:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        providerPriceMetadata:
+          type: object
+          additionalProperties: true
+    AdminToolPathPricingRowState:
+      allOf:
+        - $ref: "#/components/schemas/ToolPathPricingRow"
+        - type: object
+          required: [configured]
+          properties:
+            configured:
+              type: boolean
+    AdminToolPathPricingCatalogState:
+      type: object
+      required: [schema, rows, notes]
+      properties:
+        schema:
+          type: string
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminToolPathPricingRowState"
+        notes:
+          type: array
+          items:
+            type: string
+    AdminToolPathPricingCatalogRequest:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ToolPathPricingRow"
+    GetAdminToolPathPricingCatalogResponse:
+      type: object
+      required: [requestId, catalog]
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        catalog:
+          $ref: "#/components/schemas/AdminToolPathPricingCatalogState"
+    PutAdminToolPathPricingCatalogResponse:
+      type: object
+      required: [requestId, catalog, configGeneration]
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        catalog:
+          $ref: "#/components/schemas/AdminToolPathPricingCatalogState"
+        configGeneration:
+          type: integer
     AssistantRuntimePreflightState:
       type: object
       required:

@@ -261,6 +261,27 @@ Second block, explicitly later:
 - OCR/parsing or external APIs that need standalone cost rules
 - sandbox/exec or other future non-model paid tool paths
 
+#### Block 2 catalog shape (Session B foundation)
+
+`Admin > Tools` owns a separate **tool-path pricing catalog** persisted on `platform_runtime_provider_settings.tool_path_pricing_catalog` (`persai.toolPathPricingCatalog.v1`). It is not part of the Runtime model catalog.
+
+Each row is keyed by `pathKey = {toolCode}:{providerId}` with versioned `effectiveFrom` / `effectiveTo`, `billingMode`, and money metadata:
+
+| toolCode | Typical providers | billingMode |
+|----------|-------------------|-------------|
+| `web_search` | tavily, brave, perplexity, google | `fixed_operation` (per search call) |
+| `web_fetch` | firecrawl | `fixed_operation` (per successful fetch/page credit) |
+| `browser` | browserless | `time_metered` (per second/minute) |
+| `document_render` | pdfmonkey, gamma | `tiered_operation` or `fixed_operation` (per render; tier by output format) |
+
+API: `GET/PUT /api/v1/admin/tools/economics` (step-up: `admin.tool_path_pricing.update`).
+
+Ledger purposes (same immutable `model_cost_ledger_events` table):
+
+- `web_search`, `web_fetch`, `browser`, `document_render`
+
+Writer: `RecordModelCostLedgerService.recordToolPathBillingFactsEvent()` prices `RuntimeBillingFacts` with tool-path capabilities against the tool-path catalog snapshot at `occurredAt`. Runtime/provider-gateway emission of those billing facts and Admin Tools price fields UI are follow-up slices (Steps C/D).
+
 ## Execution rules for Cursor agents and subagents
 
 1. **One bounded slice per session.** A parent agent may explore broadly, but implementation in one session must close exactly one bounded slice or one tightly coupled sub-slice from this ADR.
@@ -347,7 +368,7 @@ Current repo truth relevant to this ADR (2026-05-21):
 - **Block 1 model-priced ledger writes landed** for: ordinary web/Telegram chat (main reply + router), background-task evaluator, persisted media job + attachment billing facts (image/video/STT/TTS), retrieval-helper reranker, async media/document completion framing (`chat_helper`), standalone voice HTTP transcribe, and Mistral OCR (`ocr_or_document_parsing`)
 - **Admin > Business / Ops** read compact ledger-backed aggregates with `coverageScope=adr099_block1_model_priced_paths` and an explicit coverage note
 - **Still outside Block 1 ledger (honest):** provider document render jobs without model-priced billing facts (PdfMonkey/Gamma — Block 2 / non-model economics); async failure-framing LLM calls (no persisted usage); knowledge **embedding** indexing (no ledger row yet); ADR purpose stubs not yet wired (`tool_helper`, `notification_generation`, `document_generation` for external render)
-- **Block 2 not started:** non-model tool/path economics attach later to the same ledger shape
+- **Block 2 foundation landed (catalog + ledger purposes):** `tool_path_pricing_catalog` JSON on platform settings, `GET/PUT /admin/tools/economics`, and `recordToolPathBillingFactsEvent` for `web_search` / `web_fetch` / `browser` / `document_render` capabilities. Runtime billing-facts emission and Tools UI price editors remain follow-up.
 
 ## Non-goals
 

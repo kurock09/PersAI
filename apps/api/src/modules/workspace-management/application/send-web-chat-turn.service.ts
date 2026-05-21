@@ -40,6 +40,7 @@ import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
+import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
@@ -162,6 +163,7 @@ export class SendWebChatTurnService {
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
+    private readonly recordToolPathLedgerFromToolInvocationsService: RecordToolPathLedgerFromToolInvocationsService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
     private readonly mediaDeliveryService: MediaDeliveryService,
@@ -439,7 +441,10 @@ export class SendWebChatTurnService {
         traceId: trace.getTraceId(),
         ...(runtimeResponse.usageAccounting === undefined
           ? {}
-          : { usageAccounting: runtimeResponse.usageAccounting })
+          : { usageAccounting: runtimeResponse.usageAccounting }),
+        ...(runtimeResponse.toolInvocations === undefined
+          ? {}
+          : { toolInvocations: runtimeResponse.toolInvocations })
       });
       trace.stage("cost_ledger_recorded");
       const quotaAdvisoryFollowUp =
@@ -935,6 +940,7 @@ export class SendWebChatTurnService {
     respondedAt: string;
     traceId: string;
     usageAccounting?: AssistantRuntimeWebChatTurnResult["usageAccounting"];
+    toolInvocations?: AssistantRuntimeWebChatTurnResult["toolInvocations"];
   }): Promise<void> {
     try {
       await this.recordModelCostLedgerService.recordChatMainReplyEvents({
@@ -956,6 +962,17 @@ export class SendWebChatTurnService {
         }`
       );
     }
+
+    await this.recordToolPathLedgerFromToolInvocationsService.recordFromToolInvocations({
+      workspaceId: input.workspaceId,
+      assistantId: input.assistantId,
+      userId: input.userId,
+      surface: "web",
+      source: "native_tool_inline",
+      assistantMessageId: input.assistantMessageId,
+      requestCorrelationId: input.traceId,
+      ...(input.toolInvocations === undefined ? {} : { toolInvocations: input.toolInvocations })
+    });
   }
 
   private logWebRuntimeRoute(input: {

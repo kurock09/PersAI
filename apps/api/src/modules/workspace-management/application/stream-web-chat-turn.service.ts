@@ -56,6 +56,7 @@ import {
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
+import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
@@ -192,6 +193,7 @@ export class StreamWebChatTurnService {
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
+    private readonly recordToolPathLedgerFromToolInvocationsService: RecordToolPathLedgerFromToolInvocationsService,
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
@@ -306,6 +308,7 @@ export class StreamWebChatTurnService {
     let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
+    let toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"] = undefined;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let mediaDeliveryCompleted = false;
     const trace =
@@ -412,6 +415,7 @@ export class StreamWebChatTurnService {
         usageAccounting = result.usageAccounting;
         turnRouting = result.turnRouting;
         deferredMediaJobs = result.deferredMediaJobs;
+        toolInvocations = result.toolInvocations;
         for (const m of result.collectedMedia) collectedMedia.push(m);
         if (result.primaryFirstDeltaMs !== null) {
           primaryFirstDeltaMs = result.primaryFirstDeltaMs;
@@ -657,7 +661,8 @@ export class StreamWebChatTurnService {
         assistantMessageId: assistantMessage.id,
         respondedAt: respondedAt ?? assistantMessage.createdAt.toISOString(),
         traceId: trace.getTraceId(),
-        ...(usageAccounting === undefined ? {} : { usageAccounting })
+        ...(usageAccounting === undefined ? {} : { usageAccounting }),
+        ...(toolInvocations === undefined ? {} : { toolInvocations })
       });
       trace.stage("cost_ledger_recorded");
       const quotaAdvisoryFollowUp =
@@ -1059,6 +1064,7 @@ export class StreamWebChatTurnService {
     usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
     turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
     deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"];
+    toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"];
     collectedMedia: RuntimeMediaArtifact[];
     primaryFirstDeltaMs: number | null;
     toolEventCount: number;
@@ -1069,6 +1075,7 @@ export class StreamWebChatTurnService {
     let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
+    let toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"] = undefined;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let primaryFirstDeltaMs = input.primaryFirstDeltaMs;
     let toolEventCount = 0;
@@ -1112,6 +1119,7 @@ export class StreamWebChatTurnService {
             usageAccounting,
             turnRouting,
             deferredMediaJobs,
+            toolInvocations,
             collectedMedia,
             primaryFirstDeltaMs,
             toolEventCount,
@@ -1218,6 +1226,7 @@ export class StreamWebChatTurnService {
           usageAccounting = chunk.usageAccounting;
           turnRouting = chunk.turnRouting ?? null;
           deferredMediaJobs = chunk.deferredMediaJobs;
+          toolInvocations = chunk.toolInvocations;
           if (chunk.runtimeTrace) {
             input.trace.attachExternalTrace(chunk.runtimeTrace);
           }
@@ -1243,6 +1252,7 @@ export class StreamWebChatTurnService {
           usageAccounting,
           turnRouting,
           deferredMediaJobs,
+          toolInvocations,
           collectedMedia,
           primaryFirstDeltaMs,
           toolEventCount,
@@ -1269,6 +1279,7 @@ export class StreamWebChatTurnService {
           usageAccounting,
           turnRouting,
           deferredMediaJobs,
+          toolInvocations,
           collectedMedia,
           primaryFirstDeltaMs,
           toolEventCount,
@@ -1288,6 +1299,7 @@ export class StreamWebChatTurnService {
         usageAccounting,
         turnRouting,
         deferredMediaJobs,
+        toolInvocations,
         collectedMedia,
         primaryFirstDeltaMs,
         toolEventCount,
@@ -1305,6 +1317,7 @@ export class StreamWebChatTurnService {
         usageAccounting,
         turnRouting,
         deferredMediaJobs,
+        toolInvocations,
         collectedMedia,
         primaryFirstDeltaMs,
         toolEventCount,
@@ -1319,6 +1332,7 @@ export class StreamWebChatTurnService {
       usageAccounting,
       turnRouting,
       deferredMediaJobs,
+      toolInvocations,
       collectedMedia,
       primaryFirstDeltaMs,
       toolEventCount,
@@ -1624,6 +1638,7 @@ export class StreamWebChatTurnService {
     respondedAt: string;
     traceId: string;
     usageAccounting?: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
+    toolInvocations?: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"];
   }): Promise<void> {
     try {
       await this.recordModelCostLedgerService.recordChatMainReplyEvents({
@@ -1645,6 +1660,17 @@ export class StreamWebChatTurnService {
         }`
       );
     }
+
+    await this.recordToolPathLedgerFromToolInvocationsService.recordFromToolInvocations({
+      workspaceId: input.workspaceId,
+      assistantId: input.assistantId,
+      userId: input.userId,
+      surface: "web",
+      source: "native_tool_inline",
+      assistantMessageId: input.assistantMessageId,
+      requestCorrelationId: input.traceId,
+      ...(input.toolInvocations === undefined ? {} : { toolInvocations: input.toolInvocations })
+    });
   }
 
   private async persistInterruptedOutcome(
