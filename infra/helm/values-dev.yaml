@@ -43,7 +43,7 @@ api:
     gcpServiceAccountEmail: api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: api
-    tag: ef8978bdb68ef06618a1544acb3fa5a8b19f7cd3
+    tag: 4c293c5d2ab7be2e857d8b09f4e2f3db26a3a22d
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -196,7 +196,7 @@ web:
       maxSurge: 1
   image:
     name: web
-    tag: ef8978bdb68ef06618a1544acb3fa5a8b19f7cd3
+    tag: 4c293c5d2ab7be2e857d8b09f4e2f3db26a3a22d
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
@@ -268,7 +268,7 @@ providerGateway:
       maxSurge: 1
   image:
     name: provider-gateway
-    tag: 27868c40cceede5795b56f3c3175eab8936c6f63
+    tag: 4c293c5d2ab7be2e857d8b09f4e2f3db26a3a22d
     pullPolicy: IfNotPresent
   env:
     APP_ENV: dev
@@ -340,7 +340,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: ef8978bdb68ef06618a1544acb3fa5a8b19f7cd3
+    tag: 4c293c5d2ab7be2e857d8b09f4e2f3db26a3a22d
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -413,7 +413,7 @@ sandbox:
     name: api-sa
   image:
     name: sandbox
-    tag: 27868c40cceede5795b56f3c3175eab8936c6f63
+    tag: 4c293c5d2ab7be2e857d8b09f4e2f3db26a3a22d
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -490,6 +490,7 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
 
 
 
