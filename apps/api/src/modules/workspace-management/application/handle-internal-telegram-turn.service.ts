@@ -1,7 +1,10 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { RuntimeTurnAutoCompactionState } from "@persai/runtime-contract";
-import { type RuntimeMediaArtifact } from "./assistant-runtime.facade";
+import {
+  type AssistantRuntimeWebChatTurnResult,
+  type RuntimeMediaArtifact
+} from "./assistant-runtime.facade";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -28,6 +31,7 @@ import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
+import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
@@ -83,6 +87,7 @@ export class HandleInternalTelegramTurnService {
     private readonly sendNativeTelegramTurnService: SendNativeTelegramTurnService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     @Optional()
     private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
     @Optional()
@@ -366,6 +371,17 @@ export class HandleInternalTelegramTurnService {
           error instanceof Error ? error.stack : undefined
         );
       }
+      await this.appendModelCostLedgerEvents({
+        assistantId: resolved.assistantId,
+        workspaceId: resolved.workspaceId,
+        userId: resolved.userId,
+        assistantMessageId,
+        respondedAt: runtimeResponse.respondedAt,
+        traceId: trace.getTraceId(),
+        ...(runtimeResponse.usageAccounting === undefined
+          ? {}
+          : { usageAccounting: runtimeResponse.usageAccounting })
+      });
       const quotaAdvisoryFollowUp =
         (await this.quotaAdvisoryFollowUpService?.maybeCreateFollowUp({
           assistantId: resolved.assistantId,
@@ -397,6 +413,7 @@ export class HandleInternalTelegramTurnService {
       if (compactionAdvisoryFollowUp !== null) {
         trace.stage("compaction_advisory_follow_up_intent_created");
       }
+      await this.completeTelegramUpdateBestEffort(resolved.assistantId, claimedUpdateId);
       trace.finish({
         status: "completed",
         outputPreview: assistantMessage
@@ -443,6 +460,37 @@ export class HandleInternalTelegramTurnService {
       `[telegram-turn] Dropped duplicate Telegram update ${updateId} for assistant ${assistantId} (${claim})`
     );
     return this.buildDeduplicatedResult();
+  }
+
+  private async appendModelCostLedgerEvents(input: {
+    assistantId: string;
+    workspaceId: string;
+    userId: string;
+    assistantMessageId: string;
+    respondedAt: string;
+    traceId: string;
+    usageAccounting?: AssistantRuntimeWebChatTurnResult["usageAccounting"];
+  }): Promise<void> {
+    try {
+      await this.recordModelCostLedgerService.recordChatMainReplyEvents({
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        surface: "telegram",
+        purpose: "chat_main_reply",
+        source: "telegram_turn_sync",
+        occurredAt: input.respondedAt,
+        sourceEventId: input.assistantMessageId,
+        requestCorrelationId: input.traceId,
+        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting })
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[telegram-turn] Non-blocking model cost ledger append failed for assistant ${input.assistantId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   private buildDeduplicatedResult(): InternalTelegramTurnResult {

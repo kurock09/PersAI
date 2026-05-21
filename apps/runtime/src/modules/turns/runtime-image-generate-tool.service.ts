@@ -316,7 +316,8 @@ export class RuntimeImageGenerateToolService {
             requestId: params.requestId,
             filenameHint: request.filename,
             image,
-            index
+            index,
+            billingFacts: providerResult.billingFacts
           })
         )
       );
@@ -497,6 +498,7 @@ export class RuntimeImageGenerateToolService {
       revisedPrompt: string | null;
     };
     index: number;
+    billingFacts: RuntimeOutputArtifact["billingFacts"];
   }): Promise<RuntimeOutputArtifact> {
     if (!input.image.mimeType.startsWith("image/")) {
       throw new Error(`Image provider returned unsupported MIME type "${input.image.mimeType}".`);
@@ -542,7 +544,8 @@ export class RuntimeImageGenerateToolService {
       mimeType: stored.mimeType,
       filename,
       sizeBytes: stored.sizeBytes,
-      voiceNote: false
+      voiceNote: false,
+      billingFacts: input.billingFacts ?? null
     };
   }
 

@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import { ApiErrorHttpException } from "../../platform-core/interface/http/api-error";
 import {
@@ -17,6 +18,7 @@ import { MediaPreprocessorService } from "./media/media-preprocessor.service";
 import { NativeMediaTranscriptionService } from "./media/native-media-transcription.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { buildStoredAttachmentMetadata } from "./media/media.types";
 import { AssistantFileRegistryService } from "./assistant-file-registry.service";
@@ -24,6 +26,11 @@ import {
   createAssistantInboundConflict,
   createMediaStorageQuotaExceededError
 } from "./assistant-inbound-error";
+import {
+  RecordModelCostLedgerService,
+  type ModelCostLedgerSurface
+} from "./record-model-cost-ledger.service";
+import type { RuntimeBillingFacts } from "@persai/runtime-contract";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/webm",
@@ -55,8 +62,42 @@ export class ManageChatMediaService {
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly assistantFileRegistryService: AssistantFileRegistryService,
-    private readonly platformHttpMetricsService: PlatformHttpMetricsService
+    private readonly platformHttpMetricsService: PlatformHttpMetricsService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
+
+  private resolveLedgerSurface(surface: string): ModelCostLedgerSurface | null {
+    return surface === "web" || surface === "telegram" ? surface : null;
+  }
+
+  private async appendSttLedgerFromPersistedBillingFacts(input: {
+    workspaceId: string;
+    assistantId: string;
+    userId: string;
+    surface: ModelCostLedgerSurface;
+    attachmentId: string;
+    billingFacts: RuntimeBillingFacts | null | undefined;
+  }): Promise<void> {
+    if (input.billingFacts === null || input.billingFacts === undefined) {
+      return;
+    }
+    try {
+      await this.recordModelCostLedgerService.recordPersistedBillingFactsEvent({
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        userId: input.userId,
+        surface: input.surface,
+        source: "attachment_stt_ingest",
+        sourceEventId: `attachment:${input.attachmentId}`,
+        billingFacts: input.billingFacts
+      });
+    } catch (error) {
+      this.logger.warn(
+        `attachment_stt_ledger_append_failed attachmentId=${input.attachmentId} message=${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
 
   async uploadAttachment(params: {
     userId: string;
@@ -136,6 +177,7 @@ export class ManageChatMediaService {
       height: processed?.height ?? null,
       processingStatus: "ready",
       transcription: processed?.transcription ?? null,
+      billingFacts: processed?.billingFacts ?? null,
       metadata: buildStoredAttachmentMetadata({
         source: "chat_upload",
         textExtract: processed?.textExtract ?? null
@@ -147,6 +189,18 @@ export class ManageChatMediaService {
       buffer: fileBuffer,
       source: "chat_upload"
     });
+
+    const ledgerSurface = this.resolveLedgerSurface(chat.surface);
+    if (ledgerSurface !== null) {
+      await this.appendSttLedgerFromPersistedBillingFacts({
+        workspaceId: assistant.workspaceId,
+        assistantId: assistant.id,
+        userId: assistant.userId,
+        surface: ledgerSurface,
+        attachmentId: attachment.id,
+        billingFacts: processed?.billingFacts ?? null
+      });
+    }
 
     return attachment;
   }
@@ -282,6 +336,7 @@ export class ManageChatMediaService {
         height: processed?.height ?? null,
         processingStatus: "ready",
         transcription: processed?.transcription ?? null,
+        billingFacts: processed?.billingFacts ?? null,
         metadata: buildStoredAttachmentMetadata({
           source: "web_staged_upload",
           textExtract: processed?.textExtract ?? null
@@ -295,6 +350,18 @@ export class ManageChatMediaService {
         buffer: fileBuffer,
         source: "web_staged_upload"
       });
+
+      const ledgerSurface = this.resolveLedgerSurface(chat.surface);
+      if (ledgerSurface !== null) {
+        await this.appendSttLedgerFromPersistedBillingFacts({
+          workspaceId: assistant.workspaceId,
+          assistantId: assistant.id,
+          userId: assistant.userId,
+          surface: ledgerSurface,
+          attachmentId: attachment.id,
+          billingFacts: processed?.billingFacts ?? null
+        });
+      }
 
       outcome = "success";
       if (params.clientAttachmentId) {
@@ -366,6 +433,40 @@ export class ManageChatMediaService {
       const text = result.text.trim();
       if (text.length === 0) {
         throw new BadRequestException("Voice transcription returned empty text. Please try again.");
+      }
+      const occurredAt = new Date(result.respondedAt);
+      const voiceEvent = await this.prisma.assistantVoiceTranscriptionEvent.create({
+        data: {
+          assistantId: assistant.id,
+          userId: assistant.userId,
+          workspaceId: assistant.workspaceId,
+          surface: "voice_http",
+          ...(result.billingFacts === null || result.billingFacts === undefined
+            ? {}
+            : {
+                billingFactsJson: result.billingFacts as unknown as Prisma.InputJsonValue
+              }),
+          mimeType: validated.effectiveMimeType,
+          originalFilename: validated.originalFilename,
+          occurredAt: Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt
+        }
+      });
+      if (result.billingFacts !== null && result.billingFacts !== undefined) {
+        try {
+          await this.recordModelCostLedgerService.recordPersistedBillingFactsEvent({
+            workspaceId: assistant.workspaceId,
+            assistantId: assistant.id,
+            userId: assistant.userId,
+            surface: "web",
+            source: "voice_http_transcribe",
+            sourceEventId: `voice_transcription_event:${voiceEvent.id}`,
+            billingFacts: result.billingFacts
+          });
+        } catch (error) {
+          this.logger.warn(
+            `voice_transcribe_ledger_append_failed eventId=${voiceEvent.id} message=${error instanceof Error ? error.message : String(error)}`
+          );
+        }
       }
       outcome = "success";
       return { text };

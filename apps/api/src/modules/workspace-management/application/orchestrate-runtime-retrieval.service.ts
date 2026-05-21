@@ -784,7 +784,7 @@ export class OrchestrateRuntimeRetrievalService {
               modelKey: embeddingModelKey,
               texts: [input.query]
             })
-          )[0] ?? null);
+          ).embeddings[0] ?? null);
     if (workspaceId !== null && queryEmbedding !== null && embeddingModelKey !== null) {
       retrievalMode = "hybrid";
       const vectorHits = await this.knowledgeVectorIndex.searchNearest({

@@ -12,5 +12,7 @@ export type RuntimeProviderModelCapability =
 export const RuntimeProviderModelCapability = {
   chat: "chat",
   image: "image",
-  video: "video"
+  video: "video",
+  speech_to_text: "speech_to_text",
+  text_to_speech: "text_to_speech"
 } as const;

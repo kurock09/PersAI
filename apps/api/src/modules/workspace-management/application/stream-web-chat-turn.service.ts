@@ -55,6 +55,7 @@ import {
 } from "./cadence-watchdog";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
+import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
@@ -190,6 +191,7 @@ export class StreamWebChatTurnService {
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
@@ -648,6 +650,16 @@ export class StreamWebChatTurnService {
         source: "web_chat_turn_stream_completed"
       });
       trace.stage("quota_recorded");
+      await this.appendModelCostLedgerEvents({
+        assistantId: prepared.assistantId,
+        workspaceId: prepared.workspaceId,
+        userId: prepared.userId,
+        assistantMessageId: assistantMessage.id,
+        respondedAt: respondedAt ?? assistantMessage.createdAt.toISOString(),
+        traceId: trace.getTraceId(),
+        ...(usageAccounting === undefined ? {} : { usageAccounting })
+      });
+      trace.stage("cost_ledger_recorded");
       const quotaAdvisoryFollowUp =
         (await this.quotaAdvisoryFollowUpService?.maybeCreateFollowUp({
           assistantId: prepared.assistantId,
@@ -1602,6 +1614,37 @@ export class StreamWebChatTurnService {
       );
     }
     return finalAssistantContent;
+  }
+
+  private async appendModelCostLedgerEvents(input: {
+    assistantId: string;
+    workspaceId: string;
+    userId: string;
+    assistantMessageId: string;
+    respondedAt: string;
+    traceId: string;
+    usageAccounting?: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
+  }): Promise<void> {
+    try {
+      await this.recordModelCostLedgerService.recordChatMainReplyEvents({
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        surface: "web",
+        purpose: "chat_main_reply",
+        source: "web_chat_turn_stream_completed",
+        occurredAt: input.respondedAt,
+        sourceEventId: input.assistantMessageId,
+        requestCorrelationId: input.traceId,
+        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting })
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[web-turn-stream] Non-blocking model cost ledger append failed for assistant ${input.assistantId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   private async persistInterruptedOutcome(

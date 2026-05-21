@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma, type AssistantChatMessageAttachment as PrismaAttachment } from "@prisma/client";
+import type { RuntimeBillingFacts } from "@persai/runtime-contract";
 import type {
   AssistantChatMessageAttachment,
   AttachmentProcessingStatus,
@@ -33,6 +34,10 @@ export class PrismaAssistantChatMessageAttachmentRepository implements Assistant
         height: input.height,
         processingStatus: input.processingStatus,
         transcription: input.transcription,
+        billingFactsJson:
+          input.billingFacts === undefined || input.billingFacts === null
+            ? Prisma.DbNull
+            : (input.billingFacts as unknown as Prisma.InputJsonValue),
         metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : Prisma.DbNull,
         clientTurnId: input.clientTurnId ?? null,
         clientAttachmentId: input.clientAttachmentId ?? null
@@ -140,6 +145,7 @@ export class PrismaAssistantChatMessageAttachmentRepository implements Assistant
       height: record.height,
       processingStatus: record.processingStatus as AttachmentProcessingStatus,
       transcription: record.transcription,
+      billingFacts: record.billingFactsJson as RuntimeBillingFacts | null,
       metadata: record.metadata as Record<string, unknown> | null,
       clientTurnId: record.clientTurnId,
       clientAttachmentId: record.clientAttachmentId,

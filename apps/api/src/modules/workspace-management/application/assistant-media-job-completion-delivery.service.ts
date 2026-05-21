@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { type RuntimeOutputArtifact } from "@persai/runtime-contract";
+import { type RuntimeOutputArtifact, type RuntimeUsageSnapshot } from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -12,6 +12,7 @@ import { MediaDeliveryService } from "./media/media-delivery.service";
 import { TelegramBotClientService } from "./telegram-bot.client.service";
 import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-channel-runtime-config.service";
 import { AssistantMediaJobCompletionTurnService } from "./assistant-media-job-completion-turn.service";
+import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import {
   buildAssistantMediaJobFailureMessage,
   inferAssistantMediaJobFailureLocale
@@ -26,6 +27,7 @@ const COMPLETION_DELIVERY_LAST_ERROR_MAX_CHARS = 1_000;
 type ClaimedCompletionPendingMediaJob = {
   id: string;
   assistantId: string;
+  userId: string;
   workspaceId: string;
   chatId: string;
   surface: "web" | "telegram";
@@ -83,8 +85,37 @@ export class AssistantMediaJobCompletionDeliveryService {
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly telegramBotClientService: TelegramBotClientService,
     private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
-    private readonly assistantMediaJobCompletionTurnService: AssistantMediaJobCompletionTurnService
+    private readonly assistantMediaJobCompletionTurnService: AssistantMediaJobCompletionTurnService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
   ) {}
+
+  private async persistCompletionFramingLedger(input: {
+    job: Pick<
+      ClaimedCompletionPendingMediaJob,
+      "id" | "assistantId" | "userId" | "workspaceId" | "surface"
+    >;
+    usage: RuntimeUsageSnapshot | null;
+  }): Promise<void> {
+    if (input.usage === null) {
+      return;
+    }
+    try {
+      await this.recordModelCostLedgerService.recordCompletionFramingUsageEvent({
+        workspaceId: input.job.workspaceId,
+        assistantId: input.job.assistantId,
+        userId: input.job.userId,
+        surface: input.job.surface,
+        occurredAt: new Date().toISOString(),
+        sourceEventId: `media_job:${input.job.id}:completion_framing`,
+        source: "media_job_completion_framing",
+        usage: input.usage
+      });
+    } catch (error) {
+      this.logger.warn(
+        `media_job_completion_framing_ledger_append_failed jobId=${input.job.id} message=${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
 
   private async tryLlmAuthoredDeliveryFailureCopy(
     job: ClaimedCompletionPendingMediaJob,
@@ -138,6 +169,7 @@ export class AssistantMediaJobCompletionDeliveryService {
         Array<{
           id: string;
           assistantId: string;
+          userId: string;
           workspaceId: string;
           chatId: string;
           surface: "web" | "telegram";
@@ -154,6 +186,7 @@ export class AssistantMediaJobCompletionDeliveryService {
         SELECT
           "id",
           "assistant_id" AS "assistantId",
+          "user_id" AS "userId",
           "workspace_id" AS "workspaceId",
           "chat_id" AS "chatId",
           "surface"::text AS "surface",
@@ -179,6 +212,9 @@ export class AssistantMediaJobCompletionDeliveryService {
 
       const claimed: ClaimedCompletionPendingMediaJob[] = [];
       for (const row of rows) {
+        if (typeof row.userId !== "string" || row.userId.length === 0) {
+          continue;
+        }
         const claimToken = `${row.id}:${Date.now()}`;
         await tx.assistantMediaJob.update({
           where: { id: row.id },
@@ -345,23 +381,36 @@ export class AssistantMediaJobCompletionDeliveryService {
       }
     }
 
-    const framed =
-      (await this.assistantMediaJobCompletionTurnService.maybeFrame({
-        id: input.job.id,
-        assistantId: input.job.assistantId,
-        workspaceId: input.job.workspaceId,
-        chatId: input.job.chatId,
-        surface: input.job.surface,
-        kind: input.job.kind,
-        sourceUserMessageId: input.job.sourceUserMessageId,
-        sourceUserMessageText: input.sourceUserMessageText,
-        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
-        resultText: rawAssistantText,
-        artifacts: input.artifacts
-      })) ?? rawAssistantText;
+    const framed = await this.assistantMediaJobCompletionTurnService.maybeFrame({
+      id: input.job.id,
+      assistantId: input.job.assistantId,
+      workspaceId: input.job.workspaceId,
+      chatId: input.job.chatId,
+      surface: input.job.surface,
+      kind: input.job.kind,
+      sourceUserMessageId: input.job.sourceUserMessageId,
+      sourceUserMessageText: input.sourceUserMessageText,
+      sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
+      resultText: rawAssistantText,
+      artifacts: input.artifacts
+    });
+    const framedText = framed.text?.trim() ?? "";
+    const completionText = framedText.length > 0 ? framedText : rawAssistantText;
+    if (framed.usage !== null) {
+      await this.prisma.assistantMediaJob.updateMany({
+        where: { id: input.job.id },
+        data: {
+          completionUsageJson: framed.usage as unknown as Prisma.InputJsonValue
+        }
+      });
+      await this.persistCompletionFramingLedger({
+        job: input.job,
+        usage: framed.usage
+      });
+    }
 
     return {
-      text: framed,
+      text: completionText,
       shouldUpdateExistingMessage: input.job.completionAssistantMessageId !== null
     };
   }

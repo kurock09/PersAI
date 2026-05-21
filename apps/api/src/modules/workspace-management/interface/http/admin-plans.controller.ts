@@ -10,6 +10,7 @@ import {
   UnauthorizedException
 } from "@nestjs/common";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
+import { AdminAuthorizationService } from "../../application/admin-authorization.service";
 import { ManageAdminPlansService } from "../../application/manage-admin-plans.service";
 import { ResolvePlanVisibilityService } from "../../application/resolve-plan-visibility.service";
 import { ManageMediaPackageCatalogService } from "../../application/manage-media-package-catalog.service";
@@ -27,6 +28,7 @@ import type {
 @Controller("api/v1/admin/plans")
 export class AdminPlansController {
   constructor(
+    private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly manageAdminPlansService: ManageAdminPlansService,
     private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService,
     private readonly manageMediaPackageCatalogService: ManageMediaPackageCatalogService
@@ -122,7 +124,8 @@ export class AdminPlansController {
     requestId: string | null;
     packages: MediaPackageCatalogItemState[];
   }> {
-    this.resolveRequestUserId(req);
+    const userId = this.resolveRequestUserId(req);
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     return {
       requestId: req.requestId ?? null,
       packages: await this.manageMediaPackageCatalogService.listAll()
@@ -134,7 +137,12 @@ export class AdminPlansController {
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown
   ): Promise<{ requestId: string | null; package: MediaPackageCatalogItemState }> {
-    this.resolveRequestUserId(req);
+    const userId = this.resolveRequestUserId(req);
+    await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      userId,
+      "admin.plan.update",
+      this.resolveStepUpToken(req)
+    );
     const input = body as CreateMediaPackageCatalogItemInput;
     return {
       requestId: req.requestId ?? null,
@@ -148,7 +156,12 @@ export class AdminPlansController {
     @Param("id") id: string,
     @Body() body: unknown
   ): Promise<{ requestId: string | null; package: MediaPackageCatalogItemState }> {
-    this.resolveRequestUserId(req);
+    const userId = this.resolveRequestUserId(req);
+    await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      userId,
+      "admin.plan.update",
+      this.resolveStepUpToken(req)
+    );
     const patch = body as UpdateMediaPackageCatalogItemInput;
     return {
       requestId: req.requestId ?? null,
@@ -161,7 +174,12 @@ export class AdminPlansController {
     @Req() req: RequestWithPlatformContext,
     @Param("id") id: string
   ): Promise<{ requestId: string | null; ok: true }> {
-    this.resolveRequestUserId(req);
+    const userId = this.resolveRequestUserId(req);
+    await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      userId,
+      "admin.plan.update",
+      this.resolveStepUpToken(req)
+    );
     await this.manageMediaPackageCatalogService.delete(id);
     return { requestId: req.requestId ?? null, ok: true };
   }

@@ -1323,7 +1323,7 @@ async function run(): Promise<void> {
   const service = new ReadAssistantKnowledgeService(
     prisma as never,
     {
-      generateEmbeddings: async () => [null]
+      generateEmbeddings: async () => ({ embeddings: [null], usage: null })
     } as never,
     {
       resolveAssistantEmbeddingModelKey: async () => null,

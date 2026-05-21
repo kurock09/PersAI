@@ -1,5 +1,26 @@
 import assert from "node:assert/strict";
 import { PlatformHttpMetricsService } from "../src/modules/platform-core/application/platform-http-metrics.service";
+
+const noopRecordModelCostLedgerService = {
+  async recordPersistedBillingFactsEvent() {
+    return 0;
+  }
+} as never;
+
+const noopPrisma = {
+  assistantVoiceTranscriptionEvent: {
+    async create() {
+      return {
+        id: "voice-event-1",
+        assistantId: "assistant-1",
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        surface: "voice_http",
+        occurredAt: new Date()
+      };
+    }
+  }
+} as never;
 import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { ManageChatMediaService } from "../src/modules/workspace-management/application/manage-chat-media.service";
 import type { Assistant } from "../src/modules/workspace-management/domain/assistant.entity";
@@ -110,6 +131,17 @@ async function run(): Promise<void> {
           normalizedMime: "text/plain",
           normalizedExtension: "txt",
           transcription: null,
+          billingFacts: {
+            providerKey: "openai",
+            modelKey: "gpt-4o-mini-transcribe",
+            capability: "speech_to_text",
+            occurredAt: "2026-05-05T09:00:00.000Z",
+            metering: {
+              meteringKind: "time_metered",
+              durationMs: 2300,
+              durationSeconds: 2.3
+            }
+          },
           textExtract: "line one\nline two",
           durationMs: null,
           width: null,
@@ -160,7 +192,9 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
-    new PlatformHttpMetricsService()
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService,
+    noopPrisma
   );
 
   const directUpload = await directUploadService.uploadAttachment({
@@ -180,6 +214,173 @@ async function run(): Promise<void> {
     source: "chat_upload",
     contentPreview: "line one line two"
   });
+  assert.deepEqual(directUploadCreateInput?.billingFacts, {
+    providerKey: "openai",
+    modelKey: "gpt-4o-mini-transcribe",
+    capability: "speech_to_text",
+    occurredAt: "2026-05-05T09:00:00.000Z",
+    metering: {
+      meteringKind: "time_metered",
+      durationMs: 2300,
+      durationSeconds: 2.3
+    }
+  });
+
+  let videoUploadCreateInput: Record<string, unknown> | null = null;
+  const videoUploadService = new ManageChatMediaService(
+    {
+      async findByUserId(userId: string) {
+        return userId === "user-1" ? assistant : null;
+      }
+    } as never,
+    {
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: assistant.id,
+          userId: assistant.userId,
+          workspaceId: assistant.workspaceId,
+          surface: "web",
+          surfaceThreadKey: "thread-1",
+          title: null,
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: new Date("2026-04-06T00:00:00.000Z"),
+          updatedAt: new Date("2026-04-06T00:00:00.000Z")
+        };
+      },
+      async findMessageByIdForAssistant(messageId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId: assistant.id,
+          author: "user",
+          content: "upload video here",
+          createdAt: new Date("2026-04-06T00:00:00.000Z"),
+          updatedAt: new Date("2026-04-06T00:00:00.000Z")
+        };
+      }
+    } as never,
+    {
+      async create(input: Record<string, unknown>) {
+        videoUploadCreateInput = input;
+        return {
+          id: "att-video-1",
+          messageId: "msg-video-1",
+          chatId: "chat-1",
+          assistantId: assistant.id,
+          workspaceId: assistant.workspaceId,
+          attachmentType: "video",
+          storagePath: input.storagePath,
+          originalFilename: input.originalFilename,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes,
+          durationMs: input.durationMs,
+          width: input.width,
+          height: input.height,
+          processingStatus: "ready",
+          transcription: input.transcription,
+          metadata: input.metadata,
+          createdAt: new Date("2026-04-06T00:00:00.000Z")
+        };
+      }
+    } as never,
+    {
+      async process(buffer: Buffer) {
+        return {
+          normalizedBuffer: buffer,
+          normalizedMime: "video/mp4",
+          normalizedExtension: "mp4",
+          transcription: "hello from video",
+          billingFacts: {
+            providerKey: "openai",
+            modelKey: "gpt-4o-mini-transcribe",
+            capability: "speech_to_text",
+            occurredAt: "2026-05-05T09:05:00.000Z",
+            metering: {
+              meteringKind: "time_metered",
+              durationMs: 5400,
+              durationSeconds: 5.4
+            }
+          },
+          textExtract: null,
+          durationMs: null,
+          width: null,
+          height: null
+        };
+      }
+    } as never,
+    {} as never,
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-video-1/clip.mp4";
+      },
+      async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+        return {
+          objectKey: input.objectKey,
+          sizeBytes: input.buffer.length,
+          mimeType: input.mimeType
+        };
+      }
+    } as never,
+    {
+      async resolveActiveWebChatsLimit() {
+        return 20;
+      },
+      async checkMediaStorageQuota() {
+        return { allowed: true };
+      },
+      async recordMediaUpload(input: { sizeBytes: bigint }) {
+        return {
+          appliedDelta: input.sizeBytes,
+          capped: false,
+          state: {
+            id: "state-video-1",
+            workspaceId: assistant.workspaceId,
+            tokenBudgetUsed: BigInt(0),
+            tokenBudgetLimit: null,
+            costOrTokenDrivingToolClassUnitsUsed: 0,
+            costOrTokenDrivingToolClassUnitsLimit: null,
+            activeWebChatsCurrent: 0,
+            activeWebChatsLimit: null,
+            mediaStorageBytesUsed: input.sizeBytes,
+            mediaStorageBytesLimit: BigInt(1000),
+            lastComputedAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        };
+      }
+    } as never,
+    fakeAssistantFileRegistry as never,
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService,
+    noopPrisma
+  );
+
+  await videoUploadService.uploadAttachment({
+    userId: "user-1",
+    chatId: "chat-1",
+    messageId: "msg-video-1",
+    file: {
+      buffer: Buffer.from("fake-video-binary"),
+      mimetype: "video/mp4",
+      originalname: "clip.mp4"
+    }
+  });
+
+  assert.deepEqual(videoUploadCreateInput?.billingFacts, {
+    providerKey: "openai",
+    modelKey: "gpt-4o-mini-transcribe",
+    capability: "speech_to_text",
+    occurredAt: "2026-05-05T09:05:00.000Z",
+    metering: {
+      meteringKind: "time_metered",
+      durationMs: 5400,
+      durationSeconds: 5.4
+    }
+  });
+  assert.equal(videoUploadCreateInput?.transcription, "hello from video");
 
   const metrics = new PlatformHttpMetricsService();
   const deletedStagingMessageIds: string[] = [];
@@ -263,6 +464,7 @@ async function run(): Promise<void> {
           normalizedMime: mime,
           normalizedExtension: "png",
           transcription: null,
+          billingFacts: null,
           textExtract: null,
           durationMs: null,
           width: 100,
@@ -337,7 +539,9 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
-    metrics
+    metrics,
+    noopRecordModelCostLedgerService,
+    noopPrisma
   );
 
   const staged = await service.stageForWebThread({
@@ -423,6 +627,7 @@ async function run(): Promise<void> {
           normalizedMime: mime,
           normalizedExtension: "png",
           transcription: null,
+          billingFacts: null,
           textExtract: null,
           durationMs: null,
           width: 100,
@@ -497,7 +702,9 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
-    failureMetrics
+    failureMetrics,
+    noopRecordModelCostLedgerService,
+    noopPrisma
   );
 
   await assert.rejects(
@@ -587,6 +794,7 @@ async function run(): Promise<void> {
           normalizedMime: mime,
           normalizedExtension: "png",
           transcription: null,
+          billingFacts: null,
           textExtract: null,
           durationMs: null,
           width: 100,
@@ -639,7 +847,9 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
-    storageFailureMetrics
+    storageFailureMetrics,
+    noopRecordModelCostLedgerService,
+    noopPrisma
   );
 
   await assert.rejects(
@@ -695,7 +905,8 @@ async function run(): Promise<void> {
           }
         } as never,
         fakeAssistantFileRegistry as never,
-        new PlatformHttpMetricsService()
+        new PlatformHttpMetricsService(),
+        noopRecordModelCostLedgerService
       ).stageForWebThread({
         userId: "user-1",
         surfaceThreadKey: "thread-cap",

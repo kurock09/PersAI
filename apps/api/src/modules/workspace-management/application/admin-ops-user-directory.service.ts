@@ -1,6 +1,12 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
+import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import {
+  readWorkspacePeriodEconomics,
+  type AdminOpsPeriodEconomicsSnapshot
+} from "./admin-ops-period-economics";
 import { AdminAuthorizationService } from "./admin-authorization.service";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
 export interface AdminOpsUserRow {
   userId: string;
@@ -24,6 +30,7 @@ export interface AdminOpsUserRow {
     currentPeriodEndsAt: string | null;
     usageRisk: "unknown" | "ok" | "elevated" | "high";
   };
+  periodEconomics: AdminOpsPeriodEconomicsSnapshot | null;
 }
 
 export interface AdminOpsUserDirectoryResult {
@@ -35,7 +42,10 @@ export interface AdminOpsUserDirectoryResult {
 export class AdminOpsUserDirectoryService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly adminAuthorizationService: AdminAuthorizationService
+    private readonly adminAuthorizationService: AdminAuthorizationService,
+    @Inject(ASSISTANT_REPOSITORY)
+    private readonly assistantRepository: AssistantRepository,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   async execute(
@@ -111,6 +121,8 @@ export class AdminOpsUserDirectoryService {
       this.prisma.appUser.count({ where })
     ]);
 
+    const periodEconomicsByUserId = await this.resolvePeriodEconomicsForUsers(users);
+
     return {
       total,
       users: users.map((u) => {
@@ -141,10 +153,44 @@ export class AdminOpsUserDirectoryService {
             graceEndsAt: subscription?.graceEndsAt?.toISOString() ?? null,
             currentPeriodEndsAt: subscription?.currentPeriodEndsAt?.toISOString() ?? null,
             usageRisk: this.resolveUsageRisk(quota)
-          }
+          },
+          periodEconomics: periodEconomicsByUserId.get(u.id) ?? null
         };
       })
     };
+  }
+
+  private async resolvePeriodEconomicsForUsers(
+    users: Array<{
+      id: string;
+      assistant: { id: string } | null;
+      workspaceLinks: Array<{ workspaceId: string }>;
+    }>
+  ): Promise<Map<string, AdminOpsPeriodEconomicsSnapshot>> {
+    const result = new Map<string, AdminOpsPeriodEconomicsSnapshot>();
+    await Promise.all(
+      users.map(async (user) => {
+        const workspaceId = user.workspaceLinks[0]?.workspaceId ?? null;
+        if (workspaceId === null || user.assistant === null) {
+          return;
+        }
+        const assistant = await this.assistantRepository.findById(user.assistant.id);
+        if (assistant === null) {
+          return;
+        }
+        const tokenBudget =
+          await this.trackWorkspaceQuotaUsageService.resolveAssistantTokenBudgetQuotaSnapshot(
+            assistant
+          );
+        const economics = await readWorkspacePeriodEconomics(this.prisma, {
+          workspaceId,
+          periodStartedAt: tokenBudget.periodStartedAt,
+          periodEndsAt: tokenBudget.periodEndsAt
+        });
+        result.set(user.id, economics);
+      })
+    );
+    return result;
   }
 
   private resolveUsageRisk(

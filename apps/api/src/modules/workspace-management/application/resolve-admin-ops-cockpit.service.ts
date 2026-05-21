@@ -29,6 +29,8 @@ import {
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { resolveStoredPlanSandboxPolicy } from "./sandbox-policy";
+import { readWorkspacePeriodEconomics } from "./admin-ops-period-economics";
+import { readAdminModelCostLedgerWindow } from "./model-cost-ledger-read-model";
 
 function asIso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
@@ -105,6 +107,8 @@ export class ResolveAdminOpsCockpitService {
         quotaUsage: null,
         billingSupport: null,
         chatStats: null,
+        modelCostLedger: null,
+        periodEconomics: null,
         channels: [],
         sandbox: null,
         assistant: {
@@ -184,6 +188,11 @@ export class ResolveAdminOpsCockpitService {
     const quotaUsage = await this.resolveQuotaUsage(assistant.workspaceId, assistant);
     const billingSupport = await this.resolveBillingSupport(assistant.workspaceId, quotaUsage);
     const chatStats = await this.resolveChatStats(assistant.workspaceId, assistant.id);
+    const modelCostLedger = await this.resolveModelCostLedger(
+      assistant.workspaceId,
+      billingSupport
+    );
+    const periodEconomics = await this.resolvePeriodEconomics(assistant.workspaceId, quotaUsage);
     const channels = await this.resolveChannelBindings(assistant.id);
     const sandbox = await this.resolveSandboxState(
       assistant.id,
@@ -195,6 +204,8 @@ export class ResolveAdminOpsCockpitService {
       quotaUsage,
       billingSupport,
       chatStats,
+      modelCostLedger,
+      periodEconomics,
       channels,
       sandbox,
       assistant: {
@@ -426,6 +437,55 @@ export class ResolveAdminOpsCockpitService {
       })
     ]);
     return { totalChats, activeWebChats, archivedWebChats };
+  }
+
+  private async resolvePeriodEconomics(
+    workspaceId: string,
+    quotaUsage: AdminOpsCockpitQuotaUsage | null
+  ) {
+    if (
+      quotaUsage === null ||
+      quotaUsage.tokenBudgetPeriodStartedAt === null ||
+      quotaUsage.tokenBudgetPeriodEndsAt === null
+    ) {
+      return null;
+    }
+    return readWorkspacePeriodEconomics(this.prisma, {
+      workspaceId,
+      periodStartedAt: quotaUsage.tokenBudgetPeriodStartedAt,
+      periodEndsAt: quotaUsage.tokenBudgetPeriodEndsAt
+    });
+  }
+
+  private async resolveModelCostLedger(
+    workspaceId: string,
+    billingSupport: AdminOpsCockpitBillingSupport
+  ) {
+    const hasSubscriptionPeriod =
+      billingSupport.subscription.currentPeriodStartedAt !== null &&
+      billingSupport.subscription.currentPeriodEndsAt !== null;
+    const startedAt =
+      billingSupport.quotaPeriod.startedAt ?? billingSupport.subscription.currentPeriodStartedAt;
+    const endedAt =
+      billingSupport.quotaPeriod.endsAt ?? billingSupport.subscription.currentPeriodEndsAt;
+    const periodSource =
+      billingSupport.quotaPeriod.source ??
+      (hasSubscriptionPeriod
+        ? "subscription_period"
+        : startedAt !== null && endedAt !== null
+          ? "calendar_month_fallback"
+          : null);
+    if (startedAt === null || endedAt === null || periodSource === null) {
+      return null;
+    }
+
+    return await readAdminModelCostLedgerWindow(this.prisma, {
+      workspaceId,
+      startedAt: new Date(startedAt),
+      endedAt: new Date(endedAt),
+      windowLabel: "current_quota_period",
+      periodSource
+    });
   }
 
   private async resolveChannelBindings(

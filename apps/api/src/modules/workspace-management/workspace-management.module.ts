@@ -186,6 +186,7 @@ import { CompactNativeWebChatSessionService } from "./application/compact-native
 import { ResolveNativeWebChatSessionStateService } from "./application/resolve-native-web-chat-session-state.service";
 import { PublishAssistantDraftService } from "./application/publish-assistant-draft.service";
 import { RecordWebChatMemoryTurnService } from "./application/record-web-chat-memory-turn.service";
+import { RecordModelCostLedgerService } from "./application/record-model-cost-ledger.service";
 import { ReapplyAssistantService } from "./application/reapply-assistant.service";
 import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
@@ -542,6 +543,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ResolvePlanVisibilityService,
     EnforceAssistantCapabilityAndQuotaService,
     TrackWorkspaceQuotaUsageService,
+    RecordModelCostLedgerService,
     CompactNativeWebChatSessionService,
     ResolveNativeWebChatSessionStateService,
     ManageWebChatListService,

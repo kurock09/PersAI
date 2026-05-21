@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { unlinkSync, writeFileSync } from "node:fs";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
@@ -19,6 +23,7 @@ import type {
   ProviderGatewayTextKeepaliveEvent,
   ProviderGatewayTextToolCallsEvent,
   ProviderGatewayTextStreamEvent,
+  RuntimeBillingFacts,
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import OpenAI from "openai";
@@ -276,7 +281,11 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         provider: "openai",
         model: OPENAI_AUDIO_TRANSCRIPTION_MODEL,
         text,
-        respondedAt: new Date().toISOString()
+        respondedAt: new Date().toISOString(),
+        billingFacts: this.buildAudioTranscriptionBillingFacts({
+          model: OPENAI_AUDIO_TRANSCRIPTION_MODEL,
+          buffer: input.buffer
+        })
       };
     } finally {
       dispose();
@@ -338,6 +347,16 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         })),
         respondedAt: new Date().toISOString(),
         usage: this.toImageUsageSnapshot(model, response.usage),
+        billingFacts: this.buildOperationBillingFacts({
+          model,
+          capability: "image",
+          operationCount: images.length,
+          dimensions: {
+            operation: "generate",
+            size: input.size,
+            background: input.background
+          }
+        }),
         warning: null
       };
     } finally {
@@ -419,6 +438,16 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         })),
         respondedAt: new Date().toISOString(),
         usage: this.toImageUsageSnapshot(model, response.usage),
+        billingFacts: this.buildOperationBillingFacts({
+          model,
+          capability: "image",
+          operationCount: images.length,
+          dimensions: {
+            operation: "edit",
+            size: input.size,
+            background: input.background
+          }
+        }),
         warning: null
       };
     } finally {
@@ -468,6 +497,15 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         video,
         respondedAt: new Date().toISOString(),
         usage: null,
+        billingFacts: this.buildOperationBillingFacts({
+          model: completedJob.model ?? input.model ?? OPENAI_VIDEO_GENERATION_MODEL,
+          capability: "video",
+          operationCount: 1,
+          dimensions: {
+            seconds: input.seconds,
+            size: input.size
+          }
+        }),
         warning: null
       };
     } catch (error) {
@@ -511,6 +549,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         mimeType: format === "opus" ? "audio/ogg" : "audio/mpeg",
         respondedAt: new Date().toISOString(),
         usage: null,
+        billingFacts: this.buildSpeechBillingFacts({
+          model: OPENAI_SPEECH_GENERATION_MODEL,
+          text: input.text
+        }),
         warning: null
       };
     } finally {
@@ -805,6 +847,93 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           outputTokens: usage.output_tokens ?? null,
           totalTokens: usage.total_tokens ?? null
         };
+  }
+
+  private buildAudioTranscriptionBillingFacts(input: {
+    model: string;
+    buffer: Buffer;
+  }): RuntimeBillingFacts | null {
+    const durationMs = this.readAudioDurationMs(input.buffer);
+    if (durationMs === null) {
+      return null;
+    }
+    return {
+      providerKey: "openai",
+      modelKey: input.model,
+      capability: "speech_to_text",
+      occurredAt: new Date().toISOString(),
+      metering: {
+        meteringKind: "time_metered",
+        durationMs,
+        durationSeconds: Number((durationMs / 1000).toFixed(3))
+      }
+    };
+  }
+
+  private buildSpeechBillingFacts(input: { model: string; text: string }): RuntimeBillingFacts {
+    return {
+      providerKey: "openai",
+      modelKey: input.model,
+      capability: "text_to_speech",
+      occurredAt: new Date().toISOString(),
+      metering: {
+        meteringKind: "text_chars_metered",
+        textChars: input.text.length
+      }
+    };
+  }
+
+  private buildOperationBillingFacts(input: {
+    model: string;
+    capability: "image" | "video";
+    operationCount: number;
+    dimensions?: Record<string, string | number | boolean | null>;
+  }): RuntimeBillingFacts {
+    return {
+      providerKey: "openai",
+      modelKey: input.model,
+      capability: input.capability,
+      occurredAt: new Date().toISOString(),
+      metering: {
+        meteringKind: "operation_metered",
+        operationCount: input.operationCount,
+        dimensions: input.dimensions ?? null
+      }
+    };
+  }
+
+  private readAudioDurationMs(buffer: Buffer): number | null {
+    try {
+      const probePath = join(tmpdir(), `persai-openai-audio-${Date.now()}-${Math.random()}.bin`);
+      writeFileSync(probePath, buffer);
+      try {
+        const output = execFileSync(
+          "ffprobe",
+          [
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            probePath
+          ],
+          {
+            encoding: "utf8",
+            timeout: 10_000
+          }
+        ).trim();
+        const durationSeconds = Number(output);
+        if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+          return null;
+        }
+        return Math.max(1, Math.round(durationSeconds * 1000));
+      } finally {
+        unlinkSync(probePath);
+      }
+    } catch {
+      return null;
+    }
   }
 
   private buildOpenAIInputItems(input: ProviderGatewayTextGenerateRequest): OpenAIBuiltInputItem[] {

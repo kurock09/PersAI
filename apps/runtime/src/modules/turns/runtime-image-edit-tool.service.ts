@@ -445,7 +445,8 @@ export class RuntimeImageEditToolService {
             filenameHint: request.filename,
             sourceFilename: selection.sourceFilename,
             image,
-            index
+            index,
+            billingFacts: providerResult.billingFacts
           })
         )
       );
@@ -842,6 +843,7 @@ export class RuntimeImageEditToolService {
       revisedPrompt: string | null;
     };
     index: number;
+    billingFacts: RuntimeOutputArtifact["billingFacts"];
   }): Promise<RuntimeOutputArtifact> {
     if (!input.image.mimeType.startsWith("image/")) {
       throw new Error(`Image provider returned unsupported MIME type "${input.image.mimeType}".`);
@@ -892,7 +894,8 @@ export class RuntimeImageEditToolService {
       mimeType: stored.mimeType,
       filename,
       sizeBytes: stored.sizeBytes,
-      voiceNote: false
+      voiceNote: false,
+      billingFacts: input.billingFacts ?? null
     };
   }
 

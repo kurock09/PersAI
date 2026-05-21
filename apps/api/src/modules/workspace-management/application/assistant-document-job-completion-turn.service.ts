@@ -1,5 +1,9 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type { RuntimeOutputArtifact } from "@persai/runtime-contract";
+import type {
+  RuntimeOutputArtifact,
+  RuntimeUsageAccounting,
+  RuntimeUsageSnapshot
+} from "@persai/runtime-contract";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   ASSISTANT_CHAT_REPOSITORY,
@@ -74,7 +78,10 @@ export class AssistantDocumentJobCompletionTurnService {
     private readonly internalRuntimeDocumentJobClientService: InternalRuntimeDocumentJobClientService
   ) {}
 
-  async maybeFrame(input: DocumentJobCompletionInput): Promise<string | null> {
+  async maybeFrame(input: DocumentJobCompletionInput): Promise<{
+    text: string | null;
+    usage: RuntimeUsageSnapshot | null;
+  }> {
     let context: Awaited<
       ReturnType<AssistantDocumentJobCompletionTurnService["loadFramingContext"]>
     >;
@@ -86,7 +93,7 @@ export class AssistantDocumentJobCompletionTurnService {
           error instanceof Error ? error.message : String(error)
         }`
       );
-      return null;
+      return { text: null, usage: null };
     }
 
     const outcome = await this.internalRuntimeDocumentJobClientService.complete({
@@ -121,10 +128,13 @@ export class AssistantDocumentJobCompletionTurnService {
       this.logger.warn(
         `Document completion framing call failed for job ${input.id}: ${outcome.message}`
       );
-      return null;
+      return { text: null, usage: null };
     }
     const text = outcome.result.assistantText?.trim() ?? "";
-    return text.length === 0 ? null : text;
+    return {
+      text: text.length === 0 ? null : text,
+      usage: normalizeRuntimeUsageForLedger(outcome.result.usage)
+    };
   }
 
   async maybeFrameFailure(input: DocumentJobFailureFramingInput): Promise<string | null> {
@@ -206,4 +216,29 @@ export class AssistantDocumentJobCompletionTurnService {
       }))
     };
   }
+}
+
+function normalizeRuntimeUsageForLedger(
+  usage: RuntimeUsageAccounting | RuntimeUsageSnapshot | null
+): RuntimeUsageSnapshot | null {
+  if (usage === null) {
+    return null;
+  }
+  if ("entries" in usage) {
+    const entry =
+      usage.entries.find((row) => row.providerKey !== null && row.modelKey !== null) ??
+      usage.entries.at(-1);
+    if (entry === undefined || entry.providerKey === null || entry.modelKey === null) {
+      return null;
+    }
+    return {
+      providerKey: entry.providerKey,
+      modelKey: entry.modelKey,
+      inputTokens: entry.inputTokens ?? usage.inputTokens,
+      cachedInputTokens: entry.cachedInputTokens ?? usage.cachedInputTokens ?? 0,
+      outputTokens: entry.outputTokens ?? usage.outputTokens,
+      totalTokens: entry.totalTokens ?? usage.totalTokens
+    };
+  }
+  return usage;
 }

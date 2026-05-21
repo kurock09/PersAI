@@ -3,6 +3,7 @@ import type { ProviderGatewayConfig } from "@persai/config";
 import { isPersaiRuntimeYandexRoleAllowedForVoice } from "@persai/runtime-contract";
 import type {
   ProviderGatewaySpeechGenerateRequest,
+  RuntimeBillingFacts,
   ProviderGatewaySpeechGenerateResult
 } from "@persai/runtime-contract";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
@@ -63,6 +64,7 @@ export class YandexProviderClient {
         mimeType: input.deliveryKind === "voice_note" ? "audio/ogg" : "audio/mpeg",
         respondedAt: new Date().toISOString(),
         usage: null,
+        billingFacts: this.buildBillingFacts(input),
         warning: null
       };
     } finally {
@@ -191,5 +193,18 @@ export class YandexProviderClient {
 
   private clampRange(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value));
+  }
+
+  private buildBillingFacts(input: ProviderGatewaySpeechGenerateRequest): RuntimeBillingFacts {
+    return {
+      providerKey: "yandex",
+      modelKey: YANDEX_SPEECH_MODEL,
+      capability: "text_to_speech",
+      occurredAt: new Date().toISOString(),
+      metering: {
+        meteringKind: "text_chars_metered",
+        textChars: input.text.length
+      }
+    };
   }
 }

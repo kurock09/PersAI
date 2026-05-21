@@ -248,32 +248,53 @@ describe("admin rollout client", () => {
               {
                 model: "gpt-5.4",
                 capabilities: ["chat"],
+                active: true,
+                billingMode: "token_metered",
+                effectiveFrom: null,
+                effectiveTo: null,
                 inputTokenWeight: 1,
                 cachedInputTokenWeight: 1,
                 outputTokenWeight: 1,
                 displayLabel: null,
                 notes: null,
-                providerPriceMetadata: null
+                providerPriceMetadata: {
+                  currency: "USD",
+                  tokenPricing: { inputPer1M: 0, cachedInputPer1M: 0, outputPer1M: 0 }
+                }
               },
               {
                 model: "gpt-image-1.5",
                 capabilities: ["image"],
+                active: true,
+                billingMode: "fixed_operation",
+                effectiveFrom: null,
+                effectiveTo: null,
                 inputTokenWeight: 1,
                 cachedInputTokenWeight: 1,
                 outputTokenWeight: 1,
                 displayLabel: null,
                 notes: null,
-                providerPriceMetadata: null
+                providerPriceMetadata: {
+                  currency: "USD",
+                  fixedOperationPricing: { unitLabel: null, pricePerOperation: 0 }
+                }
               },
               {
                 model: "sora-2",
                 capabilities: ["video"],
+                active: true,
+                billingMode: "fixed_operation",
+                effectiveFrom: null,
+                effectiveTo: null,
                 inputTokenWeight: 1,
                 cachedInputTokenWeight: 1,
                 outputTokenWeight: 1,
                 displayLabel: null,
                 notes: null,
-                providerPriceMetadata: null
+                providerPriceMetadata: {
+                  currency: "USD",
+                  fixedOperationPricing: { unitLabel: null, pricePerOperation: 0 }
+                }
               }
             ]
           },

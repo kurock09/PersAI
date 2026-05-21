@@ -101,6 +101,7 @@ export interface RuntimeOutputArtifact {
   sizeBytes: number | null;
   voiceNote: boolean;
   caption?: string | null;
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export interface RuntimeDocumentSourceFile {
@@ -349,6 +350,55 @@ export interface RuntimeUsageAccounting {
   outputTokens: number | null;
   totalTokens: number | null;
   entries: RuntimeUsageAccountingEntry[];
+}
+
+export const RUNTIME_BILLING_FACT_CAPABILITIES = [
+  "chat",
+  "image",
+  "video",
+  "speech_to_text",
+  "text_to_speech",
+  "ocr_or_document_parsing"
+] as const;
+export type RuntimeBillingFactCapability = (typeof RUNTIME_BILLING_FACT_CAPABILITIES)[number];
+
+export interface RuntimeTokenMeteredBillingFact {
+  meteringKind: "token_metered";
+  inputTokens: number | null;
+  cachedInputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+}
+
+export interface RuntimeTimeMeteredBillingFact {
+  meteringKind: "time_metered";
+  durationMs: number;
+  durationSeconds: number;
+}
+
+export interface RuntimeTextCharsMeteredBillingFact {
+  meteringKind: "text_chars_metered";
+  textChars: number;
+}
+
+export interface RuntimeOperationMeteredBillingFact {
+  meteringKind: "operation_metered";
+  operationCount: number;
+  dimensions?: Record<string, string | number | boolean | null> | null;
+}
+
+export type RuntimeBillingFactMetering =
+  | RuntimeTokenMeteredBillingFact
+  | RuntimeTimeMeteredBillingFact
+  | RuntimeTextCharsMeteredBillingFact
+  | RuntimeOperationMeteredBillingFact;
+
+export interface RuntimeBillingFacts {
+  providerKey: string;
+  modelKey: string;
+  capability: RuntimeBillingFactCapability;
+  occurredAt: IsoTimestamp;
+  metering: RuntimeBillingFactMetering;
 }
 
 export const RUNTIME_ORDINARY_SOURCE_PRIORITY_MODES = [
@@ -1953,6 +2003,7 @@ export interface RuntimeMediaJobRunResult {
   assistantText: string;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageAccounting | RuntimeUsageSnapshot | null;
+  billingFacts?: RuntimeBillingFacts | null;
   toolInvocations: RuntimeTurnToolInvocation[];
   rawText: string | null;
 }
@@ -2363,6 +2414,7 @@ export interface ProviderGatewayAudioTranscriptionResult {
   model: string;
   text: string;
   respondedAt: IsoTimestamp;
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export interface ProviderGatewaySpeechGenerateRequest {
@@ -2388,6 +2440,7 @@ export interface ProviderGatewaySpeechGenerateResult {
   mimeType: string;
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
+  billingFacts?: RuntimeBillingFacts | null;
   warning: string | null;
 }
 
@@ -2532,6 +2585,7 @@ export interface ProviderGatewayImageGenerateResult {
   images: ProviderGatewayGeneratedImage[];
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
+  billingFacts?: RuntimeBillingFacts | null;
   warning: string | null;
 }
 
@@ -2566,6 +2620,7 @@ export interface ProviderGatewayImageEditResult {
   images: ProviderGatewayGeneratedImage[];
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
+  billingFacts?: RuntimeBillingFacts | null;
   warning: string | null;
 }
 
@@ -2600,6 +2655,7 @@ export interface ProviderGatewayVideoGenerateResult {
   video: ProviderGatewayGeneratedVideo;
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
+  billingFacts?: RuntimeBillingFacts | null;
   warning: string | null;
 }
 
@@ -2808,6 +2864,7 @@ export interface RuntimeMediaTranscriptionResult {
   model: string;
   text: string;
   respondedAt: IsoTimestamp;
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export interface RuntimeSessionResolveInput {

@@ -115,6 +115,100 @@ async function run(): Promise<void> {
           return 0;
         }
       },
+      modelCostLedgerEvent: {
+        async groupBy(args: { by: string[]; where?: { occurredAt?: { gte?: Date; lt?: Date } } }) {
+          assert.ok(args.where?.occurredAt?.gte instanceof Date);
+          const key = args.by.join(",");
+          if (key === "currency") {
+            return [
+              {
+                currency: "USD",
+                _count: { _all: 4 },
+                _sum: { actualCostMicros: BigInt(4750000) }
+              }
+            ];
+          }
+          if (key === "purpose") {
+            return [
+              {
+                purpose: "chat_main_reply",
+                _count: { _all: 2 },
+                _sum: { actualCostMicros: BigInt(3600000) }
+              },
+              {
+                purpose: "background_task",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(250000) }
+              },
+              {
+                purpose: "router",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(900000) }
+              }
+            ];
+          }
+          if (key === "surface") {
+            return [
+              {
+                surface: "web",
+                _count: { _all: 2 },
+                _sum: { actualCostMicros: BigInt(3000000) }
+              },
+              {
+                surface: "telegram",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(1500000) }
+              },
+              {
+                surface: "background",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(250000) }
+              }
+            ];
+          }
+          if (key === "provider,model,purpose,surface,currency") {
+            return [
+              {
+                provider: "openai",
+                model: "gpt-4.1",
+                purpose: "chat_main_reply",
+                surface: "web",
+                currency: "USD",
+                _count: { _all: 2 },
+                _sum: { actualCostMicros: BigInt(3600000) }
+              },
+              {
+                provider: "openai",
+                model: "gpt-4.1-mini",
+                purpose: "router",
+                surface: "telegram",
+                currency: "USD",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(900000) }
+              },
+              {
+                provider: "openai",
+                model: "gpt-4.1-mini",
+                purpose: "background_task",
+                surface: "background",
+                currency: "USD",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(250000) }
+              }
+            ];
+          }
+          throw new Error(`Unexpected groupBy: ${key}`);
+        },
+        async findMany(args: { where?: { userId?: { not: null } }; select: Record<string, true> }) {
+          if ("workspaceId" in args.select) {
+            return [{ workspaceId: "ws-1" }, { workspaceId: "ws-2" }];
+          }
+          if ("userId" in args.select) {
+            return [{ userId: "user-1" }, { userId: "user-2" }];
+          }
+          throw new Error("Unexpected findMany select");
+        }
+      },
       async $queryRaw() {
         return [
           {
@@ -202,6 +296,38 @@ async function run(): Promise<void> {
     total: 14
   });
   assert.equal(result.publishApplyHealth.applySuccessPercent, 63);
+  assert.equal(result.ledgerBackedModelCost.windowLabel, "last_7_days");
+  assert.equal(result.ledgerBackedModelCost.coverageScope, "adr099_block1_model_priced_paths");
+  assert.match(result.ledgerBackedModelCost.coverageNote, /background-task evaluator/i);
+  assert.equal(result.ledgerBackedModelCost.totalEvents, 4);
+  assert.equal(result.ledgerBackedModelCost.trackedWorkspaces, 2);
+  assert.equal(result.ledgerBackedModelCost.trackedUsers, 2);
+  assert.equal(result.ledgerBackedModelCost.currencyTotals[0]?.currency, "USD");
+  assert.equal(result.ledgerBackedModelCost.currencyTotals[0]?.totalCostMicros, 4750000);
+  assert.deepEqual(
+    result.ledgerBackedModelCost.byPurpose.map((entry) => [
+      entry.key,
+      entry.eventCount,
+      entry.totalCostMicros
+    ]),
+    [
+      ["chat_main_reply", 2, 3600000],
+      ["router", 1, 900000],
+      ["background_task", 1, 250000]
+    ]
+  );
+  assert.deepEqual(
+    result.ledgerBackedModelCost.bySurface.map((entry) => [
+      entry.key,
+      entry.eventCount,
+      entry.totalCostMicros
+    ]),
+    [
+      ["web", 2, 3000000],
+      ["telegram", 1, 1500000],
+      ["background", 1, 250000]
+    ]
+  );
   assert.deepEqual(result.runtimeTurnAverages, {
     window: "last_7_days",
     completedTurns: 10,

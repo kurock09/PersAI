@@ -3755,6 +3755,12 @@ paths:
       summary: Get ops cockpit baseline state for control-plane operations
       security:
         - bearerAuth: []
+      parameters:
+        - in: query
+          name: userId
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: Ops cockpit snapshot
@@ -4000,6 +4006,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetAdminBusinessCockpitResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/business/platform:
+    get:
+      operationId: getAdminBusinessPlatform
+      summary: Get business platform analytics state for commercial visibility
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Business platform analytics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminBusinessPlatformResponse"
         "401":
           description: Unauthorized
           content:
@@ -11676,12 +11713,38 @@ components:
             - high
         message:
           type: string
+    AdminOpsPeriodEconomicsSnapshot:
+      type: object
+      required:
+        - periodStartedAt
+        - periodEndsAt
+        - paidTotalMinor
+        - paidCurrency
+        - modelCostUsdMicros
+      properties:
+        periodStartedAt:
+          type: string
+          format: date-time
+        periodEndsAt:
+          type: string
+          format: date-time
+        paidTotalMinor:
+          type: integer
+          minimum: 0
+        paidCurrency:
+          type: string
+          nullable: true
+        modelCostUsdMicros:
+          type: integer
+          minimum: 0
     AdminOpsCockpitState:
       type: object
       required:
         - quotaUsage
         - billingSupport
         - chatStats
+        - modelCostLedger
+        - periodEconomics
         - channels
         - sandbox
         - assistant
@@ -11702,6 +11765,14 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/AdminOpsCockpitChatStats"
+        modelCostLedger:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AdminModelCostLedgerWindowState"
+        periodEconomics:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AdminOpsPeriodEconomicsSnapshot"
         channels:
           type: array
           items:
@@ -11869,6 +11940,9 @@ components:
               - displayName
               - usedUnits
               - limitUnits
+              - bonusLimitUnits
+              - effectiveLimitUnits
+              - bonusExpiresAt
             properties:
               toolCode:
                 type: string
@@ -11883,6 +11957,16 @@ components:
                 type: integer
               limitUnits:
                 type: integer
+                nullable: true
+              bonusLimitUnits:
+                type: integer
+                minimum: 0
+              effectiveLimitUnits:
+                type: integer
+                nullable: true
+              bonusExpiresAt:
+                type: string
+                format: date-time
                 nullable: true
     AdminOpsCockpitBillingSupport:
       type: object
@@ -12242,6 +12326,7 @@ components:
         - createdAt
         - assistant
         - billing
+        - periodEconomics
       properties:
         userId:
           type: string
@@ -12282,6 +12367,10 @@ components:
                   type: string
                   format: date-time
                   nullable: true
+        periodEconomics:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AdminOpsPeriodEconomicsSnapshot"
         billing:
           type: object
           required:
@@ -12426,6 +12515,131 @@ components:
           type: integer
         percent:
           type: integer
+    AdminModelCostLedgerPeriodSource:
+      type: string
+      enum:
+        - rolling_7d
+        - subscription_period
+        - calendar_month_fallback
+    AdminModelCostLedgerCurrencyTotal:
+      type: object
+      required:
+        - currency
+        - eventCount
+        - totalCostMicros
+      properties:
+        currency:
+          type: string
+        eventCount:
+          type: integer
+        totalCostMicros:
+          type: integer
+    AdminModelCostLedgerBreakdownItem:
+      type: object
+      required:
+        - key
+        - label
+        - eventCount
+        - totalCostMicros
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        eventCount:
+          type: integer
+        totalCostMicros:
+          type: integer
+    AdminModelCostLedgerTopBreakdownItem:
+      type: object
+      required:
+        - provider
+        - model
+        - purpose
+        - purposeLabel
+        - surface
+        - surfaceLabel
+        - currency
+        - eventCount
+        - totalCostMicros
+      properties:
+        provider:
+          type: string
+        model:
+          type: string
+        purpose:
+          type: string
+        purposeLabel:
+          type: string
+        surface:
+          type: string
+        surfaceLabel:
+          type: string
+        currency:
+          type: string
+        eventCount:
+          type: integer
+        totalCostMicros:
+          type: integer
+    AdminModelCostLedgerWindowState:
+      type: object
+      required:
+        - windowLabel
+        - startedAt
+        - endedAt
+        - periodSource
+        - coverageScope
+        - coverageNote
+        - totalEvents
+        - trackedWorkspaces
+        - trackedUsers
+        - hasMultipleCurrencies
+        - currencyTotals
+        - byPurpose
+        - bySurface
+        - topBreakdown
+      properties:
+        windowLabel:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+          nullable: true
+        periodSource:
+          $ref: "#/components/schemas/AdminModelCostLedgerPeriodSource"
+        coverageScope:
+          type: string
+          enum:
+            - adr099_block1_model_priced_paths
+        coverageNote:
+          type: string
+        totalEvents:
+          type: integer
+        trackedWorkspaces:
+          type: integer
+        trackedUsers:
+          type: integer
+        hasMultipleCurrencies:
+          type: boolean
+        currencyTotals:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminModelCostLedgerCurrencyTotal"
+        byPurpose:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminModelCostLedgerBreakdownItem"
+        bySurface:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminModelCostLedgerBreakdownItem"
+        topBreakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminModelCostLedgerTopBreakdownItem"
     AdminBusinessCockpitState:
       type: object
       required:
@@ -12541,6 +12755,175 @@ components:
         updatedAt:
           type: string
           format: date-time
+    PlanDistributionEntry:
+      type: object
+      required:
+        - planCode
+        - planDisplayName
+        - userCount
+        - percent
+      properties:
+        planCode:
+          type: string
+        planDisplayName:
+          type: string
+          nullable: true
+        userCount:
+          type: integer
+        percent:
+          type: integer
+    QuotaPressureDistribution:
+      type: object
+      required:
+        - low
+        - elevated
+        - high
+      properties:
+        low:
+          type: integer
+        elevated:
+          type: integer
+        high:
+          type: integer
+    RuntimeTurnAverages:
+      type: object
+      required:
+        - window
+        - completedTurns
+        - turnsWithUsageAccounting
+        - cachedInputHitTurns
+        - avgInputTokens
+        - avgCachedInputTokens
+        - avgOutputTokens
+        - avgTotalTokens
+        - avgUsageStepsPerTurn
+        - cachedInputSharePercent
+        - cachedInputHitTurnPercent
+      properties:
+        window:
+          type: string
+          enum:
+            - last_7_days
+        completedTurns:
+          type: integer
+        turnsWithUsageAccounting:
+          type: integer
+        cachedInputHitTurns:
+          type: integer
+        avgInputTokens:
+          type: integer
+        avgCachedInputTokens:
+          type: integer
+        avgOutputTokens:
+          type: integer
+        avgTotalTokens:
+          type: integer
+        avgUsageStepsPerTurn:
+          type: integer
+        cachedInputSharePercent:
+          type: integer
+        cachedInputHitTurnPercent:
+          type: integer
+    AdminBusinessPlatformState:
+      type: object
+      required:
+        - totalUsers
+        - totalAssistants
+        - activeAssistants
+        - totalConversations
+        - totalMessages
+        - activeWebChats
+        - planDistribution
+        - quotaPressureDistribution
+        - channelAdoption
+        - publishApplyHealth
+        - planCatalog
+        - ledgerBackedModelCost
+        - runtimeTurnAverages
+        - updatedAt
+      properties:
+        totalUsers:
+          type: integer
+        totalAssistants:
+          type: integer
+        activeAssistants:
+          type: integer
+        totalConversations:
+          type: integer
+        totalMessages:
+          type: integer
+        activeWebChats:
+          type: integer
+        planDistribution:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanDistributionEntry"
+        quotaPressureDistribution:
+          $ref: "#/components/schemas/QuotaPressureDistribution"
+        channelAdoption:
+          type: object
+          required:
+            - webChat
+            - telegram
+            - whatsapp
+            - max
+            - total
+          properties:
+            webChat:
+              type: integer
+            telegram:
+              type: integer
+            whatsapp:
+              type: integer
+            max:
+              type: integer
+            total:
+              type: integer
+        publishApplyHealth:
+          type: object
+          required:
+            - window
+            - applySucceeded
+            - applyDegraded
+            - applyFailed
+            - applySuccessPercent
+          properties:
+            window:
+              type: string
+              enum:
+                - last_7_days
+            applySucceeded:
+              type: integer
+            applyDegraded:
+              type: integer
+            applyFailed:
+              type: integer
+            applySuccessPercent:
+              type: integer
+        planCatalog:
+          type: object
+          required:
+            - totalPlans
+            - activePlans
+            - inactivePlans
+            - defaultRegistrationPlanCode
+          properties:
+            totalPlans:
+              type: integer
+            activePlans:
+              type: integer
+            inactivePlans:
+              type: integer
+            defaultRegistrationPlanCode:
+              type: string
+              nullable: true
+        ledgerBackedModelCost:
+          $ref: "#/components/schemas/AdminModelCostLedgerWindowState"
+        runtimeTurnAverages:
+          $ref: "#/components/schemas/RuntimeTurnAverages"
+        updatedAt:
+          type: string
+          format: date-time
     GetAdminBusinessCockpitResponse:
       type: object
       required:
@@ -12551,6 +12934,16 @@ components:
           nullable: true
         cockpit:
           $ref: "#/components/schemas/AdminBusinessCockpitState"
+    GetAdminBusinessPlatformResponse:
+      type: object
+      required:
+        - platform
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        platform:
+          $ref: "#/components/schemas/AdminBusinessPlatformState"
     AbuseSurface:
       type: string
       enum:
@@ -13035,17 +13428,169 @@ components:
         - chat
         - image
         - video
-    RuntimeProviderModelProfileState:
+        - speech_to_text
+        - text_to_speech
+    RuntimeProviderBillingMode:
+      type: string
+      enum:
+        - token_metered
+        - time_metered
+        - text_chars_metered
+        - fixed_operation
+        - tiered_operation
+    RuntimeProviderTimePriceUnit:
+      type: string
+      enum:
+        - second
+        - minute
+    RuntimeProviderTokenPriceMetadataState:
+      type: object
+      required:
+        - inputPer1M
+        - cachedInputPer1M
+        - outputPer1M
+      properties:
+        inputPer1M:
+          type: number
+          minimum: 0
+        cachedInputPer1M:
+          type: number
+          minimum: 0
+        outputPer1M:
+          type: number
+          minimum: 0
+    RuntimeProviderTimePriceMetadataState:
+      type: object
+      required:
+        - unit
+        - pricePerUnit
+      properties:
+        unit:
+          $ref: "#/components/schemas/RuntimeProviderTimePriceUnit"
+        pricePerUnit:
+          type: number
+          minimum: 0
+    RuntimeProviderTextCharsPriceMetadataState:
+      type: object
+      required:
+        - pricePer1MChars
+      properties:
+        pricePer1MChars:
+          type: number
+          minimum: 0
+    RuntimeProviderFixedOperationPriceMetadataState:
+      type: object
+      required:
+        - unitLabel
+        - pricePerOperation
+      properties:
+        unitLabel:
+          type: string
+          nullable: true
+        pricePerOperation:
+          type: number
+          minimum: 0
+    RuntimeProviderTierPriceMetadataState:
+      type: object
+      required:
+        - label
+        - matchValue
+        - price
+      properties:
+        label:
+          type: string
+        matchValue:
+          type: string
+          nullable: true
+        price:
+          type: number
+          minimum: 0
+    RuntimeProviderTieredOperationPriceMetadataState:
+      type: object
+      required:
+        - unitLabel
+        - tiers
+      properties:
+        unitLabel:
+          type: string
+          nullable: true
+        tiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeProviderTierPriceMetadataState"
+    RuntimeProviderTokenMeteredPriceMetadataState:
+      type: object
+      required:
+        - currency
+        - tokenPricing
+      additionalProperties: false
+      properties:
+        currency:
+          type: string
+        tokenPricing:
+          $ref: "#/components/schemas/RuntimeProviderTokenPriceMetadataState"
+    RuntimeProviderTimeMeteredPriceMetadataState:
+      type: object
+      required:
+        - currency
+        - timePricing
+      additionalProperties: false
+      properties:
+        currency:
+          type: string
+        timePricing:
+          $ref: "#/components/schemas/RuntimeProviderTimePriceMetadataState"
+    RuntimeProviderTextCharsMeteredPriceMetadataState:
+      type: object
+      required:
+        - currency
+        - textCharsPricing
+      additionalProperties: false
+      properties:
+        currency:
+          type: string
+        textCharsPricing:
+          $ref: "#/components/schemas/RuntimeProviderTextCharsPriceMetadataState"
+    RuntimeProviderFixedOperationPriceMetadataConfigState:
+      type: object
+      required:
+        - currency
+        - fixedOperationPricing
+      additionalProperties: false
+      properties:
+        currency:
+          type: string
+        fixedOperationPricing:
+          $ref: "#/components/schemas/RuntimeProviderFixedOperationPriceMetadataState"
+    RuntimeProviderTieredOperationPriceMetadataConfigState:
+      type: object
+      required:
+        - currency
+        - tieredOperationPricing
+      additionalProperties: false
+      properties:
+        currency:
+          type: string
+        tieredOperationPricing:
+          $ref: "#/components/schemas/RuntimeProviderTieredOperationPriceMetadataState"
+    RuntimeProviderPriceMetadataState:
+      oneOf:
+        - $ref: "#/components/schemas/RuntimeProviderTokenMeteredPriceMetadataState"
+        - $ref: "#/components/schemas/RuntimeProviderTimeMeteredPriceMetadataState"
+        - $ref: "#/components/schemas/RuntimeProviderTextCharsMeteredPriceMetadataState"
+        - $ref: "#/components/schemas/RuntimeProviderFixedOperationPriceMetadataConfigState"
+        - $ref: "#/components/schemas/RuntimeProviderTieredOperationPriceMetadataConfigState"
+    RuntimeProviderModelProfileCommonState:
       type: object
       required:
         - model
         - capabilities
+        - active
         - inputTokenWeight
         - cachedInputTokenWeight
         - outputTokenWeight
         - displayLabel
         - notes
-        - providerPriceMetadata
       properties:
         model:
           type: string
@@ -13055,6 +13600,16 @@ components:
           uniqueItems: true
           items:
             $ref: "#/components/schemas/RuntimeProviderModelCapability"
+        active:
+          type: boolean
+        effectiveFrom:
+          type: string
+          format: date-time
+          nullable: true
+        effectiveTo:
+          type: string
+          format: date-time
+          nullable: true
         inputTokenWeight:
           type: number
           minimum: 0
@@ -13070,10 +13625,93 @@ components:
         notes:
           type: string
           nullable: true
-        providerPriceMetadata:
-          type: object
-          nullable: true
-          additionalProperties: true
+    RuntimeProviderTokenMeteredModelProfileState:
+      allOf:
+        - $ref: "#/components/schemas/RuntimeProviderModelProfileCommonState"
+        - type: object
+          required:
+            - billingMode
+            - effectiveFrom
+            - effectiveTo
+            - providerPriceMetadata
+          properties:
+            billingMode:
+              type: string
+              enum:
+                - token_metered
+            providerPriceMetadata:
+              $ref: "#/components/schemas/RuntimeProviderTokenMeteredPriceMetadataState"
+    RuntimeProviderTimeMeteredModelProfileState:
+      allOf:
+        - $ref: "#/components/schemas/RuntimeProviderModelProfileCommonState"
+        - type: object
+          required:
+            - billingMode
+            - effectiveFrom
+            - effectiveTo
+            - providerPriceMetadata
+          properties:
+            billingMode:
+              type: string
+              enum:
+                - time_metered
+            providerPriceMetadata:
+              $ref: "#/components/schemas/RuntimeProviderTimeMeteredPriceMetadataState"
+    RuntimeProviderFixedOperationModelProfileState:
+      allOf:
+        - $ref: "#/components/schemas/RuntimeProviderModelProfileCommonState"
+        - type: object
+          required:
+            - billingMode
+            - effectiveFrom
+            - effectiveTo
+            - providerPriceMetadata
+          properties:
+            billingMode:
+              type: string
+              enum:
+                - fixed_operation
+            providerPriceMetadata:
+              $ref: "#/components/schemas/RuntimeProviderFixedOperationPriceMetadataConfigState"
+    RuntimeProviderTextCharsMeteredModelProfileState:
+      allOf:
+        - $ref: "#/components/schemas/RuntimeProviderModelProfileCommonState"
+        - type: object
+          required:
+            - billingMode
+            - effectiveFrom
+            - effectiveTo
+            - providerPriceMetadata
+          properties:
+            billingMode:
+              type: string
+              enum:
+                - text_chars_metered
+            providerPriceMetadata:
+              $ref: "#/components/schemas/RuntimeProviderTextCharsMeteredPriceMetadataState"
+    RuntimeProviderTieredOperationModelProfileState:
+      allOf:
+        - $ref: "#/components/schemas/RuntimeProviderModelProfileCommonState"
+        - type: object
+          required:
+            - billingMode
+            - effectiveFrom
+            - effectiveTo
+            - providerPriceMetadata
+          properties:
+            billingMode:
+              type: string
+              enum:
+                - tiered_operation
+            providerPriceMetadata:
+              $ref: "#/components/schemas/RuntimeProviderTieredOperationPriceMetadataConfigState"
+    RuntimeProviderModelProfileState:
+      oneOf:
+        - $ref: "#/components/schemas/RuntimeProviderTokenMeteredModelProfileState"
+        - $ref: "#/components/schemas/RuntimeProviderTimeMeteredModelProfileState"
+        - $ref: "#/components/schemas/RuntimeProviderTextCharsMeteredModelProfileState"
+        - $ref: "#/components/schemas/RuntimeProviderFixedOperationModelProfileState"
+        - $ref: "#/components/schemas/RuntimeProviderTieredOperationModelProfileState"
     RuntimeProviderModelCatalogState:
       type: object
       required:

@@ -208,6 +208,74 @@ async function run(): Promise<void> {
   assert.equal(noFallback.textExtract, null);
   assert.equal(noFallbackCalls.length, 0);
 
+  const videoService = new MediaPreprocessorService(
+    {} as never,
+    new PlatformHttpMetricsService(),
+    noopPdfTextExtractor
+  );
+  (
+    videoService as unknown as {
+      extractAudioFromVideo: (buffer: Buffer) => Promise<Buffer | null>;
+      transcribeAudio: (
+        buffer: Buffer,
+        mime: string,
+        originalFilename: string
+      ) => Promise<{
+        transcription: string | null;
+        billingFacts: Record<string, unknown> | null;
+      }>;
+    }
+  ).extractAudioFromVideo = async () => Buffer.from("fake-audio-track");
+  (
+    videoService as unknown as {
+      transcribeAudio: (
+        buffer: Buffer,
+        mime: string,
+        originalFilename: string
+      ) => Promise<{
+        transcription: string | null;
+        billingFacts: Record<string, unknown> | null;
+      }>;
+    }
+  ).transcribeAudio = async (_buffer: Buffer, mime: string, originalFilename: string) => {
+    assert.equal(mime, "audio/mpeg");
+    assert.equal(originalFilename, "video-audio.mp3");
+    return {
+      transcription: "hello from video",
+      billingFacts: {
+        providerKey: "openai",
+        modelKey: "gpt-4o-mini-transcribe",
+        capability: "speech_to_text",
+        occurredAt: "2026-05-05T09:05:00.000Z",
+        metering: {
+          meteringKind: "time_metered",
+          durationMs: 5400,
+          durationSeconds: 5.4
+        }
+      }
+    };
+  };
+
+  const processedVideo = await videoService.process(
+    Buffer.from("fake-video"),
+    "video/mp4",
+    "clip.mp4"
+  );
+  assert.equal(processedVideo.normalizedMime, "video/mp4");
+  assert.equal(processedVideo.normalizedExtension, "mp4");
+  assert.equal(processedVideo.transcription, "hello from video");
+  assert.deepEqual(processedVideo.billingFacts, {
+    providerKey: "openai",
+    modelKey: "gpt-4o-mini-transcribe",
+    capability: "speech_to_text",
+    occurredAt: "2026-05-05T09:05:00.000Z",
+    metering: {
+      meteringKind: "time_metered",
+      durationMs: 5400,
+      durationSeconds: 5.4
+    }
+  });
+
   await runImageProcessingTests();
 }
 

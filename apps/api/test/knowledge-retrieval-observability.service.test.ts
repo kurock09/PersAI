@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { KnowledgeRetrievalObservabilityService } from "../src/modules/workspace-management/application/knowledge-retrieval-observability.service";
 
+const noopRecordModelCostLedgerService = {
+  async recordRetrievalHelperEvent() {
+    return 0;
+  }
+} as never;
+
 async function run(): Promise<void> {
   const events: Array<Record<string, unknown>> = [];
   const rollups = new Map<string, Record<string, unknown>>();
@@ -9,7 +15,7 @@ async function run(): Promise<void> {
     $transaction: async <T>(
       callback: (tx: {
         knowledgeRetrievalEvent: {
-          create: (args: { data: Record<string, unknown> }) => Promise<void>;
+          create: (args: { data: Record<string, unknown> }) => Promise<Record<string, unknown>>;
           findMany: () => Promise<Record<string, unknown>[]>;
         };
         knowledgeRetrievalRollup: {
@@ -28,11 +34,13 @@ async function run(): Promise<void> {
       callback({
         knowledgeRetrievalEvent: {
           create: async ({ data }) => {
-            events.push({
+            const row = {
               id: `event-${++eventCounter}`,
               createdAt: new Date("2026-05-04T12:00:00.000Z"),
               ...data
-            });
+            };
+            events.push(row);
+            return row;
           },
           findMany: async () => [...events]
         },
@@ -67,7 +75,10 @@ async function run(): Promise<void> {
     }
   };
 
-  const service = new KnowledgeRetrievalObservabilityService(prisma as never);
+  const service = new KnowledgeRetrievalObservabilityService(
+    prisma as never,
+    noopRecordModelCostLedgerService
+  );
   await service.recordSearch({
     workspaceId: "workspace-1",
     assistantId: "assistant-1",

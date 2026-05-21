@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { AssistantDocumentJobDeliveryService } from "../src/modules/workspace-management/application/assistant-document-job-delivery.service";
 
+const noopRecordModelCostLedgerService = {
+  async recordCompletionFramingUsageEvent() {
+    return 0;
+  }
+} as never;
+
 describe("AssistantDocumentJobDeliveryService", () => {
   test("does not overwrite terminal truth when the ready_for_delivery claim is stale", async () => {
     const renderJobUpdates: Array<Record<string, unknown>> = [];
@@ -110,7 +116,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async maybeFrame() {
           return null;
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({
@@ -236,7 +243,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async maybeFrame() {
           return null;
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({
@@ -371,7 +379,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async maybeFrame() {
           return null;
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({
@@ -530,7 +539,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async maybeFrame() {
           return null;
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({
@@ -689,7 +699,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async maybeFrame() {
           return null;
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({
@@ -795,7 +806,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async maybeFrameFailure() {
           return "Не удалось подготовить документ. Попробуйте запустить запрос еще раз.";
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await (
@@ -947,7 +959,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async maybeFrameFailure(input: Record<string, unknown>) {
           return `LLM failure: ${String(input.failure?.message ?? "unknown failure")}`;
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({
@@ -1105,7 +1118,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async maybeFrame() {
           return null;
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({
@@ -1238,7 +1252,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async maybeFrame() {
           return null;
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({
@@ -1383,7 +1398,8 @@ describe("AssistantDocumentJobDeliveryService", () => {
         async maybeFrame() {
           return null;
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({
@@ -1522,9 +1538,10 @@ describe("AssistantDocumentJobDeliveryService", () => {
       } as never,
       {
         async maybeFrame() {
-          return "Fresh LLM completion framing.";
+          return { text: "Fresh LLM completion framing.", usage: null };
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({
@@ -1668,9 +1685,10 @@ describe("AssistantDocumentJobDeliveryService", () => {
       {
         async maybeFrame() {
           maybeFrameCalls += 1;
-          return "Fresh LLM completion framing (should NOT run on retry).";
+          return { text: "Fresh LLM completion framing (should NOT run on retry).", usage: null };
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({
@@ -1805,9 +1823,10 @@ describe("AssistantDocumentJobDeliveryService", () => {
       {
         async maybeFrame() {
           maybeFrameCalls += 1;
-          return "Готово. Документ собран.";
+          return { text: "Готово. Документ собран.", usage: null };
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     await service.deliverReadyJob({

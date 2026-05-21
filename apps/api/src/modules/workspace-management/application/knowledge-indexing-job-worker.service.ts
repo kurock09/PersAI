@@ -4,7 +4,8 @@ import { Prisma } from "@prisma/client";
 import {
   KnowledgeIndexingError,
   KnowledgeIndexingService,
-  type IndexedKnowledgeChunkDraft
+  type IndexedKnowledgeChunkDraft,
+  type KnowledgeIndexingEmbeddingUsage
 } from "./knowledge-indexing.service";
 import { KnowledgeModelPolicyService } from "./knowledge-model-policy.service";
 import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
@@ -22,6 +23,7 @@ import type {
   NormalizedKnowledgeSource
 } from "./knowledge-processing.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 
 const INDEXING_JOB_POLL_INTERVAL_MS = 10_000;
 const INDEXING_JOB_BATCH_SIZE = 4;
@@ -92,7 +94,8 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
     private readonly knowledgeIndexingService: KnowledgeIndexingService,
     private readonly knowledgeModelPolicyService: KnowledgeModelPolicyService,
     @Inject(KNOWLEDGE_VECTOR_INDEX)
-    private readonly knowledgeVectorIndex: KnowledgeVectorIndex
+    private readonly knowledgeVectorIndex: KnowledgeVectorIndex,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
   ) {}
 
   onModuleInit(): void {
@@ -260,12 +263,13 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
   private async processClaimedJob(job: ClaimedKnowledgeIndexingJob): Promise<void> {
     try {
       const source = await this.loadSource(job);
-      const chunks = await this.knowledgeIndexingService.buildIndexedChunksForSource({
+      const built = await this.knowledgeIndexingService.buildIndexedChunksForSource({
         source: source.normalizedSource,
         content: source.content,
         processorMode: job.processorMode,
         embeddingModelKey: source.embeddingModelKey
       });
+      const chunks = built.chunks;
       const provider = chunks[0]?.provider ?? null;
       const quality = chunks[0]?.quality ?? null;
       if (quality?.status === "needs_review") {
@@ -273,6 +277,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
         return;
       }
       await this.persistSuccessfulSourceChunks({ job, chunks, provider, quality });
+      await this.appendIndexingEmbeddingLedger(job, built.embeddingUsage);
       await this.completeJob(job, {
         status: "completed",
         provider,
@@ -1089,6 +1094,45 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
         schedulerClaimExpiresAt: null
       }
     });
+  }
+
+  private async appendIndexingEmbeddingLedger(
+    job: ClaimedKnowledgeIndexingJob,
+    usage: KnowledgeIndexingEmbeddingUsage | null
+  ): Promise<void> {
+    if (usage === null || job.workspaceId === null) {
+      return;
+    }
+    let userId = job.requestedByUserId;
+    if (userId === null && job.assistantId !== null) {
+      const assistant = await this.prisma.assistant.findUnique({
+        where: { id: job.assistantId },
+        select: { userId: true }
+      });
+      userId = assistant?.userId ?? null;
+    }
+    if (userId === null) {
+      return;
+    }
+    try {
+      await this.recordModelCostLedgerService.recordKnowledgeIndexingEmbeddingEvent({
+        workspaceId: job.workspaceId,
+        assistantId: job.assistantId,
+        userId,
+        occurredAt: new Date().toISOString(),
+        sourceEventId: `knowledge_indexing_job:${job.id}`,
+        providerKey: usage.providerKey,
+        modelKey: usage.modelKey,
+        inputTokens: usage.inputTokens,
+        totalTokens: usage.totalTokens
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Knowledge indexing embedding ledger append failed for job ${job.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 }
 

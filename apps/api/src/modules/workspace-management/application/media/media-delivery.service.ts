@@ -28,6 +28,11 @@ import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.s
 import { downloadRuntimeMediaUrl } from "./runtime-media-download";
 import { AssistantFileRegistryService } from "../assistant-file-registry.service";
 import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
+import {
+  RecordModelCostLedgerService,
+  type ModelCostLedgerSurface
+} from "../record-model-cost-ledger.service";
+import type { MediaChannel } from "./media.types";
 
 @Injectable()
 export class MediaDeliveryService {
@@ -44,9 +49,14 @@ export class MediaDeliveryService {
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly assistantFileRegistryService: AssistantFileRegistryService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly platformHttpMetricsService: PlatformHttpMetricsService
+    private readonly platformHttpMetricsService: PlatformHttpMetricsService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
   ) {
     this.adapterMap = new Map(adapters.map((a) => [a.channel, a]));
+  }
+
+  private resolveLedgerSurface(channel: MediaChannel): ModelCostLedgerSurface | null {
+    return channel === "web" || channel === "telegram" ? channel : null;
   }
 
   async deliver(params: OutboundMediaDeliverParams): Promise<DeliveredMedia> {
@@ -297,6 +307,8 @@ export class MediaDeliveryService {
 
     const attachmentType = artifact.audioAsVoice ? "voice" : artifact.type;
     const filename = validated.originalFilename ?? sourceFilename;
+    const persistedBillingFacts =
+      artifact.sourceToolCode === "tts" ? (artifact.billingFacts ?? null) : null;
 
     const attachment = await this.attachmentRepository.create({
       messageId: params.messageId,
@@ -313,11 +325,36 @@ export class MediaDeliveryService {
       height: null,
       processingStatus: "ready",
       transcription: null,
+      billingFacts: persistedBillingFacts,
       metadata: buildStoredAttachmentMetadata({
         source: "tool_output",
         ...(artifact.source === "runtime_url" ? { originalUrl: artifact.url } : {})
       })
     });
+    if (persistedBillingFacts !== null) {
+      const ledgerSurface = this.resolveLedgerSurface(params.channel);
+      if (ledgerSurface !== null) {
+        const assistant = await this.assistantRepository.findById(params.assistantId);
+        if (assistant !== null) {
+          try {
+            await this.recordModelCostLedgerService.recordPersistedBillingFactsEvent({
+              workspaceId: params.workspaceId,
+              assistantId: params.assistantId,
+              userId: assistant.userId,
+              surface: ledgerSurface,
+              source: "attachment_tts_deliver",
+              sourceEventId: `attachment:${attachment.id}`,
+              billingFacts: persistedBillingFacts
+            });
+          } catch (error) {
+            this.logger.warn(
+              `attachment_tts_ledger_append_failed attachmentId=${attachment.id} message=${error instanceof Error ? error.message : String(error)}`
+            );
+          }
+        }
+      }
+    }
+
     if (artifact.source === "persai_object_storage" && typeof artifact.fileRef === "string") {
       await this.assistantFileRegistryService.linkAttachmentToExistingFile({
         assistantId: attachment.assistantId,

@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { AssistantMediaJobCompletionDeliveryService } from "../src/modules/workspace-management/application/assistant-media-job-completion-delivery.service";
 
+const noopRecordModelCostLedgerService = {
+  async recordCompletionFramingUsageEvent() {
+    return 0;
+  }
+} as never;
+
 describe("AssistantMediaJobCompletionDeliveryService", () => {
   test("delivers completion_pending web jobs and marks them delivered", async () => {
     const txUpdates: Array<Record<string, unknown>> = [];
@@ -15,6 +21,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
               {
                 id: "job-1",
                 assistantId: "assistant-1",
+                userId: "user-1",
                 workspaceId: "workspace-1",
                 chatId: "chat-1",
                 surface: "web",
@@ -91,9 +98,10 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       {
         async maybeFrame() {
-          return "Fresh current-context framing.";
+          return { text: "Fresh current-context framing.", usage: null };
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     const processed = await service.processPendingBatch();
@@ -116,6 +124,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
               {
                 id: "job-2",
                 assistantId: "assistant-1",
+                userId: "user-1",
                 workspaceId: "workspace-1",
                 chatId: "chat-telegram-1",
                 surface: "telegram",
@@ -224,9 +233,10 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       {
         async maybeFrame() {
-          return "Fresh Telegram framing.";
+          return { text: "Fresh Telegram framing.", usage: null };
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     const processed = await service.processPendingBatch();
@@ -250,6 +260,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
               {
                 id: "job-retry-1",
                 assistantId: "assistant-1",
+                userId: "user-1",
                 workspaceId: "workspace-1",
                 chatId: "chat-1",
                 surface: "web",
@@ -315,9 +326,10 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       {
         async maybeFrame() {
           maybeFrameCalls += 1;
-          return "Fresh current-context framing.";
+          return { text: "Fresh current-context framing.", usage: null };
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     const processed = await service.processPendingBatch();
@@ -338,6 +350,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
               {
                 id: "job-3",
                 assistantId: "assistant-1",
+                userId: "user-1",
                 workspaceId: "workspace-1",
                 chatId: "chat-1",
                 surface: "web",
@@ -403,12 +416,13 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       {
         async maybeFrame() {
-          return "Fresh current-context framing.";
+          return { text: "Fresh current-context framing.", usage: null };
         },
         async maybeFrameFailure() {
           return null;
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     const processed = await service.processPendingBatch();
@@ -431,6 +445,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
               {
                 id: "job-llm-fail-1",
                 assistantId: "assistant-1",
+                userId: "user-1",
                 workspaceId: "workspace-1",
                 chatId: "chat-1",
                 surface: "web",
@@ -494,13 +509,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       {
         async maybeFrame() {
-          return "Fresh current-context framing.";
+          return { text: "Fresh current-context framing.", usage: null };
         },
         async maybeFrameFailure(input: Record<string, unknown>) {
           failureFrameCalls.push(input);
           return "LLM-authored: this run hit a temporary problem; please try again.";
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     const processed = await service.processPendingBatch();
@@ -530,6 +546,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
               {
                 id: "job-llm-fallback-1",
                 assistantId: "assistant-1",
+                userId: "user-1",
                 workspaceId: "workspace-1",
                 chatId: "chat-1",
                 surface: "web",
@@ -593,12 +610,13 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       {
         async maybeFrame() {
-          return "Fresh current-context framing.";
+          return { text: "Fresh current-context framing.", usage: null };
         },
         async maybeFrameFailure() {
           return null;
         }
-      } as never
+      } as never,
+      noopRecordModelCostLedgerService
     );
 
     const processed = await service.processPendingBatch();

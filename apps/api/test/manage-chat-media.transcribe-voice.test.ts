@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import { BadRequestException } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../src/modules/platform-core/application/platform-http-metrics.service";
+
+const noopRecordModelCostLedgerService = {
+  async recordPersistedBillingFactsEvent() {
+    return 0;
+  }
+} as never;
+
+const noopPrisma = {
+  assistantVoiceTranscriptionEvent: {
+    async create() {
+      return { id: "voice-event-1", occurredAt: new Date() };
+    }
+  }
+} as never;
 import { ManageChatMediaService } from "../src/modules/workspace-management/application/manage-chat-media.service";
 import type { Assistant } from "../src/modules/workspace-management/domain/assistant.entity";
 
@@ -56,7 +70,9 @@ async function run(): Promise<void> {
     {} as never,
     {} as never,
     {} as never,
-    metrics
+    metrics,
+    noopRecordModelCostLedgerService,
+    noopPrisma
   );
 
   const first = await service.transcribeVoice({
@@ -117,7 +133,9 @@ async function run(): Promise<void> {
     {} as never,
     {} as never,
     {} as never,
-    new PlatformHttpMetricsService()
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService,
+    noopPrisma
   );
   (
     convertedService as unknown as {
@@ -162,7 +180,9 @@ async function run(): Promise<void> {
     {} as never,
     {} as never,
     {} as never,
-    emptyMetrics
+    emptyMetrics,
+    noopRecordModelCostLedgerService,
+    noopPrisma
   );
 
   await assert.rejects(

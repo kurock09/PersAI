@@ -10,6 +10,7 @@ import {
   type InternalRuntimeBackgroundTaskEvaluationOutcome
 } from "./internal-runtime-background-task.client.service";
 import { BackgroundSchedulerMetricsService } from "./background-scheduler-metrics.service";
+import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { computeReminderNextRunAtMs, parseReminderSchedule } from "./reminder-schedule";
 import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
@@ -31,6 +32,7 @@ const BACKGROUND_TASK_LAST_ERROR_MAX_CHARS = 1_000;
 type ClaimedBackgroundTask = {
   id: string;
   runId: string;
+  runStartedAt: Date;
   assistantId: string;
   userId: string;
   workspaceId: string;
@@ -78,6 +80,7 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
     private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly internalRuntimeBackgroundTaskClientService: InternalRuntimeBackgroundTaskClientService,
     private readonly notificationIntentService: NotificationIntentService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly schedulerLeaseService: SchedulerLeaseService,
     private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService
   ) {}
@@ -300,6 +303,7 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
           // pre-claim value and produce off-by-one budget arithmetic.
           attemptCount: claimEpoch,
           runId: run.id,
+          runStartedAt: now,
           scheduledRunAt: row.nextRunAt,
           claimToken,
           claimEpoch
@@ -375,6 +379,7 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
     outcome: Extract<InternalRuntimeBackgroundTaskEvaluationOutcome, { ok: true }>
   ): Promise<void> {
     const result = outcome.result;
+    const finishedAt = new Date();
     let deliveryResultJson: Prisma.InputJsonValue | typeof Prisma.DbNull = Prisma.DbNull;
     const runStatus: "no_push" | "pushed" | "completed" =
       result.decision === "push"
@@ -415,11 +420,11 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
     const taskUpdateData = {
       status: shouldCompleteTask ? ("completed" as const) : ("active" as const),
       nextRunAt: shouldCompleteTask ? null : new Date(nextRunAtMs!),
-      completedAt: shouldCompleteTask ? new Date() : null,
+      completedAt: shouldCompleteTask ? finishedAt : null,
       runCount: { increment: 1 },
-      lastRunAt: new Date(),
+      lastRunAt: finishedAt,
       lastRunStatus: runStatus,
-      ...(result.decision === "push" ? { lastPushAt: new Date() } : {}),
+      ...(result.decision === "push" ? { lastPushAt: finishedAt } : {}),
       attemptCount: 0,
       retryAfterAt: null,
       lastErrorCode: null,
@@ -435,7 +440,7 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
         where: { id: task.runId, taskId: task.id },
         data: {
           status: runStatus,
-          finishedAt: new Date(),
+          finishedAt,
           decisionJson: {
             decision: result.decision,
             rationale: result.rationale,
@@ -469,6 +474,23 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
         }
       });
     });
+    try {
+      await this.recordModelCostLedgerService.recordBackgroundTaskEvaluationEvent({
+        workspaceId: task.workspaceId,
+        assistantId: task.assistantId,
+        userId: task.userId,
+        occurredAt: task.runStartedAt.toISOString(),
+        sourceEventId: task.runId,
+        requestCorrelationId: task.id,
+        usage: result.usage
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Background-task model cost ledger append failed for task ${task.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   private async deferTask(

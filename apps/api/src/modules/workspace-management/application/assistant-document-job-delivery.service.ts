@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type { RuntimeOutputArtifact } from "@persai/runtime-contract";
+import { Prisma } from "@prisma/client";
+import type { RuntimeOutputArtifact, RuntimeUsageSnapshot } from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -17,6 +18,7 @@ import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-c
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { AssistantDocumentJobCompletionTurnService } from "./assistant-document-job-completion-turn.service";
+import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import {
   buildAssistantDocumentJobFailureMessage,
   buildAssistantDocumentJobSuccessFallbackMessage,
@@ -116,8 +118,35 @@ export class AssistantDocumentJobDeliveryService {
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly assistantDocumentJobCompletionTurnService: AssistantDocumentJobCompletionTurnService
+    private readonly assistantDocumentJobCompletionTurnService: AssistantDocumentJobCompletionTurnService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
   ) {}
+
+  private async persistDocumentCompletionFramingLedger(input: {
+    job: Pick<ClaimedReadyDocumentJob, "id" | "assistantId" | "workspaceId" | "surface">;
+    userId: string;
+    usage: RuntimeUsageSnapshot | null;
+  }): Promise<void> {
+    if (input.usage === null) {
+      return;
+    }
+    try {
+      await this.recordModelCostLedgerService.recordCompletionFramingUsageEvent({
+        workspaceId: input.job.workspaceId,
+        assistantId: input.job.assistantId,
+        userId: input.userId,
+        surface: input.job.surface,
+        occurredAt: new Date().toISOString(),
+        sourceEventId: `document_render_job:${input.job.id}:completion_framing`,
+        source: "document_job_completion_framing",
+        usage: input.usage
+      });
+    } catch (error) {
+      this.logger.warn(
+        `document_job_completion_framing_ledger_append_failed jobId=${input.job.id} message=${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
 
   async createTerminalExecutionFailureMessage(
     input: TerminalExecutionFailureInput
@@ -550,34 +579,52 @@ export class AssistantDocumentJobDeliveryService {
     const completionService = this.assistantDocumentJobCompletionTurnService as
       | AssistantDocumentJobCompletionTurnService
       | undefined;
-    const framed =
-      (await completionService?.maybeFrame({
-        id: input.job.id,
-        docId: input.job.docId,
-        versionId: input.job.versionId,
-        assistantId: input.job.assistantId,
-        workspaceId: input.job.workspaceId,
-        chatId: input.job.chatId,
-        surface: input.job.surface,
-        outputFormat: this.readOutputFormat(input.payload),
-        descriptorMode: this.readDescriptorMode(input.payload),
-        sourceUserMessageId: this.readSourceUserMessageId(input.payload),
-        sourceUserMessageText: this.readSourceUserMessageText(input.payload),
-        sourceUserMessageCreatedAt: this.readSourceUserMessageCreatedAt(input.payload),
-        resultText: rawAssistantText,
-        artifacts: input.payload.artifacts
-      })) ?? rawAssistantText;
+    const framedResult = await completionService?.maybeFrame({
+      id: input.job.id,
+      docId: input.job.docId,
+      versionId: input.job.versionId,
+      assistantId: input.job.assistantId,
+      workspaceId: input.job.workspaceId,
+      chatId: input.job.chatId,
+      surface: input.job.surface,
+      outputFormat: this.readOutputFormat(input.payload),
+      descriptorMode: this.readDescriptorMode(input.payload),
+      sourceUserMessageId: this.readSourceUserMessageId(input.payload),
+      sourceUserMessageText: this.readSourceUserMessageText(input.payload),
+      sourceUserMessageCreatedAt: this.readSourceUserMessageCreatedAt(input.payload),
+      resultText: rawAssistantText,
+      artifacts: input.payload.artifacts
+    });
+    const framedText = framedResult?.text?.trim() ?? "";
+    if (framedResult?.usage) {
+      const assistant = await this.assistantRepository.findById(input.job.assistantId);
+      if (assistant !== null) {
+        await this.prisma.assistantDocumentRenderJob.updateMany({
+          where: { id: input.job.id },
+          data: {
+            completionUsageJson: framedResult.usage as unknown as Prisma.InputJsonValue
+          }
+        });
+        await this.persistDocumentCompletionFramingLedger({
+          job: input.job,
+          userId: assistant.userId,
+          usage: framedResult.usage
+        });
+      }
+    }
     const fallbackLocale = inferAssistantDocumentJobLocale({
       preferredLocale: null,
       sourceText: this.readSourceUserMessageText(input.payload)
     });
     const text =
-      framed.length > 0 ? framed : buildAssistantDocumentJobSuccessFallbackMessage(fallbackLocale);
+      framedText.length > 0
+        ? framedText
+        : buildAssistantDocumentJobSuccessFallbackMessage(fallbackLocale);
     let nextPayload = input.payload;
-    if (framed.length > 0 && framed !== cached) {
+    if (framedText.length > 0 && framedText !== cached) {
       nextPayload = {
         ...input.payload,
-        completionAssistantText: framed
+        completionAssistantText: framedText
       };
       await this.rememberFramedCompletionText(input.job, nextPayload).catch((error) => {
         this.logger.warn(

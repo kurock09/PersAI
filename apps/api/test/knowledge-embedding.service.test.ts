@@ -42,7 +42,8 @@ async function runUsesOpenAiProviderSecret(): Promise<void> {
     async (url, init) => {
       calls.push({ url, init });
       return Response.json({
-        data: [{ embedding: [0.1, 0.2, 0.3] }]
+        data: [{ embedding: [0.1, 0.2, 0.3] }],
+        usage: { prompt_tokens: 12, total_tokens: 12 }
       });
     },
     () =>
@@ -53,7 +54,8 @@ async function runUsesOpenAiProviderSecret(): Promise<void> {
   );
 
   assert.deepEqual(store.requestedKeys, ["openai"]);
-  assert.deepEqual(result, [[0.1, 0.2, 0.3]]);
+  assert.deepEqual(result.embeddings, [[0.1, 0.2, 0.3]]);
+  assert.equal(result.usage?.inputTokens, 12);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.url, "https://api.openai.com/v1/embeddings");
   assert.equal(
@@ -84,7 +86,8 @@ async function runMissingCredentialReturnsNullEmbeddings(): Promise<void> {
   );
 
   assert.deepEqual(store.requestedKeys, ["openai"]);
-  assert.deepEqual(result, [null, null]);
+  assert.deepEqual(result.embeddings, [null, null]);
+  assert.equal(result.usage, null);
   assert.equal(fetchCalled, false);
 }
 

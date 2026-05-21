@@ -1,3 +1,5 @@
+import type { RuntimeBillingFacts } from "@persai/runtime-contract";
+
 export type AttachmentType = "image" | "audio" | "voice" | "video" | "document" | "tool_output";
 
 export type AttachmentProcessingStatus = "pending" | "ready" | "failed";
@@ -19,6 +21,7 @@ export type AssistantChatMessageAttachment = {
   height: number | null;
   processingStatus: AttachmentProcessingStatus;
   transcription: string | null;
+  billingFacts: RuntimeBillingFacts | null;
   metadata: Record<string, unknown> | null;
   clientTurnId: string | null;
   clientAttachmentId: string | null;

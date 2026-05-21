@@ -832,10 +832,10 @@ async function run(): Promise<void> {
           availableModelCatalogByProvider: {
             openai: {
               models: [
-                { model: "gpt-image-2", capabilities: ["image"] },
-                { model: "gpt-image-1.5", capabilities: ["image"] },
-                { model: "sora-2-pro", capabilities: ["video"] },
-                { model: "sora-2", capabilities: ["video"] }
+                { model: "gpt-image-2", capabilities: ["image"], active: true },
+                { model: "gpt-image-1.5", capabilities: ["image"], active: true },
+                { model: "sora-2-pro", capabilities: ["video"], active: true },
+                { model: "sora-2", capabilities: ["video"], active: true }
               ]
             },
             anthropic: { models: [] }

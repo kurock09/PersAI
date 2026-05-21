@@ -3614,16 +3614,17 @@ export default function AdminPlansPage() {
             {
               models: Array<{
                 model: string;
+                active: boolean;
                 capabilities: string[];
               }>;
             }
           >
         )) {
           for (const profile of catalog.models ?? []) {
-            if (profile.capabilities.includes("image")) {
+            if (profile.active && profile.capabilities.includes("image")) {
               imageKeys.push({ provider, model: profile.model });
             }
-            if (profile.capabilities.includes("video")) {
+            if (profile.active && profile.capabilities.includes("video")) {
               videoKeys.push({ provider, model: profile.model });
             }
           }

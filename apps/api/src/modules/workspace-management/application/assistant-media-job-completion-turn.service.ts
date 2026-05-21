@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type { RuntimeOutputArtifact } from "@persai/runtime-contract";
+import type { RuntimeOutputArtifact, RuntimeUsageSnapshot } from "@persai/runtime-contract";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   ASSISTANT_CHAT_REPOSITORY,
@@ -60,7 +60,10 @@ export class AssistantMediaJobCompletionTurnService {
     private readonly internalRuntimeMediaJobClientService: InternalRuntimeMediaJobClientService
   ) {}
 
-  async maybeFrame(input: MediaJobCompletionInput): Promise<string | null> {
+  async maybeFrame(input: MediaJobCompletionInput): Promise<{
+    text: string | null;
+    usage: RuntimeUsageSnapshot | null;
+  }> {
     const context = await this.loadFramingContext(input.assistantId, input.chatId);
 
     const outcome = await this.internalRuntimeMediaJobClientService.complete({
@@ -91,7 +94,10 @@ export class AssistantMediaJobCompletionTurnService {
     if (!outcome.ok) {
       throw new Error(outcome.message);
     }
-    return outcome.result.assistantText;
+    return {
+      text: outcome.result.assistantText,
+      usage: outcome.result.usage
+    };
   }
 
   /**

@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 import { PlatformHttpMetricsService } from "../src/modules/platform-core/application/platform-http-metrics.service";
+
+const noopRecordModelCostLedgerService = {
+  async recordPersistedBillingFactsEvent() {
+    return 0;
+  }
+} as never;
 import { MediaDeliveryService } from "../src/modules/workspace-management/application/media/media-delivery.service";
 import type { AssistantChatMessageAttachment } from "../src/modules/workspace-management/domain/assistant-chat-message-attachment.entity";
 
@@ -23,6 +29,7 @@ function createAttachment(
     height: null,
     processingStatus: "ready",
     transcription: null,
+    billingFacts: null,
     metadata: null,
     createdAt: new Date("2026-04-04T00:00:00.000Z"),
     ...overrides
@@ -80,7 +87,8 @@ async function run(): Promise<void> {
     } as never,
     fakeAssistantFileRegistry as never,
     noopQuotaUsageService as never,
-    blockedMetrics
+    blockedMetrics,
+    noopRecordModelCostLedgerService
   );
 
   globalThis.fetch = async () =>
@@ -152,7 +160,8 @@ async function run(): Promise<void> {
     } as never,
     fakeAssistantFileRegistry as never,
     noopQuotaUsageService as never,
-    safeMetrics
+    safeMetrics,
+    noopRecordModelCostLedgerService
   );
 
   globalThis.fetch = async () =>
@@ -237,7 +246,8 @@ async function run(): Promise<void> {
     } as never,
     fakeAssistantFileRegistry as never,
     noopQuotaUsageService as never,
-    nativeMetrics
+    nativeMetrics,
+    noopRecordModelCostLedgerService
   );
 
   const nativeDelivered = await nativeService.deliver({
@@ -262,6 +272,124 @@ async function run(): Promise<void> {
   assert.equal(deletedObjectKey, "assistant-media/runtime-output/generated.png");
   assert.equal(nativeDelivered.attachments.length, 1);
   assert.equal(nativeDelivered.attachments[0]?.originalFilename, "generated.png");
+
+  let deliveredImageBillingFacts: unknown = undefined;
+  let deliveredTtsBillingFacts: unknown = undefined;
+  const billingFactsService = new MediaDeliveryService(
+    {
+      async create(input: {
+        storagePath: string;
+        originalFilename: string | null;
+        mimeType: string;
+        sizeBytes: bigint;
+        billingFacts?: unknown;
+      }) {
+        if (input.mimeType.startsWith("image/")) {
+          deliveredImageBillingFacts = input.billingFacts;
+        } else if (input.mimeType.startsWith("audio/")) {
+          deliveredTtsBillingFacts = input.billingFacts;
+        }
+        return createAttachment({
+          storagePath: input.storagePath,
+          originalFilename: input.originalFilename,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes,
+          billingFacts:
+            (input.billingFacts as AssistantChatMessageAttachment["billingFacts"]) ?? null
+        });
+      }
+    } as never,
+    noopAssistantRepository as never,
+    [],
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/generated-output.bin";
+      },
+      async downloadObject(objectKey: string) {
+        if (objectKey.endsWith(".png")) {
+          return {
+            buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+            contentType: "image/png"
+          };
+        }
+        return {
+          buffer: Buffer.from("audio-output"),
+          contentType: "audio/mpeg"
+        };
+      },
+      async saveObject(input: { mimeType: string; buffer: Buffer }) {
+        return {
+          objectKey: `assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/${
+            input.mimeType.startsWith("image/") ? "generated.png" : "generated.mp3"
+          }`,
+          sizeBytes: input.buffer.length,
+          mimeType: input.mimeType
+        };
+      },
+      async deleteObject() {}
+    } as never,
+    fakeAssistantFileRegistry as never,
+    noopQuotaUsageService as never,
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService
+  );
+
+  await billingFactsService.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/generated.png",
+        type: "image",
+        sourceToolCode: "image_generate",
+        mimeType: "image/png",
+        filename: "generated.png",
+        sizeBytes: 9,
+        billingFacts: {
+          providerKey: "openai",
+          modelKey: "gpt-image-1",
+          capability: "image",
+          occurredAt: "2026-05-05T09:05:00.000Z",
+          metering: { meteringKind: "operation_metered", operationCount: 1, dimensions: null }
+        }
+      },
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/generated.mp3",
+        type: "audio",
+        sourceToolCode: "tts",
+        mimeType: "audio/mpeg",
+        filename: "generated.mp3",
+        sizeBytes: 12,
+        billingFacts: {
+          providerKey: "openai",
+          modelKey: "gpt-4o-mini-tts",
+          capability: "text_to_speech",
+          occurredAt: "2026-05-05T09:06:00.000Z",
+          metering: {
+            meteringKind: "text_chars_metered",
+            textChars: 120
+          }
+        }
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(deliveredImageBillingFacts, null);
+  assert.deepEqual(deliveredTtsBillingFacts, {
+    providerKey: "openai",
+    modelKey: "gpt-4o-mini-tts",
+    capability: "text_to_speech",
+    occurredAt: "2026-05-05T09:06:00.000Z",
+    metering: {
+      meteringKind: "text_chars_metered",
+      textChars: 120
+    }
+  });
 
   const existingFileLinks: Array<{ sourceAttachmentId: string; fileRef: string }> = [];
   const existingFileRefService = new MediaDeliveryService(
@@ -311,7 +439,8 @@ async function run(): Promise<void> {
       }
     } as never,
     noopQuotaUsageService as never,
-    new PlatformHttpMetricsService()
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService
   );
 
   const existingFileDelivered = await existingFileRefService.deliver({
@@ -390,7 +519,8 @@ async function run(): Promise<void> {
     } as never,
     fakeAssistantFileRegistry as never,
     noopQuotaUsageService as never,
-    new PlatformHttpMetricsService()
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService
   );
 
   const persistedAttachmentDelivered = await persistedAttachmentService.deliver({
@@ -475,7 +605,8 @@ async function run(): Promise<void> {
     } as never,
     fakeAssistantFileRegistry as never,
     noopQuotaUsageService as never,
-    new PlatformHttpMetricsService()
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService
   );
 
   await adapterService.deliver({
@@ -585,7 +716,8 @@ async function run(): Promise<void> {
     settlementAwareObjectStorage as never,
     fakeAssistantFileRegistry as never,
     settlementAwareQuotaUsageService as never,
-    new PlatformHttpMetricsService()
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService
   );
   await deliveredSettlementService.deliver({
     artifacts: [
@@ -623,7 +755,8 @@ async function run(): Promise<void> {
     settlementAwareObjectStorage as never,
     fakeAssistantFileRegistry as never,
     settlementAwareQuotaUsageService as never,
-    new PlatformHttpMetricsService()
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService
   );
   await failedSettlementService.deliver({
     artifacts: [

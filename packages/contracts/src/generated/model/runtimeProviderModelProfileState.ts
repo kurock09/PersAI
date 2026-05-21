@@ -4,23 +4,15 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { RuntimeProviderModelCapability } from "./runtimeProviderModelCapability";
-import type { RuntimeProviderModelProfileStateProviderPriceMetadata } from "./runtimeProviderModelProfileStateProviderPriceMetadata";
+import type { RuntimeProviderTokenMeteredModelProfileState } from "./runtimeProviderTokenMeteredModelProfileState";
+import type { RuntimeProviderTimeMeteredModelProfileState } from "./runtimeProviderTimeMeteredModelProfileState";
+import type { RuntimeProviderTextCharsMeteredModelProfileState } from "./runtimeProviderTextCharsMeteredModelProfileState";
+import type { RuntimeProviderFixedOperationModelProfileState } from "./runtimeProviderFixedOperationModelProfileState";
+import type { RuntimeProviderTieredOperationModelProfileState } from "./runtimeProviderTieredOperationModelProfileState";
 
-export interface RuntimeProviderModelProfileState {
-  model: string;
-  /** @minItems 1 */
-  capabilities: RuntimeProviderModelCapability[];
-  /** @minimum 0 */
-  inputTokenWeight: number;
-  /** @minimum 0 */
-  cachedInputTokenWeight: number;
-  /** @minimum 0 */
-  outputTokenWeight: number;
-  /** @nullable */
-  displayLabel: string | null;
-  /** @nullable */
-  notes: string | null;
-  /** @nullable */
-  providerPriceMetadata: RuntimeProviderModelProfileStateProviderPriceMetadata;
-}
+export type RuntimeProviderModelProfileState =
+  | RuntimeProviderTokenMeteredModelProfileState
+  | RuntimeProviderTimeMeteredModelProfileState
+  | RuntimeProviderTextCharsMeteredModelProfileState
+  | RuntimeProviderFixedOperationModelProfileState
+  | RuntimeProviderTieredOperationModelProfileState;

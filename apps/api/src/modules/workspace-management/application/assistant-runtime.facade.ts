@@ -1,6 +1,7 @@
 import type { RuntimeTier } from "./runtime-assignment";
 import type {
   RuntimeDeferredMediaJobSummary,
+  RuntimeBillingFacts,
   RuntimeOutputArtifact,
   RuntimeTurnAutoCompactionState,
   RuntimeTurnToolInvocation,
@@ -72,6 +73,7 @@ export interface RuntimeUrlMediaArtifact {
   sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | "document" | null;
   audioAsVoice?: boolean;
   caption?: string;
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export interface PersaiObjectStorageRuntimeMediaArtifact {
@@ -85,6 +87,7 @@ export interface PersaiObjectStorageRuntimeMediaArtifact {
   sizeBytes: number | null;
   audioAsVoice?: boolean;
   caption?: string;
+  billingFacts?: RuntimeBillingFacts | null;
 }
 
 export type RuntimeMediaArtifact =
@@ -238,6 +241,9 @@ export function runtimeOutputArtifactsToMediaArtifacts(
       mimeType: artifact.mimeType,
       filename: artifact.filename,
       sizeBytes: artifact.sizeBytes,
+      ...(artifact.billingFacts === undefined || artifact.billingFacts === null
+        ? {}
+        : { billingFacts: artifact.billingFacts }),
       ...(artifact.caption ? { caption: artifact.caption } : {}),
       ...(artifact.voiceNote ? { audioAsVoice: true } : {})
     });

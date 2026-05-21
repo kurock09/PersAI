@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
+import type { AdminBusinessPlatformState } from "@persai/contracts";
 import {
   BarChart3,
   Loader2,
@@ -16,62 +17,6 @@ import {
 } from "lucide-react";
 import { getAdminBusinessPlatform } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
-
-type PlanEntry = {
-  planCode: string;
-  planDisplayName: string | null;
-  userCount: number;
-  percent: number;
-};
-
-type Platform = {
-  totalUsers: number;
-  totalAssistants: number;
-  activeAssistants: number;
-  totalConversations: number;
-  totalMessages: number;
-  activeWebChats: number;
-  planDistribution: PlanEntry[];
-  quotaPressureDistribution: { low: number; elevated: number; high: number };
-  channelAdoption: {
-    webChat: number;
-    telegram: number;
-    whatsapp: number;
-    max: number;
-    total: number;
-  };
-  publishApplyHealth: {
-    window: string;
-    applySucceeded: number;
-    applyDegraded: number;
-    applyFailed: number;
-    applySuccessPercent: number;
-  };
-  planCatalog: {
-    totalPlans: number;
-    activePlans: number;
-    inactivePlans: number;
-    defaultRegistrationPlanCode: string | null;
-  };
-  runtimeTurnAverages: {
-    window: string;
-    completedTurns: number;
-    turnsWithUsageAccounting: number;
-    cachedInputHitTurns: number;
-    avgInputTokens: number;
-    avgCachedInputTokens: number;
-    avgOutputTokens: number;
-    avgTotalTokens: number;
-    avgUsageStepsPerTurn: number;
-    cachedInputSharePercent: number;
-    cachedInputHitTurnPercent: number;
-  };
-  updatedAt: string;
-};
 
 /* ------------------------------------------------------------------ */
 /*  Atoms                                                              */
@@ -111,13 +56,27 @@ const CH_LABELS: Record<string, string> = {
   max: "Max"
 };
 
+function formatCurrencyMicros(totalCostMicros: number, currency: string): string {
+  const amount = totalCostMicros / 1_000_000;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(4)} ${currency}`;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
 export default function AdminBusinessPage() {
   const { getToken } = useAuth();
-  const [p, setP] = useState<Platform | null>(null);
+  const [p, setP] = useState<AdminBusinessPlatformState | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -134,7 +93,7 @@ export default function AdminBusinessPage() {
       else setLoading(true);
       setErr(null);
       try {
-        setP((await getAdminBusinessPlatform(tk)) as unknown as Platform);
+        setP(await getAdminBusinessPlatform(tk));
       } catch {
         setP(null);
         setErr("Unable to load business metrics.");
@@ -330,7 +289,125 @@ export default function AdminBusinessPage() {
             </Fold>
           </div>
 
-          <Fold t="Runtime Token Economics · Global · 7 days" open>
+          <Fold t="Ledger-backed Model Cost · Global · 7 days" open>
+            <div className="space-y-1.5">
+              <p className="rounded border border-accent/20 bg-accent/5 px-2.5 py-1.5 text-[10px] leading-relaxed text-text-muted">
+                {p.ledgerBackedModelCost.coverageNote}
+              </p>
+
+              {p.ledgerBackedModelCost.currencyTotals.length === 0 ? (
+                <p className="rounded border border-border/40 bg-surface px-2.5 py-2 text-[11px] text-text-muted">
+                  No ledger-backed cost rows were recorded in the last 7 days.
+                </p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                    {p.ledgerBackedModelCost.currencyTotals.map((entry) => (
+                      <div
+                        key={entry.currency}
+                        className="rounded border border-border/40 bg-surface px-2.5 py-2"
+                      >
+                        <p className="text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
+                          Cost · {entry.currency}
+                        </p>
+                        <p className="mt-0.5 text-lg font-bold tabular-nums text-text">
+                          {formatCurrencyMicros(entry.totalCostMicros, entry.currency)}
+                        </p>
+                        <p className="text-[10px] leading-tight text-text-muted">
+                          {entry.eventCount} ledger events
+                        </p>
+                      </div>
+                    ))}
+                    <div className="rounded border border-border/40 bg-surface px-2.5 py-2">
+                      <p className="text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
+                        Tracked Workspaces
+                      </p>
+                      <p className="mt-0.5 text-lg font-bold tabular-nums text-text">
+                        {p.ledgerBackedModelCost.trackedWorkspaces}
+                      </p>
+                      <p className="text-[10px] leading-tight text-text-muted">
+                        with ledger-backed cost
+                      </p>
+                    </div>
+                    <div className="rounded border border-border/40 bg-surface px-2.5 py-2">
+                      <p className="text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
+                        Tracked Users
+                      </p>
+                      <p className="mt-0.5 text-lg font-bold tabular-nums text-text">
+                        {p.ledgerBackedModelCost.trackedUsers}
+                      </p>
+                      <p className="text-[10px] leading-tight text-text-muted">
+                        across {p.ledgerBackedModelCost.totalEvents} events
+                      </p>
+                    </div>
+                  </div>
+
+                  {p.ledgerBackedModelCost.hasMultipleCurrencies && (
+                    <p className="rounded border border-warning/25 bg-warning/8 px-2.5 py-1.5 text-[10px] text-text-muted">
+                      Mixed currencies detected. Totals are shown per currency instead of one merged
+                      money figure.
+                    </p>
+                  )}
+
+                  <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                    <div className="rounded border border-border/40 bg-surface">
+                      <div className="border-b border-border/30 px-2.5 py-1">
+                        <p className="text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
+                          Events by Purpose
+                        </p>
+                      </div>
+                      <div className="divide-y divide-border/30">
+                        {p.ledgerBackedModelCost.byPurpose.map((entry) => (
+                          <div
+                            key={entry.key}
+                            className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11px]"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-medium text-text">{entry.label}</p>
+                              <p className="text-[10px] text-text-muted">
+                                {entry.eventCount} events
+                              </p>
+                            </div>
+                            <span className="shrink-0 font-semibold tabular-nums text-text">
+                              {entry.eventCount}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded border border-border/40 bg-surface">
+                      <div className="border-b border-border/30 px-2.5 py-1">
+                        <p className="text-[9px] font-semibold uppercase tracking-widest text-text-subtle">
+                          Events by Surface
+                        </p>
+                      </div>
+                      <div className="divide-y divide-border/30">
+                        {p.ledgerBackedModelCost.bySurface.map((entry) => (
+                          <div
+                            key={entry.key}
+                            className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11px]"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-medium text-text">{entry.label}</p>
+                              <p className="text-[10px] text-text-muted">
+                                {entry.eventCount} events
+                              </p>
+                            </div>
+                            <span className="shrink-0 font-semibold tabular-nums text-text">
+                              {entry.eventCount}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </Fold>
+
+          <Fold t="Runtime Usage Context · Global · 7 days" open>
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
               {(
                 [
@@ -372,7 +449,7 @@ export default function AdminBusinessPage() {
                   {
                     l: "Turns With Usage",
                     v: p.runtimeTurnAverages.turnsWithUsageAccounting,
-                    s: "eligible for economics"
+                    s: "runtime usage snapshots"
                   }
                 ] as const
               ).map((metric) => (

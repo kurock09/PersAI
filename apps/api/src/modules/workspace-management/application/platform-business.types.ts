@@ -1,3 +1,5 @@
+import type { AdminModelCostLedgerWindowState } from "./model-cost-ledger-read-model";
+
 export type PlanDistributionEntry = {
   planCode: string;
   planDisplayName: string | null;
@@ -54,6 +56,7 @@ export type AdminBusinessPlatformState = {
     inactivePlans: number;
     defaultRegistrationPlanCode: string | null;
   };
+  ledgerBackedModelCost: AdminModelCostLedgerWindowState;
   runtimeTurnAverages: RuntimeTurnAverages;
   updatedAt: string;
 };

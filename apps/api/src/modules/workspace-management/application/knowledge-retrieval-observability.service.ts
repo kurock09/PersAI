@@ -1,9 +1,10 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type {
   KnowledgeRetrievalEvent as PrismaKnowledgeRetrievalEvent,
   KnowledgeRetrievalRollup as PrismaKnowledgeRetrievalRollup
 } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 
 const MAX_RECENT_EVENTS = 40;
 
@@ -324,7 +325,12 @@ function mergeRollup(
 
 @Injectable()
 export class KnowledgeRetrievalObservabilityService {
-  constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
+  private readonly logger = new Logger(KnowledgeRetrievalObservabilityService.name);
+
+  constructor(
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
+  ) {}
 
   async recordSearch(input: {
     workspaceId: string;
@@ -363,7 +369,7 @@ export class KnowledgeRetrievalObservabilityService {
     const decisionModeBase =
       input.source === "skill" ? (input.decisionMode ?? "refresh_search_only") : "not_applicable";
     const decisionMode = encodeDecisionMode(decisionModeBase, input.policyState);
-    await this.recordEvent({
+    const recorded = await this.recordEvent({
       workspaceId: input.workspaceId,
       assistantId: input.assistantId,
       eventKind: "search",
@@ -395,6 +401,20 @@ export class KnowledgeRetrievalObservabilityService {
       modeUsed: input.modeUsed ?? null,
       bytesReturned: input.bytesReturned ?? null
     });
+    if (recorded !== null) {
+      await this.appendRetrievalHelperLedger({
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        eventId: recorded.id,
+        occurredAt: recorded.occurredAt,
+        helperApplied: input.helperApplied,
+        helperModelKey: input.helperModelKey ?? null,
+        helperProviderKey: input.helperProviderKey ?? null,
+        helperInputTokens: input.helperInputTokens ?? null,
+        helperOutputTokens: input.helperOutputTokens ?? null,
+        helperTotalTokens: input.helperTotalTokens ?? null
+      });
+    }
   }
 
   async recordFetch(input: {
@@ -517,11 +537,11 @@ export class KnowledgeRetrievalObservabilityService {
     durationMs: number;
     modeUsed: string | null;
     bytesReturned: number | null;
-  }): Promise<void> {
+  }): Promise<{ id: string; occurredAt: Date } | null> {
     const countsTowardSkillDecisionMode = input.eventKind === "search" && input.source === "skill";
     const { decisionMode: baseDecisionMode } = decodeDecisionMode(input.decisionMode);
-    await this.prisma.$transaction(async (tx) => {
-      await tx.knowledgeRetrievalEvent.create({
+    return this.prisma.$transaction(async (tx) => {
+      const created = await tx.knowledgeRetrievalEvent.create({
         data: {
           workspaceId: input.workspaceId,
           assistantId: input.assistantId,
@@ -605,72 +625,122 @@ export class KnowledgeRetrievalObservabilityService {
             helperTotalTokensTotal: Math.max(0, input.helperTotalTokens ?? 0)
           }
         });
-        return;
+      } else {
+        await tx.knowledgeRetrievalRollup.update({
+          where: {
+            workspaceId_source: {
+              workspaceId: input.workspaceId,
+              source: input.source
+            }
+          },
+          data: {
+            searchesTotal: existing.searchesTotal + (input.eventKind === "search" ? 1 : 0),
+            fetchesTotal: existing.fetchesTotal + (input.eventKind === "fetch" ? 1 : 0),
+            successTotal: existing.successTotal + (input.outcome === "success" ? 1 : 0),
+            emptyTotal: existing.emptyTotal + (input.outcome === "empty" ? 1 : 0),
+            errorTotal: existing.errorTotal + (input.outcome === "error" ? 1 : 0),
+            lexicalTotal:
+              existing.lexicalTotal +
+              (input.eventKind === "search" && input.retrievalMode === "lexical" ? 1 : 0),
+            hybridTotal:
+              existing.hybridTotal +
+              (input.eventKind === "search" && input.retrievalMode === "hybrid" ? 1 : 0),
+            reuseCachedRefsTotal:
+              existing.reuseCachedRefsTotal +
+              (countsTowardSkillDecisionMode && baseDecisionMode === "reuse_cached_refs" ? 1 : 0),
+            refreshSearchOnlyTotal:
+              existing.refreshSearchOnlyTotal +
+              (countsTowardSkillDecisionMode && baseDecisionMode === "refresh_search_only" ? 1 : 0),
+            refreshWithHelperTotal:
+              existing.refreshWithHelperTotal +
+              (countsTowardSkillDecisionMode && baseDecisionMode === "refresh_with_helper" ? 1 : 0),
+            cacheReuseTotal: existing.cacheReuseTotal + (input.cacheReuseHit ? 1 : 0),
+            helperAppliedTotal: existing.helperAppliedTotal + (input.helperApplied ? 1 : 0),
+            helperChangedOrderTotal:
+              existing.helperChangedOrderTotal + (input.helperChangedOrder ? 1 : 0),
+            embeddingQueryTotal:
+              existing.embeddingQueryTotal + (input.embeddingModelKey !== null ? 1 : 0),
+            durationMsTotal: existing.durationMsTotal + BigInt(Math.max(0, input.durationMs)),
+            maxDurationMs: Math.max(existing.maxDurationMs, Math.max(0, input.durationMs)),
+            resultCountTotal: existing.resultCountTotal + Math.max(0, input.resultCount),
+            candidateCountTotal: existing.candidateCountTotal + Math.max(0, input.candidateCount),
+            lexicalCandidatesTotal:
+              existing.lexicalCandidatesTotal + Math.max(0, input.lexicalCandidateCount),
+            vectorCandidatesTotal:
+              existing.vectorCandidatesTotal + Math.max(0, input.vectorCandidateCount),
+            topScoreMarginTotal:
+              existing.topScoreMarginTotal + Math.max(0, input.topScoreMargin ?? 0),
+            querySimilarityTotal:
+              existing.querySimilarityTotal + Math.max(0, input.querySimilarity ?? 0),
+            cachedReferenceCoverageTotal:
+              existing.cachedReferenceCoverageTotal +
+              Math.max(0, input.cachedReferenceCoverage ?? 0),
+            candidateAmbiguityTotal:
+              existing.candidateAmbiguityTotal + Math.max(0, input.candidateAmbiguity ?? 0),
+            fetchDepthTotal: existing.fetchDepthTotal + Math.max(0, input.fetchDepth),
+            maxFetchDepth: Math.max(existing.maxFetchDepth, Math.max(0, input.fetchDepth)),
+            fetchedCharsTotal: existing.fetchedCharsTotal + BigInt(Math.max(0, input.fetchedChars)),
+            maxFetchedChars: Math.max(existing.maxFetchedChars, Math.max(0, input.fetchedChars)),
+            helperInputTokensTotal:
+              existing.helperInputTokensTotal + Math.max(0, input.helperInputTokens ?? 0),
+            helperOutputTokensTotal:
+              existing.helperOutputTokensTotal + Math.max(0, input.helperOutputTokens ?? 0),
+            helperTotalTokensTotal:
+              existing.helperTotalTokensTotal + Math.max(0, input.helperTotalTokens ?? 0)
+          }
+        });
       }
 
-      await tx.knowledgeRetrievalRollup.update({
-        where: {
-          workspaceId_source: {
-            workspaceId: input.workspaceId,
-            source: input.source
-          }
-        },
-        data: {
-          searchesTotal: existing.searchesTotal + (input.eventKind === "search" ? 1 : 0),
-          fetchesTotal: existing.fetchesTotal + (input.eventKind === "fetch" ? 1 : 0),
-          successTotal: existing.successTotal + (input.outcome === "success" ? 1 : 0),
-          emptyTotal: existing.emptyTotal + (input.outcome === "empty" ? 1 : 0),
-          errorTotal: existing.errorTotal + (input.outcome === "error" ? 1 : 0),
-          lexicalTotal:
-            existing.lexicalTotal +
-            (input.eventKind === "search" && input.retrievalMode === "lexical" ? 1 : 0),
-          hybridTotal:
-            existing.hybridTotal +
-            (input.eventKind === "search" && input.retrievalMode === "hybrid" ? 1 : 0),
-          reuseCachedRefsTotal:
-            existing.reuseCachedRefsTotal +
-            (countsTowardSkillDecisionMode && baseDecisionMode === "reuse_cached_refs" ? 1 : 0),
-          refreshSearchOnlyTotal:
-            existing.refreshSearchOnlyTotal +
-            (countsTowardSkillDecisionMode && baseDecisionMode === "refresh_search_only" ? 1 : 0),
-          refreshWithHelperTotal:
-            existing.refreshWithHelperTotal +
-            (countsTowardSkillDecisionMode && baseDecisionMode === "refresh_with_helper" ? 1 : 0),
-          cacheReuseTotal: existing.cacheReuseTotal + (input.cacheReuseHit ? 1 : 0),
-          helperAppliedTotal: existing.helperAppliedTotal + (input.helperApplied ? 1 : 0),
-          helperChangedOrderTotal:
-            existing.helperChangedOrderTotal + (input.helperChangedOrder ? 1 : 0),
-          embeddingQueryTotal:
-            existing.embeddingQueryTotal + (input.embeddingModelKey !== null ? 1 : 0),
-          durationMsTotal: existing.durationMsTotal + BigInt(Math.max(0, input.durationMs)),
-          maxDurationMs: Math.max(existing.maxDurationMs, Math.max(0, input.durationMs)),
-          resultCountTotal: existing.resultCountTotal + Math.max(0, input.resultCount),
-          candidateCountTotal: existing.candidateCountTotal + Math.max(0, input.candidateCount),
-          lexicalCandidatesTotal:
-            existing.lexicalCandidatesTotal + Math.max(0, input.lexicalCandidateCount),
-          vectorCandidatesTotal:
-            existing.vectorCandidatesTotal + Math.max(0, input.vectorCandidateCount),
-          topScoreMarginTotal:
-            existing.topScoreMarginTotal + Math.max(0, input.topScoreMargin ?? 0),
-          querySimilarityTotal:
-            existing.querySimilarityTotal + Math.max(0, input.querySimilarity ?? 0),
-          cachedReferenceCoverageTotal:
-            existing.cachedReferenceCoverageTotal + Math.max(0, input.cachedReferenceCoverage ?? 0),
-          candidateAmbiguityTotal:
-            existing.candidateAmbiguityTotal + Math.max(0, input.candidateAmbiguity ?? 0),
-          fetchDepthTotal: existing.fetchDepthTotal + Math.max(0, input.fetchDepth),
-          maxFetchDepth: Math.max(existing.maxFetchDepth, Math.max(0, input.fetchDepth)),
-          fetchedCharsTotal: existing.fetchedCharsTotal + BigInt(Math.max(0, input.fetchedChars)),
-          maxFetchedChars: Math.max(existing.maxFetchedChars, Math.max(0, input.fetchedChars)),
-          helperInputTokensTotal:
-            existing.helperInputTokensTotal + Math.max(0, input.helperInputTokens ?? 0),
-          helperOutputTokensTotal:
-            existing.helperOutputTokensTotal + Math.max(0, input.helperOutputTokens ?? 0),
-          helperTotalTokensTotal:
-            existing.helperTotalTokensTotal + Math.max(0, input.helperTotalTokens ?? 0)
-        }
-      });
+      return { id: created.id, occurredAt: created.createdAt };
     });
+  }
+
+  private async appendRetrievalHelperLedger(input: {
+    workspaceId: string;
+    assistantId: string | null;
+    eventId: string;
+    occurredAt: Date;
+    helperApplied: boolean;
+    helperModelKey: string | null;
+    helperProviderKey: string | null;
+    helperInputTokens: number | null;
+    helperOutputTokens: number | null;
+    helperTotalTokens: number | null;
+  }): Promise<void> {
+    if (
+      !input.helperApplied ||
+      input.assistantId === null ||
+      input.helperModelKey === null ||
+      input.helperProviderKey === null ||
+      (input.helperInputTokens === null && input.helperOutputTokens === null)
+    ) {
+      return;
+    }
+    const assistant = await this.prisma.assistant.findUnique({
+      where: { id: input.assistantId },
+      select: { userId: true }
+    });
+    if (assistant === null) {
+      return;
+    }
+    try {
+      await this.recordModelCostLedgerService.recordRetrievalHelperEvent({
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        userId: assistant.userId,
+        occurredAt: input.occurredAt.toISOString(),
+        sourceEventId: `knowledge_retrieval_event:${input.eventId}`,
+        providerKey: input.helperProviderKey,
+        modelKey: input.helperModelKey,
+        inputTokens: input.helperInputTokens,
+        outputTokens: input.helperOutputTokens,
+        totalTokens: input.helperTotalTokens
+      });
+    } catch (error) {
+      this.logger.warn(
+        `knowledge_retrieval_helper_ledger_append_failed eventId=${input.eventId} message=${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   private toRecentState(row: PrismaKnowledgeRetrievalEvent): KnowledgeRetrievalRecentSearch {

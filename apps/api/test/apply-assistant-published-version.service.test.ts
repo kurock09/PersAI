@@ -70,12 +70,22 @@ const materializedSpec: AssistantMaterializedSpec = {
                 {
                   model: "gpt-5.4",
                   capabilities: ["chat"],
+                  active: true,
+                  billingMode: "token_metered",
+                  effectiveFrom: null,
+                  effectiveTo: null,
                   inputTokenWeight: 1,
                   cachedInputTokenWeight: 1,
                   outputTokenWeight: 1,
                   displayLabel: null,
                   notes: null,
-                  providerPriceMetadata: null
+                  providerPriceMetadata: {
+                    currency: "USD",
+                    tokenPricing: { inputPer1M: 0, cachedInputPer1M: 0, outputPer1M: 0 },
+                    timePricing: null,
+                    fixedOperationPricing: null,
+                    tieredOperationPricing: null
+                  }
                 }
               ]
             },
@@ -84,12 +94,22 @@ const materializedSpec: AssistantMaterializedSpec = {
                 {
                   model: "claude-sonnet-4-5",
                   capabilities: ["chat"],
+                  active: true,
+                  billingMode: "token_metered",
+                  effectiveFrom: null,
+                  effectiveTo: null,
                   inputTokenWeight: 1,
                   cachedInputTokenWeight: 1,
                   outputTokenWeight: 1,
                   displayLabel: null,
                   notes: null,
-                  providerPriceMetadata: null
+                  providerPriceMetadata: {
+                    currency: "USD",
+                    tokenPricing: { inputPer1M: 0, cachedInputPer1M: 0, outputPer1M: 0 },
+                    timePricing: null,
+                    fixedOperationPricing: null,
+                    tieredOperationPricing: null
+                  }
                 }
               ]
             }

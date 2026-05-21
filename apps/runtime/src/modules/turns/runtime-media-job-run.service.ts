@@ -54,6 +54,7 @@ export class RuntimeMediaJobRunService {
           assistantText: "",
           artifacts: result.artifacts,
           usage: result.payload.usage,
+          billingFacts: result.artifacts[0]?.billingFacts ?? null,
           toolInvocations: [
             {
               name: "image_generate",
@@ -77,6 +78,7 @@ export class RuntimeMediaJobRunService {
           assistantText: "",
           artifacts: result.artifacts,
           usage: result.payload.usage,
+          billingFacts: result.artifacts[0]?.billingFacts ?? null,
           toolInvocations: [
             {
               name: "image_edit",
@@ -100,6 +102,7 @@ export class RuntimeMediaJobRunService {
           assistantText: "",
           artifacts: result.artifacts,
           usage: result.payload.usage,
+          billingFacts: result.artifacts[0]?.billingFacts ?? null,
           toolInvocations: [
             {
               name: "video_generate",

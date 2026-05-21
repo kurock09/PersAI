@@ -2,7 +2,7 @@ import type {
   AssistantChatMessageAttachment,
   AttachmentType
 } from "../../domain/assistant-chat-message-attachment.entity";
-import type { RuntimeAttachmentRef } from "@persai/runtime-contract";
+import type { RuntimeAttachmentRef, RuntimeBillingFacts } from "@persai/runtime-contract";
 import type { AssistantWebChatMessageAttachmentState } from "../web-chat.types";
 import type { RuntimeMediaArtifact } from "../assistant-runtime.facade";
 
@@ -13,6 +13,7 @@ export interface PreprocessedMedia {
   normalizedMime: string;
   normalizedExtension: string;
   transcription: string | null;
+  billingFacts: RuntimeBillingFacts | null;
   textExtract: string | null;
   durationMs: number | null;
   width: number | null;

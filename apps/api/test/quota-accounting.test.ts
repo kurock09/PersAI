@@ -405,12 +405,22 @@ async function run(): Promise<void> {
               {
                 model: "gpt-5-mini",
                 capabilities: ["chat"],
+                active: true,
+                billingMode: "token_metered",
+                effectiveFrom: null,
+                effectiveTo: null,
                 inputTokenWeight: 1,
                 cachedInputTokenWeight: 0.25,
                 outputTokenWeight: 4,
                 displayLabel: null,
                 notes: null,
-                providerPriceMetadata: null
+                providerPriceMetadata: {
+                  currency: "USD",
+                  tokenPricing: { inputPer1M: 0, cachedInputPer1M: 0, outputPer1M: 0 },
+                  timePricing: null,
+                  fixedOperationPricing: null,
+                  tieredOperationPricing: null
+                }
               }
             ]
           },

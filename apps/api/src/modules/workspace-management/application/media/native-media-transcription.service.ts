@@ -1,6 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
-import type { RuntimeMediaTranscriptionResult } from "@persai/runtime-contract";
+import type {
+  RuntimeBillingFacts,
+  RuntimeMediaTranscriptionResult
+} from "@persai/runtime-contract";
 import { AssistantRuntimeError } from "../assistant-runtime.facade";
 
 interface JsonResponse {
@@ -154,8 +157,16 @@ export class NativeMediaTranscriptionService {
       row?.provider === "openai" &&
       typeof row.model === "string" &&
       typeof row.text === "string" &&
-      typeof row.respondedAt === "string"
+      typeof row.respondedAt === "string" &&
+      this.isBillingFacts(row.billingFacts)
     );
+  }
+
+  private isBillingFacts(value: unknown): value is RuntimeBillingFacts | null {
+    if (value === null || value === undefined) {
+      return true;
+    }
+    return typeof value === "object" && !Array.isArray(value);
   }
 
   private defaultAudioFilename(mimeType: string): string {

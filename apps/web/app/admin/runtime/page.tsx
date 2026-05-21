@@ -7,7 +7,6 @@ import type {
   AdminRuntimeProviderSettingsRequest,
   AdminRuntimeProviderSettingsState,
   ManagedRuntimeProvider,
-  RuntimeProviderAvailableModelsByProviderState,
   RuntimeProviderModelCatalogByProviderState,
   RuntimeProviderModelProfileState
 } from "@persai/contracts";
@@ -15,11 +14,14 @@ import {
   getAdminRuntimeProviderSettings,
   putAdminRuntimeProviderSettings
 } from "@/app/app/assistant-api-client";
-import {
-  formatRuntimeProviderModelProfilesText,
-  parseRuntimeProviderModelProfilesText
-} from "@/app/app/runtime-provider-settings-admin";
 import { cn } from "@/app/lib/utils";
+
+type RuntimeProviderBillingModeState = RuntimeProviderModelProfileState["billingMode"];
+type RuntimeProviderPriceMetadataState = RuntimeProviderModelProfileState["providerPriceMetadata"];
+type RuntimeProviderModelProfileForMode<M extends RuntimeProviderBillingModeState> = Extract<
+  RuntimeProviderModelProfileState,
+  { billingMode: M }
+>;
 
 export function parseRouterTriggerTerms(value: string): string[] {
   return Array.from(
@@ -101,38 +103,479 @@ function providerLabel(provider: ManagedRuntimeProvider): string {
   return provider === "openai" ? "OpenAI" : "Anthropic";
 }
 
-function findModelProfileFromText(
-  text: string,
+function createDefaultProviderPriceMetadata(
+  billingMode: "token_metered"
+): RuntimeProviderModelProfileForMode<"token_metered">["providerPriceMetadata"];
+function createDefaultProviderPriceMetadata(
+  billingMode: "time_metered"
+): RuntimeProviderModelProfileForMode<"time_metered">["providerPriceMetadata"];
+function createDefaultProviderPriceMetadata(
+  billingMode: "text_chars_metered"
+): RuntimeProviderModelProfileForMode<"text_chars_metered">["providerPriceMetadata"];
+function createDefaultProviderPriceMetadata(
+  billingMode: "fixed_operation"
+): RuntimeProviderModelProfileForMode<"fixed_operation">["providerPriceMetadata"];
+function createDefaultProviderPriceMetadata(
+  billingMode: "tiered_operation"
+): RuntimeProviderModelProfileForMode<"tiered_operation">["providerPriceMetadata"];
+function createDefaultProviderPriceMetadata(
+  billingMode: RuntimeProviderBillingModeState
+): RuntimeProviderPriceMetadataState;
+function createDefaultProviderPriceMetadata(
+  billingMode: RuntimeProviderBillingModeState
+): RuntimeProviderPriceMetadataState {
+  switch (billingMode) {
+    case "token_metered":
+      return {
+        currency: "USD",
+        tokenPricing: {
+          inputPer1M: 0,
+          cachedInputPer1M: 0,
+          outputPer1M: 0
+        }
+      };
+    case "time_metered":
+      return {
+        currency: "USD",
+        timePricing: {
+          unit: "minute",
+          pricePerUnit: 0
+        }
+      };
+    case "text_chars_metered":
+      return {
+        currency: "USD",
+        textCharsPricing: {
+          pricePer1MChars: 0
+        }
+      };
+    case "fixed_operation":
+      return {
+        currency: "USD",
+        fixedOperationPricing: {
+          unitLabel: null,
+          pricePerOperation: 0
+        }
+      };
+    case "tiered_operation":
+      return {
+        currency: "USD",
+        tieredOperationPricing: {
+          unitLabel: null,
+          tiers: []
+        }
+      };
+  }
+}
+
+function replacePriceMetadata(
+  profile: RuntimeProviderModelProfileState,
+  providerPriceMetadata: RuntimeProviderPriceMetadataState
+): RuntimeProviderModelProfileState {
+  switch (profile.billingMode) {
+    case "token_metered":
+      return {
+        ...profile,
+        providerPriceMetadata:
+          "tokenPricing" in providerPriceMetadata
+            ? providerPriceMetadata
+            : createDefaultProviderPriceMetadata("token_metered")
+      };
+    case "time_metered":
+      return {
+        ...profile,
+        providerPriceMetadata:
+          "timePricing" in providerPriceMetadata
+            ? providerPriceMetadata
+            : createDefaultProviderPriceMetadata("time_metered")
+      };
+    case "text_chars_metered":
+      return {
+        ...profile,
+        providerPriceMetadata:
+          "textCharsPricing" in providerPriceMetadata
+            ? providerPriceMetadata
+            : createDefaultProviderPriceMetadata("text_chars_metered")
+      };
+    case "fixed_operation":
+      return {
+        ...profile,
+        providerPriceMetadata:
+          "fixedOperationPricing" in providerPriceMetadata
+            ? providerPriceMetadata
+            : createDefaultProviderPriceMetadata("fixed_operation")
+      };
+    case "tiered_operation":
+      return {
+        ...profile,
+        providerPriceMetadata:
+          "tieredOperationPricing" in providerPriceMetadata
+            ? providerPriceMetadata
+            : createDefaultProviderPriceMetadata("tiered_operation")
+      };
+  }
+}
+
+function cloneProviderPriceMetadata(
+  profile: RuntimeProviderModelProfileForMode<"token_metered">
+): RuntimeProviderModelProfileForMode<"token_metered">["providerPriceMetadata"];
+function cloneProviderPriceMetadata(
+  profile: RuntimeProviderModelProfileForMode<"time_metered">
+): RuntimeProviderModelProfileForMode<"time_metered">["providerPriceMetadata"];
+function cloneProviderPriceMetadata(
+  profile: RuntimeProviderModelProfileForMode<"text_chars_metered">
+): RuntimeProviderModelProfileForMode<"text_chars_metered">["providerPriceMetadata"];
+function cloneProviderPriceMetadata(
+  profile: RuntimeProviderModelProfileForMode<"fixed_operation">
+): RuntimeProviderModelProfileForMode<"fixed_operation">["providerPriceMetadata"];
+function cloneProviderPriceMetadata(
+  profile: RuntimeProviderModelProfileForMode<"tiered_operation">
+): RuntimeProviderModelProfileForMode<"tiered_operation">["providerPriceMetadata"];
+function cloneProviderPriceMetadata(
+  profile: RuntimeProviderModelProfileState
+): RuntimeProviderPriceMetadataState {
+  switch (profile.billingMode) {
+    case "token_metered":
+      return {
+        currency: profile.providerPriceMetadata.currency,
+        tokenPricing: { ...profile.providerPriceMetadata.tokenPricing }
+      };
+    case "time_metered":
+      return {
+        currency: profile.providerPriceMetadata.currency,
+        timePricing: { ...profile.providerPriceMetadata.timePricing }
+      };
+    case "text_chars_metered":
+      return {
+        currency: profile.providerPriceMetadata.currency,
+        textCharsPricing: { ...profile.providerPriceMetadata.textCharsPricing }
+      };
+    case "fixed_operation":
+      return {
+        currency: profile.providerPriceMetadata.currency,
+        fixedOperationPricing: { ...profile.providerPriceMetadata.fixedOperationPricing }
+      };
+    case "tiered_operation":
+      return {
+        currency: profile.providerPriceMetadata.currency,
+        tieredOperationPricing: {
+          ...profile.providerPriceMetadata.tieredOperationPricing,
+          tiers: profile.providerPriceMetadata.tieredOperationPricing.tiers.map((tier) => ({
+            ...tier
+          }))
+        }
+      };
+  }
+}
+
+function createInactiveDuplicateProfile(
+  profile: RuntimeProviderModelProfileState
+): RuntimeProviderModelProfileState {
+  switch (profile.billingMode) {
+    case "token_metered":
+      return {
+        ...profile,
+        active: false,
+        effectiveFrom: null,
+        effectiveTo: null,
+        providerPriceMetadata: cloneProviderPriceMetadata(profile)
+      };
+    case "time_metered":
+      return {
+        ...profile,
+        active: false,
+        effectiveFrom: null,
+        effectiveTo: null,
+        providerPriceMetadata: cloneProviderPriceMetadata(profile)
+      };
+    case "text_chars_metered":
+      return {
+        ...profile,
+        active: false,
+        effectiveFrom: null,
+        effectiveTo: null,
+        providerPriceMetadata: cloneProviderPriceMetadata(profile)
+      };
+    case "fixed_operation":
+      return {
+        ...profile,
+        active: false,
+        effectiveFrom: null,
+        effectiveTo: null,
+        providerPriceMetadata: cloneProviderPriceMetadata(profile)
+      };
+    case "tiered_operation":
+      return {
+        ...profile,
+        active: false,
+        effectiveFrom: null,
+        effectiveTo: null,
+        providerPriceMetadata: cloneProviderPriceMetadata(profile)
+      };
+  }
+}
+
+function createArchivedProfile(
+  profile: RuntimeProviderModelProfileState
+): RuntimeProviderModelProfileState {
+  switch (profile.billingMode) {
+    case "token_metered":
+      return {
+        ...profile,
+        active: false,
+        effectiveTo: profile.effectiveTo ?? createArchiveTimestamp(),
+        providerPriceMetadata: cloneProviderPriceMetadata(profile)
+      };
+    case "time_metered":
+      return {
+        ...profile,
+        active: false,
+        effectiveTo: profile.effectiveTo ?? createArchiveTimestamp(),
+        providerPriceMetadata: cloneProviderPriceMetadata(profile)
+      };
+    case "text_chars_metered":
+      return {
+        ...profile,
+        active: false,
+        effectiveTo: profile.effectiveTo ?? createArchiveTimestamp(),
+        providerPriceMetadata: cloneProviderPriceMetadata(profile)
+      };
+    case "fixed_operation":
+      return {
+        ...profile,
+        active: false,
+        effectiveTo: profile.effectiveTo ?? createArchiveTimestamp(),
+        providerPriceMetadata: cloneProviderPriceMetadata(profile)
+      };
+    case "tiered_operation":
+      return {
+        ...profile,
+        active: false,
+        effectiveTo: profile.effectiveTo ?? createArchiveTimestamp(),
+        providerPriceMetadata: cloneProviderPriceMetadata(profile)
+      };
+  }
+}
+
+function createArchiveTimestamp(): string {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
+  ).toISOString();
+}
+
+function createEmptyCatalog(): RuntimeProviderModelCatalogByProviderState {
+  return {
+    openai: { models: [] },
+    anthropic: { models: [] }
+  };
+}
+
+function inferBillingModeForCapabilities(
+  capabilities: RuntimeProviderModelProfileState["capabilities"]
+): RuntimeProviderModelProfileState["billingMode"] {
+  if (capabilities.includes("chat")) {
+    return "token_metered";
+  }
+  if (capabilities.includes("speech_to_text")) {
+    return "time_metered";
+  }
+  if (capabilities.includes("text_to_speech")) {
+    return "text_chars_metered";
+  }
+  return "fixed_operation";
+}
+
+function createModelProfile(
+  capability: RuntimeProviderModelProfileState["capabilities"][number] = "chat"
+): RuntimeProviderModelProfileState {
+  const capabilities = [capability];
+  const billingMode = inferBillingModeForCapabilities(capabilities);
+  const base = {
+    model: "",
+    capabilities,
+    active: true,
+    effectiveFrom: null,
+    effectiveTo: null,
+    inputTokenWeight: 1,
+    cachedInputTokenWeight: 1,
+    outputTokenWeight: 1,
+    displayLabel: null,
+    notes: null
+  };
+  switch (billingMode) {
+    case "token_metered":
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: createDefaultProviderPriceMetadata("token_metered")
+      };
+    case "time_metered":
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: createDefaultProviderPriceMetadata("time_metered")
+      };
+    case "text_chars_metered":
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: createDefaultProviderPriceMetadata("text_chars_metered")
+      };
+    case "fixed_operation":
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: createDefaultProviderPriceMetadata("fixed_operation")
+      };
+    case "tiered_operation":
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: createDefaultProviderPriceMetadata("tiered_operation")
+      };
+  }
+}
+
+function rebuildProfileForBillingMode(
+  profile: RuntimeProviderModelProfileState,
+  billingMode: RuntimeProviderBillingModeState
+): RuntimeProviderModelProfileState {
+  const base = {
+    model: profile.model,
+    capabilities: profile.capabilities,
+    active: profile.active,
+    effectiveFrom: profile.effectiveFrom,
+    effectiveTo: profile.effectiveTo,
+    inputTokenWeight: profile.inputTokenWeight,
+    cachedInputTokenWeight: profile.cachedInputTokenWeight,
+    outputTokenWeight: profile.outputTokenWeight,
+    displayLabel: profile.displayLabel,
+    notes: profile.notes
+  };
+  switch (billingMode) {
+    case "token_metered":
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: {
+          ...createDefaultProviderPriceMetadata("token_metered"),
+          currency: profile.providerPriceMetadata.currency
+        }
+      };
+    case "time_metered":
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: {
+          ...createDefaultProviderPriceMetadata("time_metered"),
+          currency: profile.providerPriceMetadata.currency
+        }
+      };
+    case "text_chars_metered":
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: {
+          ...createDefaultProviderPriceMetadata("text_chars_metered"),
+          currency: profile.providerPriceMetadata.currency
+        }
+      };
+    case "fixed_operation":
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: {
+          ...createDefaultProviderPriceMetadata("fixed_operation"),
+          currency: profile.providerPriceMetadata.currency
+        }
+      };
+    case "tiered_operation":
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: {
+          ...createDefaultProviderPriceMetadata("tiered_operation"),
+          currency: profile.providerPriceMetadata.currency
+        }
+      };
+  }
+}
+
+function buildCatalogFallback(
+  availableModelsByProvider: AdminRuntimeProviderSettingsState["availableModelsByProvider"]
+): RuntimeProviderModelCatalogByProviderState {
+  return {
+    openai: {
+      models: (availableModelsByProvider?.openai ?? []).map((model) => ({
+        ...createModelProfile("chat"),
+        model
+      }))
+    },
+    anthropic: {
+      models: (availableModelsByProvider?.anthropic ?? []).map((model) => ({
+        ...createModelProfile("chat"),
+        model
+      }))
+    }
+  };
+}
+
+function findModelProfile(
+  profiles: RuntimeProviderModelProfileState[],
   model: string
 ): RuntimeProviderModelProfileState | null {
-  if (model.trim().length === 0) {
+  const normalized = model.trim();
+  if (normalized.length === 0) {
     return null;
   }
-  try {
-    return (
-      parseRuntimeProviderModelProfilesText(text).find((profile) => profile.model === model) ?? null
-    );
-  } catch {
-    return null;
+  return (
+    profiles.find((profile) => profile.model === normalized && profile.active) ??
+    profiles.find((profile) => profile.model === normalized) ??
+    null
+  );
+}
+
+function deriveChatModelOptions(
+  catalog: RuntimeProviderModelCatalogByProviderState,
+  provider: ManagedRuntimeProvider
+): string[] {
+  const deduped = new Set<string>();
+  for (const profile of catalog[provider].models) {
+    const model = profile.model.trim();
+    if (!profile.active || !profile.capabilities.includes("chat") || model.length === 0) {
+      continue;
+    }
+    deduped.add(model);
   }
+  return Array.from(deduped);
+}
+
+function deriveAvailableModelsByProvider(
+  catalog: RuntimeProviderModelCatalogByProviderState
+): AdminRuntimeProviderSettingsRequest["availableModelsByProvider"] {
+  return {
+    openai: deriveChatModelOptions(catalog, "openai"),
+    anthropic: deriveChatModelOptions(catalog, "anthropic")
+  };
 }
 
 function modelProfileCostLabel(profile: RuntimeProviderModelProfileState | null): string {
   if (profile === null) {
-    return "No token profile selected.";
+    return "No active model profile selected.";
   }
-  return `input ${profile.inputTokenWeight} / cached ${profile.cachedInputTokenWeight} / output ${profile.outputTokenWeight}`;
+  return `${profile.billingMode} • input ${profile.inputTokenWeight} / cached ${profile.cachedInputTokenWeight} / output ${profile.outputTokenWeight}`;
 }
 
-function deriveChatModelOptionsFromText(text: string, fallback: string[]): string[] {
-  try {
-    const models = parseRuntimeProviderModelProfilesText(text)
-      .filter((profile) => profile.capabilities.includes("chat"))
-      .map((profile) => profile.model);
-    return models.length > 0 ? models : fallback;
-  } catch {
-    return fallback;
+function formatIsoDateForInput(value: string | null): string {
+  return value === null ? "" : value.slice(0, 10);
+}
+
+function parseDateInputValue(value: string): string | null {
+  if (value.trim().length === 0) {
+    return null;
   }
+  return new Date(`${value}T00:00:00.000Z`).toISOString();
 }
 
 export default function AdminRuntimePage() {
@@ -174,13 +617,8 @@ export default function AdminRuntimePage() {
   ] = useState("5");
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
-  const [availableModels, setAvailableModels] =
-    useState<RuntimeProviderAvailableModelsByProviderState>({
-      openai: [],
-      anthropic: []
-    });
-  const [openaiModelProfilesText, setOpenaiModelProfilesText] = useState("");
-  const [anthropicModelProfilesText, setAnthropicModelProfilesText] = useState("");
+  const [modelCatalogByProvider, setModelCatalogByProvider] =
+    useState<RuntimeProviderModelCatalogByProviderState>(createEmptyCatalog());
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -238,36 +676,8 @@ export default function AdminRuntimePage() {
       setSkillRoutingBackgroundRecheckIntervalMessagesText(
         String(res.skillRoutingPolicy.backgroundRecheckIntervalMessages)
       );
-      setAvailableModels(res.availableModelsByProvider);
-      const catalog = res.availableModelCatalogByProvider ?? {
-        openai: {
-          models: res.availableModelsByProvider.openai.map((model) => ({
-            model,
-            capabilities: ["chat"],
-            inputTokenWeight: 1,
-            cachedInputTokenWeight: 1,
-            outputTokenWeight: 1,
-            displayLabel: null,
-            notes: null,
-            providerPriceMetadata: null
-          }))
-        },
-        anthropic: {
-          models: res.availableModelsByProvider.anthropic.map((model) => ({
-            model,
-            capabilities: ["chat"],
-            inputTokenWeight: 1,
-            cachedInputTokenWeight: 1,
-            outputTokenWeight: 1,
-            displayLabel: null,
-            notes: null,
-            providerPriceMetadata: null
-          }))
-        }
-      };
-      setOpenaiModelProfilesText(formatRuntimeProviderModelProfilesText(catalog.openai.models));
-      setAnthropicModelProfilesText(
-        formatRuntimeProviderModelProfilesText(catalog.anthropic.models)
+      setModelCatalogByProvider(
+        res.availableModelCatalogByProvider ?? buildCatalogFallback(res.availableModelsByProvider)
       );
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to load runtime settings.");
@@ -279,23 +689,19 @@ export default function AdminRuntimePage() {
     void load();
   }, [load]);
 
-  const profileTextByProvider = {
-    openai: openaiModelProfilesText,
-    anthropic: anthropicModelProfilesText
-  } satisfies Record<ManagedRuntimeProvider, string>;
   const availableModelsForSelect = {
-    openai: deriveChatModelOptionsFromText(openaiModelProfilesText, availableModels.openai),
-    anthropic: deriveChatModelOptionsFromText(anthropicModelProfilesText, availableModels.anthropic)
-  } satisfies RuntimeProviderAvailableModelsByProviderState;
-  const primaryModelProfile = findModelProfileFromText(
-    profileTextByProvider[primaryProvider],
+    openai: deriveChatModelOptions(modelCatalogByProvider, "openai"),
+    anthropic: deriveChatModelOptions(modelCatalogByProvider, "anthropic")
+  } satisfies AdminRuntimeProviderSettingsRequest["availableModelsByProvider"];
+  const primaryModelProfile = findModelProfile(
+    modelCatalogByProvider[primaryProvider].models,
     primaryModel
   );
   const fallbackModelProfile = fallbackEnabled
-    ? findModelProfileFromText(profileTextByProvider[fallbackProvider], fallbackModel)
+    ? findModelProfile(modelCatalogByProvider[fallbackProvider].models, fallbackModel)
     : null;
-  const routingFastModelProfile = findModelProfileFromText(
-    profileTextByProvider[primaryProvider],
+  const routingFastModelProfile = findModelProfile(
+    modelCatalogByProvider[primaryProvider].models,
     routingFastModelKey
   );
 
@@ -307,26 +713,8 @@ export default function AdminRuntimePage() {
     setSaving(true);
     setFeedback(null);
     try {
-      const parsedOpenaiProfiles = parseRuntimeProviderModelProfilesText(openaiModelProfilesText);
-      const parsedAnthropicProfiles = parseRuntimeProviderModelProfilesText(
-        anthropicModelProfilesText
-      );
-      const parsedModelCatalog = {
-        openai: {
-          models: parsedOpenaiProfiles
-        },
-        anthropic: {
-          models: parsedAnthropicProfiles
-        }
-      } satisfies RuntimeProviderModelCatalogByProviderState;
-      const parsedCatalog = {
-        openai: parsedModelCatalog.openai.models
-          .filter((profile) => profile.capabilities.includes("chat"))
-          .map((profile) => profile.model),
-        anthropic: parsedModelCatalog.anthropic.models
-          .filter((profile) => profile.capabilities.includes("chat"))
-          .map((profile) => profile.model)
-      } satisfies RuntimeProviderAvailableModelsByProviderState;
+      const parsedModelCatalog = modelCatalogByProvider;
+      const parsedCatalog = deriveAvailableModelsByProvider(parsedModelCatalog);
 
       if (!parsedCatalog[primaryProvider].includes(primaryModel.trim())) {
         throw new Error("Primary model must be selected from the listed catalog.");
@@ -398,12 +786,12 @@ export default function AdminRuntimePage() {
     setSaving(false);
   }, [
     anthropicKey,
-    anthropicModelProfilesText,
     fallbackEnabled,
     fallbackModel,
     fallbackProvider,
     getToken,
     load,
+    modelCatalogByProvider,
     routerClarifyOnMissingContext,
     routerContinueTermsText,
     routerEnabled,
@@ -420,11 +808,84 @@ export default function AdminRuntimePage() {
     skillRoutingInitialCheckUserMessageIndexText,
     routingFastModelKey,
     openaiKey,
-    openaiModelProfilesText,
     primaryModel,
     primaryProvider,
     settings
   ]);
+
+  const updateCatalogProfile = useCallback(
+    (
+      provider: ManagedRuntimeProvider,
+      index: number,
+      updater: (profile: RuntimeProviderModelProfileState) => RuntimeProviderModelProfileState
+    ) => {
+      setModelCatalogByProvider((current) => ({
+        ...current,
+        [provider]: {
+          models: current[provider].models.map((profile, profileIndex) =>
+            profileIndex === index ? updater(profile) : profile
+          )
+        }
+      }));
+    },
+    []
+  );
+
+  const addCatalogProfile = useCallback(
+    (
+      provider: ManagedRuntimeProvider,
+      capability: RuntimeProviderModelProfileState["capabilities"][number]
+    ) => {
+      setModelCatalogByProvider((current) => ({
+        ...current,
+        [provider]: {
+          models: [...current[provider].models, createModelProfile(capability)]
+        }
+      }));
+    },
+    []
+  );
+
+  const duplicateCatalogProfile = useCallback((provider: ManagedRuntimeProvider, index: number) => {
+    setModelCatalogByProvider((current) => {
+      const source = current[provider].models[index];
+      if (!source) {
+        return current;
+      }
+      const duplicate = createInactiveDuplicateProfile(source);
+      const nextModels = [...current[provider].models];
+      nextModels.splice(index + 1, 0, duplicate);
+      return {
+        ...current,
+        [provider]: { models: nextModels }
+      };
+    });
+  }, []);
+
+  const archiveCatalogProfile = useCallback((provider: ManagedRuntimeProvider, index: number) => {
+    setModelCatalogByProvider((current) => {
+      const source = current[provider].models[index];
+      if (!source) {
+        return current;
+      }
+      if (source.model.trim().length === 0) {
+        return {
+          ...current,
+          [provider]: {
+            models: current[provider].models.filter((_, profileIndex) => profileIndex !== index)
+          }
+        };
+      }
+      const nextModels = [...current[provider].models];
+      nextModels[index] = createArchivedProfile(source);
+      return {
+        ...current,
+        [provider]: {
+          models: nextModels
+        }
+      };
+    });
+  }, []);
 
   if (loading) {
     return (
@@ -550,36 +1011,57 @@ export default function AdminRuntimePage() {
         </Card>
       </div>
 
-      <Fold t="Provider Model Profiles">
+      <Fold t="Provider Model Catalog">
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-          <Card title="OpenAI">
-            <TextareaField
-              label="Model profiles"
-              value={openaiModelProfilesText}
-              onChange={setOpenaiModelProfilesText}
-              placeholder={
-                "gpt-5.4 | chat | 1 | 1 | 1 | GPT 5.4\n" +
-                "gpt-image-1 | image | 1 | 1 | 1 | GPT Image\n" +
-                "sora-2 | video | 1 | 1 | 1 | Sora"
+          {(["openai", "anthropic"] as const).map((provider) => (
+            <Card
+              key={provider}
+              title={providerLabel(provider)}
+              trailing={
+                <div className="flex flex-wrap items-center gap-1">
+                  {(["chat", "image", "video", "speech_to_text", "text_to_speech"] as const).map(
+                    (capability) => (
+                      <button
+                        key={capability}
+                        type="button"
+                        onClick={() => addCatalogProfile(provider, capability)}
+                        className="rounded border border-border/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-text-muted hover:border-border-strong hover:text-text"
+                      >
+                        + {capability}
+                      </button>
+                    )
+                  )}
+                </div>
               }
-            />
-            <p className="text-[10px] text-text-subtle">
-              One profile per line: model | capabilities | input weight | cached input weight |
-              output weight | optional label.
-            </p>
-          </Card>
-          <Card title="Anthropic">
-            <TextareaField
-              label="Model profiles"
-              value={anthropicModelProfilesText}
-              onChange={setAnthropicModelProfilesText}
-              placeholder="claude-sonnet-4-5 | chat | 1 | 1 | 1 | Claude Sonnet"
-            />
-            <p className="text-[10px] text-text-subtle">
-              Capabilities can be comma-separated, for example chat,image. Weights are quota units
-              per provider-reported token class.
-            </p>
-          </Card>
+            >
+              {modelCatalogByProvider[provider].models.length === 0 ? (
+                <p className="text-[10px] text-text-subtle">
+                  No catalog entries yet. Add an active model card instead of editing one big text
+                  blob.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {modelCatalogByProvider[provider].models.map((profile, index) => (
+                    <ModelProfileEditor
+                      key={`${provider}:${profile.model || "new"}:${index}`}
+                      provider={provider}
+                      profile={profile}
+                      onChange={(nextProfile) =>
+                        updateCatalogProfile(provider, index, () => nextProfile)
+                      }
+                      onDuplicate={() => duplicateCatalogProfile(provider, index)}
+                      onArchive={() => archiveCatalogProfile(provider, index)}
+                    />
+                  ))}
+                </div>
+              )}
+              <p className="text-[10px] text-text-subtle">
+                Active `chat` rows feed the same downstream model picks as before. Inactive rows
+                stay in the catalog for version history and do not appear in selectors. Archive
+                versions instead of deleting historical truth.
+              </p>
+            </Card>
+          ))}
         </div>
       </Fold>
 
@@ -848,6 +1330,7 @@ function ProviderSelect({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value as ManagedRuntimeProvider)}
+        aria-label="Provider"
         className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-border-strong"
       >
         <option value="openai">OpenAI</option>
@@ -889,6 +1372,471 @@ function ModelSelect({
   );
 }
 
+function ModelProfileEditor({
+  provider,
+  profile,
+  onChange,
+  onDuplicate,
+  onArchive
+}: {
+  provider: ManagedRuntimeProvider;
+  profile: RuntimeProviderModelProfileState;
+  onChange: (profile: RuntimeProviderModelProfileState) => void;
+  onDuplicate: () => void;
+  onArchive: () => void;
+}) {
+  const isDiscardableDraft = profile.model.trim().length === 0;
+  const archiveActionDisabled = !isDiscardableDraft && !profile.active;
+
+  const setCapabilities = (
+    capability: RuntimeProviderModelProfileState["capabilities"][number]
+  ) => {
+    const hasCapability = profile.capabilities.includes(capability);
+    const nextCapabilities = hasCapability
+      ? profile.capabilities.filter((entry) => entry !== capability)
+      : [...profile.capabilities, capability];
+    if (nextCapabilities.length === 0) {
+      return;
+    }
+    onChange({
+      ...profile,
+      capabilities: nextCapabilities
+    });
+  };
+
+  return (
+    <div className="space-y-2 rounded border border-border/50 bg-background/60 p-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              "rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+              profile.active
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : "border-border/70 bg-surface-raised text-text-subtle"
+            )}
+          >
+            {profile.active ? "Active" : "Inactive"}
+          </span>
+          <span className="text-[10px] text-text-muted">
+            {providerLabel(provider)} • {profile.billingMode}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          <button
+            type="button"
+            onClick={onDuplicate}
+            aria-label={`Duplicate version ${profile.model || "draft"}`}
+            className="rounded border border-border/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-text-muted hover:border-border-strong hover:text-text"
+          >
+            Duplicate version
+          </button>
+          <button
+            type="button"
+            onClick={onArchive}
+            disabled={archiveActionDisabled}
+            aria-label={`${
+              isDiscardableDraft ? "Discard draft" : "Archive version"
+            } ${profile.model || "draft"}`}
+            className="rounded border border-amber-500/40 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:text-amber-300"
+          >
+            {isDiscardableDraft ? "Discard draft" : profile.active ? "Archive version" : "Archived"}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Field
+          label="Model key"
+          value={profile.model}
+          onChange={(value) => onChange({ ...profile, model: value })}
+          placeholder="gpt-5.4"
+        />
+        <Field
+          label="Display label"
+          value={profile.displayLabel ?? ""}
+          onChange={(value) =>
+            onChange({ ...profile, displayLabel: value.trim().length > 0 ? value : null })
+          }
+          placeholder="GPT 5.4"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <SelectField
+          label="Billing mode"
+          value={profile.billingMode}
+          onChange={(value) =>
+            onChange(
+              rebuildProfileForBillingMode(profile, value as RuntimeProviderBillingModeState)
+            )
+          }
+          options={[
+            { value: "token_metered", label: "Token metered" },
+            { value: "time_metered", label: "Time metered" },
+            { value: "text_chars_metered", label: "Text chars metered" },
+            { value: "fixed_operation", label: "Fixed operation" },
+            { value: "tiered_operation", label: "Tiered operation" }
+          ]}
+        />
+        <label className="flex items-center gap-2 pt-5 text-[10px] text-text-muted">
+          <input
+            type="checkbox"
+            checked={profile.active}
+            onChange={(event) => onChange({ ...profile, active: event.target.checked })}
+            className="h-3.5 w-3.5 rounded border-border accent-accent"
+          />
+          Active in downstream selectors
+        </label>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {(["chat", "image", "video", "speech_to_text", "text_to_speech"] as const).map(
+          (capability) => (
+            <label
+              key={capability}
+              className="flex items-center gap-1 rounded border border-border/60 bg-surface-raised px-2 py-1 text-[10px] text-text-muted"
+            >
+              <input
+                type="checkbox"
+                checked={profile.capabilities.includes(capability)}
+                onChange={() => setCapabilities(capability)}
+                className="h-3.5 w-3.5 rounded border-border accent-accent"
+              />
+              {capability}
+            </label>
+          )
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Field
+          label="Effective from"
+          value={formatIsoDateForInput(profile.effectiveFrom)}
+          onChange={(value) => onChange({ ...profile, effectiveFrom: parseDateInputValue(value) })}
+          type="date"
+        />
+        <Field
+          label="Effective to"
+          value={formatIsoDateForInput(profile.effectiveTo)}
+          onChange={(value) => onChange({ ...profile, effectiveTo: parseDateInputValue(value) })}
+          type="date"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <NumberField
+          label="Input weight"
+          value={profile.inputTokenWeight}
+          onChange={(value) => onChange({ ...profile, inputTokenWeight: value })}
+        />
+        <NumberField
+          label="Cached input weight"
+          value={profile.cachedInputTokenWeight}
+          onChange={(value) => onChange({ ...profile, cachedInputTokenWeight: value })}
+        />
+        <NumberField
+          label="Output weight"
+          value={profile.outputTokenWeight}
+          onChange={(value) => onChange({ ...profile, outputTokenWeight: value })}
+        />
+      </div>
+
+      <PriceMetadataEditor
+        profile={profile}
+        onChange={(providerPriceMetadata) =>
+          onChange(replacePriceMetadata(profile, providerPriceMetadata))
+        }
+      />
+
+      <div>
+        <label className="mb-1 block text-[10px] font-medium text-text-muted">Notes</label>
+        <textarea
+          value={profile.notes ?? ""}
+          onChange={(event) =>
+            onChange({
+              ...profile,
+              notes: event.target.value.trim().length > 0 ? event.target.value : null
+            })
+          }
+          rows={2}
+          className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+          placeholder="Optional operator note"
+        />
+      </div>
+    </div>
+  );
+}
+
+function PriceMetadataEditor({
+  profile,
+  onChange
+}: {
+  profile: RuntimeProviderModelProfileState;
+  onChange: (value: RuntimeProviderPriceMetadataState) => void;
+}) {
+  const pricing =
+    profile.providerPriceMetadata ?? createDefaultProviderPriceMetadata(profile.billingMode);
+  const tokenPricing = "tokenPricing" in pricing ? pricing.tokenPricing : null;
+  const timePricing = "timePricing" in pricing ? pricing.timePricing : null;
+  const fixedOperationPricing =
+    "fixedOperationPricing" in pricing ? pricing.fixedOperationPricing : null;
+  const tieredOperationPricing =
+    "tieredOperationPricing" in pricing ? pricing.tieredOperationPricing : null;
+  return (
+    <div className="space-y-2 rounded border border-border/50 bg-surface-raised/70 p-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Field
+          label="Currency"
+          value={pricing.currency}
+          onChange={(currency) => onChange({ ...pricing, currency: currency.toUpperCase() })}
+          placeholder="USD"
+        />
+      </div>
+
+      {profile.billingMode === "token_metered" && tokenPricing && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <NumberField
+            label="Input / 1M"
+            value={tokenPricing.inputPer1M}
+            onChange={(next) =>
+              onChange({
+                ...pricing,
+                tokenPricing: { ...tokenPricing, inputPer1M: next }
+              })
+            }
+          />
+          <NumberField
+            label="Cached / 1M"
+            value={tokenPricing.cachedInputPer1M}
+            onChange={(next) =>
+              onChange({
+                ...pricing,
+                tokenPricing: { ...tokenPricing, cachedInputPer1M: next }
+              })
+            }
+          />
+          <NumberField
+            label="Output / 1M"
+            value={tokenPricing.outputPer1M}
+            onChange={(next) =>
+              onChange({
+                ...pricing,
+                tokenPricing: { ...tokenPricing, outputPer1M: next }
+              })
+            }
+          />
+        </div>
+      )}
+
+      {profile.billingMode === "time_metered" && timePricing && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <SelectField
+            label="Time unit"
+            value={timePricing.unit}
+            onChange={(unit) =>
+              onChange({
+                ...pricing,
+                timePricing: { ...timePricing, unit: unit as "second" | "minute" }
+              })
+            }
+            options={[
+              { value: "second", label: "Second" },
+              { value: "minute", label: "Minute" }
+            ]}
+          />
+          <NumberField
+            label="Price / unit"
+            value={timePricing.pricePerUnit}
+            onChange={(next) =>
+              onChange({
+                ...pricing,
+                timePricing: { ...timePricing, pricePerUnit: next }
+              })
+            }
+          />
+        </div>
+      )}
+
+      {profile.billingMode === "text_chars_metered" && "textCharsPricing" in pricing && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-1">
+          <NumberField
+            label="Price / 1M chars"
+            value={pricing.textCharsPricing.pricePer1MChars}
+            onChange={(next) =>
+              onChange({
+                ...pricing,
+                textCharsPricing: {
+                  ...pricing.textCharsPricing,
+                  pricePer1MChars: next
+                }
+              })
+            }
+          />
+        </div>
+      )}
+
+      {profile.billingMode === "fixed_operation" && fixedOperationPricing && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Field
+            label="Operation label"
+            value={fixedOperationPricing.unitLabel ?? ""}
+            onChange={(unitLabel) =>
+              onChange({
+                ...pricing,
+                fixedOperationPricing: {
+                  ...fixedOperationPricing,
+                  unitLabel: unitLabel.trim().length > 0 ? unitLabel : null
+                }
+              })
+            }
+            placeholder="render"
+          />
+          <NumberField
+            label="Price / operation"
+            value={fixedOperationPricing.pricePerOperation}
+            onChange={(next) =>
+              onChange({
+                ...pricing,
+                fixedOperationPricing: {
+                  ...fixedOperationPricing,
+                  pricePerOperation: next
+                }
+              })
+            }
+          />
+        </div>
+      )}
+
+      {profile.billingMode === "tiered_operation" && tieredOperationPricing && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Field
+              label="Tier unit label"
+              value={tieredOperationPricing.unitLabel ?? ""}
+              onChange={(unitLabel) =>
+                onChange({
+                  ...pricing,
+                  tieredOperationPricing: {
+                    ...tieredOperationPricing,
+                    unitLabel: unitLabel.trim().length > 0 ? unitLabel : null
+                  }
+                })
+              }
+              placeholder="image"
+            />
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() =>
+                  onChange({
+                    ...pricing,
+                    tieredOperationPricing: {
+                      ...tieredOperationPricing,
+                      tiers: [
+                        ...tieredOperationPricing.tiers,
+                        { label: "", matchValue: null, price: 0 }
+                      ]
+                    }
+                  })
+                }
+                className="rounded border border-border/60 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted hover:border-border-strong hover:text-text"
+              >
+                Add tier
+              </button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {tieredOperationPricing.tiers.map((tier, tierIndex) => (
+              <div
+                key={`${tier.label || "tier"}:${tierIndex}`}
+                className="grid grid-cols-1 gap-2 rounded border border-border/40 bg-background/60 p-2 sm:grid-cols-[1.2fr_1fr_1fr_auto]"
+              >
+                <Field
+                  label="Tier label"
+                  value={tier.label}
+                  onChange={(label) =>
+                    onChange({
+                      ...pricing,
+                      tieredOperationPricing: {
+                        ...tieredOperationPricing,
+                        tiers: tieredOperationPricing.tiers.map((entry, entryIndex) =>
+                          entryIndex === tierIndex ? { ...entry, label } : entry
+                        )
+                      }
+                    })
+                  }
+                  placeholder="hd"
+                />
+                <Field
+                  label="Match value"
+                  value={tier.matchValue ?? ""}
+                  onChange={(matchValue) =>
+                    onChange({
+                      ...pricing,
+                      tieredOperationPricing: {
+                        ...tieredOperationPricing,
+                        tiers: tieredOperationPricing.tiers.map((entry, entryIndex) =>
+                          entryIndex === tierIndex
+                            ? {
+                                ...entry,
+                                matchValue: matchValue.trim().length > 0 ? matchValue : null
+                              }
+                            : entry
+                        )
+                      }
+                    })
+                  }
+                  placeholder="1024x1024"
+                />
+                <NumberField
+                  label="Price"
+                  value={tier.price}
+                  onChange={(next) =>
+                    onChange({
+                      ...pricing,
+                      tieredOperationPricing: {
+                        ...tieredOperationPricing,
+                        tiers: tieredOperationPricing.tiers.map((entry, entryIndex) =>
+                          entryIndex === tierIndex ? { ...entry, price: next } : entry
+                        )
+                      }
+                    })
+                  }
+                />
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onChange({
+                        ...pricing,
+                        tieredOperationPricing: {
+                          ...tieredOperationPricing,
+                          tiers: tieredOperationPricing.tiers.filter(
+                            (_, entryIndex) => entryIndex !== tierIndex
+                          )
+                        }
+                      })
+                    }
+                    className="rounded border border-rose-500/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-700 hover:bg-rose-500/10 dark:text-rose-300"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+            {tieredOperationPricing.tiers.length === 0 && (
+              <p className="text-[10px] text-text-subtle">
+                Add tiers for size, quality, duration, or any other provider-billed variant.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Field({
   label,
   value,
@@ -911,12 +1859,43 @@ function Field({
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        aria-label={label}
         placeholder={placeholder}
         autoComplete={autoComplete}
         autoCorrect="off"
         autoCapitalize="off"
         spellCheck={false}
         className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+      />
+    </div>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  onChange,
+  step = "0.01"
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  step?: string;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-[10px] font-medium text-text-muted">{label}</label>
+      <input
+        type="number"
+        value={Number.isFinite(value) ? String(value) : "0"}
+        onChange={(event) => {
+          const nextValue =
+            event.target.value.trim().length === 0 ? 0 : Number.parseFloat(event.target.value);
+          onChange(Number.isFinite(nextValue) ? nextValue : 0);
+        }}
+        aria-label={label}
+        step={step}
+        className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-border-strong"
       />
     </div>
   );
@@ -939,6 +1918,7 @@ function TextareaField({
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        aria-label={label}
         placeholder={placeholder}
         rows={5}
         autoComplete="off"
@@ -968,6 +1948,7 @@ function SelectField({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        aria-label={label}
         className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-border-strong"
       >
         {options.map((option) => (

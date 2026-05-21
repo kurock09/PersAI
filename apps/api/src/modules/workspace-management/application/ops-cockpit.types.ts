@@ -1,4 +1,6 @@
 import type { RuntimeSandboxJobStatus, RuntimeSandboxPolicy } from "@persai/runtime-contract";
+import type { AdminOpsPeriodEconomicsSnapshot } from "./admin-ops-period-economics";
+import type { AdminModelCostLedgerWindowState } from "./model-cost-ledger-read-model";
 
 export type OpsIncidentSeverity = "info" | "elevated" | "high";
 
@@ -130,6 +132,8 @@ export type AdminOpsCockpitState = {
   quotaUsage: AdminOpsCockpitQuotaUsage | null;
   billingSupport: AdminOpsCockpitBillingSupport | null;
   chatStats: AdminOpsCockpitChatStats | null;
+  modelCostLedger: AdminModelCostLedgerWindowState | null;
+  periodEconomics: AdminOpsPeriodEconomicsSnapshot | null;
   channels: AdminOpsCockpitChannelBinding[];
   sandbox: AdminOpsCockpitSandbox | null;
   assistant: {

@@ -1,13 +1,24 @@
 import {
   RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA,
   DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+  RUNTIME_PROVIDER_BILLING_MODES,
   RUNTIME_PROVIDER_MODEL_CAPABILITIES,
   RUNTIME_PROVIDER_PROFILE_SCHEMA,
+  RUNTIME_PROVIDER_TIME_PRICE_UNITS,
+  createDefaultRuntimeProviderPriceMetadata,
   type ManagedRuntimeProvider,
   type RuntimeProviderAvailableModelsByProvider,
+  type RuntimeProviderBillingMode,
   type RuntimeProviderModelCapability,
   type RuntimeProviderModelCatalogByProvider,
   type RuntimeProviderModelProfile,
+  type RuntimeProviderPriceMetadata,
+  type RuntimeProviderTextCharsMeteredPriceConfig,
+  type RuntimeProviderTokenMeteredPriceConfig,
+  type RuntimeProviderTimeMeteredPriceConfig,
+  type RuntimeProviderFixedOperationPriceConfig,
+  type RuntimeProviderTieredOperationPriceConfig,
+  type RuntimeProviderTierPriceMetadata,
   type RuntimeProviderCredentialRefState,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
@@ -33,6 +44,8 @@ const MAX_ROUTER_OVERRIDE_ENTRY_LENGTH = 128;
 const MAX_MODEL_DISPLAY_LABEL_LENGTH = 128;
 const MAX_MODEL_NOTES_LENGTH = 512;
 const MAX_TOKEN_WEIGHT = 1_000_000;
+const MAX_PRICE_LABEL_LENGTH = 128;
+const MAX_TIER_COUNT = 16;
 
 export type PlatformRuntimeProviderSelection = {
   provider: ManagedRuntimeProvider;
@@ -330,13 +343,19 @@ export function normalizeAvailableModelCatalogByProvider(
 function deriveAvailableModelsFromProfileCatalog(
   catalog: RuntimeProviderModelCatalogByProvider
 ): RuntimeProviderAvailableModelsByProvider {
+  const collectActiveChatModels = (profiles: RuntimeProviderModelProfile[]): string[] => {
+    const deduped = new Set<string>();
+    for (const profile of profiles) {
+      if (!profile.active || !profile.capabilities.includes("chat")) {
+        continue;
+      }
+      deduped.add(profile.model);
+    }
+    return Array.from(deduped);
+  };
   return {
-    openai: catalog.openai.models
-      .filter((profile) => profile.capabilities.includes("chat"))
-      .map((profile) => profile.model),
-    anthropic: catalog.anthropic.models
-      .filter((profile) => profile.capabilities.includes("chat"))
-      .map((profile) => profile.model)
+    openai: collectActiveChatModels(catalog.openai.models),
+    anthropic: collectActiveChatModels(catalog.anthropic.models)
   };
 }
 
@@ -351,7 +370,9 @@ function normalizeCapabilityList(value: unknown, path: string): RuntimeProviderM
   const deduped = new Set<RuntimeProviderModelCapability>();
   for (const [index, entry] of value.entries()) {
     if (!isCapability(entry)) {
-      throw new Error(`${path}[${String(index)}] must be one of: chat, image, video.`);
+      throw new Error(
+        `${path}[${String(index)}] must be one of: ${RUNTIME_PROVIDER_MODEL_CAPABILITIES.join(", ")}.`
+      );
     }
     deduped.add(entry);
   }
@@ -392,23 +413,276 @@ function normalizeOptionalBoundedString(
   return normalized;
 }
 
-function normalizeProviderPriceMetadata(
-  value: unknown,
-  path: string
-): Record<string, unknown> | null {
+function normalizeIsoDateTimeOrNull(value: unknown, path: string): string | null {
   if (value === undefined || value === null) {
     return null;
   }
-  const row = asObject(value);
-  if (row === null) {
-    throw new Error(`${path} must be an object when provided.`);
+  const normalized = asNonEmptyString(value);
+  if (normalized === null) {
+    return null;
   }
-  return row;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${path} must be a valid ISO date-time when provided.`);
+  }
+  return parsed.toISOString();
+}
+
+function normalizeBillingMode(value: unknown, path: string): RuntimeProviderBillingMode {
+  if (
+    value === "token_metered" ||
+    value === "time_metered" ||
+    value === "text_chars_metered" ||
+    value === "fixed_operation" ||
+    value === "tiered_operation"
+  ) {
+    return value;
+  }
+  throw new Error(`${path} must be one of: ${RUNTIME_PROVIDER_BILLING_MODES.join(", ")}.`);
+}
+
+function normalizeCurrencyCode(value: unknown, path: string): string {
+  const normalized = asNonEmptyString(value)?.toUpperCase() ?? "USD";
+  if (!/^[A-Z]{3}$/.test(normalized)) {
+    throw new Error(`${path} must be a 3-letter currency code.`);
+  }
+  return normalized;
+}
+
+function normalizePriceNumber(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${path} must be a non-negative number.`);
+  }
+  return value;
+}
+
+function normalizeTimePriceUnit(
+  value: unknown,
+  path: string
+): (typeof RUNTIME_PROVIDER_TIME_PRICE_UNITS)[number] {
+  if (value === "second" || value === "minute") {
+    return value;
+  }
+  throw new Error(`${path} must be one of: ${RUNTIME_PROVIDER_TIME_PRICE_UNITS.join(", ")}.`);
+}
+
+function normalizeTieredPriceEntries(
+  value: unknown,
+  path: string
+): RuntimeProviderTierPriceMetadata[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${path} must be an array.`);
+  }
+  if (value.length > MAX_TIER_COUNT) {
+    throw new Error(`${path} must contain at most ${String(MAX_TIER_COUNT)} tiers.`);
+  }
+  return value.map((entry, index) => {
+    const row = asObject(entry);
+    const entryPath = `${path}[${String(index)}]`;
+    if (row === null) {
+      throw new Error(`${entryPath} must be an object.`);
+    }
+    const label = normalizeOptionalBoundedString(
+      row.label,
+      `${entryPath}.label`,
+      MAX_PRICE_LABEL_LENGTH
+    );
+    if (label === null) {
+      throw new Error(`${entryPath}.label is required.`);
+    }
+    return {
+      label,
+      matchValue: normalizeOptionalBoundedString(
+        row.matchValue,
+        `${entryPath}.matchValue`,
+        MAX_PRICE_LABEL_LENGTH
+      ),
+      price: normalizePriceNumber(row.price, `${entryPath}.price`)
+    };
+  });
+}
+
+function hasNonNullValue(value: unknown): boolean {
+  return value !== undefined && value !== null;
+}
+
+function assertNoConflictingPriceMetadataBranches(
+  row: Record<string, unknown>,
+  path: string,
+  billingMode: RuntimeProviderBillingMode
+): void {
+  const branchPaths: Record<RuntimeProviderBillingMode, string[]> = {
+    token_metered: [
+      "timePricing",
+      "textCharsPricing",
+      "fixedOperationPricing",
+      "tieredOperationPricing"
+    ],
+    time_metered: [
+      "tokenPricing",
+      "textCharsPricing",
+      "fixedOperationPricing",
+      "tieredOperationPricing"
+    ],
+    text_chars_metered: [
+      "tokenPricing",
+      "timePricing",
+      "fixedOperationPricing",
+      "tieredOperationPricing"
+    ],
+    fixed_operation: ["tokenPricing", "timePricing", "textCharsPricing", "tieredOperationPricing"],
+    tiered_operation: ["tokenPricing", "timePricing", "textCharsPricing", "fixedOperationPricing"]
+  };
+  for (const branchKey of branchPaths[billingMode]) {
+    if (hasNonNullValue(row[branchKey])) {
+      throw new Error(`${path}.${branchKey} is not allowed when billingMode is ${billingMode}.`);
+    }
+  }
+}
+
+function normalizeProviderPriceMetadata(
+  value: unknown,
+  path: string,
+  billingMode: "token_metered"
+): RuntimeProviderTokenMeteredPriceConfig;
+function normalizeProviderPriceMetadata(
+  value: unknown,
+  path: string,
+  billingMode: "time_metered"
+): RuntimeProviderTimeMeteredPriceConfig;
+function normalizeProviderPriceMetadata(
+  value: unknown,
+  path: string,
+  billingMode: "text_chars_metered"
+): RuntimeProviderTextCharsMeteredPriceConfig;
+function normalizeProviderPriceMetadata(
+  value: unknown,
+  path: string,
+  billingMode: "fixed_operation"
+): RuntimeProviderFixedOperationPriceConfig;
+function normalizeProviderPriceMetadata(
+  value: unknown,
+  path: string,
+  billingMode: "tiered_operation"
+): RuntimeProviderTieredOperationPriceConfig;
+function normalizeProviderPriceMetadata(
+  value: unknown,
+  path: string,
+  billingMode: RuntimeProviderBillingMode
+): RuntimeProviderPriceMetadata {
+  const row = asObject(value ?? null);
+  if (row === null) {
+    return createDefaultRuntimeProviderPriceMetadata(billingMode);
+  }
+  assertNoConflictingPriceMetadataBranches(row, path, billingMode);
+  const currency = normalizeCurrencyCode(row.currency, `${path}.currency`);
+
+  switch (billingMode) {
+    case "token_metered": {
+      const defaults = createDefaultRuntimeProviderPriceMetadata("token_metered");
+      const tokenPricingRow = asObject(row.tokenPricing);
+      return {
+        currency,
+        tokenPricing:
+          tokenPricingRow === null
+            ? defaults.tokenPricing
+            : {
+                inputPer1M: normalizePriceNumber(
+                  tokenPricingRow.inputPer1M,
+                  `${path}.tokenPricing.inputPer1M`
+                ),
+                cachedInputPer1M: normalizePriceNumber(
+                  tokenPricingRow.cachedInputPer1M,
+                  `${path}.tokenPricing.cachedInputPer1M`
+                ),
+                outputPer1M: normalizePriceNumber(
+                  tokenPricingRow.outputPer1M,
+                  `${path}.tokenPricing.outputPer1M`
+                )
+              }
+      };
+    }
+    case "time_metered": {
+      const defaults = createDefaultRuntimeProviderPriceMetadata("time_metered");
+      const timePricingRow = asObject(row.timePricing);
+      return {
+        currency,
+        timePricing:
+          timePricingRow === null
+            ? defaults.timePricing
+            : {
+                unit: normalizeTimePriceUnit(timePricingRow.unit, `${path}.timePricing.unit`),
+                pricePerUnit: normalizePriceNumber(
+                  timePricingRow.pricePerUnit,
+                  `${path}.timePricing.pricePerUnit`
+                )
+              }
+      };
+    }
+    case "text_chars_metered": {
+      const defaults = createDefaultRuntimeProviderPriceMetadata("text_chars_metered");
+      const textCharsPricingRow = asObject(row.textCharsPricing);
+      return {
+        currency,
+        textCharsPricing:
+          textCharsPricingRow === null
+            ? defaults.textCharsPricing
+            : {
+                pricePer1MChars: normalizePriceNumber(
+                  textCharsPricingRow.pricePer1MChars,
+                  `${path}.textCharsPricing.pricePer1MChars`
+                )
+              }
+      };
+    }
+    case "fixed_operation": {
+      const defaults = createDefaultRuntimeProviderPriceMetadata("fixed_operation");
+      const fixedOperationPricingRow = asObject(row.fixedOperationPricing);
+      return {
+        currency,
+        fixedOperationPricing:
+          fixedOperationPricingRow === null
+            ? defaults.fixedOperationPricing
+            : {
+                unitLabel: normalizeOptionalBoundedString(
+                  fixedOperationPricingRow.unitLabel,
+                  `${path}.fixedOperationPricing.unitLabel`,
+                  MAX_PRICE_LABEL_LENGTH
+                ),
+                pricePerOperation: normalizePriceNumber(
+                  fixedOperationPricingRow.pricePerOperation,
+                  `${path}.fixedOperationPricing.pricePerOperation`
+                )
+              }
+      };
+    }
+    case "tiered_operation": {
+      const defaults = createDefaultRuntimeProviderPriceMetadata("tiered_operation");
+      const tieredOperationPricingRow = asObject(row.tieredOperationPricing);
+      return {
+        currency,
+        tieredOperationPricing:
+          tieredOperationPricingRow === null
+            ? defaults.tieredOperationPricing
+            : {
+                unitLabel: normalizeOptionalBoundedString(
+                  tieredOperationPricingRow.unitLabel,
+                  `${path}.tieredOperationPricing.unitLabel`,
+                  MAX_PRICE_LABEL_LENGTH
+                ),
+                tiers: normalizeTieredPriceEntries(
+                  tieredOperationPricingRow.tiers,
+                  `${path}.tieredOperationPricing.tiers`
+                )
+              }
+      };
+    }
+  }
 }
 
 function normalizeModelProfiles(value: unknown[], path: string): RuntimeProviderModelProfile[] {
   const result: RuntimeProviderModelProfile[] = [];
-  const seen = new Set<string>();
+  const activeModels = new Set<string>();
   for (const [index, entry] of value.entries()) {
     const row = asObject(entry);
     const entryPath = `${path}[${String(index)}]`;
@@ -416,13 +690,41 @@ function normalizeModelProfiles(value: unknown[], path: string): RuntimeProvider
       throw new Error(`${entryPath} must be an object.`);
     }
     const model = normalizeModel(row.model ?? row.modelKey, `${entryPath}.model`);
-    if (seen.has(model)) {
-      throw new Error(`${entryPath}.model duplicates an earlier model profile.`);
+    const active =
+      row.active === undefined ? true : normalizeBoolean(row.active, `${entryPath}.active`);
+    if (active && activeModels.has(model)) {
+      throw new Error(
+        `${entryPath}.model duplicates another active profile for the same provider model.`
+      );
     }
-    seen.add(model);
-    result.push({
+    if (active) {
+      activeModels.add(model);
+    }
+    const capabilities = normalizeCapabilityList(row.capabilities, `${entryPath}.capabilities`);
+    const billingMode =
+      row.billingMode === undefined
+        ? capabilities.includes("chat")
+          ? "token_metered"
+          : "fixed_operation"
+        : normalizeBillingMode(row.billingMode, `${entryPath}.billingMode`);
+    const effectiveFrom = normalizeIsoDateTimeOrNull(
+      row.effectiveFrom,
+      `${entryPath}.effectiveFrom`
+    );
+    const effectiveTo = normalizeIsoDateTimeOrNull(row.effectiveTo, `${entryPath}.effectiveTo`);
+    if (
+      effectiveFrom !== null &&
+      effectiveTo !== null &&
+      new Date(effectiveTo).getTime() < new Date(effectiveFrom).getTime()
+    ) {
+      throw new Error(`${entryPath}.effectiveTo must be greater than or equal to effectiveFrom.`);
+    }
+    const base = {
       model,
-      capabilities: normalizeCapabilityList(row.capabilities, `${entryPath}.capabilities`),
+      capabilities,
+      active,
+      effectiveFrom,
+      effectiveTo,
       inputTokenWeight: normalizeTokenWeight(row.inputTokenWeight, `${entryPath}.inputTokenWeight`),
       cachedInputTokenWeight: normalizeTokenWeight(
         row.cachedInputTokenWeight,
@@ -437,16 +739,65 @@ function normalizeModelProfiles(value: unknown[], path: string): RuntimeProvider
         `${entryPath}.displayLabel`,
         MAX_MODEL_DISPLAY_LABEL_LENGTH
       ),
-      notes: normalizeOptionalBoundedString(
-        row.notes,
-        `${entryPath}.notes`,
-        MAX_MODEL_NOTES_LENGTH
-      ),
-      providerPriceMetadata: normalizeProviderPriceMetadata(
-        row.providerPriceMetadata,
-        `${entryPath}.providerPriceMetadata`
-      )
-    });
+      notes: normalizeOptionalBoundedString(row.notes, `${entryPath}.notes`, MAX_MODEL_NOTES_LENGTH)
+    };
+    switch (billingMode) {
+      case "token_metered":
+        result.push({
+          ...base,
+          billingMode,
+          providerPriceMetadata: normalizeProviderPriceMetadata(
+            row.providerPriceMetadata,
+            `${entryPath}.providerPriceMetadata`,
+            "token_metered"
+          )
+        });
+        break;
+      case "time_metered":
+        result.push({
+          ...base,
+          billingMode,
+          providerPriceMetadata: normalizeProviderPriceMetadata(
+            row.providerPriceMetadata,
+            `${entryPath}.providerPriceMetadata`,
+            "time_metered"
+          )
+        });
+        break;
+      case "text_chars_metered":
+        result.push({
+          ...base,
+          billingMode,
+          providerPriceMetadata: normalizeProviderPriceMetadata(
+            row.providerPriceMetadata,
+            `${entryPath}.providerPriceMetadata`,
+            "text_chars_metered"
+          )
+        });
+        break;
+      case "fixed_operation":
+        result.push({
+          ...base,
+          billingMode,
+          providerPriceMetadata: normalizeProviderPriceMetadata(
+            row.providerPriceMetadata,
+            `${entryPath}.providerPriceMetadata`,
+            "fixed_operation"
+          )
+        });
+        break;
+      case "tiered_operation":
+        result.push({
+          ...base,
+          billingMode,
+          providerPriceMetadata: normalizeProviderPriceMetadata(
+            row.providerPriceMetadata,
+            `${entryPath}.providerPriceMetadata`,
+            "tiered_operation"
+          )
+        });
+        break;
+    }
     if (result.length > MAX_MODELS_PER_PROVIDER) {
       throw new Error(`${path} must contain at most ${String(MAX_MODELS_PER_PROVIDER)} models.`);
     }
@@ -458,16 +809,35 @@ function createDefaultModelProfiles(
   models: string[],
   capabilities: RuntimeProviderModelCapability[]
 ): RuntimeProviderModelProfile[] {
-  return models.map((model) => ({
-    model,
-    capabilities,
-    inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
-    cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
-    outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
-    displayLabel: null,
-    notes: null,
-    providerPriceMetadata: null
-  }));
+  const billingMode: RuntimeProviderBillingMode = capabilities.includes("chat")
+    ? "token_metered"
+    : "fixed_operation";
+  return models.map((model) => {
+    const base = {
+      model,
+      capabilities,
+      active: true,
+      effectiveFrom: null,
+      effectiveTo: null,
+      inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+      cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+      outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+      displayLabel: null,
+      notes: null
+    };
+    if (billingMode === "token_metered") {
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("token_metered")
+      };
+    }
+    return {
+      ...base,
+      billingMode: "fixed_operation",
+      providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("fixed_operation")
+    };
+  });
 }
 
 function normalizeLegacyCapabilityCatalog(
@@ -487,16 +857,36 @@ function normalizeLegacyCapabilityCatalog(
   append(chat.length > 0 ? chat : chatFallback, "chat");
   append(normalizeAvailableModelList(providerRow.image ?? [], `${path}.image`), "image");
   append(normalizeAvailableModelList(providerRow.video ?? [], `${path}.video`), "video");
-  return Array.from(byModel.entries()).map(([model, capabilities]) => ({
-    model,
-    capabilities: Array.from(capabilities),
-    inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
-    cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
-    outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
-    displayLabel: null,
-    notes: null,
-    providerPriceMetadata: null
-  }));
+  return Array.from(byModel.entries()).map(([model, capabilities]) => {
+    const capabilityList = Array.from(capabilities);
+    const billingMode: RuntimeProviderBillingMode = capabilities.has("chat")
+      ? "token_metered"
+      : "fixed_operation";
+    const base = {
+      model,
+      capabilities: capabilityList,
+      active: true,
+      effectiveFrom: null,
+      effectiveTo: null,
+      inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+      cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+      outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+      displayLabel: null,
+      notes: null
+    };
+    if (billingMode === "token_metered") {
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("token_metered")
+      };
+    }
+    return {
+      ...base,
+      billingMode: "fixed_operation",
+      providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("fixed_operation")
+    };
+  });
 }
 
 function assertSelectionInCatalog(params: {

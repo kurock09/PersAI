@@ -36,6 +36,7 @@ function createHarness(options?: {
   const vectorReplaces: unknown[] = [];
   const vectorDeletes: Array<{ sourceType: string; sourceId: string }> = [];
   const processCalls: Array<{ sourceType: string; sourceId: string; processorMode: string }> = [];
+  const ledgerCalls: Array<Record<string, unknown>> = [];
 
   const baseSource = {
     id: sourceId,
@@ -298,23 +299,34 @@ function createHarness(options?: {
           reasonCodes: options?.qualityStatus === "needs_review" ? ["garbage_text_ratio_high"] : [],
           textChars: 24
         };
-        return [
-          {
-            chunkIndex: 0,
-            locator: "p1",
-            content: "Indexable knowledge text",
-            embeddingModelKey: embeddingModelKey ?? null,
-            embeddingVector: embeddingModelKey === null ? null : [0.1, 0.2],
-            embeddingGeneratedAt: embeddingModelKey === null ? null : now,
-            metadata: { sourceType: source.sourceType },
-            provider: {
-              providerKey: "local",
-              processorMode: "auto",
-              attemptedProviderKeys: ["local"]
-            },
-            quality
-          }
-        ];
+        return {
+          chunks: [
+            {
+              chunkIndex: 0,
+              locator: "p1",
+              content: "Indexable knowledge text",
+              embeddingModelKey: embeddingModelKey ?? null,
+              embeddingVector: embeddingModelKey === null ? null : [0.1, 0.2],
+              embeddingGeneratedAt: embeddingModelKey === null ? null : now,
+              metadata: { sourceType: source.sourceType },
+              provider: {
+                providerKey: "local",
+                processorMode: "auto",
+                attemptedProviderKeys: ["local"]
+              },
+              quality
+            }
+          ],
+          embeddingUsage:
+            embeddingModelKey === null
+              ? null
+              : {
+                  providerKey: "openai",
+                  modelKey: embeddingModelKey,
+                  inputTokens: 42,
+                  totalTokens: 42
+                }
+        };
       }
     } as never,
     {
@@ -329,11 +341,18 @@ function createHarness(options?: {
         vectorDeletes.push(input);
       },
       searchNearest: async () => []
+    } as never,
+    {
+      async recordKnowledgeIndexingEmbeddingEvent(input: Record<string, unknown>) {
+        ledgerCalls.push(input);
+        return 1;
+      }
     } as never
   );
 
   return {
     service,
+    ledgerCalls,
     jobs,
     source: () => tableForSource().get(sourceId),
     assistantChunks,
@@ -358,6 +377,11 @@ async function runSuccessfulAssistantJob(): Promise<void> {
   assert.equal(harness.source()?.chunkCount, 1);
   assert.equal(harness.assistantChunks.length, 1);
   assert.equal(harness.vectorReplaces.length, 1);
+  assert.equal(harness.ledgerCalls.length, 1);
+  assert.equal(harness.ledgerCalls[0]?.modelKey, "text-embedding-3-small");
+  assert.equal(harness.ledgerCalls[0]?.workspaceId, "ws-1");
+  assert.equal(harness.ledgerCalls[0]?.sourceEventId, "knowledge_indexing_job:job-1");
+  assert.equal(harness.ledgerCalls[0]?.inputTokens, 42);
 }
 
 async function runFailureRetryAndExhaustion(): Promise<void> {

@@ -29,6 +29,7 @@ import {
 import { BackgroundSchedulerMetricsService } from "./background-scheduler-metrics.service";
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
+import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 
 type FailJobContext = {
   sourceUserMessageText: string;
@@ -71,6 +72,7 @@ type MediaJobRequestPayload = {
 type ClaimedMediaJob = {
   id: string;
   assistantId: string;
+  userId: string;
   workspaceId: string;
   chatId: string;
   surface: "web" | "telegram";
@@ -117,7 +119,8 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     private readonly assistantMediaJobCompletionDeliveryService: AssistantMediaJobCompletionDeliveryService,
     private readonly assistantMediaJobCompletionTurnService: AssistantMediaJobCompletionTurnService,
     private readonly schedulerLeaseService: SchedulerLeaseService,
-    private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService
+    private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
   ) {}
 
   onModuleInit(): void {
@@ -253,6 +256,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         Array<{
           id: string;
           assistantId: string;
+          userId: string;
           workspaceId: string;
           chatId: string;
           surface: "web" | "telegram";
@@ -311,9 +315,13 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
             lastErrorMessage: null
           }
         });
+        if (typeof row.userId !== "string" || row.userId.length === 0) {
+          continue;
+        }
         claimed.push({
           id: row.id,
           assistantId: row.assistantId,
+          userId: row.userId,
           workspaceId: row.workspaceId,
           chatId: row.chatId,
           surface: row.surface,
@@ -421,6 +429,10 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         status: "completion_pending",
         resultText: outcome.result.assistantText,
         artifactsJson: outcome.result.artifacts as unknown as Prisma.InputJsonValue,
+        billingFactsJson:
+          outcome.result.billingFacts === null
+            ? Prisma.DbNull
+            : (outcome.result.billingFacts as unknown as Prisma.InputJsonValue),
         completedAt: new Date(),
         nextRetryAt: null,
         schedulerClaimToken: null,
@@ -430,6 +442,24 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         lastErrorMessage: null
       }
     });
+
+    if (outcome.result.billingFacts !== null) {
+      try {
+        await this.recordModelCostLedgerService.recordPersistedBillingFactsEvent({
+          workspaceId: job.workspaceId,
+          assistantId: job.assistantId,
+          userId: job.userId,
+          surface: job.surface,
+          source: "media_job_completion",
+          sourceEventId: `media_job:${job.id}`,
+          billingFacts: outcome.result.billingFacts
+        });
+      } catch (error) {
+        this.logger.warn(
+          `media_job_ledger_append_failed jobId=${job.id} message=${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
   }
 
   private async handleFailedExecution(

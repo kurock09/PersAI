@@ -14,18 +14,23 @@ export class KnowledgeEmbeddingService {
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService
   ) {}
 
-  async generateEmbeddings(params: {
-    modelKey: string | null;
-    texts: string[];
-  }): Promise<Array<number[] | null>> {
+  async generateEmbeddings(params: { modelKey: string | null; texts: string[] }): Promise<{
+    embeddings: Array<number[] | null>;
+    usage: {
+      providerKey: "openai";
+      modelKey: string;
+      inputTokens: number;
+      totalTokens: number;
+    } | null;
+  }> {
     const normalizedTexts = params.texts.map((text) => text.trim());
     if (params.modelKey === null || normalizedTexts.length === 0) {
-      return normalizedTexts.map(() => null);
+      return { embeddings: normalizedTexts.map(() => null), usage: null };
     }
 
     const apiKey = await this.resolveEmbeddingApiKey();
     if (apiKey === null) {
-      return normalizedTexts.map(() => null);
+      return { embeddings: normalizedTexts.map(() => null), usage: null };
     }
 
     const controller = new AbortController();
@@ -56,18 +61,40 @@ export class KnowledgeEmbeddingService {
 
       const payload = (await response.json()) as {
         data?: Array<{ embedding?: unknown }>;
+        usage?: { prompt_tokens?: unknown; total_tokens?: unknown };
       };
       const rows = payload.data ?? [];
-      return normalizedTexts.map((_, index) => {
-        const embedding = rows[index]?.embedding;
-        return Array.isArray(embedding) && embedding.every((value) => typeof value === "number")
-          ? (embedding as number[])
-          : null;
-      });
+      const promptTokens =
+        typeof payload.usage?.prompt_tokens === "number" &&
+        Number.isFinite(payload.usage.prompt_tokens)
+          ? Math.max(0, Math.floor(payload.usage.prompt_tokens))
+          : 0;
+      const totalTokens =
+        typeof payload.usage?.total_tokens === "number" &&
+        Number.isFinite(payload.usage.total_tokens)
+          ? Math.max(0, Math.floor(payload.usage.total_tokens))
+          : promptTokens;
+      return {
+        embeddings: normalizedTexts.map((_, index) => {
+          const embedding = rows[index]?.embedding;
+          return Array.isArray(embedding) && embedding.every((value) => typeof value === "number")
+            ? (embedding as number[])
+            : null;
+        }),
+        usage:
+          promptTokens > 0 || totalTokens > 0
+            ? {
+                providerKey: "openai",
+                modelKey: params.modelKey,
+                inputTokens: promptTokens,
+                totalTokens
+              }
+            : null
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Knowledge embedding request failed: ${message}`);
-      return normalizedTexts.map(() => null);
+      return { embeddings: normalizedTexts.map(() => null), usage: null };
     } finally {
       clearTimeout(timeoutId);
     }

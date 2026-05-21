@@ -30,6 +30,18 @@ export type IndexedKnowledgeChunkDraft = KnowledgeChunkDraft & {
   quality: KnowledgeExtractionQuality | null;
 };
 
+export type KnowledgeIndexingEmbeddingUsage = {
+  providerKey: "openai";
+  modelKey: string;
+  inputTokens: number;
+  totalTokens: number;
+};
+
+export type KnowledgeIndexingBuildResult = {
+  chunks: IndexedKnowledgeChunkDraft[];
+  embeddingUsage: KnowledgeIndexingEmbeddingUsage | null;
+};
+
 @Injectable()
 export class KnowledgeIndexingService {
   constructor(
@@ -43,12 +55,7 @@ export class KnowledgeIndexingService {
     originalFilename: string;
     embeddingModelKey?: string | null;
   }): Promise<IndexedKnowledgeChunkDraft[]> {
-    const request: {
-      source: NormalizedKnowledgeSource;
-      content: KnowledgeDocumentContent;
-      processorMode: KnowledgeDocumentProcessorMode;
-      embeddingModelKey?: string | null;
-    } = {
+    const built = await this.buildIndexedChunksForSourceInternal({
       source: buildUploadCompatibilitySource(params),
       content: {
         kind: "bytes",
@@ -57,12 +64,12 @@ export class KnowledgeIndexingService {
         originalFilename: params.originalFilename,
         sizeBytes: params.buffer.length
       },
-      processorMode: "local"
-    };
-    if (params.embeddingModelKey !== undefined) {
-      request.embeddingModelKey = params.embeddingModelKey;
-    }
-    return this.buildIndexedChunksForSource(request);
+      processorMode: "local",
+      ...(params.embeddingModelKey === undefined
+        ? {}
+        : { embeddingModelKey: params.embeddingModelKey })
+    });
+    return built.chunks;
   }
 
   async buildIndexedChunksForSource(params: {
@@ -70,7 +77,16 @@ export class KnowledgeIndexingService {
     content: KnowledgeDocumentContent;
     processorMode?: KnowledgeDocumentProcessorMode;
     embeddingModelKey?: string | null;
-  }): Promise<IndexedKnowledgeChunkDraft[]> {
+  }): Promise<KnowledgeIndexingBuildResult> {
+    return this.buildIndexedChunksForSourceInternal(params);
+  }
+
+  private async buildIndexedChunksForSourceInternal(params: {
+    source: NormalizedKnowledgeSource;
+    content: KnowledgeDocumentContent;
+    processorMode?: KnowledgeDocumentProcessorMode;
+    embeddingModelKey?: string | null;
+  }): Promise<KnowledgeIndexingBuildResult> {
     const processingInput = {
       source: params.source,
       content: params.content
@@ -103,21 +119,24 @@ export class KnowledgeIndexingService {
       );
     }
     const embeddingModelKey = params.embeddingModelKey?.trim() || null;
-    const embeddings = await this.knowledgeEmbeddingService.generateEmbeddings({
+    const embeddingResult = await this.knowledgeEmbeddingService.generateEmbeddings({
       modelKey: embeddingModelKey,
       texts: chunks.map((chunk) => chunk.content)
     });
     const generatedAt = embeddingModelKey === null ? null : new Date();
 
-    return chunks.map((chunk, index) => ({
-      ...chunk,
-      embeddingModelKey: embeddings[index] === null ? null : embeddingModelKey,
-      embeddingVector: embeddings[index] ?? null,
-      embeddingGeneratedAt: embeddings[index] === null ? null : generatedAt,
-      metadata: processed.metadata ?? null,
-      provider: processed.provider,
-      quality: processed.quality
-    }));
+    return {
+      chunks: chunks.map((chunk, index) => ({
+        ...chunk,
+        embeddingModelKey: embeddingResult.embeddings[index] === null ? null : embeddingModelKey,
+        embeddingVector: embeddingResult.embeddings[index] ?? null,
+        embeddingGeneratedAt: embeddingResult.embeddings[index] === null ? null : generatedAt,
+        metadata: processed.metadata ?? null,
+        provider: processed.provider,
+        quality: processed.quality
+      })),
+      embeddingUsage: embeddingResult.usage
+    };
   }
 }
 

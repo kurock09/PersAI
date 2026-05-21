@@ -666,6 +666,7 @@ model Workspace {
   subscriptionBillingEvents         WorkspaceSubscriptionBillingEvent[]
   paymentIntents                    WorkspacePaymentIntent[]
   mediaJobs                         AssistantMediaJob[]
+  voiceTranscriptionEvents          AssistantVoiceTranscriptionEvent[]
   documents                         AssistantDocument[]
   documentVersions                  AssistantDocumentVersion[]
   documentRenderJobs                AssistantDocumentRenderJob[]
@@ -774,6 +775,7 @@ model Assistant {
   backgroundCompactionJobs             AssistantBackgroundCompactionJob[]
   webChatTurnAttempts                  AssistantWebChatTurnAttempt[]
   mediaJobs                            AssistantMediaJob[]
+  voiceTranscriptionEvents             AssistantVoiceTranscriptionEvent[]
   telegramAlbumCollectors              AssistantTelegramAlbumCollector[]
   documents                            AssistantDocument[]
   documentVersions                     AssistantDocumentVersion[]
@@ -1435,6 +1437,53 @@ model WorkspaceQuotaUsageEvent {
   @@map("workspace_quota_usage_events")
 }
 
+model ModelCostLedgerEvent {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId          String?  @map("workspace_id") @db.Uuid
+  assistantId          String?  @map("assistant_id") @db.Uuid
+  userId               String?  @map("user_id") @db.Uuid
+  provider             String   @db.VarChar(64)
+  model                String   @db.VarChar(256)
+  capability           String   @db.VarChar(64)
+  purpose              String   @db.VarChar(64)
+  surface              String   @db.VarChar(64)
+  source               String   @db.VarChar(64)
+  billingMode          String   @map("billing_mode") @db.VarChar(64)
+  rawUsage             Json     @map("raw_usage") @db.JsonB
+  actualCostMicros     BigInt   @default(0) @map("actual_cost_micros")
+  currency             String   @db.Char(3)
+  priceCatalogVersion  String   @map("price_catalog_version") @db.VarChar(128)
+  priceCatalogSnapshot Json     @map("price_catalog_snapshot") @db.JsonB
+  sourceEventId        String?  @map("source_event_id") @db.VarChar(128)
+  requestCorrelationId String?  @map("request_correlation_id") @db.VarChar(128)
+  occurredAt           DateTime @map("occurred_at") @db.Timestamptz(6)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([workspaceId, occurredAt(sort: Desc)])
+  @@index([workspaceId, purpose, occurredAt(sort: Desc)])
+  @@index([provider, model, occurredAt(sort: Desc)])
+  @@map("model_cost_ledger_events")
+}
+
+model AssistantVoiceTranscriptionEvent {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId        String    @map("assistant_id") @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  workspaceId        String    @map("workspace_id") @db.Uuid
+  surface            String    @db.VarChar(64)
+  billingFactsJson   Json?     @map("billing_facts_json") @db.JsonB
+  mimeType           String?   @map("mime_type") @db.VarChar(255)
+  originalFilename   String?   @map("original_filename") @db.VarChar(255)
+  occurredAt         DateTime  @map("occurred_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant          Assistant @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([workspaceId, occurredAt(sort: Desc)])
+  @@index([assistantId, occurredAt(sort: Desc)])
+  @@map("assistant_voice_transcription_events")
+}
+
 model WorkspaceToolUsageDailyCounter {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   workspaceId String    @map("workspace_id") @db.Uuid
@@ -1769,6 +1818,7 @@ model AssistantChatMessageAttachment {
   height             Int?
   processingStatus   AttachmentProcessingStatus @default(ready) @map("processing_status")
   transcription      String?                    @db.Text
+  billingFactsJson   Json?                      @map("billing_facts_json") @db.JsonB
   metadata           Json?                      @db.JsonB
   clientTurnId       String?                    @map("client_turn_id") @db.VarChar(128)
   clientAttachmentId String?                    @map("client_attachment_id") @db.VarChar(128)
@@ -1840,6 +1890,8 @@ model AssistantMediaJob {
   requestJson                       Json?                    @map("request_json") @db.JsonB
   resultText                        String?                  @map("result_text") @db.Text
   artifactsJson                     Json?                    @map("artifacts_json") @db.JsonB
+  billingFactsJson                  Json?                    @map("billing_facts_json") @db.JsonB
+  completionUsageJson               Json?                    @map("completion_usage_json") @db.JsonB
   lastErrorCode                     String?                  @map("last_error_code") @db.VarChar(128)
   lastErrorMessage                  String?                  @map("last_error_message") @db.Text
   attemptCount                      Int                      @default(0) @map("attempt_count")
@@ -1968,6 +2020,7 @@ model AssistantDocumentRenderJob {
   sourceUserMessageId               String?                          @map("source_user_message_id") @db.Uuid
   requestJson                       Json?                            @map("request_json") @db.JsonB
   providerStatusJson                Json?                            @map("provider_status_json") @db.JsonB
+  completionUsageJson               Json?                            @map("completion_usage_json") @db.JsonB
   lastErrorCode                     String?                          @map("last_error_code") @db.VarChar(128)
   lastErrorMessage                  String?                          @map("last_error_message") @db.Text
   attemptCount                      Int                              @default(0) @map("attempt_count")

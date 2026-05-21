@@ -171,7 +171,8 @@ export class RuntimeTtsToolService {
           provider: providerResult.provider,
           deliveryKind: providerResult.deliveryKind,
           bytesBase64: providerResult.bytesBase64,
-          mimeType: providerResult.mimeType
+          mimeType: providerResult.mimeType,
+          billingFacts: providerResult.billingFacts
         });
         return {
           payload: {
@@ -280,6 +281,7 @@ export class RuntimeTtsToolService {
     deliveryKind: PersaiRuntimeTtsDeliveryKind;
     bytesBase64: string;
     mimeType: string;
+    billingFacts: RuntimeOutputArtifact["billingFacts"];
   }): Promise<RuntimeOutputArtifact> {
     if (!input.mimeType.startsWith("audio/")) {
       throw new Error(`Speech provider returned unsupported MIME type "${input.mimeType}".`);
@@ -325,7 +327,8 @@ export class RuntimeTtsToolService {
       mimeType: stored.mimeType,
       filename,
       sizeBytes: stored.sizeBytes,
-      voiceNote: input.deliveryKind === "voice_note"
+      voiceNote: input.deliveryKind === "voice_note",
+      billingFacts: input.billingFacts ?? null
     };
   }
 

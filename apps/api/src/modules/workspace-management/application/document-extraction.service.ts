@@ -19,6 +19,8 @@ import type {
   KnowledgeProcessingProviderTrace
 } from "./knowledge-processing.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
+import type { RuntimeBillingFacts } from "@persai/runtime-contract";
 
 type PdfParseLegacyModule = (
   buffer: Buffer,
@@ -37,7 +39,8 @@ export class DocumentExtractionService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly mediaPreprocessorService: MediaPreprocessorService,
-    private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService
+    private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
   ) {}
 
   async extract(
@@ -278,7 +281,56 @@ export class DocumentExtractionService {
       include_image_base64: false
     });
     const markdown = readMistralMarkdown(ocrResult);
+    const occurredAt = new Date().toISOString();
+    const billingFacts: RuntimeBillingFacts = {
+      providerKey: "mistral",
+      modelKey: "mistral-ocr-latest",
+      capability: "ocr_or_document_parsing",
+      occurredAt,
+      metering: {
+        meteringKind: "operation_metered",
+        operationCount: 1,
+        dimensions: { operation: "ocr", processor: "mistral" }
+      }
+    };
+    await this.appendOcrLedgerFromBillingFacts({
+      source: input.source,
+      billingFacts,
+      occurredAt
+    });
     return { normalizedText: normalizeExtractedText(markdown), markdown };
+  }
+
+  private async appendOcrLedgerFromBillingFacts(input: {
+    source: KnowledgeDocumentProcessingInput["source"];
+    billingFacts: RuntimeBillingFacts;
+    occurredAt: string;
+  }): Promise<void> {
+    const workspaceId = input.source.workspaceId;
+    const assistantId = input.source.assistantId ?? null;
+    if (workspaceId === null || assistantId === null) {
+      return;
+    }
+    const assistant = await this.prisma.assistant.findUnique({
+      where: { id: assistantId },
+      select: { userId: true }
+    });
+    if (assistant === null) {
+      return;
+    }
+    try {
+      await this.recordModelCostLedgerService.recordPersistedBillingFactsEvent({
+        workspaceId,
+        assistantId,
+        userId: assistant.userId,
+        surface: "background",
+        source: "knowledge_document_ocr",
+        sourceEventId: `knowledge_source:${input.source.sourceType}:${input.source.sourceId}:ocr`,
+        billingFacts: input.billingFacts
+      });
+    } catch {
+      // Non-blocking OCR ledger append; extraction success must not depend on economics writes.
+    }
   }
 
   private async extractWithLlamaParse(

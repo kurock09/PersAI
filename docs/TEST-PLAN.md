@@ -207,6 +207,95 @@ Interpretation rules:
 6. Monthly media settlement must reserve before expensive media provider work, settle only after delivery succeeds, and release or mark reconciliation-required when provider/output work does not become user-visible delivery.
 7. `image_generate`, `image_edit`, and `video_generate` must not use day-keyed tool counters as paid media quota truth.
 
+## ADR-099 Session A catalog foundation focused checks
+
+When a change touches the structured Admin Runtime provider/model catalog, pricing metadata fields, or the compatibility alias that downstream model pickers still consume, add these focused checks before broad verification:
+
+```bash
+corepack pnpm contracts:generate
+corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts
+corepack pnpm --filter @persai/api exec tsx test/materialize-assistant-published-version.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/apply-assistant-published-version.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/generate-skill-authoring-draft.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/runtime-provider-settings-admin.test.ts app/admin/knowledge/page.test.tsx app/admin/plans/page.test.tsx app/app/assistant-api-client.test.ts --config vitest.config.ts
+corepack pnpm --filter @persai/contracts run typecheck
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. `Admin > Runtime` must edit the provider/model catalog as structured fields, not as one pipe-delimited textarea source of truth.
+2. Catalog rows must carry at least `active`, `billingMode`, `effectiveFrom` / `effectiveTo`, token quota weights, and structured pricing metadata so later ledger work does not invent a second pricing store.
+3. A catalog row must not persist conflicting pricing branches: `providerPriceMetadata` must carry exactly the one pricing shape that matches the row `billingMode`.
+4. Admin Runtime archive/version actions must preserve historical rows in the catalog instead of hard-deleting them from runtime truth.
+5. `availableModelsByProvider` must remain a derived compatibility alias from active chat-capable catalog rows so downstream text-model pickers keep the same behavior.
+6. Capability-filtered selectors for plans/authoring/materialization must read only active matching catalog rows; inactive historical rows stay catalog truth but must not leak into ordinary picker UX.
+7. The runtime page itself should have focused UI coverage for billing-mode editor switching and archive/version-safe row handling.
+8. Historical catalog rows may coexist for the same provider/model key, but active selection must stay unambiguous.
+
+## ADR-099 Session B/C ledger focused checks
+
+When a change touches the unified model cost ledger, ordinary-chat money-event writes, or the catalog-price lookup used for those writes, add these focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma
+corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/persai-background-task-scheduler.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+```
+
+Interpretation rules:
+
+1. Ledger writes must stay additive to quota; quota semantics and weighted Credits accounting are unchanged.
+2. Current proof coverage writes immutable events only when the provider/model/timestamp facts are durably present: completed ordinary web/Telegram chat paths with concrete runtime `usageAccounting.entries`, plus background-task evaluator runs whose persisted `assistant_background_task_runs.usageJson` carries a concrete runtime usage snapshot. Interrupted/estimator-only paths must not fabricate money rows.
+3. Cost calculation must read pricing exclusively from the structured Admin Runtime catalog, not from plans, hand-coded constants, or Business/Ops projections.
+4. Historical pricing context must remain replay-safe: when multiple catalog rows exist for one provider/model key, the ledger must choose the row effective at the event timestamp and persist the price snapshot/version on the event.
+5. Session C may widen the proof only where provider/model/usage attribution is already persisted cleanly enough for replay-safe additive writes. Current covered paths are ordinary-chat main replies plus router/classifier entries and the background-task evaluator call. Retrieval-helper/reranker, media, STT, image, video, and other non-ordinary-chat paths still need their own explicit follow-up slice.
+
+## ADR-099 media/STT/TTS billing-facts foundation focused checks
+
+When a change touches the additive non-ledger media/STT/TTS billing-facts foundation, add these focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts
+corepack pnpm --filter @persai/api exec tsx --test test/assistant-media-job-scheduler.service.test.ts
+corepack pnpm --filter @persai/contracts run typecheck
+corepack pnpm --filter @persai/provider-gateway run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. The slice may persist normalized `billingFacts` on owning media/attachment rows, but it must not append ledger rows yet.
+2. `assistant_media_jobs.billing_facts_json` is the durable seam for generated image/video facts; `assistant_chat_message_attachments.billing_facts_json` is the durable seam for attachment-ingest STT and delivered TTS facts.
+3. Standalone voice-transcribe must stay deferred unless the slice also lands a dedicated replay-safe durable row/seam for that endpoint.
+4. Admin Runtime catalog truth may widen to honest STT/TTS capabilities and billing modes, but downstream chat-model selector semantics must remain driven by active chat-capable rows only.
+
+## ADR-099 Session D Business/Ops read-model focused checks
+
+When a change touches the first ledger-backed Business/Ops economics rollout, add these focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/resolve-admin-business-platform.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Business and Ops must read the existing `model_cost_ledger_events` truth; they must not invent a second pricing or cost source.
+2. The UI/API copy must stay explicit that Session D is showing the current ledger-backed coverage set only, not full-platform final economics.
+3. Session D may show compact cost summaries and breakdowns, but it must not imply uncovered paths (background/media/STT/image/video/document/etc.) are already included.
+4. Quota semantics and existing billing/support controls must stay unchanged; the new read-model blocks are additive observability only.
+
 ## ADR-087 unified quota advisories and paid light-mode focused checks
 
 When a change touches 90%-threshold advisories, paid token light mode, `quota_status` advisory facts, free-vs-paid warning/light-mode gating, or quiet light-mode UI state, add focused checks before broad verification:

@@ -11,6 +11,7 @@ import type {
   QuotaPressureDistribution,
   RuntimeTurnAverages
 } from "./platform-business.types";
+import { readAdminModelCostLedgerWindow } from "./model-cost-ledger-read-model";
 import { resolveRecurringQuotaPeriod } from "./recurring-quota-period";
 
 const BUSINESS_WINDOW_DAYS = 7;
@@ -103,6 +104,11 @@ export class ResolveAdminBusinessPlatformService {
       }));
 
     const quotaPressureDistribution = await this.computeQuotaPressure(now);
+    const ledgerBackedModelCost = await readAdminModelCostLedgerWindow(this.prisma, {
+      startedAt: windowStart,
+      windowLabel: "last_7_days",
+      periodSource: "rolling_7d"
+    });
     const runtimeTurnAverages = await this.computeRuntimeTurnAverages(windowStart);
 
     const webChats = await this.prisma.assistantChat.count({
@@ -180,6 +186,7 @@ export class ResolveAdminBusinessPlatformService {
         inactivePlans: allPlans.length - activePlans.length,
         defaultRegistrationPlanCode: defaultPlan?.code ?? null
       },
+      ledgerBackedModelCost,
       runtimeTurnAverages,
       updatedAt: now.toISOString()
     };

@@ -1,5 +1,6 @@
 import {
   type AdminBusinessCockpitState,
+  type AdminBusinessPlatformState,
   type AdminRuntimeProviderSettingsRequest,
   type AdminRuntimeProviderSettingsState,
   type AdminBillingLifecycleSettingsRequest,
@@ -20,6 +21,7 @@ import {
   type AdminPlanCreateRequest,
   type AdminDangerousActionCode,
   type AdminOpsCockpitState,
+  type GetAdminOpsCockpitParams,
   type PostAdminOpsUserPlanOverrideParams,
   type AdminPlanVisibilityState,
   type AdminPlanState,
@@ -92,6 +94,7 @@ import {
   postAssistantTaskItemEnable as postAssistantTaskItemEnableContract,
   getAdminPlans as getAdminPlansContract,
   getAdminBusinessCockpit as getAdminBusinessCockpitContract,
+  getAdminBusinessPlatform as getAdminBusinessPlatformContract,
   getAdminNotificationChannels as getAdminNotificationChannelsContract,
   getAdminPlatformRollouts as getAdminPlatformRolloutsContract,
   getAdminOpsCockpit as getAdminOpsCockpitContract,
@@ -2579,13 +2582,18 @@ export async function setAdminOverviewLatencyTrace(
   return data;
 }
 
-export async function getAdminBusinessPlatform(token: string): Promise<Record<string, unknown>> {
-  const res = await fetch(`/api/v1/admin/business/platform`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (!res.ok) throw new Error(`${res.status}`);
-  const data = (await res.json()) as { platform: Record<string, unknown> };
-  return data.platform;
+export async function getAdminBusinessPlatform(token: string): Promise<AdminBusinessPlatformState> {
+  try {
+    const response = await getAdminBusinessPlatformContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/business/platform.");
+    }
+    return response.data.platform;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
 }
 
 export async function getAdminNotificationChannels(
@@ -3109,9 +3117,12 @@ export async function putAdminRuntimeProviderSettings(
   }
 }
 
-export async function getAdminOpsCockpit(token: string): Promise<AdminOpsCockpitState> {
+export async function getAdminOpsCockpit(
+  token: string,
+  params?: GetAdminOpsCockpitParams
+): Promise<AdminOpsCockpitState> {
   try {
-    const response = await getAdminOpsCockpitContract({
+    const response = await getAdminOpsCockpitContract(params, {
       headers: getAuthHeaders(token)
     });
     if (response.status !== 200) {

@@ -12,7 +12,12 @@ import type { AssistantRepository } from "../src/modules/workspace-management/do
 import type { WorkspaceQuotaAccountingRepository } from "../src/modules/workspace-management/domain/workspace-quota-accounting.repository";
 import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 
-function createService(prisma: WorkspaceManagementPrismaService): ResolveAdminOpsCockpitService {
+function createService(
+  prisma: WorkspaceManagementPrismaService,
+  options?: {
+    tokenBudgetPeriodSource?: "subscription_period" | "calendar_month_fallback" | null;
+  }
+): ResolveAdminOpsCockpitService {
   return new ResolveAdminOpsCockpitService(
     {
       async findByUserId(userId: string) {
@@ -125,7 +130,10 @@ function createService(prisma: WorkspaceManagementPrismaService): ResolveAdminOp
           limitCredits: BigInt(5000),
           periodStartedAt: "2026-05-01T00:00:00.000Z",
           periodEndsAt: "2026-06-01T00:00:00.000Z",
-          periodSource: "subscription_period"
+          periodSource:
+            options?.tokenBudgetPeriodSource === undefined
+              ? "subscription_period"
+              : options.tokenBudgetPeriodSource
         };
       },
       async resolveAssistantMonthlyToolQuotaSnapshot() {
@@ -422,6 +430,128 @@ async function run(): Promise<void> {
           ];
         }
       },
+      workspacePaymentIntent: {
+        async groupBy() {
+          return [{ currency: "RUB", _sum: { amountMinor: 199000 } }];
+        }
+      },
+      modelCostLedgerEvent: {
+        async aggregate(args: { where?: { workspaceId?: string; currency?: string } }) {
+          assert.equal(args.where?.workspaceId, "ws-1");
+          assert.equal(args.where?.currency, "USD");
+          return { _sum: { actualCostMicros: BigInt(5000000) } };
+        },
+        async groupBy(args: {
+          by: string[];
+          where?: { workspaceId?: string; occurredAt?: { gte?: Date; lt?: Date } };
+        }) {
+          assert.equal(args.where?.workspaceId, "ws-1");
+          assert.ok(args.where?.occurredAt?.gte instanceof Date);
+          assert.ok(args.where?.occurredAt?.lt instanceof Date);
+          const key = args.by.join(",");
+          if (key === "currency") {
+            return [
+              {
+                currency: "USD",
+                _count: { _all: 5 },
+                _sum: { actualCostMicros: BigInt(8450000) }
+              }
+            ];
+          }
+          if (key === "purpose") {
+            return [
+              {
+                purpose: "chat_main_reply",
+                _count: { _all: 3 },
+                _sum: { actualCostMicros: BigInt(7400000) }
+              },
+              {
+                purpose: "background_task",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(250000) }
+              },
+              {
+                purpose: "router",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(800000) }
+              }
+            ];
+          }
+          if (key === "surface") {
+            return [
+              {
+                surface: "web",
+                _count: { _all: 3 },
+                _sum: { actualCostMicros: BigInt(7000000) }
+              },
+              {
+                surface: "telegram",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(1200000) }
+              },
+              {
+                surface: "background",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(250000) }
+              }
+            ];
+          }
+          if (key === "provider,model,purpose,surface,currency") {
+            return [
+              {
+                provider: "openai",
+                model: "gpt-4.1",
+                purpose: "chat_main_reply",
+                surface: "web",
+                currency: "USD",
+                _count: { _all: 2 },
+                _sum: { actualCostMicros: BigInt(5200000) }
+              },
+              {
+                provider: "openai",
+                model: "gpt-4.1-mini",
+                purpose: "chat_main_reply",
+                surface: "telegram",
+                currency: "USD",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(2200000) }
+              },
+              {
+                provider: "openai",
+                model: "gpt-4.1-mini",
+                purpose: "router",
+                surface: "web",
+                currency: "USD",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(800000) }
+              },
+              {
+                provider: "openai",
+                model: "gpt-4.1-mini",
+                purpose: "background_task",
+                surface: "background",
+                currency: "USD",
+                _count: { _all: 1 },
+                _sum: { actualCostMicros: BigInt(250000) }
+              }
+            ];
+          }
+          throw new Error(`Unexpected groupBy: ${key}`);
+        },
+        async findMany(args: {
+          where?: { workspaceId?: string; userId?: { not: null } };
+          select: Record<string, true>;
+        }) {
+          assert.equal(args.where?.workspaceId, "ws-1");
+          if ("workspaceId" in args.select) {
+            return [{ workspaceId: "ws-1" }];
+          }
+          if ("userId" in args.select) {
+            return [{ userId: "user-1" }];
+          }
+          throw new Error("Unexpected findMany select");
+        }
+      },
       async $transaction<T>(ops: Promise<T>[]) {
         return await Promise.all(ops);
       }
@@ -479,6 +609,55 @@ async function run(): Promise<void> {
       "activate_paid_manually"
     );
     assert.equal(result.billingSupport?.latestLifecycleEvents[0]?.eventCode, "grace_started");
+    assert.equal(result.modelCostLedger?.windowLabel, "current_quota_period");
+    assert.equal(result.modelCostLedger?.periodSource, "subscription_period");
+    assert.equal(result.modelCostLedger?.coverageScope, "adr099_block1_model_priced_paths");
+    assert.match(result.modelCostLedger?.coverageNote ?? "", /background-task evaluator/i);
+    assert.equal(result.modelCostLedger?.totalEvents, 5);
+    assert.equal(result.modelCostLedger?.currencyTotals[0]?.totalCostMicros, 8450000);
+    assert.equal(result.periodEconomics?.paidTotalMinor, 199000);
+    assert.equal(result.periodEconomics?.paidCurrency, "RUB");
+    assert.equal(result.periodEconomics?.modelCostUsdMicros, 5000000);
+    assert.equal(result.periodEconomics?.periodStartedAt, "2026-05-01T00:00:00.000Z");
+    assert.deepEqual(
+      result.modelCostLedger?.byPurpose.map((entry) => [
+        entry.key,
+        entry.eventCount,
+        entry.totalCostMicros
+      ]),
+      [
+        ["chat_main_reply", 3, 7400000],
+        ["router", 1, 800000],
+        ["background_task", 1, 250000]
+      ]
+    );
+    assert.deepEqual(
+      result.modelCostLedger?.bySurface.map((entry) => [
+        entry.key,
+        entry.eventCount,
+        entry.totalCostMicros
+      ]),
+      [
+        ["web", 3, 7000000],
+        ["telegram", 1, 1200000],
+        ["background", 1, 250000]
+      ]
+    );
+    assert.deepEqual(
+      result.modelCostLedger?.topBreakdown.map((entry) => [
+        entry.provider,
+        entry.model,
+        entry.purpose,
+        entry.surface,
+        entry.totalCostMicros
+      ]),
+      [
+        ["openai", "gpt-4.1", "chat_main_reply", "web", 5200000],
+        ["openai", "gpt-4.1-mini", "chat_main_reply", "telegram", 2200000],
+        ["openai", "gpt-4.1-mini", "router", "web", 800000],
+        ["openai", "gpt-4.1-mini", "background_task", "background", 250000]
+      ]
+    );
     assert.equal(result.sandbox?.effectivePolicy.enabled, true);
     assert.equal(result.sandbox?.effectivePolicy.maxCpuMsPerJob, 7777);
     assert.equal(result.sandbox?.effectivePolicy.maxMemoryBytesPerJob, 64 * 1024 * 1024);
@@ -523,6 +702,17 @@ async function run(): Promise<void> {
         processDurationMs: 6123
       }
     });
+
+    const fallbackService = createService(prisma, {
+      tokenBudgetPeriodSource: null
+    });
+    const fallbackResult = await fallbackService.execute("admin-1", "user-1");
+
+    assert.equal(fallbackResult.quotaUsage?.tokenBudgetPeriodSource, null);
+    assert.equal(fallbackResult.modelCostLedger?.windowLabel, "current_quota_period");
+    assert.equal(fallbackResult.modelCostLedger?.periodSource, "subscription_period");
+    assert.equal(fallbackResult.modelCostLedger?.startedAt, "2026-05-01T00:00:00.000Z");
+    assert.equal(fallbackResult.modelCostLedger?.endedAt, "2026-06-01T00:00:00.000Z");
   } finally {
     process.env.APP_ENV = prevEnv.APP_ENV;
     process.env.DATABASE_URL = prevEnv.DATABASE_URL;

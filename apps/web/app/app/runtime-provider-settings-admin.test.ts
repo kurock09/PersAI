@@ -5,6 +5,45 @@ import {
   validateRuntimeProviderSettingsAdminDraft
 } from "./runtime-provider-settings-admin";
 
+function tokenMeteredDefaults() {
+  return {
+    active: true,
+    billingMode: "token_metered" as const,
+    effectiveFrom: null,
+    effectiveTo: null,
+    providerPriceMetadata: {
+      currency: "USD",
+      tokenPricing: {
+        inputPer1M: 0,
+        cachedInputPer1M: 0,
+        outputPer1M: 0
+      },
+      timePricing: null,
+      fixedOperationPricing: null,
+      tieredOperationPricing: null
+    }
+  };
+}
+
+function fixedOperationDefaults() {
+  return {
+    active: true,
+    billingMode: "fixed_operation" as const,
+    effectiveFrom: null,
+    effectiveTo: null,
+    providerPriceMetadata: {
+      currency: "USD",
+      tokenPricing: null,
+      timePricing: null,
+      fixedOperationPricing: {
+        unitLabel: null,
+        pricePerOperation: 0
+      },
+      tieredOperationPricing: null
+    }
+  };
+}
+
 describe("runtime-provider-settings-admin", () => {
   it("hydrates global settings into the simplified admin form", () => {
     const state = resolveRuntimeProviderSettingsAdminFormState({
@@ -40,42 +79,42 @@ describe("runtime-provider-settings-admin", () => {
             {
               model: "gpt-5.4",
               capabilities: ["chat"],
+              ...tokenMeteredDefaults(),
               inputTokenWeight: 1,
               cachedInputTokenWeight: 0.25,
               outputTokenWeight: 4,
               displayLabel: "GPT 5.4",
-              notes: null,
-              providerPriceMetadata: null
+              notes: null
             },
             {
               model: "gpt-4.1",
               capabilities: ["chat"],
+              ...tokenMeteredDefaults(),
               inputTokenWeight: 0.5,
               cachedInputTokenWeight: 0.1,
               outputTokenWeight: 2,
               displayLabel: null,
-              notes: null,
-              providerPriceMetadata: null
+              notes: null
             },
             {
               model: "gpt-image-1.5",
               capabilities: ["image"],
+              ...fixedOperationDefaults(),
               inputTokenWeight: 1,
               cachedInputTokenWeight: 1,
               outputTokenWeight: 1,
               displayLabel: null,
-              notes: null,
-              providerPriceMetadata: null
+              notes: null
             },
             {
               model: "sora-2",
               capabilities: ["video"],
+              ...fixedOperationDefaults(),
               inputTokenWeight: 1,
               cachedInputTokenWeight: 1,
               outputTokenWeight: 1,
               displayLabel: null,
-              notes: null,
-              providerPriceMetadata: null
+              notes: null
             }
           ]
         },
@@ -84,12 +123,12 @@ describe("runtime-provider-settings-admin", () => {
             {
               model: "claude-sonnet-4-5",
               capabilities: ["chat"],
+              ...tokenMeteredDefaults(),
               inputTokenWeight: 1,
               cachedInputTokenWeight: 1,
               outputTokenWeight: 1,
               displayLabel: null,
-              notes: null,
-              providerPriceMetadata: null
+              notes: null
             }
           ]
         }

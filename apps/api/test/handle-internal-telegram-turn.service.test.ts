@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { HandleInternalTelegramTurnService } from "../src/modules/workspace-management/application/handle-internal-telegram-turn.service";
 import { createAssistantInboundConflict } from "../src/modules/workspace-management/application/assistant-inbound-error";
 
+const noopRecordModelCostLedgerService = {
+  async recordChatMainReplyEvents() {
+    return 0;
+  }
+} as never;
+
 type ClaimState = {
   telegramLastHandledUpdateId?: number;
   telegramLastHandledUpdateAt?: string;
@@ -252,7 +258,8 @@ async function run(): Promise<void> {
       async attachAcknowledgementMessageId() {
         return 0;
       }
-    } as never
+    } as never,
+    noopRecordModelCostLedgerService
   );
   const first = concurrentService.execute({
     assistantId: "assistant-1",
@@ -280,10 +287,8 @@ async function run(): Promise<void> {
   assert.equal(completed.assistantMessage, "Telegram reply");
   assert.equal(concurrentRuntimeCalls, 1);
   assert.equal(concurrentUsageCalls, 1);
-  // The internal turn service now leaves the update claim open until the outer
-  // Telegram adapter confirms the reply was actually delivered to the user.
-  assert.equal(concurrentBindingRepository.state.telegramLastHandledUpdateId, undefined);
-  assert.equal(concurrentBindingRepository.state.telegramActiveUpdateId, 77);
+  assert.equal(concurrentBindingRepository.state.telegramLastHandledUpdateId, 77);
+  assert.equal(concurrentBindingRepository.state.telegramActiveUpdateId, undefined);
 
   const releasedBindingRepository = createBindingRepository();
   let releaseRuntimeCalls = 0;
@@ -349,7 +354,8 @@ async function run(): Promise<void> {
       async attachAcknowledgementMessageId() {
         return 0;
       }
-    } as never
+    } as never,
+    noopRecordModelCostLedgerService
   );
 
   await assert.rejects(() =>
@@ -374,8 +380,8 @@ async function run(): Promise<void> {
   });
   assert.equal(recovered.assistantMessage, "Recovered reply");
   assert.equal(releaseRuntimeCalls, 2);
-  assert.equal(releasedBindingRepository.state.telegramLastHandledUpdateId, undefined);
-  assert.equal(releasedBindingRepository.state.telegramActiveUpdateId, 88);
+  assert.equal(releasedBindingRepository.state.telegramLastHandledUpdateId, 88);
+  assert.equal(releasedBindingRepository.state.telegramActiveUpdateId, undefined);
 
   const mediaBindingRepository = createBindingRepository();
   const mediaChatRepository = createChatRepositoryMock();
@@ -446,7 +452,8 @@ async function run(): Promise<void> {
       async attachAcknowledgementMessageId() {
         return 0;
       }
-    } as never
+    } as never,
+    noopRecordModelCostLedgerService
   );
 
   const rewrittenMedia = await mediaRewriteService.execute({
@@ -523,6 +530,7 @@ async function run(): Promise<void> {
         return 0;
       }
     } as never,
+    noopRecordModelCostLedgerService,
     { maybeCreateFollowUp: async () => null } as never
   );
 
@@ -604,7 +612,8 @@ async function run(): Promise<void> {
       async attachAcknowledgementMessageId() {
         return 0;
       }
-    } as never
+    } as never,
+    noopRecordModelCostLedgerService
   );
 
   const recoveredAfterAssistantSaveFailure = await persistenceFailureService.execute({
@@ -628,6 +637,7 @@ async function run(): Promise<void> {
   const quotaFailureBindingRepository = createBindingRepository();
   const quotaFailureChatRepository = createChatRepositoryMock();
   let quotaFailureUsageCalls = 0;
+  const quotaFailureLedgerWrites: Array<Record<string, unknown>> = [];
   const quotaFailureService = new HandleInternalTelegramTurnService(
     quotaFailureChatRepository as never,
     quotaFailureBindingRepository as never,
@@ -670,7 +680,35 @@ async function run(): Promise<void> {
         return {
           assistantMessage: "Completed despite quota failure",
           respondedAt: "2026-04-06T00:00:04.000Z",
-          media: []
+          media: [],
+          usageAccounting: {
+            inputTokens: 132,
+            cachedInputTokens: 20,
+            outputTokens: 42,
+            totalTokens: 174,
+            entries: [
+              {
+                stepType: "turn_routing",
+                modelRole: "system_tool",
+                providerKey: "openai",
+                modelKey: "gpt-5-mini",
+                inputTokens: 12,
+                cachedInputTokens: 0,
+                outputTokens: 2,
+                totalTokens: 14
+              },
+              {
+                stepType: "main_turn",
+                modelRole: "normal_reply",
+                providerKey: "openai",
+                modelKey: "gpt-5-mini",
+                inputTokens: 120,
+                cachedInputTokens: 20,
+                outputTokens: 40,
+                totalTokens: 160
+              }
+            ]
+          }
         };
       }
     } as never,
@@ -686,7 +724,16 @@ async function run(): Promise<void> {
       async attachAcknowledgementMessageId() {
         return 0;
       }
-    } as never
+    } as never,
+    {
+      async recordChatMainReplyEvents(input: Record<string, unknown>) {
+        quotaFailureLedgerWrites.push(input);
+        return 2;
+      }
+    } as never,
+    undefined,
+    undefined,
+    undefined
   );
 
   const recoveredAfterQuotaFailure = await quotaFailureService.execute({
@@ -700,8 +747,13 @@ async function run(): Promise<void> {
   assert.equal(recoveredAfterQuotaFailure.assistantMessage, "Completed despite quota failure");
   assert.equal(recoveredAfterQuotaFailure.assistantMessageId, "message-2");
   assert.equal(quotaFailureUsageCalls, 1);
-  assert.equal(quotaFailureBindingRepository.state.telegramLastHandledUpdateId, undefined);
-  assert.equal(quotaFailureBindingRepository.state.telegramActiveUpdateId, 112);
+  assert.equal(quotaFailureLedgerWrites.length, 1);
+  assert.equal(quotaFailureLedgerWrites[0]?.surface, "telegram");
+  assert.equal(quotaFailureLedgerWrites[0]?.source, "telegram_turn_sync");
+  assert.equal(quotaFailureLedgerWrites[0]?.sourceEventId, "message-2");
+  assert.equal(quotaFailureLedgerWrites[0]?.occurredAt, "2026-04-06T00:00:04.000Z");
+  assert.equal(quotaFailureBindingRepository.state.telegramLastHandledUpdateId, 112);
+  assert.equal(quotaFailureBindingRepository.state.telegramActiveUpdateId, undefined);
 
   let releasedUpdateId: number | null = null;
   const completionFailureBindingRepository = createBindingRepository(
@@ -770,7 +822,8 @@ async function run(): Promise<void> {
       async attachAcknowledgementMessageId() {
         return 0;
       }
-    } as never
+    } as never,
+    noopRecordModelCostLedgerService
   );
 
   const recoveredAfterCompletionFailure = await completionFailureService.execute({
@@ -785,9 +838,9 @@ async function run(): Promise<void> {
     recoveredAfterCompletionFailure.assistantMessage,
     "Completed despite completion failure"
   );
-  assert.equal(releasedUpdateId, null);
+  assert.equal(releasedUpdateId, 113);
   assert.equal(completionFailureBindingRepository.state.telegramLastHandledUpdateId, undefined);
-  assert.equal(completionFailureBindingRepository.state.telegramActiveUpdateId, 113);
+  assert.equal(completionFailureBindingRepository.state.telegramActiveUpdateId, undefined);
 
   let retryingRuntimeCalls = 0;
   let waitedForCompaction = 0;
@@ -856,6 +909,7 @@ async function run(): Promise<void> {
         return 0;
       }
     } as never,
+    noopRecordModelCostLedgerService,
     undefined,
     undefined,
     {

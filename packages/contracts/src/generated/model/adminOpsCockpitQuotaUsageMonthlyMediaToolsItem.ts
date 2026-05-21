@@ -12,4 +12,10 @@ export type AdminOpsCockpitQuotaUsageMonthlyMediaToolsItem = {
   usedUnits: number;
   /** @nullable */
   limitUnits: number | null;
+  /** @minimum 0 */
+  bonusLimitUnits: number;
+  /** @nullable */
+  effectiveLimitUnits: number | null;
+  /** @nullable */
+  bonusExpiresAt: string | null;
 };

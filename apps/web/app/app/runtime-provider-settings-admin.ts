@@ -17,6 +17,11 @@ type RuntimeProviderModelProfilesTextDraft = Record<ManagedRuntimeProvider, stri
 type RuntimeProviderProviderKeyState = NonNullable<
   AdminRuntimeProviderSettingsState["providerKeys"]
 >;
+type RuntimeProviderBillingModeState = RuntimeProviderModelProfileState["billingMode"];
+type RuntimeProviderModelProfileForMode<M extends RuntimeProviderBillingModeState> = Extract<
+  RuntimeProviderModelProfileState,
+  { billingMode: M }
+>;
 export type RuntimeProviderSettingsProviderKeyState = RuntimeProviderProviderKeyState;
 
 export type RuntimeProviderSettingsAdminDraft = {
@@ -79,11 +84,97 @@ function parseCapabilityText(value: string): RuntimeProviderModelProfileState["c
   const deduped = new Set<string>();
   for (const entry of value.split(/[,+]/)) {
     const capability = entry.trim();
-    if (capability === "chat" || capability === "image" || capability === "video") {
+    if (
+      capability === "chat" ||
+      capability === "image" ||
+      capability === "video" ||
+      capability === "speech_to_text" ||
+      capability === "text_to_speech"
+    ) {
       deduped.add(capability);
     }
   }
   return Array.from(deduped) as RuntimeProviderModelProfileState["capabilities"];
+}
+
+function inferBillingMode(
+  capabilities: RuntimeProviderModelProfileState["capabilities"]
+): RuntimeProviderModelProfileState["billingMode"] {
+  if (capabilities.includes("chat")) {
+    return "token_metered";
+  }
+  if (capabilities.includes("speech_to_text")) {
+    return "time_metered";
+  }
+  if (capabilities.includes("text_to_speech")) {
+    return "text_chars_metered";
+  }
+  return "fixed_operation";
+}
+
+function createDefaultProviderPriceMetadata(
+  billingMode: "token_metered"
+): RuntimeProviderModelProfileForMode<"token_metered">["providerPriceMetadata"];
+function createDefaultProviderPriceMetadata(
+  billingMode: "time_metered"
+): RuntimeProviderModelProfileForMode<"time_metered">["providerPriceMetadata"];
+function createDefaultProviderPriceMetadata(
+  billingMode: "text_chars_metered"
+): RuntimeProviderModelProfileForMode<"text_chars_metered">["providerPriceMetadata"];
+function createDefaultProviderPriceMetadata(
+  billingMode: "fixed_operation"
+): RuntimeProviderModelProfileForMode<"fixed_operation">["providerPriceMetadata"];
+function createDefaultProviderPriceMetadata(
+  billingMode: "tiered_operation"
+): RuntimeProviderModelProfileForMode<"tiered_operation">["providerPriceMetadata"];
+function createDefaultProviderPriceMetadata(
+  billingMode: RuntimeProviderBillingModeState
+): RuntimeProviderModelProfileState["providerPriceMetadata"];
+function createDefaultProviderPriceMetadata(
+  billingMode: RuntimeProviderBillingModeState
+): RuntimeProviderModelProfileState["providerPriceMetadata"] {
+  switch (billingMode) {
+    case "token_metered":
+      return {
+        currency: "USD",
+        tokenPricing: {
+          inputPer1M: 0,
+          cachedInputPer1M: 0,
+          outputPer1M: 0
+        }
+      };
+    case "time_metered":
+      return {
+        currency: "USD",
+        timePricing: {
+          unit: "minute",
+          pricePerUnit: 0
+        }
+      };
+    case "text_chars_metered":
+      return {
+        currency: "USD",
+        textCharsPricing: {
+          pricePer1MChars: 0
+        }
+      };
+    case "fixed_operation":
+      return {
+        currency: "USD",
+        fixedOperationPricing: {
+          unitLabel: null,
+          pricePerOperation: 0
+        }
+      };
+    case "tiered_operation":
+      return {
+        currency: "USD",
+        tieredOperationPricing: {
+          unitLabel: null,
+          tiers: []
+        }
+      };
+  }
 }
 
 export function formatRuntimeProviderModelProfilesText(
@@ -142,16 +233,56 @@ export function parseRuntimeProviderModelProfilesText(
       );
     }
     seen.add(modelRaw);
-    profiles.push({
+    const billingMode = inferBillingMode(capabilities);
+    const base = {
       model: modelRaw,
       capabilities,
+      active: true,
+      effectiveFrom: null,
+      effectiveTo: null,
       inputTokenWeight,
       cachedInputTokenWeight,
       outputTokenWeight,
       displayLabel: labelRaw.length > 0 ? labelRaw : null,
-      notes: null,
-      providerPriceMetadata: null
-    });
+      notes: null
+    };
+    switch (billingMode) {
+      case "token_metered":
+        profiles.push({
+          ...base,
+          billingMode,
+          providerPriceMetadata: createDefaultProviderPriceMetadata("token_metered")
+        });
+        break;
+      case "time_metered":
+        profiles.push({
+          ...base,
+          billingMode,
+          providerPriceMetadata: createDefaultProviderPriceMetadata("time_metered")
+        });
+        break;
+      case "text_chars_metered":
+        profiles.push({
+          ...base,
+          billingMode,
+          providerPriceMetadata: createDefaultProviderPriceMetadata("text_chars_metered")
+        });
+        break;
+      case "fixed_operation":
+        profiles.push({
+          ...base,
+          billingMode,
+          providerPriceMetadata: createDefaultProviderPriceMetadata("fixed_operation")
+        });
+        break;
+      case "tiered_operation":
+        profiles.push({
+          ...base,
+          billingMode,
+          providerPriceMetadata: createDefaultProviderPriceMetadata("tiered_operation")
+        });
+        break;
+    }
   }
   return profiles;
 }

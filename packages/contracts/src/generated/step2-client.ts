@@ -44,6 +44,7 @@ import type {
   GetAdminBillingLifecycleSettingsResponse,
   GetAdminBillingProviderCredentialsResponse,
   GetAdminBusinessCockpitResponse,
+  GetAdminBusinessPlatformResponse,
   GetAdminDocumentProcessingSettingsResponse,
   GetAdminKnowledgeConnectorsParams,
   GetAdminKnowledgeConnectorsResponse,
@@ -53,6 +54,7 @@ import type {
   GetAdminKnowledgeSourcesParams,
   GetAdminKnowledgeSourcesResponse,
   GetAdminNotificationChannelsResponse,
+  GetAdminOpsCockpitParams,
   GetAdminOpsCockpitResponse,
   GetAdminOpsUsersParams,
   GetAdminOpsUsersResponse,
@@ -5626,14 +5628,27 @@ export type getAdminOpsCockpitResponse =
   | getAdminOpsCockpitResponseSuccess
   | getAdminOpsCockpitResponseError;
 
-export const getGetAdminOpsCockpitUrl = () => {
-  return `/admin/ops/cockpit`;
+export const getGetAdminOpsCockpitUrl = (params?: GetAdminOpsCockpitParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/ops/cockpit?${stringifiedParams}`
+    : `/admin/ops/cockpit`;
 };
 
 export const getAdminOpsCockpit = async (
+  params?: GetAdminOpsCockpitParams,
   options?: RequestInit
 ): Promise<getAdminOpsCockpitResponse> => {
-  return customFetch<getAdminOpsCockpitResponse>(getGetAdminOpsCockpitUrl(), {
+  return customFetch<getAdminOpsCockpitResponse>(getGetAdminOpsCockpitUrl(params), {
     ...options,
     method: "GET"
   });
@@ -5972,6 +5987,57 @@ export const getAdminBusinessCockpit = async (
   options?: RequestInit
 ): Promise<getAdminBusinessCockpitResponse> => {
   return customFetch<getAdminBusinessCockpitResponse>(getGetAdminBusinessCockpitUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Get business platform analytics state for commercial visibility
+ */
+export type getAdminBusinessPlatformResponse200 = {
+  data: GetAdminBusinessPlatformResponse;
+  status: 200;
+};
+
+export type getAdminBusinessPlatformResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminBusinessPlatformResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminBusinessPlatformResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminBusinessPlatformResponseSuccess = getAdminBusinessPlatformResponse200 & {
+  headers: Headers;
+};
+export type getAdminBusinessPlatformResponseError = (
+  | getAdminBusinessPlatformResponse401
+  | getAdminBusinessPlatformResponse403
+  | getAdminBusinessPlatformResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminBusinessPlatformResponse =
+  | getAdminBusinessPlatformResponseSuccess
+  | getAdminBusinessPlatformResponseError;
+
+export const getGetAdminBusinessPlatformUrl = () => {
+  return `/admin/business/platform`;
+};
+
+export const getAdminBusinessPlatform = async (
+  options?: RequestInit
+): Promise<getAdminBusinessPlatformResponse> => {
+  return customFetch<getAdminBusinessPlatformResponse>(getGetAdminBusinessPlatformUrl(), {
     ...options,
     method: "GET"
   });

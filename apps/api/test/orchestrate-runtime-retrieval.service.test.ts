@@ -207,7 +207,7 @@ async function run(): Promise<void> {
         notes: []
       })
     } as never,
-    { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
+    { generateEmbeddings: async () => ({ embeddings: [[0.1, 0.2]], usage: null }) } as never,
     { rerankCandidates: async () => null } as never,
     {
       decideBeforeSearch: () => null,
@@ -466,7 +466,7 @@ async function run(): Promise<void> {
         notes: []
       })
     } as never,
-    { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
+    { generateEmbeddings: async () => ({ embeddings: [[0.1, 0.2]], usage: null }) } as never,
     { rerankCandidates: async () => null } as never,
     {
       decideBeforeSearch: () => null,
@@ -571,7 +571,7 @@ async function runOrdinaryStagedRetrievalCases(): Promise<void> {
         notes: []
       })
     } as never,
-    { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
+    { generateEmbeddings: async () => ({ embeddings: [[0.1, 0.2]], usage: null }) } as never,
     { rerankCandidates: async () => null } as never,
     {
       decideBeforeSearch: () => null,

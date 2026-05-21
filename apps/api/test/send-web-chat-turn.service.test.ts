@@ -147,6 +147,9 @@ describe("SendWebChatTurnService", () => {
       {} as never,
       {} as never,
       {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
@@ -263,6 +266,9 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
       } as never,
       {
         attachAcknowledgementMessageId: async () => 0,
@@ -409,6 +415,9 @@ describe("SendWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
@@ -541,6 +550,9 @@ describe("SendWebChatTurnService", () => {
         recordWebChatTurnUsage: async (input: Record<string, unknown>) => {
           quotaWrites.push(input);
         }
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
       } as never,
       {
         attachAcknowledgementMessageId: async () => 0,
@@ -676,6 +688,9 @@ describe("SendWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
@@ -724,6 +739,7 @@ describe("SendWebChatTurnService", () => {
     const updatedContents: string[] = [];
     const memoryWrites: Array<Record<string, unknown>> = [];
     const quotaWrites: Array<Record<string, unknown>> = [];
+    const ledgerWrites: Array<Record<string, unknown>> = [];
 
     const service = new SendWebChatTurnService(
       {
@@ -758,6 +774,24 @@ describe("SendWebChatTurnService", () => {
         execute: async () => ({
           assistantMessage: "Готово, отправляю hello.txt",
           respondedAt: "2026-04-05T12:00:01.000Z",
+          usageAccounting: {
+            inputTokens: 120,
+            cachedInputTokens: 20,
+            outputTokens: 40,
+            totalTokens: 160,
+            entries: [
+              {
+                stepType: "main_turn",
+                modelRole: "normal_reply",
+                providerKey: "openai",
+                modelKey: "gpt-5-mini",
+                inputTokens: 120,
+                cachedInputTokens: 20,
+                outputTokens: 40,
+                totalTokens: 160
+              }
+            ]
+          },
           media: [
             {
               source: "persai_object_storage",
@@ -822,6 +856,12 @@ describe("SendWebChatTurnService", () => {
         }
       } as never,
       {
+        recordChatMainReplyEvents: async (input: Record<string, unknown>) => {
+          ledgerWrites.push(input);
+          return 1;
+        }
+      } as never,
+      {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
         listOpenJobsForWebChat: async () => []
@@ -857,6 +897,11 @@ describe("SendWebChatTurnService", () => {
       String(quotaWrites[0]?.assistantContent ?? ""),
       /Поправка: файл не был реально доставлен в этот чат/
     );
+    assert.equal(ledgerWrites.length, 1);
+    assert.equal(ledgerWrites[0]?.sourceEventId, "assistant-msg-1");
+    assert.equal(ledgerWrites[0]?.purpose, "chat_main_reply");
+    assert.equal(ledgerWrites[0]?.surface, "web");
+    assert.equal(ledgerWrites[0]?.occurredAt, "2026-04-05T12:00:01.000Z");
   });
 
   test("retries sync web turn after waiting for active compaction conflict", async () => {
@@ -943,6 +988,9 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
       } as never,
       {
         attachAcknowledgementMessageId: async () => 0,
@@ -1057,6 +1105,9 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
       } as never,
       {
         attachAcknowledgementMessageId: async () => 0,

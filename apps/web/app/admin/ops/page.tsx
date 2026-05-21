@@ -12,6 +12,7 @@ import {
 import { useAuth } from "@clerk/nextjs";
 import {
   Activity,
+  BarChart3,
   Bot,
   Check,
   Copy,
@@ -38,6 +39,7 @@ import {
 } from "@persai/contracts";
 import {
   deleteAdminOpsUserPlanOverride,
+  getAdminOpsCockpit,
   getAdminPlans,
   postAdminOpsUserBillingSupportAction,
   postAdminOpsUserPlanOverride,
@@ -71,71 +73,18 @@ interface OpsUserRow {
     currentPeriodEndsAt: string | null;
     usageRisk: "unknown" | "ok" | "elevated" | "high";
   };
+  periodEconomics: {
+    periodStartedAt: string;
+    periodEndsAt: string;
+    paidTotalMinor: number;
+    paidCurrency: string | null;
+    modelCostUsdMicros: number;
+  } | null;
 }
 
-type QuotaUsageData = {
-  tokenBudgetUsed: number;
-  tokenBudgetLimit: number | null;
-  tokenBudgetPeriodStartedAt?: string | null;
-  tokenBudgetPeriodEndsAt?: string | null;
-  tokenBudgetPeriodSource?: "subscription_period" | "calendar_month_fallback" | null;
-  mediaStorageBytesUsed: number;
-  mediaStorageBytesLimit: number | null;
-  activeWebChats: number;
-  activeWebChatsLimit: number | null;
-  monthlyMediaTools: Array<{
-    toolCode: "image_generate" | "image_edit" | "video_generate" | "document";
-    displayName: string;
-    usedUnits: number;
-    limitUnits: number | null;
-    bonusLimitUnits: number;
-    effectiveLimitUnits: number | null;
-    bonusExpiresAt?: string | null;
-  }>;
-};
-
-type BillingSupportData = {
-  subscription: {
-    id: string | null;
-    planCode: string | null;
-    status: string | null;
-    trialStartedAt: string | null;
-    trialEndsAt: string | null;
-    graceStartedAt: string | null;
-    graceEndsAt: string | null;
-    currentPeriodStartedAt: string | null;
-    currentPeriodEndsAt: string | null;
-    cancelAtPeriodEnd: boolean | null;
-    providerCustomerRef: string | null;
-    providerSubscriptionRef: string | null;
-  };
-  quotaPeriod: {
-    startedAt: string | null;
-    endsAt: string | null;
-    source: "subscription_period" | "calendar_month_fallback" | null;
-  };
-  latestPaidActivation: {
-    eventCode: string;
-    source: string;
-    adminAction: string | null;
-    planCode: string | null;
-    periodStartedAt: string | null;
-    periodEndsAt: string | null;
-    createdAt: string;
-  } | null;
-  latestLifecycleEvents: Array<{
-    id: string;
-    eventCode: string;
-    source: string;
-    previousStatus: string | null;
-    nextStatus: string | null;
-    previousPlanCode: string | null;
-    nextPlanCode: string | null;
-    nextPeriodStartedAt: string | null;
-    nextPeriodEndsAt: string | null;
-    createdAt: string;
-  }>;
-};
+type QuotaUsageData = NonNullable<AdminOpsCockpitState["quotaUsage"]>;
+type BillingSupportData = NonNullable<AdminOpsCockpitState["billingSupport"]>;
+type ModelCostLedgerData = NonNullable<AdminOpsCockpitState["modelCostLedger"]>;
 
 type ManualPaidBillingPeriod = "month" | "year";
 
@@ -220,6 +169,52 @@ function formatPeriodWindow(
 function formatNullable(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "—";
   return String(value);
+}
+
+function formatPaidMinor(totalMinor: number, currency: string | null): string {
+  if (currency === null || currency.length === 0) {
+    return totalMinor > 0 ? String(totalMinor) : "—";
+  }
+  const amount = totalMinor / 100;
+  try {
+    return new Intl.NumberFormat("ru-RU", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`;
+  }
+}
+
+function formatCurrencyMicros(totalCostMicros: number, currency: string): string {
+  const amount = totalCostMicros / 1_000_000;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(4)} ${currency}`;
+  }
+}
+
+function formatLedgerPeriodSource(
+  value: ModelCostLedgerData["periodSource"] | null | undefined
+): string {
+  switch (value) {
+    case "subscription_period":
+      return "subscription period";
+    case "calendar_month_fallback":
+      return "calendar-month fallback";
+    case "rolling_7d":
+      return "rolling 7 days";
+    default:
+      return "unknown";
+  }
 }
 
 function truncateId(value: string | null | undefined): string {
@@ -916,6 +911,8 @@ function UsersDirectory({
                   <th className="pb-1.5 pr-2 font-medium">Billing</th>
                   <th className="pb-1.5 pr-2 font-medium">Next date</th>
                   <th className="pb-1.5 pr-2 font-medium">Usage</th>
+                  <th className="pb-1.5 pr-2 font-medium">Paid (period)</th>
+                  <th className="pb-1.5 pr-2 font-medium">Cost (USD)</th>
                   <th className="pb-1.5 pr-2 font-medium">Assistant</th>
                   <th className="pb-1.5 font-medium" />
                 </tr>
@@ -965,6 +962,19 @@ function UsersDirectory({
                       >
                         {u.billing.usageRisk}
                       </span>
+                    </td>
+                    <td className="py-1.5 pr-2 tabular-nums text-text-muted">
+                      {u.periodEconomics
+                        ? formatPaidMinor(
+                            u.periodEconomics.paidTotalMinor,
+                            u.periodEconomics.paidCurrency
+                          )
+                        : "—"}
+                    </td>
+                    <td className="py-1.5 pr-2 tabular-nums text-text-muted">
+                      {u.periodEconomics
+                        ? formatCurrencyMicros(u.periodEconomics.modelCostUsdMicros, "USD")
+                        : "—"}
                     </td>
                     <td className="py-1.5 pr-2">
                       {u.assistant ? (
@@ -1092,13 +1102,7 @@ function UsersDirectory({
 /* ------------------------------------------------------------------ */
 
 async function fetchCockpit(token: string, userId?: string): Promise<AdminOpsCockpitState> {
-  const params = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-  const res = await fetch(`/api/v1/admin/ops/cockpit${params}`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (!res.ok) throw new Error(`${res.status}`);
-  const data = (await res.json()) as { cockpit: AdminOpsCockpitState };
-  return data.cockpit;
+  return await getAdminOpsCockpit(token, userId ? { userId } : undefined);
 }
 
 export default function AdminOpsPage() {
@@ -1143,36 +1147,11 @@ export default function AdminOpsPage() {
     () => manualPaidPlanOptions.find((plan) => plan.code === manualPaymentPlanCode) ?? null,
     [manualPaidPlanOptions, manualPaymentPlanCode]
   );
-  const billingSupport = useMemo(() => {
-    if (cockpit === null) return null;
-    const raw = cockpit as unknown as Record<string, unknown>;
-    return (raw.billingSupport as BillingSupportData | null | undefined) ?? null;
-  }, [cockpit]);
-  const quotaUsage = useMemo(() => {
-    if (cockpit === null) return null;
-    const raw = cockpit as unknown as Record<string, unknown>;
-    return (raw.quotaUsage as QuotaUsageData | null | undefined) ?? null;
-  }, [cockpit]);
-  const chatStats = useMemo(() => {
-    if (cockpit === null) return null;
-    const raw = cockpit as unknown as Record<string, unknown>;
-    return (
-      (raw.chatStats as
-        | { totalChats: number; activeWebChats: number; archivedWebChats: number }
-        | null
-        | undefined) ?? null
-    );
-  }, [cockpit]);
-  const channelBindings = useMemo(() => {
-    if (cockpit === null) return [];
-    const raw = cockpit as unknown as Record<string, unknown>;
-    return (
-      (raw.channels as
-        | Array<{ provider: string; surface: string; state: string }>
-        | null
-        | undefined) ?? []
-    );
-  }, [cockpit]);
+  const billingSupport: BillingSupportData | null = cockpit?.billingSupport ?? null;
+  const quotaUsage: QuotaUsageData | null = cockpit?.quotaUsage ?? null;
+  const chatStats = cockpit?.chatStats ?? null;
+  const modelCostLedger: ModelCostLedgerData | null = cockpit?.modelCostLedger ?? null;
+  const channelBindings = cockpit?.channels ?? [];
   const supportActions = useMemo(
     () =>
       billingSupport
@@ -1551,7 +1530,7 @@ export default function AdminOpsPage() {
             </p>
           )}
 
-          {(quotaUsage || chatStats || channelBindings.length > 0) && (
+          {(quotaUsage || modelCostLedger || chatStats || channelBindings.length > 0) && (
             <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,0.9fr)]">
               {quotaUsage && (
                 <CardShell title="Quota & Usage" icon={Gauge}>
@@ -1628,6 +1607,119 @@ export default function AdminOpsPage() {
               )}
 
               <div className="grid grid-cols-1 gap-1.5">
+                {cockpit?.periodEconomics && (
+                  <CardShell title="Period economics" icon={BarChart3} tone="muted" compact>
+                    <div className="space-y-2 text-[11px]">
+                      <DetailRow
+                        label="Window"
+                        value={`${formatTs(cockpit.periodEconomics.periodStartedAt)} → ${formatTs(cockpit.periodEconomics.periodEndsAt)}`}
+                      />
+                      <DetailRow
+                        label="Paid (subscription + packages)"
+                        value={formatPaidMinor(
+                          cockpit.periodEconomics.paidTotalMinor,
+                          cockpit.periodEconomics.paidCurrency
+                        )}
+                      />
+                      <DetailRow
+                        label="Model cost (USD ledger)"
+                        value={formatCurrencyMicros(
+                          cockpit.periodEconomics.modelCostUsdMicros,
+                          "USD"
+                        )}
+                      />
+                    </div>
+                  </CardShell>
+                )}
+
+                {modelCostLedger && (
+                  <CardShell title="Ledger-backed Model Cost" icon={BarChart3} tone="muted" compact>
+                    <div className="space-y-2">
+                      <p className="text-[10px] leading-relaxed text-text-muted">
+                        {modelCostLedger.coverageNote}
+                      </p>
+                      <DetailRow
+                        label="Window"
+                        value={`${formatTs(modelCostLedger.startedAt)} → ${formatTs(modelCostLedger.endedAt)} (${formatLedgerPeriodSource(modelCostLedger.periodSource)})`}
+                      />
+                      <DetailRow label="Ledger events" value={modelCostLedger.totalEvents} />
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                          Totals
+                        </p>
+                        {modelCostLedger.currencyTotals.length === 0 ? (
+                          <p className="text-[11px] text-text-muted">
+                            No ledger-backed cost rows in this period.
+                          </p>
+                        ) : (
+                          modelCostLedger.currencyTotals.map((entry) => (
+                            <div
+                              key={entry.currency}
+                              className="flex items-center justify-between rounded border border-border/50 bg-surface-raised px-2 py-1.5 text-[11px]"
+                            >
+                              <div>
+                                <p className="font-medium text-text">{entry.currency}</p>
+                                <p className="text-[10px] text-text-muted">
+                                  {entry.eventCount} events
+                                </p>
+                              </div>
+                              <span className="font-semibold tabular-nums text-text">
+                                {formatCurrencyMicros(entry.totalCostMicros, entry.currency)}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      {modelCostLedger.byPurpose.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                            By purpose
+                          </p>
+                          <div className="grid grid-cols-1 gap-1">
+                            {modelCostLedger.byPurpose.map((entry) => (
+                              <div
+                                key={entry.key}
+                                className="flex items-center justify-between rounded border border-border/40 bg-surface px-2 py-1 text-[10px]"
+                              >
+                                <span className="text-text">{entry.label}</span>
+                                <span className="font-medium tabular-nums text-text-muted">
+                                  {entry.eventCount}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {modelCostLedger.topBreakdown.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                            Top model rows
+                          </p>
+                          {modelCostLedger.topBreakdown.slice(0, 3).map((entry) => (
+                            <div
+                              key={`${entry.provider}-${entry.model}-${entry.purpose}-${entry.surface}-${entry.currency}`}
+                              className="rounded border border-border/50 bg-surface-raised px-2 py-1.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-medium text-text">
+                                  {entry.provider} / {entry.model}
+                                </span>
+                                <span className="text-[10px] font-semibold tabular-nums text-text">
+                                  {formatCurrencyMicros(entry.totalCostMicros, entry.currency)}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-[9px] text-text-muted">
+                                {entry.purposeLabel} · {entry.surfaceLabel} · {entry.eventCount}{" "}
+                                events
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </CardShell>
+                )}
+
                 {chatStats && (
                   <CardShell title="Chat Stats" icon={Activity} tone="muted" compact>
                     <div className="grid grid-cols-3 gap-2 text-center">

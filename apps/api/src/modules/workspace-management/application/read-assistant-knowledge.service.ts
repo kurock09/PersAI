@@ -1711,7 +1711,7 @@ export class ReadAssistantKnowledgeService {
                 modelKey: embeddingModelKey,
                 texts: [normalizedQuery]
               })
-            )[0] ?? null);
+            ).embeddings[0] ?? null);
       retrievalMode = queryEmbedding === null ? "lexical" : "hybrid";
       if (queryEmbedding !== null && embeddingModelKey !== null) {
         const vectorRows = (await this.prisma.assistantKnowledgeSourceChunk.findMany({
@@ -2992,7 +2992,7 @@ export class ReadAssistantKnowledgeService {
               modelKey: resolvedEmbeddingModelKey,
               texts: [normalizedQuery]
             })
-          )[0] ?? null);
+          ).embeddings[0] ?? null);
     let vectorCandidateCount = 0;
     const retrievalMode: "lexical" | "hybrid" = queryEmbedding === null ? "lexical" : "hybrid";
     if (queryEmbedding !== null && resolvedEmbeddingModelKey !== null) {

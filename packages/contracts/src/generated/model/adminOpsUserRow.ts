@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AdminOpsUserRowAssistant } from "./adminOpsUserRowAssistant";
+import type { AdminOpsUserRowPeriodEconomics } from "./adminOpsUserRowPeriodEconomics";
 import type { AdminOpsUserRowBilling } from "./adminOpsUserRowBilling";
 
 export interface AdminOpsUserRow {
@@ -15,5 +16,7 @@ export interface AdminOpsUserRow {
   createdAt: string;
   /** @nullable */
   assistant: AdminOpsUserRowAssistant;
+  /** @nullable */
+  periodEconomics: AdminOpsUserRowPeriodEconomics;
   billing: AdminOpsUserRowBilling;
 }

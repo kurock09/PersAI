@@ -7,6 +7,8 @@
 import type { AdminOpsCockpitStateQuotaUsage } from "./adminOpsCockpitStateQuotaUsage";
 import type { AdminOpsCockpitStateBillingSupport } from "./adminOpsCockpitStateBillingSupport";
 import type { AdminOpsCockpitStateChatStats } from "./adminOpsCockpitStateChatStats";
+import type { AdminOpsCockpitStateModelCostLedger } from "./adminOpsCockpitStateModelCostLedger";
+import type { AdminOpsCockpitStatePeriodEconomics } from "./adminOpsCockpitStatePeriodEconomics";
 import type { AdminOpsCockpitChannelBinding } from "./adminOpsCockpitChannelBinding";
 import type { AdminOpsCockpitStateSandbox } from "./adminOpsCockpitStateSandbox";
 import type { AdminOpsCockpitStateAssistant } from "./adminOpsCockpitStateAssistant";
@@ -21,6 +23,10 @@ export interface AdminOpsCockpitState {
   billingSupport: AdminOpsCockpitStateBillingSupport;
   /** @nullable */
   chatStats: AdminOpsCockpitStateChatStats;
+  /** @nullable */
+  modelCostLedger: AdminOpsCockpitStateModelCostLedger;
+  /** @nullable */
+  periodEconomics: AdminOpsCockpitStatePeriodEconomics;
   channels: AdminOpsCockpitChannelBinding[];
   /** @nullable */
   sandbox: AdminOpsCockpitStateSandbox;

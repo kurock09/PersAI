@@ -245,6 +245,9 @@ describe("StreamWebChatTurnService", () => {
         }
       } as never,
       {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
           attachments: [
@@ -442,6 +445,9 @@ describe("StreamWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
           attachments: [
@@ -552,6 +558,7 @@ describe("StreamWebChatTurnService", () => {
     const updatedContents: string[] = [];
     const memoryWrites: Array<Record<string, unknown>> = [];
     const quotaWrites: Array<Record<string, unknown>> = [];
+    const ledgerWrites: Array<Record<string, unknown>> = [];
 
     const service = new StreamWebChatTurnService(
       {
@@ -618,7 +625,25 @@ describe("StreamWebChatTurnService", () => {
           };
           yield {
             type: "done",
-            respondedAt: "2026-04-05T12:00:01.000Z"
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            usageAccounting: {
+              inputTokens: 120,
+              cachedInputTokens: 20,
+              outputTokens: 40,
+              totalTokens: 160,
+              entries: [
+                {
+                  stepType: "main_turn",
+                  modelRole: "normal_reply",
+                  providerKey: "openai",
+                  modelKey: "gpt-5-mini",
+                  inputTokens: 120,
+                  cachedInputTokens: 20,
+                  outputTokens: 40,
+                  totalTokens: 160
+                }
+              ]
+            }
           };
         }
       } as never,
@@ -641,6 +666,12 @@ describe("StreamWebChatTurnService", () => {
       {
         recordWebChatTurnUsage: async (input: Record<string, unknown>) => {
           quotaWrites.push(input);
+        }
+      } as never,
+      {
+        recordChatMainReplyEvents: async (input: Record<string, unknown>) => {
+          ledgerWrites.push(input);
+          return 1;
         }
       } as never,
       {
@@ -722,6 +753,11 @@ describe("StreamWebChatTurnService", () => {
       String(quotaWrites[0]?.assistantContent ?? ""),
       /Поправка: файл не был реально доставлен в этот чат/
     );
+    assert.equal(ledgerWrites.length, 1);
+    assert.equal(ledgerWrites[0]?.sourceEventId, "assistant-msg-1");
+    assert.equal(ledgerWrites[0]?.purpose, "chat_main_reply");
+    assert.equal(ledgerWrites[0]?.surface, "web");
+    assert.equal(ledgerWrites[0]?.occurredAt, "2026-04-05T12:00:01.000Z");
   });
 
   test("forces classifier drift checks for background skill rechecks after streamed turns", async () => {
@@ -816,6 +852,9 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
       } as never,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
@@ -1004,6 +1043,9 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
       } as never,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
@@ -1200,6 +1242,9 @@ describe("StreamWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({
           attachments: []
@@ -1344,6 +1389,9 @@ describe("StreamWebChatTurnService", () => {
         recordWebChatTurnUsage: async () => undefined
       } as never,
       {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
       } as never,
@@ -1476,6 +1524,9 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       {} as never,
       {} as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
       {
         markUndeliveredArtifactsReconciliationRequired: async () => undefined,
         deliver: async () => ({ attachments: [] })
@@ -1646,6 +1697,9 @@ function buildToolStreamingServiceForTraceTest(options: {
     } as never,
     {
       recordWebChatTurnUsage: async () => undefined
+    } as never,
+    {
+      recordChatMainReplyEvents: async () => 0
     } as never,
     {
       markUndeliveredArtifactsReconciliationRequired: async () => undefined,

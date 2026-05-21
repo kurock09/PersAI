@@ -106,7 +106,7 @@ export function flattenAvailableTextModelOptions(
     settings.availableModelCatalogByProvider ?? {}
   )) {
     for (const profile of catalog?.models ?? []) {
-      if (!profile.capabilities.includes("chat")) {
+      if (!profile.active || !profile.capabilities.includes("chat")) {
         continue;
       }
       const model = profile.model;

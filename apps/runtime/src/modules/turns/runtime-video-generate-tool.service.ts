@@ -396,7 +396,8 @@ export class RuntimeVideoGenerateToolService {
         requestId: params.requestId,
         filenameHint: request.filename,
         referenceFilename: selection.referenceFilename,
-        video: providerResult.video
+        video: providerResult.video,
+        billingFacts: providerResult.billingFacts
       });
 
       return {
@@ -674,6 +675,7 @@ export class RuntimeVideoGenerateToolService {
       bytesBase64: string;
       mimeType: string;
     };
+    billingFacts: RuntimeOutputArtifact["billingFacts"];
   }): Promise<RuntimeOutputArtifact> {
     if (!input.video.mimeType.startsWith("video/")) {
       throw new Error(`Video provider returned unsupported MIME type "${input.video.mimeType}".`);
@@ -720,7 +722,8 @@ export class RuntimeVideoGenerateToolService {
       mimeType: stored.mimeType,
       filename,
       sizeBytes: stored.sizeBytes,
-      voiceNote: false
+      voiceNote: false,
+      billingFacts: input.billingFacts ?? null
     };
   }
 

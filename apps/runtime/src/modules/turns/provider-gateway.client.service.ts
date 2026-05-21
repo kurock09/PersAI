@@ -11,6 +11,7 @@ import type {
   ProviderGatewayBrowserActionRequest,
   ProviderGatewayBrowserActionResult,
   ProviderGatewayAudioTranscriptionResult,
+  RuntimeBillingFacts,
   ProviderGatewayDocumentGenerateRequest,
   ProviderGatewayDocumentGenerateResult,
   ProviderGatewayImageEditRequest,
@@ -766,7 +767,8 @@ export class ProviderGatewayClientService {
       row?.provider === "openai" &&
       typeof row.model === "string" &&
       typeof row.text === "string" &&
-      typeof row.respondedAt === "string"
+      typeof row.respondedAt === "string" &&
+      this.isBillingFacts(row.billingFacts)
     );
   }
 
@@ -794,6 +796,7 @@ export class ProviderGatewayClientService {
       typeof row.respondedAt === "string" &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage))) &&
+      this.isBillingFacts(row.billingFacts) &&
       (typeof row.warning === "string" || row.warning === null)
     );
   }
@@ -860,6 +863,7 @@ export class ProviderGatewayClientService {
       typeof row.respondedAt === "string" &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage))) &&
+      this.isBillingFacts(row.billingFacts) &&
       (typeof row.warning === "string" || row.warning === null)
     );
   }
@@ -882,6 +886,7 @@ export class ProviderGatewayClientService {
       typeof row.respondedAt === "string" &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage))) &&
+      this.isBillingFacts(row.billingFacts) &&
       (typeof row.warning === "string" || row.warning === null)
     );
   }
@@ -898,8 +903,16 @@ export class ProviderGatewayClientService {
       typeof row.respondedAt === "string" &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage))) &&
+      this.isBillingFacts(row.billingFacts) &&
       (typeof row.warning === "string" || row.warning === null)
     );
+  }
+
+  private isBillingFacts(value: unknown): value is RuntimeBillingFacts | null {
+    if (value === null || value === undefined) {
+      return true;
+    }
+    return typeof value === "object" && !Array.isArray(value);
   }
 
   private isWebSearchResult(value: unknown): value is ProviderGatewayWebSearchResult {

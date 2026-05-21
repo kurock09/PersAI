@@ -63,6 +63,7 @@ function createService(overrides?: {
           assistantText: string;
           artifacts: Array<Record<string, unknown>>;
           usage: null;
+          billingFacts?: Record<string, unknown> | null;
           toolInvocations: Array<Record<string, unknown>>;
           rawText: string | null;
         };
@@ -88,6 +89,7 @@ function createService(overrides?: {
             {
               id: "job-1",
               assistantId: "assistant-1",
+              userId: "user-1",
               workspaceId: "workspace-1",
               chatId: "chat-1",
               surface: "web",
@@ -171,6 +173,13 @@ function createService(overrides?: {
             assistantText: "Your image is ready.",
             artifacts: [{ artifactId: "artifact-1", kind: "image" }],
             usage: null,
+            billingFacts: {
+              providerKey: "openai",
+              modelKey: "gpt-image-1",
+              capability: "image",
+              occurredAt: "2026-05-05T09:05:00.000Z",
+              metering: { meteringKind: "operation_metered", operationCount: 1, dimensions: null }
+            },
             toolInvocations: [{ name: "image_generate", iteration: 1, ok: true }],
             rawText: "Your image is ready."
           }
@@ -184,7 +193,12 @@ function createService(overrides?: {
     } as never,
     (overrides?.schedulerLeaseService ?? new FakeSchedulerLeaseService()) as never,
     (overrides?.backgroundSchedulerMetricsService ??
-      new FakeBackgroundSchedulerMetricsService()) as never
+      new FakeBackgroundSchedulerMetricsService()) as never,
+    {
+      async recordPersistedBillingFactsEvent() {
+        return 0;
+      }
+    } as never
   );
 
   return { service, txUpdates, finalUpdates, createdMessages };
@@ -205,6 +219,13 @@ describe("AssistantMediaJobSchedulerService", () => {
     assert.deepEqual(finalUpdates[0]?.data?.artifactsJson, [
       { artifactId: "artifact-1", kind: "image" }
     ]);
+    assert.deepEqual(finalUpdates[0]?.data?.billingFactsJson, {
+      providerKey: "openai",
+      modelKey: "gpt-image-1",
+      capability: "image",
+      occurredAt: "2026-05-05T09:05:00.000Z",
+      metering: { meteringKind: "operation_metered", operationCount: 1, dimensions: null }
+    });
   });
 
   test("requeues retryable runtime failures with backoff", async () => {
@@ -235,6 +256,7 @@ describe("AssistantMediaJobSchedulerService", () => {
           assistantText: "",
           artifacts: [],
           usage: null,
+          billingFacts: null,
           toolInvocations: [{ name: "image_edit", iteration: 1, ok: true }],
           rawText: null
         }
@@ -284,6 +306,7 @@ describe("AssistantMediaJobSchedulerService", () => {
         {
           id: "job-direct-1",
           assistantId: "assistant-1",
+          userId: "user-1",
           workspaceId: "workspace-1",
           chatId: "chat-1",
           surface: "web",
@@ -315,6 +338,7 @@ describe("AssistantMediaJobSchedulerService", () => {
           assistantText: "",
           artifacts: [{ artifactId: "artifact-1", kind: "image" }],
           usage: null,
+          billingFacts: null,
           toolInvocations: [{ name: "image_generate", iteration: 1, ok: true }],
           rawText: null
         }
@@ -334,6 +358,7 @@ describe("AssistantMediaJobSchedulerService", () => {
           assistantText: "",
           artifacts: [{ artifactId: "artifact-1", kind: "image" }],
           usage: null,
+          billingFacts: null,
           toolInvocations: [{ name: "image_generate", iteration: 1, ok: true }],
           rawText: null
         }

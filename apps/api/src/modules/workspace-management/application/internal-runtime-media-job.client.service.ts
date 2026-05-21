@@ -146,6 +146,9 @@ export class InternalRuntimeMediaJobClientService {
       Array.isArray(row.artifacts) &&
       Array.isArray(row.toolInvocations) &&
       (row.usage === null || this.asObject(row.usage) !== null) &&
+      (row.billingFacts === undefined ||
+        row.billingFacts === null ||
+        this.asObject(row.billingFacts) !== null) &&
       (row.rawText === null || typeof row.rawText === "string")
     );
   }

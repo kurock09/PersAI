@@ -39,6 +39,7 @@ import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
+import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
@@ -160,6 +161,7 @@ export class SendWebChatTurnService {
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
     private readonly mediaDeliveryService: MediaDeliveryService,
@@ -428,6 +430,18 @@ export class SendWebChatTurnService {
         source: "web_chat_turn_sync"
       });
       trace.stage("quota_recorded");
+      await this.appendModelCostLedgerEvents({
+        assistantId: prepared.assistantId,
+        workspaceId: prepared.workspaceId,
+        userId: prepared.userId,
+        assistantMessageId: assistantMessage.id,
+        respondedAt: runtimeResponse.respondedAt,
+        traceId: trace.getTraceId(),
+        ...(runtimeResponse.usageAccounting === undefined
+          ? {}
+          : { usageAccounting: runtimeResponse.usageAccounting })
+      });
+      trace.stage("cost_ledger_recorded");
       const quotaAdvisoryFollowUp =
         (await this.quotaAdvisoryFollowUpService?.maybeCreateFollowUp({
           assistantId: prepared.assistantId,
@@ -911,6 +925,37 @@ export class SendWebChatTurnService {
       externalThreadKey: surfaceThreadKey
     });
     return waitResult.readyForRetry;
+  }
+
+  private async appendModelCostLedgerEvents(input: {
+    assistantId: string;
+    workspaceId: string;
+    userId: string;
+    assistantMessageId: string;
+    respondedAt: string;
+    traceId: string;
+    usageAccounting?: AssistantRuntimeWebChatTurnResult["usageAccounting"];
+  }): Promise<void> {
+    try {
+      await this.recordModelCostLedgerService.recordChatMainReplyEvents({
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        surface: "web",
+        purpose: "chat_main_reply",
+        source: "web_chat_turn_sync",
+        occurredAt: input.respondedAt,
+        sourceEventId: input.assistantMessageId,
+        requestCorrelationId: input.traceId,
+        ...(input.usageAccounting === undefined ? {} : { usageAccounting: input.usageAccounting })
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[web-turn] Non-blocking model cost ledger append failed for assistant ${input.assistantId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   private logWebRuntimeRoute(input: {

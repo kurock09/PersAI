@@ -113,12 +113,15 @@ export class MediaPreprocessorService {
     }
 
     let transcription: string | null = null;
+    let billingFacts: PreprocessedMedia["billingFacts"] = null;
     try {
-      transcription = await this.transcribeAudio(
+      const transcriptionResult = await this.transcribeAudio(
         normalizedBuffer,
         normalizedMime,
         transcriptionFilename
       );
+      transcription = transcriptionResult.transcription;
+      billingFacts = transcriptionResult.billingFacts;
     } catch (err) {
       this.logger.warn(`STT failed for "${originalFilename}": ${String(err)}`);
     }
@@ -128,6 +131,7 @@ export class MediaPreprocessorService {
       normalizedMime,
       normalizedExtension,
       transcription,
+      billingFacts,
       textExtract: null,
       durationMs: null,
       width: null,
@@ -150,6 +154,7 @@ export class MediaPreprocessorService {
         normalizedMime,
         normalizedExtension,
         transcription: null,
+        billingFacts: null,
         textExtract: null,
         durationMs: null,
         width,
@@ -202,6 +207,7 @@ export class MediaPreprocessorService {
       normalizedMime,
       normalizedExtension,
       transcription: null,
+      billingFacts: null,
       textExtract: null,
       durationMs: null,
       width,
@@ -211,11 +217,18 @@ export class MediaPreprocessorService {
 
   private async processVideo(buffer: Buffer, mime: string): Promise<PreprocessedMedia> {
     let transcription: string | null = null;
+    let billingFacts: PreprocessedMedia["billingFacts"] = null;
 
     try {
       const audioTrack = await this.extractAudioFromVideo(buffer);
       if (audioTrack) {
-        transcription = await this.transcribeAudio(audioTrack, "audio/mpeg", "video-audio.mp3");
+        const transcriptionResult = await this.transcribeAudio(
+          audioTrack,
+          "audio/mpeg",
+          "video-audio.mp3"
+        );
+        transcription = transcriptionResult.transcription;
+        billingFacts = transcriptionResult.billingFacts;
       }
     } catch (err) {
       this.logger.warn(`Video audio extraction/STT failed: ${String(err)}`);
@@ -226,6 +239,7 @@ export class MediaPreprocessorService {
       normalizedMime: mime,
       normalizedExtension: this.extensionForMime(mime),
       transcription,
+      billingFacts,
       textExtract: null,
       durationMs: null,
       width: null,
@@ -276,6 +290,7 @@ export class MediaPreprocessorService {
       normalizedMime: mime,
       normalizedExtension: this.extensionForMime(mime),
       transcription: null,
+      billingFacts: null,
       textExtract,
       durationMs: null,
       width: null,
@@ -308,6 +323,7 @@ export class MediaPreprocessorService {
       normalizedMime: mime,
       normalizedExtension: this.extensionForMime(mime),
       transcription: null,
+      billingFacts: null,
       textExtract: null,
       durationMs: null,
       width: null,
@@ -348,7 +364,7 @@ export class MediaPreprocessorService {
     buffer: Buffer,
     mime: string,
     originalFilename: string
-  ): Promise<string | null> {
+  ): Promise<{ transcription: string | null; billingFacts: PreprocessedMedia["billingFacts"] }> {
     const startedAt = process.hrtime.bigint();
     let outcome: "success" | "failure" = "failure";
 
@@ -359,7 +375,10 @@ export class MediaPreprocessorService {
         filename: originalFilename
       });
       outcome = "success";
-      return result.text && result.text.trim().length > 0 ? result.text.trim() : null;
+      return {
+        transcription: result.text && result.text.trim().length > 0 ? result.text.trim() : null,
+        billingFacts: result.billingFacts ?? null
+      };
     } finally {
       const latencyMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
       this.platformHttpMetricsService.recordMediaStage({
