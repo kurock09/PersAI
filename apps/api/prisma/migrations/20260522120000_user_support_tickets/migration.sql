@@ -46,7 +46,6 @@ ALTER TABLE "support_ticket_messages" ADD CONSTRAINT "support_ticket_messages_ad
 INSERT INTO "notification_policies" (
     "id",
     "source",
-    "class",
     "enabled",
     "channels",
     "cooldown_minutes",
@@ -64,9 +63,8 @@ INSERT INTO "notification_policies" (
 SELECT
     gen_random_uuid(),
     'user_support',
-    'transactional',
     true,
-    ARRAY['email', 'user_preferred']::"NotificationChannelType"[],
+    ARRAY['email', 'user_preferred']::text[],
     NULL,
     NULL,
     NULL,
