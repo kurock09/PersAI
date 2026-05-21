@@ -368,6 +368,7 @@ export interface RuntimeTokenMeteredBillingFact {
   cachedInputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+  dimensions?: Record<string, string | number | boolean | null> | null;
 }
 
 export interface RuntimeTimeMeteredBillingFact {

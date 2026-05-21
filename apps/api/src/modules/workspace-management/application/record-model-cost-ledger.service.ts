@@ -295,6 +295,34 @@ function normalizeRuntimeBillingFactMetering(value: unknown): RuntimeBillingFact
     }
     return { meteringKind: "text_chars_metered", textChars };
   }
+  if (row.meteringKind === "token_metered") {
+    const dimensions =
+      row.dimensions === null || row.dimensions === undefined
+        ? null
+        : typeof row.dimensions === "object" && !Array.isArray(row.dimensions)
+          ? (row.dimensions as Record<string, string | number | boolean | null>)
+          : null;
+    return {
+      meteringKind: "token_metered",
+      inputTokens:
+        typeof row.inputTokens === "number" && Number.isFinite(row.inputTokens)
+          ? row.inputTokens
+          : null,
+      cachedInputTokens:
+        typeof row.cachedInputTokens === "number" && Number.isFinite(row.cachedInputTokens)
+          ? row.cachedInputTokens
+          : null,
+      outputTokens:
+        typeof row.outputTokens === "number" && Number.isFinite(row.outputTokens)
+          ? row.outputTokens
+          : null,
+      totalTokens:
+        typeof row.totalTokens === "number" && Number.isFinite(row.totalTokens)
+          ? row.totalTokens
+          : null,
+      dimensions
+    };
+  }
   if (row.meteringKind === "operation_metered") {
     const operationCount =
       typeof row.operationCount === "number" &&
@@ -319,10 +347,11 @@ function normalizeRuntimeBillingFactMetering(value: unknown): RuntimeBillingFact
 function resolvePurposeFromBillingFacts(facts: RuntimeBillingFacts): ModelCostLedgerPurpose | null {
   switch (facts.capability) {
     case "image": {
-      if (facts.metering.meteringKind !== "operation_metered") {
-        return "image_generation";
-      }
-      const operation = facts.metering.dimensions?.operation;
+      const operation =
+        facts.metering.meteringKind === "token_metered" ||
+        facts.metering.meteringKind === "operation_metered"
+          ? facts.metering.dimensions?.operation
+          : null;
       return operation === "edit" ? "image_edit" : "image_generation";
     }
     case "video":
@@ -346,6 +375,8 @@ function profileSupportsBillingFacts(
     return false;
   }
   switch (facts.metering.meteringKind) {
+    case "token_metered":
+      return profile.billingMode === "token_metered";
     case "time_metered":
       return profile.billingMode === "time_metered";
     case "text_chars_metered":
@@ -429,6 +460,14 @@ function calculateBillingFactsCostMicros(
   profile: RuntimeProviderModelProfile
 ): bigint | null {
   switch (facts.metering.meteringKind) {
+    case "token_metered":
+      if (profile.billingMode !== "token_metered") {
+        return null;
+      }
+      return calculateTokenMeteredCostMicros({
+        usage: extractTokenUsageFacts(facts.metering),
+        profile
+      });
     case "time_metered":
       if (profile.billingMode !== "time_metered") {
         return null;

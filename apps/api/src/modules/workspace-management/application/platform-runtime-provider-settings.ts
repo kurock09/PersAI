@@ -805,13 +805,29 @@ function normalizeModelProfiles(value: unknown[], path: string): RuntimeProvider
   return result;
 }
 
+function defaultBillingModeForCapabilities(
+  capabilities: RuntimeProviderModelCapability[]
+): RuntimeProviderBillingMode {
+  if (capabilities.includes("chat") || capabilities.includes("image")) {
+    return "token_metered";
+  }
+  if (capabilities.includes("video") || capabilities.includes("speech_to_text")) {
+    return "time_metered";
+  }
+  if (capabilities.includes("text_to_speech")) {
+    return "text_chars_metered";
+  }
+  if (capabilities.includes("ocr_or_document_parsing")) {
+    return "fixed_operation";
+  }
+  return "token_metered";
+}
+
 function createDefaultModelProfiles(
   models: string[],
   capabilities: RuntimeProviderModelCapability[]
 ): RuntimeProviderModelProfile[] {
-  const billingMode: RuntimeProviderBillingMode = capabilities.includes("chat")
-    ? "token_metered"
-    : "fixed_operation";
+  const billingMode = defaultBillingModeForCapabilities(capabilities);
   return models.map((model) => {
     const base = {
       model,
@@ -830,6 +846,20 @@ function createDefaultModelProfiles(
         ...base,
         billingMode,
         providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("token_metered")
+      };
+    }
+    if (billingMode === "time_metered") {
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("time_metered")
+      };
+    }
+    if (billingMode === "text_chars_metered") {
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("text_chars_metered")
       };
     }
     return {
@@ -859,9 +889,7 @@ function normalizeLegacyCapabilityCatalog(
   append(normalizeAvailableModelList(providerRow.video ?? [], `${path}.video`), "video");
   return Array.from(byModel.entries()).map(([model, capabilities]) => {
     const capabilityList = Array.from(capabilities);
-    const billingMode: RuntimeProviderBillingMode = capabilities.has("chat")
-      ? "token_metered"
-      : "fixed_operation";
+    const billingMode = defaultBillingModeForCapabilities(capabilityList);
     const base = {
       model,
       capabilities: capabilityList,
@@ -879,6 +907,20 @@ function normalizeLegacyCapabilityCatalog(
         ...base,
         billingMode,
         providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("token_metered")
+      };
+    }
+    if (billingMode === "time_metered") {
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("time_metered")
+      };
+    }
+    if (billingMode === "text_chars_metered") {
+      return {
+        ...base,
+        billingMode,
+        providerPriceMetadata: createDefaultRuntimeProviderPriceMetadata("text_chars_metered")
       };
     }
     return {

@@ -841,6 +841,24 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     outputTokens: 60,
     totalTokens: 90
   });
+  assert.deepEqual(imageResult.billingFacts, {
+    providerKey: "openai",
+    modelKey: "gpt-image-1.5",
+    capability: "image",
+    occurredAt: imageResult.billingFacts?.occurredAt,
+    metering: {
+      meteringKind: "token_metered",
+      inputTokens: 30,
+      cachedInputTokens: null,
+      outputTokens: 60,
+      totalTokens: 90,
+      dimensions: {
+        operation: "generate",
+        size: "1024x1024",
+        background: "transparent"
+      }
+    }
+  });
 
   const imageEditResult = await client.editImage(
     createImageEditRequest({ includeReference: true }),
@@ -883,6 +901,24 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     cachedInputTokens: null,
     outputTokens: 48,
     totalTokens: 72
+  });
+  assert.deepEqual(imageEditResult.billingFacts, {
+    providerKey: "openai",
+    modelKey: "gpt-image-2",
+    capability: "image",
+    occurredAt: imageEditResult.billingFacts?.occurredAt,
+    metering: {
+      meteringKind: "token_metered",
+      inputTokens: 24,
+      cachedInputTokens: null,
+      outputTokens: 48,
+      totalTokens: 72,
+      dimensions: {
+        operation: "edit",
+        size: "1024x1024",
+        background: "opaque"
+      }
+    }
   });
 
   const speechResult = await client.generateSpeech(createSpeechGenerateRequest(), {
@@ -977,6 +1013,17 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       inputReference: FormDataEntryValue | null;
     } | null;
     assert.equal(videoResult.model, "sora-2-pro");
+    assert.deepEqual(videoResult.billingFacts, {
+      providerKey: "openai",
+      modelKey: "sora-2-pro",
+      capability: "video",
+      occurredAt: videoResult.billingFacts?.occurredAt,
+      metering: {
+        meteringKind: "time_metered",
+        durationMs: 4000,
+        durationSeconds: 4
+      }
+    });
     assert.equal(videoResult.video.mimeType, "video/mp4");
     assert.equal(videoResult.video.bytesBase64, Buffer.from("video-bytes").toString("base64"));
     assert.ok(recordedVideoPayload !== null);

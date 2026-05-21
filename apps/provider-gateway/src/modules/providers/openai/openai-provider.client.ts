@@ -335,6 +335,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         throw new Error("OpenAI image generation did not return any image bytes.");
       }
 
+      const usage = this.toImageUsageSnapshot(model, response.usage);
       return {
         provider: "openai",
         model,
@@ -346,11 +347,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           revisedPrompt: image.revisedPrompt
         })),
         respondedAt: new Date().toISOString(),
-        usage: this.toImageUsageSnapshot(model, response.usage),
-        billingFacts: this.buildOperationBillingFacts({
+        usage,
+        billingFacts: this.buildImageTokenBillingFacts({
           model,
-          capability: "image",
-          operationCount: images.length,
+          usage,
           dimensions: {
             operation: "generate",
             size: input.size,
@@ -426,6 +426,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         throw new Error("OpenAI image edit did not return any image bytes.");
       }
 
+      const usage = this.toImageUsageSnapshot(model, response.usage);
       return {
         provider: "openai",
         model,
@@ -437,11 +438,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           revisedPrompt: image.revisedPrompt
         })),
         respondedAt: new Date().toISOString(),
-        usage: this.toImageUsageSnapshot(model, response.usage),
-        billingFacts: this.buildOperationBillingFacts({
+        usage,
+        billingFacts: this.buildImageTokenBillingFacts({
           model,
-          capability: "image",
-          operationCount: images.length,
+          usage,
           dimensions: {
             operation: "edit",
             size: input.size,
@@ -497,14 +497,9 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         video,
         respondedAt: new Date().toISOString(),
         usage: null,
-        billingFacts: this.buildOperationBillingFacts({
+        billingFacts: this.buildVideoTimeBillingFacts({
           model: completedJob.model ?? input.model ?? OPENAI_VIDEO_GENERATION_MODEL,
-          capability: "video",
-          operationCount: 1,
-          dimensions: {
-            seconds: input.seconds,
-            size: input.size
-          }
+          seconds: input.seconds
         }),
         warning: null
       };
@@ -883,21 +878,47 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     };
   }
 
-  private buildOperationBillingFacts(input: {
+  private buildImageTokenBillingFacts(input: {
     model: string;
-    capability: "image" | "video";
-    operationCount: number;
+    usage: RuntimeUsageSnapshot | null;
     dimensions?: Record<string, string | number | boolean | null>;
-  }): RuntimeBillingFacts {
+  }): RuntimeBillingFacts | null {
+    if (input.usage === null) {
+      return null;
+    }
     return {
       providerKey: "openai",
       modelKey: input.model,
-      capability: input.capability,
+      capability: "image",
       occurredAt: new Date().toISOString(),
       metering: {
-        meteringKind: "operation_metered",
-        operationCount: input.operationCount,
+        meteringKind: "token_metered",
+        inputTokens: input.usage.inputTokens ?? null,
+        cachedInputTokens: input.usage.cachedInputTokens ?? null,
+        outputTokens: input.usage.outputTokens ?? null,
+        totalTokens: input.usage.totalTokens ?? null,
         dimensions: input.dimensions ?? null
+      }
+    };
+  }
+
+  private buildVideoTimeBillingFacts(input: {
+    model: string;
+    seconds: string | number;
+  }): RuntimeBillingFacts {
+    const durationSeconds = Number(input.seconds);
+    const safeDurationSeconds =
+      Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 0;
+    const durationMs = Math.round(safeDurationSeconds * 1000);
+    return {
+      providerKey: "openai",
+      modelKey: input.model,
+      capability: "video",
+      occurredAt: new Date().toISOString(),
+      metering: {
+        meteringKind: "time_metered",
+        durationMs,
+        durationSeconds: safeDurationSeconds
       }
     };
   }

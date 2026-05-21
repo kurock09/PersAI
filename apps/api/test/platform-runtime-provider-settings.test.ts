@@ -40,6 +40,22 @@ function fixedOperationDefaults() {
   };
 }
 
+function timeMeteredDefaults() {
+  return {
+    active: true,
+    billingMode: "time_metered" as const,
+    effectiveFrom: null,
+    effectiveTo: null,
+    providerPriceMetadata: {
+      currency: "USD",
+      timePricing: {
+        unit: "second" as const,
+        pricePerUnit: 0
+      }
+    }
+  };
+}
+
 function textCharsMeteredDefaults() {
   return {
     active: true,
@@ -95,7 +111,7 @@ async function run(): Promise<void> {
           {
             model: "gpt-image-1",
             capabilities: ["image"],
-            ...fixedOperationDefaults(),
+            ...tokenMeteredDefaults(),
             inputTokenWeight: 1,
             cachedInputTokenWeight: 1,
             outputTokenWeight: 1,
@@ -105,7 +121,7 @@ async function run(): Promise<void> {
           {
             model: "gpt-image-1.5",
             capabilities: ["image"],
-            ...fixedOperationDefaults(),
+            ...tokenMeteredDefaults(),
             inputTokenWeight: 1,
             cachedInputTokenWeight: 1,
             outputTokenWeight: 1,
@@ -115,7 +131,7 @@ async function run(): Promise<void> {
           {
             model: "sora-2",
             capabilities: ["video"],
-            ...fixedOperationDefaults(),
+            ...timeMeteredDefaults(),
             inputTokenWeight: 1,
             cachedInputTokenWeight: 1,
             outputTokenWeight: 1,
@@ -125,7 +141,7 @@ async function run(): Promise<void> {
           {
             model: "sora-2-pro",
             capabilities: ["video"],
-            ...fixedOperationDefaults(),
+            ...timeMeteredDefaults(),
             inputTokenWeight: 1,
             cachedInputTokenWeight: 1,
             outputTokenWeight: 1,
@@ -397,7 +413,7 @@ async function run(): Promise<void> {
             {
               model: "gpt-image-1.5",
               capabilities: ["image"],
-              ...fixedOperationDefaults(),
+              ...tokenMeteredDefaults(),
               inputTokenWeight: 1,
               cachedInputTokenWeight: 1,
               outputTokenWeight: 1,
@@ -407,7 +423,7 @@ async function run(): Promise<void> {
             {
               model: "sora-2-pro",
               capabilities: ["video"],
-              ...fixedOperationDefaults(),
+              ...timeMeteredDefaults(),
               inputTokenWeight: 1,
               cachedInputTokenWeight: 1,
               outputTokenWeight: 1,

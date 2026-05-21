@@ -2,6 +2,18 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-21 — ADR-099 image token + video per-second billing facts
+
+### What landed
+
+- **Image (`gpt-image-*`):** provider-gateway now emits `token_metered` billing facts from OpenAI `usage` (input/cached/output tokens + `dimensions.operation` for generate vs edit). Ledger `recordPersistedBillingFactsEvent` prices `token_metered` image catalog rows.
+- **Video (`sora-*`):** provider-gateway now emits `time_metered` billing facts with `durationSeconds` from request `seconds`. Ledger prices `time_metered` video catalog rows.
+- **Catalog defaults:** new/legacy catalog normalization infers `token_metered` for `image`, `time_metered` for `video` (was `fixed_operation`).
+
+### Next recommended step
+
+- On dev/prod Admin Runtime, set real OpenAI Standard prices: image models use **image token** $/1M (output dominant); video models use **$/second**. Redeploy `provider-gateway` + `api` so new billing facts flow into media jobs.
+
 ## 2026-05-21 — ADR-099 Ops period economics + knowledge indexing embedding ledger
 
 ### What landed

@@ -607,7 +607,7 @@ describe("RecordModelCostLedgerService", () => {
                 model: "gpt-image-1",
                 capabilities: ["image"],
                 active: true,
-                billingMode: "fixed_operation",
+                billingMode: "token_metered",
                 effectiveFrom: null,
                 effectiveTo: null,
                 inputTokenWeight: 1,
@@ -617,9 +617,10 @@ describe("RecordModelCostLedgerService", () => {
                 notes: null,
                 providerPriceMetadata: {
                   currency: "USD",
-                  fixedOperationPricing: {
-                    unitLabel: "image",
-                    pricePerOperation: 12
+                  tokenPricing: {
+                    inputPer1M: 10,
+                    cachedInputPer1M: 2.5,
+                    outputPer1M: 40
                   }
                 }
               }
@@ -648,8 +649,11 @@ describe("RecordModelCostLedgerService", () => {
       capability: "image",
       occurredAt: "2026-05-05T09:05:00.000Z",
       metering: {
-        meteringKind: "operation_metered",
-        operationCount: 2,
+        meteringKind: "token_metered",
+        inputTokens: 1_000,
+        cachedInputTokens: 0,
+        outputTokens: 2_000,
+        totalTokens: 3_000,
         dimensions: { operation: "generate" }
       }
     };
@@ -698,8 +702,106 @@ describe("RecordModelCostLedgerService", () => {
         surface: "web",
         source: "media_job_completion",
         sourceEventId: "media_job:job-1",
-        actualCostMicros: BigInt(24),
-        billingMode: "fixed_operation"
+        actualCostMicros: BigInt(90_000),
+        billingMode: "token_metered"
+      }
+    );
+  });
+
+  test("records video cost from persisted time-metered billing facts", async () => {
+    const createdRows: Array<Record<string, unknown>> = [];
+    const prisma = {
+      modelCostLedgerEvent: {
+        createMany: async (input: { data: Array<Record<string, unknown>> }) => {
+          createdRows.push(...input.data);
+          return { count: input.data.length };
+        }
+      }
+    } as unknown as WorkspaceManagementPrismaService;
+
+    const settingsResolver = {
+      execute: async () => ({
+        schema: "persai.runtimeProviderProfile.v1",
+        mode: "admin_managed",
+        derivedFrom: {
+          policyEnvelopeSchema: "persai.runtimeProviderProfile.v1",
+          secretRefsSchema: "persai.runtimeProviderCredentialRefs.v1"
+        },
+        allowedProviders: ["openai", "anthropic"],
+        availableModelsByProvider: { openai: ["sora-2"], anthropic: [] },
+        availableModelCatalogByProvider: {
+          openai: {
+            models: [
+              {
+                model: "sora-2",
+                capabilities: ["video"],
+                active: true,
+                billingMode: "time_metered",
+                effectiveFrom: null,
+                effectiveTo: null,
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  timePricing: {
+                    unit: "second",
+                    pricePerUnit: 10
+                  }
+                }
+              }
+            ]
+          },
+          anthropic: { models: [] }
+        },
+        primary: {
+          provider: "openai",
+          model: "sora-2",
+          credentialRef: {
+            refKey: "env:openai:OPENAI_API_KEY",
+            secretRef: { source: "env", provider: "openai", id: "OPENAI_API_KEY" },
+            updatedAt: null
+          }
+        },
+        fallback: null,
+        notes: []
+      })
+    } as ResolvePlatformRuntimeProviderSettingsService;
+
+    const service = new RecordModelCostLedgerService(prisma, settingsResolver);
+    const writtenCount = await service.recordPersistedBillingFactsEvent({
+      workspaceId: "workspace-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surface: "web",
+      source: "media_job_completion",
+      sourceEventId: "media_job:job-video-1",
+      billingFacts: {
+        providerKey: "openai",
+        modelKey: "sora-2",
+        capability: "video",
+        occurredAt: "2026-05-05T09:10:00.000Z",
+        metering: {
+          meteringKind: "time_metered",
+          durationMs: 8_000,
+          durationSeconds: 8
+        }
+      }
+    });
+
+    assert.equal(writtenCount, 1);
+    assert.deepEqual(
+      {
+        purpose: createdRows[0]?.purpose,
+        actualCostMicros: createdRows[0]?.actualCostMicros,
+        billingMode: createdRows[0]?.billingMode
+      },
+      {
+        purpose: "video_generation",
+        actualCostMicros: BigInt(80),
+        billingMode: "time_metered"
       }
     );
   });

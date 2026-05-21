@@ -349,7 +349,14 @@ async function run(): Promise<void> {
           modelKey: "gpt-image-1",
           capability: "image",
           occurredAt: "2026-05-05T09:05:00.000Z",
-          metering: { meteringKind: "operation_metered", operationCount: 1, dimensions: null }
+          metering: {
+            meteringKind: "token_metered",
+            inputTokens: 30,
+            cachedInputTokens: null,
+            outputTokens: 60,
+            totalTokens: 90,
+            dimensions: { operation: "generate" }
+          }
         }
       },
       {

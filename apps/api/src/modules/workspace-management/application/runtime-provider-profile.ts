@@ -325,8 +325,11 @@ function inferBillingMode(
   if (capabilities.includes("ocr_or_document_parsing")) {
     return "fixed_operation";
   }
-  if (capabilities.includes("image") || capabilities.includes("video")) {
-    return "fixed_operation";
+  if (capabilities.includes("image")) {
+    return "token_metered";
+  }
+  if (capabilities.includes("video")) {
+    return "time_metered";
   }
   return "token_metered";
 }
