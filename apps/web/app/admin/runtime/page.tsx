@@ -134,6 +134,33 @@ function providerLabel(provider: ManagedRuntimeProvider): string {
   return provider === "openai" ? "OpenAI" : "Anthropic";
 }
 
+const MANAGED_RUNTIME_PROVIDERS = [
+  "openai",
+  "anthropic"
+] as const satisfies readonly ManagedRuntimeProvider[];
+
+function clampCatalogIndex(index: number, length: number): number {
+  if (length <= 0) {
+    return 0;
+  }
+  return Math.min(Math.max(0, Math.floor(index)), length - 1);
+}
+
+export function formatCatalogEntryLabel(
+  profile: RuntimeProviderModelProfileState,
+  index: number
+): string {
+  const key = profile.model.trim() || `Draft ${index + 1}`;
+  const label = profile.displayLabel?.trim();
+  const status = profile.active ? "active" : "inactive";
+  const parts = [key];
+  if (label && label !== key) {
+    parts.push(label);
+  }
+  parts.push(status, profile.billingMode);
+  return parts.join(" · ");
+}
+
 function createDefaultProviderPriceMetadata(
   billingMode: "token_metered"
 ): RuntimeProviderModelProfileForMode<"token_metered">["providerPriceMetadata"];
@@ -651,7 +678,23 @@ export default function AdminRuntimePage() {
   const modelCatalogRef = useRef<RuntimeProviderModelCatalogByProviderState>(createEmptyCatalog());
   const [modelCatalogByProvider, setModelCatalogByProvider] =
     useState<RuntimeProviderModelCatalogByProviderState>(createEmptyCatalog());
+  const [selectedCatalogIndexByProvider, setSelectedCatalogIndexByProvider] = useState<
+    Record<ManagedRuntimeProvider, number>
+  >({ openai: 0, anthropic: 0 });
+  const [newCatalogCapabilityByProvider, setNewCatalogCapabilityByProvider] = useState<
+    Record<ManagedRuntimeProvider, RuntimeProviderModelProfileState["capabilities"][number]>
+  >({ openai: "chat", anthropic: "chat" });
   modelCatalogRef.current = modelCatalogByProvider;
+
+  useEffect(() => {
+    setSelectedCatalogIndexByProvider((current) => ({
+      openai: clampCatalogIndex(current.openai, modelCatalogByProvider.openai.models.length),
+      anthropic: clampCatalogIndex(
+        current.anthropic,
+        modelCatalogByProvider.anthropic.models.length
+      )
+    }));
+  }, [modelCatalogByProvider]);
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -869,12 +912,19 @@ export default function AdminRuntimePage() {
       provider: ManagedRuntimeProvider,
       capability: RuntimeProviderModelProfileState["capabilities"][number]
     ) => {
-      setModelCatalogByProvider((current) => ({
-        ...current,
-        [provider]: {
-          models: [...current[provider].models, createModelProfile(capability)]
-        }
-      }));
+      setModelCatalogByProvider((current) => {
+        const nextIndex = current[provider].models.length;
+        setSelectedCatalogIndexByProvider((selected) => ({
+          ...selected,
+          [provider]: nextIndex
+        }));
+        return {
+          ...current,
+          [provider]: {
+            models: [...current[provider].models, createModelProfile(capability)]
+          }
+        };
+      });
     },
     []
   );
@@ -888,6 +938,10 @@ export default function AdminRuntimePage() {
       const duplicate = createInactiveDuplicateProfile(source);
       const nextModels = [...current[provider].models];
       nextModels.splice(index + 1, 0, duplicate);
+      setSelectedCatalogIndexByProvider((selected) => ({
+        ...selected,
+        [provider]: index + 1
+      }));
       return {
         ...current,
         [provider]: { models: nextModels }
@@ -902,10 +956,17 @@ export default function AdminRuntimePage() {
         return current;
       }
       if (source.model.trim().length === 0) {
+        const nextModels = current[provider].models.filter(
+          (_, profileIndex) => profileIndex !== index
+        );
+        setSelectedCatalogIndexByProvider((selected) => ({
+          ...selected,
+          [provider]: clampCatalogIndex(selected[provider], nextModels.length)
+        }));
         return {
           ...current,
           [provider]: {
-            models: current[provider].models.filter((_, profileIndex) => profileIndex !== index)
+            models: nextModels
           }
         };
       }
@@ -1046,63 +1107,109 @@ export default function AdminRuntimePage() {
 
       <Fold t="Provider Model Catalog">
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-          {(["openai", "anthropic"] as const).map((provider) => (
-            <Card
-              key={provider}
-              title={providerLabel(provider)}
-              trailing={
-                <div className="flex flex-wrap items-center gap-1">
-                  {(["chat", "image", "video", "speech_to_text", "text_to_speech"] as const).map(
-                    (capability) => (
+          {MANAGED_RUNTIME_PROVIDERS.map((provider) => {
+            const models = modelCatalogByProvider[provider].models;
+            const selectedIndex = clampCatalogIndex(
+              selectedCatalogIndexByProvider[provider],
+              models.length
+            );
+            const selectedProfile = models[selectedIndex] ?? null;
+            const catalogEntryLabel = `${providerLabel(provider)} catalog entry`;
+
+            return (
+              <Card key={provider} title={providerLabel(provider)}>
+                <div className="space-y-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                    <div className="min-w-0 flex-1">
+                      <SelectField
+                        label={catalogEntryLabel}
+                        value={models.length > 0 ? String(selectedIndex) : ""}
+                        onChange={(value) => {
+                          const parsed = Number.parseInt(value, 10);
+                          if (!Number.isFinite(parsed)) {
+                            return;
+                          }
+                          setSelectedCatalogIndexByProvider((current) => ({
+                            ...current,
+                            [provider]: clampCatalogIndex(parsed, models.length)
+                          }));
+                        }}
+                        options={
+                          models.length > 0
+                            ? models.map((profile, index) => ({
+                                value: String(index),
+                                label: formatCatalogEntryLabel(profile, index)
+                              }))
+                            : [{ value: "", label: "No catalog entries yet" }]
+                        }
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-end gap-1.5">
+                      <SelectField
+                        label="New entry type"
+                        value={newCatalogCapabilityByProvider[provider]}
+                        onChange={(value) =>
+                          setNewCatalogCapabilityByProvider((current) => ({
+                            ...current,
+                            [provider]:
+                              value as RuntimeProviderModelProfileState["capabilities"][number]
+                          }))
+                        }
+                        options={[
+                          { value: "chat", label: "Chat" },
+                          { value: "image", label: "Image" },
+                          { value: "video", label: "Video" },
+                          { value: "speech_to_text", label: "Speech to text" },
+                          { value: "text_to_speech", label: "Text to speech" }
+                        ]}
+                      />
                       <button
-                        key={capability}
                         type="button"
-                        onClick={() => addCatalogProfile(provider, capability)}
-                        className="rounded border border-border/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-text-muted hover:border-border-strong hover:text-text"
+                        onClick={() =>
+                          addCatalogProfile(provider, newCatalogCapabilityByProvider[provider])
+                        }
+                        className="rounded border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent hover:border-accent/60"
                       >
-                        + {capability}
+                        Add model
                       </button>
-                    )
-                  )}
-                </div>
-              }
-            >
-              {modelCatalogByProvider[provider].models.length === 0 ? (
-                <p className="text-[10px] text-text-subtle">
-                  No catalog entries yet. Add an active model card instead of editing one big text
-                  blob.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {modelCatalogByProvider[provider].models.map((profile, index) => (
+                    </div>
+                  </div>
+
+                  {selectedProfile === null ? (
+                    <p className="rounded border border-dashed border-border/60 bg-surface-raised/40 px-2.5 py-3 text-[10px] text-text-subtle">
+                      No catalog entries yet. Choose a type and click Add model to create the first
+                      version row for {providerLabel(provider)}.
+                    </p>
+                  ) : (
                     <ModelProfileEditor
-                      key={`${provider}:${profile.model || "new"}:${index}`}
+                      key={`${provider}:${selectedProfile.model || "draft"}:${selectedIndex}`}
                       provider={provider}
-                      profile={profile}
+                      profile={selectedProfile}
                       onChange={(nextProfile) =>
-                        updateCatalogProfile(provider, index, () => nextProfile)
+                        updateCatalogProfile(provider, selectedIndex, () => nextProfile)
                       }
                       onProviderPriceMetadataChange={(merge) =>
-                        updateCatalogProfile(provider, index, (currentProfile) => {
+                        updateCatalogProfile(provider, selectedIndex, (currentProfile) => {
                           const currentMeta =
                             currentProfile.providerPriceMetadata ??
                             createDefaultProviderPriceMetadata(currentProfile.billingMode);
                           return replacePriceMetadata(currentProfile, merge(currentMeta));
                         })
                       }
-                      onDuplicate={() => duplicateCatalogProfile(provider, index)}
-                      onArchive={() => archiveCatalogProfile(provider, index)}
+                      onDuplicate={() => duplicateCatalogProfile(provider, selectedIndex)}
+                      onArchive={() => archiveCatalogProfile(provider, selectedIndex)}
                     />
-                  ))}
+                  )}
+
+                  <p className="text-[10px] text-text-subtle">
+                    Active `chat` rows feed the same downstream model picks as before. Inactive rows
+                    stay in the catalog for version history and do not appear in selectors. Archive
+                    versions instead of deleting historical truth.
+                  </p>
                 </div>
-              )}
-              <p className="text-[10px] text-text-subtle">
-                Active `chat` rows feed the same downstream model picks as before. Inactive rows
-                stay in the catalog for version history and do not appear in selectors. Archive
-                versions instead of deleting historical truth.
-              </p>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       </Fold>
 

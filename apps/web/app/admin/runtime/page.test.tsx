@@ -141,7 +141,11 @@ describe("AdminRuntimePage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
 
-    fireEvent.change(screen.getAllByLabelText("Billing mode")[1]!, {
+    fireEvent.change(screen.getByLabelText("OpenAI catalog entry"), {
+      target: { value: "1" }
+    });
+
+    fireEvent.change(screen.getByLabelText("Billing mode"), {
       target: { value: "tiered_operation" }
     });
 
@@ -196,6 +200,10 @@ describe("AdminRuntimePage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
 
+    fireEvent.change(screen.getByLabelText("OpenAI catalog entry"), {
+      target: { value: "1" }
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "Archive version gpt-image-2" }));
 
     expect(screen.getByRole("button", { name: "Archive version gpt-image-2" })).toBeDisabled();
@@ -221,6 +229,41 @@ describe("AdminRuntimePage", () => {
       active: false
     });
     expect(imageProfiles[0].effectiveTo).toBeTruthy();
+  });
+});
+
+describe("AdminRuntimePage catalog picker", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clerkMocks.getToken.mockResolvedValue("token-1");
+    apiMocks.getAdminRuntimeProviderSettings.mockResolvedValue(createRuntimeSettingsState());
+    apiMocks.putAdminRuntimeProviderSettings.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("shows one model editor at a time and switches via catalog entry select", async () => {
+    render(<AdminRuntimePage />);
+
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+
+    expect(screen.getAllByLabelText("Billing mode")).toHaveLength(1);
+    expect(screen.getByLabelText("Input / 1M")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Price / operation")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("OpenAI catalog entry"), {
+      target: { value: "1" }
+    });
+
+    expect(screen.getAllByLabelText("Billing mode")).toHaveLength(1);
+    expect(screen.queryByLabelText("Input / 1M")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Price / operation")).toBeInTheDocument();
   });
 });
 
