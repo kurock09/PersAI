@@ -2,13 +2,14 @@ import { auth } from "@clerk/nextjs/server";
 
 const rawProxyTarget = process.env.PERSAI_WEB_API_PROXY_TARGET ?? "http://localhost:3001";
 const apiBase = rawProxyTarget.replace(/\/$/, "").replace(/\/api\/v1$/, "") + "/api/v1";
+const SESSION_TOKEN_HEADER = "x-persai-session-token";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<unknown> }
 ): Promise<Response> {
   const { getToken } = await auth();
-  const token = await getToken();
+  const token = readSessionTokenHeader(request) ?? (await getToken());
   if (!token) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -28,4 +29,9 @@ export async function GET(
   if (disposition) headers.set("Content-Disposition", disposition);
 
   return new Response(res.body, { status: res.status, headers });
+}
+
+function readSessionTokenHeader(request: Request): string | null {
+  const value = request.headers.get(SESSION_TOKEN_HEADER)?.trim();
+  return value && value.length > 0 ? value : null;
 }

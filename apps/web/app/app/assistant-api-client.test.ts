@@ -502,7 +502,10 @@ describe("assistant files client", () => {
 
     expect(global.fetch).toHaveBeenCalledWith("/api/support-ticket/ticket-1/read", {
       method: "POST",
-      credentials: "include"
+      credentials: "include",
+      headers: {
+        "x-persai-session-token": "token-1"
+      }
     });
   });
 

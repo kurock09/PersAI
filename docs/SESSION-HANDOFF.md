@@ -6,6 +6,8 @@
 
 ### What changed
 
+- **Fresh session-token bridge for support BFFs:** live dev logs after the `web` redeploy still showed `401 userId: null` on `GET /api/v1/admin/support/attachments/:id` and `POST /api/v1/support/tickets/:id/read`. Root cause: the dedicated support BFF routes were forwarding only `auth().getToken()` from the server request, while the working generic `/api/v1` proxy path can still ride a fresh browser token. The support BFF routes now prefer `x-persai-session-token` from the same-origin browser request before falling back to Clerk server auth, the browser attachment blob helper sends that header on same-origin `/api/...` fetches, and browser `mark read` does the same on `/api/support-ticket/:ticketId/read`.
+- **Mobile voice rollback + stricter cancel gesture:** the experimental two-column left cancel rail above the composer was removed. Touch recording is back to a compact centered status card, and the cancel gesture now requires a larger deliberate left swipe with more slop/hysteresis so small thumb drift or `pointercancel` noise does not discard the recording.
 - **Web support auth path:** support attachment URLs now use the dedicated same-origin BFF routes (`/api/support-attachment/:attachmentId`, `/api/admin-support-attachment/:attachmentId`) instead of hitting `/api/v1/...` directly from the browser. The image fetch helper now avoids adding a client bearer header for same-origin routes and relies on the session cookie/BFF proxy path.
 - **Unread persistence:** the user-side `mark read` action now goes through a dedicated same-origin BFF route (`POST /api/support-ticket/:ticketId/read`) instead of the generic browser bearer path, so `userLastReadAt` is actually persisted and unread dots do not come back after refresh.
 - **Clerk consistency:** the new support BFF routes are now included in `apps/web/middleware.ts` protected-route matching alongside the existing authenticated BFF surfaces.
@@ -14,6 +16,10 @@
 
 ### Verification
 
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx app/app/assistant-api-client.test.ts --config vitest.config.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web run lint`
+- `corepack pnpm exec prettier --check "apps/web/app/api/support-ticket/[ticketId]/read/route.ts" "apps/web/app/api/support-attachment/[attachmentId]/route.ts" "apps/web/app/api/admin-support-attachment/[attachmentId]/route.ts" "apps/web/app/app/_components/authenticated-attachment-image.tsx" "apps/web/app/app/assistant-api-client.ts" "apps/web/app/app/_components/chat-input.tsx" "apps/web/app/app/assistant-api-client.test.ts" "apps/web/app/app/_components/chat-input.test.tsx"`
 - `corepack pnpm -r --if-present run lint`
 - `corepack pnpm run format:check`
 - `corepack pnpm --filter @persai/api run typecheck`
@@ -237,7 +243,7 @@
 
 ### Next recommended step
 
-- On dev/prod Admin Runtime, set real OpenAI Standard prices: image models use **image token** $/1M (output dominant); video models use **$/second**. Redeploy `provider-gateway` + `api` so new billing facts flow into media jobs.
+- On dev/prod Admin Runtime, set real OpenAI Standard prices: image models use **image token** $/1M (output dominant); video models use **$/second\*\*. Redeploy `provider-gateway` + `api` so new billing facts flow into media jobs.
 
 ## 2026-05-21 — ADR-099 Ops period economics + knowledge indexing embedding ledger
 

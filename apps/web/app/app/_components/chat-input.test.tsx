@@ -567,13 +567,13 @@ describe("ChatInput", () => {
     const mic = await screen.findByTitle("voiceHoldToRecord");
     fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 220 });
     await waitFor(() => {
-      expect(screen.getByText("voiceSwipeLeftToCancel")).toBeTruthy();
+      expect(mic).toHaveClass("bg-accent/15");
     });
     fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 200 });
-    expect(screen.getByText("voiceSwipeLeftToCancel")).toBeTruthy();
-    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 50 });
+    expect(mic).not.toHaveClass("text-destructive");
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 10 });
     await waitFor(() => {
-      expect(screen.getAllByText("voiceCancelArmed").length).toBeGreaterThan(0);
+      expect(mic).toHaveClass("text-destructive");
     });
   });
 

@@ -26,10 +26,12 @@ export function useAuthenticatedBlobUrl(src: string | null): {
 
     void (async () => {
       try {
-        const token = await getToken();
+        const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
         const headers: HeadersInit = {};
-        const useCookieSessionOnly = src.startsWith("/");
-        if (token && !useCookieSessionOnly) {
+        const useSameOriginBff = src.startsWith("/");
+        if (token && useSameOriginBff) {
+          headers["x-persai-session-token"] = token;
+        } else if (token) {
           headers.Authorization = `Bearer ${token}`;
         }
         const res = await fetch(src, {

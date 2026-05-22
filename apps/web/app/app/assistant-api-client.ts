@@ -5211,7 +5211,10 @@ export async function postAssistantSupportTicketRead(
     typeof window !== "undefined"
       ? await fetch(`/api/support-ticket/${encodedTicketId}/read`, {
           method: "POST",
-          credentials: "include"
+          credentials: "include",
+          headers: {
+            "x-persai-session-token": token
+          }
         })
       : await fetch(`${getApiBaseUrl()}/support/tickets/${encodedTicketId}/read`, {
           method: "POST",
