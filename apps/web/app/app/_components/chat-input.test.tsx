@@ -574,7 +574,7 @@ describe("ChatInput", () => {
     await waitFor(() => {
       expect(mic).toHaveClass("bg-accent/15");
     });
-    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 200, clientY: 108 });
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 240, clientY: 108 });
     await waitFor(() => {
       expect(screen.getByText("voiceHoldRelease")).toBeInTheDocument();
     });

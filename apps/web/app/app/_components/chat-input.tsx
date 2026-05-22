@@ -41,17 +41,17 @@ import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
 
 const MAX_FILES = 5;
 
-/** Reveal the trash affordance after a small but intentional left drag (~1.5 cm). */
-const VOICE_TRASH_REVEAL_LEFT_PX = 56;
-/** Touch hold-to-record: require a real deeper left swipe before arming cancel. */
-const VOICE_CANCEL_ARM_LEFT_PX = 136;
+/** Reveal the trash affordance after a small but intentional left drag (~1.5 cm total). */
+const VOICE_TRASH_REVEAL_LEFT_PX = 44;
+/** Touch hold-to-record: require a deeper left swipe before arming cancel. */
+const VOICE_CANCEL_ARM_LEFT_PX = 92;
 /** Hysteresis: once armed, don't immediately disarm on tiny rebound. */
-const VOICE_CANCEL_DISARM_LEFT_PX = 104;
+const VOICE_CANCEL_DISARM_LEFT_PX = 68;
 /** Ignore thumb jitter / small accidental drift before computing swipe distance. */
-const VOICE_GESTURE_SLOP_PX = 56;
+const VOICE_GESTURE_SLOP_PX = 12;
 /** Only mostly-horizontal swipes should arm cancel on mobile. */
 const VOICE_CANCEL_MAX_VERTICAL_DRIFT_PX = 96;
-const VOICE_CANCEL_HORIZONTAL_LEAD_PX = 56;
+const VOICE_CANCEL_HORIZONTAL_LEAD_PX = 28;
 const VOICE_HOLD_MIN_MS = 280;
 /** Above one line of text (leading-5 + py-2.5×2) the composer uses a fixed radius, not a pill. */
 const COMPOSER_SINGLE_LINE_HEIGHT_PX = 40;
@@ -806,7 +806,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const updateCancelFromPointer = useCallback(
     (clientX: number, clientY: number) => {
-      const swipeLeftPx = Math.max(0, holdStartXRef.current - clientX - VOICE_GESTURE_SLOP_PX);
+      const rawSwipeLeftPx = Math.max(0, holdStartXRef.current - clientX);
+      const swipeLeftPx = Math.max(0, rawSwipeLeftPx - VOICE_GESTURE_SLOP_PX);
       const verticalDriftPx = Math.abs(clientY - holdStartYRef.current);
       const maxVerticalDrift = cancelArmedRef.current
         ? VOICE_CANCEL_MAX_VERTICAL_DRIFT_PX + 24
@@ -823,7 +824,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       const revealThreshold = cancelArmedRef.current
         ? Math.max(VOICE_TRASH_REVEAL_LEFT_PX - 12, 24)
         : VOICE_TRASH_REVEAL_LEFT_PX;
-      const revealed = verticalDriftPx <= maxVerticalDrift && swipeLeftPx >= revealThreshold;
+      const revealed =
+        verticalDriftPx <= maxVerticalDrift &&
+        rawSwipeLeftPx >= Math.max(revealThreshold, VOICE_GESTURE_SLOP_PX + 8);
       if (revealed !== trashRevealRef.current) {
         trashRevealRef.current = revealed;
         setTrashRevealed(revealed);
@@ -843,14 +846,18 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       holdActiveRef.current = false;
       touchRecordingIntentActiveRef.current = false;
       const heldMs = Date.now() - holdStartTimeRef.current;
-      if (cancelArmedRef.current || (opts.cancelOnShortHold && heldMs < VOICE_HOLD_MIN_MS)) {
+      const recorderStarted =
+        mediaRecorderRef.current?.state === "recording" || recordingState === "recording";
+      const shortHoldShouldCancel =
+        opts.cancelOnShortHold && heldMs < VOICE_HOLD_MIN_MS && !recorderStarted;
+      if (cancelArmedRef.current || shortHoldShouldCancel) {
         cancelRecording();
       } else {
         stopRecording();
       }
       resetHoldGesture();
     },
-    [cancelRecording, resetHoldGesture, stopRecording]
+    [cancelRecording, recordingState, resetHoldGesture, stopRecording]
   );
 
   const handleMicPointerDown = useCallback(
