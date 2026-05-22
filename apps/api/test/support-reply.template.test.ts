@@ -16,6 +16,9 @@ test("support.reply template renders ru subject and billing-style html shell", (
   assert.match(rendered.plainText, /Попробуйте переподключить Telegram/);
   assert.match(rendered.html, /fefbf7/);
   assert.match(rendered.html, /PersAI/);
+  assert.doesNotMatch(rendered.html, /подтверждение оплаты/i);
+  assert.doesNotMatch(rendered.plainText, /подтверждение оплаты/i);
+  assert.match(rendered.html, /Раздел «Поддержка»/);
 });
 
 test("support.reply template renders en copy", () => {

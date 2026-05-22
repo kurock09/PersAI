@@ -39,6 +39,8 @@ import { useTouchDevice } from "./use-touch-device";
 import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
 
 const MAX_FILES = 5;
+/** Above one line of text (leading-5 + py-2.5×2) the composer uses a fixed radius, not a pill. */
+const COMPOSER_SINGLE_LINE_HEIGHT_PX = 40;
 
 /** Circular 40px targets; hover only on fine pointers (2026 chat UX baseline). */
 const composerIconButtonClass = (opts: { disabled?: boolean; active?: boolean }) =>
@@ -249,6 +251,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const isTouchDevice = useTouchDevice();
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [draftText, setDraftText] = useState("");
+  const [isComposerMultiline, setIsComposerMultiline] = useState(false);
   const [addToKnowledgeBase, setAddToKnowledgeBase] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
@@ -320,7 +323,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    const nextHeight = Math.min(el.scrollHeight, 200);
+    el.style.height = `${nextHeight}px`;
+    setIsComposerMultiline(nextHeight > COMPOSER_SINGLE_LINE_HEIGHT_PX);
   }, []);
 
   const handleDraftChange = useCallback(
@@ -377,6 +382,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     );
     setDraftText("");
     el.style.height = "auto";
+    setIsComposerMultiline(false);
     setPendingFiles([]);
     setAddToKnowledgeBase(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -1008,7 +1014,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
           <div
             className={cn(
-              "relative flex min-h-12 items-end gap-0.5 rounded-full border border-border/80 bg-surface-raised py-1 pl-1 pr-1.5 shadow-sm transition-[border-color,box-shadow] focus-within:border-border-strong focus-within:shadow-md",
+              "relative flex min-h-12 items-end gap-0.5 border border-border/80 bg-surface-raised py-1 pl-1 pr-1.5 shadow-sm transition-[border-color,box-shadow,border-radius] focus-within:border-border-strong focus-within:shadow-md",
+              isComposerMultiline ? "rounded-[22px]" : "rounded-full",
               dragActive && "border-accent bg-accent/5",
               sendBlockedByFailedSlot && "opacity-90"
             )}

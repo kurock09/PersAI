@@ -1,4 +1,9 @@
-import { buildHtml, buildPlainText, resolvedLocale } from "../billing/billing-template-helpers";
+import {
+  buildHtml,
+  buildPlainText,
+  escapeHtmlForEmail,
+  resolvedLocale
+} from "../billing/billing-template-helpers";
 
 type SupportReplyFacts = {
   locale?: string;
@@ -56,7 +61,9 @@ export default function renderSupportReplyTemplate(
   const bodyLines = BODY_LINES[l](shortId);
   const rows = [
     { label: TICKET_LABEL[l], value: `#${shortId}` },
-    ...(replyBody.length > 0 ? [{ label: REPLY_LABEL[l], value: replyBody }] : [])
+    ...(replyBody.length > 0
+      ? [{ label: REPLY_LABEL[l], value: escapeHtmlForEmail(replyBody) }]
+      : [])
   ];
 
   const html = buildHtml({
@@ -65,7 +72,8 @@ export default function renderSupportReplyTemplate(
     heading,
     bodyLines,
     rows,
-    officialReceiptUrl: null
+    officialReceiptUrl: null,
+    footerVariant: "support"
   });
 
   const plainText = buildPlainText({
@@ -75,8 +83,12 @@ export default function renderSupportReplyTemplate(
       ...bodyLines.map((line) => line.replace(/<[^>]+>/g, "")),
       ...(replyBody.length > 0 ? ["", `${REPLY_LABEL[l]}:`, replyBody] : [])
     ],
-    rows,
-    officialReceiptUrl: null
+    rows: [
+      { label: TICKET_LABEL[l], value: `#${shortId}` },
+      ...(replyBody.length > 0 ? [{ label: REPLY_LABEL[l], value: replyBody }] : [])
+    ],
+    officialReceiptUrl: null,
+    footerVariant: "support"
   });
 
   return { subject, html, plainText };

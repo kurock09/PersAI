@@ -28,7 +28,7 @@ export class UserSupportNotificationProducerService {
       input.ticket.userId,
       input.ticket.workspaceId
     );
-    const pushText = supportPushReplyMessage(locale, shortId);
+    const pushText = supportPushReplyMessage(locale, shortId, input.replyBody);
 
     const factPayload = {
       locale,

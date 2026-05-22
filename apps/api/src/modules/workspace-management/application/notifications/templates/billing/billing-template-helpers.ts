@@ -71,12 +71,34 @@ const COPY = {
   }
 };
 
+const SUPPORT_FOOTER = {
+  en: {
+    footerCabinet: "Open Support in assistant settings",
+    footerUnsubscribe:
+      "You received this email because you contacted PersAI support about your account."
+  },
+  ru: {
+    footerCabinet: "Раздел «Поддержка» в настройках ассистента",
+    footerUnsubscribe: "Вы получили это письмо как ответ по вашему обращению в поддержку PersAI."
+  }
+} as const;
+
+export type EmailFooterVariant = "billing" | "support";
+
 export function resolvedLocale(locale: string): "ru" | "en" {
   return locale === "en" ? "en" : "ru";
 }
 
 export function copy(locale: string): (typeof COPY)["en"] {
   return COPY[resolvedLocale(locale)];
+}
+
+export function escapeHtmlForEmail(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 export function formatDate(isoString: string | null | undefined, locale: string): string {
@@ -101,10 +123,24 @@ export function buildHtml(params: {
   bodyLines: string[];
   rows: Array<{ label: string; value: string }>;
   officialReceiptUrl?: string | null;
+  footerVariant?: EmailFooterVariant;
 }): string {
-  const { locale, title, heading, bodyLines, rows, officialReceiptUrl = null } = params;
+  const {
+    locale,
+    title,
+    heading,
+    bodyLines,
+    rows,
+    officialReceiptUrl = null,
+    footerVariant = "billing"
+  } = params;
   const lang = resolvedLocale(locale);
   const c = copy(lang);
+  const supportFooter = SUPPORT_FOOTER[lang];
+  const footerCabinetLabel =
+    footerVariant === "support" ? supportFooter.footerCabinet : c.footerCabinet;
+  const footerUnsubscribeText =
+    footerVariant === "support" ? supportFooter.footerUnsubscribe : c.footerUnsubscribe;
 
   // Body paragraphs
   const bodyHtml = bodyLines
@@ -148,9 +184,11 @@ export function buildHtml(params: {
     .join("&ensp;&middot;&ensp;");
 
   const receiptBlock =
-    officialReceiptUrl !== null
-      ? `<p style="margin:0 0 12px;font-size:12px;line-height:1.7;color:#6d665f">${c.footerReceiptHelp} <a href="${officialReceiptUrl}" style="color:#4a6fa5;text-decoration:none">${c.footerReceiptLabel}</a></p>`
-      : `<p style="margin:0 0 12px;font-size:12px;line-height:1.7;color:#6d665f">${c.footerReceiptHelp}</p>`;
+    footerVariant === "billing"
+      ? officialReceiptUrl !== null
+        ? `<p style="margin:0 0 12px;font-size:12px;line-height:1.7;color:#6d665f">${c.footerReceiptHelp} <a href="${officialReceiptUrl}" style="color:#4a6fa5;text-decoration:none">${c.footerReceiptLabel}</a></p>`
+        : `<p style="margin:0 0 12px;font-size:12px;line-height:1.7;color:#6d665f">${c.footerReceiptHelp}</p>`
+      : "";
 
   return `<!DOCTYPE html>
 <html lang="${lang}">
@@ -199,13 +237,13 @@ export function buildHtml(params: {
               <p style="margin:0 0 6px;font-size:13px;font-weight:500;color:#49443f;line-height:1.6">${c.footerThanks}</p>
               <p style="margin:0 0 12px;font-size:13px;color:#8a837c;line-height:1.6">${c.footerSupportText}&nbsp;<a href="mailto:support@persai.dev" style="color:#4a6fa5;text-decoration:none">support@persai.dev</a></p>
               <p style="margin:0 0 12px;font-size:13px">
-                <a href="${SITE}/app" style="color:#4a6fa5;text-decoration:none">${c.footerCabinet}&nbsp;&rarr;&nbsp;persai.dev/app</a>
+                <a href="${SITE}/app" style="color:#4a6fa5;text-decoration:none">${footerCabinetLabel}&nbsp;&rarr;&nbsp;persai.dev/app</a>
               </p>
               ${receiptBlock}
               <p style="margin:0 0 12px;font-size:12px;line-height:1.9">
                 ${footerLinks}
               </p>
-              <p style="margin:0;font-size:11px;color:#c5bdb5;line-height:1.6">${c.footerUnsubscribe}</p>
+              <p style="margin:0;font-size:11px;color:#c5bdb5;line-height:1.6">${footerUnsubscribeText}</p>
             </td>
           </tr>
 
@@ -225,10 +263,23 @@ export function buildPlainText(params: {
   bodyLines: string[];
   rows: Array<{ label: string; value: string }>;
   officialReceiptUrl?: string | null;
+  footerVariant?: EmailFooterVariant;
 }): string {
-  const { locale, heading, bodyLines, rows, officialReceiptUrl = null } = params;
+  const {
+    locale,
+    heading,
+    bodyLines,
+    rows,
+    officialReceiptUrl = null,
+    footerVariant = "billing"
+  } = params;
   const lang = resolvedLocale(locale);
   const c = copy(lang);
+  const supportFooter = SUPPORT_FOOTER[lang];
+  const footerCabinetLabel =
+    footerVariant === "support" ? supportFooter.footerCabinet : c.footerCabinet;
+  const footerUnsubscribeText =
+    footerVariant === "support" ? supportFooter.footerUnsubscribe : c.footerUnsubscribe;
   const divider = "─".repeat(44);
 
   const lines: string[] = ["PersAI", "", heading, "", c.greeting, ""];
@@ -251,10 +302,12 @@ export function buildPlainText(params: {
   lines.push(c.footerThanks);
   lines.push("");
   lines.push(`${c.footerSupportText} support@persai.dev`);
-  lines.push(`${c.footerCabinet}: ${SITE}/app`);
-  lines.push(c.footerReceiptHelp);
-  if (officialReceiptUrl !== null) {
-    lines.push(`${c.footerReceiptLabel}: ${officialReceiptUrl}`);
+  lines.push(`${footerCabinetLabel}: ${SITE}/app`);
+  if (footerVariant === "billing") {
+    lines.push(c.footerReceiptHelp);
+    if (officialReceiptUrl !== null) {
+      lines.push(`${c.footerReceiptLabel}: ${officialReceiptUrl}`);
+    }
   }
   lines.push("");
   lines.push(
@@ -267,7 +320,7 @@ export function buildPlainText(params: {
     ].join("  |  ")
   );
   lines.push("");
-  lines.push(c.footerUnsubscribe);
+  lines.push(footerUnsubscribeText);
 
   return lines.join("\n");
 }
