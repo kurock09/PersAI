@@ -3285,7 +3285,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     projectGroundedFinalCall?.developerInstructions ?? "",
-    /Do not stop at the first local file or retrieved snippet/
+    /One local file or one retrieved excerpt is not proof of sufficiency/
   );
   const sourceProgressionDeveloperInstructions = (
     service as unknown as {
