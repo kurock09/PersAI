@@ -1239,7 +1239,6 @@ export class StreamWebChatTurnService {
             chunk.activitySource === "web") &&
           chunk.activityPhase === "start"
         ) {
-          watchdog.recordActivity();
           input.callbacks.onActivity?.({
             source: chunk.activitySource,
             phase: chunk.activityPhase,
@@ -1259,7 +1258,6 @@ export class StreamWebChatTurnService {
           chunk.projectStatus !== undefined &&
           typeof chunk.projectSummary === "string"
         ) {
-          watchdog.recordActivity();
           input.callbacks.onProjectActivity?.({
             stage: chunk.projectStage,
             status: chunk.projectStatus,
@@ -1279,7 +1277,6 @@ export class StreamWebChatTurnService {
           chunk.projectReasoningKind !== undefined &&
           typeof chunk.projectReasoningSummary === "string"
         ) {
-          watchdog.recordActivity();
           input.callbacks.onProjectReasoningSummary?.({
             kind: chunk.projectReasoningKind,
             summary: chunk.projectReasoningSummary,

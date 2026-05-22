@@ -161,6 +161,8 @@ describe("ChatArea", () => {
     const menu = screen.getByRole("menu");
     expect(menu.className).toContain("top-full");
     expect(menu.className).toContain("mt-2");
+    expect(menu.className).toContain("right-0");
+    expect(menu.className).not.toContain("left-0");
     expect(menu.className).not.toContain("bottom-full");
     fireEvent.click(screen.getByRole("menuitem", { name: /modeProjectLabel/ }));
 

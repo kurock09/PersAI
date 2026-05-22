@@ -4,6 +4,35 @@
 
 ## 2026-05-22 — ADR-100 post-6H follow-up — source progression + activity prioritization
 
+## 2026-05-23 — ADR-100 live follow-up — follow-up pass abort + project-status localization
+
+### What changed
+
+- Live verification exposed a real project-turn failure mode after the earlier orchestrator work: synthetic retrieval/project status events were still feeding the API-side cadence watchdog, so a healthy long follow-up provider pass could be misclassified as stalled and aborted before headers on the next tool-loop iteration.
+- `StreamWebChatTurnService` no longer treats retrieval/project status markers as cadence-resetting runtime activity for stall detection. Real text/thinking/tool/media/done traffic still counts, but pre-answer progress banners no longer arm the watchdog and accidentally cut a healthy next pass.
+- Web activity rendering now localizes the fixed runtime-authored project-summary/status copy instead of showing those canned English strings raw in Russian UI. Known project summary labels and their fixed detail lines now resolve through `ActivityBadge` translation keys.
+
+### Verification
+
+- Focused web tests:
+  - `corepack pnpm --filter @persai/web test -- app/app/_components/activity-badge.test.tsx app/app/_components/use-chat.test.tsx`
+- Focused API tests:
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- Focused typecheck:
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+
+### Residual risks
+
+- This closes the known false-positive stall path for synthetic retrieval/project events, but live `persai-dev` verification is still required to confirm that no other client-side detach/stop path is aborting long turns.
+- Only fixed runtime-authored project summaries/details are localized here. Model-authored free-text reasoning summaries can still appear in whatever language the model emits unless the prompt/locale path constrains them.
+
+### Next recommended step
+
+- Redeploy `api` and `web` to `persai-dev`, then rerun the exact long project prompt that previously stopped after `web_search` / follow-up planning. Confirm three things together: the next provider pass is no longer aborted, the assistant reaches a real final answer instead of a partial cutoff, and fixed project-status badges stay localized in Russian while tool activity still remains visible.
+
+## 2026-05-22 — ADR-100 post-6H follow-up — source progression + activity prioritization
+
 ### What changed
 
 - Tightened the bounded ADR-100 follow-up around the existing orchestrator instead of adding a new routing tree.

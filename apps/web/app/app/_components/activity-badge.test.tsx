@@ -77,23 +77,21 @@ describe("ActivityBadge", () => {
     expect(screen.queryByText("retrieval_skill_started")).toBeNull();
   });
 
-  it("renders project summaries as human text instead of canned codes", () => {
+  it("localizes known project summaries and keeps detail visible", () => {
     render(
       <ActivityBadge
         event={{
           id: "activity-project-1",
           type: "info",
-          label: "Gathering project context",
+          label: "Reviewing local context and planning the next step",
           detail: "Checking whether the local material answers the task.",
           emphasis: "strong"
         }}
       />
     );
 
-    expect(screen.getByText("Gathering project context")).toBeInTheDocument();
-    expect(
-      screen.getByText("Checking whether the local material answers the task.")
-    ).toBeInTheDocument();
+    expect(screen.getByText("activityProjectSummaryPlanReview")).toBeInTheDocument();
+    expect(screen.getByText("activityProjectDetailCheckFit")).toBeInTheDocument();
 
     render(
       <ActivityBadge
@@ -106,10 +104,39 @@ describe("ActivityBadge", () => {
       />
     );
 
-    expect(screen.getByText("Gathering more evidence")).toBeInTheDocument();
-    expect(
-      screen.getByText("Follow-up pass 2 is gathering the next missing piece of evidence.")
-    ).toBeInTheDocument();
+    expect(screen.getByText("activityProjectSummaryGatherMore")).toBeInTheDocument();
+    expect(screen.getByText("activityProjectDetailFollowUpPass")).toBeInTheDocument();
+  });
+
+  it("localizes structured project detail templates", () => {
+    render(
+      <ActivityBadge
+        event={{
+          id: "activity-project-3",
+          type: "info",
+          label: "Checking whether the gathered context actually answers the task.",
+          detail: "Loaded 3 grounded excerpt(s) across 2 source class(es)."
+        }}
+      />
+    );
+
+    expect(screen.getByText("activityProjectSummaryCheckFit")).toBeInTheDocument();
+    expect(screen.getByText("activityProjectDetailLoadedGroundedExcerpts")).toBeInTheDocument();
+
+    render(
+      <ActivityBadge
+        event={{
+          id: "activity-project-4",
+          type: "info",
+          label: "Local context is still thin, so the search may need to expand.",
+          detail:
+            "No direct grounded excerpt yet; keep gathering narrower local or external sources."
+        }}
+      />
+    );
+
+    expect(screen.getByText("activityProjectSummaryThinContext")).toBeInTheDocument();
+    expect(screen.getByText("activityProjectDetailNoGroundedExcerpt")).toBeInTheDocument();
   });
 
   it("shows quiet Skill activity detail when present", () => {

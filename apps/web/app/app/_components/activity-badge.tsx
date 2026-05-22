@@ -36,6 +36,47 @@ function buildActivityDetail(
     : event.shadowRoutingLabel;
 }
 
+function resolveActivityDetail(
+  detail: string | undefined,
+  t: ReturnType<typeof useTranslations>
+): string | undefined {
+  if (typeof detail !== "string" || detail.trim().length === 0) {
+    return detail;
+  }
+  const structured = resolveStructuredActivityDetail(detail, t);
+  if (structured !== null) {
+    return structured;
+  }
+  const mappedKey = ACTIVITY_DETAIL_KEYS[normalizeActivityLabel(detail)];
+  return mappedKey ? t(mappedKey) : detail;
+}
+
+function resolveStructuredActivityDetail(
+  detail: string,
+  t: ReturnType<typeof useTranslations>
+): string | null {
+  const loadedGroundedExcerptMatch = detail.match(
+    /^Loaded (\d+) grounded excerpt\(s\) across (\d+) source class\(es\)\.?$/i
+  );
+  if (loadedGroundedExcerptMatch) {
+    return t("activityProjectDetailLoadedGroundedExcerpts", {
+      count: Number(loadedGroundedExcerptMatch[1] ?? 0),
+      sourceCount: Number(loadedGroundedExcerptMatch[2] ?? 0)
+    });
+  }
+
+  const followUpPassMatch = detail.match(
+    /^Follow-up pass (\d+) is gathering the next missing piece of evidence\.?$/i
+  );
+  if (followUpPassMatch) {
+    return t("activityProjectDetailFollowUpPass", {
+      pass: Number(followUpPassMatch[1] ?? 0)
+    });
+  }
+
+  return null;
+}
+
 function renderActivityDetail(detail: string) {
   const skillIconMatch = detail.match(
     /^(.*?)([\p{Emoji_Presentation}\p{Extended_Pictographic}][\p{Emoji_Modifier}\uFE0F\u20E3]?)(.*?)$/u
@@ -62,7 +103,11 @@ function renderActivityDetail(detail: string) {
 }
 
 function normalizeActivityLabel(label: string): string {
-  return label.trim().toLowerCase().replace(/\s+/g, "_");
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 function resolveActivityLabel(event: ActivityEvent, t: ReturnType<typeof useTranslations>): string {
@@ -143,6 +188,11 @@ const ACTIVITY_LABEL_KEYS: Record<string, string> = {
   retrieval_product_started: "activityRetrievalProductStart",
   retrieval_web_started: "activityRetrievalWebStart",
   response_generated: "activityResponseDone",
+  reviewing_local_context_and_planning_the_next_step: "activityProjectSummaryPlanReview",
+  checking_whether_the_gathered_context_actually_answers_the_task: "activityProjectSummaryCheckFit",
+  local_context_is_still_thin_so_the_search_may_need_to_expand: "activityProjectSummaryThinContext",
+  gathering_more_evidence: "activityProjectSummaryGatherMore",
+  preparing_the_final_answer: "activityProjectSummaryPrepareAnswer",
   project_stage_plan_started: "activityProjectStagePlanStart",
   project_stage_plan_completed: "activityProjectStagePlanDone",
   project_stage_gather_started: "activityProjectStageGatherStart",
@@ -160,6 +210,13 @@ const ACTIVITY_LABEL_KEYS: Record<string, string> = {
   project_reasoning_synthesis: "activityProjectReasoningSynthesis"
 };
 
+const ACTIVITY_DETAIL_KEYS: Record<string, string> = {
+  checking_whether_the_local_material_answers_the_task: "activityProjectDetailCheckFit",
+  local_context_is_still_thin_so_the_search_may_need_to_expand: "activityProjectDetailThinContext",
+  no_direct_grounded_excerpt_yet_keep_gathering_narrower_local_or_external_sources:
+    "activityProjectDetailNoGroundedExcerpt"
+};
+
 export function ActivityBadge({
   event,
   showShadowRoutingLabel = false
@@ -171,7 +228,7 @@ export function ActivityBadge({
   const cfg = TYPE_CONFIG[event.type];
   const Icon = cfg.icon;
   const isStrong = event.emphasis === "strong";
-  const detail = buildActivityDetail(event, showShadowRoutingLabel);
+  const detail = resolveActivityDetail(buildActivityDetail(event, showShadowRoutingLabel), t);
   const label = resolveActivityLabel(event, t);
 
   return (
