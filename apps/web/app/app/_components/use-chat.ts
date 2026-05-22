@@ -34,6 +34,7 @@ import {
 } from "../assistant-api-client";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
+import { dispatchProjectFilesChanged } from "./project-files-events";
 import { useStreamingThreadsRegistry } from "./streaming-threads";
 /** * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server * does not return 2xx headers within this window, the request is aborted * and the user bubble flips to "send_failed". 10s is well above normal * server response time but short enough to feel responsive on flaky * mobile networks. (ADR-075 T� "Single-slot pending send".) */ const HEADERS_TIMEOUT_MS = 10_000;
 /** Avoid duplicate focus/visibility refresh bursts from the same browser resume. */ const RESUME_REFRESH_DEBOUNCE_MS = 1_500;
@@ -2560,6 +2561,7 @@ export function useChat(threadKey: string): UseChatReturn {
       }
       if (pendingFiles.length > 0) {
         try {
+          let stagedChatId: string | null = null;
           for (let i = 0; i < pendingFiles.length; i++) {
             const file = pendingFiles[i]!;
             /* Do not use an absolute hard timeout here: on weak mobile signal a */ /* large PDF can keep making progress for minutes, and killing that */ /* upload would be worse than letting the pending bubble continue. */ const staged =
@@ -2609,6 +2611,10 @@ export function useChat(threadKey: string): UseChatReturn {
                 return { ...m, attachments: next };
               })
             );
+            stagedChatId = staged.chatId;
+          }
+          if (stagedChatId !== null) {
+            dispatchProjectFilesChanged(stagedChatId);
           }
         } catch (error) {
           /* Staging never reached server-confirmed state. Treat all of */ /* stall/timeout/abort/network/HTTP as a pre-headers failure and */ /* route through the pending-slot UI instead of an issue banner. */ /* (Real server-side validation errors that DID return a structured */ /* envelope still come back here; for those we keep the issue banner */ /* so users get the proper guidance copy in addition to the bubble.) */ if (
@@ -2718,6 +2724,17 @@ export function useChat(threadKey: string): UseChatReturn {
       /* Pre-headers watchdog: if the server never returns 2xx headers within */ /* HEADERS_TIMEOUT_MS, abort the request so the bubble flips to */ /* "send_failed" instead of hanging indefinitely. Tool turns can stay */ /* silent for tens of seconds AFTER headers, which is fine ��� we only */ /* measure up to the headers, not to the first SSE event. */ let headersOk = false;
       let softDetached = false;
       let completedSuccessfully = false;
+      let streamAccepted = false;
+      const acceptStartedStream = () => {
+        if (streamAccepted) {
+          return;
+        }
+        streamAccepted = true;
+        applyThreadMessages(sendThreadKey, (prev) =>
+          prev.map((m) => (m.id === userMsgId ? { ...m, status: "committed" as const } : m))
+        );
+        setThreadPendingSend(sendThreadKey, null);
+      };
       const headersTimer = setTimeout(() => {
         if (!headersOk) {
           try {
@@ -2740,14 +2757,9 @@ export function useChat(threadKey: string): UseChatReturn {
         onHeadersOk: () => {
           headersOk = true;
           clearTimeout(headersTimer);
-          /* Server accepted the request ��� clear the pending-slot UI. */ applyThreadMessages(
-            sendThreadKey,
-            (prev) =>
-              prev.map((m) => (m.id === userMsgId ? { ...m, status: "committed" as const } : m))
-          );
-          setThreadPendingSend(sendThreadKey, null);
         },
         onStarted: ({ chat, userMessage }: { chat: unknown; userMessage: unknown }) => {
+          acceptStartedStream();
           const c = chat as { id?: string } | null;
           if (typeof c?.id === "string") {
             setThreadChatId(sendThreadKey, c.id);
@@ -2956,6 +2968,7 @@ export function useChat(threadKey: string): UseChatReturn {
           });
         },
         onCompleted: ({ transport }: { transport: unknown }) => {
+          acceptStartedStream();
           flushBufferedAssistantState(true);
           const t = transport as {
             userMessage?: { id?: string; chatId?: string; attachments?: ChatAttachment[] };
@@ -3171,6 +3184,7 @@ export function useChat(threadKey: string): UseChatReturn {
           ); /* Files are already staged before the stream ��� no post-stream upload needed */
         },
         onInterrupted: ({ transport }: { transport: unknown }) => {
+          acceptStartedStream();
           flushBufferedAssistantState();
           clearThreadLiveActivity(sendThreadKey, assistantMsgId);
           const interruptedAt = new Date().toISOString();
@@ -3224,9 +3238,14 @@ export function useChat(threadKey: string): UseChatReturn {
           }
         },
         onFailed: (payload: { code?: string; message: string; transport: unknown }) => {
+          const nextIssue = toWebChatUxIssue(payload);
+          if (!streamAccepted) {
+            dismissPreHeaderTurnWithIssue(nextIssue);
+            return;
+          }
           flushBufferedAssistantState();
           clearThreadLiveActivity(sendThreadKey, assistantMsgId);
-          setIssue(toWebChatUxIssue(payload));
+          setIssue(nextIssue);
           const failedAt = new Date().toISOString();
           const t = payload.transport as {
             assistantMessage?: { id?: string; content?: string };

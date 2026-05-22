@@ -5098,6 +5098,44 @@ describe("useChat", () => {
       });
     });
 
+    it("treats a failed stream before started as a non-accepted turn and clears pending send", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onFailed?: (payload: { code?: string; message: string; transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onFailed?.({
+            code: "assistant_turn_failed",
+            message: "Prepare step failed before the turn started.",
+            transport: null
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.send("fail before started");
+      });
+
+      await waitFor(() => {
+        expect(result.current.pendingSendStatus).toBeNull();
+        expect(result.current.isStreaming).toBe(false);
+      });
+      expect(result.current.issue).toMatchObject({
+        classId: "unknown",
+        message: "Chat could not complete this turn."
+      });
+      expect(result.current.messages).toEqual([]);
+    });
+
     it("uses turn status when tail history does not include the completed turn", async () => {
       Object.defineProperty(document, "visibilityState", {
         configurable: true,

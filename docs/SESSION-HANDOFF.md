@@ -2,7 +2,61 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
-## 2026-05-22 — ADR-100 post-6H follow-up — source progression + activity prioritization
+## 2026-05-23 — ADR-100 live follow-up — pre-start stream abort hardening
+
+### What changed
+
+- The web chat stream path had one more real hard-abort seam beyond the already fixed cadence-watchdog issue: `AssistantController.streamWebChatTurn()` still waited for `streamWebChatTurnService.prepare()` before opening SSE headers, while the web client still treated `2xx headers arrived` as both transport-open and request-accepted truth.
+- That old coupling meant a heavy pre-start path (for example attachment/document-heavy preparation before the first runtime/tool chunk) could spend too long before the first headers, trip the client-side pre-header timeout, and look exactly like a user-stop / abrupt stream abort even though the runtime had not yet started the normal streamed turn.
+- The server now opens the SSE response immediately, sends an early keepalive comment, and only then awaits `prepare()`. If `prepare()` fails, the endpoint now emits a terminal SSE `failed` event instead of relying on a late non-stream HTTP failure.
+- On the client side, `useChat` no longer treats `onHeadersOk` as "turn accepted". Pending-send cleanup now happens only once the stream reaches a real accepted phase (`started`) or a terminal event, and an early `failed` before `started` is treated as a non-accepted turn: the optimistic bubbles are removed and the issue is surfaced instead of leaving the turn in a misleading partial/stop-like state.
+
+### Verification
+
+- Focused web tests:
+  - `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/assistant-api-client.test.ts --config vitest.config.ts`
+- Repo gate:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+
+### Residual risks
+
+- This removes the known "heavy pre-start prepare never opened headers in time" failure class, but live verification is still required to confirm the specific PDF/document scenario is truly the same path and not a later provider-side stall after `started`.
+- The client-side `HEADERS_TIMEOUT_MS` watchdog still exists by design for truly dead requests; the fix here is that valid long pre-start preparation should now reach the client as an open SSE stream instead of being indistinguishable from a dead request.
+
+### Next recommended step
+
+- Redeploy `api` and `web`, then rerun the exact long project turn that was dying around PDF assembly before the first normal streamed answer/tool output. Confirm three things together: the stream opens immediately, the turn no longer dies around the old ~8-10 second pre-start window, and any genuine pre-start failure now lands as a surfaced terminal issue instead of a fake stop-like abort.
+
+## 2026-05-23 — ADR-100 project files sidebar follow-up — upload + delete actions
+
+### What changed
+
+- `ProjectFilesPanel` is no longer read-only for active project chats: the sidebar now exposes a compact `+` action to upload files directly into the current project chat and a per-row trash action to remove a canonical file globally through the existing assistant-file delete path.
+- Sidebar uploads are intentionally bounded: the client rejects batches larger than 3 files, reuses the existing web attachment staging path, and leaves the earlier soft help/info affordance out of scope for now.
+- Project files now refresh more reliably after upload/delete work. The panel listens for a small client-side `project-files-changed` event keyed by `chatId`, and the normal chat upload flow now dispatches that event after staged attachments succeed so the left sidebar can refresh without waiting for a full navigation/reload.
+- Localized sidebar copy now covers the new project-file action/error states (`add`, upload-limit, upload-failed, delete-failed).
+
+### Verification
+
+- Focused web tests:
+  - `corepack pnpm --filter @persai/web exec vitest run --config vitest.config.ts app/app/_components/sidebar.test.tsx app/app/_components/use-chat.test.tsx`
+- Repo gate:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+
+### Residual risks
+
+- Sidebar upload intentionally reuses the existing staged web-attachment path rather than a new dedicated project-file ingest endpoint. That keeps the slice small and consistent with current chat/file truth, but live verification is still needed to confirm the resulting chat-history UX is acceptable on mobile and desktop.
+- The requested soft help/info affordance for delete remains intentionally deferred.
+
+### Next recommended step
+
+- Redeploy `web`, then live-verify one active project chat end to end: upload 1-3 files from the sidebar, confirm the file list refreshes immediately, confirm the same canonical files can still be added through the ordinary composer upload path and appear in the sidebar, and confirm the trash action removes the file globally while the existing micro-description/background analysis path still runs for newly uploaded project files.
 
 ## 2026-05-23 — ADR-100 live follow-up — follow-up pass abort + project-status localization
 
@@ -11,6 +65,7 @@
 - Live verification exposed a real project-turn failure mode after the earlier orchestrator work: synthetic retrieval/project status events were still feeding the API-side cadence watchdog, so a healthy long follow-up provider pass could be misclassified as stalled and aborted before headers on the next tool-loop iteration.
 - `StreamWebChatTurnService` no longer treats retrieval/project status markers as cadence-resetting runtime activity for stall detection. Real text/thinking/tool/media/done traffic still counts, but pre-answer progress banners no longer arm the watchdog and accidentally cut a healthy next pass.
 - Web activity rendering now localizes the fixed runtime-authored project-summary/status copy instead of showing those canned English strings raw in Russian UI. Known project summary labels and their fixed detail lines now resolve through `ActivityBadge` translation keys.
+- Project-mode developer instructions now also constrain the model's visible progress formatting more tightly: one short update per line, no `Status 2/6`-style numbering, and no multi-sentence narrated progress paragraphs when a lightweight `·` marker is enough.
 
 ### Verification
 
@@ -18,18 +73,25 @@
   - `corepack pnpm --filter @persai/web test -- app/app/_components/activity-badge.test.tsx app/app/_components/use-chat.test.tsx`
 - Focused API tests:
   - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- Focused runtime tests:
+  - `corepack pnpm --filter @persai/runtime exec tsx test/project-execution-profile.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
 - Focused typecheck:
   - `corepack pnpm --filter @persai/api run typecheck`
   - `corepack pnpm --filter @persai/web run typecheck`
+  - `corepack pnpm --filter @persai/runtime run typecheck`
 
 ### Residual risks
 
 - This closes the known false-positive stall path for synthetic retrieval/project events, but live `persai-dev` verification is still required to confirm that no other client-side detach/stop path is aborting long turns.
 - Only fixed runtime-authored project summaries/details are localized here. Model-authored free-text reasoning summaries can still appear in whatever language the model emits unless the prompt/locale path constrains them.
+- The new progress-format instruction should reduce noisy narrated step logs, but live behavior still depends on how strongly the active model follows that presentation guidance in long-turn answers.
 
 ### Next recommended step
 
 - Redeploy `api` and `web` to `persai-dev`, then rerun the exact long project prompt that previously stopped after `web_search` / follow-up planning. Confirm three things together: the next provider pass is no longer aborted, the assistant reaches a real final answer instead of a partial cutoff, and fixed project-status badges stay localized in Russian while tool activity still remains visible.
+
+## 2026-05-22 — ADR-100 post-6H follow-up — source progression + activity prioritization
 
 ## 2026-05-22 — ADR-100 post-6H follow-up — source progression + activity prioritization
 

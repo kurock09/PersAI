@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantWebChatListItemState } from "@persai/contracts";
 import { Sidebar, formatChatRowTimestamp } from "./sidebar";
@@ -20,7 +20,9 @@ const searchParamsMocks = vi.hoisted(() => ({
 }));
 
 const assistantApiMocks = vi.hoisted(() => ({
-  getChatMessages: vi.fn()
+  getChatMessages: vi.fn(),
+  stageWebChatAttachment: vi.fn(),
+  deleteAssistantFile: vi.fn()
 }));
 
 const clerkMocks = vi.hoisted(() => ({
@@ -83,7 +85,9 @@ vi.mock("../assistant-api-client", () => ({
   postAssistantWebChatArchive: vi.fn(async () => undefined),
   deleteAssistantWebChat: vi.fn(async () => undefined),
   getChatMessages: assistantApiMocks.getChatMessages,
-  getAssistantFileDownloadUrl: (fileRef: string) => `/api/assistant-file/${fileRef}`
+  getAssistantFileDownloadUrl: (fileRef: string) => `/api/assistant-file/${fileRef}`,
+  stageWebChatAttachment: assistantApiMocks.stageWebChatAttachment,
+  deleteAssistantFile: assistantApiMocks.deleteAssistantFile
 }));
 
 vi.mock("@/app/lib/clerk-navigation", () => ({
@@ -95,6 +99,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   searchParamsMocks.thread = null;
   assistantApiMocks.getChatMessages.mockReset();
+  assistantApiMocks.stageWebChatAttachment.mockReset();
+  assistantApiMocks.deleteAssistantFile.mockReset();
   navigationMocks.push.mockClear();
   navigationMocks.replace.mockClear();
   navigationMocks.navigateAfterClerkAuth.mockClear();
@@ -503,6 +509,190 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(await screen.findByTestId("project-files-panel")).toBeInTheDocument();
     const link = await screen.findByRole("link", { name: "brief.pdf" });
     expect(link).toHaveAttribute("href", "/api/assistant-file/file-ref-alpha");
+  });
+
+  it("uploads up to three files into the project files panel and refreshes the list", async () => {
+    searchParamsMocks.thread = "project-thread";
+    let uploaded = false;
+    let projectChatFetches = 0;
+    assistantApiMocks.getChatMessages.mockImplementation(async (_token: string, chatId: string) => {
+      if (chatId !== "project-thread") {
+        return { messages: [], nextCursor: null };
+      }
+      projectChatFetches += 1;
+      return uploaded
+        ? {
+            messages: [
+              {
+                id: "msg-1",
+                chatId: "chat-project",
+                assistantId: "asst-1",
+                author: "user",
+                content: "",
+                createdAt: "2026-05-20T10:00:00.000Z",
+                attachments: [
+                  {
+                    id: "att-1",
+                    fileRef: "file-ref-alpha",
+                    attachmentType: "document",
+                    originalFilename: "brief.pdf",
+                    mimeType: "application/pdf",
+                    sizeBytes: 1024,
+                    processingStatus: "ready",
+                    createdAt: "2026-05-20T10:00:00.000Z"
+                  }
+                ]
+              }
+            ],
+            nextCursor: null
+          }
+        : {
+            messages: [],
+            nextCursor: null
+          };
+    });
+    assistantApiMocks.stageWebChatAttachment.mockImplementation(async () => {
+      uploaded = true;
+      return {
+        chatId: "project-thread",
+        messageId: "msg-1",
+        attachment: {
+          id: "att-1",
+          fileRef: "file-ref-alpha",
+          messageId: "msg-1",
+          chatId: "project-thread",
+          attachmentType: "document",
+          originalFilename: "brief.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+          processingStatus: "ready",
+          createdAt: "2026-05-20T10:00:00.000Z"
+        }
+      };
+    });
+
+    const { container } = render(
+      <Sidebar
+        data={makeAppData({
+          chats: [makeChat("project-thread", { chatMode: "project" })]
+        })}
+      />
+    );
+
+    await screen.findByTestId("project-files-panel");
+    const initialProjectChatFetches = projectChatFetches;
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+    const fileA = new File(["alpha"], "brief.pdf", { type: "application/pdf" });
+    const fileB = new File(["beta"], "calc.pdf", { type: "application/pdf" });
+    fireEvent.change(input!, { target: { files: [fileA, fileB] } });
+
+    await waitFor(() => {
+      expect(assistantApiMocks.stageWebChatAttachment).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(projectChatFetches).toBeGreaterThan(initialProjectChatFetches);
+    });
+  });
+
+  it("rejects project file uploads larger than three files per batch", async () => {
+    searchParamsMocks.thread = "project-thread";
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      messages: [],
+      nextCursor: null
+    });
+
+    const { container } = render(
+      <Sidebar
+        data={makeAppData({
+          chats: [makeChat("project-thread", { chatMode: "project" })]
+        })}
+      />
+    );
+
+    await screen.findByTestId("project-files-panel");
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, {
+      target: {
+        files: [
+          new File(["1"], "1.pdf", { type: "application/pdf" }),
+          new File(["2"], "2.pdf", { type: "application/pdf" }),
+          new File(["3"], "3.pdf", { type: "application/pdf" }),
+          new File(["4"], "4.pdf", { type: "application/pdf" })
+        ]
+      }
+    });
+
+    expect(await screen.findByTestId("project-files-feedback")).toHaveTextContent(
+      "projectFilesUploadLimit"
+    );
+    expect(assistantApiMocks.stageWebChatAttachment).not.toHaveBeenCalled();
+  });
+
+  it("deletes a project file row through the assistant file delete path", async () => {
+    searchParamsMocks.thread = "project-thread";
+    let deleted = false;
+    assistantApiMocks.getChatMessages.mockImplementation(async (_token: string, chatId: string) => {
+      if (chatId !== "project-thread") {
+        return { messages: [], nextCursor: null };
+      }
+      return deleted
+        ? {
+            messages: [],
+            nextCursor: null
+          }
+        : {
+            messages: [
+              {
+                id: "msg-1",
+                chatId: "project-thread",
+                assistantId: "asst-1",
+                author: "user",
+                content: "see file",
+                createdAt: "2026-05-20T10:00:00.000Z",
+                attachments: [
+                  {
+                    id: "att-1",
+                    fileRef: "file-ref-alpha",
+                    attachmentType: "document",
+                    originalFilename: "brief.pdf",
+                    mimeType: "application/pdf",
+                    sizeBytes: 1024,
+                    processingStatus: "ready",
+                    createdAt: "2026-05-20T10:00:00.000Z"
+                  }
+                ]
+              }
+            ],
+            nextCursor: null
+          };
+    });
+    assistantApiMocks.deleteAssistantFile.mockImplementation(async () => {
+      deleted = true;
+    });
+
+    render(
+      <Sidebar
+        data={makeAppData({
+          chats: [makeChat("project-thread", { chatMode: "project" })]
+        })}
+      />
+    );
+
+    const panel = await screen.findByTestId("project-files-panel");
+    await within(panel).findByRole("link", { name: "brief.pdf" });
+    fireEvent.click(within(panel).getByRole("button", { name: "delete" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.deleteAssistantFile).toHaveBeenCalledWith(
+        "test-token",
+        "file-ref-alpha"
+      );
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("link", { name: "brief.pdf" })).toBeNull();
+    });
   });
 
   it("hides the project files panel for a normal active chat", async () => {

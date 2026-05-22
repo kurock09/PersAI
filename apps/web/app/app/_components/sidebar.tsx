@@ -376,7 +376,12 @@ export function Sidebar({
         return <div className="flex-1 overflow-y-auto px-3">{chatListContent}</div>;
       })()}
 
-      {activeProjectChat ? <ProjectFilesPanel chatId={activeProjectChat.chat.id} /> : null}
+      {activeProjectChat ? (
+        <ProjectFilesPanel
+          chatId={activeProjectChat.chat.id}
+          threadKey={activeProjectChat.chat.surfaceThreadKey}
+        />
+      ) : null}
 
       {/* Bottom: single account row, everything else lives behind the popup */}
       <div className="shrink-0 border-t border-border p-2" suppressHydrationWarning>

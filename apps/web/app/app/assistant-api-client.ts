@@ -1217,9 +1217,9 @@ export async function streamAssistantWebChatTurn(
     throw new ContractsApiError(message, response.status, errorPayload, code);
   }
 
-  // Signal "request accepted" the moment we have 2xx headers, so the chat
-  // input can clear its pending-slot indicator without waiting for the first
-  // SSE event (image-tool turns can stay silent for tens of seconds).
+  // Signal that the SSE transport is open as soon as 2xx headers arrive.
+  // The UI may still wait for a later `started`/terminal event before it
+  // treats the turn as fully accepted.
   handlers.onHeadersOk?.();
 
   if (response.body === null) {

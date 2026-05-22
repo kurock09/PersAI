@@ -3287,6 +3287,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     projectGroundedFinalCall?.developerInstructions ?? "",
     /One local file or one retrieved excerpt is not proof of sufficiency/
   );
+  assert.match(
+    projectGroundedFinalCall?.developerInstructions ?? "",
+    /one short line on its own line/
+  );
+  assert.match(projectGroundedFinalCall?.developerInstructions ?? "", /Status 2\/6/);
   const sourceProgressionDeveloperInstructions = (
     service as unknown as {
       buildToolLoopDeveloperInstructions: (

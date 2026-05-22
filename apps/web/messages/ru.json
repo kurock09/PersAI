@@ -526,6 +526,10 @@
     "projectFilesTitle": "Файлы проекта",
     "projectFilesEmpty": "В этом проекте пока нет файлов",
     "projectFilesLoading": "Загружаем файлы…",
+    "projectFilesAdd": "Добавить файлы",
+    "projectFilesUploadLimit": "За один раз можно загрузить не больше 3 файлов",
+    "projectFilesUploadFailed": "Не удалось загрузить файлы проекта.",
+    "projectFilesDeleteFailed": "Не удалось удалить файл проекта.",
     "streamingIndicator": "Генерирует ответ",
     "assistantSettingsHint": "Настройки ассистента",
     "supportUnreadStatus": "{count, plural, one {Поддержка · 1 ответ} few {Поддержка · # ответа} many {Поддержка · # ответов} other {Поддержка · # ответа}}"

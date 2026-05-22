@@ -526,6 +526,10 @@
     "projectFilesTitle": "Project files",
     "projectFilesEmpty": "No files in this project yet",
     "projectFilesLoading": "Loading files…",
+    "projectFilesAdd": "Add files",
+    "projectFilesUploadLimit": "You can upload up to 3 files at once",
+    "projectFilesUploadFailed": "Failed to upload project files.",
+    "projectFilesDeleteFailed": "Failed to delete project file.",
     "streamingIndicator": "Generating reply",
     "assistantSettingsHint": "Assistant settings",
     "supportUnreadStatus": "{count, plural, one {Support · 1 reply} other {Support · # replies}}"

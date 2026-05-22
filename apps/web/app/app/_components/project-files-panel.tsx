@@ -1,15 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { FileText, Loader2 } from "lucide-react";
+import { FileText, Loader2, Plus, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import {
+  deleteAssistantFile,
   getAssistantFileDownloadUrl,
   getChatMessages,
+  stageWebChatAttachment,
   type ChatHistoryAttachment,
   type ChatHistoryMessage
 } from "../assistant-api-client";
+import { dispatchProjectFilesChanged, PROJECT_FILES_CHANGED_EVENT } from "./project-files-events";
 
 export type ProjectFileEntry = {
   fileRef: string;
@@ -68,12 +71,22 @@ async function fetchAllChatMessages(token: string, chatId: string): Promise<Chat
   return all;
 }
 
-export function ProjectFilesPanel({ chatId }: { chatId: string }) {
+function createClientTurnId(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ?? `turn-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+}
+
+export function ProjectFilesPanel({ chatId, threadKey }: { chatId: string; threadKey: string }) {
   const t = useTranslations("sidebar");
   const { getToken } = useAuth();
   const [files, setFiles] = useState<ProjectFileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [busyDeleteRef, setBusyDeleteRef] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadFiles = useCallback(async () => {
     setLoading(true);
@@ -98,11 +111,120 @@ export function ProjectFilesPanel({ chatId }: { chatId: string }) {
     void loadFiles();
   }, [loadFiles]);
 
+  useEffect(() => {
+    const handleChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ chatId?: string }>).detail;
+      if (detail?.chatId === chatId) {
+        void loadFiles();
+      }
+    };
+    window.addEventListener(PROJECT_FILES_CHANGED_EVENT, handleChanged as EventListener);
+    return () => {
+      window.removeEventListener(PROJECT_FILES_CHANGED_EVENT, handleChanged as EventListener);
+    };
+  }, [chatId, loadFiles]);
+
+  const handleUploadFiles = useCallback(
+    async (selected: FileList | null) => {
+      if (!selected || selected.length === 0) {
+        return;
+      }
+      if (selected.length > 3) {
+        setFeedback(t("projectFilesUploadLimit"));
+        return;
+      }
+      const token = await getToken({ skipCache: true });
+      if (!token) {
+        setFeedback(t("projectFilesUploadFailed"));
+        return;
+      }
+      setUploading(true);
+      setFeedback(null);
+      const batchClientTurnId = createClientTurnId();
+      try {
+        let resolvedChatId = chatId;
+        for (const [index, file] of Array.from(selected).entries()) {
+          const staged = await stageWebChatAttachment(
+            token,
+            threadKey,
+            batchClientTurnId,
+            `${batchClientTurnId}-${index}`,
+            file
+          );
+          resolvedChatId = staged.chatId;
+        }
+        dispatchProjectFilesChanged(resolvedChatId);
+        await loadFiles();
+      } catch {
+        setFeedback(t("projectFilesUploadFailed"));
+      } finally {
+        setUploading(false);
+        if (uploadInputRef.current) {
+          uploadInputRef.current.value = "";
+        }
+      }
+    },
+    [chatId, getToken, loadFiles, t, threadKey]
+  );
+
+  const handleDelete = useCallback(
+    async (fileRef: string) => {
+      const token = await getToken({ skipCache: true });
+      if (!token) {
+        setFeedback(t("projectFilesDeleteFailed"));
+        return;
+      }
+      setBusyDeleteRef(fileRef);
+      setFeedback(null);
+      try {
+        await deleteAssistantFile(token, fileRef);
+        dispatchProjectFilesChanged(chatId);
+        await loadFiles();
+      } catch {
+        setFeedback(t("projectFilesDeleteFailed"));
+      } finally {
+        setBusyDeleteRef(null);
+      }
+    },
+    [chatId, getToken, loadFiles, t]
+  );
+
   return (
     <div className="shrink-0 border-t border-border px-3 py-2.5" data-testid="project-files-panel">
-      <p className="mb-1.5 px-0.5 text-[11px] font-medium text-text-subtle">
-        {t("projectFilesTitle")}
-      </p>
+      <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
+        <p className="text-[11px] font-medium text-text-subtle">{t("projectFilesTitle")}</p>
+        <button
+          type="button"
+          onClick={() => uploadInputRef.current?.click()}
+          disabled={loading || uploading || busyDeleteRef !== null}
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/70 bg-surface-raised text-text-subtle transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-default disabled:opacity-60"
+          aria-label={t("projectFilesAdd")}
+          title={t("projectFilesAdd")}
+        >
+          {uploading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Plus className="h-3.5 w-3.5" />
+          )}
+        </button>
+        <input
+          ref={uploadInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            void handleUploadFiles(event.target.files);
+          }}
+        />
+      </div>
+      {feedback ? (
+        <p
+          className="mb-1.5 px-0.5 text-[11px] text-text-subtle"
+          data-testid="project-files-feedback"
+        >
+          {feedback}
+        </p>
+      ) : null}
       {loading ? (
         <div
           className="flex items-center gap-2 px-0.5 py-2 text-xs text-text-muted"
@@ -124,16 +246,32 @@ export function ProjectFilesPanel({ chatId }: { chatId: string }) {
             const href = getAssistantFileDownloadUrl(file.fileRef);
             return (
               <li key={file.fileRef}>
-                <a
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                  title={label}
-                >
-                  <FileText className="h-3.5 w-3.5 shrink-0 text-text-subtle" />
-                  <span className="min-w-0 truncate">{label}</span>
-                </a>
+                <div className="flex items-center gap-1 rounded-lg px-1 py-1">
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                    title={label}
+                  >
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-text-subtle" />
+                    <span className="min-w-0 truncate">{label}</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(file.fileRef)}
+                    disabled={uploading || busyDeleteRef === file.fileRef}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-default disabled:opacity-60"
+                    aria-label={t("delete")}
+                    title={t("delete")}
+                  >
+                    {busyDeleteRef === file.fileRef ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
               </li>
             );
           })}

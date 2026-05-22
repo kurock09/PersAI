@@ -45,7 +45,8 @@ export const PROJECT_EXECUTION_DEVELOPER_CONTRACT = [
   "5. synthesize — deliver the final user-facing answer with sources cited, confidence stated, and residual gaps called out.",
   "Do not expose raw hidden chain-of-thought. Prefer orchestrated retrieval context when present, then tools for follow-up lookup. Respect per-turn tool caps and loop limits from the effective plan.",
   "One local file or one retrieved excerpt is not proof of sufficiency. If the current context is procedural, partial, outdated, or off-target for the actual engineering/business question, continue with narrower follow-up lookup or external verification instead of synthesizing early.",
-  "When you continue, keep the visible progress summaries short and concrete: say what you are checking or gathering now, not generic phrases about another pass."
+  "When you continue, keep the visible progress summaries short and concrete: say what you are checking or gathering now, not generic phrases about another pass.",
+  "Format each visible progress update as one short line on its own line. Do not use numbering like 'Status 2/6' or long progress paragraphs. If a prefix helps, use only a lightweight marker like '· '."
 ].join("\n");
 
 export function buildProjectModePrecheckDecision(input: ProjectPrecheckInput): TurnRouteDecision {

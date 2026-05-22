@@ -1166,8 +1166,6 @@ export class AssistantController {
   ): Promise<void> {
     const userId = this.resolveRequestUserId(req);
     const input = this.sendWebChatTurnService.parseInput(body);
-    const preparation = await this.streamWebChatTurnService.prepare(userId, input);
-
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
@@ -1204,26 +1202,14 @@ export class AssistantController {
       }
     });
 
-    const clientTurnIdForRegistry =
-      preparation.mode === "prepared" ? preparation.prepared.clientTurnId : undefined;
-    if (clientTurnIdForRegistry !== undefined && preparation.mode === "prepared") {
-      this.webChatTurnHardStopRegistry.register({
-        clientTurnId: clientTurnIdForRegistry,
-        userId: preparation.prepared.userId,
-        controller: clientAbortController
-      });
-      this.webChatTurnStreamRegistry.register({
-        clientTurnId: clientTurnIdForRegistry,
-        userId: preparation.prepared.userId
-      });
-    }
-
+    let clientTurnIdForRegistry: string | undefined;
+    let streamRegistryUserId: string | undefined;
     const sseWriterInstrumentation = createStreamWriterInstrumentation();
     const sendSse = (event: string, payload: unknown): void => {
-      if (clientTurnIdForRegistry !== undefined && preparation.mode === "prepared") {
+      if (clientTurnIdForRegistry !== undefined) {
         this.webChatTurnStreamRegistry.publish({
           clientTurnId: clientTurnIdForRegistry,
-          userId: preparation.prepared.userId,
+          userId,
           event,
           payload
         });
@@ -1251,9 +1237,39 @@ export class AssistantController {
         flushable.flush();
       }
     };
+    sendHeartbeat();
     const heartbeat = setInterval(sendHeartbeat, WEB_CHAT_STREAM_HEARTBEAT_INTERVAL_MS);
 
     try {
+      let preparation: Awaited<ReturnType<StreamWebChatTurnService["prepare"]>>;
+      try {
+        preparation = await this.streamWebChatTurnService.prepare(userId, input);
+      } catch (error) {
+        const normalized = toAssistantInboundHttpException(error);
+        sendSse("failed", {
+          code: normalized.errorObject.code,
+          message: normalized.errorObject.message,
+          transport: null
+        });
+        res.end();
+        return;
+      }
+
+      clientTurnIdForRegistry =
+        preparation.mode === "prepared" ? preparation.prepared.clientTurnId : undefined;
+      if (clientTurnIdForRegistry !== undefined && preparation.mode === "prepared") {
+        streamRegistryUserId = preparation.prepared.userId;
+        this.webChatTurnHardStopRegistry.register({
+          clientTurnId: clientTurnIdForRegistry,
+          userId: preparation.prepared.userId,
+          controller: clientAbortController
+        });
+        this.webChatTurnStreamRegistry.register({
+          clientTurnId: clientTurnIdForRegistry,
+          userId: preparation.prepared.userId
+        });
+      }
+
       if (preparation.mode === "replayed") {
         sendSse("completed", { transport: preparation.transport });
         res.end();
@@ -1346,10 +1362,10 @@ export class AssistantController {
           clientTurnId: clientTurnIdForRegistry,
           controller: clientAbortController
         });
-        if (preparation.mode === "prepared") {
+        if (streamRegistryUserId !== undefined) {
           this.webChatTurnStreamRegistry.release({
             clientTurnId: clientTurnIdForRegistry,
-            userId: preparation.prepared.userId
+            userId: streamRegistryUserId
           });
         }
       }
