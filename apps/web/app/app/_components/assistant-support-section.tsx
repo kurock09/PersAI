@@ -166,11 +166,12 @@ export function AssistantSupportSection({
         applyTicketDetail(ticket);
 
         if (options?.markRead) {
+          applyTicketDetail({ ...ticket, hasUnread: false });
           try {
             const readTicket = await postAssistantSupportTicketRead(token, ticketId);
             applyTicketDetail(readTicket);
           } catch {
-            // Showing the thread must not fail when only the read cursor update fails.
+            // Keep optimistic unread=false when the read cursor API is unavailable.
           }
         }
       } catch {

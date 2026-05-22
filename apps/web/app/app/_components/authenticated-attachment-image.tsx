@@ -31,7 +31,11 @@ export function useAuthenticatedBlobUrl(src: string | null): {
         if (token) {
           headers.Authorization = `Bearer ${token}`;
         }
-        const res = await fetch(src, { credentials: "include", headers });
+        const res = await fetch(src, {
+          credentials: "include",
+          headers,
+          cache: "no-store"
+        });
         if (!res.ok) {
           if (!cancelled) setFailed(true);
           return;

@@ -5132,11 +5132,11 @@ export type SupportTicketDetail = SupportTicketSummary & {
 };
 
 export function getSupportAttachmentUrl(attachmentId: string): string {
-  return `/api/support-attachment/${encodeURIComponent(attachmentId)}`;
+  return `/api/v1/support/attachments/${encodeURIComponent(attachmentId)}`;
 }
 
 export function getAdminSupportAttachmentUrl(attachmentId: string): string {
-  return `/api/admin-support-attachment/${encodeURIComponent(attachmentId)}`;
+  return `/api/v1/admin/support/attachments/${encodeURIComponent(attachmentId)}`;
 }
 
 export async function postAssistantSupportTicket(

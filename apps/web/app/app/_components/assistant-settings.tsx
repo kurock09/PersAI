@@ -2826,7 +2826,15 @@ export function AssistantSettings({
           icon={<MessageCircle className="h-4 w-4" />}
           title={t("support")}
           open={openSection === "support"}
-          onToggle={() => setOpenSection((current) => (current === "support" ? null : "support"))}
+          onToggle={() => {
+            setOpenSection((current) => {
+              const next = current === "support" ? null : "support";
+              if (current === "support") {
+                void refreshSupportUnreadCount();
+              }
+              return next;
+            });
+          }}
           className="order-9"
           showActivityDot={supportUnreadCount > 0}
         >

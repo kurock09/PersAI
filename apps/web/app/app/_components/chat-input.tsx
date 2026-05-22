@@ -66,7 +66,8 @@ const composerSendButtonClass = (disabled: boolean) =>
   );
 
 const composerStopButtonClass = cn(
-  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive transition-transform select-none active:scale-[0.96]",
+  composerActionSlotClass,
+  "rounded-full bg-destructive/15 text-destructive",
   "cursor-pointer [@media(hover:hover)_and_(pointer:fine)]:hover:bg-destructive/25"
 );
 
@@ -522,9 +523,16 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const visibleDocumentJobs = activeDocumentJobs.slice(0, 2);
   const showCollapsedDocumentJobs = activeDocumentJobs.length > 2;
   const composerCanSend = draftText.trim().length > 0 || pendingFiles.length > 0;
-  const showComposerMicSlot = !isStreaming && !isTranscribing && (!isRecording || isTouchDevice);
+  const showComposerMicSlot = !isRecording || isTouchDevice;
+  const showStop = isStreaming;
+  const showTranscribing = isTranscribing && !isStreaming;
+  const showSend = !showStop && !showTranscribing && composerCanSend;
+  const showMic = !showStop && !showTranscribing && showComposerMicSlot && !composerCanSend;
   const composerActionSwapClass = (visible: boolean) =>
-    visible ? "scale-100 opacity-100" : "pointer-events-none scale-[0.82] opacity-0";
+    cn(
+      visible ? "scale-100 opacity-100" : "pointer-events-none scale-90 opacity-0",
+      !visible && "invisible"
+    );
 
   useEffect(() => {
     if (!hasKnowledgeEligibleFiles) {
@@ -1206,88 +1214,91 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               )}
             />
 
-            <div className="relative mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center self-end">
-              {isStreaming ? (
+            <div className="relative mb-0.5 h-10 w-10 shrink-0 self-end">
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  if (shouldKeepDesktopComposerFocusOnPointerDown()) {
+                    e.preventDefault();
+                  }
+                }}
+                onClick={onStop}
+                className={cn(composerStopButtonClass, composerActionSwapClass(showStop))}
+                title={t("stop")}
+                aria-hidden={!showStop}
+                tabIndex={showStop ? 0 : -1}
+              >
+                <Square className="h-4 w-4 fill-current" strokeWidth={0} />
+              </button>
+              <div
+                className={cn(
+                  composerActionSlotClass,
+                  "cursor-default",
+                  composerActionSwapClass(showTranscribing)
+                )}
+                aria-hidden={!showTranscribing}
+              >
+                <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
+              </div>
+              {showComposerMicSlot ? (
                 <button
                   type="button"
-                  onMouseDown={(e) => {
-                    if (shouldKeepDesktopComposerFocusOnPointerDown()) {
-                      e.preventDefault();
-                    }
-                  }}
-                  onClick={onStop}
-                  className={composerStopButtonClass}
-                  title={t("stop")}
-                >
-                  <Square className="h-4 w-4 fill-current" strokeWidth={0} />
-                </button>
-              ) : isTranscribing ? (
-                <div className={cn(composerActionSlotClass, "cursor-default")} aria-hidden>
-                  <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
-                </div>
-              ) : (
-                <>
-                  {showComposerMicSlot ? (
-                    <button
-                      type="button"
-                      disabled={disabled || isStreaming || sendBlockedByFailedSlot}
-                      {...(isTouchDevice
-                        ? {
-                            onPointerDown: handleMicPointerDown,
-                            onPointerMove: handleMicPointerMove,
-                            onPointerUp: handleMicPointerUp,
-                            onPointerCancel: handleMicPointerCancel,
-                            onContextMenu: (e: React.MouseEvent) => e.preventDefault()
-                          }
-                        : { onClick: () => void startRecording() })}
-                      className={cn(
-                        composerActionSlotClass,
-                        "rounded-full",
-                        composerActionSwapClass(!composerCanSend),
-                        disabled || isStreaming || sendBlockedByFailedSlot
-                          ? "cursor-default text-text-subtle/40"
-                          : cn(
-                              "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted",
-                              "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted",
-                              isTouchDevice &&
-                                isRecording &&
-                                !cancelArmed &&
-                                "bg-accent/15 text-accent",
-                              isTouchDevice &&
-                                isRecording &&
-                                cancelArmed &&
-                                "bg-destructive/15 text-destructive"
-                            )
-                      )}
-                      title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
-                      aria-label={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
-                      aria-hidden={composerCanSend}
-                      tabIndex={composerCanSend ? -1 : 0}
-                    >
-                      <Mic className="h-5 w-5 md:h-4 md:w-4" />
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onMouseDown={(e) => {
-                      if (shouldKeepDesktopComposerFocusOnPointerDown()) {
-                        e.preventDefault();
+                  disabled={disabled || isStreaming || sendBlockedByFailedSlot}
+                  {...(isTouchDevice
+                    ? {
+                        onPointerDown: handleMicPointerDown,
+                        onPointerMove: handleMicPointerMove,
+                        onPointerUp: handleMicPointerUp,
+                        onPointerCancel: handleMicPointerCancel,
+                        onContextMenu: (e: React.MouseEvent) => e.preventDefault()
                       }
-                    }}
-                    onClick={handleSend}
-                    disabled={controlsDisabled}
-                    className={cn(
-                      composerSendButtonClass(controlsDisabled),
-                      composerActionSwapClass(composerCanSend)
-                    )}
-                    title={t("send")}
-                    aria-hidden={!composerCanSend}
-                    tabIndex={composerCanSend ? 0 : -1}
-                  >
-                    <Send className="h-[18px] w-[18px] md:h-4 md:w-4" strokeWidth={2.25} />
-                  </button>
-                </>
-              )}
+                    : { onClick: () => void startRecording() })}
+                  className={cn(
+                    composerActionSlotClass,
+                    "rounded-full",
+                    composerActionSwapClass(showMic),
+                    disabled || isStreaming || sendBlockedByFailedSlot
+                      ? "cursor-default text-text-subtle/40"
+                      : cn(
+                          "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted",
+                          "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted",
+                          isTouchDevice &&
+                            isRecording &&
+                            !cancelArmed &&
+                            "bg-accent/15 text-accent",
+                          isTouchDevice &&
+                            isRecording &&
+                            cancelArmed &&
+                            "bg-destructive/15 text-destructive"
+                        )
+                  )}
+                  title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
+                  aria-label={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
+                  aria-hidden={!showMic}
+                  tabIndex={showMic ? 0 : -1}
+                >
+                  <Mic className="h-5 w-5 md:h-4 md:w-4" />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  if (shouldKeepDesktopComposerFocusOnPointerDown()) {
+                    e.preventDefault();
+                  }
+                }}
+                onClick={handleSend}
+                disabled={controlsDisabled}
+                className={cn(
+                  composerSendButtonClass(controlsDisabled),
+                  composerActionSwapClass(showSend)
+                )}
+                title={t("send")}
+                aria-hidden={!showSend}
+                tabIndex={showSend ? 0 : -1}
+              >
+                <Send className="h-[18px] w-[18px] md:h-4 md:w-4" strokeWidth={2.25} />
+              </button>
             </div>
           </div>
         </div>

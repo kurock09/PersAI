@@ -24,7 +24,9 @@ export function SupportAttachmentThumbs({
 
   const active = imageAttachments.find((item) => item.id === openId) ?? null;
   const activeSrc = active ? resolveUrl(active.id) : null;
-  const { blobUrl: lightboxBlobUrl } = useAuthenticatedBlobUrl(openId ? activeSrc : null);
+  const { blobUrl: lightboxBlobUrl, failed: lightboxFailed } = useAuthenticatedBlobUrl(
+    openId ? activeSrc : null
+  );
 
   return (
     <>
@@ -47,15 +49,26 @@ export function SupportAttachmentThumbs({
           </button>
         ))}
       </div>
-      {active && lightboxBlobUrl && (
+      {active && openId !== null && lightboxBlobUrl && !lightboxFailed && (
         <ImageLightbox
-          open={openId !== null}
+          open
           src={lightboxBlobUrl}
           downloadUrl={lightboxBlobUrl}
           filename={active.fileName ?? undefined}
           alt={active.fileName ?? "attachment"}
           onClose={() => setOpenId(null)}
         />
+      )}
+      {active && openId !== null && lightboxFailed && (
+        <div
+          role="alert"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setOpenId(null)}
+        >
+          <p className="max-w-sm rounded-lg bg-surface-raised px-4 py-3 text-center text-xs text-text">
+            {active.fileName ?? "attachment"}
+          </p>
+        </div>
       )}
     </>
   );
