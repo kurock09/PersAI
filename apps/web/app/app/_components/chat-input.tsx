@@ -41,10 +41,12 @@ import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
 
 const MAX_FILES = 5;
 
-/** Touch hold-to-record: require a real left swipe before arming cancel. */
-const VOICE_CANCEL_ARM_LEFT_PX = 184;
+/** Reveal the trash affordance after a small but intentional left drag (~1.5 cm). */
+const VOICE_TRASH_REVEAL_LEFT_PX = 56;
+/** Touch hold-to-record: require a real deeper left swipe before arming cancel. */
+const VOICE_CANCEL_ARM_LEFT_PX = 136;
 /** Hysteresis: once armed, don't immediately disarm on tiny rebound. */
-const VOICE_CANCEL_DISARM_LEFT_PX = 132;
+const VOICE_CANCEL_DISARM_LEFT_PX = 104;
 /** Ignore thumb jitter / small accidental drift before computing swipe distance. */
 const VOICE_GESTURE_SLOP_PX = 56;
 /** Only mostly-horizontal swipes should arm cancel on mobile. */
@@ -709,7 +711,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               const text = await onTranscribeVoice(blob, filename);
               const trimmedText = text.trim();
               if (trimmedText.length === 0) {
-                throw new Error("Voice transcription returned empty text. Please try again.");
+                throw {
+                  code: "voice_transcription_empty",
+                  message: "Voice transcription returned empty text. Please try again."
+                };
               }
               onSend(trimmedText, [voiceFile]);
             } catch (error) {
@@ -778,6 +783,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const holdStartYRef = useRef(0);
   const cancelArmedRef = useRef(false);
   const [cancelArmed, setCancelArmed] = useState(false);
+  const trashRevealRef = useRef(false);
+  const [trashRevealed, setTrashRevealed] = useState(false);
 
   const safeVibrate = useCallback((pattern: number | number[]) => {
     if (typeof navigator === "undefined") return;
@@ -792,7 +799,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const resetHoldGesture = useCallback(() => {
     holdActiveRef.current = false;
     cancelArmedRef.current = false;
+    trashRevealRef.current = false;
     setCancelArmed(false);
+    setTrashRevealed(false);
   }, []);
 
   const updateCancelFromPointer = useCallback(
@@ -811,6 +820,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           swipeLeftPx >= Math.max(VOICE_CANCEL_DISARM_LEFT_PX, verticalDriftPx + requiredLead)
         : verticalDriftPx <= maxVerticalDrift &&
           swipeLeftPx >= Math.max(VOICE_CANCEL_ARM_LEFT_PX, verticalDriftPx + requiredLead);
+      const revealThreshold = cancelArmedRef.current
+        ? Math.max(VOICE_TRASH_REVEAL_LEFT_PX - 12, 24)
+        : VOICE_TRASH_REVEAL_LEFT_PX;
+      const revealed = verticalDriftPx <= maxVerticalDrift && swipeLeftPx >= revealThreshold;
+      if (revealed !== trashRevealRef.current) {
+        trashRevealRef.current = revealed;
+        setTrashRevealed(revealed);
+      }
       if (armed !== cancelArmedRef.current) {
         cancelArmedRef.current = armed;
         setCancelArmed(armed);
@@ -856,7 +873,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       holdStartXRef.current = e.clientX;
       holdStartYRef.current = e.clientY;
       cancelArmedRef.current = false;
+      trashRevealRef.current = false;
       setCancelArmed(false);
+      setTrashRevealed(false);
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
@@ -1207,55 +1226,80 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 12, scale: 0.96 }}
                   transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                  className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-3 flex w-auto max-w-[13rem] -translate-x-1/2 flex-col items-stretch"
+                  className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-3 flex w-auto max-w-[15rem] -translate-x-1/2 flex-col items-stretch"
                 >
-                  <div
-                    className={cn(
-                      "flex items-center gap-3 rounded-[1.25rem] border bg-surface-raised/95 px-3.5 py-2.5 shadow-xl backdrop-blur-sm transition-colors",
-                      cancelArmed ? "border-destructive/50" : "border-border"
-                    )}
-                  >
-                    <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          "absolute inset-0 animate-ping rounded-full",
-                          cancelArmed ? "bg-destructive/30" : "bg-accent/30"
-                        )}
-                      />
-                      <span
-                        className={cn(
-                          "relative flex h-full w-full items-center justify-center rounded-full transition-colors",
-                          cancelArmed
-                            ? "bg-destructive/15 text-destructive"
-                            : "bg-accent/15 text-accent"
-                        )}
-                      >
-                        {cancelArmed ? (
-                          <Trash2 className="h-5 w-5" aria-hidden="true" />
-                        ) : (
-                          <Mic className="h-5 w-5" aria-hidden="true" />
-                        )}
+                  <div className="flex items-center gap-2">
+                    <AnimatePresence>
+                      {trashRevealed ? (
+                        <motion.div
+                          key="trash-hint"
+                          initial={{ opacity: 0, x: 10, scale: 0.92 }}
+                          animate={{ opacity: 1, x: 0, scale: 1 }}
+                          exit={{ opacity: 0, x: 10, scale: 0.92 }}
+                          transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                          className={cn(
+                            "flex h-10 w-10 items-center justify-center rounded-full border shadow-lg backdrop-blur-sm transition-colors",
+                            cancelArmed
+                              ? "border-destructive/50 bg-destructive/15 text-destructive"
+                              : "border-border bg-surface-raised/92 text-text-subtle"
+                          )}
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        </motion.div>
+                      ) : null}
+                    </AnimatePresence>
+                    <div
+                      className={cn(
+                        "flex items-center gap-3 rounded-[1.25rem] border bg-surface-raised/95 px-3.5 py-2.5 shadow-xl backdrop-blur-sm transition-colors",
+                        cancelArmed ? "border-destructive/50" : "border-border"
+                      )}
+                    >
+                      <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+                        <span
+                          aria-hidden="true"
+                          className={cn(
+                            "absolute inset-0 animate-ping rounded-full",
+                            cancelArmed ? "bg-destructive/30" : "bg-accent/30"
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            "relative flex h-full w-full items-center justify-center rounded-full transition-colors",
+                            cancelArmed
+                              ? "bg-destructive/15 text-destructive"
+                              : "bg-accent/15 text-accent"
+                          )}
+                        >
+                          {cancelArmed ? (
+                            <Trash2 className="h-5 w-5" aria-hidden="true" />
+                          ) : (
+                            <Mic className="h-5 w-5" aria-hidden="true" />
+                          )}
+                        </span>
                       </span>
-                    </span>
-                    <span className="min-w-0">
-                      <span
-                        className={cn(
-                          "block font-mono text-sm font-medium tabular-nums transition-colors",
-                          cancelArmed ? "text-destructive" : "text-text"
-                        )}
-                      >
-                        {formatDuration(recordingSeconds)}
+                      <span className="min-w-0">
+                        <span
+                          className={cn(
+                            "block font-mono text-sm font-medium tabular-nums transition-colors",
+                            cancelArmed ? "text-destructive" : "text-text"
+                          )}
+                        >
+                          {formatDuration(recordingSeconds)}
+                        </span>
+                        <span
+                          className={cn(
+                            "block text-[11px] leading-tight transition-colors",
+                            cancelArmed ? "text-destructive" : "text-text-subtle"
+                          )}
+                        >
+                          {cancelArmed
+                            ? t("voiceCancelArmed")
+                            : trashRevealed
+                              ? t("voiceHoldRelease")
+                              : t("voiceSwipeLeftToCancel")}
+                        </span>
                       </span>
-                      <span
-                        className={cn(
-                          "block text-[11px] leading-tight transition-colors",
-                          cancelArmed ? "text-destructive" : "text-text-subtle"
-                        )}
-                      >
-                        {cancelArmed ? t("voiceCancelArmed") : t("voiceSwipeLeftToCancel")}
-                      </span>
-                    </span>
+                    </div>
                   </div>
                 </motion.div>
               )}

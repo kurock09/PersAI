@@ -715,8 +715,10 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   }
 
   if (
+    code === "voice_transcription_empty" ||
     normalized.includes("no_audio_detected") ||
-    normalized.includes("voice transcription returned empty")
+    normalized.includes("voice transcription returned empty") ||
+    normalized.includes("voice transcription failed")
   ) {
     return {
       classId: "voice_transcription_empty",
@@ -5072,18 +5074,38 @@ export async function transcribeVoice(
   );
   if (!res.ok) {
     let message = "Voice transcription failed.";
+    let code: string | null = null;
     try {
       const body = JSON.parse(res.responseText) as unknown;
-      if (typeof body === "object" && body !== null && "message" in body) {
-        const candidate = (body as Record<string, unknown>).message;
-        if (typeof candidate === "string" && candidate.trim().length > 0) {
-          message = candidate;
+      if (typeof body === "object" && body !== null) {
+        const record = body as Record<string, unknown>;
+        const directMessage = record.message;
+        if (typeof directMessage === "string" && directMessage.trim().length > 0) {
+          message = directMessage;
+        }
+        const directCode = record.code;
+        if (typeof directCode === "string" && directCode.trim().length > 0) {
+          code = directCode;
+        }
+        const nestedError =
+          typeof record.error === "object" && record.error !== null
+            ? (record.error as Record<string, unknown>)
+            : null;
+        if (nestedError) {
+          const nestedMessage = nestedError.message;
+          if (typeof nestedMessage === "string" && nestedMessage.trim().length > 0) {
+            message = nestedMessage;
+          }
+          const nestedCode = nestedError.code;
+          if (typeof nestedCode === "string" && nestedCode.trim().length > 0) {
+            code = nestedCode;
+          }
         }
       }
     } catch {
       /* keep default message */
     }
-    throw new Error(message);
+    throw code ? { code, message } : new Error(message);
   }
   const data = JSON.parse(res.responseText) as { text: string };
   return data.text;

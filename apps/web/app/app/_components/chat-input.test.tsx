@@ -574,7 +574,10 @@ describe("ChatInput", () => {
     await waitFor(() => {
       expect(mic).toHaveClass("bg-accent/15");
     });
-    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 250, clientY: 108 });
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 200, clientY: 108 });
+    await waitFor(() => {
+      expect(screen.getByText("voiceHoldRelease")).toBeInTheDocument();
+    });
     expect(mic).not.toHaveClass("text-destructive");
     fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 20, clientY: 112 });
     await waitFor(() => {
@@ -622,6 +625,79 @@ describe("ChatInput", () => {
     });
     fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 240, clientY: 230 });
     expect(mic).not.toHaveClass("text-destructive");
+  });
+
+  it("reports empty voice transcription with a dedicated issue code", async () => {
+    enableTouchDevice();
+    const stream = {
+      getTracks: () => [{ stop: vi.fn() }]
+    } as unknown as MediaStream;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn(async () => stream) }
+    });
+    const recorderStop = vi.fn();
+    const handlers: {
+      stop: (() => void) | null;
+      data: ((event: { data: Blob }) => void) | null;
+    } = {
+      stop: null,
+      data: null
+    };
+    const mediaRecorderMock = vi.fn(() => ({
+      mimeType: "audio/webm",
+      state: "recording",
+      start: vi.fn(),
+      stop: recorderStop.mockImplementation(() => handlers.stop?.()),
+      set ondataavailable(handler: ((event: { data: Blob }) => void) | null) {
+        handlers.data = handler;
+      },
+      get ondataavailable() {
+        return handlers.data;
+      },
+      set onstop(handler: (() => void) | null) {
+        handlers.stop = handler;
+      },
+      get onstop() {
+        return handlers.stop;
+      }
+    }));
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: Object.assign(mediaRecorderMock, { isTypeSupported: vi.fn(() => true) })
+    });
+
+    const onVoiceTranscriptionError = vi.fn();
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "   ")}
+        onVoiceTranscriptionError={onVoiceTranscriptionError}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    const mic = await screen.findByTitle("voiceHoldToRecord");
+    fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 320, clientY: 100 });
+    await waitFor(() => {
+      expect(mediaRecorderMock).toHaveBeenCalled();
+    });
+    const file = new File([new Uint8Array(4096)], "voice.webm", { type: "audio/webm" });
+    await new Promise((resolve) => setTimeout(resolve, 320));
+    fireEvent.pointerUp(mic, { pointerType: "touch", pointerId: 1, clientX: 320, clientY: 100 });
+    if (handlers.data) {
+      handlers.data({ data: file });
+    }
+    if (handlers.stop) {
+      handlers.stop();
+    }
+    await waitFor(() => {
+      expect(onVoiceTranscriptionError).toHaveBeenCalled();
+    });
+    expect(onVoiceTranscriptionError.mock.calls[0]?.[0]).toMatchObject({
+      code: "voice_transcription_empty"
+    });
   });
 
   it("shows mic when empty and send when typing", () => {

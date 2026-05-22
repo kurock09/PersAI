@@ -1120,6 +1120,20 @@ describe("toWebChatUxIssue", () => {
     });
   });
 
+  it("maps explicit empty voice transcription codes to the localized retry issue", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "voice_transcription_empty",
+        message: "Voice transcription failed."
+      })
+    ).toEqual({
+      classId: "voice_transcription_empty",
+      message: "No speech was detected in your recording.",
+      guidance:
+        "Check that the correct microphone is selected in your browser settings and that it is not muted."
+    });
+  });
+
   it("maps monthly media quota errors to billing-period guidance", () => {
     expect(
       toWebChatUxIssue({
