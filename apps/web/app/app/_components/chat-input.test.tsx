@@ -522,11 +522,16 @@ describe("ChatInput", () => {
     );
 
     const mic = await screen.findByTitle("voiceHoldToRecord");
-    fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 200 });
+    fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 200, clientY: 100 });
     await waitFor(() => {
       expect(mediaRecorder).toHaveBeenCalled();
     });
-    fireEvent.pointerCancel(mic, { pointerType: "touch", pointerId: 1, clientX: 198 });
+    fireEvent.pointerCancel(mic, {
+      pointerType: "touch",
+      pointerId: 1,
+      clientX: 198,
+      clientY: 102
+    });
     expect(recorderStop).toHaveBeenCalled();
     expect(stop).not.toHaveBeenCalled();
   });
@@ -565,16 +570,58 @@ describe("ChatInput", () => {
     );
 
     const mic = await screen.findByTitle("voiceHoldToRecord");
-    fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 220 });
+    fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 320, clientY: 100 });
     await waitFor(() => {
       expect(mic).toHaveClass("bg-accent/15");
     });
-    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 200 });
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 250, clientY: 108 });
     expect(mic).not.toHaveClass("text-destructive");
-    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 10 });
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 20, clientY: 112 });
     await waitFor(() => {
       expect(mic).toHaveClass("text-destructive");
     });
+  });
+
+  it("does not arm cancel on mostly vertical finger drift", async () => {
+    enableTouchDevice();
+    const stream = {
+      getTracks: () => [{ stop: vi.fn() }]
+    } as unknown as MediaStream;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn(async () => stream) }
+    });
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: Object.assign(
+        vi.fn(() => ({
+          mimeType: "audio/webm",
+          state: "recording",
+          start: vi.fn(),
+          stop: vi.fn(),
+          ondataavailable: null,
+          onstop: null
+        })),
+        { isTypeSupported: vi.fn(() => true) }
+      )
+    });
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    const mic = await screen.findByTitle("voiceHoldToRecord");
+    fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 320, clientY: 100 });
+    await waitFor(() => {
+      expect(mic).toHaveClass("bg-accent/15");
+    });
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 240, clientY: 230 });
+    expect(mic).not.toHaveClass("text-destructive");
   });
 
   it("shows mic when empty and send when typing", () => {

@@ -2,6 +2,37 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-22 — Support API auth correction + compact mobile voice cancel UX — **Implemented**
+
+### What changed
+
+- **Independent audit corrected the previous explanation:** runtime evidence in dev showed the earlier BFF-only fix was not sufficient. At audit time, running `web` was already on `cee076e92dbde54850eb9591c556cbe8898f2fb8`, running `api` was still on `a21beef24c2d578e5a94614680d7af97d6ac2a66`, and `infra/helm/values-dev.yaml` still pinned `web` to the older `2b87029e642d7613875b434107c88b8027bc0cd9`.
+- **Actual support regression root cause:** live browser checks with the same Clerk session proved `GET /api/v1/support/tickets/:ticketId` succeeded while `POST /api/support-ticket/:ticketId/read`, direct `POST /api/v1/support/tickets/:ticketId/read`, `GET /api/support-attachment/:attachmentId`, and direct `GET /api/v1/support/attachments/:attachmentId` all returned `401 auth_required`. Root cause: `apps/api/src/modules/identity-access/identity-access.module.ts` had not registered the new support read/download endpoints with `ClerkAuthMiddleware`, so `req.resolvedAppUser` stayed unset and the controllers rejected those requests before business logic.
+- **API fix applied:** added the missing guarded routes for:
+  - `POST /api/v1/support/tickets/:ticketId/read`
+  - `GET /api/v1/support/attachments/:attachmentId`
+  - `GET /api/v1/admin/support/attachments/:attachmentId`
+- **Regression lock added:** `apps/api/test/identity-access.module.test.ts` now asserts those support endpoints stay covered by `ClerkAuthMiddleware`, so this exact missing-`forRoutes` failure mode cannot silently return.
+- **Why the previous fix did not work:** the `web` BFF/session-token bridge could forward a fresh token, but the failing API endpoints were still unguarded on the backend. The token arrived and was then ignored by the route pipeline that never ran Clerk middleware, so support attachments and mark-read still 401ed in live dev.
+- **Mobile voice UX corrected again:** `apps/web/app/app/_components/chat-input.tsx` now renders a compact centered status pill instead of the wide banner/progress rail. Cancel arming requires a longer, mostly horizontal left swipe with more slop/hysteresis and a vertical-drift guard, so small thumb movement no longer cancels recording.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx app/app/assistant-api-client.test.ts --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+- Redeploy at least `api` to `persai-dev` and reconcile the `web` GitOps pin drift, then rerun live smoke on one real support ticket:
+  - user unread dot clears and stays cleared after full refresh
+  - user attachment opens through `/api/support-attachment/:id`
+  - admin attachment preview/lightbox opens through `/api/admin-support-attachment/:id`
+  - mobile hold-to-record shows the compact pill and only cancels on a deliberate left swipe
+
 ## 2026-05-22 — Support unread + admin attachment auth follow-up — **Implemented**
 
 ### What changed

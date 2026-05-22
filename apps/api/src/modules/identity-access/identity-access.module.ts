@@ -180,8 +180,11 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/support/tickets", method: RequestMethod.POST },
       { path: "api/v1/support/assistants/:assistantId/tickets", method: RequestMethod.GET },
       { path: "api/v1/support/tickets/:ticketId", method: RequestMethod.GET },
+      { path: "api/v1/support/tickets/:ticketId/read", method: RequestMethod.POST },
+      { path: "api/v1/support/attachments/:attachmentId", method: RequestMethod.GET },
       { path: "api/v1/admin/support/tickets", method: RequestMethod.GET },
       { path: "api/v1/admin/support/tickets/:ticketId", method: RequestMethod.GET },
+      { path: "api/v1/admin/support/attachments/:attachmentId", method: RequestMethod.GET },
       {
         path: "api/v1/admin/support/tickets/:ticketId/reply",
         method: RequestMethod.POST
