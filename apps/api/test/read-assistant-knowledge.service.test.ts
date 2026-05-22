@@ -1320,6 +1320,10 @@ async function run(): Promise<void> {
     }
   };
 
+  const knowledgeRetrievalHelperService = {
+    rerankCandidates: async () => null
+  };
+
   const service = new ReadAssistantKnowledgeService(
     prisma as never,
     {
@@ -1360,9 +1364,7 @@ async function run(): Promise<void> {
         fetchFullModeMaxChatMessages: 150
       })
     } as never,
-    {
-      rerankCandidates: async () => null
-    } as never,
+    knowledgeRetrievalHelperService as never,
     {
       recordSearch: async () => undefined,
       recordFetch: async () => undefined
@@ -1535,6 +1537,39 @@ async function run(): Promise<void> {
     globalPlanHits.some((hit) => hit.referenceId === "global:plan:pro"),
     true
   );
+
+  knowledgeRetrievalHelperService.rerankCandidates = async () => ({
+    rankedReferenceIds: ["global:plan:pro"],
+    modelKey: "helper-model",
+    providerKey: "openai" as const,
+    usage: null
+  });
+  const helperSubsetGlobalHits = await service.search({
+    assistantId: "assistant-1",
+    source: "global",
+    query: "knowledge storage larger assistant knowledge",
+    maxResults: 3
+  });
+  assert.deepEqual(
+    helperSubsetGlobalHits.map((hit) => hit.referenceId),
+    ["global:plan:pro"]
+  );
+
+  knowledgeRetrievalHelperService.rerankCandidates = async () => ({
+    rankedReferenceIds: [],
+    modelKey: "helper-model",
+    providerKey: "openai" as const,
+    usage: null
+  });
+  const helperEmptyGlobalHits = await service.search({
+    assistantId: "assistant-1",
+    source: "global",
+    query: "knowledge storage larger assistant knowledge",
+    maxResults: 3
+  });
+  assert.equal(helperEmptyGlobalHits.length, 0);
+
+  knowledgeRetrievalHelperService.rerankCandidates = async () => null;
 
   const inactiveProductKbHits = await service.search({
     assistantId: "assistant-1",

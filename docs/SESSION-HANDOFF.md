@@ -2,6 +2,103 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-22 — ADR-100 post-6H follow-up — source progression + activity prioritization
+
+### What changed
+
+- Tightened the bounded ADR-100 follow-up around the existing orchestrator instead of adding a new routing tree.
+- Project-mode precheck now always allows web participation when the tool exists, so the model can escalate from local context to external verification inside the same bounded tool loop instead of being pre-narrowed away from web on knowledge-heavy turns.
+- Runtime project stream cadence is now less noisy before the first answer text: the old burst of early `plan/gather/analyze` status events was collapsed into fewer, more meaningful checkpoints.
+- Tool-loop follow-up now adds a dynamic `Source progression` developer block: if the model already checked local/project context and the answer is still not direct, it is explicitly told to continue to the next missing source; if it already pulled external context, it is told to compare that back against local files/Skills before finalizing.
+- Web chat now prioritizes concrete live tool/retrieval work over generic project banners, preserves project `summary` / `detail` text, and no longer lets later project-summary events overwrite an in-flight tool badge.
+- ADR-100 now records the intended steady-state truth more honestly: model-owned sufficiency checks, source progression inside the existing tool loop, and live activity priority that favors real work over generic stage labels.
+
+### Verification
+
+- Focused runtime tests:
+  - `corepack pnpm --filter @persai/runtime exec tsx test/project-execution-profile.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/project-stream-events.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- Focused web tests:
+  - `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/_components/activity-badge.test.tsx --config vitest.config.ts`
+- Repo gate:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+
+### Residual risks
+
+- This is still an orchestrator/prompt/UI follow-up, not a fully deterministic source arbiter; live quality still needs verification on real project prompts.
+- Project activity remains session-ephemeral on the client side; no DB persistence was added.
+- Current-thread chat is still not a separate first-class orchestrated retrieval source; the earlier explicit-recall boundary remains unchanged.
+
+### Next recommended step
+
+- Redeploy the touched runtime/web surfaces to `persai-dev`, then run live project smoke focused on three truths: early project banners are no longer the dominant visible status, real tool/retrieval work stays visible while it runs, and the model actually progresses from local context to external verification when the first evidence is partial or off-target. Do not start the hidden B2B cluster plan until that live behavior is verified end to end.
+
+## 2026-05-22 — ADR-100 Slice 6H live follow-up — retrieval helper pruning fix
+
+### What changed
+
+- Live `persai-dev` verification against the already deployed `api/runtime:27541a81` exposed a real post-6H retrieval bug on project/domain queries: the hidden retrieval helper could correctly return `rankedReferenceIds: []` or a strict subset, but API treated that output as reorder-only semantics instead of an allowlist.
+- `KnowledgeRetrievalHelperService.rerankCandidates()` now returns a real ranking result even when the helper keeps zero references, so an explicit empty allowlist is no longer collapsed into `null`.
+- `ReadAssistantKnowledgeService` now treats helper output as an allowlist for both assistant-document and global/product-plan search paths: references omitted by the helper are dropped instead of merely pushed lower in the sort order.
+- `OrchestrateRuntimeRetrievalService` now applies the same allowlist pruning for the active-skill helper path before later project/user/product staging, so helper-pruned skill references do not survive as fallback noise.
+- Focused regressions now lock the real failure mode: helper subset keeps only that subset, and helper empty result removes all helper-ranked candidates instead of leaking product/plan junk through.
+
+### Verification
+
+- Live cluster audit:
+  - `kubectl get pods -n persai-dev`
+  - `kubectl get deploy api runtime -n persai-dev -o jsonpath=...`
+  - confirmed live pods were running `27541a81`
+  - inspected live request/log evidence plus deployed code path for helper prompt and post-processing
+- Focused tests:
+  - `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- Repo gate:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+
+### Residual risks
+
+- `persai-dev` is still running the old `27541a81` image until `api` is redeployed with this fix.
+- This fix closes helper-pruning semantics only; it does not redesign source admission or add richer live retrieval diagnostics to logs.
+- Current-thread chat still is not a separate first-class orchestrated source; current truth only blocks broad assistant-wide recall leakage unless recall intent is explicit.
+
+### Next recommended step
+
+- Redeploy `api` to `persai-dev`, then rerun the live project/domain query that previously surfaced `product-text-entry` and `global:plan:*` noise. Confirm that helper-empty or helper-subset outcomes now prune those candidates completely instead of merely reordering them.
+
+## 2026-05-22 — ADR-100 doc reconciliation after Slice 6H
+
+### What changed
+
+- Reconciled `docs/ADR/100-project-chat-mode-and-b2b-analysis-profile.md` with current repo truth after the already landed Slice 6H closeout.
+- Removed stale workflow wording such as `working tree` / slice-local parent-subagent scaffolding where it no longer helped continuation.
+- Compressed the implementation ledger so ADR-100 now reads as a clean continuation document rather than an accumulated session prompt.
+- Clarified the steady-state boundary between `normal | smart | project`, Skills as the domain layer, Product KB/subscription facts, explicit cross-thread recall, and project files on existing `AssistantFile` / `fileRef` truth.
+- Kept the honest next step unchanged: deploy prep + live project verification before any hidden B2B cluster-plan work.
+- No runtime/API/web behavior changed in this session.
+
+### Verification
+
+- Read-only reconciliation against `AGENTS.md`, `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`, `docs/ADR/078-consolidated-follow-through-program.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, and current `docs/ADR/100-project-chat-mode-and-b2b-analysis-profile.md`
+- Repo/code spot-checks for landed ADR-100 Slice 6 facts via current branch + source search (`gatherProfile`, `project_file`, `analyzeUploadsOnB2cUpload`, `upload_micro_description`, `semanticSummarySource`, `precheckRuleOverrides`)
+
+### Residual risks
+
+- This session was doc-only; deploy/materialization truth for project retrieval quality is still unverified in the target environment.
+- `pinnedSkillId` remains deferred and must stay separate from ordinary skill activation if added later.
+- Current-thread chat is still not a separate first-class orchestrated source; current truth only blocks broad assistant-wide recall leakage unless recall intent is explicit.
+
+### Next recommended step
+
+- Run **deploy prep + live project verification**: validate source admission, project-file gather priority, lazy extraction cache, and upload micro-description jobs in the target environment. Do not create the hidden B2B cluster plan until live project retrieval quality is confirmed end to end.
+
 ## 2026-05-22 — ADR-100 Slice 6H — retrieval source admission closeout
 
 ### What changed

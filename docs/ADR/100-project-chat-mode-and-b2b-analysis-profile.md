@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Slices 2, 2.1, 3, 4, 5, and the pre-deploy Slice 6 block through 6H are verified in working tree on 2026-05-22. Slice 6H closes the live retrieval-quality finding by making Product KB/subscription facts intent-gated, cross-thread chat/memory recall explicit, Admin Runtime trigger lists authoritative when filled, and project-file hydration priority higher than ordinary user/product context.
+Accepted. Slices 2 through 6H are implemented and verified as of 2026-05-22, and the immediate post-6H follow-up now also tightens the project/ordinary orchestrator layer: project summaries use meaning-first copy, real tool/retrieval activity now wins over generic project status in the live badge, early pre-answer project spam is reduced, and the staged runtime contract plus tool-loop follow-up more explicitly tells the model to keep progressing from local context to external verification when the current evidence is still insufficient. The pre-deploy project-mode core is in place: explicit `chatMode`, project UI shell, staged project execution profile, project-only activity/reasoning feed, project-file gather and lazy extraction cache, bounded upload micro-description enrichment, and Slice 6H retrieval source-admission cleanup. Slice 7 is not started; the honest next step is deploy prep plus live project verification before any hidden B2B cluster-plan work.
 
 ## Date
 
@@ -35,6 +35,7 @@ Founder decisions captured for this ADR:
 5. Domain specialization must remain Skills: engineering, design, procurement, compliance, industry standards, and other verticals are Skill packs, not separate runtime modes.
 6. The Cursor-like experience should come from a staged project execution profile and visible activity feed, not from a complex new routing tree.
 7. The final implementation program must create a hidden B2B plan in the live cluster/admin control plane and fill the B2B limits correctly, including KB/storage/retrieval/tool budgets.
+8. Source sufficiency must stay model-owned: runtime may expose plan/tool constraints and honest source hints, but it should not devolve into keyword routing that pretends to know the full answer path in advance.
 
 ## Current code audit summary
 
@@ -163,6 +164,21 @@ Domains are Skills:
 
 Industry packs such as Gazprom, NOVATEK, or other standards packs should be modeled as curated Skills with Skill documents and knowledge cards, not as hardcoded runtime branches.
 
+### Mode and source boundaries
+
+The intended steady-state split is:
+
+- `normal` - ordinary assistant chat; no staged project workflow
+- `smart` - the current think-deeper mode; deeper reasoning/tool use, but still ordinary chat rather than project analysis
+- `project` - staged project work (`plan -> gather -> analyze -> replan -> synthesize`) with project reasoning summaries, visible tool/source progress, and project-file-aware retrieval
+
+Supporting boundaries stay separate:
+
+- Skills are the domain-specialization layer across all modes; they are not execution profiles and they are not a B2B flag
+- Product KB plus subscription/plan facts are for PersAI/product/pricing/billing/setup questions, or for explicit mixed questions that compare product constraints with domain work
+- current-thread conversation remains ordinary chat context, but assistant-wide cross-thread `chat` / `memory` recall requires explicit recall intent
+- project files are first-class sources in project mode, but they still reuse the existing `AssistantFile` / `fileRef` truth rather than a separate project file system
+
 ## Runtime model
 
 ### Project execution profile
@@ -181,7 +197,7 @@ Industry packs such as Gazprom, NOVATEK, or other standards packs should be mode
    - persist extracted/cache truth after the first deep analysis and reuse it instead of reparsing by default
    - run Skill/user/Product KB retrieval
    - fetch exact excerpts when needed
-   - optionally use web/browser when local context is insufficient
+  - use web/browser when the current local context does not directly answer the real user task
 
 3. `analyze`
    - compare requirements, project documents, norms, and assumptions
@@ -220,6 +236,7 @@ If a dedicated `project` budget is not added in the first implementation slice, 
 3. Project mode must support a project-only visible reasoning summary feed: concise user-facing summaries of the plan, hypotheses, checks, source comparisons, conflicts, gaps, and reasons for another pass.
 4. Project mode must enforce a final-answer contract rather than streaming raw hidden scratchpad.
 5. Project mode must stream user-visible activity events for stages and source/tool usage.
+6. The model should treat "one local file" or "one retrieved snippet" as insufficient unless it directly resolves the actual task; if evidence is partial, outdated, or off-target, it should keep gathering or verify externally instead of synthesizing early.
 
 ## Project visible reasoning and activity feed
 
@@ -230,7 +247,7 @@ PersAI should show two safe streams in project mode:
 1. activity events - what the system is doing
 2. visible reasoning summaries - concise, model-authored summaries of the current plan/check/gap/conclusion
 
-Visible reasoning summaries are allowed and encouraged in project mode. Raw hidden chain-of-thought remains hidden.
+Visible reasoning summaries are allowed and encouraged in project mode. Raw hidden chain-of-thought remains hidden. The copy should be short and concrete ("checking the uploaded estimate against the policy", "gathering one more source", "verifying the current rule externally"), not canned filler like "another pass is needed". These summaries should not drown out more concrete tool/retrieval activity when the model is already in the middle of real source work.
 
 Allowed visible events:
 
@@ -272,7 +289,7 @@ Events must not include:
 - hidden developer prompts
 - full tool result payloads unless explicitly safe and user-facing
 
-Implementation should extend the existing runtime stream and web `ActivityEvent`/`ChatEntry` pattern rather than introduce an unrelated feed channel. Ordinary `normal` and `smart` chats should keep the calmer current experience unless a later product decision explicitly enables visible reasoning summaries outside project mode.
+Implementation should extend the existing runtime stream and web `ActivityEvent`/`ChatEntry` pattern rather than introduce an unrelated feed channel. Ordinary `normal` and `smart` chats should keep the calmer current experience, but tool lifecycle and source activity may still remain visible through the same existing activity surface when tools actually run; only the richer staged reasoning-summary layer is project-specific. Live-status selection should prefer concrete tool/retrieval work over generic project-stage banners.
 
 ## Project sidebar and files
 
@@ -384,537 +401,116 @@ Before implementing project mode, agents must verify current KB/Skill readiness 
 
 If any of these are missing, the implementation must tune the existing KB/Skill/indexing path first. It must not create a parallel project-only knowledge system.
 
-## Implementation plan
+## Implementation program
 
-### Slice 1 - ADR and code audit closeout
+### Slice 1 - ADR and audit closeout
 
-This document.
+Status: **done**.
 
-Deliverables:
-
-- ADR-100 added
-- current code audit summarized
-- no runtime behavior changed
+- ADR-100 established the product decision: `project` is a chat mode, B2B is a plan envelope, and PersAI should reuse existing Skills, Files, Knowledge, Plans, and retrieval seams instead of inventing parallel systems.
 
 ### Slice 2 - Chat mode contract
 
-Status: **complete in working tree** (2026-05-22; verified after Slice 2.1 closeout).
+Status: **implemented**.
 
-Add explicit chat mode while preserving existing `deepModeEnabled` behavior during migration.
+- `assistant_chats.chat_mode` adds explicit `normal | smart | project`.
+- Web/API/contracts now carry `chatMode`.
+- `deepModeEnabled` remains the compatibility boolean until old clients are gone.
 
-Deliverables:
+Accepted residual:
 
-- API/data contract for chat mode: `normal | smart | project`
-- web chat create/update/read surfaces carry chat mode
-- existing deep mode maps to `smart`
-- `project` initially maps to the same compatibility `deepMode=true` runtime path until Slice 4 adds the dedicated project execution profile
-- no separate B2B user type
-- tests for old chats and mode switching
-
-Do not remove `deepModeEnabled` until all clients are migrated.
-
-#### Slice 2 verification (independent read-only audit, 2026-05-22)
-
-| Deliverable | Status | Notes |
-|-------------|--------|-------|
-| Prisma `assistant_chats.chat_mode` + migration backfill | pass | `20260522151500_adr100_chat_mode_contract` |
-| API/domain sync `chatMode` ↔ `deepModeEnabled` | pass | `chatModeToDeepModeEnabled`, repository resolver |
-| Web read/update/send carries `chatMode` | pass | patch, stream payload, chat state |
-| Runtime compat via `deepMode=true` for smart/project | pass | no runtime `chatMode` behavior yet (Slice 4) |
-| OpenAPI turn-send contract includes `chatMode` | pass | `AssistantWebChatTurnRequest.chatMode` + `deepModeEnabled` (Slice 2.1) |
-| Tests for mode switching / migration | pass | `parseInput`, `parseUpdateInput` sync/conflict; web patch test |
-| Docs/source-of-truth updated | pass | ADR, handoff, changelog, architecture, API, data model, test plan |
-| Repo verification gate green | pass | parent re-ran lint, format:check, api/web typecheck 2026-05-22 |
-
-Residual risks (accepted, not blocking Slice 2 merge):
-
-- legacy `deepModeEnabled`-only PATCH can downgrade `project → smart` for old clients (documented; guard deferred until legacy clients migrate)
-
-Scope overlap accepted from Slice 2 (not Slice 3 complete):
-
-- header three-state `ChatModeToggle`
-- sidebar project marker (`FolderKanban`)
-
-#### Slice 2.1 - Chat mode contract closeout
-
-Status: **complete** (2026-05-22; implementation subagent + parent verification).
-
-Owner: implementation subagent. Parent agent verified gate and updated this ADR.
-
-Allowed files:
-
-- `packages/contracts/openapi.yaml`
-- `packages/contracts/src/generated/**` (via `contracts:generate` only)
-- `apps/api/test/send-web-chat-turn.service.test.ts`
-- `apps/api/test/manage-web-chat-list.service.test.ts` (if exists) or add focused parseUpdateInput test file
-- `docs/API-BOUNDARY.md` (turn-send contract note only if needed)
-- revert unrelated hunk in `apps/web/app/app/_components/chat-input.tsx` if still present
-
-Out of scope:
-
-- Slice 3 sidebar project files
-- Slice 4 runtime profile
-- any `apps/runtime/**` code changes
-
-Deliverables:
-
-- add optional `chatMode` and `deepModeEnabled` to `AssistantWebChatTurnRequest` in OpenAPI
-- regenerate contracts
-- add focused API test(s) for `ManageWebChatListService.parseUpdateInput` sync/conflict behavior
-- run ADR-100 focused verification + repo gate; report command output in handoff
+- legacy `deepModeEnabled`-only PATCH can still downgrade `project -> smart` for old clients.
 
 ### Slice 3 - Project UI shell
 
-Status: **complete in working tree** (2026-05-22; subagents 3A + 3B + parent verification).
+Status: **implemented**.
 
-Extend the current composer/sidebar shape.
+- Composer exposes a compact three-state mode control.
+- Chat list marks project chats.
+- Selected project chats show a lower-sidebar project-files panel derived from existing attachment / `AssistantFile` truth.
 
-Deliverables:
+Accepted residuals:
 
-- compact three-state mode control in the composer area
-- project chat marker in the chat list
-- selected project chat shows project files in the lower sidebar
-- mobile fallback uses a compact chip/menu rather than a wide control
-- project files read existing Files/chat attachment truth
-
-#### Slice 3 verification (parent agent, 2026-05-22)
-
-| Deliverable | Status | Notes |
-|-------------|--------|-------|
-| Lower sidebar project files panel | pass | `project-files-panel.tsx`; dedupe by `fileRef`; paginated `getChatMessages` |
-| Composer-area mode control (desktop 3-state) | pass | `chat-area.tsx` — toggle above `ChatInput` |
-| Mobile compact chip + 3-mode menu | pass | replaces wide header pills |
-| List project marker | pass | from Slice 2 (`FolderKanban`) |
-| Tests | pass | `sidebar.test.tsx` 20/20; `chat-area.test.tsx` 14/14 |
-| No API/runtime/contracts diffs | pass | web-only slice |
-| Repo gate | pass | lint + format:check + web/api typecheck (after prettier fix on 3A files) |
-
-Residuals (accepted):
-
-- project files panel refetches full paginated history on mount; no live refresh hook to `useChat` optimistic attachments yet
-- draft threads without persisted `chat.id` hide panel until chat exists
+- the panel still refetches paginated history on mount instead of live-syncing optimistic uploads
+- draft chats without a persisted `chat.id` still hide the panel
 
 ### Slice 4 - Project execution profile
 
-Status: **complete in working tree** (2026-05-22; implementation subagent + parent verification).
+Status: **implemented**.
 
-Add the staged runtime profile with minimal routing changes.
+- Runtime branches on `chatMode === "project"`.
+- Project mode uses the staged `plan -> gather -> analyze -> replan -> synthesize` execution profile.
+- Depth still reuses existing plan-owned reasoning/tool budgets rather than a new B2B-only runtime branch.
 
-Deliverables:
+Accepted residuals:
 
-- project-mode request/profile reaches runtime
-- project profile runs staged plan/gather/analyze/replan/synthesize loop
-- project mode defaults to retrieval-aware behavior
-- project mode reads plan budgets/caps instead of hardcoding B2B depth
-- B2C project mode remains bounded by ordinary plan limits
-- B2B project mode uses hidden B2B plan limits
-- tests cover retrieval not being disabled for document-heavy project turns
+- shadow router mode still does not force orchestrated pre-retrieval
+- project activity/reasoning feed remains session-ephemeral by design
 
-#### Slice 4 verification (parent agent, 2026-05-22)
+### Slice 5 - Activity and visible reasoning feed
 
-| Deliverable | Status | Notes |
-|-------------|--------|-------|
-| Project mode reaches runtime distinctly | pass | runtime now branches on `RuntimeTurnRequest.chatMode === "project"` |
-| Retrieval-aware precheck for project mode | pass | avoids the PDF/document `reasoning_request` empty-retrieval trap |
-| Staged project developer contract | pass | `project-execution-profile.ts` adds plan/gather/analyze/replan/synthesize contract |
-| Plan-budget reads reuse existing reasoning budgets | pass | uses existing bundle/tool-policy reasoning budgets; no new plan keys |
-| Native API bridge includes `chatMode` consistently | pass | `send-native-web-chat-turn.service.ts` now includes `chatMode` in helper-built bodies |
-| Tests | pass | runtime project-profile 3/3; native send 5/5; native stream 8/8; focused routing test pass |
-| Repo gate | pass | lint, format:check, api/web/runtime typecheck |
+Status: **implemented**.
 
-Residuals (accepted):
+- Project-only activity and safe reasoning-summary events reuse the existing timeline/feed path.
+- Ordinary `normal` and `smart` chats keep the calmer current behavior.
 
-- shadow router mode still does not force orchestrated pre-retrieval; project fix currently covers precheck + existing tool-loop path
-- project activity / reasoning feed still has no durable persistence; current slice is session-ephemeral by design
+Accepted residual:
 
-### Slice 5 - Activity feed
+- client-side tool-badge suppression on reattach is still imperfect when local chat mode is unknown
 
-Status: **complete in working tree** (2026-05-22; implementation subagent + parent verification).
+### Slice 6 - Retrieval, project files, and bounded file intelligence
 
-Add safe project activity events and visible reasoning summaries.
+Status: **implemented through Slice 6H**.
 
-Deliverables:
+This block is now closed for the pre-deploy local implementation scope:
 
-- runtime stream event types for project stage/activity
-- runtime/web support for project-only visible reasoning summary entries
-- API/web maps events into existing chat activity timeline
-- visible events show actions, sources, and safe summary reasoning, not raw hidden chain-of-thought
-- tests verify activity appears for project-mode retrieval/tool stages
+- **6A:** cheap deterministic `semanticSummary` / `semanticSummarySource` anchors land on attachment + canonical file metadata
+- **6B:** project-only retrieval ordering is gated by internal `gatherProfile: "project"`
+- **6C / 6D / 6E:** project chat files become a real gather source before KB, while deep extraction stays lazy and is cached on `AssistantFile.metadata`
+- **6F:** uploads that still lack deterministic summaries can use an API-owned cheap micro-description job; project mode always enqueues, ordinary non-project chats obey `routerPolicy.analyzeUploadsOnB2cUpload`, and helper cost accounting remains internal-ledger-only
+- **6H:** Product KB/subscription facts are now product-intent-gated, assistant-wide `chat` / `memory` recall is explicit-recall-gated, non-empty precheck override lists replace built-ins, and `project_file` outranks ordinary user/product retrieval items in runtime hydration
 
-#### Slice 5 verification (parent agent, 2026-05-22)
+Remaining residuals before Slice 7:
 
-| Deliverable | Status | Notes |
-|-------------|--------|-------|
-| Runtime emits project-only stage/activity events | pass | additive `project_activity` events only for `chatMode === "project"` |
-| Runtime emits safe visible reasoning summaries | pass | additive `project_reasoning_summary`; bounded runtime-authored summaries only |
-| API/native bridge maps new stream events | pass | new SSE event names added without breaking existing activity path |
-| Web appends project feed into existing timeline | pass | reuses `activities[]` + `ActivityBadge`, not `ThoughtBlock` |
-| Ordinary chats remain unchanged | pass | new events are project-gated; normal/smart flow preserved |
-| Tests | pass | runtime project-stream 2/2; native stream 9/9; web use-chat 78 + activity-badge 7 |
-| Repo gate | pass | lint, format:check, api/web/runtime typecheck |
+- `pinnedSkillId` remains deferred and must stay separate from ordinary skill activation if added later
+- richer image-only semantic summaries remain later work
+- current-thread chat is still not a first-class orchestrated source; Slice 6H only stops broad assistant-wide recall leakage unless recall intent is explicit
+- live deploy verification must still confirm source-admission quality, project-file gather priority, lazy extraction cache, and upload micro-description behavior end to end
 
-Residuals (accepted):
+Preserved design constraints for later work:
 
-- project activity feed is session-ephemeral in client state; no DB persistence in this slice
-- client-side tool-badge suppression on reattach is not fully chat-mode-aware when mode is unknown locally
+- Skills remain the domain layer; do not turn them into execution modes
+- Product KB and subscription facts stay intent-gated, not mode-gated
+- project files stay on existing `AssistantFile` / `fileRef` truth
+- reuse `DocumentExtractionService`; do not introduce parse-every-upload or a second project-only file/knowledge system
 
-### Slice 6 - Skill and KB tuning
+Verification already completed for Slices 2-6H:
 
-Status: **complete in working tree for original pre-deploy scope** (2026-05-22; 6A/6B/6C/6D/6E/6F complete), but live verification opened mandatory Slice 6H source-admission cleanup before deploy readiness.
-
-Tune existing Skills/KB/indexing only where evidence shows gaps.
-
-Deliverables:
-
-- verify Skill documents/cards indexing
-- verify Product KB and Skill KB retrieval under project mode
-- verify document extraction/OCR settings in Admin Tools for target contour
-- add cheap background upload micro-description when deterministic summary is absent, without moving heavy parse-on-upload into the ordinary path
-- add tests around project-mode retrieval source classes
-
-Do not add tenant-owned Skills or a project-only KB unless current global Skill/Product/user KB truth is proven insufficient.
-
-Before deploy / Slice 7, Slice 6 required three mandatory closeout blocks:
-
-1. **Slice 6C - Project File Intelligence**
-   - project chat files become a first-class gather source
-   - tiny semantic anchors appear in the existing developer/working-files context beside current refs/aliases
-   - file identity survives weak/generic filenames across formats without bloating prompt tokens
-
-2. **Slice 6D - Deep file analysis integration**
-   - deep analysis for complex docs/media must use the existing shared extraction stack (`DocumentExtractionService`, OCR/parser providers, document-analysis path), not default to bare `files.read`
-   - first deep extraction should be persisted/cached on existing attachment/`fileRef` truth so the same file is not reprocessed repeatedly
-
-3. **Slice 6E - Runtime core correction**
-   - the project gather/analyze/replan loop must treat project chat files as a real source class
-   - project runtime must use the above semantic anchors and cached extraction truth systematically, not only opportunistically
-
-Slice 6 is **not** honestly complete until these three blocks are either implemented or explicitly moved into a superseding ADR before deploy.
-
-#### Slice 6A - Token-safe semantic summaries
-
-Status: **complete in working tree** (2026-05-22; implementation subagent + parent verification).
-
-Bounded groundwork only:
-
-- adds tiny durable `semanticSummary` + `semanticSummarySource` on existing attachment/file metadata when cheap deterministic signals already exist
-- mirrors summary into canonical file truth so later turns can use `fileRef`-based hints
-- exposes capped working-file hints for weak/generic filenames only
-- keeps `contentPreview` unchanged and does **not** add upload-time vision captioning or heavy parsing for all uploads
-
-#### Slice 6A verification (parent agent, 2026-05-22)
-
-| Deliverable | Status | Notes |
-|-------------|--------|-------|
-| Durable semantic summary on existing metadata | pass | attachment metadata + canonical file metadata only; no schema migration |
-| Deterministic low-cost generation only | pass | from `textExtract` / `transcription` only |
-| Token-safe runtime working-file hints | pass | weak filenames only; strict per-file and total caps |
-| No prompt bloat / no preview dump | pass | `contentPreview` stays separate and out of working-file hints |
-| Tests | pass | API semantic-summary 3/3; media staging pass; runtime working-files semantic-hint test pass |
-| Repo gate | pass | lint, format:check, api/web/runtime typecheck |
-
-Residuals (accepted):
-
-- no backfill for already-uploaded files
-- no image vision summary in this slice
-- no retrieval-order / pinned-skill changes yet; those remain the open part of Slice 6
-
-#### Slice 6B - Project-gated retrieval ordering
-
-Status: **complete in working tree** (2026-05-22; implementation subagent + parent verification).
-
-Bounded retrieval change only:
-
-- keeps ordinary non-project active-skill orchestration unchanged
-- for project-mode active-skill turns, keeps the skill stage and still stages user knowledge before product knowledge even when skill hits already exist
-- uses a tiny internal `gatherProfile: "project"` flag to gate the changed ordering strictly to project retrieval
-- does **not** add pinned-skill schema, chat-file retrieval staging, or web execution inside orchestrate
-
-#### Slice 6B verification (parent agent, 2026-05-22)
-
-| Deliverable | Status | Notes |
-|-------------|--------|-------|
-| Project-only retrieval-ordering change | pass | active-skill project turns now stage skill -> user -> product |
-| Ordinary non-project active-skill behavior preserved | pass | no global change to ordinary `active_skill` semantics |
-| Tight project gating | pass | internal `gatherProfile: "project"` only |
-| Tests | pass | focused orchestrate-runtime-retrieval + turn-execution tests pass |
-| Repo gate | pass | lint, format:check, api/web/runtime typecheck |
-
-Residuals (accepted):
-
-- pinned-skill design and schema are still not implemented
-- chat files are still not a first-class orchestrated retrieval stage
-- Slice 6 indexing/admin verification is still not fully closed
-
-#### Slice 6C - Project File Intelligence
-
-Status: **complete in working tree** (2026-05-22; implementation subagent + parent verification).
-
-Required outcome:
-
-- the existing developer/working-files section becomes the steady-state prompt seam where project files carry tiny semantic anchors beside current refs/aliases
-- these anchors must help the model understand what a file is without replaying full previews or full extracted text
-- anchors must stay token-cheap and reuse canonical attachment/`fileRef` truth
-
-#### Slice 6C verification (parent agent, 2026-05-22)
-
-| Deliverable | Status | Notes |
-|-------------|--------|-------|
-| Project files become a real staged source | pass | project gather now stages project-file-backed items before KB in project mode |
-| Working-files remains cheap selector layer | pass | tiny semantic anchors stay in existing developer/working-files context only |
-| No second file truth / no new KB | pass | uses canonical attachment + `AssistantFile` / `fileRef` truth only |
-| Tests | pass | focused orchestrate-runtime-retrieval + runtime turn-execution tests pass |
-| Repo gate | pass | lint, format:check, api/web/runtime typecheck |
-
-#### Slice 6D - Deep file analysis integration
-
-Status: **complete in working tree** (2026-05-22; implementation subagent + parent verification).
-
-Required outcome:
-
-- project mode must use the existing deep extraction/parsing stack for complex docs/media when deeper analysis is needed
-- the first deep analysis result must be persisted/cached on existing attachment/`fileRef` truth so later passes do not rerun the same heavy analysis by default
-- this applies beyond PDF to the real mixed project-file contour
-
-#### Slice 6D verification (parent agent, 2026-05-22)
-
-| Deliverable | Status | Notes |
-|-------------|--------|-------|
-| Existing deep extraction stack reused | pass | `ExtractInternalRuntimeAssistantFileService` still delegates to `DocumentExtractionService` |
-| One-time deep extraction cache on existing truth | pass | cache stored on `AssistantFile.metadata.internalRuntimeFileExtractionCache` |
-| No parse-every-upload regression | pass | upload path stays light; extraction remains lazy |
-| Tests | pass | focused extraction-cache API test passes |
-| Repo gate | pass | lint, format:check, api/web/runtime typecheck |
-
-#### Slice 6E - Runtime core correction
-
-Status: **complete in working tree** (2026-05-22; implementation subagent + parent verification).
-
-Required outcome:
-
-- project runtime must treat project chat files as a real gather source in the staged loop
-- source ordering must become operationally real, not only advisory:
-  - pinned/active skill first when present
-  - project chat files
-  - user/product KB
-  - web/tools
-- this slice must make the project mode feel like a real document-working mode, not just a better ordinary chat
-
-#### Slice 6E verification (parent agent, 2026-05-22)
-
-| Deliverable | Status | Notes |
-|-------------|--------|-------|
-| Project runtime treats project files as a real gather source | pass | project-only file gather stage added in existing API orchestrator |
-| Source ordering operationalized for project mode | pass | project + skill = skill -> project files -> user -> product; project no-skill = project files -> user -> product |
-| Ordinary mode unchanged | pass | gated by `gatherProfile === "project"` only |
-| Tests | pass | focused orchestrate-runtime-retrieval + turn-execution tests pass |
-| Repo gate | pass | lint, format:check, api/web/runtime typecheck |
-
-#### Slice 6F - Upload micro-description background enrichment
-
-Status: **complete in working tree** (2026-05-22; parent-verified bounded pre-deploy slice).
-
-Required outcome:
-
-- when a staged upload lacks a deterministic semantic summary, API can enqueue one cheap background micro-description pass after canonical `fileRef` truth exists
-- project mode always enqueues this pass for eligible uploads; ordinary non-project chats obey an admin runtime boolean gate instead of forcing B2C upload analysis on by default
-- the helper must reuse the existing `systemTool` model slot, not add a new dedicated helper model slot
-- canonical truth must persist on `AssistantFile.metadata.semanticSummary` / `semanticSummarySource` and mirror attachment metadata when practical
-- internal cost accounting for this helper must stay ledger-only: persist replay-safe helper `usage` + durable call time on the job row first, then append a non-blocking ledger row keyed by immutable job id
-- this remains a tiny semantic-summary path only; it must not become parse-every-upload or live-verification-by-assertion
-
-#### Slice 6F verification (parent agent, 2026-05-22)
-
-| Deliverable | Status | Notes |
-|-------------|--------|-------|
-| Admin runtime B2C upload toggle | pass | `routerPolicy.analyzeUploadsOnB2cUpload`, default `false`; project mode bypasses the toggle and always enqueues |
-| Durable API-owned background job lane | pass | new DB-backed `assistant_upload_micro_description_jobs` with lease scheduler/worker in API |
-| Helper model-slot reuse | pass | micro-description helper uses existing `systemTool` model slot |
-| Canonical semantic-summary persistence | pass | writes `AssistantFile.metadata.semanticSummary` + `semanticSummarySource`, mirrors attachment metadata when practical |
-| Internal ledger-only себес seam | pass | durable `usageJson` + `usageOccurredAt` on job row first; non-blocking `tool_helper` ledger row appended after persistence; no user quota path changed |
-| Summary-source extension | pass | semantic summary source adds `upload_micro_description` |
-| Enqueue timing | pass | stage path can enqueue once `fileRef` exists; prepared inbound turn enqueues after staged-attachment merge and final `chatMode` resolution |
-| Tests | pass | focused API job/media/prepare/settings tests, `record-model-cost-ledger.service.test.ts`, and focused web admin/client/settings tests pass |
-| Repo gate | pass | lint, format:check, api/web typecheck |
-
-Residuals still open after Slice 6 closeout:
-
-- `pinnedSkillId` remains deferred and must be a separate chat-scoped override if added later
-- image-only richer visual summaries are still not implemented beyond current bounded semantic anchors
-- project-file gather intentionally stays narrow to canonical attachment-backed, extraction-capable files
-- deploy/live verification must still prove this behavior end to end before Slice 7
-
-#### Slice 6H - Retrieval source admission and relevance hygiene
-
-Status: **complete in working tree / parent-verified** (2026-05-22).
-
-Live verification showed that the current retrieval path can inject irrelevant context into the prompt across `normal`, `smart`, and `project` modes. The failure is systemic rather than project-only:
-
-- runtime precheck often enables user and Product KB together whenever a generic knowledge/retrieval intent is detected
-- project precheck currently enables Product KB whenever knowledge tools are available
-- API orchestration groups `document`, `memory`, and `chat` into one broad `user_document` bundle and groups Product KB plus current subscription/plan facts into one broad `product_kb` bundle
-- `searchMemory()` and `searchChats()` search assistant-wide history by broad lexical `OR`, so old unrelated chats can enter new turns
-- synthetic plan/subscription documents are searched like ordinary Product KB, so tariff/plan facts can appear in unrelated engineering/project questions
-- runtime post-orchestration hydration currently prioritizes `skill_reference`, `user_document`, and `product_kb`, but does not give `project_file` its intended top project priority
-
-Required outcome:
-
-- preserve Product KB for genuine PersAI/product/platform/pricing/subscription questions; do **not** globally disable it by mode
-- preserve human memory and recall; assistant-wide memory/chat remains available when the user explicitly asks to recall prior discussions
-- preserve Skill semantics; Skills remain domain specialization, not runtime modes, and ordinary auto-skill behavior must not be broken
-- remove irrelevant source stuffing from ordinary/smart/project prompts; low-relevance context must be omitted rather than included to fill a block
-- make source admission policy operator-tunable through existing Admin Runtime / retrieval policy surfaces where practical instead of hardcoding a brittle routing tree
-
-Target source-admission rules:
-
-1. **Skills**
-   - Skill activation remains the domain-specialization layer.
-   - If a chat-scoped pinned Skill is added later, it must be a separate field (for example `pinnedSkillId`) and must not overload ordinary `skillDecisionState`.
-   - Without a pinned Skill, project mode keeps ordinary auto-skill behavior: foreground activation, sticky reuse, and configured background recheck cadence.
-   - Skill hits should be considered sufficient grounding unless the request also asks for project files, user docs, web freshness, or explicit product/subscription facts.
-   - Product KB must not be appended after successful Skill grounding unless product intent is present.
-
-2. **Product KB and subscription/plan facts**
-   - Product KB is admitted for product/platform questions: PersAI features, pricing, plans, quotas, subscription state, limits, billing, setup, and platform behavior.
-   - Product KB is not admitted for unrelated external/domain questions merely because retrieval is active.
-   - Synthetic plan catalog and `subscription:current` documents should be treated as a separate plan/subscription fact class, admitted only for billing/product intent.
-   - Mixed questions may admit both domain/project sources and Product KB when the user explicitly asks to compare PersAI/product constraints with the domain task.
-
-3. **Chat and memory**
-   - Current-thread chat context may be used automatically when relevant.
-   - Cross-thread chat and contextual memory require explicit recall intent such as “помнишь”, “что мы обсуждали”, “вернись к прошлому”, or a similarly clear reference.
-   - Core durable memory may continue to hydrate through the existing memory path, but orchestrated `Retrieved Knowledge Context` must not duplicate broad assistant-wide memory unless source admission allows it.
-   - Cross-thread recall should be tightly capped and relevance-ranked rather than broad assistant-wide lexical `OR` stuffing.
-
-4. **Project files**
-   - In project mode, project files/current chat files remain first-class gather sources.
-   - Runtime hydration priority must rank `project_file` above ordinary user/product sources.
-   - If project files are irrelevant to the current user request, they may be omitted; the system should not include low-confidence file context just because project mode is active.
-
-5. **No forced filler**
-   - The orchestrated context block should prefer zero retrieved items over low-relevance items.
-   - Per-source results need a relevance floor and token-coverage guard so one incidental token cannot pull old chats, plan docs, or unrelated memory.
-   - Plan/admin limits still control maximum volume, but relevance controls admission.
-
-Implementation notes:
-
-- Reuse existing `routerPolicy`, Admin Knowledge Retrieval Policy, and plan `retrievalPolicy` where possible.
-- If new knobs are required, add them as a compact `retrievalSourcePolicy` under Admin Runtime router policy rather than scattering constants across runtime/API.
-- Runtime routing should output source-intent/admission facts, not a hardcoded mode-only routing tree.
-- API orchestration should enforce the final source admission decision before search/fetch and again before rendering.
-- Tests must cover `normal`, `smart`, and `project`, including:
-  - external engineering/project query does not retrieve plan/subscription/Product KB
-  - product/pricing/subscription query still retrieves Product KB or subscription facts
-  - explicit recall query can search cross-thread chat/memory
-  - unrelated project turn does not search old investor/tariff chats
-  - active Skill grounding does not automatically append Product KB without product intent
-  - `project_file` outranks `product_kb` and `user_document` in runtime hydration
-
-Implemented closeout:
-
-- runtime precheck now derives product-source admission from product intent rather than generic retrieval intent, including project-mode precheck
-- generic `plan` / `план` no longer triggers Product KB by itself
-- `routerPolicy.precheckRuleOverrides` trigger lists are authoritative when non-empty: configured lists replace built-in defaults instead of merging with them
-- explicit recall intent is carried in the retrieval plan reason code, and API orchestration searches `memory` / `chat` only when that recall marker is present
-- ordinary user documents remain searchable without forcing assistant-wide memory/chat into every retrieval turn
-- project-file retrieved items outrank ordinary user documents and Product KB in runtime hydration
-- Admin Runtime helper copy now says filled trigger lists override the built-in router defaults
-
-Verification:
-
-- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
-- `corepack pnpm --filter @persai/runtime exec tsx test/project-execution-profile.test.ts`
-- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
-- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
-- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
-- `corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/page.test.tsx --config vitest.config.ts`
-- `corepack pnpm -r --if-present run lint`
-- `corepack pnpm run format:check`
-- `corepack pnpm --filter @persai/runtime run typecheck`
-- `corepack pnpm --filter @persai/api run typecheck`
-- `corepack pnpm --filter @persai/web run typecheck`
-
-#### Founder follow-up audit (2026-05-22; readonly verification, design guidance)
-
-Verified current system truth:
-
-- complex document parsing already exists in the shared API-owned `DocumentExtractionService` and is used by Knowledge indexing, document-job source extraction, and runtime `files.read` for extractable file types
-- ordinary web chat upload does **not** run that full extraction path automatically; it only stores a small local `contentPreview` and canonical `fileRef`
-- project chat files therefore remain visible today mainly through file refs, working-file aliases, current-turn multimodal PDF/image inputs, and explicit `files.read`; there is no durable extracted-text cache for chat attachments yet
-- image and file attachments are analyzed reliably on the upload turn through direct multimodal input or direct file presence, but later turns do **not** get a durable semantic description; weak filenames or generic upload names across different formats are therefore not enough for the model to remember what the file was
-- ordinary skill activation already has a safe split between foreground lexical activation, sticky reuse, and background cadence rechecks; this can be reused in project mode when no explicit skill is pinned
-
-Design refinements to preserve for later slices:
-
-1. Optional pinned skill in project mode should be a **separate chat-scoped field** (for example `pinnedSkillId`), not an overload of `skillDecisionState`.
-2. If no pinned skill is selected, project mode should keep the ordinary auto-skill path:
-   - foreground lexical activation
-   - sticky reuse
-   - background cadence recheck every configured N turns
-3. If a pinned skill is selected, retrieval should prioritize sources in this order:
-   - pinned Skill KB
-   - project chat files / attachments
-   - user/product KB
-   - web and other tools
-4. A pinned skill must not break or globally rewrite ordinary skill activation semantics on non-project chats.
-5. Project-file intelligence must reuse the existing Files + `DocumentExtractionService` path rather than invent a second project file system or a second OCR/parser stack.
-6. Durable revisit/re-analysis of complex chat attachments should use an extraction cache/metadata layer attached to the existing `fileRef` / attachment truth rather than reparsing on every access.
-7. Do **not** run full document parsing/OCR on every ordinary chat upload by default. Project mode should first surface that a file exists, then request deeper extraction lazily when the staged `gather` pass decides the file is relevant.
-8. If a later slice adds project-file extraction caching, it must sit on the existing `fileRef` / attachment truth and reuse the same shared parser path rather than creating a separate upload-time parsing pipeline.
-9. If later slices need the model to reliably revisit images/files with weak filenames or generic upload names across formats, add a tiny durable semantic summary on canonical attachment/file truth (for example attachment metadata plus optional `fileRef`-level cache), rather than trying to encode that memory only in ephemeral prompt text.
-10. This semantic-summary layer should be shared across ordinary B2C chats and project mode; `project` should only affect when deeper lazy generation is triggered, not create a separate storage truth.
-11. Any semantic summary must be strictly bounded and token-cheap: short enough to anchor later retrieval and working-file context, not a second full transcript or hidden prompt dump.
+- focused API/runtime/web tests for chat mode, project profile, retrieval orchestration, extraction cache, upload micro-description, and Admin Runtime copy
+- repo gate: lint, `format:check`, `@persai/api` typecheck, `@persai/web` typecheck, `@persai/runtime` typecheck
 
 ### Slice 7 - Hidden B2B plan in cluster
 
-Status: **not started** (blocked until deploy prep and live project retrieval verification pass).
+Status: **not started**.
 
-Create or update the hidden B2B plan in the target cluster/admin control plane.
+Required outcome:
 
-Deliverables:
+- create or update the hidden active B2B plan in the target cluster/admin control plane
+- fill the plan from live admin/runtime truth and the ADR baseline, using only active provider-catalog model keys
+- assign the plan to a test workspace/assistant, materialize the bundle, and verify the saved project-capable policy
+- confirm with a live project-mode smoke, not only local code review
 
-- hidden active plan exists and is not returned by public pricing
-- B2B plan fields are filled from current cluster truth and ADR baseline
-- plan uses active provider catalog model keys only
-- plan enables high-depth project mode through plan caps, retrieval/context/sandbox/tool budgets
-- plan assigned to a test workspace/assistant
-- assistant bundle materialized and inspected
-- smoke project chat confirms project mode runs with B2B envelope
+This slice remains blocked until deploy prep and live project verification pass.
 
-This slice is not complete until the plan exists in the live target environment, not only in local code.
+## Execution discipline
 
-## Execution rules for Cursor agents and subagents
-
-1. One implementation session handles one bounded slice only.
-2. The parent agent owns scope, edits, reconciliation, and final decisions.
-3. Subagents may be used for readonly audit, code search, test execution, and independent review.
-4. Subagents must not independently edit overlapping files.
-5. Composer 2.5 may be used for readonly subagents or narrowly scoped implementation subagents only when the parent agent provides a precise task, explicit file boundaries, and expected output.
-6. Before coding a slice, the parent agent must first search current code for existing usable surfaces and prefer those over new abstractions.
-7. Do not create legacy compatibility layers for unshipped branch behavior.
-8. Do not reintroduce OpenClaw runtime, deploy, secret, or request-time compatibility.
-9. Do not create parallel project-only Files, KB, Skill, or retrieval systems unless the existing PersAI-native systems are proven insufficient in that slice.
-10. Any architecture/API/data/workflow changes must update source-of-truth docs in the same slice.
-11. The final B2B plan creation slice must inspect live/admin truth before writing plan values and must verify the saved result after writing.
-
-### Recommended subagent usage
-
-Use subagents for:
-
-- Skills/KB/indexing audit
-- plan/admin API audit
-- runtime project-profile audit
-- web/sidebar UX audit
-- tests and verification
-- cluster/admin plan readback verification
-
-Each subagent must return:
-
-- files inspected
-- facts found in code or cluster state
-- gaps
-- recommended parent-agent actions
-- no broad rewrites
+1. One implementation session handles one bounded slice or tightly coupled doc closeout only.
+2. The parent agent owns scope, reconciliation, and source-of-truth docs.
+3. Subagents may help with readonly audit, focused search, verification, or narrowly scoped non-overlapping work.
+4. Do not create parallel project-only Files, KB, Skill, or retrieval systems unless the existing PersAI-native systems are proven insufficient in that slice.
+5. Do not reintroduce OpenClaw runtime/deploy/request-time compatibility.
+6. Architecture/API/data/workflow changes must update the source-of-truth docs in the same slice.
+7. Slice 7 must read live admin/runtime truth before writing plan values and must verify the saved result after writing.
 
 ## Non-goals
 
@@ -980,26 +576,17 @@ For implementation slices:
 - cluster/admin readback for hidden B2B plan creation
 - required repo gate from `AGENTS.md` before claiming a code slice clean
 
-## Execution program status (parent agent ledger)
+## Execution program status
 
-| Slice | Status | Owner | Notes |
-|-------|--------|-------|-------|
-| 1 ADR + audit | done | parent | ADR-100 accepted |
-| 2 chat mode contract | complete | prior session + 2.1 | verified in working tree |
-| 2.1 contract closeout | complete | implementation subagent | OpenAPI turn request + parseUpdateInput tests + gate green |
-| 3 project UI shell | complete | subagents 3A + 3B | files panel + composer mode UX verified |
-| 4 project execution profile | complete | implementation subagent | runtime staged profile + native bridge verified |
-| 5 activity + reasoning feed | complete | implementation subagent | project-only streams + visible reasoning feed verified |
-| 6 Skill/KB tuning | complete through 6H | implementation subagents + parent verification | 6A/6B/6C/6D/6E/6F landed; 6H closes source-admission cleanup |
-| 6H retrieval source admission | complete in working tree | parent + bounded subagents | Product KB intent-gated, recall-gated chat/memory, authoritative Admin Runtime trigger overrides, project-file priority |
-| 7 hidden B2B cluster plan | blocked | ops subagent | after deploy prep and live-profile verification |
-
-Parent-agent rules (founder directive 2026-05-22):
-
-- parent agent orchestrates, verifies, and updates ADR/handoff/changelog only
-- parent agent does not implement broad code slices directly
-- one bounded subagent task at a time with explicit file boundaries
-- no Slice 7 cluster plan work until Slice 4 exists
+| Slice | Status | Notes |
+|-------|--------|-------|
+| 1 ADR + audit | done | decision and reuse constraints established |
+| 2 chat mode contract | complete | explicit `chatMode`; compatibility `deepModeEnabled` preserved |
+| 3 project UI shell | complete | mode control, project marker, project-files sidebar |
+| 4 project execution profile | complete | staged project runtime profile landed |
+| 5 activity + reasoning feed | complete | project-only visible activity/reasoning landed |
+| 6 retrieval and file-intelligence closeout | complete through 6H | project files, lazy extraction cache, bounded upload enrichment, source-admission cleanup |
+| 7 hidden B2B cluster plan | blocked | after deploy prep and live project verification |
 
 ## Next recommended step
 

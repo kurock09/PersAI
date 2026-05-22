@@ -303,6 +303,7 @@ const LEGACY_TECHNICAL_ATTACHMENT_SUMMARY_PATTERNS = [
 type DeveloperInstructionSectionKey =
   | "project_execution_contract"
   | "routing_hints"
+  | "source_progression"
   | "open_loop_refs"
   | "working_files"
   | "retrieved_knowledge"
@@ -994,6 +995,7 @@ export class TurnExecutionService {
             assistantText: iterationBaseText,
             baseDeveloperInstructionSections: execution.developerInstructionSections,
             toolHistory,
+            availableToolNames: execution.projectedTools.tools.map((tool) => tool.name),
             availableWorkingFileRefs: execution.availableWorkingFileRefs,
             closedOpenLoopRefs: turnState.closedOpenLoopRefs,
             forceFinalTextOnly,
@@ -1860,6 +1862,11 @@ export class TurnExecutionService {
       routeDecision.retrievalPlan.useWeb && availableToolNames.includes("web_search")
         ? "Retrieval plan says web freshness or external verification may be relevant."
         : null,
+      routeDecision.retrievalHint &&
+      availableToolNames.includes("knowledge_search") &&
+      availableToolNames.includes("web_search")
+        ? "Do not stop at the first local file or retrieved snippet. If the current local context does not directly answer the user's real question, continue with narrower lookup or external verification before synthesizing."
+        : null,
       routeDecision.toolHints === "web" && availableToolNames.includes("web_search")
         ? "Fresh external information is likely needed. Prefer web_search before answering when recent facts or links matter."
         : null,
@@ -2254,6 +2261,7 @@ export class TurnExecutionService {
             assistantText: accumulatedText,
             baseDeveloperInstructionSections: execution.developerInstructionSections,
             toolHistory,
+            availableToolNames: execution.projectedTools.tools.map((tool) => tool.name),
             availableWorkingFileRefs,
             closedOpenLoopRefs: turnState.closedOpenLoopRefs,
             forceFinalTextOnly,
@@ -3148,6 +3156,7 @@ export class TurnExecutionService {
       assistantText: string;
       baseDeveloperInstructionSections: DeveloperInstructionSection[];
       toolHistory: ProviderGatewayToolExchange[];
+      availableToolNames: string[];
       availableWorkingFileRefs: RuntimeFileRef[];
       closedOpenLoopRefs: string[];
       forceFinalTextOnly?: boolean;
@@ -3162,6 +3171,8 @@ export class TurnExecutionService {
       input.availableWorkingFileRefs,
       input.closedOpenLoopRefs,
       input.toolHistory.length > 0,
+      input.toolHistory,
+      input.availableToolNames,
       input.forceFinalTextOnly === true,
       input.deferredMediaJobs ?? [],
       input.deferredDocumentJobs ?? []
@@ -3208,6 +3219,8 @@ export class TurnExecutionService {
     availableWorkingFileRefs: RuntimeFileRef[],
     closedOpenLoopRefs: string[],
     hasToolHistory: boolean,
+    toolHistory: ProviderGatewayToolExchange[],
+    availableToolNames: string[],
     forceFinalTextOnly: boolean,
     deferredMediaJobs: RuntimeDeferredMediaJobSummary[],
     deferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"]
@@ -3230,6 +3243,11 @@ export class TurnExecutionService {
     }
     sections = this.replaceDeveloperInstructionSection(
       sections,
+      "source_progression",
+      this.buildSourceProgressionDeveloperSection(toolHistory, availableToolNames)
+    );
+    sections = this.replaceDeveloperInstructionSection(
+      sections,
       "tool_follow_up",
       forceFinalTextOnly
         ? "A previous tool follow-up returned no visible answer. Do not call any more tools. Return a concise final user-visible answer now, based only on the tool results already provided."
@@ -3250,6 +3268,59 @@ export class TurnExecutionService {
         : null
     );
     return this.renderDeveloperInstructionSections(sections);
+  }
+
+  private buildSourceProgressionDeveloperSection(
+    toolHistory: readonly ProviderGatewayToolExchange[],
+    availableToolNames: readonly string[]
+  ): string | null {
+    const usedToolNames = new Set(toolHistory.map((exchange) => exchange.toolCall.name));
+    const availableToolNameSet = new Set(availableToolNames);
+    const usedLocalContext =
+      usedToolNames.has("knowledge_search") ||
+      usedToolNames.has("knowledge_fetch") ||
+      usedToolNames.has("files");
+    const usedExternalContext =
+      usedToolNames.has("web_search") ||
+      usedToolNames.has("web_fetch") ||
+      usedToolNames.has("browser");
+    const canUseExternalContext =
+      availableToolNameSet.has("web_search") ||
+      availableToolNameSet.has("web_fetch") ||
+      availableToolNameSet.has("browser");
+    const canUseLocalContext =
+      availableToolNameSet.has("knowledge_search") ||
+      availableToolNameSet.has("knowledge_fetch") ||
+      availableToolNameSet.has("files");
+    if (!usedLocalContext && !usedExternalContext) {
+      return null;
+    }
+    const lines = ["## Source progression"];
+    if (usedLocalContext && !usedExternalContext && canUseExternalContext) {
+      lines.push(
+        "You have already checked local or project context. If it still does not directly answer the task, continue to external verification before finalizing."
+      );
+      lines.push(
+        "Prefer the next missing source, not another generic summary of the same local evidence."
+      );
+      return lines.join("\n");
+    }
+    if (usedExternalContext && canUseLocalContext) {
+      lines.push(
+        "You already pulled external context. Compare it back against the local files, Skills, or retrieved knowledge before giving the final answer."
+      );
+      lines.push(
+        "If the sources still disagree or stay partial, do one narrower follow-up pass instead of concluding early."
+      );
+      return lines.join("\n");
+    }
+    if (usedLocalContext) {
+      lines.push(
+        "Do not conclude from partial local evidence alone. Keep gathering until the current source actually answers the task."
+      );
+      return lines.join("\n");
+    }
+    return null;
   }
 
   private createDeveloperInstructionSections(

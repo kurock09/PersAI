@@ -404,11 +404,13 @@ function buildCompactionLiveActivity(params: {
 function buildProjectLiveActivity(params: {
   assistantMessageId: string;
   label: string;
+  detail?: string | undefined;
 }): LiveActivityEvent {
   return {
     id: `activity-project-live-${Date.now()}-${params.label}`,
     type: "info",
     label: params.label,
+    ...(params.detail ? { detail: params.detail } : {}),
     afterMessageId: params.assistantMessageId,
     emphasis: "strong",
     source: "project"
@@ -461,6 +463,36 @@ function applyPriorSkillDetail(
         : (nextDetail ?? priorSkillDetail),
     emphasis: "strong"
   };
+}
+const LIVE_ACTIVITY_PRIORITY: Record<LiveActivitySource, number> = {
+  compaction: 5,
+  tool: 4,
+  retrieval: 3,
+  project: 2,
+  runtime: 1
+};
+function shouldReplaceLiveActivity(
+  currentActivity: LiveActivityEvent | undefined,
+  nextActivity: LiveActivityEvent
+): boolean {
+  if (currentActivity === undefined) {
+    return true;
+  }
+  if (currentActivity.source === nextActivity.source) {
+    return true;
+  }
+  return (
+    LIVE_ACTIVITY_PRIORITY[nextActivity.source] >= LIVE_ACTIVITY_PRIORITY[currentActivity.source]
+  );
+}
+function mergeLiveActivity(
+  currentActivity: LiveActivityEvent | undefined,
+  nextActivity: LiveActivityEvent
+): LiveActivityEvent {
+  if (!shouldReplaceLiveActivity(currentActivity, nextActivity)) {
+    return currentActivity ?? nextActivity;
+  }
+  return applyPriorSkillDetail(nextActivity, currentActivity);
 }
 function buildRuntimeLiveActivity(params: {
   assistantMessageId: string;
@@ -1944,18 +1976,18 @@ export function useChat(threadKey: string): UseChatReturn {
                 }
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
-                  [assistantMessageId]: applyPriorSkillDetail(
+                  [assistantMessageId]: mergeLiveActivity(
+                    prev[assistantMessageId],
                     buildToolLiveActivity({
                       assistantMessageId,
                       toolName,
                       phase,
                       isError
-                    }),
-                    prev[assistantMessageId]
+                    })
                   )
                 }));
               },
-              onProjectActivity: ({ stage, status }) => {
+              onProjectActivity: ({ summary, detail }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
                 const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
                 if (assistantMessageId === null) {
@@ -1963,13 +1995,17 @@ export function useChat(threadKey: string): UseChatReturn {
                 }
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
-                  [assistantMessageId]: buildProjectLiveActivity({
-                    assistantMessageId,
-                    label: `project_stage_${stage}_${status}`
-                  })
+                  [assistantMessageId]: mergeLiveActivity(
+                    prev[assistantMessageId],
+                    buildProjectLiveActivity({
+                      assistantMessageId,
+                      label: summary,
+                      ...(detail ? { detail } : {})
+                    })
+                  )
                 }));
               },
-              onProjectReasoningSummary: ({ kind }) => {
+              onProjectReasoningSummary: ({ summary, detail }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
                 const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
                 if (assistantMessageId === null) {
@@ -1977,10 +2013,14 @@ export function useChat(threadKey: string): UseChatReturn {
                 }
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
-                  [assistantMessageId]: buildProjectLiveActivity({
-                    assistantMessageId,
-                    label: `project_reasoning_${kind}`
-                  })
+                  [assistantMessageId]: mergeLiveActivity(
+                    prev[assistantMessageId],
+                    buildProjectLiveActivity({
+                      assistantMessageId,
+                      label: summary,
+                      ...(detail ? { detail } : {})
+                    })
+                  )
                 }));
               },
               onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
@@ -1999,10 +2039,7 @@ export function useChat(threadKey: string): UseChatReturn {
                   });
                   return {
                     ...prev,
-                    [assistantMessageId]: applyPriorSkillDetail(
-                      nextActivity,
-                      prev[assistantMessageId]
-                    )
+                    [assistantMessageId]: mergeLiveActivity(prev[assistantMessageId], nextActivity)
                   };
                 });
               },
@@ -2699,7 +2736,6 @@ export function useChat(threadKey: string): UseChatReturn {
           ? {}
           : { deepModeEnabled: options.deepModeEnabled })
       };
-      const projectChatMode = options?.chatMode === "project";
       const streamHandlers = {
         onHeadersOk: () => {
           headersOk = true;
@@ -2766,26 +2802,21 @@ export function useChat(threadKey: string): UseChatReturn {
           toolName: string;
           isError: boolean;
         }) => {
-          if (projectChatMode) {
-            return;
-          }
           flushBufferedAssistantState(true);
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
-            [assistantMsgId]: applyPriorSkillDetail(
+            [assistantMsgId]: mergeLiveActivity(
+              prev[assistantMsgId],
               buildToolLiveActivity({
                 assistantMessageId: assistantMsgId,
                 toolName,
                 phase,
                 isError
-              }),
-              prev[assistantMsgId]
+              })
             )
           }));
         },
         onProjectActivity: ({
-          stage,
-          status,
           summary,
           detail
         }: {
@@ -2794,19 +2825,20 @@ export function useChat(threadKey: string): UseChatReturn {
           summary: string;
           detail?: string | null;
         }) => {
-          void summary;
-          void detail;
           flushBufferedAssistantState(true);
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
-            [assistantMsgId]: buildProjectLiveActivity({
-              assistantMessageId: assistantMsgId,
-              label: `project_stage_${stage}_${status}`
-            })
+            [assistantMsgId]: mergeLiveActivity(
+              prev[assistantMsgId],
+              buildProjectLiveActivity({
+                assistantMessageId: assistantMsgId,
+                label: summary,
+                ...(detail ? { detail } : {})
+              })
+            )
           }));
         },
         onProjectReasoningSummary: ({
-          kind,
           summary,
           detail
         }: {
@@ -2814,15 +2846,17 @@ export function useChat(threadKey: string): UseChatReturn {
           summary: string;
           detail?: string | null;
         }) => {
-          void summary;
-          void detail;
           flushBufferedAssistantState(true);
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
-            [assistantMsgId]: buildProjectLiveActivity({
-              assistantMessageId: assistantMsgId,
-              label: `project_reasoning_${kind}`
-            })
+            [assistantMsgId]: mergeLiveActivity(
+              prev[assistantMsgId],
+              buildProjectLiveActivity({
+                assistantMessageId: assistantMsgId,
+                label: summary,
+                ...(detail ? { detail } : {})
+              })
+            )
           }));
         },
         onActivity: ({
@@ -2847,7 +2881,7 @@ export function useChat(threadKey: string): UseChatReturn {
             });
             return {
               ...prev,
-              [assistantMsgId]: applyPriorSkillDetail(nextActivity, prev[assistantMsgId])
+              [assistantMsgId]: mergeLiveActivity(prev[assistantMsgId], nextActivity)
             };
           });
         },
@@ -2875,7 +2909,8 @@ export function useChat(threadKey: string): UseChatReturn {
           const activityDetail = willRetry ? t("compactionWillRetry") : null;
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
-            [assistantMsgId]: applyPriorSkillDetail(
+            [assistantMsgId]: mergeLiveActivity(
+              prev[assistantMsgId],
               buildCompactionLiveActivity({
                 assistantMessageId: assistantMsgId,
                 phase,
@@ -2886,8 +2921,7 @@ export function useChat(threadKey: string): UseChatReturn {
                     : completed
                       ? t("compactionPhaseDone")
                       : t("compactionPhaseEnded")
-              }),
-              prev[assistantMsgId]
+              })
             )
           }));
         },

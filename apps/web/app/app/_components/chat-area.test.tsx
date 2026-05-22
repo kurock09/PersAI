@@ -158,6 +158,10 @@ describe("ChatArea", () => {
     // Mobile chip uses md:hidden; in jsdom the desktop breakpoint often wins, so
     // query the touch-only control as hidden rather than stubbing viewport CSS.
     fireEvent.click(screen.getByRole("button", { name: "modeMenuAria", hidden: true }));
+    const menu = screen.getByRole("menu");
+    expect(menu.className).toContain("top-full");
+    expect(menu.className).toContain("mt-2");
+    expect(menu.className).not.toContain("bottom-full");
     fireEvent.click(screen.getByRole("menuitem", { name: /modeProjectLabel/ }));
 
     await waitFor(() => {

@@ -1215,8 +1215,13 @@ describe("useChat", () => {
             stage: "plan";
             status: "started";
             summary: string;
+            detail?: string;
           }) => void;
-          onProjectReasoningSummary?: (payload: { kind: "plan"; summary: string }) => void;
+          onProjectReasoningSummary?: (payload: {
+            kind: "plan";
+            summary: string;
+            detail?: string;
+          }) => void;
           onRuntimeDone?: (payload: { respondedAt: string }) => void;
           onCompleted?: (payload: { transport: unknown }) => void;
         }
@@ -1228,11 +1233,12 @@ describe("useChat", () => {
         handlers.onProjectActivity?.({
           stage: "plan",
           status: "started",
-          summary: "Planning the analysis pass"
+          summary: "Building the analysis plan"
         });
         handlers.onProjectReasoningSummary?.({
           kind: "plan",
-          summary: "Building a bounded plan."
+          summary: "Mapping the request, current files, and likely sources.",
+          detail: "Checking whether the local material already answers the task."
         });
         // Keep the stream live so project status stays in the single
         // live-activity slot instead of being cleared by completion.
@@ -1251,8 +1257,76 @@ describe("useChat", () => {
     );
 
     expect(activityEntries).toHaveLength(1);
-    expect(activityEntries[0]?.event.label).toBe("project_reasoning_plan");
-    expect(activityEntries[0]?.event.detail).toBeUndefined();
+    expect(activityEntries[0]?.event.label).toBe(
+      "Mapping the request, current files, and likely sources."
+    );
+    expect(activityEntries[0]?.event.detail).toBe(
+      "Checking whether the local material already answers the task."
+    );
+    expect(activityEntries[0]?.event.emphasis).toBe("strong");
+  });
+
+  it("shows tool activity during project-mode streams", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onProjectActivity?: (payload: {
+            stage: "plan" | "gather" | "analyze" | "replan" | "synthesize";
+            status: "started" | "completed";
+            summary: string;
+            detail?: string | null;
+          }) => void;
+          onProjectReasoningSummary?: (payload: {
+            kind: "plan" | "check" | "gap" | "conflict" | "interim" | "replan" | "synthesis";
+            summary: string;
+            detail?: string | null;
+          }) => void;
+          onTool?: (payload: {
+            phase: "start" | "end";
+            toolName: string;
+            toolCallId: string;
+            isError: boolean;
+          }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1" }
+        });
+        handlers.onProjectActivity?.({
+          stage: "plan",
+          status: "started",
+          summary: "Reviewing local context and planning the next step"
+        });
+        handlers.onTool?.({
+          phase: "start",
+          toolName: "knowledge_search",
+          toolCallId: "tool-1",
+          isError: false
+        });
+        handlers.onProjectReasoningSummary?.({
+          kind: "check",
+          summary: "Checking whether the gathered context actually answers the task."
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("Analyze the project pack", undefined, { chatMode: "project" });
+    });
+
+    const activityEntries = result.current.entries.filter(
+      (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+        entry.kind === "activity"
+    );
+
+    expect(activityEntries).toHaveLength(1);
+    expect(activityEntries[0]?.event.label).toBe("Using knowledge_search");
     expect(activityEntries[0]?.event.emphasis).toBe("strong");
   });
 

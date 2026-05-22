@@ -988,7 +988,7 @@ function ChatModeToggle({
             ref={menuRef}
             role="menu"
             aria-label={t("modeMenuAria", { mode: chatModeLabel(t, mode) })}
-            className="absolute bottom-full left-0 z-30 mb-2 min-w-[11rem] rounded-xl border border-border bg-surface-raised p-1 shadow-xl backdrop-blur-sm"
+            className="absolute top-full left-0 z-30 mt-2 min-w-[11rem] rounded-xl border border-border bg-surface-raised p-1 shadow-xl backdrop-blur-sm"
           >
             {CHAT_MODES.map((option) => (
               <button

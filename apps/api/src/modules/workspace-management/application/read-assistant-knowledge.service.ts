@@ -1824,23 +1824,36 @@ export class ReadAssistantKnowledgeService {
       });
       helperApplied = helperRanking !== null;
       if (helperRanking !== null) {
+        const allowedReferenceIds = new Set(helperRanking.rankedReferenceIds);
         const helperRankIndex = new Map(
           helperRanking.rankedReferenceIds.map((referenceId, index) => [referenceId, index])
         );
-        selected = [...selected].sort((left, right) => {
-          const leftReferenceId = buildDocumentReferenceId({
-            knowledgeSourceId: left.row.knowledgeSourceId,
-            sourceVersion: left.row.sourceVersion,
-            chunkIndex: left.row.chunkIndex
-          });
-          const rightReferenceId = buildDocumentReferenceId({
-            knowledgeSourceId: right.row.knowledgeSourceId,
-            sourceVersion: right.row.sourceVersion,
-            chunkIndex: right.row.chunkIndex
-          });
-          const leftRank = helperRankIndex.get(leftReferenceId);
-          const rightRank = helperRankIndex.get(rightReferenceId);
-          if (leftRank !== undefined || rightRank !== undefined) {
+        selected = selected
+          .filter(({ row }) =>
+            allowedReferenceIds.has(
+              buildDocumentReferenceId({
+                knowledgeSourceId: row.knowledgeSourceId,
+                sourceVersion: row.sourceVersion,
+                chunkIndex: row.chunkIndex
+              })
+            )
+          )
+          .sort((left, right) => {
+            const leftReferenceId = buildDocumentReferenceId({
+              knowledgeSourceId: left.row.knowledgeSourceId,
+              sourceVersion: left.row.sourceVersion,
+              chunkIndex: left.row.chunkIndex
+            });
+            const rightReferenceId = buildDocumentReferenceId({
+              knowledgeSourceId: right.row.knowledgeSourceId,
+              sourceVersion: right.row.sourceVersion,
+              chunkIndex: right.row.chunkIndex
+            });
+            const leftRank = helperRankIndex.get(leftReferenceId);
+            const rightRank = helperRankIndex.get(rightReferenceId);
+            if (leftRank === undefined && rightRank === undefined) {
+              return right.score - left.score;
+            }
             if (leftRank === undefined) {
               return 1;
             }
@@ -1848,9 +1861,7 @@ export class ReadAssistantKnowledgeService {
               return -1;
             }
             return leftRank - rightRank;
-          }
-          return right.score - left.score;
-        });
+          });
       }
 
       const baseHits: RuntimeKnowledgeSearchHit[] = selected.map(({ row, score }) => ({
@@ -2329,13 +2340,18 @@ export class ReadAssistantKnowledgeService {
       });
       helperApplied = helperRanking !== null;
       if (helperRanking !== null) {
+        const allowedReferenceIds = new Set(helperRanking.rankedReferenceIds);
         const helperRankIndex = new Map(
           helperRanking.rankedReferenceIds.map((referenceId, index) => [referenceId, index])
         );
-        hits = [...hits].sort((left, right) => {
-          const leftRank = helperRankIndex.get(left.referenceId);
-          const rightRank = helperRankIndex.get(right.referenceId);
-          if (leftRank !== undefined || rightRank !== undefined) {
+        hits = hits
+          .filter((hit) => allowedReferenceIds.has(hit.referenceId))
+          .sort((left, right) => {
+            const leftRank = helperRankIndex.get(left.referenceId);
+            const rightRank = helperRankIndex.get(right.referenceId);
+            if (leftRank === undefined && rightRank === undefined) {
+              return (right.score ?? 0) - (left.score ?? 0);
+            }
             if (leftRank === undefined) {
               return 1;
             }
@@ -2343,9 +2359,7 @@ export class ReadAssistantKnowledgeService {
               return -1;
             }
             return leftRank - rightRank;
-          }
-          return (right.score ?? 0) - (left.score ?? 0);
-        });
+          });
       }
       hits = await this.enrichKnowledgeHitsWithSmartInline({
         assistantId: input.assistantId,

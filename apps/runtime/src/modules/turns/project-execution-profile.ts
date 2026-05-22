@@ -39,11 +39,13 @@ export const PROJECT_EXECUTION_DEVELOPER_CONTRACT = [
   "## Project execution contract",
   "This turn runs in project analysis mode. Work in bounded staged passes inside the existing native tool loop:",
   "1. plan — understand the request, list relevant project files, Skill packs, KB sources, and whether web/browser is needed; keep the internal plan concise.",
-  "2. gather — read project files with the files tool when needed, run knowledge_search then knowledge_fetch for exact excerpts, and use web/browser only when local context is insufficient.",
+  "2. gather — read project files with the files tool when needed, run knowledge_search then knowledge_fetch for exact excerpts, and use web/browser when the current local context does not directly answer the user's real task.",
   "3. analyze — compare requirements, documents, norms, and assumptions; note conflicts, omissions, ambiguities, and outdated references.",
   "4. replan — only when material gaps remain; gather missing sources or narrower file sections within the plan tool budgets.",
   "5. synthesize — deliver the final user-facing answer with sources cited, confidence stated, and residual gaps called out.",
-  "Do not expose raw hidden chain-of-thought. Prefer orchestrated retrieval context when present, then tools for follow-up lookup. Respect per-turn tool caps and loop limits from the effective plan."
+  "Do not expose raw hidden chain-of-thought. Prefer orchestrated retrieval context when present, then tools for follow-up lookup. Respect per-turn tool caps and loop limits from the effective plan.",
+  "One local file or one retrieved excerpt is not proof of sufficiency. If the current context is procedural, partial, outdated, or off-target for the actual engineering/business question, continue with narrower follow-up lookup or external verification instead of synthesizing early.",
+  "When you continue, keep the visible progress summaries short and concrete: say what you are checking or gathering now, not generic phrases about another pass."
 ].join("\n");
 
 export function buildProjectModePrecheckDecision(input: ProjectPrecheckInput): TurnRouteDecision {
@@ -55,8 +57,7 @@ export function buildProjectModePrecheckDecision(input: ProjectPrecheckInput): T
     input.skillState.activeSkillId.trim().length > 0;
   const useUserKnowledge = input.availableKnowledge;
   const useProductKnowledge = input.availableKnowledge && input.productKnowledgeIntent;
-  const useWeb =
-    input.availableWeb && (input.ordinarySourcePriorityMode === "web_first" || !useUserKnowledge);
+  const useWeb = input.availableWeb;
   const retrievalPlan: TurnRetrievalPlan = {
     useSkills,
     selectedSkillIds: useSkills ? input.selectedSkillIds : [],
@@ -100,31 +101,7 @@ export function createProjectModeBootstrapStreamEvents(
       sessionId: identity.sessionId,
       stage: "plan",
       status: "started",
-      summary: "Planning the analysis pass"
-    },
-    {
-      type: "project_reasoning_summary",
-      requestId: identity.requestId,
-      sessionId: identity.sessionId,
-      kind: "plan",
-      summary:
-        "Building a bounded plan from the request, project files, and available knowledge sources."
-    },
-    {
-      type: "project_activity",
-      requestId: identity.requestId,
-      sessionId: identity.sessionId,
-      stage: "plan",
-      status: "completed",
-      summary: "Analysis plan ready"
-    },
-    {
-      type: "project_activity",
-      requestId: identity.requestId,
-      sessionId: identity.sessionId,
-      stage: "gather",
-      status: "started",
-      summary: "Gathering project context and sources",
+      summary: "Reviewing local context and planning the next step",
       sourceClass: "knowledge"
     }
   ];
@@ -138,34 +115,21 @@ export function createProjectModePostRetrievalStreamEvents(input: {
   const detail =
     input.retrievedItemCount > 0
       ? `Loaded ${String(input.retrievedItemCount)} grounded excerpt(s) across ${String(input.retrievalSourceCount)} source class(es).`
-      : "No preloaded excerpts yet; follow-up tools can gather narrower context.";
+      : "No direct grounded excerpt yet; keep gathering narrower local or external sources.";
   return [
-    {
-      type: "project_activity",
-      requestId: input.identity.requestId,
-      sessionId: input.identity.sessionId,
-      stage: "gather",
-      status: "completed",
-      summary: "Context gathered",
-      detail,
-      sourceClass: "knowledge",
-      resultCount: input.retrievedItemCount
-    },
     {
       type: "project_reasoning_summary",
       requestId: input.identity.requestId,
       sessionId: input.identity.sessionId,
       kind: "check",
-      summary: "Reviewing grounded context before deeper analysis.",
-      detail
-    },
-    {
-      type: "project_activity",
-      requestId: input.identity.requestId,
-      sessionId: input.identity.sessionId,
-      stage: "analyze",
-      status: "started",
-      summary: "Analyzing requirements and sources"
+      summary:
+        input.retrievedItemCount > 0
+          ? "Checking whether the gathered context actually answers the task."
+          : "Local context is still thin, so the search may need to expand.",
+      detail,
+      ...(input.retrievedItemCount > 0
+        ? {}
+        : { sourceClass: "knowledge" as const, resultCount: input.retrievedItemCount })
     }
   ];
 }
@@ -174,7 +138,7 @@ export function createProjectModeReplanStreamEvents(input: {
   identity: ProjectStreamIdentity;
   pass: number;
 }): RuntimeTurnStreamEvent[] {
-  const detail = `Starting follow-up pass ${String(input.pass)} to close remaining gaps.`;
+  const detail = `Follow-up pass ${String(input.pass)} is gathering the next missing piece of evidence.`;
   return [
     {
       type: "project_activity",
@@ -182,15 +146,7 @@ export function createProjectModeReplanStreamEvents(input: {
       sessionId: input.identity.sessionId,
       stage: "replan",
       status: "started",
-      summary: "Re-planning for another pass",
-      detail
-    },
-    {
-      type: "project_reasoning_summary",
-      requestId: input.identity.requestId,
-      sessionId: input.identity.sessionId,
-      kind: "replan",
-      summary: "Material gaps remain; gathering narrower sources before synthesis.",
+      summary: "Gathering more evidence",
       detail
     }
   ];
@@ -204,24 +160,9 @@ export function createProjectModeSynthesisStreamEvents(
       type: "project_activity",
       requestId: identity.requestId,
       sessionId: identity.sessionId,
-      stage: "analyze",
-      status: "completed",
-      summary: "Analysis pass complete"
-    },
-    {
-      type: "project_activity",
-      requestId: identity.requestId,
-      sessionId: identity.sessionId,
       stage: "synthesize",
       status: "started",
-      summary: "Synthesizing the final report"
-    },
-    {
-      type: "project_reasoning_summary",
-      requestId: identity.requestId,
-      sessionId: identity.sessionId,
-      kind: "synthesis",
-      summary: "Preparing the user-facing answer with sources, confidence, and residual gaps."
+      summary: "Preparing the final answer"
     }
   ];
 }

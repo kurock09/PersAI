@@ -49,9 +49,7 @@ describe("project stream events", () => {
     assert.ok(
       bootstrap.some((event) => event.type === "project_activity" && event.stage === "plan")
     );
-    assert.ok(
-      bootstrap.some((event) => event.type === "project_reasoning_summary" && event.kind === "plan")
-    );
+    assert.equal(bootstrap.length, 1);
 
     const postRetrieval = createProjectModePostRetrievalStreamEvents({
       identity,
@@ -61,21 +59,27 @@ describe("project stream events", () => {
     assert.ok(
       postRetrieval.some(
         (event) =>
-          event.type === "project_activity" &&
-          event.stage === "gather" &&
-          event.status === "completed"
+          event.type === "project_reasoning_summary" &&
+          event.summary === "Checking whether the gathered context actually answers the task."
       )
     );
+    assert.equal(postRetrieval.length, 1);
 
     const replan = createProjectModeReplanStreamEvents({ identity, pass: 2 });
     assert.ok(
       replan.some((event) => event.type === "project_activity" && event.stage === "replan")
+    );
+    assert.ok(
+      replan.some(
+        (event) => event.type === "project_activity" && event.summary === "Gathering more evidence"
+      )
     );
 
     const synthesis = createProjectModeSynthesisStreamEvents(identity);
     assert.ok(
       synthesis.some((event) => event.type === "project_activity" && event.stage === "synthesize")
     );
+    assert.equal(synthesis.length, 1);
   });
 
   test("does not treat ordinary chat modes as project mode", () => {

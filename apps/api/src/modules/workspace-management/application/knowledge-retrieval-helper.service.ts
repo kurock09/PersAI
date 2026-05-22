@@ -132,14 +132,12 @@ export class KnowledgeRetrievalHelperService {
               limitedCandidates.some((candidate) => candidate.referenceId === value)
           )
         : [];
-      return ranked.length > 0
-        ? {
-            rankedReferenceIds: ranked,
-            modelKey: retrievalModelKey,
-            providerKey: response.provider,
-            usage: response.usage
-          }
-        : null;
+      return {
+        rankedReferenceIds: ranked,
+        modelKey: retrievalModelKey,
+        providerKey: response.provider,
+        usage: response.usage
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Knowledge retrieval helper failed: ${message}`);

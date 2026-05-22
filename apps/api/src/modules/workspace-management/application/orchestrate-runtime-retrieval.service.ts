@@ -881,13 +881,18 @@ export class OrchestrateRuntimeRetrievalService {
       });
     }
     if (helperRanking !== null) {
+      const allowedReferenceIds = new Set(helperRanking.rankedReferenceIds);
       const helperRankIndex = new Map(
         helperRanking.rankedReferenceIds.map((referenceId, index) => [referenceId, index])
       );
-      selected = [...selected].sort((left, right) => {
-        const leftRank = helperRankIndex.get(left.referenceId);
-        const rightRank = helperRankIndex.get(right.referenceId);
-        if (leftRank !== undefined || rightRank !== undefined) {
+      selected = selected
+        .filter((candidate) => allowedReferenceIds.has(candidate.referenceId))
+        .sort((left, right) => {
+          const leftRank = helperRankIndex.get(left.referenceId);
+          const rightRank = helperRankIndex.get(right.referenceId);
+          if (leftRank === undefined && rightRank === undefined) {
+            return right.score - left.score;
+          }
           if (leftRank === undefined) {
             return 1;
           }
@@ -895,12 +900,10 @@ export class OrchestrateRuntimeRetrievalService {
             return -1;
           }
           return leftRank - rightRank;
-        }
-        return right.score - left.score;
-      });
-      helperChangedOrder = selected.some(
-        (candidate, index) => candidate.referenceId !== selectedBeforeHelper[index]
-      );
+        });
+      helperChangedOrder =
+        selected.length !== selectedBeforeHelper.length ||
+        selected.some((candidate, index) => candidate.referenceId !== selectedBeforeHelper[index]);
     }
 
     const fetchedCandidates = await Promise.all(

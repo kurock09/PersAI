@@ -77,35 +77,39 @@ describe("ActivityBadge", () => {
     expect(screen.queryByText("retrieval_skill_started")).toBeNull();
   });
 
-  it("humanizes project stage and reasoning summary labels", () => {
+  it("renders project summaries as human text instead of canned codes", () => {
     render(
       <ActivityBadge
         event={{
           id: "activity-project-1",
           type: "info",
-          label: "project_stage_gather_started",
-          detail: "Gathering project files",
+          label: "Gathering project context",
+          detail: "Checking whether the local material answers the task.",
           emphasis: "strong"
         }}
       />
     );
 
-    expect(screen.getByText("activityProjectStageGatherStart")).toBeInTheDocument();
-    expect(screen.getByText("Gathering project files")).toBeInTheDocument();
+    expect(screen.getByText("Gathering project context")).toBeInTheDocument();
+    expect(
+      screen.getByText("Checking whether the local material answers the task.")
+    ).toBeInTheDocument();
 
     render(
       <ActivityBadge
         event={{
           id: "activity-project-2",
           type: "info",
-          label: "project_reasoning_replan",
-          detail: "Material gaps remain."
+          label: "Gathering more evidence",
+          detail: "Follow-up pass 2 is gathering the next missing piece of evidence."
         }}
       />
     );
 
-    expect(screen.getByText("activityProjectReasoningReplan")).toBeInTheDocument();
-    expect(screen.getByText("Material gaps remain.")).toBeInTheDocument();
+    expect(screen.getByText("Gathering more evidence")).toBeInTheDocument();
+    expect(
+      screen.getByText("Follow-up pass 2 is gathering the next missing piece of evidence.")
+    ).toBeInTheDocument();
   });
 
   it("shows quiet Skill activity detail when present", () => {

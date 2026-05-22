@@ -241,6 +241,14 @@ async function run(): Promise<void> {
   const extractInternalRuntimeAssistantFileService =
     new FakeExtractInternalRuntimeAssistantFileService();
   const observability = new FakeKnowledgeRetrievalObservabilityService();
+  const knowledgeRetrievalHelperService = {
+    rerankCandidates: async () => null
+  };
+  let skillRetrievalDecisionMode:
+    | "refresh_search_only"
+    | "refresh_with_helper"
+    | "accept_cached"
+    | "skip_search_same_query" = "refresh_search_only";
   const service = new OrchestrateRuntimeRetrievalService(
     prisma as never,
     readKnowledge as never,
@@ -280,11 +288,11 @@ async function run(): Promise<void> {
       })
     } as never,
     { generateEmbeddings: async () => ({ embeddings: [[0.1, 0.2]], usage: null }) } as never,
-    { rerankCandidates: async () => null } as never,
+    knowledgeRetrievalHelperService as never,
     {
       decideBeforeSearch: () => null,
       decideAfterSearch: () => ({
-        mode: "refresh_search_only",
+        mode: skillRetrievalDecisionMode,
         querySimilarityToLastTurn: 0,
         cachedReferenceCoverage: 0,
         candidateAmbiguity: 0.08,
@@ -481,6 +489,98 @@ async function run(): Promise<void> {
       fileRef: "file-project-1"
     }
   ]);
+
+  skillRetrievalDecisionMode = "refresh_with_helper";
+  knowledgeRetrievalHelperService.rerankCandidates = async () => ({
+    rankedReferenceIds: [],
+    modelKey: "helper-model",
+    providerKey: "openai" as const,
+    usage: null
+  });
+  readKnowledge.searches = [];
+  observability.searches = [];
+  observability.fetches = [];
+  extractInternalRuntimeAssistantFileService.calls = [];
+  const helperEmptyProjectActiveSkillContext = await service.execute(
+    service.parseInput({
+      assistantId: "assistant-1",
+      query: "compare deductible expenses with my uploaded files and PersAI guidance",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: true,
+        selectedSkillIds: ["skill-accounting"],
+        useUserKnowledge: true,
+        useProductKnowledge: true,
+        useWeb: false,
+        confidence: "high",
+        reasonCode: "project_skill_user_product_helper_empty"
+      },
+      gatherProfile: "project",
+      sourcePolicy: {
+        mode: "active_skill",
+        state: "skill_only",
+        allowedKnowledgeSearchSources: ["document", "memory", "chat", "global", "subscription"],
+        allowedKnowledgeFetchSources: ["document", "memory", "chat", "global", "subscription"]
+      },
+      conversation: {
+        channel: "web",
+        surfaceThreadKey: "thread-project-1"
+      }
+    })
+  );
+  assert.deepEqual(
+    helperEmptyProjectActiveSkillContext.items.map((item) => item.referenceId),
+    ["project_file:file-project-1", "source-1:1:0", "product-text-entry:product-text-1:1:0"]
+  );
+
+  knowledgeRetrievalHelperService.rerankCandidates = async () => ({
+    rankedReferenceIds: ["skill:skill-accounting:skill_document:doc-1:1:1"],
+    modelKey: "helper-model",
+    providerKey: "openai" as const,
+    usage: null
+  });
+  readKnowledge.searches = [];
+  observability.searches = [];
+  observability.fetches = [];
+  extractInternalRuntimeAssistantFileService.calls = [];
+  const helperSubsetProjectActiveSkillContext = await service.execute(
+    service.parseInput({
+      assistantId: "assistant-1",
+      query: "compare deductible expenses with my uploaded files and PersAI guidance",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: true,
+        selectedSkillIds: ["skill-accounting"],
+        useUserKnowledge: true,
+        useProductKnowledge: true,
+        useWeb: false,
+        confidence: "high",
+        reasonCode: "project_skill_user_product_helper_subset"
+      },
+      gatherProfile: "project",
+      sourcePolicy: {
+        mode: "active_skill",
+        state: "skill_only",
+        allowedKnowledgeSearchSources: ["document", "memory", "chat", "global", "subscription"],
+        allowedKnowledgeFetchSources: ["document", "memory", "chat", "global", "subscription"]
+      },
+      conversation: {
+        channel: "web",
+        surfaceThreadKey: "thread-project-1"
+      }
+    })
+  );
+  assert.deepEqual(
+    helperSubsetProjectActiveSkillContext.items.map((item) => item.referenceId),
+    [
+      "skill:skill-accounting:skill_document:doc-1:1:1",
+      "project_file:file-project-1",
+      "source-1:1:0",
+      "product-text-entry:product-text-1:1:0"
+    ]
+  );
+  skillRetrievalDecisionMode = "refresh_search_only";
+  knowledgeRetrievalHelperService.rerankCandidates = async () => null;
 
   readKnowledge.searches = [];
   observability.searches = [];

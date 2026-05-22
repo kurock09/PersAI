@@ -95,6 +95,7 @@ describe("project-execution-profile", () => {
     assert.equal(decision.reasonCode, "project_mode_document_context");
     assert.equal(decision.retrievalPlan.useUserKnowledge, true);
     assert.equal(decision.retrievalPlan.useProductKnowledge, false);
+    assert.equal(decision.retrievalPlan.useWeb, true);
     assert.notEqual(decision.retrievalPlan.reasonCode, "reasoning_request");
   });
 
@@ -118,5 +119,7 @@ describe("project-execution-profile", () => {
     assert.match(PROJECT_EXECUTION_DEVELOPER_CONTRACT, /plan/);
     assert.match(PROJECT_EXECUTION_DEVELOPER_CONTRACT, /gather/);
     assert.match(PROJECT_EXECUTION_DEVELOPER_CONTRACT, /synthesize/);
+    assert.match(PROJECT_EXECUTION_DEVELOPER_CONTRACT, /not proof of sufficiency/);
+    assert.match(PROJECT_EXECUTION_DEVELOPER_CONTRACT, /external verification/);
   });
 });

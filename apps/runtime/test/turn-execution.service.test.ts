@@ -3283,6 +3283,53 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     projectGroundedFinalCall?.developerInstructions ?? "",
     /project file context without prior files\.read/
   );
+  assert.match(
+    projectGroundedFinalCall?.developerInstructions ?? "",
+    /Do not stop at the first local file or retrieved snippet/
+  );
+  const sourceProgressionDeveloperInstructions = (
+    service as unknown as {
+      buildToolLoopDeveloperInstructions: (
+        baseSections: Array<{ key: string; content: string }>,
+        availableWorkingFileRefs: unknown[],
+        closedOpenLoopRefs: string[],
+        hasToolHistory: boolean,
+        toolHistory: Array<{
+          toolCall: { id: string; name: string; arguments: Record<string, unknown> };
+          toolResult: { toolCallId: string; name: string; content: string; isError: boolean };
+        }>,
+        availableToolNames: string[],
+        forceFinalTextOnly: boolean,
+        deferredMediaJobs: unknown[],
+        deferredDocumentJobs: unknown[]
+      ) => string | null;
+    }
+  ).buildToolLoopDeveloperInstructions(
+    [],
+    [],
+    [],
+    true,
+    [
+      {
+        toolCall: { id: "tool-1", name: "knowledge_search", arguments: { query: "spec" } },
+        toolResult: {
+          toolCallId: "tool-1",
+          name: "knowledge_search",
+          content: "local hits",
+          isError: false
+        }
+      }
+    ],
+    ["knowledge_search", "web_search", "web_fetch"],
+    false,
+    [],
+    []
+  );
+  assert.match(sourceProgressionDeveloperInstructions ?? "", /## Source progression/);
+  assert.match(
+    sourceProgressionDeveloperInstructions ?? "",
+    /continue to external verification before finalizing/
+  );
   const plannedProjectFilePriority = (
     service as unknown as {
       planRetrievedKnowledgeContext: (
