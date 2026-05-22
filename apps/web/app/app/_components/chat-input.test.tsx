@@ -31,6 +31,17 @@ function enableTouchDevice() {
   });
 }
 
+/** React controlled textarea: set native value then dispatch input. */
+function fillComposer(textarea: HTMLElement, value: string) {
+  const el = textarea as HTMLTextAreaElement;
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    "value"
+  )?.set;
+  setter?.call(el, value);
+  fireEvent.input(el, { target: { value } });
+}
+
 function enableHybridDesktopTouchDevice() {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === "(pointer: coarse)" || query === "(hover: hover) and (pointer: fine)",
@@ -93,9 +104,7 @@ describe("ChatInput", () => {
     });
 
     fireEvent.click(screen.getByLabelText("knowledgeAddToBase"));
-    fireEvent.change(screen.getByPlaceholderText("placeholder"), {
-      target: { value: "Use this file" }
-    });
+    fillComposer(screen.getByPlaceholderText("placeholder"), "Use this file");
     fireEvent.click(screen.getByTitle("send"));
 
     expect(onSend).toHaveBeenCalledWith("Use this file", [pdfFile], {
@@ -166,16 +175,14 @@ describe("ChatInput", () => {
     );
 
     const textarea = screen.getByPlaceholderText("placeholder");
-    fireEvent.change(textarea, {
-      target: { value: "hello" }
-    });
+    fillComposer(textarea, "hello");
     fireEvent.click(screen.getByTitle("send"));
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, undefined);
     expect(textarea).toHaveFocus();
   });
 
-  it("restores focus to the desktop composer after sending with Enter", () => {
+  it("restores focus to the desktop composer after sending with Enter", async () => {
     const rafCallbacks: FrameRequestCallback[] = [];
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       rafCallbacks.push(callback);
@@ -192,16 +199,16 @@ describe("ChatInput", () => {
     );
 
     const textarea = screen.getByPlaceholderText("placeholder");
-    fireEvent.change(textarea, {
-      target: { value: "hello from enter" }
-    });
+    fillComposer(textarea, "hello from enter");
     textarea.focus();
     fireEvent.keyDown(textarea, { key: "Enter" });
     textarea.blur();
-    rafCallbacks[0]?.(0);
+    rafCallbacks.forEach((cb) => cb(0));
 
     expect(onSend).toHaveBeenCalledWith("hello from enter", undefined, undefined);
-    expect(textarea).toHaveFocus();
+    await waitFor(() => {
+      expect(textarea).toHaveFocus();
+    });
   });
 
   it("returns focus after send on hybrid desktop touch devices", async () => {
@@ -220,7 +227,7 @@ describe("ChatInput", () => {
       expect(screen.getByPlaceholderText("placeholder")).toBeInTheDocument();
     });
     const textarea = screen.getByPlaceholderText("placeholder");
-    fireEvent.change(textarea, {
+    fireEvent.input(textarea, {
       target: { value: "hello from desktop touch" }
     });
     fireEvent.click(screen.getByTitle("send"));
@@ -247,9 +254,7 @@ describe("ChatInput", () => {
     render(<Wrapper />);
 
     const textarea = screen.getByPlaceholderText("placeholder");
-    fireEvent.change(textarea, {
-      target: { value: "hello after rerender" }
-    });
+    fillComposer(textarea, "hello after rerender");
     fireEvent.mouseDown(screen.getByTitle("send"));
     fireEvent.click(screen.getByTitle("send"));
 
@@ -286,9 +291,7 @@ describe("ChatInput", () => {
     render(<Wrapper />);
 
     const textarea = screen.getByPlaceholderText("placeholder");
-    fireEvent.change(textarea, {
-      target: { value: "hello pending send" }
-    });
+    fillComposer(textarea, "hello pending send");
     fireEvent.mouseDown(screen.getByTitle("send"));
     fireEvent.click(screen.getByTitle("send"));
 
@@ -479,6 +482,25 @@ describe("ChatInput", () => {
     });
     expect(mediaRecorder).not.toHaveBeenCalled();
     expect(screen.queryByRole("status", { name: "recording" })).toBeNull();
-    expect(mic).not.toHaveClass("hover:bg-surface-hover");
+    expect(mic).toHaveClass("rounded-full");
+  });
+
+  it("shows mic when empty and send when typing", () => {
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    expect(screen.getByTitle("voiceMessage")).toHaveAttribute("aria-hidden", "false");
+    expect(screen.getByTitle("send")).toHaveAttribute("aria-hidden", "true");
+
+    fillComposer(screen.getByPlaceholderText("placeholder"), "hi");
+
+    expect(screen.getByTitle("send")).toHaveAttribute("aria-hidden", "false");
+    expect(screen.getByTitle("voiceMessage")).toHaveAttribute("aria-hidden", "true");
   });
 });

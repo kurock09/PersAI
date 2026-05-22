@@ -10,7 +10,7 @@ import {
   type KeyboardEvent
 } from "react";
 import {
-  SendHorizonal,
+  Send,
   Square,
   Paperclip,
   X,
@@ -39,6 +39,37 @@ import { useTouchDevice } from "./use-touch-device";
 import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
 
 const MAX_FILES = 5;
+
+/** Circular 40px targets; hover only on fine pointers (2026 chat UX baseline). */
+const composerIconButtonClass = (opts: { disabled?: boolean; active?: boolean }) =>
+  cn(
+    "flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors select-none",
+    opts.disabled
+      ? "cursor-default text-text-subtle/40"
+      : cn(
+          "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted",
+          opts.active && "bg-surface-hover text-text-muted",
+          "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted"
+        )
+  );
+
+const composerActionSlotClass =
+  "absolute inset-0 flex items-center justify-center transition-transform select-none active:scale-[0.96]";
+
+const composerSendButtonClass = (disabled: boolean) =>
+  cn(
+    composerActionSlotClass,
+    "rounded-[10px] bg-accent text-white shadow-sm",
+    disabled
+      ? "cursor-default opacity-40"
+      : "cursor-pointer [@media(hover:hover)_and_(pointer:fine)]:hover:bg-accent-hover"
+  );
+
+const composerStopButtonClass = cn(
+  composerActionSlotClass,
+  "cursor-pointer rounded-[10px] bg-destructive/15 text-destructive",
+  "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-destructive/25"
+);
 
 function shouldRestoreComposerFocusAfterSend(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -217,6 +248,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const dragDepthRef = useRef(0);
   const isTouchDevice = useTouchDevice();
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [draftText, setDraftText] = useState("");
   const [addToKnowledgeBase, setAddToKnowledgeBase] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
@@ -291,14 +323,22 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, []);
 
+  const handleDraftChange = useCallback(
+    (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+      setDraftText(e.currentTarget.value);
+      requestAnimationFrame(() => resize());
+    },
+    [resize]
+  );
+
   useImperativeHandle(
     ref,
     () => ({
       setDraft(text: string) {
         const el = textareaRef.current;
         if (el === null) return;
-        el.value = text;
-        resize();
+        setDraftText(text);
+        requestAnimationFrame(() => resize());
         el.focus();
         const end = text.length;
         try {
@@ -321,7 +361,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     if (sendBlockedByFailedSlot) return;
     const el = textareaRef.current;
     if (!el) return;
-    const text = el.value.trim();
+    const text = draftText.trim();
     if (text.length === 0 && pendingFiles.length === 0) return;
     const shouldAddToKnowledgeBase =
       addToKnowledgeBase && pendingFiles.some((file) => isKnowledgeEligibleFile(file));
@@ -335,7 +375,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       pendingFiles.length > 0 ? pendingFiles : undefined,
       shouldAddToKnowledgeBase ? { addToKnowledgeBase: true } : undefined
     );
-    el.value = "";
+    setDraftText("");
     el.style.height = "auto";
     setPendingFiles([]);
     setAddToKnowledgeBase(false);
@@ -344,7 +384,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       focusRestoreDeadlineRef.current = Date.now() + 400;
       restoreComposerFocusAfterSend(el);
     }
-  }, [addToKnowledgeBase, isTouchDevice, onSend, pendingFiles, sendBlockedByFailedSlot]);
+  }, [addToKnowledgeBase, draftText, isTouchDevice, onSend, pendingFiles, sendBlockedByFailedSlot]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -482,12 +522,23 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const showCollapsedMediaJobs = activeMediaJobs.length > 2;
   const visibleDocumentJobs = activeDocumentJobs.slice(0, 2);
   const showCollapsedDocumentJobs = activeDocumentJobs.length > 2;
+  const composerCanSend = draftText.trim().length > 0 || pendingFiles.length > 0;
+  const showComposerMicSlot = !isStreaming && !isTranscribing && (!isRecording || isTouchDevice);
+  const composerActionSwapClass = (visible: boolean) =>
+    cn(
+      "transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]",
+      visible ? "scale-100 opacity-100" : "pointer-events-none scale-[0.82] opacity-0"
+    );
 
   useEffect(() => {
     if (!hasKnowledgeEligibleFiles) {
       setAddToKnowledgeBase(false);
     }
   }, [hasKnowledgeEligibleFiles]);
+
+  useEffect(() => {
+    resize();
+  }, [draftText, resize]);
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -953,7 +1004,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
           <div
             className={cn(
-              "relative flex items-end gap-2 rounded-2xl border border-border bg-surface-raised p-2 transition-colors focus-within:border-border-strong",
+              "relative flex min-h-12 items-end gap-0.5 rounded-full border border-border/80 bg-surface-raised py-1 pl-1 pr-1.5 shadow-sm transition-[border-color,box-shadow] focus-within:border-border-strong focus-within:shadow-md",
               dragActive && "border-accent bg-accent/5",
               sendBlockedByFailedSlot && "opacity-90"
             )}
@@ -1001,13 +1052,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   return next;
                 })
               }
-              className={cn(
-                "mb-0.5 rounded-lg p-2 transition-colors",
-                controlsDisabled || isStreaming
-                  ? "cursor-default text-text-subtle/40"
-                  : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted",
-                attachMenuOpen && "bg-surface-hover text-text-muted"
-              )}
+              className={composerIconButtonClass({
+                disabled: controlsDisabled || isStreaming,
+                active: attachMenuOpen
+              })}
               title={t("attachFile")}
             >
               <Paperclip className="h-5 w-5 md:h-4 md:w-4" />
@@ -1149,85 +1197,102 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               rows={1}
               placeholder={t("placeholder")}
               disabled={composerDisabled}
-              onInput={resize}
+              value={draftText}
+              onChange={handleDraftChange}
+              onInput={handleDraftChange}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               style={{ resize: "none" }}
               className={cn(
-                "flex-1 resize-none bg-transparent text-sm text-text placeholder:text-text-subtle",
+                "flex-1 resize-none bg-transparent text-sm leading-5 text-text placeholder:text-text-subtle",
                 "outline-none",
-                "max-h-[200px] py-2"
+                "max-h-[200px] py-2.5 pl-0.5 pr-1"
               )}
             />
 
-            {(!isRecording || isTouchDevice) && !isTranscribing && (
-              <button
-                type="button"
-                disabled={disabled || isStreaming || sendBlockedByFailedSlot}
-                {...(isTouchDevice
-                  ? {
-                      onPointerDown: handleMicPointerDown,
-                      onPointerMove: handleMicPointerMove,
-                      onPointerUp: handleMicPointerUp,
-                      onPointerCancel: handleMicPointerCancel,
-                      onContextMenu: (e: React.MouseEvent) => e.preventDefault()
+            <div className="relative mb-0.5 h-10 w-10 shrink-0 self-end">
+              {isStreaming ? (
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    if (shouldKeepDesktopComposerFocusOnPointerDown()) {
+                      e.preventDefault();
                     }
-                  : { onClick: () => void startRecording() })}
-                className={cn(
-                  "mb-0.5 rounded-lg p-2 transition-colors select-none",
-                  disabled || isStreaming || sendBlockedByFailedSlot
-                    ? "cursor-default text-text-subtle/40"
-                    : isTouchDevice
-                      ? "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted"
-                      : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted",
-                  isTouchDevice && isRecording && !cancelArmed && "bg-accent/15 text-accent",
-                  isTouchDevice &&
-                    isRecording &&
-                    cancelArmed &&
-                    "bg-destructive/15 text-destructive"
-                )}
-                title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
-                aria-label={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
-              >
-                <Mic className="h-5 w-5 md:h-4 md:w-4" />
-              </button>
-            )}
-
-            {isStreaming ? (
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  if (shouldKeepDesktopComposerFocusOnPointerDown()) {
-                    e.preventDefault();
-                  }
-                }}
-                onClick={onStop}
-                className="mb-0.5 cursor-pointer rounded-lg bg-destructive/15 p-2 text-destructive transition-colors hover:bg-destructive/25"
-                title={t("stop")}
-              >
-                <Square className="h-5 w-5 md:h-4 md:w-4" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  if (shouldKeepDesktopComposerFocusOnPointerDown()) {
-                    e.preventDefault();
-                  }
-                }}
-                onClick={handleSend}
-                disabled={controlsDisabled}
-                className={cn(
-                  "mb-0.5 rounded-lg p-2 transition-colors",
-                  controlsDisabled
-                    ? "cursor-default text-text-subtle/40"
-                    : "cursor-pointer bg-accent text-white hover:bg-accent-hover"
-                )}
-                title={t("send")}
-              >
-                <SendHorizonal className="h-5 w-5 md:h-4 md:w-4" />
-              </button>
-            )}
+                  }}
+                  onClick={onStop}
+                  className={composerStopButtonClass}
+                  title={t("stop")}
+                >
+                  <Square className="h-5 w-5 md:h-4 md:w-4" />
+                </button>
+              ) : isTranscribing ? (
+                <div className={cn(composerActionSlotClass, "cursor-default")} aria-hidden>
+                  <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
+                </div>
+              ) : (
+                <>
+                  {showComposerMicSlot ? (
+                    <button
+                      type="button"
+                      disabled={disabled || isStreaming || sendBlockedByFailedSlot}
+                      {...(isTouchDevice
+                        ? {
+                            onPointerDown: handleMicPointerDown,
+                            onPointerMove: handleMicPointerMove,
+                            onPointerUp: handleMicPointerUp,
+                            onPointerCancel: handleMicPointerCancel,
+                            onContextMenu: (e: React.MouseEvent) => e.preventDefault()
+                          }
+                        : { onClick: () => void startRecording() })}
+                      className={cn(
+                        composerActionSlotClass,
+                        "rounded-full",
+                        composerActionSwapClass(!composerCanSend),
+                        disabled || isStreaming || sendBlockedByFailedSlot
+                          ? "cursor-default text-text-subtle/40"
+                          : cn(
+                              "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted",
+                              "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted",
+                              isTouchDevice &&
+                                isRecording &&
+                                !cancelArmed &&
+                                "bg-accent/15 text-accent",
+                              isTouchDevice &&
+                                isRecording &&
+                                cancelArmed &&
+                                "bg-destructive/15 text-destructive"
+                            )
+                      )}
+                      title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
+                      aria-label={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
+                      aria-hidden={composerCanSend}
+                      tabIndex={composerCanSend ? -1 : 0}
+                    >
+                      <Mic className="h-5 w-5 md:h-4 md:w-4" />
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      if (shouldKeepDesktopComposerFocusOnPointerDown()) {
+                        e.preventDefault();
+                      }
+                    }}
+                    onClick={handleSend}
+                    disabled={controlsDisabled}
+                    className={cn(
+                      composerSendButtonClass(controlsDisabled),
+                      composerActionSwapClass(composerCanSend)
+                    )}
+                    title={t("send")}
+                    aria-hidden={!composerCanSend}
+                    tabIndex={composerCanSend ? 0 : -1}
+                  >
+                    <Send className="h-[18px] w-[18px] md:h-4 md:w-4" strokeWidth={2.25} />
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
