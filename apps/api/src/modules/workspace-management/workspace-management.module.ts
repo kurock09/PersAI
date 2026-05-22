@@ -84,6 +84,7 @@ import { ResolveAdminKnowledgeConnectorsService } from "./application/resolve-ad
 import { OverviewLatencyTraceService } from "./application/overview-latency-trace.service";
 import { ManageAdminOverviewLatencyTraceService } from "./application/manage-admin-overview-latency-trace.service";
 import { AdminSystemNotificationProducerService } from "./application/admin-system-notification-producer.service";
+import { ManageSupportAttachmentsService } from "./application/support/manage-support-attachments.service";
 import { ManageUserSupportService } from "./application/support/manage-user-support.service";
 import { ManageAdminSupportService } from "./application/support/manage-admin-support.service";
 import { UserSupportNotificationProducerService } from "./application/support/user-support-notification-producer.service";
@@ -413,6 +414,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     OverviewLatencyTraceService,
     ManageAdminOverviewLatencyTraceService,
     AdminSystemNotificationProducerService,
+    ManageSupportAttachmentsService,
     ManageUserSupportService,
     ManageAdminSupportService,
     UserSupportNotificationProducerService,

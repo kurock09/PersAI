@@ -4,6 +4,7 @@ import { WorkspaceManagementPrismaService } from "../../infrastructure/persisten
 import { AdminAuthorizationService } from "../admin-authorization.service";
 import { UserSupportNotificationProducerService } from "./user-support-notification-producer.service";
 import { SUPPORT_SYSTEM_MESSAGE_CODE_PENDING } from "./support-user-messages";
+import { ManageSupportAttachmentsService } from "./manage-support-attachments.service";
 import {
   formatSupportTicketShortId,
   type SupportTicketDetailView,
@@ -32,6 +33,13 @@ type TicketRow = {
     body: string;
     createdAt: Date;
     adminUser: { displayName: string | null; email: string } | null;
+    attachments: Array<{
+      id: string;
+      mimeType: string;
+      fileName: string | null;
+      sizeBytes: number;
+      createdAt: Date;
+    }>;
   }>;
 };
 
@@ -40,7 +48,8 @@ export class ManageAdminSupportService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    private readonly userSupportNotificationProducerService: UserSupportNotificationProducerService
+    private readonly userSupportNotificationProducerService: UserSupportNotificationProducerService,
+    private readonly manageSupportAttachmentsService: ManageSupportAttachmentsService
   ) {}
 
   parseReplyInput(body: unknown): { body: string } {
@@ -85,6 +94,7 @@ export class ManageAdminSupportService {
         updatedAt: row.updatedAt.toISOString(),
         answeredAt: row.answeredAt?.toISOString() ?? null,
         closedAt: row.closedAt?.toISOString() ?? null,
+        hasUnread: false,
         userEmail: row.user.email
       }))
     };
@@ -190,7 +200,10 @@ export class ManageAdminSupportService {
       include: {
         messages: {
           orderBy: { createdAt: "asc" },
-          include: { adminUser: { select: { displayName: true, email: true } } }
+          include: {
+            adminUser: { select: { displayName: true, email: true } },
+            attachments: { orderBy: { createdAt: "asc" } }
+          }
         },
         user: { select: { email: true } },
         assistant: { select: { draftDisplayName: true } }
@@ -219,13 +232,17 @@ export class ManageAdminSupportService {
       userId: row.userId,
       userEmail: row.user.email,
       assistantDisplayName: row.assistant.draftDisplayName,
+      hasUnread: false,
       messages: row.messages.map((message) => ({
         id: message.id,
         author: message.author,
         body: message.body,
         createdAt: message.createdAt.toISOString(),
         adminDisplayName:
-          message.adminUser?.displayName ?? message.adminUser?.email?.split("@")[0] ?? null
+          message.adminUser?.displayName ?? message.adminUser?.email?.split("@")[0] ?? null,
+        attachments: message.attachments.map((attachment) =>
+          this.manageSupportAttachmentsService.toView(attachment)
+        )
       }))
     };
   }

@@ -13,6 +13,20 @@ import {
   type SupportTicketSummary
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
+import {
+  getAdminSupportAttachmentUrl,
+  type SupportTicketMessage
+} from "@/app/app/assistant-api-client";
+import { SupportAttachmentThumbs } from "@/app/app/_components/support-attachment-thumbs";
+
+const ADMIN_SYSTEM_PENDING = "[[code:pending]]";
+
+function formatAdminMessageBody(message: SupportTicketMessage): string {
+  if (message.author === "system" && message.body.trim() === ADMIN_SYSTEM_PENDING) {
+    return "Request received. We will reply soon.";
+  }
+  return message.body.trim();
+}
 
 const STATUS_FILTERS = [
   { value: "", label: "All" },
@@ -260,7 +274,13 @@ export default function AdminSupportPage() {
                       {message.adminDisplayName ? ` · ${message.adminDisplayName}` : ""} ·{" "}
                       {new Date(message.createdAt).toLocaleString()}
                     </p>
-                    <p className="whitespace-pre-wrap text-text">{message.body}</p>
+                    <p className="whitespace-pre-wrap text-text">
+                      {formatAdminMessageBody(message)}
+                    </p>
+                    <SupportAttachmentThumbs
+                      attachments={message.attachments}
+                      resolveUrl={getAdminSupportAttachmentUrl}
+                    />
                   </li>
                 ))}
               </ul>

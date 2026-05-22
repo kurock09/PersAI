@@ -264,12 +264,14 @@ async function run(): Promise<void> {
   {
     const intents: IntentInput[] = [];
     const adminSystemEvents: AdminSystemEventInput[] = [];
+    const trialEndsAt = new Date(Date.now() + 10 * 86_400_000);
+    const expectedScheduledAt = new Date(trialEndsAt.getTime() - 3 * 86_400_000);
     const svc = makeService({
       event: makeEvent({
         eventCode: "trial_started",
         id: "ev-ts-1",
         workspaceId: "ws-4",
-        trialEndsAt: new Date("2026-05-25T00:00:00.000Z")
+        trialEndsAt
       }),
       createdIntents: intents,
       createdAdminSystemEvents: adminSystemEvents
@@ -282,7 +284,7 @@ async function run(): Promise<void> {
     assert.equal(adminSystemEvents[0]!["eventCode"], "trial_ending");
     assert.equal(
       (adminSystemEvents[0]!["scheduledAt"] as Date).toISOString(),
-      "2026-05-22T00:00:00.000Z"
+      expectedScheduledAt.toISOString()
     );
     assert.equal(adminSystemEvents[0]!["priority"], "scheduled");
     console.log("✓ trial_started → trial_ending intent");

@@ -5091,6 +5091,14 @@ export async function transcribeVoice(
 
 export type SupportTicketStatus = "open" | "pending" | "answered" | "closed";
 
+export type SupportTicketAttachment = {
+  id: string;
+  mimeType: string;
+  fileName: string | null;
+  sizeBytes: number;
+  createdAt: string;
+};
+
 export type SupportTicketSummary = {
   id: string;
   shortId: string;
@@ -5101,6 +5109,7 @@ export type SupportTicketSummary = {
   updatedAt: string;
   answeredAt: string | null;
   closedAt: string | null;
+  hasUnread: boolean;
   userEmail?: string;
 };
 
@@ -5110,6 +5119,7 @@ export type SupportTicketMessage = {
   body: string;
   createdAt: string;
   adminDisplayName: string | null;
+  attachments: SupportTicketAttachment[];
 };
 
 export type SupportTicketDetail = SupportTicketSummary & {
@@ -5121,15 +5131,37 @@ export type SupportTicketDetail = SupportTicketSummary & {
   messages: SupportTicketMessage[];
 };
 
+export function getSupportAttachmentUrl(attachmentId: string): string {
+  return `/api/support-attachment/${encodeURIComponent(attachmentId)}`;
+}
+
+export function getAdminSupportAttachmentUrl(attachmentId: string): string {
+  return `/api/admin-support-attachment/${encodeURIComponent(attachmentId)}`;
+}
+
 export async function postAssistantSupportTicket(
   token: string,
-  payload: { assistantId: string; body: string; subject: string | null }
+  payload: {
+    assistantId: string;
+    body: string;
+    subject: string | null;
+    attachment?: File | null;
+  }
 ): Promise<SupportTicketDetail> {
   const base = getApiBaseUrl();
+  const form = new FormData();
+  form.set("assistantId", payload.assistantId);
+  form.set("body", payload.body);
+  if (payload.subject) {
+    form.set("subject", payload.subject);
+  }
+  if (payload.attachment) {
+    form.set("attachment", payload.attachment);
+  }
   const res = await fetch(`${base}/support/tickets`, {
     method: "POST",
-    headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    headers: getAuthHeaders(token),
+    body: form
   });
   if (!res.ok) {
     throw new Error(await readJsonErrorMessage(res, "Failed to create support ticket."));
@@ -5167,6 +5199,23 @@ export async function getAssistantSupportTicket(
   }
   const data = (await res.json()) as { ticket?: SupportTicketDetail };
   if (!data.ticket) throw new Error("Support ticket response missing ticket.");
+  return data.ticket;
+}
+
+export async function postAssistantSupportTicketRead(
+  token: string,
+  ticketId: string
+): Promise<SupportTicketDetail> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/support/tickets/${encodeURIComponent(ticketId)}/read`, {
+    method: "POST",
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to mark support ticket read."));
+  }
+  const data = (await res.json()) as { ticket?: SupportTicketDetail };
+  if (!data.ticket) throw new Error("Support ticket read response missing ticket.");
   return data.ticket;
 }
 

@@ -24,6 +24,7 @@ const SOURCE_LABELS: Record<string, string> = {
   background_task_push: "Background task push",
   billing_lifecycle: "Billing lifecycle",
   admin_system: "Admin system",
+  user_support: "User support",
   system_event: "System event"
 };
 
@@ -61,7 +62,8 @@ const DEFAULT_CHANNEL_OPTIONS: Record<string, readonly string[]> = {
   reminder: ["user_preferred", "telegram_thread", "web_notification_center", "email"],
   background_task_push: ["user_preferred", "telegram_thread", "web_notification_center", "email"],
   quota_advisory: ["current_thread"],
-  admin_system: ["user_preferred"]
+  admin_system: ["user_preferred"],
+  user_support: ["email", "user_preferred"]
 };
 
 const BILLING_EVENT_CODES = [
@@ -87,7 +89,8 @@ const ADMIN_SYSTEM_EVENT_OPTIONS = [
   { code: "runtime_apply_degraded", label: "Runtime apply degraded" },
   { code: "runtime_apply_failed", label: "Runtime apply failed" },
   { code: "admin_plan_created", label: "Admin plan created" },
-  { code: "admin_plan_updated", label: "Admin plan updated" }
+  { code: "admin_plan_updated", label: "Admin plan updated" },
+  { code: "support_ticket_opened", label: "Support ticket opened" }
 ] as const;
 
 type DraftState = {

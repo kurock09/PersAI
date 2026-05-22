@@ -3164,9 +3164,10 @@ model SupportTicket {
   subject     String?             @db.VarChar(200)
   createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
-  answeredAt  DateTime?           @map("answered_at") @db.Timestamptz(6)
-  closedAt    DateTime?           @map("closed_at") @db.Timestamptz(6)
-  user        AppUser             @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  answeredAt    DateTime?           @map("answered_at") @db.Timestamptz(6)
+  closedAt      DateTime?           @map("closed_at") @db.Timestamptz(6)
+  userLastReadAt DateTime?          @map("user_last_read_at") @db.Timestamptz(6)
+  user          AppUser             @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   assistant   Assistant           @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   messages    SupportTicketMessage[]
@@ -3186,7 +3187,22 @@ model SupportTicketMessage {
   createdAt    DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   ticket       SupportTicket              @relation(fields: [ticketId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   adminUser    AppUser?                   @relation("SupportTicketMessageAdminAuthor", fields: [adminUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  attachments  SupportTicketAttachment[]
 
   @@index([ticketId, createdAt(sort: Asc)])
   @@map("support_ticket_messages")
+}
+
+model SupportTicketAttachment {
+  id         String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId  String               @map("message_id") @db.Uuid
+  objectKey  String               @map("object_key") @db.VarChar(512)
+  mimeType   String               @map("mime_type") @db.VarChar(128)
+  fileName   String?              @map("file_name") @db.VarChar(255)
+  sizeBytes  Int                  @map("size_bytes")
+  createdAt  DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  message    SupportTicketMessage @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([messageId, createdAt(sort: Asc)])
+  @@map("support_ticket_attachments")
 }

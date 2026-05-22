@@ -8,9 +8,14 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UnauthorizedException
 } from "@nestjs/common";
-import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
+import type {
+  RequestWithPlatformContext,
+  ResponseWithPlatformContext
+} from "../../../platform-core/interface/http/request-http.types";
+import { ManageSupportAttachmentsService } from "../../application/support/manage-support-attachments.service";
 import { ManageAdminSupportService } from "../../application/support/manage-admin-support.service";
 import type {
   SupportTicketDetailView,
@@ -19,7 +24,10 @@ import type {
 
 @Controller("api/v1/admin/support")
 export class AdminSupportController {
-  constructor(private readonly manageAdminSupportService: ManageAdminSupportService) {}
+  constructor(
+    private readonly manageAdminSupportService: ManageAdminSupportService,
+    private readonly manageSupportAttachmentsService: ManageSupportAttachmentsService
+  ) {}
 
   @Get("tickets")
   async listTickets(
@@ -71,6 +79,16 @@ export class AdminSupportController {
     const callerId = this.resolveUserId(req);
     const ticket = await this.manageAdminSupportService.markPending(callerId, ticketId.trim());
     return { requestId: req.requestId ?? null, ticket };
+  }
+
+  @Get("attachments/:attachmentId")
+  async downloadAttachment(
+    @Req() req: RequestWithPlatformContext,
+    @Param("attachmentId") attachmentId: string,
+    @Res() res: ResponseWithPlatformContext
+  ): Promise<void> {
+    const callerId = this.resolveUserId(req);
+    await this.manageSupportAttachmentsService.streamForAdmin(callerId, attachmentId.trim(), res);
   }
 
   @Post("tickets/:ticketId/close")

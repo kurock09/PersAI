@@ -169,7 +169,8 @@ function Section({
   children,
   open,
   onToggle,
-  className
+  className,
+  showActivityDot
 }: {
   icon: React.ReactNode;
   title: string;
@@ -177,6 +178,7 @@ function Section({
   open: boolean;
   onToggle: () => void;
   className?: string;
+  showActivityDot?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -194,8 +196,11 @@ function Section({
         className="flex w-full cursor-pointer items-center gap-2.5 px-5 py-3.5 text-left transition-colors hover:bg-surface-hover"
       >
         <span className="text-text-muted">{icon}</span>
-        <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-text-muted">
+        <span className="flex flex-1 items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted">
           {title}
+          {showActivityDot && !open && (
+            <span className="inline-flex h-2 w-2 rounded-full bg-success" aria-hidden />
+          )}
         </span>
         <span className="text-[10px] text-text-subtle">{open ? "▲" : "▼"}</span>
       </button>
@@ -848,6 +853,7 @@ export function AssistantSettings({
   const [voiceSettings, setVoiceSettings] = useState<AssistantVoiceSettingsState | null>(null);
   const [voiceSettingsLoading, setVoiceSettingsLoading] = useState(false);
   const [voiceSettingsError, setVoiceSettingsError] = useState<string | null>(null);
+  const [supportUnreadCount, setSupportUnreadCount] = useState(0);
   const [openSection, setOpenSection] = useState<SettingsSectionId | null>(() =>
     normalizeInitialSection(initialSection)
   );
@@ -2798,8 +2804,12 @@ export function AssistantSettings({
           open={openSection === "support"}
           onToggle={() => setOpenSection((current) => (current === "support" ? null : "support"))}
           className="order-9"
+          showActivityDot={supportUnreadCount > 0}
         >
-          <AssistantSupportSection assistantId={assistant.id} />
+          <AssistantSupportSection
+            assistantId={assistant.id}
+            onActivityChange={({ unreadCount }) => setSupportUnreadCount(unreadCount)}
+          />
         </Section>
       ) : null}
 

@@ -15,6 +15,7 @@ const ALL_SOURCES = [
   { value: "background_task_push", label: "Background task push" },
   { value: "billing_lifecycle", label: "Billing lifecycle" },
   { value: "admin_system", label: "Admin system" },
+  { value: "user_support", label: "User support" },
   { value: "system_event", label: "System event" }
 ];
 

@@ -8,16 +8,40 @@ test("formatSupportTicketShortId returns stable short code", () => {
   assert.equal(formatSupportTicketShortId(id), "A1B2C3D4");
 });
 
-test("parseCreateInput rejects short body", () => {
-  const service = new ManageUserSupportService({} as never, {} as never);
+function createService() {
+  return new ManageUserSupportService({} as never, {} as never, {} as never);
+}
+
+test("parseCreateInput allows empty body when validated elsewhere", () => {
+  const service = createService();
+  const parsed = service.parseCreateInput({ body: "  " });
+  assert.equal(parsed.body, "");
+});
+
+test("parseCreateMultipart rejects short body without attachment", () => {
+  const service = createService();
   assert.throws(
-    () => service.parseCreateInput({ body: "hi", assistantId: "x" }),
+    () =>
+      service.parseCreateMultipart({
+        body: { assistantId: "asst-1", body: "hi" }
+      }),
     /at least 3 characters/
   );
 });
 
+test("parseCreateMultipart accepts attachment-only payload", () => {
+  const service = createService();
+  const parsed = service.parseCreateMultipart({
+    body: { assistantId: "asst-1", body: "" },
+    file: { buffer: Buffer.from("x"), mimetype: "image/png", originalname: "shot.png" }
+  });
+  assert.equal(parsed.assistantId, "asst-1");
+  assert.equal(parsed.body, "");
+  assert.ok(parsed.file);
+});
+
 test("parseCreateInput accepts valid payload", () => {
-  const service = new ManageUserSupportService({} as never, {} as never);
+  const service = createService();
   const parsed = service.parseCreateInput({
     body: "Need help with billing",
     subject: " Billing "
