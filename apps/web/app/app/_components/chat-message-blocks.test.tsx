@@ -138,6 +138,20 @@ describe("assistant response blocks", () => {
     expect(screen.getByText("H3")).toHaveClass("text-[14px]");
   });
 
+  it("preserves single-line breaks inside assistant body paragraphs", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        message={assistantMessage(`· Проверяю локальные файлы
+· Сверяю внешний реф
+· Собираю итог`)}
+      />
+    );
+
+    const paragraph = container.querySelector("p.whitespace-pre-wrap");
+    expect(paragraph).not.toBeNull();
+    expect(paragraph?.textContent).toContain("· Проверяю локальные файлы\n· Сверяю внешний реф");
+  });
+
   it("keeps fenced code inside a body block instead of treating markdown markers as UI sections", () => {
     const blocks = parseAssistantResponseBlocks(`Готово
 

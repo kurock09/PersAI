@@ -2,6 +2,62 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-23 — ADR-100 live follow-up — upload micro-description binary limit raised
+
+### What changed
+
+- Live code review on ordinary web-chat uploads showed the cheap background upload micro-description helper was still capping binary files too aggressively at `2 MB`, which is too small for realistic PNG/PDF inputs.
+- `AssistantUploadMicroDescriptionService` now raises `UPLOAD_MICRO_DESCRIPTION_MAX_BINARY_BYTES` from `2 * 1024 * 1024` to `4 * 1024 * 1024`, keeping the same bounded helper path and MIME allowlist while allowing moderately larger image/PDF uploads to reach the helper instead of being silently dropped before provider invocation.
+- Added a focused regression test that asserts `image/png` at exactly `4 MB` is still accepted for helper input construction while `4 MB + 1 byte` is still rejected.
+
+### Verification
+
+- Focused API tests:
+  - `corepack pnpm --filter @persai/api exec tsx test/assistant-upload-micro-description.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/assistant-upload-micro-description-job.service.test.ts`
+- Focused typecheck:
+  - `corepack pnpm --filter @persai/api run typecheck`
+
+### Residual risks
+
+- The founder reported at least one PNG around `1.6 MB` still not triggering visible description behavior, so the `2 MB` cutoff was definitely too strict but may not be the only live failure path. If the issue reproduces after this limit increase, the next honest target is the post-enqueue helper/result path rather than the binary-size gate itself.
+
+### Next recommended step
+
+- Redeploy `api`, then recheck the same ordinary web-chat PNG flow with `analyzeUploadsOnB2cUpload` enabled. If it still fails for sub-`4 MB` PNGs, inspect whether the job is being enqueued and completed with `generated === null` rather than being rejected by the size gate.
+
+## 2026-05-23 — ADR-100 live follow-up — project slow-mo guard + progress line breaks
+
+### What changed
+
+- Live investigation showed the remaining project-chat cutoff risk had moved from the earlier pre-start/header seam to the mid-stream `slow_avg` cadence watchdog path. Long project turns can legitimately dribble text while the model is iterating through retrieval/tool/replan work, so treating project turns like ordinary steady text streaming was still too aggressive.
+- `StreamWebChatTurnService` now resolves cadence options per chat mode and disables only the `slow_avg` recovery path for `chatMode === "project"`. The existing silent watchdog, runtime/provider timeouts, and ordinary non-project slow-stream protection remain intact.
+- `cadence-watchdog` now supports explicitly disabling `slow_avg` without disabling the silent timer, and focused API regressions cover both the raw watchdog option and the project-mode stream selection path.
+- Web assistant markdown paragraphs now render with `whitespace-pre-wrap`, so single line breaks from project progress/thought output (`· ...`) stay on separate lines instead of collapsing into one paragraph.
+
+### Verification
+
+- Focused API tests:
+  - `corepack pnpm --filter @persai/api exec tsx test/cadence-watchdog.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- Focused web tests:
+  - `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message-blocks.test.tsx app/app/_components/chat-message.test.tsx --config vitest.config.ts`
+- Repo gate:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+
+### Residual risks
+
+- This removes the currently confirmed `slow_avg` false-positive recovery path for project turns, but live verification is still required to confirm the exact long project scenario no longer hits any other detach/abort path after deploy.
+- Project turns still retain the silent watchdog and upstream runtime/provider timeouts by design, so a truly silent hung stream should still fail rather than run forever.
+- `whitespace-pre-wrap` intentionally preserves single newlines in assistant paragraph text. That is the desired behavior for project progress lines, but live UI verification should still confirm it looks acceptable on ordinary multiline answers too.
+
+### Next recommended step
+
+- Redeploy `api` and `web`, then rerun the exact long project turn that previously cut off under slow-mo/stall conditions. Confirm together that the turn now reaches a final answer, project progress lines render on separate lines in web chat, and the UI no longer looks like it abruptly stopped during the project loop.
+
 ## 2026-05-23 — ADR-100 live follow-up — pre-start stream abort hardening
 
 ### What changed

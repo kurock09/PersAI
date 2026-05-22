@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { createAssistantInboundConflict } from "../src/modules/workspace-management/application/assistant-inbound-error";
-import { StreamWebChatTurnService } from "../src/modules/workspace-management/application/stream-web-chat-turn.service";
+import {
+  resolveWebStreamCadenceWatchdogOptions,
+  StreamWebChatTurnService
+} from "../src/modules/workspace-management/application/stream-web-chat-turn.service";
 import { PrismaAssistantChatRepository } from "../src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository";
 
 const noopRecordToolPathLedgerFromToolInvocationsService = {
@@ -118,6 +121,15 @@ function captureProcessStdoutSync<T>(action: () => Promise<T>): Promise<{
 }
 
 describe("StreamWebChatTurnService", () => {
+  test("disables slow_avg watchdog recovery for project chat streams", () => {
+    const projectOptions = resolveWebStreamCadenceWatchdogOptions("project");
+    const normalOptions = resolveWebStreamCadenceWatchdogOptions("normal");
+
+    assert.equal(projectOptions.slowAvgEnabled, false);
+    assert.equal(projectOptions.silentMs, normalOptions.silentMs);
+    assert.equal(normalOptions.slowAvgEnabled, true);
+  });
+
   test("findOrCreateChatBySurfaceThread falls back to existing chat on unique race", async () => {
     const existingChat = {
       id: "chat-1",

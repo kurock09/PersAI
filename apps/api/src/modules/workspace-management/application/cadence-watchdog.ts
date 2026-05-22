@@ -42,6 +42,7 @@ export interface CadenceWatchdogOptions {
   avgThresholdMs: number;
   avgMinSamples: number;
   warmupDeltas?: number;
+  slowAvgEnabled?: boolean;
   /** Optional clock for tests. Defaults to `Date.now`. */
   now?: () => number;
   /** Optional timer factory for tests. Defaults to `setTimeout`. */
@@ -130,6 +131,7 @@ export function createCadenceWatchdog(
   const avgThresholdMs = options.avgThresholdMs;
   const avgMinSamples = options.avgMinSamples;
   const warmupDeltas = Math.max(0, options.warmupDeltas ?? 0);
+  const slowAvgEnabled = options.slowAvgEnabled !== false;
 
   let lastDeltaAtMs: number | null = null;
   let timerHandle: unknown = null;
@@ -192,7 +194,7 @@ export function createCadenceWatchdog(
       if (lastDeltaAtMs !== null) {
         const gap = ts - lastDeltaAtMs;
         observedDeltaCount += 1;
-        if (observedDeltaCount > warmupDeltas) {
+        if (slowAvgEnabled && observedDeltaCount > warmupDeltas) {
           recentGapsMs.push(gap);
           if (recentGapsMs.length > avgWindow) {
             recentGapsMs.shift();

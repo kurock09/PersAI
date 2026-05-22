@@ -19,7 +19,7 @@ import { normalizeStoredAttachmentSemanticSummary } from "./media/media.types";
 
 const UPLOAD_MICRO_DESCRIPTION_TIMEOUT_MS = 20_000;
 const UPLOAD_MICRO_DESCRIPTION_MAX_TEXT_CHARS = 4_000;
-const UPLOAD_MICRO_DESCRIPTION_MAX_BINARY_BYTES = 2 * 1024 * 1024;
+const UPLOAD_MICRO_DESCRIPTION_MAX_BINARY_BYTES = 4 * 1024 * 1024;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const SUPPORTED_TEXT_MIME_TYPES = new Set([
   "application/json",

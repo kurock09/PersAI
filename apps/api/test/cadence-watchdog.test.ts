@@ -259,6 +259,38 @@ describe("CadenceWatchdog", () => {
     wd.dispose();
   });
 
+  test("can disable slow_avg while keeping the silent timer active", () => {
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        silentMs: 5000,
+        avgWindow: 5,
+        avgThresholdMs: 200,
+        avgMinSamples: 5,
+        slowAvgEnabled: false,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordDelta();
+    for (let i = 0; i < 8; i++) {
+      clock.advance(800);
+      wd.recordDelta();
+    }
+    assert.equal(reports.length, 0);
+    assert.equal(wd.hasStalled(), false);
+    clock.advance(4999);
+    assert.equal(reports.length, 0);
+    clock.advance(2);
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0]?.reason, "silent");
+    wd.dispose();
+  });
+
   test("production defaults ignore the first 20 text gaps before evaluating slow_avg", () => {
     const clock = createFakeClock();
     const reports: CadenceWatchdogStallReport[] = [];

@@ -651,7 +651,7 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
     return <span className="text-text-muted">{children}</span>;
   },
   p: ({ children, ...props }: React.ComponentPropsWithoutRef<"p">) => (
-    <p className="mb-3 last:mb-0 leading-relaxed" {...props}>
+    <p className="mb-3 whitespace-pre-wrap last:mb-0 leading-relaxed" {...props}>
       {children}
     </p>
   ),

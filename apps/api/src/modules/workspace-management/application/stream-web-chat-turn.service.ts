@@ -51,6 +51,7 @@ import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
 import {
   createCadenceWatchdog,
+  type CadenceThresholds,
   DEFAULT_CADENCE_THRESHOLDS,
   type CadenceWatchdogStallReport
 } from "./cadence-watchdog";
@@ -108,6 +109,21 @@ const WEB_TURN_REPLAY_POLL_MS = 250;
  * chat turn. The first attempt always counts; on stall we may attempt once more.
  */
 const WEB_TURN_MAX_STREAM_ATTEMPTS = 2;
+
+export function resolveWebStreamCadenceWatchdogOptions(
+  chatMode?: AssistantChatMode
+): CadenceThresholds & { slowAvgEnabled: boolean } {
+  if (chatMode === "project") {
+    return {
+      ...DEFAULT_CADENCE_THRESHOLDS,
+      slowAvgEnabled: false
+    };
+  }
+  return {
+    ...DEFAULT_CADENCE_THRESHOLDS,
+    slowAvgEnabled: true
+  };
+}
 
 function toAttachmentState(attachment: {
   id: string;
@@ -1115,22 +1131,25 @@ export class StreamWebChatTurnService {
     let capturedStallReport: CadenceWatchdogStallReport | null = null;
 
     const internalAbort = new AbortController();
-    const watchdog = createCadenceWatchdog(DEFAULT_CADENCE_THRESHOLDS, (report) => {
-      capturedStallReport = report;
-      input.onStallReport(report);
-      this.logger.warn(
-        this.composeWebStreamStallLogLine({
-          eventName: "web_stream_stall_detected",
-          prepared: input.prepared,
-          attempt: input.attempt,
-          report,
-          accumulatedLen: accumulated.length
-        })
-      );
-      // Aborting the runtime fetch makes the for-await loop throw an AbortError
-      // which we catch below and translate into a "stalled" outcome.
-      internalAbort.abort();
-    });
+    const watchdog = createCadenceWatchdog(
+      resolveWebStreamCadenceWatchdogOptions(input.prepared.chat.chatMode),
+      (report) => {
+        capturedStallReport = report;
+        input.onStallReport(report);
+        this.logger.warn(
+          this.composeWebStreamStallLogLine({
+            eventName: "web_stream_stall_detected",
+            prepared: input.prepared,
+            attempt: input.attempt,
+            report,
+            accumulatedLen: accumulated.length
+          })
+        );
+        // Aborting the runtime fetch makes the for-await loop throw an AbortError
+        // which we catch below and translate into a "stalled" outcome.
+        internalAbort.abort();
+      }
+    );
 
     const combinedSignal = combineAbortSignals([
       input.callbacks.clientAbortSignal,
