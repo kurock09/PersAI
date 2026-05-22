@@ -269,7 +269,6 @@ const MEDIA_HINT_TERMS = ["image", "photo", "video", "voice", "audio", "карт
 
 const DEFAULT_PRODUCT_PRIORITY_TERMS = [
   "tariff",
-  "plan",
   "subscription",
   "billing",
   "quota",
@@ -280,7 +279,6 @@ const DEFAULT_PRODUCT_PRIORITY_TERMS = [
   "free plan",
   "pricing",
   "тариф",
-  "план",
   "подписк",
   "биллинг",
   "лимит",
@@ -429,7 +427,9 @@ export class TurnRoutingService {
       }
       const sanitizedRetrievalPlan = this.sanitizeClassifierRetrievalPlan(
         parsed.retrievalPlan,
-        input.bundle
+        input.bundle,
+        input.request,
+        policy
       );
       const guardedDecision = this.applyGroundedSkillPremiumFloor(
         this.createDecision({
@@ -488,35 +488,35 @@ export class TurnRoutingService {
     const normalizedText = this.normalizeMessageText(input.request.message.text);
     const lowerText = normalizedText.toLowerCase();
     const availableHints = this.resolveAvailableToolHints(input.projectedTools);
-    const continueTerms = this.mergeTerms(
+    const continueTerms = this.resolvePrecheckTerms(
       DEFAULT_CONTINUE_TERMS,
       input.policy.precheckRuleOverrides?.continueTerms
     );
-    const retrievalTerms = this.mergeTerms(
+    const retrievalTerms = this.resolvePrecheckTerms(
       DEFAULT_RETRIEVAL_TERMS,
       input.policy.precheckRuleOverrides?.retrievalTerms
     );
-    const reasoningTerms = this.mergeTerms(
+    const reasoningTerms = this.resolvePrecheckTerms(
       DEFAULT_REASONING_TERMS,
       input.policy.precheckRuleOverrides?.reasoningTerms
     );
-    const premiumTerms = this.mergeTerms(
+    const premiumTerms = this.resolvePrecheckTerms(
       DEFAULT_PREMIUM_WRITING_TERMS,
       input.policy.precheckRuleOverrides?.premiumTerms
     );
-    const toolTerms = this.mergeTerms(
+    const toolTerms = this.resolvePrecheckTerms(
       DEFAULT_TOOL_TERMS,
       input.policy.precheckRuleOverrides?.toolTerms
     );
-    const productPriorityTerms = this.mergeTerms(
+    const productPriorityTerms = this.resolvePrecheckTerms(
       DEFAULT_PRODUCT_PRIORITY_TERMS,
       input.policy.precheckRuleOverrides?.productPriorityTerms
     );
-    const webPriorityTerms = this.mergeTerms(
+    const webPriorityTerms = this.resolvePrecheckTerms(
       DEFAULT_WEB_PRIORITY_TERMS,
       input.policy.precheckRuleOverrides?.webPriorityTerms
     );
-    const personalPriorityTerms = this.mergeTerms(
+    const personalPriorityTerms = this.resolvePrecheckTerms(
       DEFAULT_PERSONAL_PRIORITY_TERMS,
       input.policy.precheckRuleOverrides?.personalPriorityTerms
     );
@@ -528,6 +528,11 @@ export class TurnRoutingService {
     const enabledSkills = this.resolveEnabledSkillSummaries(input.bundle);
     const activeAutoSkill = this.resolveActiveAutoSkill(input.request, enabledSkills);
     const retrievalIntent = this.matchesAny(lowerText, retrievalTerms);
+    const recallRetrievalIntent = this.isRecallRetrievalIntent(lowerText, {
+      retrievalTerms,
+      personalPriorityTerms
+    });
+    const productKnowledgeIntent = this.isProductKnowledgeIntent(lowerText, productPriorityTerms);
 
     if (this.isContinueTurn(lowerText, continueTerms)) {
       return this.createDecision({
@@ -596,10 +601,10 @@ export class TurnRoutingService {
         reasonCode: "knowledge_retrieval",
         retrievalPlan: this.createRetrievalPlan({
           useUserKnowledge: availableHints.has("knowledge"),
-          useProductKnowledge: availableHints.has("knowledge"),
+          useProductKnowledge: availableHints.has("knowledge") && productKnowledgeIntent,
           ordinarySourcePriorityMode: ordinaryPriorityMode,
           confidence: "high",
-          reasonCode: "knowledge_retrieval"
+          reasonCode: recallRetrievalIntent ? "knowledge_retrieval_recall" : "knowledge_retrieval"
         }),
         source: "precheck",
         mode: input.policy.mode,
@@ -617,12 +622,35 @@ export class TurnRoutingService {
           availableKnowledge: availableHints.has("knowledge"),
           availableWeb: availableHints.has("web"),
           ordinarySourcePriorityMode: ordinaryPriorityMode,
+          productKnowledgeIntent,
           skillState: activeAutoSkill
             ? activeAutoSkill.state
             : this.carryForwardAutoSkillState(input.request),
           selectedSkillIds: activeAutoSkill ? [activeAutoSkill.skill.id] : []
         })
       );
+    }
+
+    if (productKnowledgeIntent && availableHints.has("knowledge")) {
+      return this.createDecision({
+        executionMode: input.request.deepMode === true ? "premium" : "normal",
+        retrievalHint: true,
+        toolHints: "knowledge",
+        confidence: "high",
+        clarifyNeeded: false,
+        fallbackMode: input.fallbackMode,
+        reasonCode: "product_knowledge_intent",
+        retrievalPlan: this.createRetrievalPlan({
+          useProductKnowledge: true,
+          ordinarySourcePriorityMode: ordinaryPriorityMode,
+          confidence: "high",
+          reasonCode: "product_knowledge_intent"
+        }),
+        source: "precheck",
+        mode: input.policy.mode,
+        usage: null,
+        skillState: this.carryForwardAutoSkillState(input.request)
+      });
     }
 
     if (
@@ -684,7 +712,7 @@ export class TurnRoutingService {
         reasonCode: `tool_hint_${hintedTool}`,
         retrievalPlan: this.createRetrievalPlan({
           useUserKnowledge: hintedTool === "knowledge",
-          useProductKnowledge: hintedTool === "knowledge",
+          useProductKnowledge: hintedTool === "knowledge" && productKnowledgeIntent,
           useWeb: hintedTool === "web",
           ordinarySourcePriorityMode: toolHintPriorityMode,
           confidence: "high",
@@ -1222,9 +1250,32 @@ export class TurnRoutingService {
 
   private sanitizeClassifierRetrievalPlan(
     plan: TurnRetrievalPlan,
-    bundle: AssistantRuntimeBundle
+    bundle: AssistantRuntimeBundle,
+    request: RuntimeTurnRequest,
+    policy: RouterPolicy
   ): TurnRetrievalPlan {
     void bundle;
+    const productPriorityTerms = this.resolvePrecheckTerms(
+      DEFAULT_PRODUCT_PRIORITY_TERMS,
+      policy.precheckRuleOverrides?.productPriorityTerms
+    );
+    const productKnowledgeIntent = this.isProductKnowledgeIntent(
+      this.normalizeMessageText(request.message.text).toLowerCase(),
+      productPriorityTerms
+    );
+    const recallRetrievalIntent = this.isRecallRetrievalIntent(
+      this.normalizeMessageText(request.message.text).toLowerCase(),
+      {
+        retrievalTerms: this.resolvePrecheckTerms(
+          DEFAULT_RETRIEVAL_TERMS,
+          policy.precheckRuleOverrides?.retrievalTerms
+        ),
+        personalPriorityTerms: this.resolvePrecheckTerms(
+          DEFAULT_PERSONAL_PRIORITY_TERMS,
+          policy.precheckRuleOverrides?.personalPriorityTerms
+        )
+      }
+    );
     const ordinarySourcePriorityMode: OrdinarySourcePriorityMode =
       plan.ordinarySourcePriorityMode === "not_applicable"
         ? "mixed_ambiguous"
@@ -1233,8 +1284,12 @@ export class TurnRoutingService {
       ...plan,
       useSkills: false,
       selectedSkillIds: [],
+      useProductKnowledge: plan.useProductKnowledge && productKnowledgeIntent,
       ordinarySourcePriorityMode,
-      reasonCode: this.asNonEmptyString(plan.reasonCode) ?? "classifier_retrieval_plan"
+      reasonCode: this.appendRecallReasonCode(
+        this.asNonEmptyString(plan.reasonCode) ?? "classifier_retrieval_plan",
+        recallRetrievalIntent
+      )
     };
   }
 
@@ -1311,6 +1366,38 @@ export class TurnRoutingService {
     return patterns.some((pattern) => lowerText.includes(pattern));
   }
 
+  private isProductKnowledgeIntent(lowerText: string, productPriorityTerms: string[]): boolean {
+    return this.matchesAny(lowerText, productPriorityTerms);
+  }
+
+  private isRecallRetrievalIntent(
+    lowerText: string,
+    terms: { retrievalTerms: string[]; personalPriorityTerms: string[] }
+  ): boolean {
+    const personalRecall = terms.personalPriorityTerms
+      .filter((term) => term.trim().length >= 5)
+      .some((term) => lowerText.includes(term));
+    if (personalRecall) {
+      return true;
+    }
+    return [
+      DEFAULT_RETRIEVAL_TERMS[4],
+      DEFAULT_RETRIEVAL_TERMS[5],
+      DEFAULT_RETRIEVAL_TERMS[7],
+      DEFAULT_RETRIEVAL_TERMS[10]
+    ].some(
+      (term) =>
+        typeof term === "string" && terms.retrievalTerms.includes(term) && lowerText.includes(term)
+    );
+  }
+
+  private appendRecallReasonCode(reasonCode: string, recallIntent: boolean): string {
+    if (!recallIntent || reasonCode.includes("recall")) {
+      return reasonCode;
+    }
+    return `${reasonCode}:recall`;
+  }
+
   private countMatches(lowerText: string, patterns: string[]): number {
     let total = 0;
     for (const pattern of patterns) {
@@ -1345,13 +1432,17 @@ export class TurnRoutingService {
     return "personal_first";
   }
 
-  private mergeTerms(defaults: string[], overrides: string[] | undefined): string[] {
+  private resolvePrecheckTerms(defaults: string[], overrides: string[] | undefined): string[] {
+    const normalizedOverrides = this.normalizeTermList(overrides ?? []);
+    if (normalizedOverrides.length > 0) {
+      return normalizedOverrides;
+    }
+    return this.normalizeTermList(defaults);
+  }
+
+  private normalizeTermList(values: string[]): string[] {
     return Array.from(
-      new Set(
-        [...defaults, ...(overrides ?? [])]
-          .map((entry) => entry.trim().toLowerCase())
-          .filter((entry) => entry.length > 0)
-      )
+      new Set(values.map((entry) => entry.trim().toLowerCase()).filter((entry) => entry.length > 0))
     );
   }
 

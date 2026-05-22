@@ -368,7 +368,7 @@ export async function runTurnRoutingServiceTest(): Promise<void> {
     useSkills: false,
     selectedSkillIds: [],
     useUserKnowledge: true,
-    useProductKnowledge: true,
+    useProductKnowledge: false,
     useWeb: false,
     ordinarySourcePriorityMode: "personal_first",
     confidence: "high",
@@ -839,6 +839,27 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
   assert.equal(productPriorityDecision.source, "precheck");
   assert.equal(productPriorityDecision.reasonCode, "knowledge_retrieval");
   assert.equal(productPriorityDecision.retrievalPlan.ordinarySourcePriorityMode, "product_first");
+  assert.equal(productPriorityDecision.retrievalPlan.useProductKnowledge, true);
+  assert.equal(productPriorityDecision.retrievalPlan.useUserKnowledge, true);
+
+  const directProductDecision = await service.decide({
+    bundle,
+    request: createRequest("What PersAI pricing plan and quota should I use?"),
+    projectedTools
+  });
+  assert.equal(directProductDecision.source, "precheck");
+  assert.equal(directProductDecision.reasonCode, "product_knowledge_intent");
+  assert.equal(directProductDecision.retrievalPlan.useProductKnowledge, true);
+  assert.equal(directProductDecision.retrievalPlan.useUserKnowledge, false);
+
+  const genericProjectPlanDecision = await service.decide({
+    bundle,
+    request: createRequest("Make a project plan for this analysis."),
+    projectedTools
+  });
+  assert.equal(genericProjectPlanDecision.source, "precheck");
+  assert.equal(genericProjectPlanDecision.reasonCode, "reasoning_request");
+  assert.equal(genericProjectPlanDecision.retrievalPlan.useProductKnowledge, false);
 
   const personalPriorityDecision = await service.decide({
     bundle,
@@ -847,6 +868,7 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
   });
   assert.equal(personalPriorityDecision.source, "precheck");
   assert.equal(personalPriorityDecision.reasonCode, "knowledge_retrieval");
+  assert.equal(personalPriorityDecision.retrievalPlan.reasonCode, "knowledge_retrieval_recall");
   assert.equal(personalPriorityDecision.retrievalPlan.ordinarySourcePriorityMode, "personal_first");
 
   const webPriorityDecision = await service.decide({
@@ -865,6 +887,7 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
   });
   assert.equal(ambiguousMixedDecision.source, "precheck");
   assert.equal(ambiguousMixedDecision.reasonCode, "knowledge_retrieval");
+  assert.equal(ambiguousMixedDecision.retrievalPlan.reasonCode, "knowledge_retrieval_recall");
   assert.equal(ambiguousMixedDecision.retrievalPlan.ordinarySourcePriorityMode, "mixed_ambiguous");
 
   const adminProductOverrideDecision = await service.decide({
@@ -887,6 +910,34 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
   assert.equal(
     adminProductOverrideDecision.retrievalPlan.ordinarySourcePriorityMode,
     "product_first"
+  );
+
+  const adminProductOverrideExcludesDefaultDecision = await service.decide({
+    bundle: createBundle(
+      {
+        precheckRuleOverrides: {
+          continueTerms: [],
+          retrievalTerms: [],
+          reasoningTerms: [],
+          premiumTerms: [],
+          toolTerms: [],
+          productPriorityTerms: ["custom-product-keyword"]
+        }
+      },
+      false
+    ),
+    request: createRequest("найди в документах какой у меня тариф и лимит на квоту"),
+    projectedTools
+  });
+  assert.equal(adminProductOverrideExcludesDefaultDecision.source, "precheck");
+  assert.equal(adminProductOverrideExcludesDefaultDecision.reasonCode, "knowledge_retrieval");
+  assert.equal(
+    adminProductOverrideExcludesDefaultDecision.retrievalPlan.ordinarySourcePriorityMode,
+    "personal_first"
+  );
+  assert.equal(
+    adminProductOverrideExcludesDefaultDecision.retrievalPlan.useProductKnowledge,
+    false
   );
 
   const continueTurnPriority = await service.decide({
@@ -922,8 +973,23 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
   assert.equal(projectPdfDecision.executionMode, "reasoning");
   assert.equal(projectPdfDecision.retrievalHint, true);
   assert.equal(projectPdfDecision.retrievalPlan.useUserKnowledge, true);
-  assert.equal(projectPdfDecision.retrievalPlan.useProductKnowledge, true);
+  assert.equal(projectPdfDecision.retrievalPlan.useProductKnowledge, false);
   assert.notEqual(projectPdfDecision.reasonCode, "reasoning_request");
+
+  const projectPricingRequest = createRequest(
+    "In this project, compare my PersAI plan limits and pricing against the attached workload."
+  );
+  projectPricingRequest.chatMode = "project";
+  projectPricingRequest.deepMode = true;
+  const projectPricingDecision = await service.decide({
+    bundle,
+    request: projectPricingRequest,
+    projectedTools
+  });
+  assert.equal(projectPricingDecision.source, "precheck");
+  assert.equal(projectPricingDecision.reasonCode, "project_mode");
+  assert.equal(projectPricingDecision.retrievalPlan.useUserKnowledge, true);
+  assert.equal(projectPricingDecision.retrievalPlan.useProductKnowledge, true);
 
   const smartPdfRequest = {
     ...projectPdfRequest,

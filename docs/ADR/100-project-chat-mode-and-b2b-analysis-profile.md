@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Slices 2, 2.1, 3, 4, 5, and the pre-deploy Slice 6 block through 6F are verified in working tree on 2026-05-22 (uncommitted). Deploy prep/live verification is next.
+Accepted. Slices 2, 2.1, 3, 4, 5, and the pre-deploy Slice 6 block through 6H are verified in working tree on 2026-05-22. Slice 6H closes the live retrieval-quality finding by making Product KB/subscription facts intent-gated, cross-thread chat/memory recall explicit, Admin Runtime trigger lists authoritative when filled, and project-file hydration priority higher than ordinary user/product context.
 
 ## Date
 
@@ -560,7 +560,7 @@ Residuals (accepted):
 
 ### Slice 6 - Skill and KB tuning
 
-Status: **complete in working tree for pre-deploy scope** (2026-05-22; 6A/6B/6C/6D/6E/6F complete, deploy prep/live verification still required before Slice 7).
+Status: **complete in working tree for original pre-deploy scope** (2026-05-22; 6A/6B/6C/6D/6E/6F complete), but live verification opened mandatory Slice 6H source-admission cleanup before deploy readiness.
 
 Tune existing Skills/KB/indexing only where evidence shows gaps.
 
@@ -744,6 +744,96 @@ Residuals still open after Slice 6 closeout:
 - project-file gather intentionally stays narrow to canonical attachment-backed, extraction-capable files
 - deploy/live verification must still prove this behavior end to end before Slice 7
 
+#### Slice 6H - Retrieval source admission and relevance hygiene
+
+Status: **complete in working tree / parent-verified** (2026-05-22).
+
+Live verification showed that the current retrieval path can inject irrelevant context into the prompt across `normal`, `smart`, and `project` modes. The failure is systemic rather than project-only:
+
+- runtime precheck often enables user and Product KB together whenever a generic knowledge/retrieval intent is detected
+- project precheck currently enables Product KB whenever knowledge tools are available
+- API orchestration groups `document`, `memory`, and `chat` into one broad `user_document` bundle and groups Product KB plus current subscription/plan facts into one broad `product_kb` bundle
+- `searchMemory()` and `searchChats()` search assistant-wide history by broad lexical `OR`, so old unrelated chats can enter new turns
+- synthetic plan/subscription documents are searched like ordinary Product KB, so tariff/plan facts can appear in unrelated engineering/project questions
+- runtime post-orchestration hydration currently prioritizes `skill_reference`, `user_document`, and `product_kb`, but does not give `project_file` its intended top project priority
+
+Required outcome:
+
+- preserve Product KB for genuine PersAI/product/platform/pricing/subscription questions; do **not** globally disable it by mode
+- preserve human memory and recall; assistant-wide memory/chat remains available when the user explicitly asks to recall prior discussions
+- preserve Skill semantics; Skills remain domain specialization, not runtime modes, and ordinary auto-skill behavior must not be broken
+- remove irrelevant source stuffing from ordinary/smart/project prompts; low-relevance context must be omitted rather than included to fill a block
+- make source admission policy operator-tunable through existing Admin Runtime / retrieval policy surfaces where practical instead of hardcoding a brittle routing tree
+
+Target source-admission rules:
+
+1. **Skills**
+   - Skill activation remains the domain-specialization layer.
+   - If a chat-scoped pinned Skill is added later, it must be a separate field (for example `pinnedSkillId`) and must not overload ordinary `skillDecisionState`.
+   - Without a pinned Skill, project mode keeps ordinary auto-skill behavior: foreground activation, sticky reuse, and configured background recheck cadence.
+   - Skill hits should be considered sufficient grounding unless the request also asks for project files, user docs, web freshness, or explicit product/subscription facts.
+   - Product KB must not be appended after successful Skill grounding unless product intent is present.
+
+2. **Product KB and subscription/plan facts**
+   - Product KB is admitted for product/platform questions: PersAI features, pricing, plans, quotas, subscription state, limits, billing, setup, and platform behavior.
+   - Product KB is not admitted for unrelated external/domain questions merely because retrieval is active.
+   - Synthetic plan catalog and `subscription:current` documents should be treated as a separate plan/subscription fact class, admitted only for billing/product intent.
+   - Mixed questions may admit both domain/project sources and Product KB when the user explicitly asks to compare PersAI/product constraints with the domain task.
+
+3. **Chat and memory**
+   - Current-thread chat context may be used automatically when relevant.
+   - Cross-thread chat and contextual memory require explicit recall intent such as “помнишь”, “что мы обсуждали”, “вернись к прошлому”, or a similarly clear reference.
+   - Core durable memory may continue to hydrate through the existing memory path, but orchestrated `Retrieved Knowledge Context` must not duplicate broad assistant-wide memory unless source admission allows it.
+   - Cross-thread recall should be tightly capped and relevance-ranked rather than broad assistant-wide lexical `OR` stuffing.
+
+4. **Project files**
+   - In project mode, project files/current chat files remain first-class gather sources.
+   - Runtime hydration priority must rank `project_file` above ordinary user/product sources.
+   - If project files are irrelevant to the current user request, they may be omitted; the system should not include low-confidence file context just because project mode is active.
+
+5. **No forced filler**
+   - The orchestrated context block should prefer zero retrieved items over low-relevance items.
+   - Per-source results need a relevance floor and token-coverage guard so one incidental token cannot pull old chats, plan docs, or unrelated memory.
+   - Plan/admin limits still control maximum volume, but relevance controls admission.
+
+Implementation notes:
+
+- Reuse existing `routerPolicy`, Admin Knowledge Retrieval Policy, and plan `retrievalPolicy` where possible.
+- If new knobs are required, add them as a compact `retrievalSourcePolicy` under Admin Runtime router policy rather than scattering constants across runtime/API.
+- Runtime routing should output source-intent/admission facts, not a hardcoded mode-only routing tree.
+- API orchestration should enforce the final source admission decision before search/fetch and again before rendering.
+- Tests must cover `normal`, `smart`, and `project`, including:
+  - external engineering/project query does not retrieve plan/subscription/Product KB
+  - product/pricing/subscription query still retrieves Product KB or subscription facts
+  - explicit recall query can search cross-thread chat/memory
+  - unrelated project turn does not search old investor/tariff chats
+  - active Skill grounding does not automatically append Product KB without product intent
+  - `project_file` outranks `product_kb` and `user_document` in runtime hydration
+
+Implemented closeout:
+
+- runtime precheck now derives product-source admission from product intent rather than generic retrieval intent, including project-mode precheck
+- generic `plan` / `план` no longer triggers Product KB by itself
+- `routerPolicy.precheckRuleOverrides` trigger lists are authoritative when non-empty: configured lists replace built-in defaults instead of merging with them
+- explicit recall intent is carried in the retrieval plan reason code, and API orchestration searches `memory` / `chat` only when that recall marker is present
+- ordinary user documents remain searchable without forcing assistant-wide memory/chat into every retrieval turn
+- project-file retrieved items outrank ordinary user documents and Product KB in runtime hydration
+- Admin Runtime helper copy now says filled trigger lists override the built-in router defaults
+
+Verification:
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/project-execution-profile.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/page.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
 #### Founder follow-up audit (2026-05-22; readonly verification, design guidance)
 
 Verified current system truth:
@@ -777,7 +867,7 @@ Design refinements to preserve for later slices:
 
 ### Slice 7 - Hidden B2B plan in cluster
 
-Status: **not started** (blocked until Slice 4 runtime/profile semantics exist).
+Status: **not started** (blocked until deploy prep and live project retrieval verification pass).
 
 Create or update the hidden B2B plan in the target cluster/admin control plane.
 
@@ -900,7 +990,8 @@ For implementation slices:
 | 3 project UI shell | complete | subagents 3A + 3B | files panel + composer mode UX verified |
 | 4 project execution profile | complete | implementation subagent | runtime staged profile + native bridge verified |
 | 5 activity + reasoning feed | complete | implementation subagent | project-only streams + visible reasoning feed verified |
-| 6 Skill/KB tuning | complete | implementation subagent | 6A/6B/6C/6D/6E/6F landed; deploy prep/live verification next |
+| 6 Skill/KB tuning | complete through 6H | implementation subagents + parent verification | 6A/6B/6C/6D/6E/6F landed; 6H closes source-admission cleanup |
+| 6H retrieval source admission | complete in working tree | parent + bounded subagents | Product KB intent-gated, recall-gated chat/memory, authoritative Admin Runtime trigger overrides, project-file priority |
 | 7 hidden B2B cluster plan | blocked | ops subagent | after deploy prep and live-profile verification |
 
 Parent-agent rules (founder directive 2026-05-22):
@@ -912,4 +1003,4 @@ Parent-agent rules (founder directive 2026-05-22):
 
 ## Next recommended step
 
-Run **deploy prep + live project verification** only: validate the new project-file gather path, cached deep extraction, and upload micro-description job path against the target environment, then prepare the branch for deploy. Do not create the hidden B2B cluster plan (Slice 7) until live verification confirms the pre-deploy Slice 6 behavior is real end to end.
+Run **deploy prep + live project verification**: validate the new source-admission behavior, project-file gather priority, lazy extraction cache, and upload micro-description job path against the target environment. Do not create the hidden B2B cluster plan (Slice 7) until live verification confirms project retrieval quality end to end.

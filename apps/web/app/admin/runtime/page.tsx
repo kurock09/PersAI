@@ -1355,10 +1355,10 @@ export default function AdminRuntimePage() {
             </div>
             <p className="text-[10px] text-text-subtle">
               Add one phrase per line. These lists only tune the deterministic precheck layer and
-              extend the built-in router defaults without touching JSON. The three priority lists
-              steer ordinary (non-skill) retrieval order between personal, product, and web sources.
-              If you want to change the LLM router prompt itself, edit it separately in{" "}
-              <span className="font-mono">Admin &gt; Prompt Constructor</span>.
+              override the built-in router defaults when filled without touching JSON. The three
+              priority lists steer ordinary (non-skill) retrieval order between personal, product,
+              and web sources. If you want to change the LLM router prompt itself, edit it
+              separately in <span className="font-mono">Admin &gt; Prompt Constructor</span>.
             </p>
           </Card>
         </div>

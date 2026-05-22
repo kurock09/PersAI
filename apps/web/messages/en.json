@@ -269,7 +269,7 @@
     "modeProjectLabel": "Project",
     "modeNormalCaption": "faster and cheaper",
     "modeDeepCaption": "deeper, more tokens",
-    "modeProjectCaption": "project analysis with files",
+    "modeProjectCaption": "deep analysis",
     "modeMenuAria": "Chat mode: {mode}",
     "knowledgeUploadReady": "Added to knowledge base",
     "knowledgeUploadReadyDetail": "{count, plural, one {# file is now available across chats} other {# files are now available across chats}}",

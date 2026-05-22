@@ -472,7 +472,7 @@ async function run(): Promise<void> {
   );
   assert.deepEqual(
     readKnowledge.searches.map((call) => call.source),
-    ["document", "memory", "chat", "global", "subscription"]
+    ["document", "global", "subscription"]
   );
   assert.deepEqual(extractInternalRuntimeAssistantFileService.calls, [
     {
@@ -551,7 +551,7 @@ async function run(): Promise<void> {
   );
   assert.deepEqual(
     readKnowledge.searches.map((call) => call.source),
-    ["document", "memory", "chat"]
+    ["document"]
   );
   assert.deepEqual(
     observability.searches.slice(-2).map((entry) => ({
@@ -804,7 +804,7 @@ async function runOrdinaryStagedRetrievalCases(): Promise<void> {
   );
   assert.deepEqual(
     readKnowledge.searches.map((call) => call.source),
-    ["document", "memory", "chat", "global", "subscription"]
+    ["document", "global", "subscription"]
   );
 
   observability.searches = [];
@@ -820,7 +820,7 @@ async function runOrdinaryStagedRetrievalCases(): Promise<void> {
         useSkills: false,
         selectedSkillIds: [],
         useUserKnowledge: true,
-        useProductKnowledge: true,
+        useProductKnowledge: false,
         useWeb: false,
         confidence: "high",
         reasonCode: "test_project_files_before_kb"
@@ -834,7 +834,7 @@ async function runOrdinaryStagedRetrievalCases(): Promise<void> {
   );
   assert.deepEqual(
     projectContext.items.map((item) => item.referenceId),
-    ["project_file:file-project-1", "source-1:1:0", "product-text-entry:product-text-1:1:0"]
+    ["project_file:file-project-1", "source-1:1:0"]
   );
   assert.deepEqual(extractInternalRuntimeAssistantFileService.calls, [
     {
@@ -845,7 +845,68 @@ async function runOrdinaryStagedRetrievalCases(): Promise<void> {
   ]);
   assert.deepEqual(
     readKnowledge.searches.map((call) => call.source),
-    ["document", "memory", "chat", "global", "subscription"]
+    ["document"]
+  );
+
+  readKnowledge.searches = [];
+  const explicitRecallContext = await service.execute(
+    service.parseInput({
+      assistantId: "assistant-1",
+      query: "remember what we discussed last time about the project",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: false,
+        selectedSkillIds: [],
+        useUserKnowledge: true,
+        useProductKnowledge: false,
+        useWeb: false,
+        ordinarySourcePriorityMode: "personal_first",
+        confidence: "high",
+        reasonCode: "knowledge_retrieval_recall"
+      }
+    })
+  );
+  assert.equal(
+    explicitRecallContext.items.some((item) => item.label === "user_document"),
+    true
+  );
+  assert.deepEqual(
+    readKnowledge.searches.map((call) => call.source),
+    ["document", "memory", "chat"]
+  );
+
+  observability.searches = [];
+  observability.fetches = [];
+  readKnowledge.searches = [];
+  extractInternalRuntimeAssistantFileService.calls = [];
+  const projectProductContext = await service.execute(
+    service.parseInput({
+      assistantId: "assistant-1",
+      query: "project retrieval with uploaded file context and PersAI pricing",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: false,
+        selectedSkillIds: [],
+        useUserKnowledge: true,
+        useProductKnowledge: true,
+        useWeb: false,
+        confidence: "high",
+        reasonCode: "test_project_product_intent"
+      },
+      gatherProfile: "project",
+      conversation: {
+        channel: "web",
+        surfaceThreadKey: "thread-project-1"
+      }
+    })
+  );
+  assert.deepEqual(
+    projectProductContext.items.map((item) => item.referenceId),
+    ["project_file:file-project-1", "source-1:1:0", "product-text-entry:product-text-1:1:0"]
+  );
+  assert.deepEqual(
+    readKnowledge.searches.map((call) => call.source),
+    ["document", "global", "subscription"]
   );
 
   observability.searches = [];

@@ -86,6 +86,7 @@ describe("project-execution-profile", () => {
       availableKnowledge: true,
       availableWeb: true,
       ordinarySourcePriorityMode: "mixed_ambiguous",
+      productKnowledgeIntent: false,
       skillState: null,
       selectedSkillIds: []
     });
@@ -93,8 +94,24 @@ describe("project-execution-profile", () => {
     assert.equal(decision.retrievalHint, true);
     assert.equal(decision.reasonCode, "project_mode_document_context");
     assert.equal(decision.retrievalPlan.useUserKnowledge, true);
-    assert.equal(decision.retrievalPlan.useProductKnowledge, true);
+    assert.equal(decision.retrievalPlan.useProductKnowledge, false);
     assert.notEqual(decision.retrievalPlan.reasonCode, "reasoning_request");
+  });
+
+  test("admits Product KB in project mode only for explicit product intent", () => {
+    const decision = buildProjectModePrecheckDecision({
+      request: createRequest(),
+      fallbackMode: "premium",
+      policyMode: "active",
+      availableKnowledge: true,
+      availableWeb: false,
+      ordinarySourcePriorityMode: "product_first",
+      productKnowledgeIntent: true,
+      skillState: null,
+      selectedSkillIds: []
+    });
+    assert.equal(decision.retrievalPlan.useUserKnowledge, true);
+    assert.equal(decision.retrievalPlan.useProductKnowledge, true);
   });
 
   test("exposes staged project developer contract text", () => {

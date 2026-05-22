@@ -269,7 +269,7 @@
     "modeProjectLabel": "Проект",
     "modeNormalCaption": "быстрее и дешевле",
     "modeDeepCaption": "тщательнее, но дороже",
-    "modeProjectCaption": "проектный анализ с файлами",
+    "modeProjectCaption": "глубокий анализ",
     "modeMenuAria": "Режим чата: {mode}",
     "knowledgeUploadReady": "Добавлено в базу знаний",
     "knowledgeUploadReadyDetail": "{count, plural, one {# файл доступен из любых чатов} few {# файла доступны из любых чатов} other {# файлов доступны из любых чатов}}",

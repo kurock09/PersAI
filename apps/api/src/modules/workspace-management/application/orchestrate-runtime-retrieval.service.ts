@@ -218,21 +218,7 @@ export class OrchestrateRuntimeRetrievalService {
               assistantId: input.assistantId,
               source: "document",
               policyState,
-              execute: async () => [
-                ...(await this.searchKnowledgeSource(
-                  input,
-                  "document",
-                  "user_document",
-                  maxItemChars
-                )),
-                ...(await this.searchKnowledgeSource(
-                  input,
-                  "memory",
-                  "user_document",
-                  maxItemChars
-                )),
-                ...(await this.searchKnowledgeSource(input, "chat", "user_document", maxItemChars))
-              ]
+              execute: async () => this.searchUserKnowledgeSources(input, maxItemChars)
             })
           ).map((item) => ({ item, stagePriority: projectGatherProfileActive ? 2 : 1 }))
         );
@@ -320,21 +306,7 @@ export class OrchestrateRuntimeRetrievalService {
               assistantId: input.assistantId,
               source: "document",
               policyState: ordinaryPolicyState,
-              execute: async () => [
-                ...(await this.searchKnowledgeSource(
-                  input,
-                  "document",
-                  "user_document",
-                  maxItemChars
-                )),
-                ...(await this.searchKnowledgeSource(
-                  input,
-                  "memory",
-                  "user_document",
-                  maxItemChars
-                )),
-                ...(await this.searchKnowledgeSource(input, "chat", "user_document", maxItemChars))
-              ]
+              execute: async () => this.searchUserKnowledgeSources(input, maxItemChars)
             })
           ).map((item) => ({
             item,
@@ -473,6 +445,36 @@ export class OrchestrateRuntimeRetrievalService {
       });
     }
     return items;
+  }
+
+  private async searchUserKnowledgeSources(
+    input: RuntimeRetrievalInput,
+    maxItemChars: number
+  ): Promise<RuntimeRetrievedKnowledgeContextItem[]> {
+    const items: RuntimeRetrievedKnowledgeContextItem[] = [];
+    if (this.isSearchSourceAllowedByPolicy(input, "document")) {
+      items.push(
+        ...(await this.searchKnowledgeSource(input, "document", "user_document", maxItemChars))
+      );
+    }
+    if (!this.hasExplicitRecallIntent(input)) {
+      return items;
+    }
+    if (this.isSearchSourceAllowedByPolicy(input, "memory")) {
+      items.push(
+        ...(await this.searchKnowledgeSource(input, "memory", "user_document", maxItemChars))
+      );
+    }
+    if (this.isSearchSourceAllowedByPolicy(input, "chat")) {
+      items.push(
+        ...(await this.searchKnowledgeSource(input, "chat", "user_document", maxItemChars))
+      );
+    }
+    return items;
+  }
+
+  private hasExplicitRecallIntent(input: RuntimeRetrievalInput): boolean {
+    return input.retrievalPlan.reasonCode.includes("recall");
   }
 
   private isSearchSourceAllowedByPolicy(

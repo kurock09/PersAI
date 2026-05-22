@@ -2,6 +2,44 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-22 — ADR-100 Slice 6H — retrieval source admission closeout
+
+### What changed
+
+- Closed the live retrieval-quality finding where irrelevant Product KB, subscription/tariff facts, old chats, and memory could be stuffed into ordinary/smart/project prompts.
+- Runtime source admission now distinguishes generic retrieval from product intent. Product KB is still available for PersAI/product/pricing/subscription questions, but generic external/domain/project questions no longer get Product KB just because retrieval is active.
+- Project-mode precheck follows the same Product KB intent gate.
+- Generic `plan` / `план` no longer triggers product intent by itself.
+- Non-empty Admin Runtime `routerPolicy.precheckRuleOverrides` trigger lists are now authoritative: filled lists replace built-in defaults instead of merging with them. Empty lists still fall back to defaults.
+- Explicit recall intent is marked in the runtime retrieval plan reason code, and API orchestration searches assistant-wide `memory` / `chat` only when that recall marker is present.
+- Ordinary user documents remain searchable without pulling cross-thread memory/chat by default.
+- Runtime hydration now ranks `project_file` retrieved items above ordinary user documents and Product KB.
+- Admin Runtime helper copy now explains the override semantics.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/project-execution-profile.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/page.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Residual risks
+
+- Current-thread chat context is not yet a separate first-class orchestrated source; this slice only stops broad assistant-wide `chat` / `memory` leakage unless explicit recall intent is present.
+- Product/subscription facts are still bundled under existing Product KB retrieval when product intent is present; a later split into separate fact classes remains optional.
+- Live environment still needs verification after deploy/materialization before Slice 7.
+
+### Next recommended step
+
+- Run **deploy prep + live project verification**: validate source admission, project-file gather priority, lazy extraction cache, and upload micro-description jobs in the target environment. Do not create the hidden B2B cluster plan until live project retrieval quality is confirmed end to end.
+
 ## 2026-05-22 — ADR-100 Slice 6F follow-up — internal upload micro-description ledger
 
 ### What changed

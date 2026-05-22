@@ -166,7 +166,7 @@ export interface ChatSendOptions {
   clientTurnId?: string | undefined;
   clientAttachmentIds?: string[] | undefined;
 }
-type LiveActivitySource = "tool" | "compaction" | "runtime" | "retrieval";
+type LiveActivitySource = "tool" | "compaction" | "runtime" | "retrieval" | "project";
 type LiveActivityEvent = ActivityEvent & {
   source: LiveActivitySource;
   skillDetail?: string | undefined;
@@ -401,37 +401,17 @@ function buildCompactionLiveActivity(params: {
     source: "compaction"
   };
 }
-function buildProjectStageTimelineActivity(params: {
+function buildProjectLiveActivity(params: {
   assistantMessageId: string;
-  stage: "plan" | "gather" | "analyze" | "replan" | "synthesize";
-  status: "started" | "completed";
-  summary: string;
-  detail?: string | null;
-}): ActivityEvent {
-  const detail = params.detail?.trim() || params.summary;
+  label: string;
+}): LiveActivityEvent {
   return {
-    id: `activity-project-stage-${Date.now()}-${params.stage}-${params.status}`,
+    id: `activity-project-live-${Date.now()}-${params.label}`,
     type: "info",
-    label: `project_stage_${params.stage}_${params.status}`,
-    detail,
+    label: params.label,
     afterMessageId: params.assistantMessageId,
-    emphasis: params.status === "started" ? "strong" : "default"
-  };
-}
-function buildProjectReasoningTimelineActivity(params: {
-  assistantMessageId: string;
-  kind: "plan" | "check" | "gap" | "conflict" | "interim" | "replan" | "synthesis";
-  summary: string;
-  detail?: string | null;
-}): ActivityEvent {
-  const detail = params.detail?.trim() || params.summary;
-  return {
-    id: `activity-project-reasoning-${Date.now()}-${params.kind}`,
-    type: "info",
-    label: `project_reasoning_${params.kind}`,
-    detail,
-    afterMessageId: params.assistantMessageId,
-    emphasis: "default"
+    emphasis: "strong",
+    source: "project"
   };
 }
 function buildRetrievalLiveActivity(params: {
@@ -1975,38 +1955,33 @@ export function useChat(threadKey: string): UseChatReturn {
                   )
                 }));
               },
-              onProjectActivity: ({ stage, status, summary, detail }) => {
+              onProjectActivity: ({ stage, status }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
                 const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
                 if (assistantMessageId === null) {
                   return;
                 }
-                setActivities((prev) => [
+                applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
-                  buildProjectStageTimelineActivity({
+                  [assistantMessageId]: buildProjectLiveActivity({
                     assistantMessageId,
-                    stage,
-                    status,
-                    summary,
-                    ...(detail === undefined ? {} : { detail })
+                    label: `project_stage_${stage}_${status}`
                   })
-                ]);
+                }));
               },
-              onProjectReasoningSummary: ({ kind, summary, detail }) => {
+              onProjectReasoningSummary: ({ kind }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
                 const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
                 if (assistantMessageId === null) {
                   return;
                 }
-                setActivities((prev) => [
+                applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
-                  buildProjectReasoningTimelineActivity({
+                  [assistantMessageId]: buildProjectLiveActivity({
                     assistantMessageId,
-                    kind,
-                    summary,
-                    ...(detail === undefined ? {} : { detail })
+                    label: `project_reasoning_${kind}`
                   })
-                ]);
+                }));
               },
               onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
@@ -2725,9 +2700,6 @@ export function useChat(threadKey: string): UseChatReturn {
           : { deepModeEnabled: options.deepModeEnabled })
       };
       const projectChatMode = options?.chatMode === "project";
-      const appendProjectTimelineActivity = (event: ActivityEvent) => {
-        setActivities((prev) => [...prev, event]);
-      };
       const streamHandlers = {
         onHeadersOk: () => {
           headersOk = true;
@@ -2822,16 +2794,16 @@ export function useChat(threadKey: string): UseChatReturn {
           summary: string;
           detail?: string | null;
         }) => {
+          void summary;
+          void detail;
           flushBufferedAssistantState(true);
-          appendProjectTimelineActivity(
-            buildProjectStageTimelineActivity({
+          applyThreadLiveActivities(sendThreadKey, (prev) => ({
+            ...prev,
+            [assistantMsgId]: buildProjectLiveActivity({
               assistantMessageId: assistantMsgId,
-              stage,
-              status,
-              summary,
-              ...(detail === undefined ? {} : { detail })
+              label: `project_stage_${stage}_${status}`
             })
-          );
+          }));
         },
         onProjectReasoningSummary: ({
           kind,
@@ -2842,15 +2814,16 @@ export function useChat(threadKey: string): UseChatReturn {
           summary: string;
           detail?: string | null;
         }) => {
+          void summary;
+          void detail;
           flushBufferedAssistantState(true);
-          appendProjectTimelineActivity(
-            buildProjectReasoningTimelineActivity({
+          applyThreadLiveActivities(sendThreadKey, (prev) => ({
+            ...prev,
+            [assistantMsgId]: buildProjectLiveActivity({
               assistantMessageId: assistantMsgId,
-              kind,
-              summary,
-              ...(detail === undefined ? {} : { detail })
+              label: `project_reasoning_${kind}`
             })
-          );
+          }));
         },
         onActivity: ({
           source,

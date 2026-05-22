@@ -3283,6 +3283,49 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     projectGroundedFinalCall?.developerInstructions ?? "",
     /project file context without prior files\.read/
   );
+  const plannedProjectFilePriority = (
+    service as unknown as {
+      planRetrievedKnowledgeContext: (
+        bundle: AssistantRuntimeBundle,
+        context: RuntimeRetrievedKnowledgeContext
+      ) => RuntimeRetrievedKnowledgeContext;
+    }
+  ).planRetrievedKnowledgeContext(bundleRegistry.entry!.parsedBundle, {
+    items: [
+      {
+        label: "product_kb" as const,
+        referenceId: "product-text-entry:pricing:1:0",
+        title: "PersAI pricing",
+        locator: null,
+        content: "PersAI pricing and quota facts.",
+        score: 99,
+        metadata: { source: "global" }
+      },
+      {
+        label: "user_document" as const,
+        referenceId: "source-user:1:0",
+        title: "User document",
+        locator: null,
+        content: "General user document context.",
+        score: 90,
+        metadata: { source: "document" }
+      },
+      {
+        label: "user_document" as const,
+        referenceId: "project_file:file-project-1",
+        title: "Project file",
+        locator: "uploads/project.pdf",
+        content: "Project file context.",
+        score: 1,
+        metadata: { source: "project_file", fileRef: "file-project-1" }
+      }
+    ],
+    renderedBlock: "# Retrieved Knowledge Context"
+  });
+  assert.deepEqual(
+    plannedProjectFilePriority.items.map((item) => item.referenceId),
+    ["project_file:file-project-1", "source-user:1:0", "product-text-entry:pricing:1:0"]
+  );
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.skills = { enabled: [] };
     bundleRegistry.entry.parsedBundle.runtime.contextHydration = {

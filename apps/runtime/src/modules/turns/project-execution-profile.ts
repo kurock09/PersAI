@@ -16,6 +16,7 @@ type ProjectPrecheckInput = {
   availableKnowledge: boolean;
   availableWeb: boolean;
   ordinarySourcePriorityMode: OrdinarySourcePriorityMode;
+  productKnowledgeIntent: boolean;
   skillState: RuntimeSkillDecisionState | null;
   selectedSkillIds: string[];
 };
@@ -53,7 +54,7 @@ export function buildProjectModePrecheckDecision(input: ProjectPrecheckInput): T
     typeof input.skillState.activeSkillId === "string" &&
     input.skillState.activeSkillId.trim().length > 0;
   const useUserKnowledge = input.availableKnowledge;
-  const useProductKnowledge = input.availableKnowledge;
+  const useProductKnowledge = input.availableKnowledge && input.productKnowledgeIntent;
   const useWeb =
     input.availableWeb && (input.ordinarySourcePriorityMode === "web_first" || !useUserKnowledge);
   const retrievalPlan: TurnRetrievalPlan = {

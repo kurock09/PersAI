@@ -423,11 +423,7 @@ export function ChatArea({
 
   return (
     <div className="relative flex h-full flex-col">
-      {/* Header — premium two-zone composition: title is the primary
-          subject (left, h1 weight + tight tracking), mode-toggle is a
-          quiet utility chip pinned to the right. The previous wrapped
-          capsule with a "/" separator collapsed both into one breadcrumb
-          which broke the visual hierarchy. */}
+      {/* Header: title on the left, mode toggle pinned right on all form factors. */}
       <header className="border-b border-border px-3 py-2.5 md:px-5 md:py-3">
         <div className="flex items-center gap-3">
           <button
@@ -498,6 +494,11 @@ export function ChatArea({
               </div>
             )}
           </div>
+          <ChatModeToggle
+            mode={chatMode}
+            disabled={!assistantReady || chat.isStreaming}
+            onChange={(mode) => void handleChatModeChange(mode)}
+          />
         </div>
       </header>
 
@@ -832,15 +833,6 @@ export function ChatArea({
           </div>
         </div>
       ) : null}
-      <div className="px-3 md:px-4">
-        <div className="mx-auto mb-2 flex w-full max-w-[50rem] justify-start">
-          <ChatModeToggle
-            mode={chatMode}
-            disabled={!assistantReady || chat.isStreaming}
-            onChange={(mode) => void handleChatModeChange(mode)}
-          />
-        </div>
-      </div>
       <ChatInput
         ref={chatInputRef}
         onSend={(text, files, options) => {

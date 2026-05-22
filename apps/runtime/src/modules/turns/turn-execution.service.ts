@@ -863,6 +863,9 @@ export class TurnExecutionService {
       return sourceType === "skill_knowledge_card" ? 90 : 100;
     }
     if (item.label === "user_document") {
+      if (this.asNonEmptyString(item.metadata?.source) === "project_file") {
+        return 95;
+      }
       return 80;
     }
     if (item.label === "product_kb") {
