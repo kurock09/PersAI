@@ -45,6 +45,7 @@ export interface StreamNativeWebChatTurnInput {
   openMediaJobs?: RuntimeOpenMediaJobContext[];
   userTimezone?: string;
   currentTimeIso?: string;
+  chatMode?: RuntimeTurnRequest["chatMode"];
   deepMode?: RuntimeTurnRequest["deepMode"];
   modelRoleOverride?: RuntimeTurnRequest["modelRoleOverride"];
   providerOverride?: "openai" | "anthropic";
@@ -131,6 +132,7 @@ export class StreamNativeWebChatTurnService {
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
       ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
+      ...(input.chatMode === undefined ? {} : { chatMode: input.chatMode }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
         ? {}
@@ -252,6 +254,25 @@ export class StreamNativeWebChatTurnService {
               ...(event.skillIconEmoji === undefined
                 ? {}
                 : { activitySkillIconEmoji: event.skillIconEmoji })
+            };
+            continue;
+          case "project_activity":
+            yield {
+              type: "project_activity",
+              projectStage: event.stage,
+              projectStatus: event.status,
+              projectSummary: event.summary,
+              ...(event.detail === undefined ? {} : { projectDetail: event.detail }),
+              ...(event.sourceClass === undefined ? {} : { projectSourceClass: event.sourceClass }),
+              ...(event.resultCount === undefined ? {} : { projectResultCount: event.resultCount })
+            };
+            continue;
+          case "project_reasoning_summary":
+            yield {
+              type: "project_reasoning_summary",
+              projectReasoningKind: event.kind,
+              projectReasoningSummary: event.summary,
+              ...(event.detail === undefined ? {} : { projectReasoningDetail: event.detail })
             };
             continue;
           case "interrupted": {
@@ -502,6 +523,37 @@ export class StreamNativeWebChatTurnService {
             row.source === "web") &&
           row.phase === "start" &&
           typeof row.resultCount === "number"
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "project_activity":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          (row.stage === "plan" ||
+            row.stage === "gather" ||
+            row.stage === "analyze" ||
+            row.stage === "replan" ||
+            row.stage === "synthesize") &&
+          (row.status === "started" || row.status === "completed") &&
+          typeof row.summary === "string"
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "project_reasoning_summary":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          (row.kind === "plan" ||
+            row.kind === "check" ||
+            row.kind === "gap" ||
+            row.kind === "conflict" ||
+            row.kind === "interim" ||
+            row.kind === "replan" ||
+            row.kind === "synthesis") &&
+          typeof row.summary === "string"
         ) {
           return parsed as RuntimeTurnStreamEvent;
         }

@@ -22,6 +22,10 @@ import {
   type KnowledgeVectorSearchHit
 } from "./knowledge-vector-index";
 import { ReadAssistantKnowledgeService } from "./read-assistant-knowledge.service";
+import {
+  ExtractInternalRuntimeAssistantFileService,
+  isSupportedInternalRuntimeExtractionMime
+} from "./extract-internal-runtime-assistant-file.service";
 
 /**
  * ADR-094 — `MAX_CONTEXT_ITEMS` and `MAX_ITEM_CHARS` are no longer in-file
@@ -33,6 +37,7 @@ const MAX_SKILL_FETCHED_ITEM_CHARS = 2_400;
 const MAX_RENDERED_BLOCK_CHARS = 6_000;
 const MAX_PER_SOURCE_RESULTS = 3;
 const MIN_SKILL_VECTOR_SCORE = 0.18;
+const MAX_PROJECT_FILE_CANDIDATES = 2;
 /**
  * ADR-094 — minimum number of context items the orchestrated block can hold,
  * even on the most restrictive plan. Anything below this would defeat the
@@ -45,6 +50,7 @@ type RuntimeRetrievalInput = {
   query: string;
   locale: string | null;
   retrievalPlan: RuntimeRetrievalPlan;
+  gatherProfile: "project" | null;
   sourcePolicy: {
     mode: "default" | "active_skill";
     state: OrchestratedPolicyState;
@@ -142,6 +148,7 @@ export class OrchestrateRuntimeRetrievalService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly readAssistantKnowledgeService: ReadAssistantKnowledgeService,
+    private readonly extractInternalRuntimeAssistantFileService: ExtractInternalRuntimeAssistantFileService,
     private readonly knowledgeRetrievalObservabilityService: KnowledgeRetrievalObservabilityService,
     private readonly knowledgeModelPolicyService: KnowledgeModelPolicyService,
     private readonly knowledgeEmbeddingService: KnowledgeEmbeddingService,
@@ -159,12 +166,13 @@ export class OrchestrateRuntimeRetrievalService {
     const locale =
       row?.locale === null || row?.locale === undefined ? null : this.asNonEmptyString(row.locale);
     const retrievalPlan = this.parseRetrievalPlan(row?.retrievalPlan);
+    const gatherProfile = this.parseGatherProfile(row?.gatherProfile);
     const sourcePolicy = this.parseSourcePolicy(row?.sourcePolicy);
     if (assistantId === null || query === null || retrievalPlan === null) {
       throw new BadRequestException("assistantId, query, and retrievalPlan are required.");
     }
     const conversation = this.parseConversation(row?.conversation);
-    return { assistantId, query, locale, retrievalPlan, sourcePolicy, conversation };
+    return { assistantId, query, locale, retrievalPlan, gatherProfile, sourcePolicy, conversation };
   }
 
   async execute(input: RuntimeRetrievalInput): Promise<RuntimeRetrievedKnowledgeContext> {
@@ -174,6 +182,7 @@ export class OrchestrateRuntimeRetrievalService {
     );
     const maxContextItems = Math.max(retrievalPolicy.maxMaxResults, MIN_CONTEXT_ITEMS);
     const maxItemChars = retrievalPolicy.fetchMaxChars;
+    const projectGatherProfileActive = input.gatherProfile === "project";
     const stagedItems: StagedContextItem[] = [];
     if (this.isActiveSkillTurn(input)) {
       let policyState: OrchestratedPolicyState = "skill_only";
@@ -187,9 +196,19 @@ export class OrchestrateRuntimeRetrievalService {
         skillItems = skillResult.items;
         stagedItems.push(...skillItems.map((item) => ({ item, stagePriority: 0 })));
       }
+      if (projectGatherProfileActive) {
+        const projectFileItems = await this.gatherProjectFileItemsWithTelemetry({
+          input,
+          workspaceId,
+          maxItemChars,
+          policyState: "escalated_to_user"
+        });
+        stagedItems.push(...projectFileItems.map((item) => ({ item, stagePriority: 1 })));
+      }
       const skillCoverageInsufficient = skillItems.length === 0;
       const shouldEscalateToUser =
-        skillCoverageInsufficient && input.retrievalPlan.useUserKnowledge;
+        input.retrievalPlan.useUserKnowledge &&
+        (projectGatherProfileActive || skillCoverageInsufficient);
       if (shouldEscalateToUser) {
         policyState = "escalated_to_user";
         stagedItems.push(
@@ -215,7 +234,7 @@ export class OrchestrateRuntimeRetrievalService {
                 ...(await this.searchKnowledgeSource(input, "chat", "user_document", maxItemChars))
               ]
             })
-          ).map((item) => ({ item, stagePriority: 1 }))
+          ).map((item) => ({ item, stagePriority: projectGatherProfileActive ? 2 : 1 }))
         );
       }
       if (input.retrievalPlan.useWeb) {
@@ -284,6 +303,15 @@ export class OrchestrateRuntimeRetrievalService {
           policyState: ordinaryPolicyState
         });
       }
+      if (projectGatherProfileActive) {
+        const projectFileItems = await this.gatherProjectFileItemsWithTelemetry({
+          input,
+          workspaceId,
+          maxItemChars,
+          policyState: ordinaryPolicyState
+        });
+        stagedItems.push(...projectFileItems.map((item) => ({ item, stagePriority: 0 })));
+      }
       if (input.retrievalPlan.useUserKnowledge) {
         stagedItems.push(
           ...(
@@ -308,7 +336,10 @@ export class OrchestrateRuntimeRetrievalService {
                 ...(await this.searchKnowledgeSource(input, "chat", "user_document", maxItemChars))
               ]
             })
-          ).map((item) => ({ item, stagePriority: stagePriorities.user }))
+          ).map((item) => ({
+            item,
+            stagePriority: projectGatherProfileActive ? 1 : stagePriorities.user
+          }))
         );
       }
       if (input.retrievalPlan.useProductKnowledge) {
@@ -329,7 +360,10 @@ export class OrchestrateRuntimeRetrievalService {
                 ))
               ]
             })
-          ).map((item) => ({ item, stagePriority: stagePriorities.product }))
+          ).map((item) => ({
+            item,
+            stagePriority: projectGatherProfileActive ? 2 : stagePriorities.product
+          }))
         );
       }
       if (input.retrievalPlan.useWeb) {
@@ -1080,6 +1114,236 @@ export class OrchestrateRuntimeRetrievalService {
     });
   }
 
+  private async gatherProjectFileItemsWithTelemetry(input: {
+    input: RuntimeRetrievalInput;
+    workspaceId: string | null;
+    maxItemChars: number;
+    policyState: OrchestratedPolicyState;
+  }): Promise<RuntimeRetrievedKnowledgeContextItem[]> {
+    const items = await this.withTelemetry({
+      workspaceId: input.workspaceId,
+      assistantId: input.input.assistantId,
+      source: "document",
+      policyState: input.policyState,
+      execute: async () => this.gatherProjectFileItems(input.input, input.maxItemChars)
+    });
+    if (items.length > 0) {
+      const fetchedChars = items.reduce((total, item) => total + item.content.length, 0);
+      await this.recordFetchTelemetry({
+        workspaceId: input.workspaceId,
+        assistantId: input.input.assistantId,
+        source: "document",
+        retrievalMode: "hybrid",
+        durationMs: 0,
+        fetchDepth: items.length,
+        fetchedChars,
+        embeddingModelKey: null,
+        modeUsed: "project_file_extract",
+        bytesReturned: fetchedChars
+      });
+    }
+    return items;
+  }
+
+  private async gatherProjectFileItems(
+    input: RuntimeRetrievalInput,
+    maxItemChars: number
+  ): Promise<RuntimeRetrievedKnowledgeContextItem[]> {
+    const chat = await this.resolveConversationChat(input);
+    if (chat === null) {
+      return [];
+    }
+    const attachmentRows = await this.prisma.assistantChatMessageAttachment.findMany({
+      where: {
+        assistantId: input.assistantId,
+        chatId: chat.id,
+        assistantFileId: { not: null }
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        assistantFileId: true,
+        createdAt: true,
+        assistantFile: {
+          select: {
+            id: true,
+            displayName: true,
+            relativePath: true,
+            mimeType: true,
+            metadata: true
+          }
+        }
+      }
+    });
+    const terms = this.buildSearchTerms(input.query);
+    const selectedRows = [...this.dedupeProjectFileRows(attachmentRows)]
+      .map((row, index) => ({
+        row,
+        index,
+        selectorScore: this.scoreProjectFileSelector(row.assistantFile, terms)
+      }))
+      .filter(({ row }) => this.isProjectFileExtractionCandidate(row.assistantFile))
+      .sort((left, right) => {
+        if (left.selectorScore !== right.selectorScore) {
+          return right.selectorScore - left.selectorScore;
+        }
+        return left.index - right.index;
+      })
+      .slice(0, MAX_PROJECT_FILE_CANDIDATES);
+    const items: RuntimeRetrievedKnowledgeContextItem[] = [];
+    for (const candidate of selectedRows) {
+      const extracted = await this.extractInternalRuntimeAssistantFileService.execute({
+        assistantId: input.assistantId,
+        workspaceId: chat.workspaceId,
+        fileRef: candidate.row.assistantFile.id
+      });
+      if (!extracted.extracted) {
+        continue;
+      }
+      const content = this.truncate(extracted.text, maxItemChars);
+      if (content.length === 0) {
+        continue;
+      }
+      items.push({
+        label: "user_document",
+        referenceId: `project_file:${candidate.row.assistantFile.id}`,
+        title:
+          extracted.file.displayName ??
+          candidate.row.assistantFile.displayName ??
+          candidate.row.assistantFile.relativePath.split("/").pop() ??
+          candidate.row.assistantFile.id,
+        locator: candidate.row.assistantFile.relativePath,
+        content,
+        score: candidate.selectorScore,
+        metadata: {
+          source: "project_file",
+          fileRef: candidate.row.assistantFile.id,
+          relativePath: candidate.row.assistantFile.relativePath,
+          extractionQuality: extracted.quality,
+          hasSemanticSummary:
+            typeof candidate.row.assistantFile.metadata?.semanticSummary === "string" &&
+            candidate.row.assistantFile.metadata.semanticSummary.trim().length > 0
+        }
+      });
+    }
+    return items;
+  }
+
+  private dedupeProjectFileRows(
+    rows: Array<{
+      assistantFileId: string | null;
+      createdAt: Date;
+      assistantFile: {
+        id: string;
+        displayName: string | null;
+        relativePath: string;
+        mimeType: string;
+        metadata: unknown;
+      } | null;
+    }>
+  ): Array<{
+    assistantFileId: string | null;
+    createdAt: Date;
+    assistantFile: {
+      id: string;
+      displayName: string | null;
+      relativePath: string;
+      mimeType: string;
+      metadata: Record<string, unknown> | null;
+    };
+  }> {
+    const seen = new Set<string>();
+    const unique: Array<{
+      assistantFileId: string | null;
+      createdAt: Date;
+      assistantFile: {
+        id: string;
+        displayName: string | null;
+        relativePath: string;
+        mimeType: string;
+        metadata: Record<string, unknown> | null;
+      };
+    }> = [];
+    for (const row of rows) {
+      if (
+        row.assistantFileId === null ||
+        row.assistantFile === null ||
+        seen.has(row.assistantFileId)
+      ) {
+        continue;
+      }
+      seen.add(row.assistantFileId);
+      unique.push({
+        assistantFileId: row.assistantFileId,
+        createdAt: row.createdAt,
+        assistantFile: {
+          ...row.assistantFile,
+          metadata: this.asObject(row.assistantFile.metadata)
+        }
+      });
+    }
+    return unique;
+  }
+
+  private scoreProjectFileSelector(
+    file: {
+      displayName: string | null;
+      relativePath: string;
+      metadata: Record<string, unknown> | null;
+    },
+    terms: string[]
+  ): number {
+    return (
+      this.scoreText(file.displayName ?? "", terms.join(" ")) * 1.2 +
+      this.scoreText(file.relativePath, terms.join(" ")) * 0.8 +
+      this.scoreText(
+        typeof file.metadata?.semanticSummary === "string" ? file.metadata.semanticSummary : "",
+        terms.join(" ")
+      ) *
+        1.4
+    );
+  }
+
+  private isProjectFileExtractionCandidate(file: {
+    displayName: string | null;
+    relativePath: string;
+    mimeType: string;
+  }): boolean {
+    const mime = file.mimeType.toLowerCase().split(";")[0]?.trim() ?? "";
+    if (isSupportedInternalRuntimeExtractionMime(mime)) {
+      return true;
+    }
+    const path = `${file.displayName ?? ""} ${file.relativePath}`.toLowerCase();
+    return /\.(txt|md|markdown|csv|tsv|json|jsonl|ndjson|xml|yaml|yml|log|pdf|docx)$/i.test(path);
+  }
+
+  private async resolveConversationChat(input: RuntimeRetrievalInput): Promise<{
+    id: string;
+    workspaceId: string;
+  } | null> {
+    const surface =
+      input.conversation?.channel === "web" || input.conversation?.channel === "telegram"
+        ? input.conversation.channel
+        : null;
+    const surfaceThreadKey = input.conversation?.surfaceThreadKey ?? null;
+    if (surface === null || surfaceThreadKey === null) {
+      return null;
+    }
+    const chat = await this.prisma.assistantChat.findUnique({
+      where: {
+        assistantId_surface_surfaceThreadKey: {
+          assistantId: input.assistantId,
+          surface,
+          surfaceThreadKey
+        }
+      },
+      select: {
+        id: true,
+        workspaceId: true
+      }
+    });
+    return chat;
+  }
+
   private async resolveAssistantWorkspaceId(assistantId: string): Promise<string | null> {
     const assistant = await this.prisma.assistant.findUnique({
       where: { id: assistantId },
@@ -1235,6 +1499,16 @@ export class OrchestrateRuntimeRetrievalService {
       channel,
       surfaceThreadKey
     };
+  }
+
+  private parseGatherProfile(value: unknown): "project" | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (value === "project") {
+      return "project";
+    }
+    throw new BadRequestException("gatherProfile is invalid.");
   }
 
   private asPolicyState(value: unknown): OrchestratedPolicyState | null {

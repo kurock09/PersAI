@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { BadRequestException } from "@nestjs/common";
 import { describe, test } from "node:test";
 import { AssistantRuntimeError } from "../src/modules/workspace-management/application/assistant-runtime.facade";
 import { ManageWebChatListService } from "../src/modules/workspace-management/application/manage-web-chat-list.service";
@@ -676,6 +677,35 @@ describe("ManageWebChatListService", () => {
         error instanceof AssistantRuntimeError &&
         error.code === "compaction_unavailable" &&
         error.message.includes('try "Compress now" again')
+    );
+  });
+
+  test("parseUpdateInput maps project chatMode to deep mode", () => {
+    const { service } = createService();
+
+    assert.deepEqual(service.parseUpdateInput({ chatMode: "project" }), {
+      chatMode: "project",
+      deepModeEnabled: true
+    });
+  });
+
+  test("parseUpdateInput maps normal chatMode off deep mode", () => {
+    const { service } = createService();
+
+    assert.deepEqual(service.parseUpdateInput({ chatMode: "normal" }), {
+      chatMode: "normal",
+      deepModeEnabled: false
+    });
+  });
+
+  test("parseUpdateInput rejects conflicting chatMode and deepModeEnabled", () => {
+    const { service } = createService();
+
+    assert.throws(
+      () => service.parseUpdateInput({ chatMode: "project", deepModeEnabled: false }),
+      (error) =>
+        error instanceof BadRequestException &&
+        error.message.includes("chatMode conflicts with deepModeEnabled")
     );
   });
 });

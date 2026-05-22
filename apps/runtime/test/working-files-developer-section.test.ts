@@ -74,6 +74,63 @@ describe("TurnExecutionService working-files developer section", () => {
     assert.match(refreshed ?? "", /## Open Media Jobs/);
   });
 
+  test("working files section shows bounded semantic hints without dumping previews", () => {
+    const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
+    const section = (
+      service as unknown as {
+        buildWorkingFilesDeveloperSection(
+          availableWorkingFileRefs: Array<{
+            fileRef: string;
+            origin: string;
+            sourceToolCode: string | null;
+            objectKey: string;
+            relativePath: string;
+            displayName: string;
+            mimeType: string;
+            sizeBytes: number;
+            logicalSizeBytes: number;
+            aliases: string[];
+            semanticSummaryHint?: string | null;
+          }>
+        ): string | null;
+      }
+    ).buildWorkingFilesDeveloperSection([
+      {
+        fileRef: "file-ref-weak",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "assistant-media/uploads/file.bin",
+        relativePath: "uploads/file.bin",
+        displayName: "file.bin",
+        mimeType: "application/pdf",
+        sizeBytes: 100,
+        logicalSizeBytes: 100,
+        aliases: ["previous attachment #1"],
+        semanticSummaryHint:
+          "Quarterly revenue breakdown by region with notes about EMEA slowdown and APAC expansion targets for the next fiscal year."
+      },
+      {
+        fileRef: "file-ref-strong",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "assistant-media/uploads/revenue-q2.pdf",
+        relativePath: "uploads/revenue-q2.pdf",
+        displayName: "revenue-q2.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 200,
+        logicalSizeBytes: 200,
+        aliases: ["previous attachment #2"],
+        semanticSummaryHint: "Should not appear because filename is descriptive."
+      }
+    ]);
+
+    assert.ok(section);
+    assert.match(section ?? "", /— Quarterly revenue breakdown/);
+    assert.doesNotMatch(section ?? "", /EMEA slowdown and APAC expansion targets/);
+    assert.doesNotMatch(section ?? "", /revenue-q2\.pdf.*—/);
+    assert.doesNotMatch(section ?? "", /contentPreview|fileRef|objectKey/);
+  });
+
   test("working files section caps model-visible files and avoids raw technical identifier wording", () => {
     const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
     const section = (

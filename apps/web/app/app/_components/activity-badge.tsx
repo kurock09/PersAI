@@ -142,7 +142,22 @@ const ACTIVITY_LABEL_KEYS: Record<string, string> = {
   retrieval_user_started: "activityRetrievalUserStart",
   retrieval_product_started: "activityRetrievalProductStart",
   retrieval_web_started: "activityRetrievalWebStart",
-  response_generated: "activityResponseDone"
+  response_generated: "activityResponseDone",
+  project_stage_plan_started: "activityProjectStagePlanStart",
+  project_stage_plan_completed: "activityProjectStagePlanDone",
+  project_stage_gather_started: "activityProjectStageGatherStart",
+  project_stage_gather_completed: "activityProjectStageGatherDone",
+  project_stage_analyze_started: "activityProjectStageAnalyzeStart",
+  project_stage_analyze_completed: "activityProjectStageAnalyzeDone",
+  project_stage_replan_started: "activityProjectStageReplanStart",
+  project_stage_synthesize_started: "activityProjectStageSynthesizeStart",
+  project_reasoning_plan: "activityProjectReasoningPlan",
+  project_reasoning_check: "activityProjectReasoningCheck",
+  project_reasoning_gap: "activityProjectReasoningGap",
+  project_reasoning_conflict: "activityProjectReasoningConflict",
+  project_reasoning_interim: "activityProjectReasoningInterim",
+  project_reasoning_replan: "activityProjectReasoningReplan",
+  project_reasoning_synthesis: "activityProjectReasoningSynthesis"
 };
 
 export function ActivityBadge({

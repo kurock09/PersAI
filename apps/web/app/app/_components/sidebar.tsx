@@ -17,6 +17,7 @@ import {
   Pencil,
   Archive,
   Trash2,
+  FolderKanban,
   Sparkles,
   Sun,
   Moon,
@@ -48,6 +49,7 @@ import {
   useIsThreadStreaming
 } from "./streaming-threads";
 import { PullToRefresh } from "./pull-to-refresh";
+import { ProjectFilesPanel } from "./project-files-panel";
 
 interface SidebarProps {
   onClose?: () => void;
@@ -211,6 +213,15 @@ export function Sidebar({
         older: t("older")
       })
     : [];
+  const activeProjectChat =
+    mounted && activeThread
+      ? data.chats.find(
+          (item) =>
+            item.chat.surfaceThreadKey === activeThread &&
+            item.chat.archivedAt === null &&
+            item.chat.chatMode === "project"
+        )
+      : undefined;
   const guardedNavigate = useCallback(
     async (navigate: () => void) => {
       if (!isOnline) {
@@ -364,6 +375,8 @@ export function Sidebar({
         }
         return <div className="flex-1 overflow-y-auto px-3">{chatListContent}</div>;
       })()}
+
+      {activeProjectChat ? <ProjectFilesPanel chatId={activeProjectChat.chat.id} /> : null}
 
       {/* Bottom: single account row, everything else lives behind the popup */}
       <div className="shrink-0 border-t border-border p-2" suppressHydrationWarning>
@@ -945,13 +958,21 @@ function ChatListItem({
                 className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent"
               />
             )}
-            {item.chat.deepModeEnabled && (
+            {item.chat.chatMode !== "normal" && (
               <span
-                title={t("deepModeBadge")}
-                aria-label={t("deepModeBadge")}
+                title={
+                  item.chat.chatMode === "project" ? t("projectModeBadge") : t("deepModeBadge")
+                }
+                aria-label={
+                  item.chat.chatMode === "project" ? t("projectModeBadge") : t("deepModeBadge")
+                }
                 className="inline-flex shrink-0 items-center text-accent-premium/70"
               >
-                <Sparkles className="h-3 w-3" />
+                {item.chat.chatMode === "project" ? (
+                  <FolderKanban className="h-3 w-3" />
+                ) : (
+                  <Sparkles className="h-3 w-3" />
+                )}
               </span>
             )}
           </span>

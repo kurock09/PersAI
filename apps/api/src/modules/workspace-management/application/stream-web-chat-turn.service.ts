@@ -4,6 +4,7 @@ import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
+import type { AssistantChatMode } from "../domain/assistant-chat.entity";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -86,6 +87,7 @@ export interface StreamWebChatTurnRequest {
   surfaceThreadKey: string;
   message: string;
   title?: string | null;
+  chatMode?: AssistantChatMode;
   deepModeEnabled?: boolean;
   clientTurnId?: string;
   welcomeTurn?: boolean;
@@ -238,6 +240,7 @@ export class StreamWebChatTurnService {
         surfaceThreadKey: request.surfaceThreadKey,
         message: request.message,
         ...(request.title !== undefined ? { title: request.title } : {}),
+        ...(request.chatMode === undefined ? {} : { chatMode: request.chatMode }),
         ...(request.deepModeEnabled === undefined
           ? {}
           : { deepModeEnabled: request.deepModeEnabled }),
@@ -289,6 +292,19 @@ export class StreamWebChatTurnService {
         resultCount: number;
         skillName?: string | null;
         skillIconEmoji?: string | null;
+      }) => void;
+      onProjectActivity?: (payload: {
+        stage: "plan" | "gather" | "analyze" | "replan" | "synthesize";
+        status: "started" | "completed";
+        summary: string;
+        detail?: string | null;
+        sourceClass?: "files" | "skill" | "knowledge" | "web" | "tool" | null;
+        resultCount?: number | null;
+      }) => void;
+      onProjectReasoningSummary?: (payload: {
+        kind: "plan" | "check" | "gap" | "conflict" | "interim" | "replan" | "synthesis";
+        summary: string;
+        detail?: string | null;
       }) => void;
       onDone: (respondedAt: string) => void;
       /**
@@ -364,6 +380,7 @@ export class StreamWebChatTurnService {
       userTimezone: prepared.workspaceTimezone,
       currentTimeIso,
       skillStateContext,
+      chatMode: prepared.chat.chatMode,
       deepMode: prepared.chat.deepModeEnabled,
       ...(prepared.quotaDegradeModelOverride
         ? {
@@ -835,6 +852,7 @@ export class StreamWebChatTurnService {
             surface: refreshedChat.surface,
             surfaceThreadKey: refreshedChat.surfaceThreadKey,
             title: refreshedChat.title,
+            chatMode: refreshedChat.chatMode,
             deepModeEnabled: refreshedChat.deepModeEnabled,
             skillDecisionState: refreshedChat.skillDecisionState,
             skillCadenceState: refreshedChat.skillCadenceState,
@@ -946,6 +964,7 @@ export class StreamWebChatTurnService {
     userTimezone: string;
     currentTimeIso: string;
     skillStateContext?: StreamNativeWebChatTurnInput["skillStateContext"];
+    chatMode?: StreamNativeWebChatTurnInput["chatMode"];
     deepMode?: StreamNativeWebChatTurnInput["deepMode"];
     modelRoleOverride?: StreamNativeWebChatTurnInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic";
@@ -968,6 +987,7 @@ export class StreamWebChatTurnService {
       ...(input.skillStateContext === undefined
         ? {}
         : { skillStateContext: input.skillStateContext }),
+      ...(input.chatMode === undefined ? {} : { chatMode: input.chatMode }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
         ? {}
@@ -1050,6 +1070,19 @@ export class StreamWebChatTurnService {
         resultCount: number;
         skillName?: string | null;
         skillIconEmoji?: string | null;
+      }) => void;
+      onProjectActivity?: (payload: {
+        stage: "plan" | "gather" | "analyze" | "replan" | "synthesize";
+        status: "started" | "completed";
+        summary: string;
+        detail?: string | null;
+        sourceClass?: "files" | "skill" | "knowledge" | "web" | "tool" | null;
+        resultCount?: number | null;
+      }) => void;
+      onProjectReasoningSummary?: (payload: {
+        kind: "plan" | "check" | "gap" | "conflict" | "interim" | "replan" | "synthesis";
+        summary: string;
+        detail?: string | null;
       }) => void;
       onDone: (respondedAt: string) => void;
     };
@@ -1217,6 +1250,42 @@ export class StreamWebChatTurnService {
             ...(chunk.activitySkillIconEmoji === undefined
               ? {}
               : { skillIconEmoji: chunk.activitySkillIconEmoji })
+          });
+        }
+
+        if (
+          chunk.type === "project_activity" &&
+          chunk.projectStage !== undefined &&
+          chunk.projectStatus !== undefined &&
+          typeof chunk.projectSummary === "string"
+        ) {
+          watchdog.recordActivity();
+          input.callbacks.onProjectActivity?.({
+            stage: chunk.projectStage,
+            status: chunk.projectStatus,
+            summary: chunk.projectSummary,
+            ...(chunk.projectDetail === undefined ? {} : { detail: chunk.projectDetail }),
+            ...(chunk.projectSourceClass === undefined
+              ? {}
+              : { sourceClass: chunk.projectSourceClass }),
+            ...(chunk.projectResultCount === undefined
+              ? {}
+              : { resultCount: chunk.projectResultCount })
+          });
+        }
+
+        if (
+          chunk.type === "project_reasoning_summary" &&
+          chunk.projectReasoningKind !== undefined &&
+          typeof chunk.projectReasoningSummary === "string"
+        ) {
+          watchdog.recordActivity();
+          input.callbacks.onProjectReasoningSummary?.({
+            kind: chunk.projectReasoningKind,
+            summary: chunk.projectReasoningSummary,
+            ...(chunk.projectReasoningDetail === undefined
+              ? {}
+              : { detail: chunk.projectReasoningDetail })
           });
         }
 
@@ -1537,6 +1606,7 @@ export class StreamWebChatTurnService {
         surface: chat.surface,
         surfaceThreadKey: chat.surfaceThreadKey,
         title: chat.title,
+        chatMode: chat.chatMode,
         deepModeEnabled: chat.deepModeEnabled,
         skillDecisionState: chat.skillDecisionState,
         skillCadenceState: chat.skillCadenceState,
@@ -1719,6 +1789,7 @@ export class StreamWebChatTurnService {
           surface: refreshedChat.surface,
           surfaceThreadKey: refreshedChat.surfaceThreadKey,
           title: refreshedChat.title,
+          chatMode: refreshedChat.chatMode,
           deepModeEnabled: refreshedChat.deepModeEnabled,
           skillDecisionState: refreshedChat.skillDecisionState,
           skillCadenceState: refreshedChat.skillCadenceState,

@@ -157,7 +157,17 @@ export interface AssistantRuntimeSetupPreviewTurnResult {
 }
 
 export interface AssistantRuntimeWebChatTurnStreamChunk {
-  type: "delta" | "thinking" | "done" | "failed" | "media" | "compaction" | "tool" | "activity";
+  type:
+    | "delta"
+    | "thinking"
+    | "done"
+    | "failed"
+    | "media"
+    | "compaction"
+    | "tool"
+    | "activity"
+    | "project_activity"
+    | "project_reasoning_summary";
   delta?: string;
   accumulated?: string;
   respondedAt?: string;
@@ -180,6 +190,15 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   activityResultCount?: number;
   activitySkillName?: string | null;
   activitySkillIconEmoji?: string | null;
+  projectStage?: "plan" | "gather" | "analyze" | "replan" | "synthesize";
+  projectStatus?: "started" | "completed";
+  projectSummary?: string;
+  projectDetail?: string | null;
+  projectSourceClass?: "files" | "skill" | "knowledge" | "web" | "tool" | null;
+  projectResultCount?: number | null;
+  projectReasoningKind?: "plan" | "check" | "gap" | "conflict" | "interim" | "replan" | "synthesis";
+  projectReasoningSummary?: string;
+  projectReasoningDetail?: string | null;
   runtimeTrace?: {
     scope: string;
     status: string;

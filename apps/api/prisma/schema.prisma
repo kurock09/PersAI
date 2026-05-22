@@ -44,6 +44,12 @@ enum AssistantChatSurface {
   telegram
 }
 
+enum AssistantChatMode {
+  normal
+  smart
+  project
+}
+
 enum AssistantMediaJobKind {
   image
   audio
@@ -668,6 +674,7 @@ model Workspace {
   subscriptionBillingEvents         WorkspaceSubscriptionBillingEvent[]
   paymentIntents                    WorkspacePaymentIntent[]
   mediaJobs                         AssistantMediaJob[]
+  uploadMicroDescriptionJobs        AssistantUploadMicroDescriptionJob[]
   voiceTranscriptionEvents          AssistantVoiceTranscriptionEvent[]
   documents                         AssistantDocument[]
   documentVersions                  AssistantDocumentVersion[]
@@ -779,6 +786,7 @@ model Assistant {
   supportTickets                       SupportTicket[]
   webChatTurnAttempts                  AssistantWebChatTurnAttempt[]
   mediaJobs                            AssistantMediaJob[]
+  uploadMicroDescriptionJobs           AssistantUploadMicroDescriptionJob[]
   voiceTranscriptionEvents             AssistantVoiceTranscriptionEvent[]
   telegramAlbumCollectors              AssistantTelegramAlbumCollector[]
   documents                            AssistantDocument[]
@@ -1750,6 +1758,7 @@ model AssistantFile {
   sandboxJob       SandboxJob?       @relation(fields: [sandboxJobId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   chatAttachments  AssistantChatMessageAttachment[]
   documentDeliveredFiles AssistantDocumentDeliveredFile[]
+  uploadMicroDescriptionJobs AssistantUploadMicroDescriptionJob[]
 
   @@unique([assistantId, workspaceId, origin, objectKey])
   @@index([assistantId, createdAt(sort: Desc)])
@@ -1767,6 +1776,7 @@ model AssistantChat {
   surface                     AssistantChatSurface
   surfaceThreadKey            String                           @map("surface_thread_key")
   title                       String?
+  chatMode                    AssistantChatMode                 @default(normal) @map("chat_mode")
   deepModeEnabled             Boolean                          @default(false) @map("deep_mode_enabled")
   skillDecisionState          Json?                             @map("skill_decision_state") @db.JsonB
   skillCadenceState           Json?                             @map("skill_cadence_state") @db.JsonB
@@ -1920,6 +1930,38 @@ model AssistantMediaJob {
   @@index([workspaceId, status, updatedAt])
   @@index([status, updatedAt])
   @@map("assistant_media_jobs")
+}
+
+model AssistantUploadMicroDescriptionJob {
+  id                        String                                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId               String                                  @map("assistant_id") @db.Uuid
+  workspaceId               String                                  @map("workspace_id") @db.Uuid
+  assistantFileId           String                                  @unique @map("assistant_file_id") @db.Uuid
+  sourceAttachmentId        String?                                 @map("source_attachment_id") @db.Uuid
+  status                    AssistantUploadMicroDescriptionJobStatus @default(queued)
+  attemptCount              Int                                     @default(0) @map("attempt_count")
+  maxAttempts               Int                                     @default(3) @map("max_attempts")
+  nextRetryAt               DateTime?                               @map("next_retry_at") @db.Timestamptz(6)
+  schedulerClaimToken       String?                                 @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimedAt        DateTime?                               @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt   DateTime?                               @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  startedAt                 DateTime?                               @map("started_at") @db.Timestamptz(6)
+  usageJson                 Json?                                   @map("usage_json") @db.JsonB
+  usageOccurredAt           DateTime?                               @map("usage_occurred_at") @db.Timestamptz(6)
+  completedAt               DateTime?                               @map("completed_at") @db.Timestamptz(6)
+  failedAt                  DateTime?                               @map("failed_at") @db.Timestamptz(6)
+  lastErrorMessage          String?                                 @map("last_error_message") @db.Text
+  createdAt                 DateTime                                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime                                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant                 Assistant                               @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace                 Workspace                               @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistantFile             AssistantFile                           @relation(fields: [assistantFileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([assistantId, status, updatedAt])
+  @@index([workspaceId, status, updatedAt])
+  @@index([status, updatedAt])
+  @@index([status, nextRetryAt, createdAt])
+  @@map("assistant_upload_micro_description_jobs")
 }
 
 model AssistantTelegramAlbumCollector {
@@ -2859,6 +2901,13 @@ model AssistantBackgroundCompactionJob {
 enum AssistantBackgroundCompactionJobStatus {
   pending
   in_progress
+  completed
+  failed
+}
+
+enum AssistantUploadMicroDescriptionJobStatus {
+  queued
+  running
   completed
   failed
 }

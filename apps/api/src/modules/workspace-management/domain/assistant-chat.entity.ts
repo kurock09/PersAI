@@ -1,4 +1,15 @@
 export type AssistantChatSurface = "web" | "telegram";
+export type AssistantChatMode = "normal" | "smart" | "project";
+
+export const ASSISTANT_CHAT_MODES = ["normal", "smart", "project"] as const;
+
+export function isAssistantChatMode(value: unknown): value is AssistantChatMode {
+  return typeof value === "string" && (ASSISTANT_CHAT_MODES as readonly string[]).includes(value);
+}
+
+export function chatModeToDeepModeEnabled(mode: AssistantChatMode): boolean {
+  return mode !== "normal";
+}
 
 export type AssistantChatSkillDecisionState = {
   status: "inactive" | "active";
@@ -48,6 +59,7 @@ export type AssistantChat = {
   surface: AssistantChatSurface;
   surfaceThreadKey: string;
   title: string | null;
+  chatMode: AssistantChatMode;
   deepModeEnabled: boolean;
   skillDecisionState: AssistantChatSkillDecisionState | null;
   skillCadenceState: AssistantChatSkillCadenceState | null;

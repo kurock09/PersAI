@@ -20,8 +20,13 @@ import { PersaiMediaObjectStorageService } from "./media/persai-media-object-sto
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
-import { buildStoredAttachmentMetadata } from "./media/media.types";
+import {
+  buildStoredAttachmentMetadata,
+  readStoredAttachmentSemanticSummary,
+  readStoredAttachmentSemanticSummarySource
+} from "./media/media.types";
 import { AssistantFileRegistryService } from "./assistant-file-registry.service";
+import { AssistantUploadMicroDescriptionJobService } from "./assistant-upload-micro-description-job.service";
 import {
   createAssistantInboundConflict,
   createMediaStorageQuotaExceededError
@@ -62,6 +67,7 @@ export class ManageChatMediaService {
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly assistantFileRegistryService: AssistantFileRegistryService,
+    private readonly assistantUploadMicroDescriptionJobService: AssistantUploadMicroDescriptionJobService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly prisma: WorkspaceManagementPrismaService
@@ -180,7 +186,8 @@ export class ManageChatMediaService {
       billingFacts: processed?.billingFacts ?? null,
       metadata: buildStoredAttachmentMetadata({
         source: "chat_upload",
-        textExtract: processed?.textExtract ?? null
+        textExtract: processed?.textExtract ?? null,
+        transcription: processed?.transcription ?? null
       })
     });
     await this.attachCanonicalFileRef({
@@ -188,6 +195,13 @@ export class ManageChatMediaService {
       objectKey: uploadResult.objectKey,
       buffer: fileBuffer,
       source: "chat_upload"
+    });
+    await this.assistantUploadMicroDescriptionJobService.enqueueIfNeeded({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      chatMode: chat.chatMode,
+      attachmentId: attachment.id,
+      assistantFileId: attachment.assistantFileId
     });
 
     const ledgerSurface = this.resolveLedgerSurface(chat.surface);
@@ -339,7 +353,8 @@ export class ManageChatMediaService {
         billingFacts: processed?.billingFacts ?? null,
         metadata: buildStoredAttachmentMetadata({
           source: "web_staged_upload",
-          textExtract: processed?.textExtract ?? null
+          textExtract: processed?.textExtract ?? null,
+          transcription: processed?.transcription ?? null
         }),
         clientTurnId: params.clientTurnId?.trim() || null,
         clientAttachmentId: params.clientAttachmentId?.trim() || null
@@ -350,6 +365,15 @@ export class ManageChatMediaService {
         buffer: fileBuffer,
         source: "web_staged_upload"
       });
+      if (chatResult.outcome === "existing" && chat.chatMode === "project") {
+        await this.assistantUploadMicroDescriptionJobService.enqueueIfNeeded({
+          assistantId: assistant.id,
+          workspaceId: assistant.workspaceId,
+          chatMode: chat.chatMode,
+          attachmentId: attachment.id,
+          assistantFileId: attachment.assistantFileId
+        });
+      }
 
       const ledgerSurface = this.resolveLedgerSurface(chat.surface);
       if (ledgerSurface !== null) {
@@ -555,6 +579,7 @@ export class ManageChatMediaService {
     buffer: Buffer;
     source: "chat_upload" | "web_staged_upload";
   }): Promise<void> {
+    const attachmentMetadata = this.asAttachmentMetadataObject(input.attachment.metadata);
     input.attachment.assistantFileId = (
       await this.assistantFileRegistryService.ensureAttachmentFile({
         assistantId: input.attachment.assistantId,
@@ -568,7 +593,9 @@ export class ManageChatMediaService {
         mimeType: input.attachment.mimeType,
         sizeBytes: input.attachment.sizeBytes,
         contentBuffer: input.buffer,
-        source: input.source
+        source: input.source,
+        semanticSummary: readStoredAttachmentSemanticSummary(attachmentMetadata),
+        semanticSummarySource: readStoredAttachmentSemanticSummarySource(attachmentMetadata)
       })
     ).fileRef;
   }
@@ -606,6 +633,14 @@ export class ManageChatMediaService {
         );
       }
     }
+  }
+
+  private asAttachmentMetadataObject(
+    metadata: AssistantChatMessageAttachment["metadata"]
+  ): Record<string, unknown> | null {
+    return metadata !== null && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, unknown>)
+      : null;
   }
 
   private async preprocessUploadBestEffort(input: {

@@ -103,6 +103,7 @@ async function run(): Promise<void> {
             mode: "shadow",
             classifierFailureFallbackMode: "normal",
             clarifyOnMissingContext: true,
+            analyzeUploadsOnB2cUpload: false,
             precheckRuleOverrides: null
           },
           availableModelsByProvider: { openai: ["gpt-5.1"], anthropic: [] },

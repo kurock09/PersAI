@@ -1,6 +1,7 @@
 import type { AssistantChatMessage } from "./assistant-chat-message.entity";
 import type {
   AssistantChat,
+  AssistantChatMode,
   AssistantChatSkillCadenceState,
   AssistantChatSkillDecisionState,
   AssistantChatSkillRetrievalState,
@@ -16,6 +17,7 @@ export type CreateAssistantChatInput = {
   surface: AssistantChatSurface;
   surfaceThreadKey: string;
   title: string | null;
+  chatMode?: AssistantChatMode;
   deepModeEnabled?: boolean;
 };
 
@@ -42,6 +44,7 @@ export type AssistantChatListMetadata = {
 
 export type UpdateAssistantChatInput = {
   title?: string | null;
+  chatMode?: AssistantChatMode;
   deepModeEnabled?: boolean;
   skillDecisionState?: AssistantChatSkillDecisionState | null;
   skillCadenceState?: AssistantChatSkillCadenceState | null;

@@ -8,6 +8,8 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowDown,
+  ChevronDown,
+  FolderKanban,
   X,
   Pencil,
   Check,
@@ -24,6 +26,7 @@ import { ChatInput, type ChatInputHandle } from "./chat-input";
 import { ActivityBadge } from "./activity-badge";
 import { AssistantAvatar } from "./assistant-avatar";
 import {
+  type AssistantChatMode,
   patchAssistantWebChat,
   postAssistantMemoryDoNotRemember,
   transcribeVoice
@@ -34,6 +37,7 @@ import type { UseChatReturn } from "./use-chat";
 interface ChatAreaProps {
   chat: UseChatReturn;
   title?: string | undefined;
+  chatMode?: AssistantChatMode | undefined;
   deepModeEnabled?: boolean | undefined;
   assistantReady?: boolean | undefined;
   assistantName?: string | undefined;
@@ -66,6 +70,7 @@ function isMediaPackageBillingReturn(planCode: string | undefined): boolean {
 export function ChatArea({
   chat,
   title,
+  chatMode: initialChatMode,
   deepModeEnabled = false,
   assistantReady = true,
   assistantName,
@@ -89,7 +94,9 @@ export function ChatArea({
   const chatInputRef = useRef<ChatInputHandle>(null);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
-  const [deepMode, setDeepMode] = useState(deepModeEnabled);
+  const [chatMode, setChatMode] = useState<AssistantChatMode>(
+    initialChatMode ?? (deepModeEnabled ? "smart" : "normal")
+  );
   const [forgottenIds, setForgottenIds] = useState<Set<string>>(new Set());
   const [compactionBannerSnoozedUntilCount, setCompactionBannerSnoozedUntilCount] = useState(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -379,8 +386,8 @@ export function ChatArea({
   }, [chat.chatId]);
 
   useEffect(() => {
-    setDeepMode(deepModeEnabled);
-  }, [chat.chatId, deepModeEnabled]);
+    setChatMode(initialChatMode ?? (deepModeEnabled ? "smart" : "normal"));
+  }, [chat.chatId, initialChatMode, deepModeEnabled]);
 
   useLayoutEffect(() => {
     if (scrollStateChatIdRef.current === chat.chatId) return;
@@ -393,9 +400,10 @@ export function ChatArea({
     setShowScrollToBottom(false);
   }, [chat.chatId]);
 
-  const handleDeepModeChange = useCallback(
-    async (enabled: boolean) => {
-      setDeepMode(enabled);
+  const handleChatModeChange = useCallback(
+    async (nextMode: AssistantChatMode) => {
+      const previousMode = chatMode;
+      setChatMode(nextMode);
       if (!chat.chatId) {
         return;
       }
@@ -404,13 +412,13 @@ export function ChatArea({
         return;
       }
       try {
-        await patchAssistantWebChat(token, chat.chatId, { deepModeEnabled: enabled });
+        await patchAssistantWebChat(token, chat.chatId, { chatMode: nextMode });
         onTitleChanged?.();
       } catch {
-        setDeepMode(!enabled);
+        setChatMode(previousMode);
       }
     },
-    [chat.chatId, getToken, onTitleChanged]
+    [chat.chatId, chatMode, getToken, onTitleChanged]
   );
 
   return (
@@ -471,24 +479,25 @@ export function ChatArea({
                     </button>
                   )}
                 </div>
-                {deepMode && (
+                {chatMode !== "normal" && (
                   // Subtitle is desktop-only on purpose: on mobile the
                   // Sparkles pill on the right already carries the
                   // "premium / costs more" signal; doubling it here would
                   // turn a 280px header into noise.
                   <span className="mt-0.5 hidden items-center gap-1 text-[10px] font-medium tracking-wide text-accent-premium/80 md:inline-flex">
-                    <Sparkles className="h-2.5 w-2.5 animate-pulse" />
-                    <span className="truncate">{t("modeDeepCaption")}</span>
+                    {chatMode === "project" ? (
+                      <FolderKanban className="h-2.5 w-2.5 text-accent-premium" />
+                    ) : (
+                      <Sparkles className="h-2.5 w-2.5 animate-pulse" />
+                    )}
+                    <span className="truncate">
+                      {chatMode === "project" ? t("modeProjectCaption") : t("modeDeepCaption")}
+                    </span>
                   </span>
                 )}
               </div>
             )}
           </div>
-          <ChatModeToggle
-            enabled={deepMode}
-            disabled={!assistantReady || chat.isStreaming}
-            onChange={(enabled) => void handleDeepModeChange(enabled)}
-          />
         </div>
       </header>
 
@@ -615,6 +624,15 @@ export function ChatArea({
                 </p>
                 <p className="mt-0.5 text-xs text-text-muted">
                   {t("issueCompactionUnavailableGuidance")}
+                </p>
+              </>
+            ) : chat.issue.classId === "provider_failure" ? (
+              <>
+                <p className={`text-sm font-medium ${issueTextClass}`}>
+                  {t("issueProviderFailure")}
+                </p>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  {t("issueProviderFailureGuidance")}
                 </p>
               </>
             ) : (
@@ -814,13 +832,23 @@ export function ChatArea({
           </div>
         </div>
       ) : null}
+      <div className="px-3 md:px-4">
+        <div className="mx-auto mb-2 flex w-full max-w-[50rem] justify-start">
+          <ChatModeToggle
+            mode={chatMode}
+            disabled={!assistantReady || chat.isStreaming}
+            onChange={(mode) => void handleChatModeChange(mode)}
+          />
+        </div>
+      </div>
       <ChatInput
         ref={chatInputRef}
         onSend={(text, files, options) => {
           onUserSend?.();
           return void chat.send(text, files, {
             ...(options ?? {}),
-            ...(deepMode ? { deepModeEnabled: true } : {})
+            chatMode,
+            deepModeEnabled: chatMode !== "normal"
           });
         }}
         onTranscribeVoice={async (blob, filename) => {
@@ -840,70 +868,217 @@ export function ChatArea({
   );
 }
 
+const CHAT_MODES: AssistantChatMode[] = ["normal", "smart", "project"];
+
+function chatModeLabel(t: ReturnType<typeof useTranslations>, mode: AssistantChatMode): string {
+  switch (mode) {
+    case "project":
+      return t("modeProjectLabel");
+    case "smart":
+      return t("modeDeepLabel");
+    default:
+      return t("modeNormalLabel");
+  }
+}
+
+function chatModeCaption(t: ReturnType<typeof useTranslations>, mode: AssistantChatMode): string {
+  switch (mode) {
+    case "project":
+      return t("modeProjectCaption");
+    case "smart":
+      return t("modeDeepCaption");
+    default:
+      return t("modeNormalCaption");
+  }
+}
+
+function ChatModeIcon({ mode, className }: { mode: AssistantChatMode; className?: string }) {
+  if (mode === "project") {
+    return <FolderKanban className={className} />;
+  }
+  if (mode === "smart") {
+    return <Sparkles className={cn(className, "animate-pulse")} />;
+  }
+  return <MessageSquare className={className} />;
+}
+
 function ChatModeToggle({
-  enabled,
+  mode,
   disabled,
   onChange
 }: {
-  enabled: boolean;
+  mode: AssistantChatMode;
   disabled?: boolean;
-  onChange: (enabled: boolean) => void;
+  onChange: (mode: AssistantChatMode) => void;
 }) {
   const t = useTranslations("chat");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (menuRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  const selectMode = useCallback(
+    (nextMode: AssistantChatMode) => {
+      setMenuOpen(false);
+      onChange(nextMode);
+    },
+    [onChange]
+  );
+
+  const pillClass = (active: boolean, premium?: boolean) =>
+    cn(
+      "inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all",
+      active
+        ? premium
+          ? "bg-accent-premium/12 text-accent-premium ring-1 ring-accent-premium/25"
+          : "bg-surface text-text shadow-sm"
+        : "text-text-muted hover:text-text",
+      disabled && "cursor-not-allowed opacity-50"
+    );
 
   return (
     <div className="shrink-0">
-      {/*
-       * Outer capsule chrome (segmented background, ring, backdrop blur,
-       * eyelash shadow) is desktop-only: on mobile the Normal pill is
-       * hidden and the single Sparkles pill carries its own premium
-       * styling, so the outer capsule would become a redundant
-       * "capsule-in-a-capsule" wrapper around one tiny control.
-       */}
-      <div
-        className="inline-flex md:rounded-xl md:bg-surface-raised/70 md:p-0.5 md:shadow-[0_1px_0_rgba(0,0,0,0.04)] md:ring-1 md:ring-border/60 md:backdrop-blur-sm"
-        title={enabled ? t("modeDeepCaption") : t("modeNormalCaption")}
-      >
-        {/*
-         * "Normal" pill is hidden on phones to keep the chat header narrow:
-         * on touch viewports the single "Smart" pill toggles on/off in one
-         * tap (off = normal mode). On desktop the two-pill segmented
-         * control is preserved.
-         */}
+      {/* Mobile: one compact chip opens a 3-mode menu */}
+      <div className="relative md:hidden">
         <button
+          ref={triggerRef}
           type="button"
-          aria-pressed={!enabled}
           disabled={disabled}
-          onClick={() => onChange(false)}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label={t("modeMenuAria", { mode: chatModeLabel(t, mode) })}
+          title={chatModeCaption(t, mode)}
+          onClick={() => setMenuOpen((open) => !open)}
           className={cn(
-            "hidden items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold transition-all md:inline-flex md:text-[11px]",
-            !enabled ? "bg-surface text-text shadow-sm" : "text-text-muted hover:text-text",
+            "inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface-raised/90 px-2.5 py-1 text-[11px] font-semibold text-text shadow-sm backdrop-blur-sm transition-colors",
+            mode !== "normal" && "border-accent-premium/25 text-accent-premium",
             disabled && "cursor-not-allowed opacity-50"
           )}
+        >
+          <ChatModeIcon
+            mode={mode}
+            className={cn(
+              "h-3.5 w-3.5",
+              mode === "normal" ? "text-text-muted" : "text-accent-premium"
+            )}
+          />
+          <span>{chatModeLabel(t, mode)}</span>
+          <ChevronDown
+            className={cn(
+              "h-3 w-3 text-text-subtle transition-transform",
+              menuOpen && "rotate-180"
+            )}
+          />
+        </button>
+        {menuOpen && (
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label={t("modeMenuAria", { mode: chatModeLabel(t, mode) })}
+            className="absolute bottom-full left-0 z-30 mb-2 min-w-[11rem] rounded-xl border border-border bg-surface-raised p-1 shadow-xl backdrop-blur-sm"
+          >
+            {CHAT_MODES.map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="menuitem"
+                aria-current={mode === option ? "true" : undefined}
+                disabled={disabled}
+                onClick={() => selectMode(option)}
+                className={cn(
+                  "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold transition-colors",
+                  mode === option
+                    ? option === "normal"
+                      ? "bg-surface text-text"
+                      : "bg-accent-premium/10 text-accent-premium"
+                    : "text-text-muted hover:bg-surface-hover hover:text-text",
+                  disabled && "cursor-not-allowed opacity-50"
+                )}
+              >
+                <ChatModeIcon
+                  mode={option}
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0",
+                    option === "normal" ? "text-text-muted" : "text-accent-premium"
+                  )}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block">{chatModeLabel(t, option)}</span>
+                  <span className="block text-[10px] font-normal text-text-subtle">
+                    {chatModeCaption(t, option)}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop: three-state segmented control above the composer */}
+      <div
+        className="hidden md:inline-flex md:rounded-xl md:bg-surface-raised/70 md:p-0.5 md:shadow-[0_1px_0_rgba(0,0,0,0.04)] md:ring-1 md:ring-border/60 md:backdrop-blur-sm"
+        title={chatModeCaption(t, mode)}
+      >
+        <button
+          type="button"
+          aria-pressed={mode === "normal"}
+          disabled={disabled}
+          onClick={() => onChange("normal")}
+          className={pillClass(mode === "normal")}
         >
           <MessageSquare className="h-3 w-3" />
           <span>{t("modeNormalLabel")}</span>
         </button>
         <button
           type="button"
-          aria-pressed={enabled}
+          aria-pressed={mode === "smart"}
           disabled={disabled}
-          onClick={() => onChange(!enabled)}
-          className={cn(
-            "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold transition-all md:text-[11px]",
-            enabled
-              ? "bg-accent-premium/12 text-accent-premium ring-1 ring-accent-premium/25"
-              : "text-text-muted hover:text-text",
-            disabled && "cursor-not-allowed opacity-50"
-          )}
+          onClick={() => onChange("smart")}
+          className={pillClass(mode === "smart", true)}
         >
           <Sparkles
             className={cn(
               "h-3 w-3",
-              enabled ? "animate-pulse text-accent-premium" : "text-accent-premium/45"
+              mode === "smart" ? "animate-pulse text-accent-premium" : "text-accent-premium/45"
             )}
           />
           <span>{t("modeDeepLabel")}</span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === "project"}
+          disabled={disabled}
+          onClick={() => onChange("project")}
+          className={pillClass(mode === "project", true)}
+        >
+          <FolderKanban
+            className={cn(
+              "h-3 w-3",
+              mode === "project" ? "text-accent-premium" : "text-accent-premium/45"
+            )}
+          />
+          <span>{t("modeProjectLabel")}</span>
         </button>
       </div>
     </div>

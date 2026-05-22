@@ -23,6 +23,7 @@ import {
   XhrTimeoutError,
   type ChatHistoryAttachment,
   type ChatHistoryMessage,
+  type AssistantChatMode,
   type ChatCompactionResult,
   type ChatCompactionState,
   type WebChatActiveMediaJobState,
@@ -160,6 +161,7 @@ type RuntimeTransportMeta = {
 };
 export interface ChatSendOptions {
   addToKnowledgeBase?: boolean | undefined;
+  chatMode?: AssistantChatMode | undefined;
   deepModeEnabled?: boolean | undefined;
   clientTurnId?: string | undefined;
   clientAttachmentIds?: string[] | undefined;
@@ -397,6 +399,39 @@ function buildCompactionLiveActivity(params: {
     afterMessageId: params.assistantMessageId,
     emphasis: "strong",
     source: "compaction"
+  };
+}
+function buildProjectStageTimelineActivity(params: {
+  assistantMessageId: string;
+  stage: "plan" | "gather" | "analyze" | "replan" | "synthesize";
+  status: "started" | "completed";
+  summary: string;
+  detail?: string | null;
+}): ActivityEvent {
+  const detail = params.detail?.trim() || params.summary;
+  return {
+    id: `activity-project-stage-${Date.now()}-${params.stage}-${params.status}`,
+    type: "info",
+    label: `project_stage_${params.stage}_${params.status}`,
+    detail,
+    afterMessageId: params.assistantMessageId,
+    emphasis: params.status === "started" ? "strong" : "default"
+  };
+}
+function buildProjectReasoningTimelineActivity(params: {
+  assistantMessageId: string;
+  kind: "plan" | "check" | "gap" | "conflict" | "interim" | "replan" | "synthesis";
+  summary: string;
+  detail?: string | null;
+}): ActivityEvent {
+  const detail = params.detail?.trim() || params.summary;
+  return {
+    id: `activity-project-reasoning-${Date.now()}-${params.kind}`,
+    type: "info",
+    label: `project_reasoning_${params.kind}`,
+    detail,
+    afterMessageId: params.assistantMessageId,
+    emphasis: "default"
   };
 }
 function buildRetrievalLiveActivity(params: {
@@ -1940,6 +1975,39 @@ export function useChat(threadKey: string): UseChatReturn {
                   )
                 }));
               },
+              onProjectActivity: ({ stage, status, summary, detail }) => {
+                const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+                const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
+                if (assistantMessageId === null) {
+                  return;
+                }
+                setActivities((prev) => [
+                  ...prev,
+                  buildProjectStageTimelineActivity({
+                    assistantMessageId,
+                    stage,
+                    status,
+                    summary,
+                    ...(detail === undefined ? {} : { detail })
+                  })
+                ]);
+              },
+              onProjectReasoningSummary: ({ kind, summary, detail }) => {
+                const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+                const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
+                if (assistantMessageId === null) {
+                  return;
+                }
+                setActivities((prev) => [
+                  ...prev,
+                  buildProjectReasoningTimelineActivity({
+                    assistantMessageId,
+                    kind,
+                    summary,
+                    ...(detail === undefined ? {} : { detail })
+                  })
+                ]);
+              },
               onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
                 const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
@@ -2651,9 +2719,14 @@ export function useChat(threadKey: string): UseChatReturn {
         surfaceThreadKey: threadKey,
         message: trimmed,
         clientTurnId,
+        ...(options?.chatMode === undefined ? {} : { chatMode: options.chatMode }),
         ...(options?.deepModeEnabled === undefined
           ? {}
           : { deepModeEnabled: options.deepModeEnabled })
+      };
+      const projectChatMode = options?.chatMode === "project";
+      const appendProjectTimelineActivity = (event: ActivityEvent) => {
+        setActivities((prev) => [...prev, event]);
       };
       const streamHandlers = {
         onHeadersOk: () => {
@@ -2721,6 +2794,9 @@ export function useChat(threadKey: string): UseChatReturn {
           toolName: string;
           isError: boolean;
         }) => {
+          if (projectChatMode) {
+            return;
+          }
           flushBufferedAssistantState(true);
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
@@ -2734,6 +2810,47 @@ export function useChat(threadKey: string): UseChatReturn {
               prev[assistantMsgId]
             )
           }));
+        },
+        onProjectActivity: ({
+          stage,
+          status,
+          summary,
+          detail
+        }: {
+          stage: "plan" | "gather" | "analyze" | "replan" | "synthesize";
+          status: "started" | "completed";
+          summary: string;
+          detail?: string | null;
+        }) => {
+          flushBufferedAssistantState(true);
+          appendProjectTimelineActivity(
+            buildProjectStageTimelineActivity({
+              assistantMessageId: assistantMsgId,
+              stage,
+              status,
+              summary,
+              ...(detail === undefined ? {} : { detail })
+            })
+          );
+        },
+        onProjectReasoningSummary: ({
+          kind,
+          summary,
+          detail
+        }: {
+          kind: "plan" | "check" | "gap" | "conflict" | "interim" | "replan" | "synthesis";
+          summary: string;
+          detail?: string | null;
+        }) => {
+          flushBufferedAssistantState(true);
+          appendProjectTimelineActivity(
+            buildProjectReasoningTimelineActivity({
+              assistantMessageId: assistantMsgId,
+              kind,
+              summary,
+              ...(detail === undefined ? {} : { detail })
+            })
+          );
         },
         onActivity: ({
           source,

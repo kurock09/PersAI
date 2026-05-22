@@ -4,6 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AssistantWebChatTurnRequestChatMode } from "./assistantWebChatTurnRequestChatMode";
 
 export interface AssistantWebChatTurnRequest {
   surfaceThreadKey: string;
@@ -11,4 +12,6 @@ export interface AssistantWebChatTurnRequest {
   clientTurnId?: string;
   /** @nullable */
   title?: string | null;
+  chatMode?: AssistantWebChatTurnRequestChatMode;
+  deepModeEnabled?: boolean;
 }

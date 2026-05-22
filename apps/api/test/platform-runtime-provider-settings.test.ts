@@ -181,6 +181,7 @@ async function run(): Promise<void> {
       mode: "shadow",
       classifierFailureFallbackMode: "normal",
       clarifyOnMissingContext: true,
+      analyzeUploadsOnB2cUpload: true,
       precheckRuleOverrides: {
         continueTerms: ["ok", "continue"],
         retrievalTerms: ["find in docs"],
@@ -205,6 +206,7 @@ async function run(): Promise<void> {
   assert.equal(parsed.routingFastModelKey, "gpt-5.4-mini");
   assert.equal(parsed.routerPolicy.enabled, true);
   assert.equal(parsed.routerPolicy.mode, "shadow");
+  assert.equal(parsed.routerPolicy.analyzeUploadsOnB2cUpload, true);
   assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.continueTerms, ["ok", "continue"]);
   assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.premiumTerms, ["rewrite"]);
   assert.equal(parsed.skillRoutingPolicy.initialCheckUserMessageIndex, 4);
@@ -377,6 +379,7 @@ async function run(): Promise<void> {
         mode: "active",
         classifierFailureFallbackMode: "premium",
         clarifyOnMissingContext: false,
+        analyzeUploadsOnB2cUpload: true,
         precheckRuleOverrides: null,
         skillRoutingPolicy: {
           initialCheckUserMessageIndex: 2,
@@ -465,6 +468,7 @@ async function run(): Promise<void> {
   assert.equal(settings.routingFastModelKey, "gpt-5.4-mini");
   assert.equal(settings.routerPolicy.mode, "active");
   assert.equal(settings.routerPolicy.classifierFailureFallbackMode, "premium");
+  assert.equal(settings.routerPolicy.analyzeUploadsOnB2cUpload, true);
   assert.equal(settings.skillRoutingPolicy.initialCheckUserMessageIndex, 2);
   assert.equal(settings.skillRoutingPolicy.backgroundRecheckIntervalMessages, 7);
   assert.deepEqual(settings.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);

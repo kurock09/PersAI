@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantWebChatListItemState } from "@persai/contracts";
 import { Sidebar, formatChatRowTimestamp } from "./sidebar";
+import { collectProjectFilesFromMessages } from "./project-files-panel";
+import type { ChatHistoryMessage } from "../assistant-api-client";
 import { OfflineGate } from "./offline-gate";
 import type { AppData } from "./use-app-data";
 
@@ -11,6 +13,14 @@ const navigationMocks = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   navigateAfterClerkAuth: vi.fn()
+}));
+
+const searchParamsMocks = vi.hoisted(() => ({
+  thread: null as string | null
+}));
+
+const assistantApiMocks = vi.hoisted(() => ({
+  getChatMessages: vi.fn()
 }));
 
 const clerkMocks = vi.hoisted(() => ({
@@ -24,14 +34,20 @@ const liveThreadMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@clerk/nextjs", () => ({
-  useAuth: () => ({ getToken: vi.fn(async () => null) }),
+  useAuth: () => ({ getToken: vi.fn(async () => "test-token") }),
   useUser: () => ({ user: null }),
   useClerk: () => ({ signOut: clerkMocks.signOut })
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => navigationMocks,
-  useSearchParams: () => new URLSearchParams()
+  useSearchParams: () => {
+    const params = new URLSearchParams();
+    if (searchParamsMocks.thread) {
+      params.set("thread", searchParamsMocks.thread);
+    }
+    return params;
+  }
 }));
 
 vi.mock("next-intl", () => ({
@@ -65,7 +81,9 @@ beforeEach(() => {
 vi.mock("../assistant-api-client", () => ({
   patchAssistantWebChat: vi.fn(async () => undefined),
   postAssistantWebChatArchive: vi.fn(async () => undefined),
-  deleteAssistantWebChat: vi.fn(async () => undefined)
+  deleteAssistantWebChat: vi.fn(async () => undefined),
+  getChatMessages: assistantApiMocks.getChatMessages,
+  getAssistantFileDownloadUrl: (fileRef: string) => `/api/assistant-file/${fileRef}`
 }));
 
 vi.mock("@/app/lib/clerk-navigation", () => ({
@@ -75,6 +93,8 @@ vi.mock("@/app/lib/clerk-navigation", () => ({
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  searchParamsMocks.thread = null;
+  assistantApiMocks.getChatMessages.mockReset();
   navigationMocks.push.mockClear();
   navigationMocks.replace.mockClear();
   navigationMocks.navigateAfterClerkAuth.mockClear();
@@ -110,7 +130,10 @@ function makeAppData(overrides: Partial<AppData>): AppData {
   };
 }
 
-function makeChat(id: string): AssistantWebChatListItemState {
+function makeChat(
+  id: string,
+  options?: { chatMode?: "normal" | "project" | "deep" }
+): AssistantWebChatListItemState {
   return {
     chat: {
       id,
@@ -119,7 +142,8 @@ function makeChat(id: string): AssistantWebChatListItemState {
       lastMessageAt: "2026-04-25T12:00:00.000Z",
       createdAt: "2026-04-25T11:00:00.000Z",
       archivedAt: null,
-      deepModeEnabled: false
+      deepModeEnabled: false,
+      chatMode: options?.chatMode ?? "normal"
     },
     lastMessagePreview: null
   } as unknown as AssistantWebChatListItemState;
@@ -438,6 +462,112 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
       expect(clerkMocks.signOut).toHaveBeenCalled();
       expect(navigationMocks.navigateAfterClerkAuth).toHaveBeenCalledWith("/", "replace");
     });
+  });
+
+  it("shows the project files panel for the active project chat with attachments", async () => {
+    searchParamsMocks.thread = "project-thread";
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      messages: [
+        {
+          id: "msg-1",
+          chatId: "chat-project",
+          assistantId: "asst-1",
+          author: "user",
+          content: "see file",
+          createdAt: "2026-05-20T10:00:00.000Z",
+          attachments: [
+            {
+              id: "att-1",
+              fileRef: "file-ref-alpha",
+              attachmentType: "document",
+              originalFilename: "brief.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 1024,
+              processingStatus: "ready",
+              createdAt: "2026-05-20T10:00:00.000Z"
+            }
+          ]
+        }
+      ],
+      nextCursor: null
+    });
+
+    render(
+      <Sidebar
+        data={makeAppData({
+          chats: [makeChat("project-thread", { chatMode: "project" })]
+        })}
+      />
+    );
+
+    expect(await screen.findByTestId("project-files-panel")).toBeInTheDocument();
+    const link = await screen.findByRole("link", { name: "brief.pdf" });
+    expect(link).toHaveAttribute("href", "/api/assistant-file/file-ref-alpha");
+  });
+
+  it("hides the project files panel for a normal active chat", async () => {
+    searchParamsMocks.thread = "normal-thread";
+    render(
+      <Sidebar
+        data={makeAppData({
+          chats: [makeChat("normal-thread", { chatMode: "normal" })]
+        })}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("project-files-panel")).toBeNull();
+    });
+  });
+
+  it("dedupes project files by fileRef keeping the latest attachment", () => {
+    const messages = [
+      {
+        id: "msg-1",
+        chatId: "chat-1",
+        assistantId: "asst-1",
+        author: "user",
+        content: "older",
+        createdAt: "2026-05-20T09:00:00.000Z",
+        attachments: [
+          {
+            id: "att-old",
+            fileRef: "same-ref",
+            attachmentType: "document",
+            originalFilename: "old-name.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 100,
+            processingStatus: "ready",
+            createdAt: "2026-05-20T09:00:00.000Z"
+          }
+        ]
+      },
+      {
+        id: "msg-2",
+        chatId: "chat-1",
+        assistantId: "asst-1",
+        author: "user",
+        content: "newer",
+        createdAt: "2026-05-20T11:00:00.000Z",
+        attachments: [
+          {
+            id: "att-new",
+            fileRef: "same-ref",
+            attachmentType: "document",
+            originalFilename: "new-name.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 200,
+            processingStatus: "ready",
+            createdAt: "2026-05-20T11:00:00.000Z"
+          }
+        ]
+      }
+    ] as ChatHistoryMessage[];
+
+    const files = collectProjectFilesFromMessages(messages);
+    expect(files).toHaveLength(1);
+    expect(files[0]?.originalFilename).toBe("new-name.pdf");
+    expect(files[0]?.createdAt).toBe("2026-05-20T11:00:00.000Z");
   });
 
   it("prevents repeated logout clicks while signOut is pending", async () => {

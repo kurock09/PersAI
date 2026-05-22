@@ -75,6 +75,14 @@ import {
   projectRuntimeNativeTools,
   type RuntimeNativeToolProjection
 } from "./native-tool-projection";
+import {
+  createProjectModeBootstrapStreamEvents,
+  createProjectModePostRetrievalStreamEvents,
+  createProjectModeReplanStreamEvents,
+  createProjectModeSynthesisStreamEvents,
+  isProjectChatMode,
+  PROJECT_EXECUTION_DEVELOPER_CONTRACT
+} from "./project-execution-profile";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
@@ -126,6 +134,9 @@ const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 const APPROX_CHARS_PER_TOKEN = 4;
 const MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS = 4;
 const MAX_MODEL_VISIBLE_WORKING_FILES = 20;
+const MAX_WORKING_FILES_SEMANTIC_HINTS = 5;
+const MAX_WORKING_FILE_SEMANTIC_HINT_CHARS = 80;
+const MAX_WORKING_FILES_SEMANTIC_HINTS_TOTAL_CHARS = 280;
 
 type PreparedTurnExecution = {
   bundle: AssistantRuntimeBundle;
@@ -290,6 +301,7 @@ const LEGACY_TECHNICAL_ATTACHMENT_SUMMARY_PATTERNS = [
 ] as const;
 
 type DeveloperInstructionSectionKey =
+  | "project_execution_contract"
   | "routing_hints"
   | "open_loop_refs"
   | "working_files"
@@ -625,6 +637,7 @@ export class TurnExecutionService {
         currentAttachments: input.message.attachments
       });
     const developerInstructionSections = this.buildBaseDeveloperInstructionSections({
+      request: input,
       projectedTools,
       availableWorkingFileRefs,
       deepModeEnabled: input.deepMode === true,
@@ -761,6 +774,7 @@ export class TurnExecutionService {
         query: input.input.message.text,
         locale: input.input.message.locale ?? input.bundle.userContext.locale,
         retrievalPlan: plan,
+        gatherProfile: isProjectChatMode(input.input) ? "project" : null,
         sourcePolicy: {
           mode: input.knowledgeSourcePolicy.activeSkillTurn ? "active_skill" : "default",
           state: input.knowledgeSourcePolicy.state,
@@ -916,6 +930,7 @@ export class TurnExecutionService {
     let completionFinalizationAttempted = false;
     let forceFinalTextOnly = false;
     let contextOverflowRetryAttempted = false;
+    let projectSynthesisEventsEmitted = false;
 
     yield {
       type: "started",
@@ -923,8 +938,37 @@ export class TurnExecutionService {
       sessionId: acceptedTurn.session.sessionId
     };
     trace?.stage("stream.started_emitted");
-    for (const event of this.createRetrievalActivityStreamEvents(acceptedTurn, execution)) {
+    const projectStreamIdentity = {
+      requestId: acceptedTurn.receipt.requestId,
+      sessionId: acceptedTurn.session.sessionId
+    };
+    const projectModeActive = isProjectChatMode(input);
+    if (projectModeActive) {
+      for (const event of createProjectModeBootstrapStreamEvents(projectStreamIdentity)) {
+        yield event;
+      }
+    }
+    const retrievalActivityEvents = this.createRetrievalActivityStreamEvents(
+      acceptedTurn,
+      execution
+    );
+    for (const event of retrievalActivityEvents) {
       yield event;
+    }
+    if (projectModeActive) {
+      const retrievedItemCount = execution.retrievedKnowledgeContext?.items.length ?? 0;
+      const retrievalSourceCount = new Set(
+        retrievalActivityEvents
+          .filter((event) => event.type === "retrieval_activity")
+          .map((event) => event.source)
+      ).size;
+      for (const event of createProjectModePostRetrievalStreamEvents({
+        identity: projectStreamIdentity,
+        retrievedItemCount,
+        retrievalSourceCount
+      })) {
+        yield event;
+      }
     }
 
     const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
@@ -934,6 +978,14 @@ export class TurnExecutionService {
     try {
       try {
         for (let iteration = 0; iteration < maxToolLoopIterations; iteration += 1) {
+          if (projectModeActive && iteration > 0) {
+            for (const projectEvent of createProjectModeReplanStreamEvents({
+              identity: projectStreamIdentity,
+              pass: iteration + 1
+            })) {
+              yield projectEvent;
+            }
+          }
           const iterationBaseText = assembledText;
           const providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
             assistantText: iterationBaseText,
@@ -996,6 +1048,14 @@ export class TurnExecutionService {
                 source: "provider_text_delta"
               });
               if (deltaEvent !== null) {
+                if (projectModeActive && !projectSynthesisEventsEmitted) {
+                  projectSynthesisEventsEmitted = true;
+                  for (const projectEvent of createProjectModeSynthesisStreamEvents(
+                    projectStreamIdentity
+                  )) {
+                    yield projectEvent;
+                  }
+                }
                 deliveredText = deltaEvent.accumulatedText;
                 yield deltaEvent;
               }
@@ -1648,6 +1708,7 @@ export class TurnExecutionService {
   }
 
   private buildBaseDeveloperInstructionSections(input: {
+    request?: RuntimeTurnRequest;
     projectedTools: RuntimeNativeToolProjection | undefined;
     availableWorkingFileRefs: RuntimeFileRef[];
     deepModeEnabled: boolean;
@@ -1676,7 +1737,12 @@ export class TurnExecutionService {
     // decisions like `no_push` as chat text. Background evaluation consumes
     // the same document explicitly in RuntimeBackgroundTaskEvaluationService.
     const presenceSection = this.normalizeOptionalText(input.presenceBlock);
+    const projectExecutionSection =
+      input.request !== undefined && isProjectChatMode(input.request)
+        ? PROJECT_EXECUTION_DEVELOPER_CONTRACT
+        : null;
     return this.createDeveloperInstructionSections([
+      { key: "project_execution_contract", content: projectExecutionSection },
       { key: "routing_hints", content: routingGuidance },
       { key: "open_loop_refs", content: openLoopRefsSection },
       { key: "working_files", content: workingFilesSection },
@@ -1705,11 +1771,20 @@ export class TurnExecutionService {
       "Use only these aliases when referring to current attachments, previous reusable files, or the latest generated outputs.",
       "Ignore low-level storage identifiers or delivery/debug text if they appear anywhere."
     ];
+    const semanticHintEligibleFileRefs =
+      this.selectWorkingFilesForSemanticHints(modelVisibleWorkingFiles);
+    let semanticHintsCharsUsed = 0;
     for (const file of modelVisibleWorkingFiles) {
-      const aliases = file.aliases?.length ? file.aliases.join(", ") : "unaliased file";
-      const displayName = file.displayName ?? file.relativePath.split("/").pop() ?? "file";
-      const kind = this.describeWorkingFileKind(file.mimeType);
-      lines.push(`- ${aliases}: ${kind} "${displayName}"`);
+      lines.push(
+        this.formatWorkingFileDeveloperLine(
+          file,
+          semanticHintEligibleFileRefs,
+          semanticHintsCharsUsed,
+          (charsAdded) => {
+            semanticHintsCharsUsed += charsAdded;
+          }
+        )
+      );
     }
     lines.push(
       "For `files`, prefer alias first, then `path` or `query` when a reusable alias is unavailable."
@@ -3225,6 +3300,98 @@ export class TurnExecutionService {
     return match?.content ?? null;
   }
 
+  private formatWorkingFileDeveloperLine(
+    file: RuntimeFileRef,
+    semanticHintEligibleFileRefs: Set<string>,
+    semanticHintsCharsUsed: number,
+    onHintCharsAdded: (charsAdded: number) => void
+  ): string {
+    const aliases = file.aliases?.length ? file.aliases.join(", ") : "unaliased file";
+    const displayName = file.displayName ?? file.relativePath.split("/").pop() ?? "file";
+    const kind = this.describeWorkingFileKind(file.mimeType);
+    const hint = this.formatWorkingFileSemanticHint(
+      file,
+      semanticHintEligibleFileRefs,
+      semanticHintsCharsUsed,
+      onHintCharsAdded
+    );
+    return hint === null
+      ? `- ${aliases}: ${kind} "${displayName}"`
+      : `- ${aliases}: ${kind} "${displayName}" — ${hint}`;
+  }
+
+  private formatWorkingFileSemanticHint(
+    file: RuntimeFileRef,
+    semanticHintEligibleFileRefs: Set<string>,
+    semanticHintsCharsUsed: number,
+    onHintCharsAdded: (charsAdded: number) => void
+  ): string | null {
+    if (!semanticHintEligibleFileRefs.has(file.fileRef)) {
+      return null;
+    }
+    const rawHint = file.semanticSummaryHint?.replace(/\s+/g, " ").trim() ?? "";
+    if (rawHint.length === 0) {
+      return null;
+    }
+    const remainingBudget = MAX_WORKING_FILES_SEMANTIC_HINTS_TOTAL_CHARS - semanticHintsCharsUsed;
+    if (remainingBudget <= 0) {
+      return null;
+    }
+    const hint = rawHint.slice(0, Math.min(MAX_WORKING_FILE_SEMANTIC_HINT_CHARS, remainingBudget));
+    if (hint.length === 0) {
+      return null;
+    }
+    onHintCharsAdded(hint.length);
+    return hint;
+  }
+
+  private selectWorkingFilesForSemanticHints(
+    availableWorkingFileRefs: RuntimeFileRef[]
+  ): Set<string> {
+    const candidates = availableWorkingFileRefs
+      .map((file, index) => ({
+        fileRef: file.fileRef,
+        index,
+        weak: this.isWeakWorkingFileDisplayName(
+          file.displayName ?? file.relativePath.split("/").pop() ?? "file"
+        ),
+        hasHint:
+          typeof file.semanticSummaryHint === "string" &&
+          file.semanticSummaryHint.replace(/\s+/g, " ").trim().length > 0
+      }))
+      .filter((candidate) => candidate.hasHint && candidate.weak);
+    candidates.sort((left, right) => {
+      if (left.weak !== right.weak) {
+        return left.weak ? -1 : 1;
+      }
+      return left.index - right.index;
+    });
+    return new Set(
+      candidates.slice(0, MAX_WORKING_FILES_SEMANTIC_HINTS).map((candidate) => candidate.fileRef)
+    );
+  }
+
+  private isWeakWorkingFileDisplayName(displayName: string): boolean {
+    const normalized = displayName.trim().toLowerCase();
+    if (normalized.length === 0) {
+      return true;
+    }
+    if (
+      /^(file|document|image|photo|audio|video|recording|voice[-_]?note|upload|attachment|clip|untitled)(\.[a-z0-9]+)?$/.test(
+        normalized
+      )
+    ) {
+      return true;
+    }
+    if (/^[0-9a-f-]{8,}\.[a-z0-9]+$/.test(normalized)) {
+      return true;
+    }
+    if (/^img[_-]?\d+/.test(normalized) || /^dsc[_-]?\d+/.test(normalized)) {
+      return true;
+    }
+    return false;
+  }
+
   private limitModelVisibleWorkingFiles(
     availableWorkingFileRefs: RuntimeFileRef[]
   ): RuntimeFileRef[] {
@@ -4116,6 +4283,7 @@ export class TurnExecutionService {
     const openLoopRefsBlock =
       await this.turnContextHydrationService.computeOpenLoopRefsDeveloperBlock(input);
     const developerInstructionSections = this.buildBaseDeveloperInstructionSections({
+      request: input,
       projectedTools: execution.projectedTools,
       availableWorkingFileRefs: execution.availableWorkingFileRefs,
       deepModeEnabled: execution.deepModeEnabled,

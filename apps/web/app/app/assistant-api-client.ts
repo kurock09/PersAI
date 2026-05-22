@@ -282,6 +282,25 @@ type WebChatStreamEvent =
       };
     }
   | {
+      event: "project_activity";
+      data: {
+        stage: "plan" | "gather" | "analyze" | "replan" | "synthesize";
+        status: "started" | "completed";
+        summary: string;
+        detail?: string | null;
+        sourceClass?: "files" | "skill" | "knowledge" | "web" | "tool" | null;
+        resultCount?: number | null;
+      };
+    }
+  | {
+      event: "project_reasoning_summary";
+      data: {
+        kind: "plan" | "check" | "gap" | "conflict" | "interim" | "replan" | "synthesis";
+        summary: string;
+        detail?: string | null;
+      };
+    }
+  | {
       event: "compaction";
       data: { phase: "start" | "end"; completed: boolean; willRetry: boolean };
     }
@@ -296,12 +315,14 @@ type WebChatStreamEvent =
 export const WELCOME_THREAD_KEY = "welcome";
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 export const REATTACH_STREAM_IDLE_TIMEOUT_MS = 30_000;
+export type AssistantChatMode = "normal" | "smart" | "project";
 
 export interface AssistantWebChatStreamPayload {
   surfaceThreadKey: string;
   message: string;
   clientTurnId?: string;
   title?: string | null;
+  chatMode?: AssistantChatMode;
   deepModeEnabled?: boolean;
   welcomeTurn?: boolean;
   welcomeLocale?: string;
@@ -334,6 +355,19 @@ export interface AssistantWebChatStreamHandlers {
     resultCount: number;
     skillName?: string | null;
     skillIconEmoji?: string | null;
+  }) => void;
+  onProjectActivity?: (payload: {
+    stage: "plan" | "gather" | "analyze" | "replan" | "synthesize";
+    status: "started" | "completed";
+    summary: string;
+    detail?: string | null;
+    sourceClass?: "files" | "skill" | "knowledge" | "web" | "tool" | null;
+    resultCount?: number | null;
+  }) => void;
+  onProjectReasoningSummary?: (payload: {
+    kind: "plan" | "check" | "gap" | "conflict" | "interim" | "replan" | "synthesis";
+    summary: string;
+    detail?: string | null;
   }) => void;
   onCompaction?: (payload: {
     phase: "start" | "end";
@@ -975,6 +1009,62 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
       }
     };
   }
+  if (eventName === "project_activity") {
+    if (
+      (body.stage !== "plan" &&
+        body.stage !== "gather" &&
+        body.stage !== "analyze" &&
+        body.stage !== "replan" &&
+        body.stage !== "synthesize") ||
+      (body.status !== "started" && body.status !== "completed") ||
+      typeof body.summary !== "string"
+    ) {
+      return null;
+    }
+    return {
+      event: "project_activity",
+      data: {
+        stage: body.stage,
+        status: body.status,
+        summary: body.summary,
+        ...(typeof body.detail === "string" || body.detail === null ? { detail: body.detail } : {}),
+        ...(body.sourceClass === "files" ||
+        body.sourceClass === "skill" ||
+        body.sourceClass === "knowledge" ||
+        body.sourceClass === "web" ||
+        body.sourceClass === "tool"
+          ? { sourceClass: body.sourceClass }
+          : body.sourceClass === null
+            ? { sourceClass: null }
+            : {}),
+        ...(typeof body.resultCount === "number" || body.resultCount === null
+          ? { resultCount: body.resultCount }
+          : {})
+      }
+    };
+  }
+  if (eventName === "project_reasoning_summary") {
+    if (
+      (body.kind !== "plan" &&
+        body.kind !== "check" &&
+        body.kind !== "gap" &&
+        body.kind !== "conflict" &&
+        body.kind !== "interim" &&
+        body.kind !== "replan" &&
+        body.kind !== "synthesis") ||
+      typeof body.summary !== "string"
+    ) {
+      return null;
+    }
+    return {
+      event: "project_reasoning_summary",
+      data: {
+        kind: body.kind,
+        summary: body.summary,
+        ...(typeof body.detail === "string" || body.detail === null ? { detail: body.detail } : {})
+      }
+    };
+  }
   if (eventName === "runtime_done") {
     if (typeof body.respondedAt !== "string") {
       return null;
@@ -1152,6 +1242,10 @@ export async function streamAssistantWebChatTurn(
       handlers.onTool?.(streamEvent.data);
     } else if (streamEvent.event === "activity") {
       handlers.onActivity?.(streamEvent.data);
+    } else if (streamEvent.event === "project_activity") {
+      handlers.onProjectActivity?.(streamEvent.data);
+    } else if (streamEvent.event === "project_reasoning_summary") {
+      handlers.onProjectReasoningSummary?.(streamEvent.data);
     } else if (streamEvent.event === "compaction") {
       handlers.onCompaction?.(streamEvent.data);
     } else if (streamEvent.event === "runtime_done") {
@@ -1285,6 +1379,10 @@ export async function reattachAssistantWebChatTurnStream(
     else if (streamEvent.event === "thinking") handlers.onThinking?.(streamEvent.data);
     else if (streamEvent.event === "tool") handlers.onTool?.(streamEvent.data);
     else if (streamEvent.event === "activity") handlers.onActivity?.(streamEvent.data);
+    else if (streamEvent.event === "project_activity")
+      handlers.onProjectActivity?.(streamEvent.data);
+    else if (streamEvent.event === "project_reasoning_summary")
+      handlers.onProjectReasoningSummary?.(streamEvent.data);
     else if (streamEvent.event === "compaction") handlers.onCompaction?.(streamEvent.data);
     else if (streamEvent.event === "runtime_done") handlers.onRuntimeDone?.(streamEvent.data);
     else if (streamEvent.event === "stream_reset") handlers.onStreamReset?.(streamEvent.data);

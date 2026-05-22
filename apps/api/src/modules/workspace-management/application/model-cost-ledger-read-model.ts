@@ -49,7 +49,7 @@ export type AdminModelCostLedgerWindowState = {
 };
 
 export const ADMIN_MODEL_COST_LEDGER_COVERAGE_NOTE =
-  "Current ledger-backed model cost covers model-priced paths when Admin Runtime catalog rows match the event timestamp: ordinary web/Telegram chat (main reply + router), background-task evaluator usage, persisted media job and attachment billing facts (image/video/STT/TTS), retrieval-helper reranker usage, knowledge indexing embedding calls, async media/document completion framing usage, standalone voice HTTP transcribe events, and Mistral OCR document extraction. Tool-path economics (web_search, web_fetch, browser, document_render) price from Admin > Tools when billing facts and tool-path catalog rows match the event timestamp. Other non-ledger tool paths remain outside this summary.";
+  "Current ledger-backed model cost covers model-priced paths when Admin Runtime catalog rows match the event timestamp: ordinary web/Telegram chat (main reply + router), background-task evaluator usage, persisted media job and attachment billing facts (image/video/STT/TTS), retrieval-helper reranker usage, upload micro-description helper usage, knowledge indexing embedding calls, async media/document completion framing usage, standalone voice HTTP transcribe events, and Mistral OCR document extraction. Tool-path economics (web_search, web_fetch, browser, document_render) price from Admin > Tools when billing facts and tool-path catalog rows match the event timestamp. Other non-ledger tool paths remain outside this summary.";
 
 function asNumber(value: bigint | number | null | undefined): number {
   if (typeof value === "bigint") {
@@ -81,6 +81,8 @@ function labelPurpose(value: string): string {
       return "Text-to-speech";
     case "retrieval_helper":
       return "Retrieval helper";
+    case "tool_helper":
+      return "Tool helper";
     case "chat_helper":
       return "Completion framing";
     case "ocr_or_document_parsing":

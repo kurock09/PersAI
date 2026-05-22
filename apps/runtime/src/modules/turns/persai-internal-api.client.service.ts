@@ -260,6 +260,7 @@ export type InternalOrchestrateRetrievalInput = {
   query: string;
   locale: string | null;
   retrievalPlan: RuntimeRetrievalPlan;
+  gatherProfile?: "project" | null;
   sourcePolicy?: {
     mode: "default" | "active_skill";
     state:

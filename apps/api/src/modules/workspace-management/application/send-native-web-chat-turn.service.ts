@@ -38,6 +38,7 @@ export interface SendNativeWebChatTurnInput {
   openMediaJobs?: RuntimeOpenMediaJobContext[];
   userTimezone?: string;
   currentTimeIso?: string;
+  chatMode?: RuntimeTurnRequest["chatMode"];
   deepMode?: RuntimeTurnRequest["deepMode"];
   modelRoleOverride?: RuntimeTurnRequest["modelRoleOverride"];
   providerOverride?: "openai" | "anthropic";
@@ -121,6 +122,7 @@ export class SendNativeWebChatTurnService {
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
       ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
+      ...(input.chatMode === undefined ? {} : { chatMode: input.chatMode }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
         ? {}
@@ -253,6 +255,7 @@ export class SendNativeWebChatTurnService {
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
       ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
+      ...(input.chatMode === undefined ? {} : { chatMode: input.chatMode }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
         ? {}

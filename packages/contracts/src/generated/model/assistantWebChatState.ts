@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantChatSurface } from "./assistantChatSurface";
+import type { AssistantWebChatStateChatMode } from "./assistantWebChatStateChatMode";
 import type { AssistantWebChatStateSkillDecisionState } from "./assistantWebChatStateSkillDecisionState";
 import type { AssistantWebChatStateSkillCadenceState } from "./assistantWebChatStateSkillCadenceState";
 
@@ -15,6 +16,7 @@ export interface AssistantWebChatState {
   surfaceThreadKey: string;
   /** @nullable */
   title: string | null;
+  chatMode: AssistantWebChatStateChatMode;
   deepModeEnabled: boolean;
   /** @nullable */
   skillDecisionState: AssistantWebChatStateSkillDecisionState;

@@ -124,6 +124,7 @@ describe("admin rollout client", () => {
             mode: "shadow",
             classifierFailureFallbackMode: "normal",
             clarifyOnMissingContext: true,
+            analyzeUploadsOnB2cUpload: false,
             precheckRuleOverrides: null
           },
           skillRoutingPolicy: {
@@ -190,6 +191,7 @@ describe("admin rollout client", () => {
             mode: "shadow",
             classifierFailureFallbackMode: "normal",
             clarifyOnMissingContext: true,
+            analyzeUploadsOnB2cUpload: true,
             precheckRuleOverrides: null
           },
           skillRoutingPolicy: {
@@ -235,6 +237,7 @@ describe("admin rollout client", () => {
           mode: "shadow",
           classifierFailureFallbackMode: "normal",
           clarifyOnMissingContext: true,
+          analyzeUploadsOnB2cUpload: true,
           precheckRuleOverrides: null
         },
         skillRoutingPolicy: {

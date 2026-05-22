@@ -77,6 +77,7 @@ export type PlatformRuntimeRouterPolicy = {
   mode: PlatformRuntimeRoutingMode;
   classifierFailureFallbackMode: PlatformRuntimeRoutingExecutionMode;
   clarifyOnMissingContext: boolean;
+  analyzeUploadsOnB2cUpload: boolean;
   precheckRuleOverrides: PlatformRuntimeRouterPrecheckRuleOverrides | null;
 };
 
@@ -91,6 +92,7 @@ export function createDefaultPlatformRuntimeRouterPolicy(): PlatformRuntimeRoute
     mode: "shadow",
     classifierFailureFallbackMode: "normal",
     clarifyOnMissingContext: true,
+    analyzeUploadsOnB2cUpload: false,
     precheckRuleOverrides: null
   };
 }
@@ -1072,6 +1074,10 @@ function normalizeRouterPolicy(value: unknown, path = "routerPolicy"): PlatformR
     clarifyOnMissingContext: normalizeBoolean(
       row.clarifyOnMissingContext ?? true,
       `${path}.clarifyOnMissingContext`
+    ),
+    analyzeUploadsOnB2cUpload: normalizeBoolean(
+      row.analyzeUploadsOnB2cUpload ?? false,
+      `${path}.analyzeUploadsOnB2cUpload`
     ),
     precheckRuleOverrides: normalizeRouterPrecheckRuleOverrides(
       row.precheckRuleOverrides ?? null,

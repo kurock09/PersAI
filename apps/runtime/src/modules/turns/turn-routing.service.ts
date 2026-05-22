@@ -7,6 +7,7 @@ import type {
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import type { RuntimeNativeToolProjection } from "./native-tool-projection";
+import { buildProjectModePrecheckDecision, isProjectChatMode } from "./project-execution-profile";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
@@ -605,6 +606,23 @@ export class TurnRoutingService {
         usage: null,
         skillState: this.carryForwardAutoSkillState(input.request)
       });
+    }
+
+    if (isProjectChatMode(input.request)) {
+      return this.createDecision(
+        buildProjectModePrecheckDecision({
+          request: input.request,
+          fallbackMode: input.fallbackMode,
+          policyMode: input.policy.mode,
+          availableKnowledge: availableHints.has("knowledge"),
+          availableWeb: availableHints.has("web"),
+          ordinarySourcePriorityMode: ordinaryPriorityMode,
+          skillState: activeAutoSkill
+            ? activeAutoSkill.state
+            : this.carryForwardAutoSkillState(input.request),
+          selectedSkillIds: activeAutoSkill ? [activeAutoSkill.skill.id] : []
+        })
+      );
     }
 
     if (

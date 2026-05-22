@@ -73,6 +73,23 @@ const skillChunks = [
   }
 ];
 
+const projectFileAttachments = [
+  {
+    assistantFileId: "file-project-1",
+    createdAt: new Date("2026-05-22T15:00:00.000Z"),
+    assistantFile: {
+      id: "file-project-1",
+      displayName: "Project Tax Audit.pdf",
+      relativePath: "uploads/project-thread/Project Tax Audit.pdf",
+      mimeType: "application/pdf",
+      metadata: {
+        semanticSummary:
+          "Project tax audit material covering deductible expenses and PersAI guidance."
+      }
+    }
+  }
+];
+
 class FakeReadAssistantKnowledgeService {
   searches: Array<Record<string, unknown>> = [];
   fetches: Array<Record<string, unknown>> = [];
@@ -151,11 +168,63 @@ class FakeKnowledgeRetrievalObservabilityService {
   }
 }
 
+class FakeExtractInternalRuntimeAssistantFileService {
+  calls: Array<Record<string, unknown>> = [];
+
+  async execute(input: Record<string, unknown>) {
+    this.calls.push(input);
+    if (input.fileRef === "file-project-1") {
+      return {
+        ok: true,
+        extracted: true,
+        file: {
+          fileRef: "file-project-1",
+          displayName: "Project Tax Audit.pdf",
+          relativePath: "uploads/project-thread/Project Tax Audit.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 2048
+        },
+        text: "Deep extracted project file context about deductible expenses, source comparison, and project tax evidence.",
+        markdown: null,
+        note: null,
+        provider: { provider: "local" },
+        quality: "high"
+      };
+    }
+    return {
+      ok: true,
+      extracted: false,
+      file: null,
+      text: null,
+      markdown: null,
+      note: "File not found.",
+      provider: null,
+      quality: null
+    };
+  }
+}
+
 async function run(): Promise<void> {
   const vectorSearches: Array<Record<string, unknown>> = [];
   const prisma = {
     assistant: {
       findUnique: async () => ({ workspaceId: "workspace-1" })
+    },
+    assistantChat: {
+      findUnique: async ({
+        where
+      }: {
+        where: {
+          assistantId_surface_surfaceThreadKey: { surfaceThreadKey: string };
+        };
+      }) =>
+        where.assistantId_surface_surfaceThreadKey.surfaceThreadKey === "thread-project-1"
+          ? { id: "chat-project-1", workspaceId: "workspace-1" }
+          : null
+    },
+    assistantChatMessageAttachment: {
+      findMany: async ({ where }: { where: { chatId: string } }) =>
+        where.chatId === "chat-project-1" ? projectFileAttachments : []
     },
     assistantSkillAssignment: {
       findMany: async ({ where }: { where: { skillId: { in: string[] } } }) =>
@@ -169,10 +238,13 @@ async function run(): Promise<void> {
     }
   };
   const readKnowledge = new FakeReadAssistantKnowledgeService();
+  const extractInternalRuntimeAssistantFileService =
+    new FakeExtractInternalRuntimeAssistantFileService();
   const observability = new FakeKnowledgeRetrievalObservabilityService();
   const service = new OrchestrateRuntimeRetrievalService(
     prisma as never,
     readKnowledge as never,
+    extractInternalRuntimeAssistantFileService as never,
     observability as never,
     {
       resolveAssistantRetrievalPolicy: async () => ({
@@ -359,6 +431,91 @@ async function run(): Promise<void> {
   assert.equal(observability.fetches[0]?.modeUsed, "orchestrate_inline");
   assert.equal(observability.fetches[0]?.bytesReturned, observability.fetches[0]?.fetchedChars);
 
+  readKnowledge.searches = [];
+  observability.searches = [];
+  observability.fetches = [];
+  const projectActiveSkillContext = await service.execute(
+    service.parseInput({
+      assistantId: "assistant-1",
+      query: "compare deductible expenses with my uploaded files and PersAI guidance",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: true,
+        selectedSkillIds: ["skill-accounting"],
+        useUserKnowledge: true,
+        useProductKnowledge: true,
+        useWeb: false,
+        confidence: "high",
+        reasonCode: "project_skill_user_product"
+      },
+      gatherProfile: "project",
+      sourcePolicy: {
+        mode: "active_skill",
+        state: "skill_only",
+        allowedKnowledgeSearchSources: ["document", "memory", "chat", "global", "subscription"],
+        allowedKnowledgeFetchSources: ["document", "memory", "chat", "global", "subscription"]
+      },
+      conversation: {
+        channel: "web",
+        surfaceThreadKey: "thread-project-1"
+      }
+    })
+  );
+  assert.deepEqual(
+    projectActiveSkillContext.items.map((item) => item.referenceId),
+    [
+      "skill:skill-accounting:skill_document:doc-1:1:1",
+      "project_file:file-project-1",
+      "source-1:1:0",
+      "product-text-entry:product-text-1:1:0"
+    ]
+  );
+  assert.deepEqual(
+    readKnowledge.searches.map((call) => call.source),
+    ["document", "memory", "chat", "global", "subscription"]
+  );
+  assert.deepEqual(extractInternalRuntimeAssistantFileService.calls, [
+    {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      fileRef: "file-project-1"
+    }
+  ]);
+
+  readKnowledge.searches = [];
+  observability.searches = [];
+  observability.fetches = [];
+  const ordinaryActiveSkillContext = await service.execute(
+    service.parseInput({
+      assistantId: "assistant-1",
+      query: "compare deductible expenses with PersAI guidance",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: true,
+        selectedSkillIds: ["skill-accounting"],
+        useUserKnowledge: true,
+        useProductKnowledge: true,
+        useWeb: false,
+        confidence: "high",
+        reasonCode: "ordinary_skill_preserves_previous_behavior"
+      },
+      sourcePolicy: {
+        mode: "active_skill",
+        state: "skill_only",
+        allowedKnowledgeSearchSources: ["document", "memory", "chat", "global", "subscription"],
+        allowedKnowledgeFetchSources: ["document", "memory", "chat", "global", "subscription"]
+      }
+    })
+  );
+  assert.deepEqual(
+    ordinaryActiveSkillContext.items.map((item) => item.label),
+    ["skill_reference", "product_kb"]
+  );
+  assert.deepEqual(
+    readKnowledge.searches.map((call) => call.source),
+    ["global", "subscription"]
+  );
+
   const originalSkillChunks = [...skillChunks];
   skillChunks.splice(0, skillChunks.length);
   readKnowledge.searches = [];
@@ -429,9 +586,12 @@ async function run(): Promise<void> {
   assert.equal(observability.searches.at(-1)?.errorCode, "web_reference_not_executed");
 
   const lexicalOnlyObservability = new FakeKnowledgeRetrievalObservabilityService();
+  const lexicalOnlyExtractInternalRuntimeAssistantFileService =
+    new FakeExtractInternalRuntimeAssistantFileService();
   const lexicalOnlyService = new OrchestrateRuntimeRetrievalService(
     prisma as never,
     readKnowledge as never,
+    lexicalOnlyExtractInternalRuntimeAssistantFileService as never,
     lexicalOnlyObservability as never,
     {
       resolveAssistantRetrievalPolicy: async () => ({
@@ -528,8 +688,26 @@ async function run(): Promise<void> {
 async function runOrdinaryStagedRetrievalCases(): Promise<void> {
   const observability = new FakeKnowledgeRetrievalObservabilityService();
   const readKnowledge = new FakeReadAssistantKnowledgeService();
+  const extractInternalRuntimeAssistantFileService =
+    new FakeExtractInternalRuntimeAssistantFileService();
   const prisma = {
     assistant: { findUnique: async () => ({ workspaceId: "workspace-1" }) },
+    assistantChat: {
+      findUnique: async ({
+        where
+      }: {
+        where: {
+          assistantId_surface_surfaceThreadKey: { surfaceThreadKey: string };
+        };
+      }) =>
+        where.assistantId_surface_surfaceThreadKey.surfaceThreadKey === "thread-project-1"
+          ? { id: "chat-project-1", workspaceId: "workspace-1" }
+          : null
+    },
+    assistantChatMessageAttachment: {
+      findMany: async ({ where }: { where: { chatId: string } }) =>
+        where.chatId === "chat-project-1" ? projectFileAttachments : []
+    },
     assistantSkillAssignment: { findMany: async () => [] },
     skillDocumentChunk: { findMany: async () => [] },
     skillKnowledgeCardChunk: { findMany: async () => [] }
@@ -537,6 +715,7 @@ async function runOrdinaryStagedRetrievalCases(): Promise<void> {
   const service = new OrchestrateRuntimeRetrievalService(
     prisma as never,
     readKnowledge as never,
+    extractInternalRuntimeAssistantFileService as never,
     observability as never,
     {
       resolveAssistantRetrievalPolicy: async () => ({
@@ -623,6 +802,47 @@ async function runOrdinaryStagedRetrievalCases(): Promise<void> {
       { source: "product", policyState: "ordinary_product_first" }
     ]
   );
+  assert.deepEqual(
+    readKnowledge.searches.map((call) => call.source),
+    ["document", "memory", "chat", "global", "subscription"]
+  );
+
+  observability.searches = [];
+  observability.fetches = [];
+  readKnowledge.searches = [];
+  extractInternalRuntimeAssistantFileService.calls = [];
+  const projectContext = await service.execute(
+    service.parseInput({
+      assistantId: "assistant-1",
+      query: "project retrieval with uploaded file context",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: false,
+        selectedSkillIds: [],
+        useUserKnowledge: true,
+        useProductKnowledge: true,
+        useWeb: false,
+        confidence: "high",
+        reasonCode: "test_project_files_before_kb"
+      },
+      gatherProfile: "project",
+      conversation: {
+        channel: "web",
+        surfaceThreadKey: "thread-project-1"
+      }
+    })
+  );
+  assert.deepEqual(
+    projectContext.items.map((item) => item.referenceId),
+    ["project_file:file-project-1", "source-1:1:0", "product-text-entry:product-text-1:1:0"]
+  );
+  assert.deepEqual(extractInternalRuntimeAssistantFileService.calls, [
+    {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      fileRef: "file-project-1"
+    }
+  ]);
   assert.deepEqual(
     readKnowledge.searches.map((call) => call.source),
     ["document", "memory", "chat", "global", "subscription"]

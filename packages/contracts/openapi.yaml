@@ -10134,6 +10134,14 @@ components:
         title:
           type: string
           nullable: true
+        chatMode:
+          type: string
+          enum:
+            - normal
+            - smart
+            - project
+        deepModeEnabled:
+          type: boolean
     AssistantWebChatState:
       type: object
       required:
@@ -10142,6 +10150,7 @@ components:
         - surface
         - surfaceThreadKey
         - title
+        - chatMode
         - deepModeEnabled
         - skillDecisionState
         - skillCadenceState
@@ -10163,6 +10172,12 @@ components:
         title:
           type: string
           nullable: true
+        chatMode:
+          type: string
+          enum:
+            - normal
+            - smart
+            - project
         deepModeEnabled:
           type: boolean
         skillDecisionState:
@@ -10748,6 +10763,12 @@ components:
         title:
           type: string
           nullable: true
+        chatMode:
+          type: string
+          enum:
+            - normal
+            - smart
+            - project
         deepModeEnabled:
           type: boolean
     AssistantWebChatDeleteRequest:
@@ -14041,6 +14062,7 @@ components:
             - mode
             - classifierFailureFallbackMode
             - clarifyOnMissingContext
+            - analyzeUploadsOnB2cUpload
             - precheckRuleOverrides
           properties:
             enabled:
@@ -14057,6 +14079,8 @@ components:
                 - premium
                 - reasoning
             clarifyOnMissingContext:
+              type: boolean
+            analyzeUploadsOnB2cUpload:
               type: boolean
             precheckRuleOverrides:
               type: object
@@ -14168,6 +14192,7 @@ components:
             - mode
             - classifierFailureFallbackMode
             - clarifyOnMissingContext
+            - analyzeUploadsOnB2cUpload
             - precheckRuleOverrides
           properties:
             enabled:
@@ -14184,6 +14209,8 @@ components:
                 - premium
                 - reasoning
             clarifyOnMissingContext:
+              type: boolean
+            analyzeUploadsOnB2cUpload:
               type: boolean
             precheckRuleOverrides:
               type: object

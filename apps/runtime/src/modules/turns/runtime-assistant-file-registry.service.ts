@@ -33,6 +33,8 @@ export type RuntimeAssistantDirectoryListing = {
   truncated: boolean;
 };
 
+const RUNTIME_FILE_SEMANTIC_SUMMARY_HINT_MAX_CHARS = 80;
+
 type AttachmentBackedOrigin = Extract<
   PersaiSandboxFileOrigin,
   "uploaded_attachment" | "runtime_output"
@@ -272,8 +274,21 @@ export class RuntimeAssistantFileRegistryService {
       displayName: record.displayName,
       mimeType: record.mimeType,
       sizeBytes: record.sizeBytes,
-      logicalSizeBytes: record.logicalSizeBytes
+      logicalSizeBytes: record.logicalSizeBytes,
+      semanticSummaryHint: this.readSemanticSummaryHint(record.metadata)
     };
+  }
+
+  private readSemanticSummaryHint(metadata: Record<string, unknown> | null): string | null {
+    const summary = metadata?.semanticSummary;
+    if (typeof summary !== "string") {
+      return null;
+    }
+    const normalized = summary.replace(/\s+/g, " ").trim();
+    if (normalized.length === 0) {
+      return null;
+    }
+    return normalized.slice(0, RUNTIME_FILE_SEMANTIC_SUMMARY_HINT_MAX_CHARS);
   }
 
   toRuntimeFilesToolItem(record: RuntimeAssistantFileRecord): RuntimeFilesToolItem {

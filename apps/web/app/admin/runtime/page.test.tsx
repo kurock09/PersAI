@@ -44,6 +44,7 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
       mode: "shadow",
       classifierFailureFallbackMode: "normal",
       clarifyOnMissingContext: true,
+      analyzeUploadsOnB2cUpload: false,
       precheckRuleOverrides: null
     },
     skillRoutingPolicy: {
@@ -229,6 +230,30 @@ describe("AdminRuntimePage", () => {
       active: false
     });
     expect(imageProfiles[0].effectiveTo).toBeTruthy();
+  });
+
+  it("round-trips the upload analysis router toggle", async () => {
+    render(<AdminRuntimePage />);
+
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Router Policy/i }));
+    fireEvent.click(
+      screen.getByLabelText("Analyze uploads in B2C chats. Project chats always analyze uploads.")
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(apiMocks.putAdminRuntimeProviderSettings).toHaveBeenCalledWith(
+        "token-1",
+        expect.any(Object)
+      )
+    );
+
+    const request = apiMocks.putAdminRuntimeProviderSettings.mock.calls.at(-1)?.[1];
+    expect(request.routerPolicy.analyzeUploadsOnB2cUpload).toBe(true);
   });
 });
 

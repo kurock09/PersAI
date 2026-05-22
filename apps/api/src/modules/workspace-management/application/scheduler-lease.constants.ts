@@ -9,6 +9,7 @@ export const SCHEDULER_KEYS = [
   "background_compaction",
   "media_job",
   "document_job",
+  "upload_micro_description",
   "materialization_rollout",
   "telegram_album_finalizer"
 ] as const;

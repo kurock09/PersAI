@@ -443,6 +443,7 @@ export function buildRuntimeProviderSettingsRequest(params: {
       mode: "shadow",
       classifierFailureFallbackMode: "normal",
       clarifyOnMissingContext: true,
+      analyzeUploadsOnB2cUpload: false,
       precheckRuleOverrides: null
     },
     skillRoutingPolicy: {

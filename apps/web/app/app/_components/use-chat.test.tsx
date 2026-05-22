@@ -1204,6 +1204,74 @@ describe("useChat", () => {
     expect(activityEntries[0]?.event.afterMessageId).toBe("assistant-msg-1");
   });
 
+  it("appends project activity timeline entries for project-mode streams", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onProjectActivity?: (payload: {
+            stage: "plan";
+            status: "started";
+            summary: string;
+          }) => void;
+          onProjectReasoningSummary?: (payload: { kind: "plan"; summary: string }) => void;
+          onRuntimeDone?: (payload: { respondedAt: string }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1" }
+        });
+        handlers.onProjectActivity?.({
+          stage: "plan",
+          status: "started",
+          summary: "Planning the analysis pass"
+        });
+        handlers.onProjectReasoningSummary?.({
+          kind: "plan",
+          summary: "Building a bounded plan."
+        });
+        handlers.onRuntimeDone?.({
+          respondedAt: "2026-04-14T10:08:00.000Z"
+        });
+        handlers.onCompleted?.({
+          transport: {
+            assistantMessage: {
+              id: "assistant-msg-1",
+              attachments: []
+            },
+            userMessage: {
+              id: "user-msg-1",
+              attachments: []
+            },
+            runtime: null
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("Analyze the project pack", undefined, { chatMode: "project" });
+    });
+
+    const activityEntries = result.current.entries.filter(
+      (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+        entry.kind === "activity"
+    );
+
+    expect(activityEntries.map((entry) => entry.event.label)).toEqual(
+      expect.arrayContaining(["project_stage_plan_started", "project_reasoning_plan"])
+    );
+    expect(activityEntries.every((entry) => entry.event.afterMessageId === "assistant-msg-1")).toBe(
+      true
+    );
+  });
+
   it("preserves active Skill detail when the final badge is a tool completion", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (

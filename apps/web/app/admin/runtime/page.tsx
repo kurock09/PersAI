@@ -657,6 +657,7 @@ export default function AdminRuntimePage() {
       "normal"
     );
   const [routerClarifyOnMissingContext, setRouterClarifyOnMissingContext] = useState(true);
+  const [analyzeUploadsOnB2cUpload, setAnalyzeUploadsOnB2cUpload] = useState(false);
   const [routerContinueTermsText, setRouterContinueTermsText] = useState("");
   const [routerRetrievalTermsText, setRouterRetrievalTermsText] = useState("");
   const [routerReasoningTermsText, setRouterReasoningTermsText] = useState("");
@@ -722,6 +723,7 @@ export default function AdminRuntimePage() {
       setRouterMode(res.routerPolicy.mode);
       setRouterFallbackMode(res.routerPolicy.classifierFailureFallbackMode);
       setRouterClarifyOnMissingContext(res.routerPolicy.clarifyOnMissingContext);
+      setAnalyzeUploadsOnB2cUpload(res.routerPolicy.analyzeUploadsOnB2cUpload);
       setRouterContinueTermsText(
         formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.continueTerms)
       );
@@ -841,6 +843,7 @@ export default function AdminRuntimePage() {
           mode: routerMode,
           classifierFailureFallbackMode: routerFallbackMode,
           clarifyOnMissingContext: routerClarifyOnMissingContext,
+          analyzeUploadsOnB2cUpload,
           precheckRuleOverrides
         },
         skillRoutingPolicy,
@@ -868,6 +871,7 @@ export default function AdminRuntimePage() {
     getToken,
     load,
     modelCatalogByProvider,
+    analyzeUploadsOnB2cUpload,
     routerClarifyOnMissingContext,
     routerContinueTermsText,
     routerEnabled,
@@ -1283,6 +1287,15 @@ export default function AdminRuntimePage() {
                 className="h-3.5 w-3.5 rounded border-border accent-accent"
               />
               Ask for clarification when the router detects missing context.
+            </label>
+            <label className="flex items-center gap-2 text-[10px] text-text-muted">
+              <input
+                type="checkbox"
+                checked={analyzeUploadsOnB2cUpload}
+                onChange={(event) => setAnalyzeUploadsOnB2cUpload(event.target.checked)}
+                className="h-3.5 w-3.5 rounded border-border accent-accent"
+              />
+              Analyze uploads in B2C chats. Project chats always analyze uploads.
             </label>
           </Card>
           <Card title="Editable Precheck Triggers">

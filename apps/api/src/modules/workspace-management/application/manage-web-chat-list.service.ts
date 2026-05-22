@@ -9,9 +9,11 @@ import {
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import type {
+  AssistantChatMode,
   AssistantChatSkillCadenceState,
   AssistantChatSkillDecisionState
 } from "../domain/assistant-chat.entity";
+import { chatModeToDeepModeEnabled, isAssistantChatMode } from "../domain/assistant-chat.entity";
 import type { Assistant } from "../domain/assistant.entity";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { AssistantRuntimeError } from "./assistant-runtime.facade";
@@ -44,6 +46,7 @@ import {
 
 export interface UpdateWebChatRequest {
   title?: string | null;
+  chatMode?: AssistantChatMode;
   deepModeEnabled?: boolean;
 }
 
@@ -64,6 +67,7 @@ function toChatState(chat: {
   surface: "web" | "telegram";
   surfaceThreadKey: string;
   title: string | null;
+  chatMode: AssistantChatMode;
   deepModeEnabled: boolean;
   skillDecisionState: AssistantChatSkillDecisionState | null;
   skillCadenceState: AssistantChatSkillCadenceState | null;
@@ -78,6 +82,7 @@ function toChatState(chat: {
     surface: chat.surface,
     surfaceThreadKey: chat.surfaceThreadKey,
     title: chat.title,
+    chatMode: chat.chatMode,
     deepModeEnabled: chat.deepModeEnabled,
     skillDecisionState: chat.skillDecisionState,
     skillCadenceState: chat.skillCadenceState,
@@ -137,6 +142,22 @@ export class ManageWebChatListService {
         throw new BadRequestException("deepModeEnabled must be boolean.");
       }
       output.deepModeEnabled = body.deepModeEnabled;
+    }
+
+    if ("chatMode" in body) {
+      if (!isAssistantChatMode(body.chatMode)) {
+        throw new BadRequestException("chatMode must be one of normal, smart, or project.");
+      }
+      const chatMode = body.chatMode;
+      const expectedDeepModeEnabled = chatModeToDeepModeEnabled(chatMode);
+      if (
+        output.deepModeEnabled !== undefined &&
+        output.deepModeEnabled !== expectedDeepModeEnabled
+      ) {
+        throw new BadRequestException("chatMode conflicts with deepModeEnabled.");
+      }
+      output.chatMode = chatMode;
+      output.deepModeEnabled = expectedDeepModeEnabled;
     }
 
     if (Object.keys(output).length === 0) {

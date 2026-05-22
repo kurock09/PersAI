@@ -3005,6 +3005,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(retrievalHintToolNames.includes("knowledge_search"), true);
   assert.equal(retrievalHintToolNames.includes("knowledge_fetch"), true);
   assert.equal(persaiInternalApiClientService.orchestrateRetrievalCalls.length, 1);
+  assert.equal(
+    (persaiInternalApiClientService.orchestrateRetrievalCalls.at(-1)?.gatherProfile ?? null) as
+      | string
+      | null,
+    null
+  );
   assert.match(
     providerGatewayClient.calls[retrievalHintPlannerOffset]?.developerInstructions ?? "",
     /# Retrieved Knowledge Context/
@@ -3191,6 +3197,92 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(plannedRetrievalBlock, /skill grounded exact nutrition facts/);
   assert.ok(plannedRetrievalBlock.length <= 1_250);
+
+  persaiInternalApiClientService.orchestrateRetrievalOutcome = {
+    items: [
+      {
+        label: "skill_reference" as const,
+        referenceId: "skill:skill-diet:doc:1",
+        title: "Dietitian guide",
+        locator: "chunk 1",
+        content: "project nutrition evidence",
+        score: 0.95,
+        metadata: { skillId: "skill-diet", skillSourceType: "skill_document" }
+      },
+      {
+        label: "user_document" as const,
+        referenceId: "project_file:file-project-1",
+        title: "Uploaded meal plan",
+        locator: "uploads/project-thread/meal-plan.pdf",
+        content: "project file context without prior files.read",
+        score: 0.9,
+        metadata: { source: "project_file", fileRef: "file-project-1" }
+      }
+    ],
+    renderedBlock:
+      "# Retrieved Knowledge Context\n\n## 1. skill_reference\nproject nutrition evidence\n\n## 2. user_document\nproject file context without prior files.read"
+  };
+  const projectGroundedRequest = createRuntimeTurnRequest();
+  projectGroundedRequest.bundle.bundleHash = request.bundle.bundleHash;
+  projectGroundedRequest.chatMode = "project";
+  projectGroundedRequest.deepMode = true;
+  projectGroundedRequest.message.text =
+    "Audit my nutrition project using the active skill and uploaded files.";
+  projectGroundedRequest.skillStateContext = {
+    decision: {
+      status: "active",
+      activeSkillId: "skill-diet",
+      activeSkillName: "Dietitian",
+      topicSummary: "Nutrition project audit",
+      confidence: "high",
+      checkedAtMessageIndex: 9
+    },
+    cadence: {
+      messageCountSinceCheck: 1,
+      backgroundCheckQueuedAtMessageIndex: null,
+      needsBootstrap: false,
+      bootstrapReason: null
+    },
+    currentUserMessageIndex: 10,
+    recentMessages: [{ role: "user", text: projectGroundedRequest.message.text }]
+  };
+  turnContextHydrationService.messages = [
+    {
+      role: "user",
+      content: projectGroundedRequest.message.text
+    }
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    projectGroundedRequest.bundle.bundleHash;
+  providerGatewayClient.result = {
+    provider: "openai",
+    model: "gpt-5.4-thinking",
+    text: "project grounded reply",
+    respondedAt: "2026-04-11T12:00:04.125Z",
+    usage: {
+      providerKey: "openai",
+      modelKey: "gpt-5.4-thinking",
+      inputTokens: 22,
+      outputTokens: 18,
+      totalTokens: 40
+    },
+    stopReason: "completed",
+    toolCalls: []
+  };
+  const projectGroundedCompleted = await service.createTurn(projectGroundedRequest);
+  assert.equal(projectGroundedCompleted.assistantText, "project grounded reply");
+  assert.equal(
+    (persaiInternalApiClientService.orchestrateRetrievalCalls.at(-1)?.gatherProfile ?? null) as
+      | string
+      | null,
+    "project"
+  );
+  const projectGroundedFinalCall = providerGatewayClient.calls.at(-1);
+  assert.match(
+    projectGroundedFinalCall?.developerInstructions ?? "",
+    /project file context without prior files\.read/
+  );
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.skills = { enabled: [] };
     bundleRegistry.entry.parsedBundle.runtime.contextHydration = {

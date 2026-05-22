@@ -63,6 +63,7 @@ describe("runtime-provider-settings-admin", () => {
         mode: "shadow",
         classifierFailureFallbackMode: "normal",
         clarifyOnMissingContext: true,
+        analyzeUploadsOnB2cUpload: false,
         precheckRuleOverrides: null
       },
       skillRoutingPolicy: {

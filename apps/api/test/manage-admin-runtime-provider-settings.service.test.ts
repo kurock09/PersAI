@@ -35,6 +35,7 @@ async function run(): Promise<void> {
           mode: "shadow",
           classifierFailureFallbackMode: "normal",
           clarifyOnMissingContext: true,
+          analyzeUploadsOnB2cUpload: false,
           precheckRuleOverrides: null
         },
         skillRoutingPolicy: {
@@ -84,6 +85,7 @@ async function run(): Promise<void> {
         mode: "shadow",
         classifierFailureFallbackMode: "normal",
         clarifyOnMissingContext: true,
+        analyzeUploadsOnB2cUpload: true,
         precheckRuleOverrides: null
       },
       skillRoutingPolicy: {

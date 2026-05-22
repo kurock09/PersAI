@@ -145,6 +145,8 @@ export interface RuntimeFileRef {
   sizeBytes: number;
   logicalSizeBytes: number | null;
   aliases?: string[] | null;
+  /** Token-safe hint derived from durable file metadata; never a full content preview. */
+  semanticSummaryHint?: string | null;
 }
 
 export interface RuntimeSandboxPolicy {
@@ -544,6 +546,44 @@ export interface RuntimeRetrievalActivityEvent {
   resultCount: number;
   skillName?: string | null;
   skillIconEmoji?: string | null;
+}
+
+/** ADR-100 Slice 5 — project-mode stage activity (user-safe, bounded). */
+export type RuntimeProjectStage = "plan" | "gather" | "analyze" | "replan" | "synthesize";
+
+export type RuntimeProjectActivityStatus = "started" | "completed";
+
+export type RuntimeProjectActivitySourceClass = "files" | "skill" | "knowledge" | "web" | "tool";
+
+/** ADR-100 Slice 5 — visible reasoning summary kinds (not raw chain-of-thought). */
+export type RuntimeProjectReasoningKind =
+  | "plan"
+  | "check"
+  | "gap"
+  | "conflict"
+  | "interim"
+  | "replan"
+  | "synthesis";
+
+export interface RuntimeProjectActivityEvent {
+  type: "project_activity";
+  requestId: string;
+  sessionId: string;
+  stage: RuntimeProjectStage;
+  status: RuntimeProjectActivityStatus;
+  summary: string;
+  detail?: string | null;
+  sourceClass?: RuntimeProjectActivitySourceClass | null;
+  resultCount?: number | null;
+}
+
+export interface RuntimeProjectReasoningSummaryEvent {
+  type: "project_reasoning_summary";
+  requestId: string;
+  sessionId: string;
+  kind: RuntimeProjectReasoningKind;
+  summary: string;
+  detail?: string | null;
 }
 
 export interface RuntimeToolPolicy {
@@ -2243,6 +2283,7 @@ export interface RuntimeTurnRequest {
   conversation: RuntimeConversationAddress;
   message: RuntimeInboundMessage;
   openMediaJobs?: RuntimeOpenMediaJobContext[];
+  chatMode?: "normal" | "smart" | "project";
   deepMode?: boolean;
   modelRoleOverride?: PersaiRuntimeModelRole;
   providerOverride?: "openai" | "anthropic";
@@ -2913,6 +2954,8 @@ export type RuntimeTurnStreamEvent =
   | RuntimeTextDeltaEvent
   | RuntimeArtifactEvent
   | RuntimeRetrievalActivityEvent
+  | RuntimeProjectActivityEvent
+  | RuntimeProjectReasoningSummaryEvent
   | RuntimeToolStartedEvent
   | RuntimeToolFinishedEvent
   | RuntimeCompletedEvent

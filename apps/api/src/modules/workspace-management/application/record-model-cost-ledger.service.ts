@@ -41,6 +41,7 @@ export type ModelCostLedgerPurpose =
   | "router"
   | "background_task"
   | "retrieval_helper"
+  | "tool_helper"
   | "chat_helper"
   | "image_generation"
   | "image_edit"
@@ -636,6 +637,31 @@ export class RecordModelCostLedgerService {
         outputTokens: input.outputTokens,
         totalTokens: input.totalTokens ?? null
       }
+    });
+  }
+
+  async recordToolHelperEvent(input: {
+    workspaceId: string;
+    assistantId: string;
+    userId: string;
+    surface?: ModelCostLedgerSurface;
+    occurredAt: string;
+    sourceEventId: string;
+    source: "upload_micro_description";
+    usage: RuntimeUsageSnapshot | null;
+  }): Promise<number> {
+    return this.recordTokenMeteredUsageSnapshot({
+      workspaceId: input.workspaceId,
+      assistantId: input.assistantId,
+      userId: input.userId,
+      surface: input.surface ?? "background",
+      purpose: "tool_helper",
+      source: input.source,
+      sourceEventId: input.sourceEventId,
+      occurredAt: input.occurredAt,
+      stepType: input.source,
+      modelRole: "system_tool",
+      usage: input.usage
     });
   }
 

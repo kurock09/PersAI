@@ -252,6 +252,159 @@ describe("StreamNativeWebChatTurnService", () => {
     }
   });
 
+  test("maps project activity and reasoning summary runtime events", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1"
+          }),
+          JSON.stringify({
+            type: "project_activity",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1",
+            stage: "plan",
+            status: "started",
+            summary: "Planning the analysis pass"
+          }),
+          JSON.stringify({
+            type: "project_reasoning_summary",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1",
+            kind: "plan",
+            summary: "Building a bounded plan."
+          }),
+          JSON.stringify({
+            type: "completed",
+            result: {
+              requestId: "runtime-request-1",
+              sessionId: "runtime-session-1",
+              assistantText: "done",
+              artifacts: [],
+              respondedAt: "2026-04-11T13:00:00.000Z",
+              usage: null
+            }
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new StreamNativeWebChatTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      const chunks = await collectChunks(
+        service.execute({
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          surfaceThreadKey: "thread-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          userMessageId: "user-msg-1",
+          userMessage: "project analysis",
+          attachments: [],
+          chatMode: "project"
+        })
+      );
+
+      assert.ok(
+        chunks.some(
+          (chunk) =>
+            chunk.type === "project_activity" &&
+            chunk.projectStage === "plan" &&
+            chunk.projectStatus === "started"
+        )
+      );
+      assert.ok(
+        chunks.some(
+          (chunk) =>
+            chunk.type === "project_reasoning_summary" && chunk.projectReasoningKind === "plan"
+        )
+      );
+      assert.ok(chunks.some((chunk) => chunk.type === "done"));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("includes chatMode on native runtime stream request body", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+    let capturedBody: Record<string, unknown> | null = null;
+
+    globalThis.fetch = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      capturedBody = init?.body
+        ? (JSON.parse(init.body as string) as Record<string, unknown>)
+        : null;
+      return new Response(
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1"
+          }),
+          JSON.stringify({
+            type: "completed",
+            result: {
+              requestId: "runtime-request-1",
+              sessionId: "runtime-session-1",
+              assistantText: "done",
+              artifacts: [],
+              respondedAt: "2026-04-11T13:00:00.000Z",
+              usage: null
+            }
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new StreamNativeWebChatTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      for await (const _chunk of service.execute({
+        assistantId: "assistant-1",
+        publishedVersionId: "version-1",
+        runtimeTier: "paid_shared_restricted",
+        surfaceThreadKey: "thread-1",
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        userMessageId: "user-msg-1",
+        userMessage: "project analysis",
+        attachments: [],
+        chatMode: "project",
+        deepMode: true
+      })) {
+        void _chunk;
+      }
+
+      assert.equal(capturedBody?.chatMode, "project");
+      assert.equal(capturedBody?.deepMode, true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("ignores blank keepalive lines in the runtime NDJSON stream", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;

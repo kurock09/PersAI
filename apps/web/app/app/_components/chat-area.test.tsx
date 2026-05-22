@@ -2,9 +2,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatArea } from "./chat-area";
 import type { ChatMessage, UseChatReturn } from "./use-chat";
+import { patchAssistantWebChat } from "../assistant-api-client";
 
 const chatMessageBubbleMock = vi.hoisted(() => vi.fn());
-const getTokenMock = vi.hoisted(() => vi.fn(async () => null));
+const getTokenMock = vi.hoisted(() => vi.fn(async (): Promise<string | null> => null));
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -137,6 +138,33 @@ function createChat(
 }
 
 describe("ChatArea", () => {
+  it("persists project chat mode through the desktop composer control", async () => {
+    getTokenMock.mockResolvedValueOnce("token-1");
+    const patchMock = vi.mocked(patchAssistantWebChat);
+    render(<ChatArea chat={createChat("Hello", { isStreaming: false })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "modeProjectLabel" }));
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith("token-1", "chat-1", { chatMode: "project" });
+    });
+  });
+
+  it("persists project chat mode from the mobile mode menu", async () => {
+    getTokenMock.mockResolvedValueOnce("token-1");
+    const patchMock = vi.mocked(patchAssistantWebChat);
+    render(<ChatArea chat={createChat("Hello", { isStreaming: false })} />);
+
+    // Mobile chip uses md:hidden; in jsdom the desktop breakpoint often wins, so
+    // query the touch-only control as hidden rather than stubbing viewport CSS.
+    fireEvent.click(screen.getByRole("button", { name: "modeMenuAria", hidden: true }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /modeProjectLabel/ }));
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith("token-1", "chat-1", { chatMode: "project" });
+    });
+  });
+
   it("keeps auto-scrolling while the last assistant message streams new content", () => {
     const { container, rerender } = render(<ChatArea chat={createChat("Hello")} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
@@ -223,6 +251,24 @@ describe("ChatArea", () => {
 
     expect(screen.getByText("voiceTranscriptionEmptyTitle")).toBeInTheDocument();
     expect(screen.getByText("voiceTranscriptionEmptyGuidance")).toBeInTheDocument();
+  });
+
+  it("shows localized provider failure guidance", () => {
+    render(
+      <ChatArea
+        chat={createChat("Hello", {
+          isStreaming: false,
+          issue: {
+            classId: "provider_failure",
+            message: "A model provider issue interrupted this chat turn.",
+            guidance: "Wait a moment and retry the same thread."
+          }
+        })}
+      />
+    );
+
+    expect(screen.getByText("issueProviderFailure")).toBeInTheDocument();
+    expect(screen.getByText("issueProviderFailureGuidance")).toBeInTheDocument();
   });
 
   it("renders server-provided storage issue copy without replacing it locally", () => {

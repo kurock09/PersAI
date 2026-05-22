@@ -13,6 +13,7 @@ export type AdminRuntimeProviderSettingsRequestRouterPolicy = {
   mode: AdminRuntimeProviderSettingsRequestRouterPolicyMode;
   classifierFailureFallbackMode: AdminRuntimeProviderSettingsRequestRouterPolicyClassifierFailureFallbackMode;
   clarifyOnMissingContext: boolean;
+  analyzeUploadsOnB2cUpload: boolean;
   /** @nullable */
   precheckRuleOverrides: AdminRuntimeProviderSettingsRequestRouterPolicyPrecheckRuleOverrides;
 };

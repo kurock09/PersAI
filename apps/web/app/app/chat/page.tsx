@@ -379,6 +379,7 @@ function ChatPageInner() {
     <ChatArea
       chat={chat}
       title={existingChat?.chat.title ?? undefined}
+      chatMode={existingChat?.chat.chatMode ?? undefined}
       deepModeEnabled={existingChat?.chat.deepModeEnabled ?? false}
       assistantName={appData.assistant?.draft.displayName ?? undefined}
       assistantAvatarUrl={appData.assistant?.draft.avatarUrl ?? undefined}

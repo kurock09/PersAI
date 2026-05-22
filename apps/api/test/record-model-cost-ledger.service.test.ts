@@ -1066,6 +1066,104 @@ describe("RecordModelCostLedgerService", () => {
     assert.equal(createdRows[0]?.source, "knowledge_retrieval_helper");
   });
 
+  test("records upload micro-description helper usage as tool_helper", async () => {
+    const createdRows: Array<Record<string, unknown>> = [];
+    const prisma = {
+      modelCostLedgerEvent: {
+        createMany: async (input: { data: Array<Record<string, unknown>> }) => {
+          createdRows.push(...input.data);
+          return { count: input.data.length };
+        }
+      }
+    } as unknown as WorkspaceManagementPrismaService;
+
+    const settingsResolver = {
+      execute: async () => ({
+        schema: "persai.runtimeProviderProfile.v1",
+        mode: "admin_managed",
+        derivedFrom: {
+          policyEnvelopeSchema: "persai.runtimeProviderProfile.v1",
+          secretRefsSchema: "persai.runtimeProviderCredentialRefs.v1"
+        },
+        allowedProviders: ["openai", "anthropic"],
+        availableModelsByProvider: { openai: ["gpt-5-mini"], anthropic: [] },
+        availableModelCatalogByProvider: {
+          openai: {
+            models: [
+              {
+                model: "gpt-5-mini",
+                capabilities: ["chat"],
+                active: true,
+                billingMode: "token_metered",
+                effectiveFrom: null,
+                effectiveTo: null,
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  tokenPricing: {
+                    inputPer1M: 50,
+                    cachedInputPer1M: 25,
+                    outputPer1M: 100
+                  }
+                }
+              }
+            ]
+          },
+          anthropic: { models: [] }
+        },
+        primary: {
+          provider: "openai",
+          model: "gpt-5-mini",
+          credentialRef: {
+            refKey: "env:openai:OPENAI_API_KEY",
+            secretRef: { source: "env", provider: "openai", id: "OPENAI_API_KEY" },
+            updatedAt: null
+          }
+        },
+        fallback: null,
+        notes: []
+      })
+    } as ResolvePlatformRuntimeProviderSettingsService;
+
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
+    const writtenCount = await service.recordToolHelperEvent({
+      workspaceId: "workspace-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      occurredAt: "2026-05-22T20:00:00.000Z",
+      sourceEventId: "upload_micro_description_job:job-1",
+      source: "upload_micro_description",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5-mini",
+        inputTokens: 48,
+        cachedInputTokens: 0,
+        outputTokens: 12,
+        totalTokens: 60
+      }
+    });
+
+    assert.equal(writtenCount, 1);
+    assert.equal(createdRows[0]?.purpose, "tool_helper");
+    assert.equal(createdRows[0]?.source, "upload_micro_description");
+    assert.equal(createdRows[0]?.surface, "background");
+    assert.equal(createdRows[0]?.sourceEventId, "upload_micro_description_job:job-1");
+  });
+
   test("records async completion framing usage as chat_helper", async () => {
     const createdRows: Array<Record<string, unknown>> = [];
     const prisma = {

@@ -7,11 +7,13 @@ import {
 import type { AssistantChatMessage } from "../../domain/assistant-chat-message.entity";
 import type {
   AssistantChat,
+  AssistantChatMode,
   AssistantChatSkillCadenceState,
   AssistantChatSkillDecisionState,
   AssistantChatSkillRetrievalState,
   AssistantChatSurface
 } from "../../domain/assistant-chat.entity";
+import { chatModeToDeepModeEnabled } from "../../domain/assistant-chat.entity";
 import type {
   AssistantChatListMetadata,
   AssistantChatRepository,
@@ -23,11 +25,31 @@ import type {
 } from "../../domain/assistant-chat.repository";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
+function resolveStoredChatMode(input: CreateAssistantChatInput | UpdateAssistantChatInput): {
+  chatMode?: AssistantChatMode;
+  deepModeEnabled?: boolean;
+} {
+  if (input.chatMode !== undefined) {
+    return {
+      chatMode: input.chatMode,
+      deepModeEnabled: chatModeToDeepModeEnabled(input.chatMode)
+    };
+  }
+  if (input.deepModeEnabled !== undefined) {
+    return {
+      chatMode: input.deepModeEnabled ? "smart" : "normal",
+      deepModeEnabled: input.deepModeEnabled
+    };
+  }
+  return {};
+}
+
 @Injectable()
 export class PrismaAssistantChatRepository implements AssistantChatRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
   async createChat(input: CreateAssistantChatInput): Promise<AssistantChat> {
+    const modeState = resolveStoredChatMode(input);
     const chat = await this.prisma.assistantChat.create({
       data: {
         assistantId: input.assistantId,
@@ -36,7 +58,8 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
         surface: input.surface,
         surfaceThreadKey: input.surfaceThreadKey,
         title: input.title,
-        deepModeEnabled: input.deepModeEnabled ?? false
+        chatMode: modeState.chatMode ?? "normal",
+        deepModeEnabled: modeState.deepModeEnabled ?? false
       }
     });
 
@@ -110,6 +133,7 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
               };
             }
 
+            const modeState = resolveStoredChatMode(input);
             const created = await tx.assistantChat.create({
               data: {
                 assistantId: input.assistantId,
@@ -118,7 +142,8 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
                 surface: "web",
                 surfaceThreadKey: input.surfaceThreadKey,
                 title: input.title,
-                deepModeEnabled: input.deepModeEnabled ?? false
+                chatMode: modeState.chatMode ?? "normal",
+                deepModeEnabled: modeState.deepModeEnabled ?? false
               }
             });
 
@@ -235,11 +260,15 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       return null;
     }
 
+    const modeState = resolveStoredChatMode(input);
     const chat = await this.prisma.assistantChat.update({
       where: { id: chatId },
       data: {
         ...(input.title === undefined ? {} : { title: input.title }),
-        ...(input.deepModeEnabled === undefined ? {} : { deepModeEnabled: input.deepModeEnabled }),
+        ...(modeState.chatMode === undefined ? {} : { chatMode: modeState.chatMode }),
+        ...(modeState.deepModeEnabled === undefined
+          ? {}
+          : { deepModeEnabled: modeState.deepModeEnabled }),
         ...(input.skillDecisionState === undefined
           ? {}
           : {
@@ -485,6 +514,7 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       surface: chat.surface,
       surfaceThreadKey: chat.surfaceThreadKey,
       title: chat.title,
+      chatMode: chat.chatMode,
       deepModeEnabled: chat.deepModeEnabled,
       skillDecisionState: this.parseSkillDecisionState(chat.skillDecisionState),
       skillCadenceState: this.parseSkillCadenceState(chat.skillCadenceState),

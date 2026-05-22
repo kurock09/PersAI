@@ -10,6 +10,8 @@ import {
   buildStoredAttachmentMetadata,
   inferAttachmentTypeFromMime,
   readStoredAttachmentContentPreview,
+  readStoredAttachmentSemanticSummary,
+  readStoredAttachmentSemanticSummarySource,
   type InboundMediaResolveParams,
   type ResolvedInboundMedia
 } from "./media.types";
@@ -135,9 +137,16 @@ export class InboundMediaService {
           transcription: processed.transcription,
           metadata: buildStoredAttachmentMetadata({
             source: raw.source,
-            textExtract: processed.textExtract
+            textExtract: processed.textExtract,
+            transcription: processed.transcription
           })
         });
+        const attachmentMetadata =
+          attachment.metadata !== null &&
+          typeof attachment.metadata === "object" &&
+          !Array.isArray(attachment.metadata)
+            ? (attachment.metadata as Record<string, unknown>)
+            : null;
         attachment.assistantFileId = (
           await this.assistantFileRegistryService.ensureAttachmentFile({
             assistantId: params.assistantId,
@@ -151,7 +160,9 @@ export class InboundMediaService {
             mimeType: attachment.mimeType,
             sizeBytes: attachment.sizeBytes,
             contentBuffer: processed.normalizedBuffer,
-            source: raw.source
+            source: raw.source,
+            semanticSummary: readStoredAttachmentSemanticSummary(attachmentMetadata),
+            semanticSummarySource: readStoredAttachmentSemanticSummarySource(attachmentMetadata)
           })
         ).fileRef;
 

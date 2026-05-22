@@ -132,10 +132,20 @@ export function inferMimeFromUrlAndType(url: string, type: MediaArtifact["type"]
 }
 
 const ATTACHMENT_CONTENT_PREVIEW_MAX_CHARS = 1_000;
+export const ATTACHMENT_SEMANTIC_SUMMARY_MAX_CHARS = 140;
+
+export const ATTACHMENT_SEMANTIC_SUMMARY_SOURCES = [
+  "text_extract",
+  "transcription",
+  "upload_micro_description"
+] as const;
+
+export type AttachmentSemanticSummarySource = (typeof ATTACHMENT_SEMANTIC_SUMMARY_SOURCES)[number];
 
 export function buildStoredAttachmentMetadata(input: {
   source?: string;
   textExtract?: string | null;
+  transcription?: string | null;
   originalUrl?: string;
 }): Record<string, unknown> | null {
   const metadata: Record<string, unknown> = {};
@@ -149,11 +159,98 @@ export function buildStoredAttachmentMetadata(input: {
     metadata.contentPreview = contentPreview;
   }
 
+  const semantic = deriveStoredAttachmentSemanticSummary({
+    textExtract: input.textExtract ?? null,
+    transcription: input.transcription ?? null
+  });
+  if (semantic.semanticSummary !== null) {
+    metadata.semanticSummary = semantic.semanticSummary;
+    metadata.semanticSummarySource = semantic.semanticSummarySource;
+  }
+
   if (typeof input.originalUrl === "string" && input.originalUrl.trim().length > 0) {
     metadata.originalUrl = input.originalUrl;
   }
 
   return Object.keys(metadata).length > 0 ? metadata : null;
+}
+
+export function deriveStoredAttachmentSemanticSummary(input: {
+  textExtract?: string | null;
+  transcription?: string | null;
+}): {
+  semanticSummary: string | null;
+  semanticSummarySource: AttachmentSemanticSummarySource | null;
+} {
+  const fromTranscription = toStoredAttachmentSemanticSummary(input.transcription ?? null);
+  if (fromTranscription !== null) {
+    return { semanticSummary: fromTranscription, semanticSummarySource: "transcription" };
+  }
+  const fromTextExtract = toStoredAttachmentSemanticSummary(input.textExtract ?? null);
+  if (fromTextExtract !== null) {
+    return { semanticSummary: fromTextExtract, semanticSummarySource: "text_extract" };
+  }
+  return { semanticSummary: null, semanticSummarySource: null };
+}
+
+export function readStoredAttachmentSemanticSummary(
+  metadata: Record<string, unknown> | null | undefined
+): string | null {
+  const summary = metadata?.semanticSummary;
+  return typeof summary === "string" && summary.trim().length > 0 ? summary : null;
+}
+
+export function readStoredAttachmentSemanticSummarySource(
+  metadata: Record<string, unknown> | null | undefined
+): AttachmentSemanticSummarySource | null {
+  const source = metadata?.semanticSummarySource;
+  return source === "text_extract" ||
+    source === "transcription" ||
+    source === "upload_micro_description"
+    ? source
+    : null;
+}
+
+export function withStoredAttachmentSemanticSummary(input: {
+  metadata: Record<string, unknown> | null | undefined;
+  semanticSummary: string | null | undefined;
+  semanticSummarySource: AttachmentSemanticSummarySource | null | undefined;
+}): Record<string, unknown> | null {
+  const base =
+    input.metadata !== null &&
+    input.metadata !== undefined &&
+    typeof input.metadata === "object" &&
+    !Array.isArray(input.metadata)
+      ? { ...input.metadata }
+      : {};
+  const semanticSummary = toStoredAttachmentSemanticSummary(input.semanticSummary ?? null);
+  const semanticSummarySource = input.semanticSummarySource ?? null;
+  if (semanticSummary === null || semanticSummarySource === null) {
+    delete base.semanticSummary;
+    delete base.semanticSummarySource;
+    return Object.keys(base).length > 0 ? base : null;
+  }
+  return {
+    ...base,
+    semanticSummary,
+    semanticSummarySource
+  };
+}
+
+export function normalizeStoredAttachmentSemanticSummary(text: string | null): string | null {
+  return toStoredAttachmentSemanticSummary(text);
+}
+
+function toStoredAttachmentSemanticSummary(text: string | null): string | null {
+  if (typeof text !== "string") {
+    return null;
+  }
+
+  const normalized = text
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, ATTACHMENT_SEMANTIC_SUMMARY_MAX_CHARS);
+  return normalized.length > 0 ? normalized : null;
 }
 
 export function readStoredAttachmentContentPreview(

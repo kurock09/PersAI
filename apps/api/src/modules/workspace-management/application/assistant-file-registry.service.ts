@@ -3,9 +3,19 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, type SandboxFileOrigin } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
+import type { AttachmentSemanticSummarySource } from "./media/media.types";
+import type {
+  KnowledgeExtractionQuality,
+  KnowledgeProcessingProviderTrace
+} from "./knowledge-processing.types";
 
 type AttachmentBackedOrigin = Extract<SandboxFileOrigin, "uploaded_attachment" | "runtime_output">;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_KEY = "internalRuntimeFileExtractionCache";
+const INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_SCHEMA =
+  "persai.internalRuntimeFileExtractionCache.v1";
+const INTERNAL_RUNTIME_FILE_EXTRACTION_TEXT_MAX_CHARS = 12_000;
+const INTERNAL_RUNTIME_FILE_EXTRACTION_MARKDOWN_MAX_CHARS = 12_000;
 
 export type AssistantFileBucket =
   | "user_files"
@@ -25,6 +35,16 @@ export type AssistantFileDocumentLink = {
   documentStatus: string;
   versionStatus: string;
   isCurrentOutput: boolean;
+};
+
+export type AssistantFileInternalRuntimeExtractionCache = {
+  schema: typeof INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_SCHEMA;
+  cachedAt: string;
+  text: string;
+  markdown: string | null;
+  note: string | null;
+  provider: KnowledgeProcessingProviderTrace;
+  quality: KnowledgeExtractionQuality;
 };
 
 export type AssistantFileRegistryRecord = {
@@ -56,6 +76,39 @@ export type AssistantFileCleanupResult = AssistantFileCleanupSummary & {
   deletedCount: number;
   deletedBytes: number;
 };
+
+export function readAssistantFileInternalRuntimeExtractionCache(
+  metadata: Record<string, unknown> | null
+): AssistantFileInternalRuntimeExtractionCache | null {
+  const raw =
+    metadata?.[INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_KEY] !== undefined
+      ? metadata[INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_KEY]
+      : null;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const row = raw as Record<string, unknown>;
+  if (
+    row.schema !== INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_SCHEMA ||
+    typeof row.cachedAt !== "string" ||
+    typeof row.text !== "string" ||
+    (row.markdown !== null && typeof row.markdown !== "string") ||
+    (row.note !== null && typeof row.note !== "string") ||
+    !isKnowledgeProcessingProviderTrace(row.provider) ||
+    !isKnowledgeExtractionQuality(row.quality)
+  ) {
+    return null;
+  }
+  return {
+    schema: INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_SCHEMA,
+    cachedAt: row.cachedAt,
+    text: row.text,
+    markdown: row.markdown as string | null,
+    note: row.note as string | null,
+    provider: row.provider,
+    quality: row.quality
+  };
+}
 
 @Injectable()
 export class AssistantFileRegistryService {
@@ -359,6 +412,8 @@ export class AssistantFileRegistryService {
     sizeBytes: bigint;
     contentBuffer?: Buffer;
     source: string;
+    semanticSummary?: string | null;
+    semanticSummarySource?: AttachmentSemanticSummarySource | null;
   }): Promise<AssistantFileRegistryRecord> {
     const relativePath = this.buildAttachmentRelativePath(
       input.origin,
@@ -370,7 +425,13 @@ export class AssistantFileRegistryService {
       source: input.source,
       sourceAttachmentId: input.sourceAttachmentId,
       sourceMessageId: input.sourceMessageId,
-      sourceChatId: input.sourceChatId
+      sourceChatId: input.sourceChatId,
+      ...(input.semanticSummary === null || input.semanticSummary === undefined
+        ? {}
+        : {
+            semanticSummary: input.semanticSummary,
+            semanticSummarySource: input.semanticSummarySource ?? null
+          })
     };
     const sha256 =
       input.contentBuffer === undefined
@@ -423,6 +484,57 @@ export class AssistantFileRegistryService {
     return this.mapRow(row);
   }
 
+  async updateInternalRuntimeExtractionCache(input: {
+    assistantId: string;
+    workspaceId: string;
+    fileRef: string;
+    cache: {
+      text: string;
+      markdown: string | null;
+      note: string | null;
+      provider: KnowledgeProcessingProviderTrace;
+      quality: KnowledgeExtractionQuality;
+      cachedAt?: string;
+    };
+  }): Promise<AssistantFileRegistryRecord> {
+    const existing = await this.findAssistantFile({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      fileRef: input.fileRef
+    });
+    if (existing === null) {
+      throw new NotFoundException("File not found.");
+    }
+    const metadata: Prisma.InputJsonObject = {
+      ...this.asMetadataObject(existing.metadata),
+      [INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_KEY]: {
+        schema: INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_SCHEMA,
+        cachedAt: input.cache.cachedAt ?? new Date().toISOString(),
+        text: this.truncateExtractionCacheValue(
+          input.cache.text,
+          INTERNAL_RUNTIME_FILE_EXTRACTION_TEXT_MAX_CHARS
+        ),
+        markdown:
+          input.cache.markdown === null
+            ? null
+            : this.truncateExtractionCacheValue(
+                input.cache.markdown,
+                INTERNAL_RUNTIME_FILE_EXTRACTION_MARKDOWN_MAX_CHARS
+              ),
+        note: input.cache.note,
+        provider: this.serializeJsonObject(input.cache.provider),
+        quality: this.serializeJsonObject(input.cache.quality)
+      }
+    };
+    const row = await this.prisma.assistantFile.update({
+      where: { id: input.fileRef },
+      data: {
+        metadata
+      }
+    });
+    return this.mapRow(row);
+  }
+
   private buildAttachmentRelativePath(
     origin: AttachmentBackedOrigin,
     referenceId: string,
@@ -436,10 +548,14 @@ export class AssistantFileRegistryService {
     return `${prefix}/${referenceId}/${basename}`;
   }
 
-  private asMetadataObject(metadata: Prisma.JsonValue | null): Prisma.InputJsonObject {
+  private asMetadataObject(metadata: unknown): Prisma.InputJsonObject {
     return metadata !== null && typeof metadata === "object" && !Array.isArray(metadata)
       ? (metadata as Prisma.InputJsonObject)
       : {};
+  }
+
+  private serializeJsonObject(value: Record<string, unknown>): Prisma.InputJsonObject {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonObject;
   }
 
   private sanitizeAttachmentFilename(filename: string): string {
@@ -610,6 +726,14 @@ export class AssistantFileRegistryService {
     };
   }
 
+  private truncateExtractionCacheValue(value: string, maxChars: number): string {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    if (normalized.length <= maxChars) {
+      return normalized;
+    }
+    return `${normalized.slice(0, maxChars - 3).trim()}...`;
+  }
+
   private async attachDocumentLinks(
     files: AssistantFileRegistryRecord[]
   ): Promise<AssistantFileRegistryRecord[]> {
@@ -663,4 +787,31 @@ export class AssistantFileRegistryService {
       documentLink: byFileRef.get(file.fileRef) ?? null
     }));
   }
+}
+
+function isKnowledgeProcessingProviderTrace(
+  value: unknown
+): value is KnowledgeProcessingProviderTrace {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.providerKey === "string" &&
+    typeof row.processorMode === "string" &&
+    Array.isArray(row.attemptedProviderKeys)
+  );
+}
+
+function isKnowledgeExtractionQuality(value: unknown): value is KnowledgeExtractionQuality {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.status === "string" &&
+    (typeof row.score === "number" || row.score === null) &&
+    Array.isArray(row.reasonCodes) &&
+    typeof row.textChars === "number"
+  );
 }

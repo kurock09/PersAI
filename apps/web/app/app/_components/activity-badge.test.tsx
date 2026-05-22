@@ -77,6 +77,37 @@ describe("ActivityBadge", () => {
     expect(screen.queryByText("retrieval_skill_started")).toBeNull();
   });
 
+  it("humanizes project stage and reasoning summary labels", () => {
+    render(
+      <ActivityBadge
+        event={{
+          id: "activity-project-1",
+          type: "info",
+          label: "project_stage_gather_started",
+          detail: "Gathering project files",
+          emphasis: "strong"
+        }}
+      />
+    );
+
+    expect(screen.getByText("activityProjectStageGatherStart")).toBeInTheDocument();
+    expect(screen.getByText("Gathering project files")).toBeInTheDocument();
+
+    render(
+      <ActivityBadge
+        event={{
+          id: "activity-project-2",
+          type: "info",
+          label: "project_reasoning_replan",
+          detail: "Material gaps remain."
+        }}
+      />
+    );
+
+    expect(screen.getByText("activityProjectReasoningReplan")).toBeInTheDocument();
+    expect(screen.getByText("Material gaps remain.")).toBeInTheDocument();
+  });
+
   it("shows quiet Skill activity detail when present", () => {
     render(
       <ActivityBadge

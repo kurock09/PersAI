@@ -1,4 +1,5 @@
 export type AssistantChatSurfaceState = "web" | "telegram";
+export type AssistantChatModeState = "normal" | "smart" | "project";
 
 export type AssistantChatMessageAuthorState = "user" | "assistant" | "system";
 
@@ -8,6 +9,7 @@ export interface AssistantWebChatState {
   surface: AssistantChatSurfaceState;
   surfaceThreadKey: string;
   title: string | null;
+  chatMode: AssistantChatModeState;
   deepModeEnabled: boolean;
   skillDecisionState: {
     status: "inactive" | "active";

@@ -49,11 +49,19 @@ const assistant: Assistant = {
   updatedAt: new Date("2026-04-06T00:00:00.000Z")
 };
 
+let lastEnsureAttachmentFileInput: Record<string, unknown> | null = null;
 const fakeAssistantFileRegistry = {
-  async ensureAttachmentFile(input: { sourceAttachmentId: string }) {
-    return { fileRef: `file-${input.sourceAttachmentId}` };
+  async ensureAttachmentFile(input: Record<string, unknown>) {
+    lastEnsureAttachmentFileInput = input;
+    return { fileRef: `file-${String(input.sourceAttachmentId)}` };
   }
 };
+
+const noopUploadMicroDescriptionJobService = {
+  async enqueueIfNeeded() {
+    return { accepted: false, reason: "noop" };
+  }
+} as never;
 
 async function run(): Promise<void> {
   process.env.APP_ENV = "local";
@@ -192,6 +200,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    noopUploadMicroDescriptionJobService,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -212,8 +221,12 @@ async function run(): Promise<void> {
   assert.equal(directUpload.assistantFileId, "file-att-direct-1");
   assert.deepEqual(directUploadCreateInput?.metadata, {
     source: "chat_upload",
-    contentPreview: "line one line two"
+    contentPreview: "line one line two",
+    semanticSummary: "line one line two",
+    semanticSummarySource: "text_extract"
   });
+  assert.deepEqual(lastEnsureAttachmentFileInput?.semanticSummary, "line one line two");
+  assert.equal(lastEnsureAttachmentFileInput?.semanticSummarySource, "text_extract");
   assert.deepEqual(directUploadCreateInput?.billingFacts, {
     providerKey: "openai",
     modelKey: "gpt-4o-mini-transcribe",
@@ -353,6 +366,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    noopUploadMicroDescriptionJobService,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -381,6 +395,13 @@ async function run(): Promise<void> {
     }
   });
   assert.equal(videoUploadCreateInput?.transcription, "hello from video");
+  assert.deepEqual(videoUploadCreateInput?.metadata, {
+    source: "chat_upload",
+    semanticSummary: "hello from video",
+    semanticSummarySource: "transcription"
+  });
+  assert.deepEqual(lastEnsureAttachmentFileInput?.semanticSummary, "hello from video");
+  assert.equal(lastEnsureAttachmentFileInput?.semanticSummarySource, "transcription");
 
   const metrics = new PlatformHttpMetricsService();
   const deletedStagingMessageIds: string[] = [];
@@ -539,6 +560,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    noopUploadMicroDescriptionJobService,
     metrics,
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -569,6 +591,160 @@ async function run(): Promise<void> {
         series.key.outcome === "success"
     );
   assert.equal(successSeries?.count, 1);
+
+  const stageEnqueueCalls: Array<Record<string, unknown>> = [];
+  const existingProjectStageService = new ManageChatMediaService(
+    {
+      async findByUserId() {
+        return assistant;
+      }
+    } as never,
+    {
+      async getOrCreateWebChatBySurfaceThreadUnderCap() {
+        return {
+          outcome: "existing" as const,
+          chat: {
+            id: "chat-project-1",
+            assistantId: assistant.id,
+            userId: assistant.userId,
+            workspaceId: assistant.workspaceId,
+            surface: "web",
+            surfaceThreadKey: "thread-project-1",
+            title: null,
+            chatMode: "project",
+            deepModeEnabled: true,
+            skillDecisionState: null,
+            skillCadenceState: null,
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: new Date("2026-04-06T00:00:00.000Z"),
+            updatedAt: new Date("2026-04-06T00:00:00.000Z")
+          }
+        };
+      },
+      async createMessage() {
+        return {
+          id: "msg-project-1",
+          chatId: "chat-project-1",
+          assistantId: assistant.id,
+          author: "user",
+          content: "",
+          createdAt: new Date("2026-04-06T00:00:00.000Z"),
+          updatedAt: new Date("2026-04-06T00:00:00.000Z")
+        };
+      }
+    } as never,
+    {
+      async create(input: Record<string, unknown>) {
+        return {
+          id: "att-project-1",
+          messageId: "msg-project-1",
+          chatId: "chat-project-1",
+          assistantId: assistant.id,
+          workspaceId: assistant.workspaceId,
+          attachmentType: "document",
+          storagePath: input.storagePath,
+          originalFilename: input.originalFilename,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes,
+          durationMs: input.durationMs,
+          width: input.width,
+          height: input.height,
+          processingStatus: "ready",
+          transcription: input.transcription,
+          metadata: input.metadata,
+          createdAt: new Date("2026-04-06T00:00:00.000Z")
+        };
+      }
+    } as never,
+    {
+      async process(buffer: Buffer) {
+        return {
+          normalizedBuffer: buffer,
+          normalizedMime: "text/plain",
+          normalizedExtension: "txt",
+          transcription: null,
+          billingFacts: null,
+          textExtract: null,
+          durationMs: null,
+          width: null,
+          height: null
+        };
+      }
+    } as never,
+    {} as never,
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-project-1/messages/msg-project-1/spec.txt";
+      },
+      async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+        return {
+          objectKey: input.objectKey,
+          sizeBytes: input.buffer.length,
+          mimeType: input.mimeType
+        };
+      }
+    } as never,
+    {
+      async resolveActiveWebChatsLimit() {
+        return 20;
+      },
+      async checkMediaStorageQuota() {
+        return { allowed: true };
+      },
+      async recordMediaUpload(input: { sizeBytes: bigint }) {
+        return {
+          appliedDelta: input.sizeBytes,
+          capped: false,
+          state: {
+            id: "state-project-1",
+            workspaceId: assistant.workspaceId,
+            tokenBudgetUsed: BigInt(0),
+            tokenBudgetLimit: null,
+            costOrTokenDrivingToolClassUnitsUsed: 0,
+            costOrTokenDrivingToolClassUnitsLimit: null,
+            activeWebChatsCurrent: 0,
+            activeWebChatsLimit: null,
+            mediaStorageBytesUsed: input.sizeBytes,
+            mediaStorageBytesLimit: BigInt(1000),
+            lastComputedAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        };
+      }
+    } as never,
+    fakeAssistantFileRegistry as never,
+    {
+      async enqueueIfNeeded(input: Record<string, unknown>) {
+        stageEnqueueCalls.push(input);
+        return { accepted: true, reason: "queued" };
+      }
+    } as never,
+    new PlatformHttpMetricsService(),
+    noopRecordModelCostLedgerService,
+    noopPrisma
+  );
+
+  const stagedProject = await existingProjectStageService.stageForWebThread({
+    userId: "user-1",
+    surfaceThreadKey: "thread-project-1",
+    file: {
+      buffer: Buffer.from("project brief"),
+      mimetype: "text/plain",
+      originalname: "spec.txt"
+    }
+  });
+  assert.equal(stagedProject.attachment.assistantFileId, "file-att-project-1");
+  assert.deepEqual(stageEnqueueCalls, [
+    {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatMode: "project",
+      attachmentId: "att-project-1",
+      assistantFileId: "file-att-project-1"
+    }
+  ]);
 
   const failureMetrics = new PlatformHttpMetricsService();
   const cappedDeletes: string[] = [];
@@ -702,6 +878,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    noopUploadMicroDescriptionJobService,
     failureMetrics,
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -847,6 +1024,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    noopUploadMicroDescriptionJobService,
     storageFailureMetrics,
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -905,8 +1083,10 @@ async function run(): Promise<void> {
           }
         } as never,
         fakeAssistantFileRegistry as never,
+        noopUploadMicroDescriptionJobService,
         new PlatformHttpMetricsService(),
-        noopRecordModelCostLedgerService
+        noopRecordModelCostLedgerService,
+        noopPrisma
       ).stageForWebThread({
         userId: "user-1",
         surfaceThreadKey: "thread-cap",

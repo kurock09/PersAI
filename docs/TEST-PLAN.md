@@ -14,6 +14,50 @@ When work is executed under [`docs/ADR/093-clean-prod-launch-readiness-and-concu
 
 Repo checks below (lint, typecheck, etc.) still apply to every code change; ADR-093 adds **deploy discipline** and **evidence discipline** on top.
 
+## ADR-100 project chat mode focused checks
+
+When a change touches chat-mode contract, project-mode UI, project runtime profile, or project activity feed, add focused checks before broad verification:
+
+```bash
+corepack pnpm contracts:generate
+corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma
+corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/send-native-web-chat-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/extract-internal-runtime-assistant-file.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/assistant-upload-micro-description-job.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts
+corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-runtime-provider-settings.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-area.test.tsx app/app/_components/sidebar.test.tsx app/app/_components/use-chat.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/page.test.tsx app/app/assistant-api-client.test.ts app/app/runtime-provider-settings-admin.test.ts --config vitest.config.ts
+corepack pnpm --filter @persai/runtime exec tsx --test test/project-execution-profile.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/project-stream-events.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/turn-routing.service.test.ts runTurnRoutingServiceTest
+corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/activity-badge.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+```
+
+Slice-specific expectations:
+
+1. `chatMode` is the explicit product behavior contract (`normal | smart | project`).
+2. `deepModeEnabled` stays synchronized as a compatibility boolean until all clients are migrated.
+3. `project` mode now reaches a dedicated retrieval-aware runtime profile; `smart` keeps the existing deep/smart runtime path.
+4. Project-mode activity and visible reasoning summaries must not expose raw hidden chain-of-thought.
+5. Project activity feed may reuse existing timeline UI, but project-only summaries must not be routed through `ThoughtBlock`.
+6. Project-only retrieval ordering changes must remain gated to project orchestrate inputs and must not silently change ordinary non-project active-skill behavior.
+7. Project-file intelligence must remain token-bounded in the steady-state prompt: working-files stays a cheap selector seam, while deep extraction is lazy and cached on canonical file truth.
+8. Cheap background upload micro-description must stay bounded: ordinary non-project/B2C chats obey `routerPolicy.analyzeUploadsOnB2cUpload` (default `false`), while project mode always enqueues after canonical `fileRef` truth exists.
+9. Canonical semantic-summary truth must persist on `AssistantFile.metadata.semanticSummary` / `semanticSummarySource` and only mirror attachment metadata when practical; `upload_micro_description` is a source tag, not a second file-content store.
+10. Upload micro-description себес remains internal-ledger only: successful helper calls persist durable `usageJson` + `usageOccurredAt` on `assistant_upload_micro_description_jobs` first, then append a non-blocking `tool_helper` ledger row keyed by immutable job id. No user quota path should change.
+
 ## Required repo checks
 
 Run these before calling a change clean:

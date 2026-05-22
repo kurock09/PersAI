@@ -38,6 +38,7 @@ async function run(): Promise<void> {
 
   const createdMessages: Array<{ chatId: string; content: string }> = [];
   const runtimeDeletes: string[] = [];
+  const enqueueCalls: Array<Record<string, unknown>> = [];
   const service = new PrepareAssistantInboundTurnService(
     {
       async findChatBySurfaceThread() {
@@ -57,6 +58,10 @@ async function run(): Promise<void> {
             surface: "web" as const,
             surfaceThreadKey: "thread-1",
             title: "Hello there",
+            chatMode: "project",
+            deepModeEnabled: true,
+            skillDecisionState: null,
+            skillCadenceState: null,
             archivedAt: null,
             lastMessageAt: null,
             createdAt: new Date("2026-04-06T00:00:00.000Z"),
@@ -144,8 +149,38 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async enqueueIfNeeded(input: Record<string, unknown>) {
+        enqueueCalls.push(input);
+        return { accepted: true, reason: "queued" };
+      }
+    } as never,
+    {
       async listByMessageId() {
-        return [];
+        return [
+          {
+            id: "att-1",
+            messageId: "msg-1",
+            chatId: "chat-1",
+            assistantId: assistant.id,
+            workspaceId: assistant.workspaceId,
+            assistantFileId: "file-1",
+            attachmentType: "document",
+            storagePath: "storage/file-1",
+            originalFilename: "brief.txt",
+            mimeType: "text/plain",
+            sizeBytes: BigInt(12),
+            durationMs: null,
+            width: null,
+            height: null,
+            processingStatus: "ready",
+            transcription: null,
+            billingFacts: null,
+            metadata: null,
+            clientTurnId: null,
+            clientAttachmentId: null,
+            createdAt: new Date("2026-04-06T00:00:00.000Z")
+          }
+        ];
       }
     } as never
   );
@@ -160,6 +195,15 @@ async function run(): Promise<void> {
   assert.equal(prepared.chat.id, "chat-1");
   assert.equal(createdMessages.length, 1);
   assert.equal(createdMessages[0]?.chatId, "chat-1");
+  assert.deepEqual(enqueueCalls, [
+    {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatMode: "project",
+      attachmentId: "att-1",
+      assistantFileId: "file-1"
+    }
+  ]);
   assert.deepEqual(runtimeDeletes, [
     'receipt:{"where":{"assistantId":"assistant-1","channel":"web","externalThreadKey":"thread-1"}}',
     'compaction:{"where":{"runtimeSessionId":{"in":["stale-runtime-session-1"]},"assistantId":"assistant-1"}}',
@@ -213,6 +257,7 @@ async function run(): Promise<void> {
             };
           }
         } as never,
+        {} as never,
         {} as never,
         {} as never
       ).execute({
@@ -300,6 +345,7 @@ async function run(): Promise<void> {
             return;
           }
         } as never,
+        {} as never,
         {
           async listByMessageId() {
             return [];
@@ -337,6 +383,7 @@ async function run(): Promise<void> {
             });
           }
         } as never,
+        {} as never,
         {} as never,
         {} as never
       ).execute({

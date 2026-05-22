@@ -567,6 +567,7 @@ export class WebChatTurnAttemptService {
               surface: chat.surface,
               surfaceThreadKey: chat.surfaceThreadKey,
               title: chat.title,
+              chatMode: chat.chatMode,
               deepModeEnabled: chat.deepModeEnabled,
               skillDecisionState: parseSkillDecisionState(chat.skillDecisionState),
               skillCadenceState: parseSkillCadenceState(chat.skillCadenceState),

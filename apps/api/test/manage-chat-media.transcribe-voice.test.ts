@@ -70,6 +70,7 @@ async function run(): Promise<void> {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
     metrics,
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -133,6 +134,7 @@ async function run(): Promise<void> {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
     noopPrisma
@@ -177,6 +179,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    {} as never,
     {} as never,
     {} as never,
     {} as never,

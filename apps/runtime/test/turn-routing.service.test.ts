@@ -896,6 +896,47 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
   });
   assert.equal(continueTurnPriority.reasonCode, "continue_term");
   assert.equal(continueTurnPriority.retrievalPlan.ordinarySourcePriorityMode, "not_applicable");
+
+  const projectPdfRequest = createRequest(
+    "Review the attached PDF specification against our procurement checklist and flag conflicts."
+  );
+  projectPdfRequest.chatMode = "project";
+  projectPdfRequest.deepMode = true;
+  projectPdfRequest.message.attachments = [
+    {
+      attachmentId: "attachment-project-1",
+      kind: "file",
+      objectKey: "assistant-media/assistants/assistant-1/uploads/spec.pdf",
+      mimeType: "application/pdf",
+      filename: "spec.pdf",
+      sizeBytes: 4096
+    }
+  ];
+  const projectPdfDecision = await service.decide({
+    bundle,
+    request: projectPdfRequest,
+    projectedTools
+  });
+  assert.equal(projectPdfDecision.source, "precheck");
+  assert.equal(projectPdfDecision.reasonCode, "project_mode_document_context");
+  assert.equal(projectPdfDecision.executionMode, "reasoning");
+  assert.equal(projectPdfDecision.retrievalHint, true);
+  assert.equal(projectPdfDecision.retrievalPlan.useUserKnowledge, true);
+  assert.equal(projectPdfDecision.retrievalPlan.useProductKnowledge, true);
+  assert.notEqual(projectPdfDecision.reasonCode, "reasoning_request");
+
+  const smartPdfRequest = {
+    ...projectPdfRequest,
+    chatMode: "smart" as const
+  };
+  const smartPdfDecision = await service.decide({
+    bundle,
+    request: smartPdfRequest,
+    projectedTools
+  });
+  assert.equal(smartPdfDecision.reasonCode, "reasoning_request");
+  assert.equal(smartPdfDecision.retrievalHint, false);
+  assert.equal(smartPdfDecision.retrievalPlan.useUserKnowledge, false);
 }
 
 async function runAutoSkillRoutingHardeningTests(): Promise<void> {

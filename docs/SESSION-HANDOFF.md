@@ -2,6 +2,80 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-22 — ADR-100 Slice 6F follow-up — internal upload micro-description ledger
+
+### What changed
+
+- Added the missing internal себес closeout for the bounded upload micro-description helper without touching user quota semantics.
+- `assistant_upload_micro_description_jobs` now durably stores replay-safe helper usage on `usageJson` and the durable call-time seam on `usageOccurredAt`.
+- `AssistantUploadMicroDescriptionService.describeCanonicalFile()` now returns the summary result together with `usage`, `respondedAt`, and provider/model so the worker can persist the seam first.
+- `AssistantUploadMicroDescriptionJobService.processClaimedJob()` now writes helper usage/time onto the durable job row in the same success transaction as any semantic-summary updates. If the helper spent tokens but yielded no usable summary, the job still records usage/time and completes honestly.
+- After that durable write succeeds, API appends a non-blocking ledger row through `RecordModelCostLedgerService.recordToolHelperEvent()` with honest labels: `purpose=tool_helper`, `source=upload_micro_description`, `surface=background`, `sourceEventId=upload_micro_description_job:<jobId>`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-upload-micro-description-job.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Residual risks
+
+- This slice still does **not** change user quota accounting, plans, or UI behavior; it is internal ledger only by founder directive.
+- Ordinary non-project upload analysis remains opt-in through `routerPolicy.analyzeUploadsOnB2cUpload`; live deploy verification is still needed before treating that path as operational truth.
+- If the provider omits usage entirely, the durable job row still captures the call-time seam when available but no money ledger row can be priced from missing usage.
+
+### Next recommended step
+
+- Resume **deploy prep + live project verification** only: confirm the upload micro-description helper now lands both semantic-summary truth and internal ledger rows in the target environment, then prepare deploy. Do not start the hidden B2B cluster plan until the pre-deploy Slice 6 behavior is live-verified end to end.
+
+## 2026-05-22 — ADR-100 Slices 2–6F — **Complete in working tree (uncommitted)** 
+
+### What changed
+
+- **Slice 2 + 2.1:** explicit chat mode contract (`assistant_chats.chat_mode`, API/web/contracts, migration, OpenAPI turn request closeout, parseUpdateInput tests).
+- **Slice 3A (subagent):** `project-files-panel.tsx` — lower sidebar lists deduped attachments from paginated chat history when active chat is project mode.
+- **Slice 3B (subagent):** mode control moved to composer (desktop 3-pill; mobile chip + menu); header pills removed.
+- **Slice 4 (subagent):** runtime now reads `chatMode === "project"` distinctly from smart/deep, adds retrieval-aware project precheck before the current `reasoning_request` trap, appends a staged project developer contract, and keeps loop/tool budgets on existing reasoning-plan policy. Native send/stream helper coverage now includes `chatMode` consistently.
+- **Slice 5 (subagent):** runtime now emits project-only `project_activity` / `project_reasoning_summary` stream events, API maps them to new SSE event names, and web appends them into the existing timeline via `ActivityBadge`/`activities[]` instead of `ThoughtBlock`. Generic tool live badges are suppressed in project mode to keep the feed quieter.
+- **Slice 6A (subagent):** added bounded deterministic `semanticSummary` / `semanticSummarySource` metadata for uploads when cheap signals already exist (`textExtract`, `transcription`), mirrored that hint into canonical file truth, and exposed tiny token-capped working-file hints for weak/generic filenames only. No schema migration, no upload-time vision captioning, no heavy parse-on-upload behavior.
+- **Slice 6B (GPT 5.4 subagent):** added a narrow project-only retrieval ordering improvement. Active-skill project turns now keep the skill stage and still stage user knowledge before product knowledge even when skill hits already exist, while ordinary non-project active-skill behavior stays unchanged. This is gated by an internal `gatherProfile: "project"` flag only; no pinned-skill schema or chat-file retrieval stage was added.
+- **Founder follow-up readonly audits recorded in ADR-100:** complex-doc extraction for chat files currently comes from shared `DocumentExtractionService` only when `files.read` / KB indexing / document jobs invoke it; ordinary web upload still stores only a small local preview plus `fileRef`. ADR-100 now explicitly prefers lazy project-mode extraction on demand during `gather`, with any future cache attached to existing `fileRef` truth instead of parsing every upload. The audit also confirmed a real current gap for images/files with weak filenames (`image1.png`): later turns do not get a durable semantic description, so ADR-100 now preserves a future clean path of tiny semantic summaries on canonical attachment/file truth. Ordinary foreground/background auto-skill activation can still be reused in project mode when no explicit skill is pinned, so any future project-only skill picker should use a separate optional pin field rather than rewriting ordinary skill state.
+- **ADR correction (founder clarification):** the remaining Slice 6 work is now treated as must-have before deploy, not a soft follow-up. ADR-100 now explicitly requires `6C/6D/6E`: Project File Intelligence in the existing developer/working-files context, one-time deep extraction with persisted/cache truth on existing `fileRef`/attachment records, and runtime core correction so project chat files become a real gather source rather than an opportunistic `files.read` fallback.
+- **Slice 6C/6D/6E (GPT 5.4 subagent):** project chat files now act as a real staged source before KB in project mode, deep extraction is cached lazily on `AssistantFile.metadata`, and the runtime/API project gather loop uses that cached file intelligence instead of relying on opportunistic `files.read`. No new schema, no second KB, and no UI churn were added.
+- **Slice 6F (parent-verified bounded slice):** uploads that still lack a deterministic semantic summary can now enqueue a cheap background micro-description pass. Admin Runtime adds `routerPolicy.analyzeUploadsOnB2cUpload` (default `false`) for ordinary non-project/B2C upload analysis, while project mode always enqueues once canonical `fileRef` truth exists. API now owns durable `assistant_upload_micro_description_jobs` plus a leased scheduler/worker, reuses the existing `systemTool` model slot for the helper, persists canonical summary truth on `AssistantFile.metadata.semanticSummary` / `semanticSummarySource`, mirrors attachment metadata when practical, and extends `semanticSummarySource` with `upload_micro_description`. Enqueue timing is intentionally bounded: existing project chats may enqueue on stage after `fileRef` exists, while prepared inbound turns enqueue only after staged-attachment merge and final `chatMode` resolution.
+- Parent verification: API focused tests 46/46 plus orchestrate-runtime-retrieval and extraction-cache tests pass, web tests 119/119 across touched suites, runtime focused tests pass, and full lint/format/api+web+runtime typecheck are green.
+
+### Verification
+
+- API focused tests: send-web-chat 9/9, manage-web-chat-list 12/12
+- API native tests: send-native 5/5, stream-native 8/8
+- API semantic summaries: media-semantic-summary 3/3, manage-chat-media.stage-web-thread pass
+- API upload micro-description job: assistant-upload-micro-description-job pass
+- API inbound enqueue timing: prepare-assistant-inbound-turn pass
+- API runtime/admin settings: platform-runtime-provider-settings pass, manage-admin-runtime-provider-settings pass
+- API retrieval ordering: orchestrate-runtime-retrieval pass
+- API extraction cache: extract-internal-runtime-assistant-file pass
+- Web: sidebar 20/20, chat-area 14/14, use-chat 78/78, activity-badge 7/7
+- Web admin/client settings: admin runtime page pass, assistant-api-client pass, runtime-provider-settings-admin pass
+- Runtime: project-execution-profile 3/3, project-stream-events 2/2, focused turn-routing + turn-execution tests pass, working-files semantic-hint test pass
+- Gate: lint, format:check, api/web/runtime typecheck — pass
+
+### Residual risks
+
+- Legacy `deepModeEnabled`-only PATCH can downgrade `project → smart` (accepted).
+- Project files panel does not yet live-sync with optimistic composer uploads.
+- Shadow router mode still does not force orchestrated pre-retrieval for project turns; Slice 4 intentionally stayed on the existing precheck + tool-loop path.
+- Project activity/reasoning feed is session-ephemeral in client state; no DB persistence in this slice.
+- Reattach tool-badge suppression is not fully chat-mode-aware when project mode is unknown client-side.
+- `pinnedSkillId` remains deferred by design; project mode still reuses ordinary auto-skill activation when no explicit pin exists.
+- Richer image-only visual summaries remain later work; current file intelligence is anchored by cheap summaries plus lazy deep extraction/cache.
+- Ordinary non-project upload micro-description stays opt-in through the new admin runtime toggle; live deploy verification is still needed before treating that path as operational truth.
+
+### Next recommended step
+
+- Parent moves to **deploy prep + live project verification**: validate the new project-file gather path, lazy extraction cache, and upload micro-description job path against the target environment, then prepare deploy. Do not start the hidden B2B cluster plan until live verification confirms the new pre-deploy Slice 6 behavior end to end.
+
 ## 2026-05-22 — Support API auth correction + compact mobile voice cancel UX — **Implemented**
 
 ### What changed

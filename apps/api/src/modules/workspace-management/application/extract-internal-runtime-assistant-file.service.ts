@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { AssistantFileRegistryService } from "./assistant-file-registry.service";
+import {
+  AssistantFileRegistryService,
+  readAssistantFileInternalRuntimeExtractionCache
+} from "./assistant-file-registry.service";
 import { DocumentExtractionService } from "./document-extraction.service";
 import type {
   KnowledgeDocumentProcessingInput,
@@ -112,7 +115,20 @@ export class ExtractInternalRuntimeAssistantFileService {
       mimeType: file.mimeType,
       sizeBytes: file.sizeBytes
     };
-    if (!isSupportedExtractionMime(mime)) {
+    const cachedExtraction = readAssistantFileInternalRuntimeExtractionCache(file.metadata);
+    if (cachedExtraction !== null) {
+      return {
+        ok: true,
+        extracted: true,
+        file: fileSummary,
+        text: cachedExtraction.text,
+        markdown: cachedExtraction.markdown,
+        note: cachedExtraction.note,
+        provider: cachedExtraction.provider,
+        quality: cachedExtraction.quality
+      };
+    }
+    if (!isSupportedInternalRuntimeExtractionMime(mime)) {
       return {
         ok: true,
         extracted: false,
@@ -135,6 +151,33 @@ export class ExtractInternalRuntimeAssistantFileService {
       })
     );
     const text = extraction.normalizedText.trim();
+    const cached = await this.assistantFileRegistryService.updateInternalRuntimeExtractionCache({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      fileRef: input.fileRef,
+      cache: {
+        text,
+        markdown: extraction.markdown ?? null,
+        note: text.length > 0 ? null : "Document extraction completed but produced no usable text.",
+        provider: extraction.provider,
+        quality: extraction.quality
+      }
+    });
+    const cachedExtractionRecord =
+      readAssistantFileInternalRuntimeExtractionCache(cached.metadata) ??
+      readAssistantFileInternalRuntimeExtractionCache(file.metadata);
+    if (cachedExtractionRecord !== null) {
+      return {
+        ok: true,
+        extracted: true,
+        file: fileSummary,
+        text: cachedExtractionRecord.text,
+        markdown: cachedExtractionRecord.markdown,
+        note: cachedExtractionRecord.note,
+        provider: cachedExtractionRecord.provider,
+        quality: cachedExtractionRecord.quality
+      };
+    }
     return {
       ok: true,
       extracted: true,
@@ -205,7 +248,7 @@ function normalizeMime(mimeType: string | null | undefined): string {
   return (mimeType ?? "").toLowerCase().split(";")[0]?.trim() ?? "";
 }
 
-function isSupportedExtractionMime(mime: string): boolean {
+export function isSupportedInternalRuntimeExtractionMime(mime: string): boolean {
   return (
     mime.startsWith("text/") ||
     INTERNAL_FILE_EXTRACTION_TEXT_MIMES.has(mime) ||

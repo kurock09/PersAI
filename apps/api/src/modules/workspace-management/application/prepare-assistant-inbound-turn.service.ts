@@ -21,17 +21,22 @@ import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistan
 import { MergeStagedWebChatAttachmentsService } from "./merge-staged-web-chat-attachments.service";
 import type { AssistantInboundQuotaDegradeReason } from "./enforce-assistant-capability-and-quota.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
+import { AssistantUploadMicroDescriptionJobService } from "./assistant-upload-micro-description-job.service";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
 } from "../domain/assistant-chat-message-attachment.repository";
 import type { RuntimeTier } from "./runtime-assignment";
+import type { AssistantChatMode } from "../domain/assistant-chat.entity";
+import { chatModeToDeepModeEnabled } from "../domain/assistant-chat.entity";
+
 export interface PrepareAssistantInboundTurnInput {
   userId: string;
   surface: AssistantInboundSurface;
   surfaceThreadKey: string;
   message: string;
   title?: string | null;
+  chatMode?: AssistantChatMode;
   deepModeEnabled?: boolean;
   clientTurnId?: string;
 }
@@ -62,6 +67,7 @@ export class PrepareAssistantInboundTurnService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly mergeStagedWebChatAttachmentsService: MergeStagedWebChatAttachmentsService,
+    private readonly assistantUploadMicroDescriptionJobService: AssistantUploadMicroDescriptionJobService,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository
   ) {}
@@ -97,14 +103,30 @@ export class PrepareAssistantInboundTurnService {
       });
     }
 
+    const requestedMode: AssistantChatMode | undefined =
+      input.chatMode ??
+      (input.deepModeEnabled === undefined
+        ? undefined
+        : input.deepModeEnabled
+          ? "smart"
+          : "normal");
+    const requestedDeepModeEnabled =
+      requestedMode === undefined
+        ? input.deepModeEnabled
+        : chatModeToDeepModeEnabled(requestedMode);
+
     const chat =
       existingChat !== null
         ? input.surface === "web_chat" &&
-          input.deepModeEnabled !== undefined &&
-          existingChat.deepModeEnabled !== input.deepModeEnabled
+          ((requestedMode !== undefined && existingChat.chatMode !== requestedMode) ||
+            (requestedDeepModeEnabled !== undefined &&
+              existingChat.deepModeEnabled !== requestedDeepModeEnabled))
           ? await this.assistantChatRepository
               .updateChat(existingChat.id, {
-                deepModeEnabled: input.deepModeEnabled
+                ...(requestedMode === undefined ? {} : { chatMode: requestedMode }),
+                ...(requestedDeepModeEnabled === undefined
+                  ? {}
+                  : { deepModeEnabled: requestedDeepModeEnabled })
               })
               .then((updated) => updated ?? existingChat)
           : existingChat
@@ -112,7 +134,8 @@ export class PrepareAssistantInboundTurnService {
             assistant,
             surfaceThreadKey: input.surfaceThreadKey,
             title: input.title ?? (input.message.trim().slice(0, 50).replace(/\s+/g, " ") || null),
-            deepModeEnabled: input.deepModeEnabled ?? false
+            ...(requestedMode === undefined ? {} : { chatMode: requestedMode }),
+            deepModeEnabled: requestedDeepModeEnabled ?? false
           });
 
     if (input.surface === "web_chat") {
@@ -143,6 +166,17 @@ export class PrepareAssistantInboundTurnService {
     }
 
     const userAttachments = await this.attachmentRepository.listByMessageId(userMessage.id);
+    await Promise.all(
+      userAttachments.map((attachment) =>
+        this.assistantUploadMicroDescriptionJobService.enqueueIfNeeded({
+          assistantId: assistant.id,
+          workspaceId: assistant.workspaceId,
+          chatMode: chat.chatMode,
+          attachmentId: attachment.id,
+          assistantFileId: attachment.assistantFileId
+        })
+      )
+    );
     const attachmentStates: AssistantWebChatMessageAttachmentState[] = userAttachments.map((a) => ({
       id: a.id,
       fileRef: a.assistantFileId,
@@ -180,6 +214,7 @@ export class PrepareAssistantInboundTurnService {
         surface: chat.surface,
         surfaceThreadKey: chat.surfaceThreadKey,
         title: chat.title,
+        chatMode: chat.chatMode,
         deepModeEnabled: chat.deepModeEnabled,
         skillDecisionState: chat.skillDecisionState,
         skillCadenceState: chat.skillCadenceState,
@@ -215,6 +250,7 @@ export class PrepareAssistantInboundTurnService {
     assistant: Assistant;
     surfaceThreadKey: string;
     title: string | null;
+    chatMode?: AssistantChatMode;
     deepModeEnabled: boolean;
   }) {
     const activeWebChatsLimit =
@@ -226,6 +262,7 @@ export class PrepareAssistantInboundTurnService {
       surface: "web",
       surfaceThreadKey: params.surfaceThreadKey,
       title: params.title,
+      ...(params.chatMode === undefined ? {} : { chatMode: params.chatMode }),
       deepModeEnabled: params.deepModeEnabled,
       activeWebChatsLimit
     });

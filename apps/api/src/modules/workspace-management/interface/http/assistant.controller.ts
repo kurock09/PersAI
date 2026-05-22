@@ -1294,6 +1294,23 @@ export class AssistantController {
             ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
           });
         },
+        onProjectActivity: ({ stage, status, summary, detail, sourceClass, resultCount }) => {
+          sendSse("project_activity", {
+            stage,
+            status,
+            summary,
+            ...(detail === undefined ? {} : { detail }),
+            ...(sourceClass === undefined ? {} : { sourceClass }),
+            ...(resultCount === undefined ? {} : { resultCount })
+          });
+        },
+        onProjectReasoningSummary: ({ kind, summary, detail }) => {
+          sendSse("project_reasoning_summary", {
+            kind,
+            summary,
+            ...(detail === undefined ? {} : { detail })
+          });
+        },
         onDone: (respondedAt) => {
           sendSse("runtime_done", { respondedAt });
         },

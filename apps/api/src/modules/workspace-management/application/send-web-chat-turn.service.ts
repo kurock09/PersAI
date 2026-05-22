@@ -5,6 +5,11 @@ import {
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
 import {
+  chatModeToDeepModeEnabled,
+  isAssistantChatMode,
+  type AssistantChatMode
+} from "../domain/assistant-chat.entity";
+import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
 } from "../domain/assistant-chat-message-attachment.repository";
@@ -62,6 +67,7 @@ export interface SendWebChatTurnRequest {
   surfaceThreadKey: string;
   message: string;
   title?: string | null;
+  chatMode?: AssistantChatMode;
   deepModeEnabled?: boolean;
   clientTurnId?: string;
   welcomeTurn?: boolean;
@@ -189,16 +195,33 @@ export class SendWebChatTurnService {
     const surfaceThreadKey = body.surfaceThreadKey;
     const message = body.message;
     const title = normalizeOptionalTitle(body.title);
-    const deepModeEnabled =
-      body.deepModeEnabled === undefined
+    const chatMode =
+      body.chatMode === undefined
         ? undefined
-        : body.deepModeEnabled === true
-          ? true
-          : body.deepModeEnabled === false
-            ? false
-            : (() => {
-                throw new BadRequestException("deepModeEnabled must be boolean or omitted.");
-              })();
+        : isAssistantChatMode(body.chatMode)
+          ? body.chatMode
+          : (() => {
+              throw new BadRequestException("chatMode must be one of normal, smart, or project.");
+            })();
+    const deepModeEnabled =
+      chatMode !== undefined
+        ? chatModeToDeepModeEnabled(chatMode)
+        : body.deepModeEnabled === undefined
+          ? undefined
+          : body.deepModeEnabled === true
+            ? true
+            : body.deepModeEnabled === false
+              ? false
+              : (() => {
+                  throw new BadRequestException("deepModeEnabled must be boolean or omitted.");
+                })();
+    if (
+      chatMode !== undefined &&
+      body.deepModeEnabled !== undefined &&
+      body.deepModeEnabled !== deepModeEnabled
+    ) {
+      throw new BadRequestException("chatMode conflicts with deepModeEnabled.");
+    }
     const clientTurnId = normalizeOptionalClientTurnId(body.clientTurnId);
     const welcomeTurn = body.welcomeTurn === true;
 
@@ -216,6 +239,7 @@ export class SendWebChatTurnService {
       surfaceThreadKey: surfaceThreadKey.trim(),
       message: welcomeTurn ? WELCOME_TURN_SENTINEL : (message as string).trim(),
       ...(title !== undefined ? { title } : {}),
+      ...(chatMode === undefined ? {} : { chatMode }),
       ...(deepModeEnabled === undefined ? {} : { deepModeEnabled }),
       ...(clientTurnId !== undefined ? { clientTurnId } : {}),
       ...(welcomeTurn ? { welcomeTurn: true } : {}),
@@ -256,6 +280,7 @@ export class SendWebChatTurnService {
         surfaceThreadKey: request.surfaceThreadKey,
         message: request.message,
         ...(request.title !== undefined ? { title: request.title } : {}),
+        ...(request.chatMode === undefined ? {} : { chatMode: request.chatMode }),
         ...(request.deepModeEnabled === undefined
           ? {}
           : { deepModeEnabled: request.deepModeEnabled }),
@@ -313,6 +338,7 @@ export class SendWebChatTurnService {
         userTimezone: prepared.workspaceTimezone,
         currentTimeIso,
         skillStateContext,
+        chatMode: prepared.chat.chatMode,
         deepMode: prepared.chat.deepModeEnabled,
         ...(prepared.quotaDegradeModelOverride
           ? {
@@ -775,6 +801,7 @@ export class SendWebChatTurnService {
         surface: chat.surface,
         surfaceThreadKey: chat.surfaceThreadKey,
         title: chat.title,
+        chatMode: chat.chatMode,
         deepModeEnabled: chat.deepModeEnabled,
         skillDecisionState: chat.skillDecisionState,
         skillCadenceState: chat.skillCadenceState,
@@ -882,6 +909,7 @@ export class SendWebChatTurnService {
     userTimezone: string;
     currentTimeIso: string;
     skillStateContext?: SendNativeWebChatTurnInput["skillStateContext"];
+    chatMode?: SendNativeWebChatTurnInput["chatMode"];
     deepMode?: SendNativeWebChatTurnInput["deepMode"];
     modelRoleOverride?: SendNativeWebChatTurnInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic";
@@ -903,6 +931,7 @@ export class SendWebChatTurnService {
       ...(input.skillStateContext === undefined
         ? {}
         : { skillStateContext: input.skillStateContext }),
+      ...(input.chatMode === undefined ? {} : { chatMode: input.chatMode }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
         ? {}

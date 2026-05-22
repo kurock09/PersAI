@@ -82,6 +82,48 @@ function createNotificationDeliveryWorkerServiceMock() {
 }
 
 describe("SendWebChatTurnService", () => {
+  test("parseInput accepts chatMode and derives compatibility deep mode", () => {
+    const service = Object.create(SendWebChatTurnService.prototype) as SendWebChatTurnService;
+
+    assert.deepEqual(
+      service.parseInput({
+        surfaceThreadKey: " thread-1 ",
+        message: " hello ",
+        chatMode: "project"
+      }),
+      {
+        surfaceThreadKey: "thread-1",
+        message: "hello",
+        chatMode: "project",
+        deepModeEnabled: true
+      }
+    );
+
+    assert.deepEqual(
+      service.parseInput({
+        surfaceThreadKey: "thread-1",
+        message: "hello",
+        deepModeEnabled: true
+      }),
+      {
+        surfaceThreadKey: "thread-1",
+        message: "hello",
+        deepModeEnabled: true
+      }
+    );
+
+    assert.throws(
+      () =>
+        service.parseInput({
+          surfaceThreadKey: "thread-1",
+          message: "hello",
+          chatMode: "project",
+          deepModeEnabled: false
+        }),
+      /chatMode conflicts/
+    );
+  });
+
   test("replays duplicate clientTurnId without starting a second sync runtime turn", async () => {
     let nativeRuntimeCalls = 0;
     const completedState = {
