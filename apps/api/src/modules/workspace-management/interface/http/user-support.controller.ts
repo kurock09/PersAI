@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Post,
   Req,
@@ -73,6 +75,7 @@ export class UserSupportController {
   }
 
   @Post("tickets/:ticketId/read")
+  @HttpCode(HttpStatus.OK)
   async markTicketRead(
     @Req() req: RequestWithPlatformContext,
     @Param("ticketId") ticketId: string

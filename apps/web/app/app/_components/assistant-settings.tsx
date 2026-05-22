@@ -74,7 +74,8 @@ import {
   type AssistantBillingSubscriptionActionResult,
   type AssistantBillingSubscriptionManagementState,
   type WorkspaceMemoryItem,
-  type AssistantSkillsState
+  type AssistantSkillsState,
+  getAssistantSupportTickets
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
 import { AssistantSupportSection } from "./assistant-support-section";
@@ -857,6 +858,29 @@ export function AssistantSettings({
   const [openSection, setOpenSection] = useState<SettingsSectionId | null>(() =>
     normalizeInitialSection(initialSection)
   );
+
+  const refreshSupportUnreadCount = useCallback(async () => {
+    if (!assistant?.id) {
+      setSupportUnreadCount(0);
+      return;
+    }
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const rows = await getAssistantSupportTickets(token, assistant.id);
+      setSupportUnreadCount(rows.filter((row) => row.hasUnread).length);
+    } catch {
+      // Keep the last known count when the background refresh fails.
+    }
+  }, [assistant?.id, getToken]);
+
+  useEffect(() => {
+    void refreshSupportUnreadCount();
+    const intervalId = window.setInterval(() => {
+      void refreshSupportUnreadCount();
+    }, 20_000);
+    return () => window.clearInterval(intervalId);
+  }, [refreshSupportUnreadCount]);
   const billingStatusLabel = useCallback(
     (
       status: AssistantBillingSubscriptionManagementState["subscriptionStatus"] | null | undefined

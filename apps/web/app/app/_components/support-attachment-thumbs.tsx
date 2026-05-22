@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import type { SupportTicketAttachment } from "../assistant-api-client";
+import {
+  AuthenticatedAttachmentImage,
+  useAuthenticatedBlobUrl
+} from "./authenticated-attachment-image";
 import { ImageLightbox } from "./image-lightbox";
 import { cn } from "@/app/lib/utils";
 
@@ -19,6 +23,8 @@ export function SupportAttachmentThumbs({
   }
 
   const active = imageAttachments.find((item) => item.id === openId) ?? null;
+  const activeSrc = active ? resolveUrl(active.id) : null;
+  const { blobUrl: lightboxBlobUrl } = useAuthenticatedBlobUrl(openId ? activeSrc : null);
 
   return (
     <>
@@ -33,7 +39,7 @@ export function SupportAttachmentThumbs({
               "transition hover:border-accent/40 hover:ring-2 hover:ring-accent/20"
             )}
           >
-            <img
+            <AuthenticatedAttachmentImage
               src={resolveUrl(attachment.id)}
               alt={attachment.fileName ?? "attachment"}
               className="h-full w-full object-cover"
@@ -41,11 +47,11 @@ export function SupportAttachmentThumbs({
           </button>
         ))}
       </div>
-      {active && (
+      {active && lightboxBlobUrl && (
         <ImageLightbox
           open={openId !== null}
-          src={resolveUrl(active.id)}
-          downloadUrl={resolveUrl(active.id)}
+          src={lightboxBlobUrl}
+          downloadUrl={lightboxBlobUrl}
           filename={active.fileName ?? undefined}
           alt={active.fileName ?? "attachment"}
           onClose={() => setOpenId(null)}

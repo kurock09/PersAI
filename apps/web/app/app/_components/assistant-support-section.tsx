@@ -8,14 +8,13 @@ import { cn } from "@/app/lib/utils";
 import {
   getAssistantSupportTicket,
   getAssistantSupportTickets,
-  getSupportAttachmentUrl,
   postAssistantSupportTicket,
   postAssistantSupportTicketRead,
   type SupportTicketDetail,
   type SupportTicketMessage,
   type SupportTicketSummary
 } from "../assistant-api-client";
-import { SupportAttachmentThumbs } from "./support-attachment-thumbs";
+import { SupportAttachmentLinks } from "./support-attachment-links";
 
 /** Must match API `SUPPORT_SYSTEM_MESSAGE_CODE_PENDING`. */
 const SYSTEM_PENDING_CODE = "[[code:pending]]";
@@ -54,6 +53,7 @@ export function AssistantSupportSection({
   const [tickets, setTickets] = useState<SupportTicketSummary[]>([]);
   const [expandedTicketId, setExpandedTicketId] = useState<string | null>(null);
   const [ticketDetails, setTicketDetails] = useState<Record<string, SupportTicketDetail>>({});
+  const [ticketLoadErrors, setTicketLoadErrors] = useState<Record<string, string>>({});
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [newFormExpanded, setNewFormExpanded] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -61,7 +61,6 @@ export function AssistantSupportSection({
   const [body, setBody] = useState("");
   const [subject, setSubject] = useState("");
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
-  const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState<string | null>(null);
   const [fb, setFb] = useState<ActionFeedback>(null);
 
   const unreadCount = useMemo(() => tickets.filter((ticket) => ticket.hasUnread).length, [tickets]);
@@ -75,18 +74,6 @@ export function AssistantSupportSection({
       setNewFormExpanded(true);
     }
   }, [tickets.length]);
-
-  useEffect(() => {
-    if (!attachmentFile) {
-      setAttachmentPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(attachmentFile);
-    setAttachmentPreviewUrl(url);
-    return () => {
-      URL.revokeObjectURL(url);
-    };
-  }, [attachmentFile]);
 
   const statusLabel = useCallback(
     (status: SupportTicketSummary["status"]) => {
@@ -142,37 +129,56 @@ export function AssistantSupportSection({
     [assistantId, getToken]
   );
 
+  const applyTicketDetail = useCallback((ticket: SupportTicketDetail) => {
+    setTicketDetails((current) => ({ ...current, [ticket.id]: ticket }));
+    setTickets((current) =>
+      current.map((row) =>
+        row.id === ticket.id
+          ? {
+              ...row,
+              status: ticket.status,
+              updatedAt: ticket.updatedAt,
+              answeredAt: ticket.answeredAt,
+              hasUnread: ticket.hasUnread
+            }
+          : row
+      )
+    );
+  }, []);
+
   const loadTicketDetail = useCallback(
     async (ticketId: string, options?: { markRead?: boolean; silent?: boolean }) => {
       const token = await getToken();
       if (!token) return;
+
       if (!options?.silent) {
         setDetailLoadingId(ticketId);
       }
+      setTicketLoadErrors((current) => {
+        if (current[ticketId] === undefined) return current;
+        const next = { ...current };
+        delete next[ticketId];
+        return next;
+      });
+
       try {
-        const ticket = options?.markRead
-          ? await postAssistantSupportTicketRead(token, ticketId)
-          : await getAssistantSupportTicket(token, ticketId);
-        setTicketDetails((current) => ({ ...current, [ticketId]: ticket }));
-        setTickets((current) =>
-          current.map((row) =>
-            row.id === ticketId
-              ? {
-                  ...row,
-                  status: ticket.status,
-                  updatedAt: ticket.updatedAt,
-                  answeredAt: ticket.answeredAt,
-                  hasUnread: ticket.hasUnread
-                }
-              : row
-          )
-        );
+        const ticket = await getAssistantSupportTicket(token, ticketId);
+        applyTicketDetail(ticket);
+
+        if (options?.markRead) {
+          try {
+            const readTicket = await postAssistantSupportTicketRead(token, ticketId);
+            applyTicketDetail(readTicket);
+          } catch {
+            // Showing the thread must not fail when only the read cursor update fails.
+          }
+        }
       } catch {
         if (!options?.silent) {
-          setFb({
-            kind: "error",
-            message: t("supportLoadTicketFailed")
-          });
+          setTicketLoadErrors((current) => ({
+            ...current,
+            [ticketId]: t("supportLoadTicketFailed")
+          }));
         }
       } finally {
         if (!options?.silent) {
@@ -180,7 +186,7 @@ export function AssistantSupportSection({
         }
       }
     },
-    [getToken, t]
+    [applyTicketDetail, getToken, t]
   );
 
   useEffect(() => {
@@ -218,11 +224,10 @@ export function AssistantSupportSection({
           const rows = await reloadList({ silent: true });
           if (!rows || !expandedTicketId) return;
           const expanded = rows.find((row) => row.id === expandedTicketId);
-          if (expanded?.hasUnread || expanded?.status === "answered") {
-            await loadTicketDetail(expandedTicketId, { markRead: true, silent: true });
-          } else if (ticketDetails[expandedTicketId]) {
-            await loadTicketDetail(expandedTicketId, { silent: true });
-          }
+          await loadTicketDetail(expandedTicketId, {
+            markRead: Boolean(expanded?.hasUnread),
+            silent: true
+          });
         } catch {
           // Silent refresh must not disturb the user.
         }
@@ -291,7 +296,12 @@ export function AssistantSupportSection({
         ) : tickets.length === 0 ? (
           <p className="mt-2 text-[11px] text-text-subtle">{t("supportNoTickets")}</p>
         ) : (
-          <ul className="mt-2 space-y-1.5">
+          <ul
+            className={cn(
+              "mt-2 space-y-1.5",
+              tickets.length > 3 && "max-h-[10.75rem] overflow-y-auto overscroll-contain pr-0.5"
+            )}
+          >
             {tickets.map((ticket) => {
               const expanded = expandedTicketId === ticket.id;
               const detail = ticketDetails[ticket.id];
@@ -336,7 +346,18 @@ export function AssistantSupportSection({
 
                   {expanded && (
                     <div className="border-t border-border/70 px-3 pb-3 pt-2">
-                      {loadingDetail && !detail ? (
+                      {ticketLoadErrors[ticket.id] && !detail ? (
+                        <div className="space-y-2 py-1">
+                          <p className="text-[11px] text-danger">{ticketLoadErrors[ticket.id]}</p>
+                          <button
+                            type="button"
+                            onClick={() => void loadTicketDetail(ticket.id, { markRead: true })}
+                            className="text-[11px] font-medium text-accent hover:underline"
+                          >
+                            {t("supportRetryOpen")}
+                          </button>
+                        </div>
+                      ) : loadingDetail && !detail ? (
                         <div className="flex items-center gap-2 py-2 text-[11px] text-text-subtle">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           {t("supportOpeningTicket")}
@@ -367,10 +388,7 @@ export function AssistantSupportSection({
                                   {text.length > 0 && (
                                     <p className="whitespace-pre-wrap text-text">{text}</p>
                                   )}
-                                  <SupportAttachmentThumbs
-                                    attachments={message.attachments}
-                                    resolveUrl={getSupportAttachmentUrl}
-                                  />
+                                  <SupportAttachmentLinks attachments={message.attachments} />
                                 </li>
                               );
                             })}
@@ -416,20 +434,19 @@ export function AssistantSupportSection({
               placeholder={t("supportBodyPlaceholder")}
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-text"
             />
-            {attachmentPreviewUrl && (
-              <div className="relative inline-block">
-                <img
-                  src={attachmentPreviewUrl}
-                  alt=""
-                  className="h-20 w-20 rounded-lg border border-border object-cover"
-                />
+            {attachmentFile && (
+              <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-background/80 px-2.5 py-1.5 text-[11px] text-text-muted">
+                <Paperclip className="h-3.5 w-3.5 shrink-0 text-text-subtle" aria-hidden />
+                <span className="min-w-0 flex-1 truncate" title={attachmentFile.name}>
+                  {attachmentFile.name}
+                </span>
                 <button
                   type="button"
                   onClick={clearAttachment}
-                  className="absolute -right-1 -top-1 rounded-full border border-border bg-surface p-0.5 text-text-muted hover:text-text"
+                  className="rounded-full p-0.5 text-text-subtle hover:bg-surface-hover hover:text-text"
                   aria-label={t("supportRemoveAttachment")}
                 >
-                  <X className="h-3 w-3" />
+                  <X className="h-3.5 w-3.5" />
                 </button>
               </div>
             )}

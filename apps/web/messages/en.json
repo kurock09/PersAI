@@ -828,6 +828,7 @@
     "supportSubmitErrorShort": "Please describe your question in a few words.",
     "supportLoadTicketsFailed": "Failed to load support requests.",
     "supportLoadTicketFailed": "Failed to open this request.",
+    "supportRetryOpen": "Try again",
     "supportSubmitFailed": "Failed to send support request.",
     "supportSignInRequired": "Sign in required.",
     "supportAttachImage": "Attach image",

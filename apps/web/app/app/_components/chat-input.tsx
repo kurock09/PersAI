@@ -54,21 +54,20 @@ const composerIconButtonClass = (opts: { disabled?: boolean; active?: boolean })
   );
 
 const composerActionSlotClass =
-  "absolute inset-0 flex items-center justify-center transition-transform select-none active:scale-[0.96]";
+  "absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] select-none active:scale-[0.96]";
 
 const composerSendButtonClass = (disabled: boolean) =>
   cn(
     composerActionSlotClass,
-    "rounded-[10px] bg-accent text-white shadow-sm",
+    "bg-accent text-white shadow-sm",
     disabled
       ? "cursor-default opacity-40"
       : "cursor-pointer [@media(hover:hover)_and_(pointer:fine)]:hover:bg-accent-hover"
   );
 
 const composerStopButtonClass = cn(
-  composerActionSlotClass,
-  "cursor-pointer rounded-[10px] bg-destructive/15 text-destructive",
-  "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-destructive/25"
+  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive transition-transform select-none active:scale-[0.96]",
+  "cursor-pointer [@media(hover:hover)_and_(pointer:fine)]:hover:bg-destructive/25"
 );
 
 function shouldRestoreComposerFocusAfterSend(): boolean {
@@ -525,10 +524,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const composerCanSend = draftText.trim().length > 0 || pendingFiles.length > 0;
   const showComposerMicSlot = !isStreaming && !isTranscribing && (!isRecording || isTouchDevice);
   const composerActionSwapClass = (visible: boolean) =>
-    cn(
-      "transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]",
-      visible ? "scale-100 opacity-100" : "pointer-events-none scale-[0.82] opacity-0"
-    );
+    visible ? "scale-100 opacity-100" : "pointer-events-none scale-[0.82] opacity-0";
 
   useEffect(() => {
     if (!hasKnowledgeEligibleFiles) {
@@ -1210,7 +1206,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               )}
             />
 
-            <div className="relative mb-0.5 h-10 w-10 shrink-0 self-end">
+            <div className="relative mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center self-end">
               {isStreaming ? (
                 <button
                   type="button"
@@ -1223,7 +1219,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   className={composerStopButtonClass}
                   title={t("stop")}
                 >
-                  <Square className="h-5 w-5 md:h-4 md:w-4" />
+                  <Square className="h-4 w-4 fill-current" strokeWidth={0} />
                 </button>
               ) : isTranscribing ? (
                 <div className={cn(composerActionSlotClass, "cursor-default")} aria-hidden>

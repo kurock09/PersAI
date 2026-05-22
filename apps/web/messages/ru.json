@@ -828,6 +828,7 @@
     "supportSubmitErrorShort": "Опишите вопрос хотя бы в нескольких словах.",
     "supportLoadTicketsFailed": "Не удалось загрузить обращения.",
     "supportLoadTicketFailed": "Не удалось открыть обращение.",
+    "supportRetryOpen": "Повторить",
     "supportSubmitFailed": "Не удалось отправить обращение.",
     "supportSignInRequired": "Нужно войти в аккаунт.",
     "supportAttachImage": "Прикрепить изображение",
