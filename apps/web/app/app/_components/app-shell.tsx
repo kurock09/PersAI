@@ -26,6 +26,7 @@ import { OfflineGate } from "./offline-gate";
 import { StreamingThreadsProvider } from "./streaming-threads";
 import type { AppBootstrapInitialData } from "../_server/fetch-app-bootstrap";
 import { getMe } from "../me-api-client";
+import { getAssistantSupportTickets } from "../assistant-api-client";
 import { getLocaleCookie, isWebLocale, setLocaleCookie } from "@/app/lib/locale-sync";
 
 /**
@@ -84,6 +85,7 @@ export function AppShell({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<string | undefined>();
   const [telegramOpen, setTelegramOpen] = useState(false);
+  const [supportUnreadCount, setSupportUnreadCount] = useState(0);
   // ADR-076 Slice 6 — sticky "first open" flags. Once true they stay true so
   // the dynamically-imported panel stays mounted across close/reopen cycles
   // (preserves form state, lets <SlideOver>'s framer-motion exit animation
@@ -106,6 +108,23 @@ export function AppShell({
   const localeSyncAttemptedRef = useRef(false);
   const isSetup = pathname === "/app/setup";
   const isChatPage = pathname === "/app/chat";
+
+  const refreshSupportUnreadCount = useCallback(async () => {
+    if (!authLoaded || !isSignedIn || !appData.assistant?.id) {
+      setSupportUnreadCount(0);
+      return;
+    }
+    const token = (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
+    if (!token) {
+      return;
+    }
+    try {
+      const rows = await getAssistantSupportTickets(token, appData.assistant.id);
+      setSupportUnreadCount(rows.filter((row) => row.hasUnread).length);
+    } catch {
+      // Keep the last known count when a background poll fails.
+    }
+  }, [appData.assistant?.id, authLoaded, getToken, isSignedIn]);
 
   const needsSetup =
     appData.assistantStatus === "none" ||
@@ -152,6 +171,17 @@ export function AppShell({
       }
     })();
   }, [authLoaded, getToken, isSignedIn, locale]);
+
+  useEffect(() => {
+    void refreshSupportUnreadCount();
+    if (!appData.assistant?.id) {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      void refreshSupportUnreadCount();
+    }, 20_000);
+    return () => window.clearInterval(intervalId);
+  }, [appData.assistant?.id, refreshSupportUnreadCount]);
 
   const shellActions: ShellActions = {
     openSidebar: () => setSidebarOpen(true),
@@ -204,6 +234,7 @@ export function AppShell({
                 <div className="hidden md:flex">
                   <Sidebar
                     data={appData}
+                    supportUnreadCount={supportUnreadCount}
                     onAssistantCardClick={() => {
                       setSettingsInitialSection(undefined);
                       setSettingsOpen(true);
@@ -238,6 +269,7 @@ export function AppShell({
                       <Suspense>
                         <Sidebar
                           data={appData}
+                          supportUnreadCount={supportUnreadCount}
                           onClose={() => setSidebarOpen(false)}
                           onAssistantCardClick={() => {
                             setSidebarOpen(false);
@@ -268,9 +300,14 @@ export function AppShell({
                     <button
                       type="button"
                       onClick={() => setSidebarOpen(true)}
-                      className="cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                      className="relative cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
                     >
                       <span className="sr-only">Open sidebar</span>
+                      {supportUnreadCount > 0 && (
+                        <span className="absolute top-0.5 right-0.5 inline-flex min-w-4 items-center justify-center rounded-full border border-accent/20 bg-accent/12 px-1 text-[10px] font-medium leading-4 text-accent">
+                          {supportUnreadCount > 9 ? "9+" : supportUnreadCount}
+                        </span>
+                      )}
                       <svg
                         className="h-5 w-5"
                         viewBox="0 0 24 24"
@@ -313,6 +350,7 @@ export function AppShell({
               <AssistantSettings
                 data={appData}
                 initialSection={settingsInitialSection}
+                onSupportUnreadCountChange={setSupportUnreadCount}
                 onOpenTelegramSettings={() => setTelegramOpen(true)}
                 onOpenPricingPage={() => {
                   setSettingsOpen(false);

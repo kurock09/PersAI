@@ -5132,11 +5132,11 @@ export type SupportTicketDetail = SupportTicketSummary & {
 };
 
 export function getSupportAttachmentUrl(attachmentId: string): string {
-  return `/api/v1/support/attachments/${encodeURIComponent(attachmentId)}`;
+  return `/api/support-attachment/${encodeURIComponent(attachmentId)}`;
 }
 
 export function getAdminSupportAttachmentUrl(attachmentId: string): string {
-  return `/api/v1/admin/support/attachments/${encodeURIComponent(attachmentId)}`;
+  return `/api/admin-support-attachment/${encodeURIComponent(attachmentId)}`;
 }
 
 export async function postAssistantSupportTicket(
@@ -5206,11 +5206,17 @@ export async function postAssistantSupportTicketRead(
   token: string,
   ticketId: string
 ): Promise<SupportTicketDetail> {
-  const base = getApiBaseUrl();
-  const res = await fetch(`${base}/support/tickets/${encodeURIComponent(ticketId)}/read`, {
-    method: "POST",
-    headers: getAuthHeaders(token)
-  });
+  const encodedTicketId = encodeURIComponent(ticketId);
+  const res =
+    typeof window !== "undefined"
+      ? await fetch(`/api/support-ticket/${encodedTicketId}/read`, {
+          method: "POST",
+          credentials: "include"
+        })
+      : await fetch(`${getApiBaseUrl()}/support/tickets/${encodedTicketId}/read`, {
+          method: "POST",
+          headers: getAuthHeaders(token)
+        });
   if (!res.ok) {
     throw new Error(await readJsonErrorMessage(res, "Failed to mark support ticket read."));
   }

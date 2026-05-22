@@ -2,6 +2,29 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-22 — Support unread + admin attachment auth follow-up — **Implemented**
+
+### What changed
+
+- **Web support auth path:** support attachment URLs now use the dedicated same-origin BFF routes (`/api/support-attachment/:attachmentId`, `/api/admin-support-attachment/:attachmentId`) instead of hitting `/api/v1/...` directly from the browser. The image fetch helper now avoids adding a client bearer header for same-origin routes and relies on the session cookie/BFF proxy path.
+- **Unread persistence:** the user-side `mark read` action now goes through a dedicated same-origin BFF route (`POST /api/support-ticket/:ticketId/read`) instead of the generic browser bearer path, so `userLastReadAt` is actually persisted and unread dots do not come back after refresh.
+- **Clerk consistency:** the new support BFF routes are now included in `apps/web/middleware.ts` protected-route matching alongside the existing authenticated BFF surfaces.
+- **Quiet UI continuity:** the sidebar assistant card now swaps the usual live/apply status for a short support status when unread support replies exist, and the mobile hamburger gets a small unread-count badge tied to the same signal instead of a louder pulsing indicator.
+- **Cluster evidence:** dev API logs showed repeated `401` on `POST /api/v1/support/tickets/:ticketId/read` and `GET /api/v1/admin/support/attachments/:attachmentId` with `userId: null`, matching the founder-reported symptoms.
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx app/app/assistant-api-client.test.ts --config vitest.config.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/middleware.test.ts app/app/_components/sidebar.test.tsx app/app/_components/assistant-settings.test.tsx app/app/assistant-api-client.test.ts --config vitest.config.ts`
+
+### Next recommended step
+
+- Redeploy `web` to `persai-dev`, then smoke one real support ticket in both surfaces: confirm the admin thumbnail opens, opening the ticket clears the unread dot, and the dot stays cleared after full page refresh.
+
 ## 2026-05-22 — User support tickets (base system) — **Implemented**
 
 ### What changed

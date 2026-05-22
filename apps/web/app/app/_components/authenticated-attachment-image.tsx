@@ -28,7 +28,8 @@ export function useAuthenticatedBlobUrl(src: string | null): {
       try {
         const token = await getToken();
         const headers: HeadersInit = {};
-        if (token) {
+        const useCookieSessionOnly = src.startsWith("/");
+        if (token && !useCookieSessionOnly) {
           headers.Authorization = `Bearer ${token}`;
         }
         const res = await fetch(src, {

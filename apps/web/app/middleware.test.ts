@@ -15,5 +15,8 @@ describe("middleware matcher", () => {
     expect(matchesMiddleware("/app")).toBe(true);
     expect(matchesMiddleware("/app/thread-1")).toBe(true);
     expect(matchesMiddleware("/api/assistant-file/file-1")).toBe(true);
+    expect(matchesMiddleware("/api/support-attachment/attachment-1")).toBe(true);
+    expect(matchesMiddleware("/api/admin-support-attachment/attachment-1")).toBe(true);
+    expect(matchesMiddleware("/api/support-ticket/ticket-1/read")).toBe(true);
   });
 });

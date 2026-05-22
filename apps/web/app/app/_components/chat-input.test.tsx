@@ -485,6 +485,98 @@ describe("ChatInput", () => {
     expect(mic).toHaveClass("rounded-full");
   });
 
+  it("does not cancel recording on pointercancel without a left swipe", async () => {
+    enableTouchDevice();
+    const stop = vi.fn();
+    const stream = {
+      getTracks: () => [{ stop }]
+    } as unknown as MediaStream;
+    const getUserMedia = vi.fn(async () => stream);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    const recorderStop = vi.fn();
+    const mediaRecorder = vi.fn(() => ({
+      mimeType: "audio/webm",
+      state: "recording",
+      start: vi.fn(),
+      stop: recorderStop,
+      ondataavailable: null,
+      onstop: null
+    }));
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: Object.assign(mediaRecorder, {
+        isTypeSupported: vi.fn(() => true)
+      })
+    });
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    const mic = await screen.findByTitle("voiceHoldToRecord");
+    fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 200 });
+    await waitFor(() => {
+      expect(mediaRecorder).toHaveBeenCalled();
+    });
+    fireEvent.pointerCancel(mic, { pointerType: "touch", pointerId: 1, clientX: 198 });
+    expect(recorderStop).toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("arms cancel only after a deliberate left swipe", async () => {
+    enableTouchDevice();
+    const stream = {
+      getTracks: () => [{ stop: vi.fn() }]
+    } as unknown as MediaStream;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn(async () => stream) }
+    });
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: Object.assign(
+        vi.fn(() => ({
+          mimeType: "audio/webm",
+          state: "recording",
+          start: vi.fn(),
+          stop: vi.fn(),
+          ondataavailable: null,
+          onstop: null
+        })),
+        { isTypeSupported: vi.fn(() => true) }
+      )
+    });
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    const mic = await screen.findByTitle("voiceHoldToRecord");
+    fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientX: 220 });
+    await waitFor(() => {
+      expect(screen.getByText("voiceSwipeLeftToCancel")).toBeTruthy();
+    });
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 200 });
+    expect(screen.getByText("voiceSwipeLeftToCancel")).toBeTruthy();
+    fireEvent.pointerMove(mic, { pointerType: "touch", pointerId: 1, clientX: 50 });
+    await waitFor(() => {
+      expect(screen.getAllByText("voiceCancelArmed").length).toBeGreaterThan(0);
+    });
+  });
+
   it("shows mic when empty and send when typing", () => {
     render(
       <ChatInput

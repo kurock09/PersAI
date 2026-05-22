@@ -18,6 +18,8 @@ import {
   Music,
   Film,
   Mic,
+  Trash2,
+  ChevronLeft,
   Loader2,
   Camera,
   Image as ImageIcon,
@@ -39,6 +41,14 @@ import { useTouchDevice } from "./use-touch-device";
 import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
 
 const MAX_FILES = 5;
+
+/** Touch hold-to-record: swipe left past this distance (after slop) arms cancel. */
+const VOICE_CANCEL_ARM_LEFT_PX = 112;
+/** Hysteresis: return closer than this before disarming cancel. */
+const VOICE_CANCEL_DISARM_LEFT_PX = 56;
+/** Ignore sub-threshold jitter so a steady thumb does not arm cancel. */
+const VOICE_GESTURE_SLOP_PX = 32;
+const VOICE_HOLD_MIN_MS = 280;
 /** Above one line of text (leading-5 + py-2.5×2) the composer uses a fixed radius, not a pill. */
 const COMPOSER_SINGLE_LINE_HEIGHT_PX = 40;
 
@@ -757,18 +767,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   }, [stopRecordingCleanup]);
 
   // ── Hold-to-record (touch only) ────────────────────────────────────────
-  // Telegram-style press-and-hold UX: pointer-down on the mic starts the
-  // recorder, pointer-up sends, swipe up beyond a threshold flips into a
-  // "release-to-cancel" state. Desktop / mouse users keep the existing
-  // click-to-toggle behaviour because the founder asked us not to disturb
-  // the web flow.
-  const HOLD_MIN_MS = 250;
-  const CANCEL_THRESHOLD_PX = 80;
+  // Telegram-style press-and-hold: hold mic, release to send, deliberate
+  // swipe left into the cancel zone then release to discard. Desktop keeps
+  // click-to-toggle.
   const holdActiveRef = useRef(false);
   const holdStartTimeRef = useRef(0);
-  const holdStartYRef = useRef(0);
+  const holdStartXRef = useRef(0);
   const cancelArmedRef = useRef(false);
   const [cancelArmed, setCancelArmed] = useState(false);
+  const [cancelSwipeProgress, setCancelSwipeProgress] = useState(0);
 
   const safeVibrate = useCallback((pattern: number | number[]) => {
     if (typeof navigator === "undefined") return;
@@ -779,6 +786,47 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       /* haptic feedback is best-effort */
     }
   }, []);
+
+  const resetHoldGesture = useCallback(() => {
+    holdActiveRef.current = false;
+    cancelArmedRef.current = false;
+    setCancelArmed(false);
+    setCancelSwipeProgress(0);
+  }, []);
+
+  const updateCancelFromPointer = useCallback(
+    (clientX: number) => {
+      const swipeLeftPx = Math.max(0, holdStartXRef.current - clientX - VOICE_GESTURE_SLOP_PX);
+      const progress = Math.min(1, swipeLeftPx / VOICE_CANCEL_ARM_LEFT_PX);
+      setCancelSwipeProgress(progress);
+
+      const armed = cancelArmedRef.current
+        ? swipeLeftPx >= VOICE_CANCEL_DISARM_LEFT_PX
+        : swipeLeftPx >= VOICE_CANCEL_ARM_LEFT_PX;
+      if (armed !== cancelArmedRef.current) {
+        cancelArmedRef.current = armed;
+        setCancelArmed(armed);
+        if (armed) safeVibrate(12);
+      }
+    },
+    [safeVibrate]
+  );
+
+  const finishHoldGesture = useCallback(
+    (opts: { cancelOnShortHold: boolean }) => {
+      if (!holdActiveRef.current) return;
+      holdActiveRef.current = false;
+      touchRecordingIntentActiveRef.current = false;
+      const heldMs = Date.now() - holdStartTimeRef.current;
+      if (cancelArmedRef.current || (opts.cancelOnShortHold && heldMs < VOICE_HOLD_MIN_MS)) {
+        cancelRecording();
+      } else {
+        stopRecording();
+      }
+      resetHoldGesture();
+    },
+    [cancelRecording, resetHoldGesture, stopRecording]
+  );
 
   const handleMicPointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -797,9 +845,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       e.preventDefault();
       holdActiveRef.current = true;
       holdStartTimeRef.current = Date.now();
-      holdStartYRef.current = e.clientY;
+      holdStartXRef.current = e.clientX;
       cancelArmedRef.current = false;
       setCancelArmed(false);
+      setCancelSwipeProgress(0);
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
@@ -815,52 +864,59 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const handleMicPointerMove = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       if (!holdActiveRef.current) return;
-      const dy = holdStartYRef.current - e.clientY;
-      const armed = dy > CANCEL_THRESHOLD_PX;
-      if (armed !== cancelArmedRef.current) {
-        cancelArmedRef.current = armed;
-        setCancelArmed(armed);
-        if (armed) safeVibrate(10);
-      }
+      updateCancelFromPointer(e.clientX);
     },
-    [safeVibrate]
+    [updateCancelFromPointer]
   );
 
   const handleMicPointerUp = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       if (!holdActiveRef.current) return;
-      holdActiveRef.current = false;
-      touchRecordingIntentActiveRef.current = false;
-      const heldMs = Date.now() - holdStartTimeRef.current;
       try {
         e.currentTarget.releasePointerCapture(e.pointerId);
       } catch {
         /* best-effort */
       }
       e.currentTarget.blur();
-      if (cancelArmedRef.current || heldMs < HOLD_MIN_MS) {
-        cancelRecording();
-      } else {
-        stopRecording();
-      }
-      cancelArmedRef.current = false;
-      setCancelArmed(false);
+      finishHoldGesture({ cancelOnShortHold: true });
     },
-    [cancelRecording, stopRecording]
+    [finishHoldGesture]
   );
 
   const handleMicPointerCancel = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       e.currentTarget.blur();
       if (!holdActiveRef.current) return;
-      holdActiveRef.current = false;
-      touchRecordingIntentActiveRef.current = false;
-      cancelRecording();
-      cancelArmedRef.current = false;
-      setCancelArmed(false);
+      // Browsers fire pointercancel on tiny moves / scroll takeover — only
+      // discard when the user clearly swiped into the cancel zone.
+      finishHoldGesture({ cancelOnShortHold: false });
     },
-    [cancelRecording]
+    [finishHoldGesture]
   );
+
+  useEffect(() => {
+    if (!isTouchDevice) return;
+    const onWindowPointerMove = (e: PointerEvent) => {
+      if (!holdActiveRef.current || e.pointerType === "mouse") return;
+      updateCancelFromPointer(e.clientX);
+    };
+    const onWindowPointerUp = (e: PointerEvent) => {
+      if (!holdActiveRef.current || e.pointerType === "mouse") return;
+      finishHoldGesture({ cancelOnShortHold: true });
+    };
+    const onWindowPointerCancel = (e: PointerEvent) => {
+      if (!holdActiveRef.current || e.pointerType === "mouse") return;
+      finishHoldGesture({ cancelOnShortHold: false });
+    };
+    window.addEventListener("pointermove", onWindowPointerMove);
+    window.addEventListener("pointerup", onWindowPointerUp);
+    window.addEventListener("pointercancel", onWindowPointerCancel);
+    return () => {
+      window.removeEventListener("pointermove", onWindowPointerMove);
+      window.removeEventListener("pointerup", onWindowPointerUp);
+      window.removeEventListener("pointercancel", onWindowPointerCancel);
+    };
+  }, [finishHoldGesture, isTouchDevice, updateCancelFromPointer]);
 
   return (
     <div className="border-t border-border bg-bg px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:border-t-0 md:px-4 md:py-3">
@@ -1129,11 +1185,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             </AnimatePresence>
 
             {/*
-             * Hold-to-record overlay (touch only). Floats above the composer,
-             * centered horizontally so the user's eye lands on the recording
-             * indicator while their thumb is still on the mic button. Pointer
-             * events stay on the mic button via setPointerCapture, so the
-             * overlay itself is non-interactive (`pointer-events-none`).
+             * Hold-to-record overlay (touch only). Telegram-style: timer in the
+             * center, explicit swipe-left cancel rail on the left. Pointer
+             * events stay on the mic via capture + window listeners.
              */}
             <AnimatePresence>
               {isTouchDevice && isRecording && (
@@ -1145,59 +1199,105 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 12, scale: 0.96 }}
                   transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                  className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-3 flex -translate-x-1/2 flex-col items-center"
+                  className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-3 flex w-[min(100%,20rem)] -translate-x-1/2 flex-col items-stretch"
                 >
                   <div
                     className={cn(
-                      "flex flex-col items-center gap-2 rounded-2xl border bg-surface-raised px-5 py-4 shadow-xl backdrop-blur-sm transition-colors",
-                      cancelArmed ? "border-destructive/40" : "border-border"
+                      "flex items-center gap-3 rounded-2xl border bg-surface-raised px-4 py-3 shadow-xl backdrop-blur-sm transition-colors",
+                      cancelArmed ? "border-destructive/50" : "border-border"
                     )}
                   >
-                    <span className="relative flex h-14 w-14 items-center justify-center">
+                    <div
+                      className={cn(
+                        "flex min-w-0 flex-1 flex-col items-center gap-1.5 rounded-xl border px-2 py-2 transition-colors",
+                        cancelArmed
+                          ? "border-destructive/40 bg-destructive/10"
+                          : "border-border/80 bg-surface"
+                      )}
+                    >
                       <span
-                        aria-hidden="true"
                         className={cn(
-                          "absolute inset-0 animate-ping rounded-full",
-                          cancelArmed ? "bg-destructive/30" : "bg-accent/30"
-                        )}
-                      />
-                      <span
-                        className={cn(
-                          "relative flex h-full w-full items-center justify-center rounded-full transition-colors",
-                          cancelArmed
-                            ? "bg-destructive/15 text-destructive"
-                            : "bg-accent/15 text-accent"
+                          "flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide transition-colors",
+                          cancelArmed ? "text-destructive" : "text-text-subtle"
                         )}
                       >
-                        <Mic className="h-7 w-7" />
+                        <ChevronLeft
+                          aria-hidden="true"
+                          className={cn(
+                            "h-3.5 w-3.5 transition-transform",
+                            cancelSwipeProgress > 0 && "-translate-x-0.5"
+                          )}
+                        />
+                        {cancelArmed ? t("voiceCancelArmed") : t("voiceSwipeLeftToCancel")}
                       </span>
-                    </span>
-                    <span
-                      className={cn(
-                        "font-mono text-sm tabular-nums transition-colors",
-                        cancelArmed ? "text-destructive" : "text-text-muted"
-                      )}
-                    >
-                      {formatDuration(recordingSeconds)}
-                    </span>
-                    <span
-                      className={cn(
-                        "text-center text-[11px] leading-tight transition-colors",
-                        cancelArmed ? "text-destructive" : "text-text-subtle"
-                      )}
-                    >
-                      {cancelArmed ? (
-                        t("voiceCancelArmed")
-                      ) : (
-                        <>
-                          {t("voiceHoldRelease")}
-                          <span aria-hidden="true" className="mx-1 text-border-strong">
-                            ·
-                          </span>
-                          {t("voiceSwipeUpToCancel")}
-                        </>
-                      )}
-                    </span>
+                      <span
+                        className={cn(
+                          "flex h-9 w-9 items-center justify-center rounded-full transition-colors",
+                          cancelArmed
+                            ? "bg-destructive/20 text-destructive"
+                            : "bg-surface-raised text-text-muted"
+                        )}
+                      >
+                        <Trash2
+                          aria-hidden="true"
+                          className={cn("h-5 w-5 transition-transform", cancelArmed && "scale-110")}
+                        />
+                      </span>
+                      <div
+                        aria-hidden="true"
+                        className="h-1 w-full overflow-hidden rounded-full bg-border/80"
+                      >
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-[width,background-color] duration-75",
+                            cancelArmed ? "bg-destructive" : "bg-destructive/70"
+                          )}
+                          style={{ width: `${Math.round(cancelSwipeProgress * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 flex-col items-center gap-1">
+                      <span className="relative flex h-12 w-12 items-center justify-center">
+                        <span
+                          aria-hidden="true"
+                          className={cn(
+                            "absolute inset-0 animate-ping rounded-full",
+                            cancelArmed ? "bg-destructive/25" : "bg-accent/25"
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            "relative flex h-full w-full items-center justify-center rounded-full transition-colors",
+                            cancelArmed
+                              ? "bg-destructive/15 text-destructive"
+                              : "bg-accent/15 text-accent"
+                          )}
+                        >
+                          {cancelArmed ? (
+                            <Trash2 className="h-6 w-6" aria-hidden="true" />
+                          ) : (
+                            <Mic className="h-6 w-6" aria-hidden="true" />
+                          )}
+                        </span>
+                      </span>
+                      <span
+                        className={cn(
+                          "font-mono text-sm tabular-nums transition-colors",
+                          cancelArmed ? "text-destructive" : "text-text-muted"
+                        )}
+                      >
+                        {formatDuration(recordingSeconds)}
+                      </span>
+                      <span
+                        className={cn(
+                          "max-w-[7rem] text-center text-[10px] leading-tight transition-colors",
+                          cancelArmed ? "text-destructive" : "text-text-subtle"
+                        )}
+                      >
+                        {cancelArmed ? t("voiceCancelArmed") : t("voiceHoldRelease")}
+                      </span>
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -1284,7 +1384,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   aria-hidden={!showMic}
                   tabIndex={showMic ? 0 : -1}
                 >
-                  <Mic className="h-5 w-5 md:h-4 md:w-4" />
+                  {isTouchDevice && isRecording && cancelArmed ? (
+                    <Trash2 className="h-5 w-5 md:h-4 md:w-4" aria-hidden="true" />
+                  ) : (
+                    <Mic className="h-5 w-5 md:h-4 md:w-4" />
+                  )}
                 </button>
               ) : null}
               <button

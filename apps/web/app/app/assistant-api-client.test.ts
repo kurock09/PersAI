@@ -6,10 +6,13 @@ import {
   getAssistantDocumentPptxPrepareUrl,
   getAssistantFileDownloadUrl,
   getAssistantFiles,
+  getAdminSupportAttachmentUrl,
   getChatCompactionState,
   getAdminPlatformRollouts,
   getAdminRuntimeProviderSettings,
+  getSupportAttachmentUrl,
   postAssistantBillingPaymentIntent,
+  postAssistantSupportTicketRead,
   postAssistantMemoryItemCloseOpenLoop,
   postAssistantTelegramDisconnect,
   reattachAssistantWebChatTurnStream,
@@ -456,6 +459,51 @@ describe("assistant files client", () => {
     expect(getAssistantDocumentPptxPrepareUrl("doc-1", { versionId: "version-1" })).toBe(
       "/api/assistant-document/doc-1/prepare-pptx?versionId=version-1"
     );
+  });
+
+  it("builds cookie-auth support attachment urls through the web BFF routes", () => {
+    expect(getSupportAttachmentUrl("attachment-1")).toBe("/api/support-attachment/attachment-1");
+    expect(getAdminSupportAttachmentUrl("attachment-2")).toBe(
+      "/api/admin-support-attachment/attachment-2"
+    );
+  });
+
+  it("marks support tickets read through the dedicated cookie-auth BFF route in the browser", async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ticket: {
+            id: "ticket-1",
+            shortId: "TICKET01",
+            status: "answered",
+            subject: null,
+            preview: "Preview",
+            createdAt: "2026-05-22T08:00:00.000Z",
+            updatedAt: "2026-05-22T08:01:00.000Z",
+            answeredAt: "2026-05-22T08:01:00.000Z",
+            closedAt: null,
+            hasUnread: false,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            userId: "user-1",
+            userEmail: "user@example.com",
+            assistantDisplayName: "PersAI",
+            messages: []
+          }
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    ) as typeof fetch;
+
+    await expect(postAssistantSupportTicketRead("token-1", "ticket-1")).resolves.toMatchObject({
+      id: "ticket-1",
+      hasUnread: false
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith("/api/support-ticket/ticket-1/read", {
+      method: "POST",
+      credentials: "include"
+    });
   });
 
   it("loads assistant files with query and limit", async () => {

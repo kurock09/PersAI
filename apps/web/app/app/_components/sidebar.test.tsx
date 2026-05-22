@@ -36,7 +36,8 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("next-intl", () => ({
   useLocale: () => "en",
-  useTranslations: () => (key: string) => key
+  useTranslations: () => (key: string, values?: Record<string, unknown>) =>
+    typeof values?.count === "number" ? `${key}:${values.count}` : key
 }));
 
 vi.mock("./use-theme", () => ({
@@ -228,6 +229,13 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
 
     const indicator = screen.getByLabelText("streamingIndicator");
     expect(indicator).toHaveClass("animate-pulse");
+  });
+
+  it("replaces the assistant live status with a compact support reply status when unread support exists", () => {
+    render(<Sidebar data={makeAppData({})} supportUnreadCount={2} />);
+
+    expect(screen.getByText("supportUnreadStatus:2")).toBeInTheDocument();
+    expect(screen.queryByText("live")).toBeNull();
   });
 
   it("blocks chat navigation and exposes the offline overlay when health recheck fails", async () => {

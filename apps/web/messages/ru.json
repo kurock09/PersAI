@@ -277,7 +277,7 @@
     "voiceMessage": "Голосовое сообщение",
     "voiceHoldToRecord": "Удерживайте, чтобы записать",
     "voiceHoldRelease": "Отпустите, чтобы отправить",
-    "voiceSwipeUpToCancel": "Свайп вверх — отмена",
+    "voiceSwipeLeftToCancel": "Свайп влево — отмена",
     "voiceCancelArmed": "Отпустите, чтобы отменить",
     "voiceTranscriptionEmptyTitle": "Не удалось распознать голосовое",
     "voiceTranscriptionEmptyGuidance": "Повторите запись чуть ближе к микрофону.",
@@ -493,7 +493,8 @@
     "deleting": "Удаляем...",
     "deepModeBadge": "Умнее",
     "streamingIndicator": "Генерирует ответ",
-    "assistantSettingsHint": "Настройки ассистента"
+    "assistantSettingsHint": "Настройки ассистента",
+    "supportUnreadStatus": "{count, plural, one {Поддержка · 1 ответ} few {Поддержка · # ответа} many {Поддержка · # ответов} other {Поддержка · # ответа}}"
   },
   "home": {
     "greeting1": "Что у тебя на уме сегодня?",

@@ -38,10 +38,10 @@ const STATUS_FILTERS = [
 
 function statusBadge(status: SupportTicketSummary["status"]) {
   const styles: Record<SupportTicketSummary["status"], string> = {
-    open: "bg-amber-500/15 text-amber-200",
-    pending: "bg-sky-500/15 text-sky-200",
-    answered: "bg-emerald-500/15 text-emerald-200",
-    closed: "bg-text-subtle/20 text-text-subtle"
+    open: "border border-warning/25 bg-warning/15 text-warning",
+    pending: "border border-accent/25 bg-accent/10 text-accent",
+    answered: "border border-success/25 bg-success/15 text-success",
+    closed: "border border-border bg-surface-hover text-text-muted"
   };
   return styles[status];
 }

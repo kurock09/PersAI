@@ -55,6 +55,7 @@ interface SidebarProps {
   onTelegramClick?: () => void;
   onLimitsClick?: () => void;
   data: AppData;
+  supportUnreadCount?: number;
   /**
    * Optional pull-to-refresh handler attached to the chat-list scroll
    * container. Provided by the mobile overlay in `app-shell.tsx` so that a
@@ -163,6 +164,7 @@ export function Sidebar({
   onTelegramClick,
   onLimitsClick,
   data,
+  supportUnreadCount = 0,
   onPullToRefresh
 }: SidebarProps) {
   const router = useRouter();
@@ -189,6 +191,7 @@ export function Sidebar({
     none: ts("notCreated")
   };
   const assistantName = data.assistant?.draft.displayName ?? t("defaultAssistant");
+  const hasUnreadSupport = supportUnreadCount > 0;
   /*
    * Hydration safety: groupChatsByDate / formatChatRowTimestamp depend on
    * `new Date()` and the device timezone. On the server (UTC pod) and on
@@ -252,12 +255,21 @@ export function Sidebar({
           />
           <div className="min-w-0 flex-1 text-left">
             <p className="truncate text-sm font-semibold text-text">{assistantName}</p>
-            <span className="flex items-center gap-1.5">
-              <span className={cn("inline-block h-2 w-2 rounded-full", statusCfg.dot)} />
-              <span className="text-xs text-text-muted">
-                {statusLabelMap[data.assistantStatus] ?? statusCfg.label}
+            {hasUnreadSupport ? (
+              <span className="flex items-center gap-1.5 text-xs text-accent">
+                <MessageCircle className="h-3 w-3 shrink-0" />
+                <span className="truncate">
+                  {t("supportUnreadStatus", { count: supportUnreadCount })}
+                </span>
               </span>
-            </span>
+            ) : (
+              <span className="flex items-center gap-1.5">
+                <span className={cn("inline-block h-2 w-2 rounded-full", statusCfg.dot)} />
+                <span className="text-xs text-text-muted">
+                  {statusLabelMap[data.assistantStatus] ?? statusCfg.label}
+                </span>
+              </span>
+            )}
           </div>
           {/*
            * Quiet premium affordance: the cog is the only visible cue that

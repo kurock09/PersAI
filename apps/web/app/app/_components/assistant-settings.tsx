@@ -105,6 +105,7 @@ interface AssistantSettingsProps {
   onOpenPricingPage?: (() => void) | undefined;
   onOpenPackagesPage?: (() => void) | undefined;
   onStartBillingCheckout?: ((paymentIntentId: string) => void) | undefined;
+  onSupportUnreadCountChange?: ((count: number) => void) | undefined;
 }
 
 type ActionFeedback = { type: "ok" | "err"; text: string } | null;
@@ -594,7 +595,8 @@ export function AssistantSettings({
   onOpenTelegramSettings,
   onOpenPricingPage,
   onOpenPackagesPage,
-  onStartBillingCheckout
+  onStartBillingCheckout,
+  onSupportUnreadCountChange
 }: AssistantSettingsProps) {
   const router = useRouter();
   const { getToken, isLoaded } = useAuth();
@@ -881,6 +883,10 @@ export function AssistantSettings({
     }, 20_000);
     return () => window.clearInterval(intervalId);
   }, [refreshSupportUnreadCount]);
+
+  useEffect(() => {
+    onSupportUnreadCountChange?.(supportUnreadCount);
+  }, [onSupportUnreadCountChange, supportUnreadCount]);
   const billingStatusLabel = useCallback(
     (
       status: AssistantBillingSubscriptionManagementState["subscriptionStatus"] | null | undefined

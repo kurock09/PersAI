@@ -7,7 +7,10 @@ const isProtectedRoute = createRouteMatcher([
   // The presentation PPTX BFF reads Clerk auth server-side and forwards a
   // Bearer token to the API, with a same-origin fresh-token fallback for
   // long-lived tabs. Treat it the same as `/api/assistant-file(.*)`.
-  "/api/assistant-document(.*)"
+  "/api/assistant-document(.*)",
+  "/api/support-attachment(.*)",
+  "/api/admin-support-attachment(.*)",
+  "/api/support-ticket(.*)"
 ]);
 export const middlewareMatcherForTests = [
   "/((?!_next|clerk-proxy|api/(?:v1|health|ready)|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
