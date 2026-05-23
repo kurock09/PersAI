@@ -563,6 +563,162 @@ async function run(): Promise<void> {
   });
   assert.match(runtimeUserMessage, /Attachment processing notes/);
 
+  const telegramUploadMicroDescriptionEnqueues: Array<Record<string, unknown>> = [];
+  let telegramUploadRuntimeAttachmentCount = 0;
+  const telegramUploadSummaryService = new HandleInternalTelegramTurnService(
+    {
+      async findOrCreateChatBySurfaceThread() {
+        return {
+          id: "chat-telegram-upload-1",
+          userId: "user-1",
+          chatMode: "normal"
+        };
+      },
+      async createMessage(input: { author: string; content: string }) {
+        return {
+          id:
+            input.author === "user"
+              ? "message-telegram-upload-user-1"
+              : "message-telegram-upload-assistant-1",
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-06T00:00:00.000Z")
+        };
+      }
+    } as never,
+    createBindingRepository() as never,
+    {
+      async enforceInboundTurn() {
+        return { mode: "allow" };
+      }
+    } as never,
+    {
+      async enforceAndRegisterAttempt() {
+        return undefined;
+      }
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return createResolvedAssistant();
+      }
+    } as never,
+    {
+      async recordInboundTurnUsage() {
+        return undefined;
+      }
+    } as never,
+    {
+      workspace: {
+        async findUnique() {
+          return { timezone: "UTC" };
+        }
+      }
+    } as never,
+    {
+      async resolve() {
+        return {
+          enrichedMessage: "two uploaded files",
+          attachments: [
+            {
+              id: "telegram-upload-att-1",
+              assistantFileId: "telegram-file-1",
+              attachmentType: "image",
+              storagePath: "assistant-media/telegram/image-1.png",
+              mimeType: "image/png",
+              originalFilename: "image-1.png",
+              sizeBytes: BigInt(10)
+            },
+            {
+              id: "telegram-upload-att-2",
+              assistantFileId: "telegram-file-2",
+              attachmentType: "document",
+              storagePath: "assistant-media/telegram/brief.pdf",
+              mimeType: "application/pdf",
+              originalFilename: "brief.pdf",
+              sizeBytes: BigInt(20)
+            }
+          ]
+        };
+      }
+    } as never,
+    traceService as never,
+    {
+      async execute(input: { attachments: unknown[] }) {
+        telegramUploadRuntimeAttachmentCount = input.attachments.length;
+        return {
+          assistantMessage: "I received both files.",
+          respondedAt: "2026-04-06T00:00:04.000Z",
+          media: []
+        };
+      }
+    } as never,
+    {
+      async assertRuntimeReadable() {
+        return undefined;
+      }
+    } as never,
+    {
+      async listOpenJobsForChatContext() {
+        return [];
+      },
+      async attachAcknowledgementMessageId() {
+        return 0;
+      }
+    } as never,
+    noopRecordModelCostLedgerService,
+    noopRecordToolPathLedgerFromToolInvocationsService,
+    undefined,
+    undefined,
+    undefined,
+    {
+      async enqueueIfNeeded(input: Record<string, unknown>) {
+        telegramUploadMicroDescriptionEnqueues.push(input);
+        return { accepted: true, reason: "queued" };
+      }
+    } as never
+  );
+
+  await telegramUploadSummaryService.execute({
+    assistantId: "assistant-1",
+    threadId: "chat-telegram-upload-1",
+    conversationMode: "direct",
+    externalUserKey: "telegram-user-1",
+    message: "look at these",
+    updateId: 101,
+    hasAttachments: true,
+    loadRawAttachments: async () => [
+      {
+        buffer: Buffer.from("image"),
+        mime: "image/png",
+        originalFilename: "image-1.png",
+        source: "telegram_download"
+      },
+      {
+        buffer: Buffer.from("pdf"),
+        mime: "application/pdf",
+        originalFilename: "brief.pdf",
+        source: "telegram_download"
+      }
+    ]
+  });
+  assert.equal(telegramUploadRuntimeAttachmentCount, 2);
+  assert.deepEqual(telegramUploadMicroDescriptionEnqueues, [
+    {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatMode: "normal",
+      attachmentId: "telegram-upload-att-1",
+      assistantFileId: "telegram-file-1"
+    },
+    {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatMode: "normal",
+      attachmentId: "telegram-upload-att-2",
+      assistantFileId: "telegram-file-2"
+    }
+  ]);
+
   const persistenceFailureBindingRepository = createBindingRepository();
   let persistenceFailureUsageCalls = 0;
   const persistenceFailureService = new HandleInternalTelegramTurnService(

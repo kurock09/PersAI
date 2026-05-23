@@ -6,6 +6,9 @@
 
 ### What changed
 
+- Telegram inbound uploads now enqueue the same canonical upload micro-description helper as web uploads after `InboundMediaService.resolve()` has persisted attachments and `AttachmentObjectAvailabilityService` has confirmed runtime readability. This covers both a single Telegram attachment and finalized Telegram albums with multiple files.
+- The enqueue uses the existing `AssistantUploadMicroDescriptionJobService.enqueueIfNeeded()` policy: project chats always analyze, ordinary/B2C surfaces obey `routerPolicy.analyzeUploadsOnB2cUpload`, and duplicate/summarized canonical files are deduped by `assistantFileId`.
+- Telegram enqueue is best-effort and logs a warning per attachment if queueing fails, so a temporary helper/DB issue does not break the user-facing Telegram turn after the file itself was accepted.
 - Mini-audit of async Web/TG media completion found three concrete user-visible seams: runtime deferred media/document acknowledgements replaced valid model copy with canned text, media completion retries could reuse an existing acknowledgement message instead of fresh completion framing, and Telegram suppressed the separate final text whenever delivered media had any caption.
 - Runtime now preserves non-empty LLM acknowledgement text for deferred media/document jobs and uses the localized canned acknowledgement only as an empty-text fallback.
 - Media completion delivery now attempts fresh LLM completion framing even when a completion message id already exists, then updates that message with the fresh copy. If framing fails, delivery falls back to stored result/existing text rather than failing the artifact delivery.
@@ -25,6 +28,7 @@
   - `corepack pnpm --filter @persai/api exec tsx test/telegram-bot.client.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job-failure-copy.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job-delivery.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
 - Focused typecheck:
   - `corepack pnpm --filter @persai/runtime run typecheck`
   - `corepack pnpm --filter @persai/api run typecheck`
@@ -33,10 +37,11 @@
 
 - The runtime canned acknowledgement strings still intentionally exist as empty-output fallbacks. They should no longer replace valid model text, but live TG/Web verification should confirm the model produces non-empty ack copy for the typical media request path.
 - Document delivery still has a temporary localized container message while the delivery state machine finalizes and updates the assistant message. It is not the final copy source.
+- Telegram upload micro-description enqueue is intentionally best-effort. If queueing fails, the turn continues and logs a warning; live verification should check the job row appears for a representative Telegram single-file upload and a two-file album.
 
 ### Next recommended step
 
-- Live-test one Telegram image generation/edit request and one web request after deploy. Confirm the initial acknowledgement and final completion are model-authored, and Telegram sends the final text when it differs from the media caption.
+- Live-test one Telegram image generation/edit request, one Telegram uploaded image/file, one two-file Telegram album, and one web request after deploy. Confirm async media replies are model-authored, Telegram sends final text when it differs from the media caption, and upload micro-description jobs are created for Telegram attachments when policy allows them.
 
 ## 2026-05-24 — ADR-100 follow-up — files semantic-summary search + generated summary truth
 
