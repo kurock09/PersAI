@@ -110,9 +110,9 @@ function normalizeActivityLabel(label: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
-function resolveActivityLabel(event: ActivityEvent, t: ReturnType<typeof useTranslations>): string {
+function resolveActivityLabelKey(event: ActivityEvent): string | null {
   const normalized = normalizeActivityLabel(event.label);
-  const mappedKey =
+  return (
     ACTIVITY_LABEL_KEYS[normalized] ??
     (event.type === "tool_use" && normalized.includes("failed")
       ? "activityGenericFailed"
@@ -120,7 +120,12 @@ function resolveActivityLabel(event: ActivityEvent, t: ReturnType<typeof useTran
         ? "activityGenericDone"
         : event.type === "tool_use"
           ? "activityGenericRunning"
-          : null);
+          : null)
+  );
+}
+
+function resolveActivityLabel(event: ActivityEvent, t: ReturnType<typeof useTranslations>): string {
+  const mappedKey = resolveActivityLabelKey(event);
   return mappedKey ? t(mappedKey) : event.label;
 }
 
@@ -228,7 +233,15 @@ export function ActivityBadge({
   const cfg = TYPE_CONFIG[event.type];
   const Icon = cfg.icon;
   const isStrong = event.emphasis === "strong";
-  const detail = resolveActivityDetail(buildActivityDetail(event, showShadowRoutingLabel), t);
+  const mappedLabelKey = resolveActivityLabelKey(event);
+  const suppressDetail =
+    mappedLabelKey !== null &&
+    (mappedLabelKey.startsWith("activityProjectSummary") ||
+      mappedLabelKey.startsWith("activityProjectStage") ||
+      mappedLabelKey.startsWith("activityProjectReasoning"));
+  const detail = suppressDetail
+    ? undefined
+    : resolveActivityDetail(buildActivityDetail(event, showShadowRoutingLabel), t);
   const label = resolveActivityLabel(event, t);
 
   return (

@@ -2,6 +2,35 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-23 — ADR-100 live follow-up — OpenAI media false-abort hardening
+
+### What changed
+
+- Live provider investigation showed two different failure classes were being conflated in OpenAI media paths. `image_edit` uses a single synchronous provider request, so it does not have the same poll-status false-failure seam as video, but its prior `5 minute` local timeout was still too short for slower edits.
+- `OpenAIProviderClient.editImage()` now uses a dedicated `7 minute` bounded timeout instead of sharing the shorter image-generate timeout.
+- `pollOpenAIVideoJob()` no longer treats a single transient poll failure (`408`, `429`, or any `5xx`, including the observed `504`) as terminal. The poll loop now simply retries on the next interval and still preserves the existing overall request timeout plus terminal handling for explicit failed/cancelled provider statuses.
+- Focused provider-gateway coverage now locks both truths: image-edit timeout resolution is `420_000 ms`, and a video job still completes successfully after one transient `504` status poll response.
+
+### Verification
+
+- Repo gate:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+- Focused provider checks:
+  - `corepack pnpm --filter @persai/provider-gateway run typecheck`
+  - `corepack pnpm --filter @persai/provider-gateway exec tsx --test test/openai-provider.client.test.ts test/provider-image-generation.service.test.ts test/provider-video-generation.service.test.ts`
+
+### Residual risks
+
+- This hardens the currently confirmed OpenAI false-abort seam for video polling and raises the local edit timeout, but live verification is still required to confirm the exact provider-side long-running `image_edit` and `video_generate` flows now finish cleanly after deploy.
+- `image_edit` still does not have a polling seam by design; if edits continue to fail after roughly `7 minutes`, the next likely cause is a real upstream request timeout or provider error rather than the specific transient poll-status bug fixed here.
+
+### Next recommended step
+
+- Redeploy `provider-gateway`, then rerun one known slow `image_edit` and one known flaky `video_generate` case. Confirm the edit path no longer aborts around the old `5 minute` bound and confirm a transient upstream `504` during video status polling no longer fails the job if later polls recover.
+
 ## 2026-05-23 — ADR-100 live follow-up — remove project cadence abort and drop silent stall kills
 
 ### What changed

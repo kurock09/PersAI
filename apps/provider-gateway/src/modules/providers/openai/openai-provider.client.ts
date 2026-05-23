@@ -37,6 +37,8 @@ const OPENAI_SPEECH_GENERATION_MODEL = "gpt-4o-mini-tts";
 const OPENAI_VIDEO_GENERATION_MODEL = "sora-2";
 const OPENAI_IMAGE_GENERATION_TIMEOUT_MS = 300_000;
 const MAX_OPENAI_IMAGE_GENERATION_TIMEOUT_MS = 300_000;
+const OPENAI_IMAGE_EDIT_TIMEOUT_MS = 420_000;
+const MAX_OPENAI_IMAGE_EDIT_TIMEOUT_MS = 420_000;
 const OPENAI_VIDEO_GENERATION_TIMEOUT_MS = 600_000;
 const OPENAI_VIDEO_POLL_INTERVAL_MS = 2_000;
 const OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE = "provider_context_window_exceeded";
@@ -370,7 +372,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   ): Promise<ProviderGatewayImageEditResult> {
     const client = this.getApiClient(options?.apiKey);
     const { signal, dispose } = this.createTimedSignal(
-      this.resolveImageGenerationTimeoutMs(input.timeoutMs)
+      this.resolveImageEditTimeoutMs(input.timeoutMs)
     );
     try {
       const model = input.model ?? OPENAI_IMAGE_GENERATION_MODEL;
@@ -463,6 +465,17 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     return Math.min(
       Math.max(configured, this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS),
       MAX_OPENAI_IMAGE_GENERATION_TIMEOUT_MS
+    );
+  }
+
+  private resolveImageEditTimeoutMs(timeoutMs: number | null | undefined): number {
+    const configured =
+      Number.isInteger(timeoutMs) && Number(timeoutMs) > 0
+        ? Number(timeoutMs)
+        : OPENAI_IMAGE_EDIT_TIMEOUT_MS;
+    return Math.min(
+      Math.max(configured, this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS),
+      MAX_OPENAI_IMAGE_EDIT_TIMEOUT_MS
     );
   }
 
@@ -1527,6 +1540,9 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       });
       const body = await this.readJsonBody(response);
       if (!response.ok) {
+        if (this.isTransientOpenAIVideoPollStatus(response.status)) {
+          continue;
+        }
         throw new Error(this.readOpenAIVideoErrorMessage(body, response.status));
       }
       const job = this.parseOpenAIVideoJob(body);
@@ -1539,6 +1555,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       completedJob = job;
     }
     return completedJob;
+  }
+
+  private isTransientOpenAIVideoPollStatus(status: number): boolean {
+    return status === 408 || status === 429 || status >= 500;
   }
 
   private async downloadOpenAIVideoContent(

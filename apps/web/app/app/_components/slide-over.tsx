@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { PullToRefresh } from "./pull-to-refresh";
@@ -42,7 +43,11 @@ export function SlideOver({
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
-  return (
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <>
@@ -84,6 +89,7 @@ export function SlideOver({
           </motion.aside>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

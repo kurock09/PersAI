@@ -7,6 +7,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent
 } from "react";
+import { createPortal } from "react-dom";
 import { Download, Pause, Play, Share2, Volume2, VolumeX, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
@@ -502,7 +503,11 @@ export function ImageLightbox({
       ? Math.max(0.55, 1 - swipeDismissOffsetY / (SWIPE_CLOSE_THRESHOLD_PX * 2))
       : 1;
 
-  return (
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
     <div
       ref={containerRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 select-none"
@@ -729,6 +734,7 @@ export function ImageLightbox({
           )}
         />
       )}
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -18,7 +18,7 @@ describe("ImageLightbox", () => {
   });
 
   it("renders modern save and share actions", () => {
-    render(
+    const { container } = render(
       <ImageLightbox
         open
         src="/api/assistant-file/file-ref-image-1"
@@ -32,6 +32,7 @@ describe("ImageLightbox", () => {
     expect(screen.getByRole("button", { name: "lightboxSave" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "lightboxShare" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "lightboxClose" })).toBeInTheDocument();
+    expect(container).not.toContainElement(screen.getByRole("dialog"));
   });
 
   it("shares the image file when Web Share supports files", async () => {

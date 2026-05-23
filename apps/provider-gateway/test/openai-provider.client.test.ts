@@ -860,6 +860,35 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     }
   });
 
+  let capturedImageEditTimeoutMs: number | null = null;
+  const originalCreateTimedSignal = (
+    client as unknown as {
+      createTimedSignal(
+        timeoutMs: number,
+        externalSignal?: AbortSignal
+      ): {
+        signal: AbortSignal;
+        reset: () => void;
+        dispose: () => void;
+      };
+    }
+  ).createTimedSignal.bind(client);
+  (
+    client as unknown as {
+      createTimedSignal(
+        timeoutMs: number,
+        externalSignal?: AbortSignal
+      ): {
+        signal: AbortSignal;
+        reset: () => void;
+        dispose: () => void;
+      };
+    }
+  ).createTimedSignal = (timeoutMs: number, externalSignal?: AbortSignal) => {
+    capturedImageEditTimeoutMs = timeoutMs;
+    return originalCreateTimedSignal(timeoutMs, externalSignal);
+  };
+
   const imageEditResult = await client.editImage(
     createImageEditRequest({ includeReference: true }),
     {
@@ -880,6 +909,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   );
   assert.equal((capturedImageEditPayload as { background?: string } | null)?.background, "opaque");
   assert.equal((capturedImageEditPayload as { size?: string } | null)?.size, "1024x1024");
+  assert.equal(capturedImageEditTimeoutMs, 420_000);
   assert.match(
     (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
     /Edit only the first\/source image/
@@ -1044,6 +1074,90 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     assert.equal(
       (videoRequests[0]?.init?.headers as Record<string, string> | undefined)?.Authorization,
       "Bearer tool-openai-key"
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const transientPollRequests: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (init === undefined) {
+      transientPollRequests.push({ url });
+    } else {
+      transientPollRequests.push({ url, init });
+    }
+    if (url === "https://api.openai.com/v1/videos") {
+      return new Response(
+        JSON.stringify({
+          id: "video_504",
+          status: "queued",
+          model: "sora-2"
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+    if (url === "https://api.openai.com/v1/videos/video_504") {
+      const pollCount = transientPollRequests.filter(
+        (entry) => entry.url === "https://api.openai.com/v1/videos/video_504"
+      ).length;
+      if (pollCount === 1) {
+        return new Response(
+          JSON.stringify({
+            error: { message: "Gateway timeout" }
+          }),
+          {
+            status: 504,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          id: "video_504",
+          status: "completed",
+          model: "sora-2"
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+    if (url === "https://api.openai.com/v1/videos/video_504/content") {
+      return new Response(Buffer.from("video-after-retry"), {
+        status: 200,
+        headers: {
+          "Content-Type": "video/mp4"
+        }
+      });
+    }
+    throw new Error(`Unexpected fetch URL in transient OpenAI video test: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const videoRetryResult = await client.generateVideo(createVideoGenerateRequest(), {
+      apiKey: "tool-openai-key"
+    });
+    assert.equal(
+      videoRetryResult.video.bytesBase64,
+      Buffer.from("video-after-retry").toString("base64")
+    );
+    assert.equal(
+      transientPollRequests.filter(
+        (entry) => entry.url === "https://api.openai.com/v1/videos/video_504"
+      ).length,
+      2
     );
   } finally {
     globalThis.fetch = originalFetch;

@@ -304,7 +304,7 @@ export function AppShell({
                     >
                       <span className="sr-only">Open sidebar</span>
                       {supportUnreadCount > 0 && (
-                        <span className="absolute top-0.5 right-0.5 inline-flex min-w-4 items-center justify-center rounded-full border border-accent/20 bg-accent/12 px-1 text-[10px] font-medium leading-4 text-accent">
+                        <span className="absolute -top-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border border-accent/70 bg-accent px-1 text-[10px] font-medium leading-4 text-white shadow-sm shadow-accent/25 dark:border-accent/85 dark:bg-accent dark:text-white">
                           {supportUnreadCount > 9 ? "9+" : supportUnreadCount}
                         </span>
                       )}

@@ -938,21 +938,10 @@ function ChatModeToggle({
     [onChange]
   );
 
-  const pillClass = (active: boolean, premium?: boolean) =>
-    cn(
-      "inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all",
-      active
-        ? premium
-          ? "bg-accent-premium/12 text-accent-premium ring-1 ring-accent-premium/25"
-          : "bg-surface text-text shadow-sm"
-        : "text-text-muted hover:text-text",
-      disabled && "cursor-not-allowed opacity-50"
-    );
-
   return (
     <div className="shrink-0">
-      {/* Mobile: one compact chip opens a 3-mode menu */}
-      <div className="relative md:hidden">
+      {/* One compact chip opens the same 3-mode menu on mobile and desktop. */}
+      <div className="relative">
         <button
           ref={triggerRef}
           type="button"
@@ -963,8 +952,9 @@ function ChatModeToggle({
           title={chatModeCaption(t, mode)}
           onClick={() => setMenuOpen((open) => !open)}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface-raised/90 px-2.5 py-1 text-[11px] font-semibold text-text shadow-sm backdrop-blur-sm transition-colors",
+            "inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface-raised/90 px-2.5 py-1 text-[11px] font-semibold text-text shadow-sm backdrop-blur-sm transition-colors md:px-3 md:py-1.5",
             mode !== "normal" && "border-accent-premium/25 text-accent-premium",
+            menuOpen && "border-border-strong bg-surface-raised",
             disabled && "cursor-not-allowed opacity-50"
           )}
         >
@@ -988,7 +978,7 @@ function ChatModeToggle({
             ref={menuRef}
             role="menu"
             aria-label={t("modeMenuAria", { mode: chatModeLabel(t, mode) })}
-            className="absolute top-full right-0 z-30 mt-2 min-w-[11rem] max-w-[calc(100vw-1rem)] rounded-xl border border-border bg-surface-raised p-1 shadow-xl backdrop-blur-sm"
+            className="absolute top-full right-0 z-30 mt-2 min-w-[11rem] max-w-[calc(100vw-1rem)] rounded-xl border border-border bg-surface-raised p-1 shadow-xl backdrop-blur-sm md:min-w-[12rem]"
           >
             {CHAT_MODES.map((option) => (
               <button
@@ -1025,53 +1015,6 @@ function ChatModeToggle({
             ))}
           </div>
         )}
-      </div>
-
-      {/* Desktop: three-state segmented control above the composer */}
-      <div
-        className="hidden md:inline-flex md:rounded-xl md:bg-surface-raised/70 md:p-0.5 md:shadow-[0_1px_0_rgba(0,0,0,0.04)] md:ring-1 md:ring-border/60 md:backdrop-blur-sm"
-        title={chatModeCaption(t, mode)}
-      >
-        <button
-          type="button"
-          aria-pressed={mode === "normal"}
-          disabled={disabled}
-          onClick={() => onChange("normal")}
-          className={pillClass(mode === "normal")}
-        >
-          <MessageSquare className="h-3 w-3" />
-          <span>{t("modeNormalLabel")}</span>
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === "smart"}
-          disabled={disabled}
-          onClick={() => onChange("smart")}
-          className={pillClass(mode === "smart", true)}
-        >
-          <Sparkles
-            className={cn(
-              "h-3 w-3",
-              mode === "smart" ? "animate-pulse text-accent-premium" : "text-accent-premium/45"
-            )}
-          />
-          <span>{t("modeDeepLabel")}</span>
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === "project"}
-          disabled={disabled}
-          onClick={() => onChange("project")}
-          className={pillClass(mode === "project", true)}
-        >
-          <FolderKanban
-            className={cn(
-              "h-3 w-3",
-              mode === "project" ? "text-accent-premium" : "text-accent-premium/45"
-            )}
-          />
-          <span>{t("modeProjectLabel")}</span>
-        </button>
       </div>
     </div>
   );

@@ -25,13 +25,14 @@ describe("SlideOver", () => {
   });
 
   it("does not wrap its body in pull-to-refresh when onPullToRefresh is not provided", () => {
-    render(
+    const { container } = render(
       <SlideOver open onClose={() => undefined} title="Title">
         <div data-testid="body">body</div>
       </SlideOver>
     );
 
     expect(screen.getByTestId("body")).toBeInTheDocument();
+    expect(container).not.toContainElement(screen.getByTestId("body"));
     expect(document.querySelector("[data-pull-state]")).toBeNull();
   });
 

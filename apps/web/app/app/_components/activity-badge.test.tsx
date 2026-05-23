@@ -77,7 +77,7 @@ describe("ActivityBadge", () => {
     expect(screen.queryByText("retrieval_skill_started")).toBeNull();
   });
 
-  it("localizes known project summaries and keeps detail visible", () => {
+  it("localizes project summaries and hides the extra detail copy", () => {
     render(
       <ActivityBadge
         event={{
@@ -91,7 +91,7 @@ describe("ActivityBadge", () => {
     );
 
     expect(screen.getByText("activityProjectSummaryPlanReview")).toBeInTheDocument();
-    expect(screen.getByText("activityProjectDetailCheckFit")).toBeInTheDocument();
+    expect(screen.queryByText("activityProjectDetailCheckFit")).toBeNull();
 
     render(
       <ActivityBadge
@@ -105,10 +105,10 @@ describe("ActivityBadge", () => {
     );
 
     expect(screen.getByText("activityProjectSummaryGatherMore")).toBeInTheDocument();
-    expect(screen.getByText("activityProjectDetailFollowUpPass")).toBeInTheDocument();
+    expect(screen.queryByText("activityProjectDetailFollowUpPass")).toBeNull();
   });
 
-  it("localizes structured project detail templates", () => {
+  it("keeps project badges compact even when structured detail is present", () => {
     render(
       <ActivityBadge
         event={{
@@ -121,7 +121,7 @@ describe("ActivityBadge", () => {
     );
 
     expect(screen.getByText("activityProjectSummaryCheckFit")).toBeInTheDocument();
-    expect(screen.getByText("activityProjectDetailLoadedGroundedExcerpts")).toBeInTheDocument();
+    expect(screen.queryByText("activityProjectDetailLoadedGroundedExcerpts")).toBeNull();
 
     render(
       <ActivityBadge
@@ -136,7 +136,7 @@ describe("ActivityBadge", () => {
     );
 
     expect(screen.getByText("activityProjectSummaryThinContext")).toBeInTheDocument();
-    expect(screen.getByText("activityProjectDetailNoGroundedExcerpt")).toBeInTheDocument();
+    expect(screen.queryByText("activityProjectDetailNoGroundedExcerpt")).toBeNull();
   });
 
   it("shows quiet Skill activity detail when present", () => {

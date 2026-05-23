@@ -55,7 +55,7 @@ export function AssistantSupportSection({
   const [ticketDetails, setTicketDetails] = useState<Record<string, SupportTicketDetail>>({});
   const [ticketLoadErrors, setTicketLoadErrors] = useState<Record<string, string>>({});
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
-  const [newFormExpanded, setNewFormExpanded] = useState(true);
+  const [newFormExpanded, setNewFormExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [body, setBody] = useState("");
@@ -68,12 +68,6 @@ export function AssistantSupportSection({
   useEffect(() => {
     onActivityChange?.({ unreadCount });
   }, [onActivityChange, unreadCount]);
-
-  useEffect(() => {
-    if (tickets.length === 0) {
-      setNewFormExpanded(true);
-    }
-  }, [tickets.length]);
 
   const statusLabel = useCallback(
     (status: SupportTicketSummary["status"]) => {

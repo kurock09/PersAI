@@ -138,12 +138,13 @@ function createChat(
 }
 
 describe("ChatArea", () => {
-  it("persists project chat mode through the desktop composer control", async () => {
+  it("persists project chat mode through the shared mode menu", async () => {
     getTokenMock.mockResolvedValueOnce("token-1");
     const patchMock = vi.mocked(patchAssistantWebChat);
     render(<ChatArea chat={createChat("Hello", { isStreaming: false })} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "modeProjectLabel" }));
+    fireEvent.click(screen.getByRole("button", { name: "modeMenuAria" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /modeProjectLabel/ }));
 
     await waitFor(() => {
       expect(patchMock).toHaveBeenCalledWith("token-1", "chat-1", { chatMode: "project" });
