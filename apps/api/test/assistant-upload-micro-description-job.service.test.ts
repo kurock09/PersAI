@@ -297,6 +297,35 @@ async function run(): Promise<void> {
   });
   assert.equal(existingSummary.jobs.size, 0);
 
+  const generatedRequestSummary = createHarness({
+    file: {
+      metadata: {
+        semanticSummary: "Assistant-generated quarterly launch brief",
+        semanticSummarySource: "generation_request"
+      }
+    }
+  });
+  const generatedRequestResult = await generatedRequestSummary.service.enqueueGeneratedFileIfNeeded(
+    {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      assistantFileId: generatedRequestSummary.fileId,
+      attachmentId: generatedRequestSummary.attachmentId
+    }
+  );
+  assert.deepEqual(generatedRequestResult, {
+    accepted: false,
+    reason: "already_summarized"
+  });
+  assert.deepEqual(
+    generatedRequestSummary.attachments.get(generatedRequestSummary.attachmentId)?.metadata,
+    {
+      semanticSummary: "Assistant-generated quarterly launch brief",
+      semanticSummarySource: "generation_request"
+    }
+  );
+  assert.equal(generatedRequestSummary.jobs.size, 0);
+
   const generated = createHarness({
     generatedSummary: "Short project brief for upload analysis"
   });

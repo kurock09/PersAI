@@ -367,35 +367,47 @@ export class AssistantMediaJobCompletionDeliveryService {
     artifacts: RuntimeOutputArtifact[];
   }): Promise<CompletionAssistantTextResolution> {
     const rawAssistantText = input.job.resultText?.trim() ?? "";
+    let existingContent = "";
     if (input.job.completionAssistantMessageId !== null) {
       const existing = await this.assistantChatRepository.findMessageByIdForAssistant(
         input.job.completionAssistantMessageId,
         input.job.assistantId
       );
-      const existingContent = existing?.content.trim() ?? "";
-      if (existingContent.length > 0) {
-        return {
-          text: existingContent,
-          shouldUpdateExistingMessage: false
-        };
-      }
+      existingContent = existing?.content.trim() ?? "";
     }
 
-    const framed = await this.assistantMediaJobCompletionTurnService.maybeFrame({
-      id: input.job.id,
-      assistantId: input.job.assistantId,
-      workspaceId: input.job.workspaceId,
-      chatId: input.job.chatId,
-      surface: input.job.surface,
-      kind: input.job.kind,
-      sourceUserMessageId: input.job.sourceUserMessageId,
-      sourceUserMessageText: input.sourceUserMessageText,
-      sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
-      resultText: rawAssistantText,
-      artifacts: input.artifacts
-    });
+    let framed: { text: string | null; usage: RuntimeUsageSnapshot | null } = {
+      text: null,
+      usage: null
+    };
+    try {
+      framed = await this.assistantMediaJobCompletionTurnService.maybeFrame({
+        id: input.job.id,
+        assistantId: input.job.assistantId,
+        workspaceId: input.job.workspaceId,
+        chatId: input.job.chatId,
+        surface: input.job.surface,
+        kind: input.job.kind,
+        sourceUserMessageId: input.job.sourceUserMessageId,
+        sourceUserMessageText: input.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
+        resultText: rawAssistantText,
+        artifacts: input.artifacts
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Media completion framing failed for job ${input.job.id}; falling back to stored text: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
     const framedText = framed.text?.trim() ?? "";
-    const completionText = framedText.length > 0 ? framedText : rawAssistantText;
+    const completionText =
+      framedText.length > 0
+        ? framedText
+        : rawAssistantText.length > 0
+          ? rawAssistantText
+          : existingContent;
     if (framed.usage !== null) {
       await this.prisma.assistantMediaJob.updateMany({
         where: { id: input.job.id },
@@ -411,7 +423,8 @@ export class AssistantMediaJobCompletionDeliveryService {
 
     return {
       text: completionText,
-      shouldUpdateExistingMessage: input.job.completionAssistantMessageId !== null
+      shouldUpdateExistingMessage:
+        input.job.completionAssistantMessageId !== null && completionText !== existingContent
     };
   }
 

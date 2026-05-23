@@ -39,6 +39,7 @@ type AttachmentBackedOrigin = Extract<
   PersaiSandboxFileOrigin,
   "uploaded_attachment" | "runtime_output"
 >;
+type RuntimeFileSemanticSummarySource = "generation_request";
 type RegistryRow = {
   id: string;
   assistantId: string;
@@ -211,6 +212,8 @@ export class RuntimeAssistantFileRegistryService {
     filename: string | null;
     mimeType: string;
     sizeBytes: number;
+    semanticSummary?: string | null;
+    semanticSummarySource?: RuntimeFileSemanticSummarySource | null;
   }): Promise<RuntimeAssistantFileRecord> {
     const relativePath = this.buildAttachmentRelativePath(
       input.origin,
@@ -220,7 +223,16 @@ export class RuntimeAssistantFileRegistryService {
     );
     const sha256 = await this.computeObjectSha256(input.objectKey);
     const metadata = {
-      attachmentId: input.referenceId
+      attachmentId: input.referenceId,
+      ...(typeof input.semanticSummary === "string" &&
+      input.semanticSummary.trim().length > 0 &&
+      typeof input.semanticSummarySource === "string" &&
+      input.semanticSummarySource.trim().length > 0
+        ? {
+            semanticSummary: input.semanticSummary,
+            semanticSummarySource: input.semanticSummarySource
+          }
+        : {})
     };
     const row = await this.prisma.assistantFile.upsert({
       where: {
@@ -300,7 +312,8 @@ export class RuntimeAssistantFileRegistryService {
       displayName: record.displayName,
       mimeType: record.mimeType,
       sizeBytes: record.sizeBytes,
-      logicalSizeBytes: record.logicalSizeBytes
+      logicalSizeBytes: record.logicalSizeBytes,
+      semanticSummaryHint: this.readSemanticSummaryHint(record.metadata)
     };
   }
 
@@ -319,6 +332,12 @@ export class RuntimeAssistantFileRegistryService {
           relativePath: {
             contains: query,
             mode: "insensitive" as const
+          }
+        },
+        {
+          metadata: {
+            path: ["semanticSummary"],
+            string_contains: query
           }
         }
       ]

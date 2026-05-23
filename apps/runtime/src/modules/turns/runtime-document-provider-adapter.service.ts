@@ -12,6 +12,7 @@ import type {
   RuntimeDocumentSourceFile,
   RuntimeOutputArtifact
 } from "@persai/runtime-contract";
+import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
@@ -375,6 +376,8 @@ export class RuntimeDocumentProviderAdapterService {
       sessionId: input.request.job.chatId,
       requestId: input.request.job.id,
       filename,
+      requestPrompt: input.request.directToolExecution.request.prompt,
+      requestedName: input.request.directToolExecution.request.requestedName ?? null,
       buffer: Buffer.from(successfulProviderResult.bytesBase64, "base64"),
       mimeType: successfulProviderResult.mimeType,
       billingFacts: successfulProviderResult.billingFacts ?? null
@@ -480,6 +483,8 @@ export class RuntimeDocumentProviderAdapterService {
       sessionId: input.request.job.chatId,
       requestId: input.request.job.id,
       filename,
+      requestPrompt: input.request.directToolExecution.request.prompt,
+      requestedName: input.request.directToolExecution.request.requestedName ?? null,
       buffer: Buffer.from(providerResult.bytesBase64, "base64"),
       mimeType: providerResult.mimeType,
       billingFacts: providerResult.billingFacts ?? null
@@ -1336,6 +1341,8 @@ export class RuntimeDocumentProviderAdapterService {
     sessionId: string;
     requestId: string;
     filename: string;
+    requestPrompt: string;
+    requestedName: string | null;
     buffer: Buffer;
     mimeType: string;
     billingFacts?: RuntimeOutputArtifact["billingFacts"];
@@ -1360,6 +1367,11 @@ export class RuntimeDocumentProviderAdapterService {
       buffer: input.buffer,
       mimeType: input.mimeType
     });
+    const semanticSummary = buildGeneratedFileSemanticSummary({
+      requestText: input.requestPrompt,
+      requestedName: input.requestedName,
+      allowWeakRequestFallback: input.mimeType !== "application/pdf"
+    });
     const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
@@ -1368,7 +1380,9 @@ export class RuntimeDocumentProviderAdapterService {
       objectKey: stored.objectKey,
       filename: input.filename,
       mimeType: stored.mimeType,
-      sizeBytes: stored.sizeBytes
+      sizeBytes: stored.sizeBytes,
+      semanticSummary,
+      semanticSummarySource: semanticSummary === null ? null : "generation_request"
     });
     const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(file);
     return {

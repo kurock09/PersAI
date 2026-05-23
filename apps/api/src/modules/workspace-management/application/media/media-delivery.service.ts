@@ -27,6 +27,7 @@ import { validatePersaiMediaFile } from "./media-security-policy";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { downloadRuntimeMediaUrl } from "./runtime-media-download";
 import { AssistantFileRegistryService } from "../assistant-file-registry.service";
+import { AssistantUploadMicroDescriptionJobService } from "../assistant-upload-micro-description-job.service";
 import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
 import {
   RecordModelCostLedgerService,
@@ -48,6 +49,7 @@ export class MediaDeliveryService {
     adapters: ChannelMediaAdapter[],
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly assistantFileRegistryService: AssistantFileRegistryService,
+    private readonly assistantUploadMicroDescriptionJobService: AssistantUploadMicroDescriptionJobService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService
@@ -388,6 +390,14 @@ export class MediaDeliveryService {
       this.isEphemeralRuntimeOutputObjectKey(artifact.objectKey)
     ) {
       await this.mediaObjectStorage.deleteObject(artifact.objectKey);
+    }
+    if (artifact.source === "persai_object_storage") {
+      await this.assistantUploadMicroDescriptionJobService.enqueueGeneratedFileIfNeeded({
+        assistantId: attachment.assistantId,
+        workspaceId: attachment.workspaceId,
+        assistantFileId: attachment.assistantFileId,
+        attachmentId: attachment.id
+      });
     }
 
     return {

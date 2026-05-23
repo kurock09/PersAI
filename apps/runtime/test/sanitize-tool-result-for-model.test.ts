@@ -187,7 +187,8 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
         mimeType: "text/plain",
         sizeBytes: 42,
         logicalSizeBytes: 42,
-        aliases: ["previous attachment #1"]
+        aliases: ["previous attachment #1"],
+        semanticSummaryHint: "Quarterly revenue report for the EMEA region."
       },
       items: [
         {
@@ -198,7 +199,8 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
           mimeType: "text/plain",
           sizeBytes: 42,
           logicalSizeBytes: 42,
-          aliases: ["previous attachment #1"]
+          aliases: ["previous attachment #1"],
+          semanticSummaryHint: "Quarterly revenue report for the EMEA region."
         }
       ],
       content: "hello",
@@ -218,7 +220,12 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     };
     assert.equal(parsed.item.fileRef, undefined);
     assert.deepEqual(parsed.item.aliases, ["previous attachment #1"]);
+    assert.equal(parsed.item.semanticSummaryHint, "Quarterly revenue report for the EMEA region.");
     assert.equal(parsed.items[0]?.fileRef, undefined);
+    assert.equal(
+      parsed.items[0]?.semanticSummaryHint,
+      "Quarterly revenue report for the EMEA region."
+    );
     assert.equal(parsed.content, "hello");
     assert.equal(parsed.job, null);
     assert.equal(parsed.fileRefs, undefined);

@@ -78,50 +78,29 @@ export class AssistantUploadMicroDescriptionJobService {
     attachmentId: string;
     assistantFileId: string | null | undefined;
   }): Promise<{ accepted: boolean; reason: string }> {
-    if (!input.assistantFileId) {
-      return { accepted: false, reason: "missing_file_ref" };
-    }
     if (!(await this.shouldAnalyzeForChatMode(input.chatMode))) {
       return { accepted: false, reason: "policy_disabled" };
     }
-    const file = await this.assistantFileRegistryService.findAssistantFile({
+    return this.enqueueCanonicalFileIfNeeded({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      fileRef: input.assistantFileId
+      assistantFileId: input.assistantFileId,
+      sourceAttachmentId: input.attachmentId
     });
-    if (file === null) {
-      return { accepted: false, reason: "missing_file" };
-    }
-    const existingSummary = readFileSemanticSummary(file.metadata);
-    if (existingSummary !== null) {
-      await this.mirrorSummaryToAttachment({
-        attachmentId: input.attachmentId,
-        semanticSummary: existingSummary.semanticSummary,
-        semanticSummarySource: existingSummary.semanticSummarySource
-      });
-      return { accepted: false, reason: "already_summarized" };
-    }
-    const existingJob = await this.prisma.assistantUploadMicroDescriptionJob.findUnique({
-      where: { assistantFileId: input.assistantFileId }
+  }
+
+  async enqueueGeneratedFileIfNeeded(input: {
+    assistantId: string;
+    workspaceId: string;
+    assistantFileId: string | null | undefined;
+    attachmentId: string | null | undefined;
+  }): Promise<{ accepted: boolean; reason: string }> {
+    return this.enqueueCanonicalFileIfNeeded({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      assistantFileId: input.assistantFileId,
+      sourceAttachmentId: input.attachmentId ?? null
     });
-    if (existingJob !== null) {
-      if (existingJob.sourceAttachmentId !== input.attachmentId) {
-        await this.prisma.assistantUploadMicroDescriptionJob.update({
-          where: { id: existingJob.id },
-          data: { sourceAttachmentId: input.attachmentId }
-        });
-      }
-      return { accepted: false, reason: "already_enqueued" };
-    }
-    await this.prisma.assistantUploadMicroDescriptionJob.create({
-      data: {
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        assistantFileId: input.assistantFileId,
-        sourceAttachmentId: input.attachmentId
-      }
-    });
-    return { accepted: true, reason: "queued" };
   }
 
   async processClaimedJob(
@@ -354,5 +333,59 @@ export class AssistantUploadMicroDescriptionJobService {
         }) as Prisma.InputJsonValue
       }
     });
+  }
+
+  private async enqueueCanonicalFileIfNeeded(input: {
+    assistantId: string;
+    workspaceId: string;
+    assistantFileId: string | null | undefined;
+    sourceAttachmentId: string | null;
+  }): Promise<{ accepted: boolean; reason: string }> {
+    if (!input.assistantFileId) {
+      return { accepted: false, reason: "missing_file_ref" };
+    }
+    const file = await this.assistantFileRegistryService.findAssistantFile({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      fileRef: input.assistantFileId
+    });
+    if (file === null) {
+      return { accepted: false, reason: "missing_file" };
+    }
+    const existingSummary = readFileSemanticSummary(file.metadata);
+    if (existingSummary !== null) {
+      if (input.sourceAttachmentId !== null) {
+        await this.mirrorSummaryToAttachment({
+          attachmentId: input.sourceAttachmentId,
+          semanticSummary: existingSummary.semanticSummary,
+          semanticSummarySource: existingSummary.semanticSummarySource
+        });
+      }
+      return { accepted: false, reason: "already_summarized" };
+    }
+    const existingJob = await this.prisma.assistantUploadMicroDescriptionJob.findUnique({
+      where: { assistantFileId: input.assistantFileId }
+    });
+    if (existingJob !== null) {
+      if (
+        input.sourceAttachmentId !== null &&
+        existingJob.sourceAttachmentId !== input.sourceAttachmentId
+      ) {
+        await this.prisma.assistantUploadMicroDescriptionJob.update({
+          where: { id: existingJob.id },
+          data: { sourceAttachmentId: input.sourceAttachmentId }
+        });
+      }
+      return { accepted: false, reason: "already_enqueued" };
+    }
+    await this.prisma.assistantUploadMicroDescriptionJob.create({
+      data: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        assistantFileId: input.assistantFileId,
+        sourceAttachmentId: input.sourceAttachmentId
+      }
+    });
+    return { accepted: true, reason: "queued" };
   }
 }

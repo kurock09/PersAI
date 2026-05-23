@@ -22,6 +22,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
 import { selectMediaModelForRequest } from "./media-model-routing";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
@@ -395,6 +396,7 @@ export class RuntimeVideoGenerateToolService {
         sessionId: params.sessionId,
         requestId: params.requestId,
         filenameHint: request.filename,
+        requestPrompt: request.prompt,
         referenceFilename: selection.referenceFilename,
         video: providerResult.video,
         billingFacts: providerResult.billingFacts
@@ -670,6 +672,7 @@ export class RuntimeVideoGenerateToolService {
     sessionId: string;
     requestId: string;
     filenameHint: string | null;
+    requestPrompt: string;
     referenceFilename: string | null;
     video: {
       bytesBase64: string;
@@ -700,6 +703,10 @@ export class RuntimeVideoGenerateToolService {
       mimeType: input.video.mimeType
     });
     const filename = this.resolveFilename(input.filenameHint, input.referenceFilename, extension);
+    const semanticSummary = buildGeneratedFileSemanticSummary({
+      requestText: input.requestPrompt,
+      allowWeakRequestFallback: true
+    });
     const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
@@ -708,7 +715,9 @@ export class RuntimeVideoGenerateToolService {
       objectKey: stored.objectKey,
       filename,
       mimeType: stored.mimeType,
-      sizeBytes: stored.sizeBytes
+      sizeBytes: stored.sizeBytes,
+      semanticSummary,
+      semanticSummarySource: semanticSummary === null ? null : "generation_request"
     });
     const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(file);
 

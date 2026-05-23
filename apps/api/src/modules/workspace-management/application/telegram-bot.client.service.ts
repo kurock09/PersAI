@@ -71,6 +71,22 @@ function hasCaptionedMedia(media: RuntimeMediaArtifact[]): boolean {
   return media.some((item) => typeof item.caption === "string" && item.caption.trim().length > 0);
 }
 
+function normalizeTelegramReplyText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function hasSameCaptionAsReply(media: RuntimeMediaArtifact[], reply: string): boolean {
+  const normalizedReply = normalizeTelegramReplyText(reply);
+  return (
+    normalizedReply.length > 0 &&
+    media.some(
+      (item) =>
+        typeof item.caption === "string" &&
+        normalizeTelegramReplyText(item.caption) === normalizedReply
+    )
+  );
+}
+
 function isMultipartFilePart(value: unknown): value is {
   buffer: Buffer;
   filename: string;
@@ -292,7 +308,9 @@ export class TelegramBotClientService {
     }
 
     const shouldSkipPlainTextReply =
-      params.mediaAlreadyDelivered === true && hasCaptionedMedia(params.turnResult.media);
+      params.mediaAlreadyDelivered === true &&
+      hasCaptionedMedia(params.turnResult.media) &&
+      hasSameCaptionAsReply(params.turnResult.media, params.turnResult.assistantMessage);
     if (
       !hasVoiceReply(params.turnResult.media) &&
       !shouldSkipPlainTextReply &&

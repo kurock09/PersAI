@@ -1452,7 +1452,8 @@ export class RuntimeFilesToolService {
       mimeType: file.fileRef.mimeType,
       sizeBytes: file.fileRef.sizeBytes,
       logicalSizeBytes: file.fileRef.logicalSizeBytes,
-      aliases: file.fileRef.aliases ?? null
+      aliases: file.fileRef.aliases ?? null,
+      semanticSummaryHint: file.fileRef.semanticSummaryHint ?? null
     }));
   }
 
@@ -1466,7 +1467,8 @@ export class RuntimeFilesToolService {
       mimeType: fileRef.mimeType,
       sizeBytes: fileRef.sizeBytes,
       logicalSizeBytes: fileRef.logicalSizeBytes,
-      aliases: fileRef.aliases ?? null
+      aliases: fileRef.aliases ?? null,
+      semanticSummaryHint: fileRef.semanticSummaryHint ?? null
     };
   }
 

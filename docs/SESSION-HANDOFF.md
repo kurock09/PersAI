@@ -2,6 +2,73 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-24 — ADR-100 follow-up — LLM-authored async media replies for Web/TG
+
+### What changed
+
+- Mini-audit of async Web/TG media completion found three concrete user-visible seams: runtime deferred media/document acknowledgements replaced valid model copy with canned text, media completion retries could reuse an existing acknowledgement message instead of fresh completion framing, and Telegram suppressed the separate final text whenever delivered media had any caption.
+- Runtime now preserves non-empty LLM acknowledgement text for deferred media/document jobs and uses the localized canned acknowledgement only as an empty-text fallback.
+- Media completion delivery now attempts fresh LLM completion framing even when a completion message id already exists, then updates that message with the fresh copy. If framing fails, delivery falls back to stored result/existing text rather than failing the artifact delivery.
+- Telegram now skips a final text reply only when the media caption is the same text; a different LLM-authored final message is sent separately even when the media has already been delivered with a caption.
+- The temporary document-delivery placeholder is now localized through the existing document-job locale inference path (`Готовлю документ...` for Russian requests, `Preparing your document...` for English/default requests).
+
+### Verification
+
+- Repo gate:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+- Focused tests:
+  - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-completion-delivery.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/telegram-bot.client.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job-failure-copy.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job-delivery.service.test.ts`
+- Focused typecheck:
+  - `corepack pnpm --filter @persai/runtime run typecheck`
+  - `corepack pnpm --filter @persai/api run typecheck`
+
+### Residual risks
+
+- The runtime canned acknowledgement strings still intentionally exist as empty-output fallbacks. They should no longer replace valid model text, but live TG/Web verification should confirm the model produces non-empty ack copy for the typical media request path.
+- Document delivery still has a temporary localized container message while the delivery state machine finalizes and updates the assistant message. It is not the final copy source.
+
+### Next recommended step
+
+- Live-test one Telegram image generation/edit request and one web request after deploy. Confirm the initial acknowledgement and final completion are model-authored, and Telegram sends the final text when it differs from the media caption.
+
+## 2026-05-24 — ADR-100 follow-up — files semantic-summary search + generated summary truth
+
+### What changed
+
+- Runtime Files now exposes `semanticSummaryHint` on model-visible `files` results and search matches canonical `AssistantFile.metadata.semanticSummary` in addition to name/path, while still hiding raw `fileRef` from the model-facing selector contract.
+- Generated media/document outputs no longer depend on final user-facing assistant text to get a durable micro-description. Runtime now writes a bounded `generation_request` semantic summary directly onto canonical file metadata when the request itself is strong enough.
+- API delivery now reuses the existing `assistant_upload_micro_description_jobs` helper lane as a fallback for generated files that still have no durable summary after delivery, so image/document outputs with weak/generic request wording can still be analyzed later against the canonical `fileRef`.
+- Focused regressions cover the new pure summary-selection helper, runtime files search/model sanitization, media-delivery fallback enqueue, and the new `generation_request` source being treated as already summarized canonical truth.
+
+### Verification
+
+- Focused tests:
+  - `corepack pnpm --filter @persai/runtime exec tsx test/generated-file-semantic-summary.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/sanitize-tool-result-for-model.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/assistant-upload-micro-description-job.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- Focused typecheck:
+  - `corepack pnpm --filter @persai/runtime run typecheck`
+  - `corepack pnpm --filter @persai/api run typecheck`
+
+### Residual risks
+
+- The direct `generation_request` path is intentionally conservative. Weak image/document requests fall back to background analysis only after delivery, so the very first completion turn may still land before the helper enriches canonical truth.
+- The existing background helper still only understands the currently supported MIME set (not every generated media type equally well), so images/PDF/text-like outputs benefit most from fallback today. Audio/video still rely primarily on the direct bounded request-based summary.
+- Full repo gates and affected web/api verification still need to be run before calling the slice fully clean.
+
+### Next recommended step
+
+- Run the required repo gates from `AGENTS.md`, then do one live sanity check where a generated image/document is later found through `files.search` by subject wording rather than filename.
+
 ## 2026-05-23 — ADR-100 live follow-up — OpenAI media false-abort hardening
 
 ### What changed

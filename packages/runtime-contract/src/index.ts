@@ -279,6 +279,8 @@ export interface RuntimeFilesToolItem {
   sizeBytes: number;
   logicalSizeBytes: number | null;
   aliases?: string[] | null;
+  /** Token-safe hint derived from durable file metadata; never a full content preview. */
+  semanticSummaryHint?: string | null;
 }
 
 export interface RuntimeFilesToolResult {

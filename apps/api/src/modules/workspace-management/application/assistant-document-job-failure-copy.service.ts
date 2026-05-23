@@ -38,6 +38,12 @@ export function buildAssistantDocumentJobSuccessFallbackMessage(
   return locale === "ru" ? "Документ готов." : "Your document is ready.";
 }
 
+export function buildAssistantDocumentJobPreparingMessage(
+  locale: AssistantDocumentJobLocale
+): string {
+  return locale === "ru" ? "Готовлю документ..." : "Preparing your document...";
+}
+
 function isPolicyLikeFailure(input: { code?: string | null; message?: string | null }): boolean {
   const haystack = `${input.code ?? ""} ${input.message ?? ""}`.toLowerCase();
   return /(content|policy|safety|moderat|violat|censor|blocked|nsfw|explicit)/.test(haystack);

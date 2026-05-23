@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
   buildAssistantDocumentJobFailureMessage,
+  buildAssistantDocumentJobPreparingMessage,
   inferAssistantDocumentJobFailureLocale
 } from "../src/modules/workspace-management/application/assistant-document-job-failure-copy.service";
 
@@ -78,5 +79,12 @@ describe("buildAssistantDocumentJobFailureMessage", () => {
     });
     assert.match(message, /safety policy/);
     assert.match(message, /rephrase/i);
+  });
+});
+
+describe("buildAssistantDocumentJobPreparingMessage", () => {
+  test("localizes the temporary document delivery placeholder", () => {
+    assert.equal(buildAssistantDocumentJobPreparingMessage("ru"), "Готовлю документ...");
+    assert.equal(buildAssistantDocumentJobPreparingMessage("en"), "Preparing your document...");
   });
 });

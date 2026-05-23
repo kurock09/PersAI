@@ -47,7 +47,8 @@ const MODEL_VISIBLE_FILES_ITEM_FIELDS = new Set([
   "mimeType",
   "sizeBytes",
   "logicalSizeBytes",
-  "aliases"
+  "aliases",
+  "semanticSummaryHint"
 ]);
 const MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS = 16_000;
 

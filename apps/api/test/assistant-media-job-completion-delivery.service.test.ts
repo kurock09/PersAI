@@ -249,8 +249,9 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(sendReplyCalls[0]?.turnResult?.assistantMessage, "Fresh Telegram framing.");
   });
 
-  test("reuses the existing completion message on retry instead of reframing again", async () => {
+  test("refreshes completion framing even when an acknowledgement message already exists", async () => {
     const finalUpdates: Array<Record<string, unknown>> = [];
+    const messageUpdates: Array<Record<string, unknown>> = [];
     let maybeFrameCalls = 0;
     const service = new AssistantMediaJobCompletionDeliveryService(
       {
@@ -298,10 +299,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
           chatId: "chat-1",
           assistantId: "assistant-1",
           author: "assistant" as const,
-          content: "Existing framed completion text.",
+          content:
+            "Request accepted. I am generating the image and will send it separately when it is ready.",
           createdAt: new Date("2026-05-05T09:10:00.000Z")
         }),
-        updateMessageContent: async () => null
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
+          messageUpdates.push({ messageId, assistantId, content });
+          return null;
+        }
       } as never,
       {
         deliver: async () => ({
@@ -335,7 +340,14 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     const processed = await service.processPendingBatch();
 
     assert.equal(processed, 1);
-    assert.equal(maybeFrameCalls, 0);
+    assert.equal(maybeFrameCalls, 1);
+    assert.deepEqual(messageUpdates, [
+      {
+        messageId: "assistant-message-existing-1",
+        assistantId: "assistant-1",
+        content: "Fresh current-context framing."
+      }
+    ]);
     assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
   });
 

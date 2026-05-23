@@ -55,7 +55,7 @@ Slice-specific expectations:
 6. Project-only retrieval ordering changes must remain gated to project orchestrate inputs and must not silently change ordinary non-project active-skill behavior.
 7. Project-file intelligence must remain token-bounded in the steady-state prompt: working-files stays a cheap selector seam, while deep extraction is lazy and cached on canonical file truth.
 8. Cheap background upload micro-description must stay bounded: ordinary non-project/B2C chats obey `routerPolicy.analyzeUploadsOnB2cUpload` (default `false`), while project mode always enqueues after canonical `fileRef` truth exists.
-9. Canonical semantic-summary truth must persist on `AssistantFile.metadata.semanticSummary` / `semanticSummarySource` and only mirror attachment metadata when practical; `upload_micro_description` is a source tag, not a second file-content store.
+9. Canonical semantic-summary truth must persist on `AssistantFile.metadata.semanticSummary` / `semanticSummarySource` and only mirror attachment metadata when practical; `generation_request` and `upload_micro_description` are source tags, not a second file-content store.
 10. Upload micro-description себес remains internal-ledger only: successful helper calls persist durable `usageJson` + `usageOccurredAt` on `assistant_upload_micro_description_jobs` first, then append a non-blocking `tool_helper` ledger row keyed by immutable job id. No user quota path should change.
 
 ## Required repo checks

@@ -3603,7 +3603,9 @@ export class TurnExecutionService {
     if (deferredMediaJobs.length === 0 || artifacts.length > 0) {
       return normalizedText;
     }
-    return this.buildDeferredMediaAcknowledgement(locale, deferredMediaJobs);
+    return normalizedText.length > 0
+      ? normalizedText
+      : this.buildDeferredMediaAcknowledgement(locale, deferredMediaJobs);
   }
 
   private applyDeferredDocumentAcknowledgementCorrection(
@@ -3616,7 +3618,9 @@ export class TurnExecutionService {
     if (deferredDocumentJobs.length === 0 || artifacts.length > 0) {
       return normalizedText;
     }
-    return this.buildDeferredDocumentAcknowledgement(locale, deferredDocumentJobs);
+    return normalizedText.length > 0
+      ? normalizedText
+      : this.buildDeferredDocumentAcknowledgement(locale, deferredDocumentJobs);
   }
 
   private claimsAttachmentDelivery(assistantText: string): boolean {

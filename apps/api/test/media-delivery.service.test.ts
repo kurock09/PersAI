@@ -45,6 +45,25 @@ const fakeAssistantFileRegistry = {
   }
 };
 
+const enqueuedGeneratedSummaryJobs: Array<{
+  assistantId: string;
+  workspaceId: string;
+  assistantFileId: string | null | undefined;
+  attachmentId: string | null | undefined;
+}> = [];
+
+const fakeUploadMicroDescriptionJobService = {
+  async enqueueGeneratedFileIfNeeded(input: {
+    assistantId: string;
+    workspaceId: string;
+    assistantFileId: string | null | undefined;
+    attachmentId: string | null | undefined;
+  }) {
+    enqueuedGeneratedSummaryJobs.push(input);
+    return { accepted: true, reason: "queued" };
+  }
+};
+
 const noopAssistantRepository = {
   async findById() {
     return null;
@@ -86,6 +105,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    fakeUploadMicroDescriptionJobService as never,
     noopQuotaUsageService as never,
     blockedMetrics,
     noopRecordModelCostLedgerService
@@ -159,6 +179,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    fakeUploadMicroDescriptionJobService as never,
     noopQuotaUsageService as never,
     safeMetrics,
     noopRecordModelCostLedgerService
@@ -189,6 +210,7 @@ async function run(): Promise<void> {
   assert.equal(delivered.attachments[0]?.fileRef, "file-att-1");
   assert.equal(delivered.attachments[0]?.mimeType, "image/png");
   assert.equal(delivered.attachments[0]?.originalFilename, "render.png");
+  assert.equal(enqueuedGeneratedSummaryJobs.length, 0);
   const successSeries = safeMetrics
     .getSnapshot()
     .mediaStageSeries.find(
@@ -245,11 +267,13 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    fakeUploadMicroDescriptionJobService as never,
     noopQuotaUsageService as never,
     nativeMetrics,
     noopRecordModelCostLedgerService
   );
 
+  enqueuedGeneratedSummaryJobs.length = 0;
   const nativeDelivered = await nativeService.deliver({
     artifacts: [
       {
@@ -272,6 +296,14 @@ async function run(): Promise<void> {
   assert.equal(deletedObjectKey, "assistant-media/runtime-output/generated.png");
   assert.equal(nativeDelivered.attachments.length, 1);
   assert.equal(nativeDelivered.attachments[0]?.originalFilename, "generated.png");
+  assert.deepEqual(enqueuedGeneratedSummaryJobs, [
+    {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      assistantFileId: "file-att-1",
+      attachmentId: "att-1"
+    }
+  ]);
 
   let deliveredImageBillingFacts: unknown = undefined;
   let deliveredTtsBillingFacts: unknown = undefined;
@@ -329,6 +361,7 @@ async function run(): Promise<void> {
       async deleteObject() {}
     } as never,
     fakeAssistantFileRegistry as never,
+    fakeUploadMicroDescriptionJobService as never,
     noopQuotaUsageService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService
@@ -445,6 +478,7 @@ async function run(): Promise<void> {
         existingFileLinks.push(input);
       }
     } as never,
+    fakeUploadMicroDescriptionJobService as never,
     noopQuotaUsageService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService
@@ -478,6 +512,12 @@ async function run(): Promise<void> {
       fileRef: "existing-file-ref-1"
     }
   ]);
+  assert.deepEqual(enqueuedGeneratedSummaryJobs.at(-1), {
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    assistantFileId: "existing-file-ref-1",
+    attachmentId: "att-1"
+  });
 
   let persistedAttachmentDeletedObjectKey: string | null = null;
   const persistedAttachmentService = new MediaDeliveryService(
@@ -525,6 +565,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    fakeUploadMicroDescriptionJobService as never,
     noopQuotaUsageService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService
@@ -611,6 +652,7 @@ async function run(): Promise<void> {
       async deleteObject() {}
     } as never,
     fakeAssistantFileRegistry as never,
+    fakeUploadMicroDescriptionJobService as never,
     noopQuotaUsageService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService
@@ -722,6 +764,7 @@ async function run(): Promise<void> {
     [],
     settlementAwareObjectStorage as never,
     fakeAssistantFileRegistry as never,
+    fakeUploadMicroDescriptionJobService as never,
     settlementAwareQuotaUsageService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService
@@ -761,6 +804,7 @@ async function run(): Promise<void> {
     ],
     settlementAwareObjectStorage as never,
     fakeAssistantFileRegistry as never,
+    fakeUploadMicroDescriptionJobService as never,
     settlementAwareQuotaUsageService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService

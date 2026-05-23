@@ -21,6 +21,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
 import { selectMediaModelForRequest } from "./media-model-routing";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
@@ -443,6 +444,7 @@ export class RuntimeImageEditToolService {
             sessionId: params.sessionId,
             requestId: params.requestId,
             filenameHint: request.filename,
+            requestPrompt: request.prompt,
             sourceFilename: selection.sourceFilename,
             image,
             index,
@@ -836,6 +838,7 @@ export class RuntimeImageEditToolService {
     sessionId: string;
     requestId: string;
     filenameHint: string | null;
+    requestPrompt: string;
     sourceFilename: string | null;
     image: {
       bytesBase64: string;
@@ -872,6 +875,10 @@ export class RuntimeImageEditToolService {
       input.index,
       extension
     );
+    const semanticSummary = buildGeneratedFileSemanticSummary({
+      preferredText: input.image.revisedPrompt,
+      requestText: input.requestPrompt
+    });
     const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
@@ -880,7 +887,9 @@ export class RuntimeImageEditToolService {
       objectKey: stored.objectKey,
       filename,
       mimeType: stored.mimeType,
-      sizeBytes: stored.sizeBytes
+      sizeBytes: stored.sizeBytes,
+      semanticSummary,
+      semanticSummarySource: semanticSummary === null ? null : "generation_request"
     });
     const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(file);
 

@@ -137,7 +137,8 @@ export const ATTACHMENT_SEMANTIC_SUMMARY_MAX_CHARS = 140;
 export const ATTACHMENT_SEMANTIC_SUMMARY_SOURCES = [
   "text_extract",
   "transcription",
-  "upload_micro_description"
+  "upload_micro_description",
+  "generation_request"
 ] as const;
 
 export type AttachmentSemanticSummarySource = (typeof ATTACHMENT_SEMANTIC_SUMMARY_SOURCES)[number];
@@ -206,7 +207,8 @@ export function readStoredAttachmentSemanticSummarySource(
   const source = metadata?.semanticSummarySource;
   return source === "text_extract" ||
     source === "transcription" ||
-    source === "upload_micro_description"
+    source === "upload_micro_description" ||
+    source === "generation_request"
     ? source
     : null;
 }

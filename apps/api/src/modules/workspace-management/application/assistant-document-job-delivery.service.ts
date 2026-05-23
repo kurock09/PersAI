@@ -21,6 +21,7 @@ import { AssistantDocumentJobCompletionTurnService } from "./assistant-document-
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import {
   buildAssistantDocumentJobFailureMessage,
+  buildAssistantDocumentJobPreparingMessage,
   buildAssistantDocumentJobSuccessFallbackMessage,
   inferAssistantDocumentJobLocale
 } from "./assistant-document-job-failure-copy.service";
@@ -249,11 +250,15 @@ export class AssistantDocumentJobDeliveryService {
         currentPayload.externalDeliveryCommitted !== true &&
         completionAssistantMessageId === null
       ) {
+        const placeholderLocale = inferAssistantDocumentJobLocale({
+          preferredLocale: null,
+          sourceText: this.readSourceUserMessageText(currentPayload)
+        });
         const completionMessage = await this.assistantChatRepository.createMessage({
           chatId: job.chatId,
           assistantId: job.assistantId,
           author: "assistant",
-          content: "Preparing your document..."
+          content: buildAssistantDocumentJobPreparingMessage(placeholderLocale)
         });
         completionAssistantMessageId = completionMessage.id;
         const remembered = await this.rememberCompletionMessage(

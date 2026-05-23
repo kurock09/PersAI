@@ -98,4 +98,53 @@ describe("TelegramBotClientService", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test("keeps final text when delivered media caption is different", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    globalThis.fetch = async (input, init) => {
+      calls.push({
+        url: String(input),
+        body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>
+      });
+      return createJsonOkResponse();
+    };
+
+    try {
+      const service = new TelegramBotClientService({
+        async downloadObject() {
+          return null;
+        }
+      } as never);
+
+      await service.sendAssistantTurnReply({
+        botToken: "bot-token",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        parseMode: "plain_text",
+        turnResult: {
+          assistantMessage: "Done. I made the poster warmer and more cinematic.",
+          respondedAt: "2026-04-20T00:00:00.000Z",
+          media: [
+            {
+              source: "persai_object_storage",
+              objectKey: "assistant-media/runtime/poster.png",
+              type: "image",
+              mimeType: "image/png",
+              filename: "poster.png",
+              sizeBytes: 64,
+              caption: "poster.png"
+            }
+          ]
+        } as never,
+        mediaAlreadyDelivered: true
+      });
+
+      assert.equal(calls.length, 1);
+      assert.match(calls[0]?.url ?? "", /sendMessage$/);
+      assert.equal(calls[0]?.body.text, "Done. I made the poster warmer and more cinematic.");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

@@ -20,6 +20,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
 export interface RuntimeTtsToolExecutionResult {
@@ -168,6 +169,7 @@ export class RuntimeTtsToolService {
           workspaceId: params.bundle.metadata.workspaceId,
           sessionId: params.sessionId,
           requestId: params.requestId,
+          requestText: request.text,
           provider: providerResult.provider,
           deliveryKind: providerResult.deliveryKind,
           bytesBase64: providerResult.bytesBase64,
@@ -277,6 +279,7 @@ export class RuntimeTtsToolService {
     workspaceId: string;
     sessionId: string;
     requestId: string;
+    requestText: string;
     provider: PersaiRuntimeTtsProviderId;
     deliveryKind: PersaiRuntimeTtsDeliveryKind;
     bytesBase64: string;
@@ -306,6 +309,10 @@ export class RuntimeTtsToolService {
       mimeType: input.mimeType
     });
     const filename = this.resolveFilename(input.deliveryKind, input.provider, extension);
+    const semanticSummary = buildGeneratedFileSemanticSummary({
+      requestText: input.requestText,
+      allowWeakRequestFallback: true
+    });
     const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
@@ -314,7 +321,9 @@ export class RuntimeTtsToolService {
       objectKey: stored.objectKey,
       filename,
       mimeType: stored.mimeType,
-      sizeBytes: stored.sizeBytes
+      sizeBytes: stored.sizeBytes,
+      semanticSummary,
+      semanticSummarySource: semanticSummary === null ? null : "generation_request"
     });
     const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(file);
 

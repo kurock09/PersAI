@@ -156,7 +156,10 @@ async function run(): Promise<void> {
       sizeBytes: BigInt(64),
       logicalSizeBytes: BigInt(64),
       sha256: null,
-      metadata: null,
+      metadata: {
+        semanticSummary: "Quarterly revenue report for the EMEA region.",
+        semanticSummarySource: "generation_request"
+      },
       createdAt: new Date("2026-04-19T12:00:00.000Z")
     },
     {
@@ -300,9 +303,15 @@ async function run(): Promise<void> {
               })
             );
             return queries.some((query) =>
-              [row.id, row.displayName ?? "", row.relativePath, row.objectKey].some((value) =>
-                value.toLowerCase().includes(query)
-              )
+              [
+                row.id,
+                row.displayName ?? "",
+                row.relativePath,
+                row.objectKey,
+                typeof row.metadata?.semanticSummary === "string"
+                  ? row.metadata.semanticSummary
+                  : ""
+              ].some((value) => value.toLowerCase().includes(query))
             );
           });
           return input?.take === undefined ? filtered : filtered.slice(0, input.take);
@@ -423,6 +432,29 @@ async function run(): Promise<void> {
   assert.equal(searchResult.isError, false);
   assert.equal(searchResult.payload.action, "results");
   assert.equal(searchResult.payload.items[0]?.fileRef, "file-ref-1");
+  assert.equal(
+    searchResult.payload.items[0]?.semanticSummaryHint,
+    "Quarterly revenue report for the EMEA region."
+  );
+
+  const semanticSearchResult = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-search-semantic",
+      name: "files",
+      arguments: {
+        action: "search",
+        query: "EMEA region"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-1",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(semanticSearchResult.isError, false);
+  assert.equal(semanticSearchResult.payload.items[0]?.fileRef, "file-ref-1");
 
   const listRoot = await service.executeToolCall({
     bundle: createBundle(),
