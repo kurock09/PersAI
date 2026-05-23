@@ -112,15 +112,17 @@ const WEB_TURN_MAX_STREAM_ATTEMPTS = 2;
 
 export function resolveWebStreamCadenceWatchdogOptions(
   chatMode?: AssistantChatMode
-): CadenceThresholds & { slowAvgEnabled: boolean } {
+): CadenceThresholds & { silentEnabled: boolean; slowAvgEnabled: boolean } {
   if (chatMode === "project") {
     return {
       ...DEFAULT_CADENCE_THRESHOLDS,
+      silentEnabled: false,
       slowAvgEnabled: false
     };
   }
   return {
     ...DEFAULT_CADENCE_THRESHOLDS,
+    silentEnabled: false,
     slowAvgEnabled: true
   };
 }

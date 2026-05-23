@@ -2,6 +2,31 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-23 — ADR-100 live follow-up — remove project cadence abort and drop silent stall kills
+
+### What changed
+
+- Live `persai-dev` evidence after the previous watchdog slice showed the remaining project-turn cutoffs were no longer coming from `slow_avg`; they were now hitting the same API-side cadence watchdog through the separate `silent` path during long quiet follow-up/reasoning spans after initial visible progress.
+- The fix is structural rather than another threshold tweak. `chatMode === "project"` is now completely removed from the API cadence-abort path, and ordinary web turns no longer let the `silent` timer kill the stream at all. Non-project web turns still keep `slow_avg` detection for obviously dribbling text streams, but truly silent waits now fall back to the lower-level runtime/provider request bounds instead of an API-side fake-stall abort.
+- `cadence-watchdog` now supports explicitly disabling `silent` independently from `slow_avg`, and stream-option resolution now sets `project` to fully disable cadence abort while ordinary modes keep only `slow_avg`.
+
+### Verification
+
+- Focused API tests:
+  - `corepack pnpm --filter @persai/api exec tsx test/cadence-watchdog.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- Focused typecheck:
+  - `corepack pnpm --filter @persai/api run typecheck`
+
+### Residual risks
+
+- This deliberately removes one whole class of API-side false aborts instead of trying to re-tune another timeout, but live verification is still required to confirm the exact long project scenario now runs cleanly end to end after redeploy.
+- Ordinary non-project web turns still keep `slow_avg` recovery. If a future regression appears there, it should now be a real `slow_avg` issue rather than a silent-gap false positive.
+
+### Next recommended step
+
+- Redeploy `api`, then rerun the exact project prompt that was visibly cutting off after initial progress lines. Confirm there is no `web_stream_stall_detected ... reason=silent` for that turn and that the assistant reaches a normal final answer without an abrupt mid-turn pause/cutoff.
+
 ## 2026-05-23 — ADR-100 live follow-up — upload micro-description binary limit raised
 
 ### What changed

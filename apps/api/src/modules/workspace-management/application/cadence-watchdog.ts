@@ -42,6 +42,7 @@ export interface CadenceWatchdogOptions {
   avgThresholdMs: number;
   avgMinSamples: number;
   warmupDeltas?: number;
+  silentEnabled?: boolean;
   slowAvgEnabled?: boolean;
   /** Optional clock for tests. Defaults to `Date.now`. */
   now?: () => number;
@@ -131,6 +132,7 @@ export function createCadenceWatchdog(
   const avgThresholdMs = options.avgThresholdMs;
   const avgMinSamples = options.avgMinSamples;
   const warmupDeltas = Math.max(0, options.warmupDeltas ?? 0);
+  const silentEnabled = options.silentEnabled !== false;
   const slowAvgEnabled = options.slowAvgEnabled !== false;
 
   let lastDeltaAtMs: number | null = null;
@@ -154,6 +156,7 @@ export function createCadenceWatchdog(
   function startSilentTimer(): void {
     clearSilentTimer();
     if (disposed || fired) return;
+    if (!silentEnabled) return;
     // Suspend the silent timer while any tool is in flight. The matching
     // `recordToolFinished` call will re-arm it once the last tool completes.
     if (inflightToolCount > 0) return;

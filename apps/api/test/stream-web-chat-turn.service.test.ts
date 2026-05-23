@@ -126,8 +126,10 @@ describe("StreamWebChatTurnService", () => {
     const normalOptions = resolveWebStreamCadenceWatchdogOptions("normal");
 
     assert.equal(projectOptions.slowAvgEnabled, false);
+    assert.equal(projectOptions.silentEnabled, false);
     assert.equal(projectOptions.silentMs, normalOptions.silentMs);
     assert.equal(normalOptions.slowAvgEnabled, true);
+    assert.equal(normalOptions.silentEnabled, false);
   });
 
   test("findOrCreateChatBySurfaceThread falls back to existing chat on unique race", async () => {
