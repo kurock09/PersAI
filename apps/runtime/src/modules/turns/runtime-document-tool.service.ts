@@ -72,6 +72,7 @@ export class RuntimeDocumentToolService {
       descriptorMode: parsed.descriptorMode,
       outputFormat: parsed.request.outputFormat ?? null,
       docId: parsed.request.docId ?? null,
+      fileRef: parsed.request.fileRef ?? null,
       sourceAttachmentCount: sourceAttachments.length
     });
     const effectiveRequest =
@@ -199,6 +200,8 @@ export class RuntimeDocumentToolService {
           instructions?: string | null;
           outputFormat?: "pdf" | "pptx" | null;
           docId?: string | null;
+          /** ADR-097 Slice 4 — AssistantFile.id for cross-chat revise. */
+          fileRef?: string | null;
           requestedName?: string | null;
           visualStyle?: PersaiRuntimePresentationVisualStyle | null;
           imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
@@ -245,6 +248,7 @@ export class RuntimeDocumentToolService {
         instructions: typeof row.instructions === "string" ? row.instructions : null,
         outputFormat,
         docId: typeof row.docId === "string" ? row.docId : null,
+        fileRef: typeof row.fileRef === "string" ? row.fileRef : null,
         requestedName: typeof row.requestedName === "string" ? row.requestedName : null,
         visualStyle:
           row.visualStyle === "professional_modern" ||
@@ -327,13 +331,22 @@ export class RuntimeDocumentToolService {
       | "export_or_redeliver";
     outputFormat: "pdf" | "pptx" | null;
     docId: string | null;
+    /** ADR-097 Slice 4 — treat a valid fileRef as a confirmed revise intent. */
+    fileRef?: string | null;
     sourceAttachmentCount: number;
   }): "create_pdf_document" | "create_presentation" | "revise_document" | "export_or_redeliver" {
     if (input.descriptorMode !== "revise_document") {
       return input.descriptorMode;
     }
-    // Valid docId present → proceed as revise_document regardless.
+    // Valid docId OR fileRef present → proceed as revise_document regardless.
     if (input.docId !== null && UUID_REGEX.test(input.docId.trim())) {
+      return input.descriptorMode;
+    }
+    if (
+      input.fileRef !== null &&
+      input.fileRef !== undefined &&
+      UUID_REGEX.test(input.fileRef.trim())
+    ) {
       return input.descriptorMode;
     }
     // ADR-097 Slice 2: for PDF revise without a valid docId, do NOT silently
@@ -363,6 +376,7 @@ export class RuntimeDocumentToolService {
       instructions?: string | null;
       outputFormat?: "pdf" | "pptx" | null;
       docId?: string | null;
+      fileRef?: string | null;
       requestedName?: string | null;
       visualStyle?: PersaiRuntimePresentationVisualStyle | null;
       imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
@@ -376,6 +390,7 @@ export class RuntimeDocumentToolService {
     instructions?: string | null;
     outputFormat?: "pdf" | "pptx" | null;
     docId?: string | null;
+    fileRef?: string | null;
     requestedName?: string | null;
     visualStyle?: PersaiRuntimePresentationVisualStyle | null;
     imagePolicy?: PersaiRuntimePresentationImagePolicy | null;

@@ -864,7 +864,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
       policy,
       [
         "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
-        "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to modify any existing PDF in this chat (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. When a developer hint lists recent PDFs in this chat, prefer revise_document over create_pdf_document for any modification to one of those PDFs. revise_document with no docId auto-resolves to the latest matching PDF in the chat.",
+        "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to modify an existing PDF (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. When a developer hint lists recent PDFs in this chat, prefer revise_document over create_pdf_document for any modification to one of those PDFs. revise_document with no docId or file_ref auto-resolves to the latest matching PDF in the current chat. Use file_ref when the PDF you want to revise was produced by the assistant in this or any earlier chat (its AssistantFile id is visible via files.search or in the Working Files developer block). Use doc_id for the current chat's most recent PDF when you have the exact id. Do not pass both file_ref and doc_id.",
         "Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
         "When the user has attached a source file (txt, md, csv, json, html, xml, pdf, docx) and asks to rebuild, convert, restyle, translate, or summarize it, the backend worker will AUTOMATICALLY inline that file's text content into document generation; you do not need to pre-read it. Simply call create_pdf_document with a prompt that describes the requested transformation and the worker will use the attached source verbatim.",
         "When the user attaches PDF or DOCX source material without referencing an existing PersAI document, treat it as source input for create_pdf_document, not revise_document.",
@@ -909,7 +909,12 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         docId: {
           type: "string",
           description:
-            "Required for revise_document and export_or_redeliver when targeting an existing PersAI document."
+            "Existing document id for revise_document (current chat) and export_or_redeliver. Use file_ref instead of doc_id when the PDF was produced in a different chat."
+        },
+        fileRef: {
+          type: "string",
+          description:
+            "AssistantFile.id of a PDF document produced by the assistant in this or any earlier chat. Use this for revise_document when the target PDF is from a different chat or when you obtained the id from files.search or the Working Files developer block. Mutually exclusive with doc_id — do not pass both."
         },
         requestedName: {
           type: "string",

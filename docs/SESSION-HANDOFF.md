@@ -2,6 +2,38 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-24 — ADR-097 Slice 4 — cross-chat PDF revise via file_ref
+
+### What changed
+
+`file_ref` added as an alternative to `doc_id` on `revise_document`. The model may now pass an `AssistantFile.id` (discovered via `files.search` or Working Files) to revise a PDF from any earlier chat. The API resolves it via `AssistantDocumentDeliveredFile.assistantFileId`, security-checks `AssistantFile.assistantId`, fetches the latest version, and feeds `renderedHtml` into the existing Slice 2 patch-revise loop. The new revision version is written to the **current chat**; only the read crosses chats.
+
+Three new typed errors: `revise_document_file_ref_not_found`, `revise_document_file_ref_not_a_pdf_document`, `revise_document_ambiguous_source`. Existing `document_revise_unsupported_legacy_version` guard active on the cross-chat path. `listRecentChatPdfsForTurn` unchanged (stays per-chat; cross-chat visibility already covered by ADR-100 Working Files).
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts` — `fileRef` in `RuntimeDocumentJobRunRequest.directToolExecution.request`
+- `apps/runtime/src/modules/turns/runtime-document-tool.service.ts` — parse `fileRef`; `resolveEffectiveDescriptorMode` now treats valid `fileRef` as confirmed revise intent; `normalizePresentationRequest` types updated
+- `apps/api/src/modules/workspace-management/application/assistant-document-job.service.ts` — `findRevisionContextByFileRef()` new method; `AssistantDocumentRevisionContext` imported from here
+- `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts` — `fileRef` on `DocumentDirectToolExecutionPayload`; `enqueueRevisionByFileRef()` + `resolveFileRefToRevisionContext()` private methods; ambiguity check in `execute()`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` — `fileRef` field in schema; updated `docId` + description
+- `apps/api/test/enqueue-runtime-deferred-document-job-file-ref-resolver.service.test.ts` — NEW (9 cases)
+- `docs/ADR/097-autonomous-document-tool-and-async-rendering.md` — Phase 10 section
+- `docs/SESSION-HANDOFF.md` — this section
+- `docs/CHANGELOG.md` — top entry
+
+### Verification (all PASS)
+
+1. `corepack pnpm --filter @persai/api run typecheck` — PASS
+2. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+3. `corepack pnpm --filter @persai/api run test` — PASS (all existing + 9 new)
+4. `corepack pnpm --filter @persai/runtime run test` — PASS
+5. lint + format:check — PASS
+
+### Next recommended step
+
+Deploy to `persai-dev`. Validate cross-chat revise end-to-end: create a PDF in chat A, copy the `AssistantFile.id` from `files.search`, open chat B, call `revise_document` with `file_ref`. Confirm `[document-pdf-patch-revise-success]` log emits in chat B with `parentVersionId` pointing to the chat A ancestor.
+
 ## 2026-05-24 — ADR-097 Slice 3 — single-shot timeout re-route + recent-PDFs developer hint
 
 ### What changed

@@ -12,6 +12,7 @@ import {
 } from "../domain/assistant-chat.repository";
 import {
   AssistantDocumentJobService,
+  type AssistantDocumentRevisionContext,
   type AssistantDocumentSourcePayload
 } from "./assistant-document-job.service";
 import { QuotaGroundedLimitCopyService } from "./quota-grounded-limit-copy.service";
@@ -32,6 +33,8 @@ type DocumentDirectToolExecutionPayload = {
     | "revise_document"
     | "export_or_redeliver";
   request: AssistantDocumentSourcePayload;
+  /** ADR-097 Slice 4 — AssistantFile.id for cross-chat revise. Mutually exclusive with request.docId. */
+  fileRef?: string | null;
 };
 
 export type EnqueueRuntimeDeferredDocumentJobInput = {
@@ -228,6 +231,43 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         ? null
         : input.sourceUserMessageAttachments;
     if (descriptorMode === "revise_document") {
+      const requestedFileRef = input.directToolExecution.fileRef ?? null;
+      const requestedDocId = input.directToolExecution.request.docId ?? null;
+
+      // ADR-097 Slice 4: ambiguous source — model passed both file_ref and doc_id.
+      if (
+        requestedFileRef !== null &&
+        requestedDocId !== null &&
+        requestedDocId.trim().length > 0
+      ) {
+        return {
+          accepted: false,
+          code: "revise_document_ambiguous_source",
+          message:
+            "revise_document received both file_ref and doc_id — pass exactly one. Use file_ref for a PDF from any chat (identified by AssistantFile.id), or doc_id for a PDF created in the current chat.",
+          guidance: null
+        };
+      }
+
+      if (requestedFileRef !== null) {
+        return this.enqueueRevisionByFileRef({
+          assistantId: input.assistantId,
+          userId: chat.userId,
+          workspaceId: chat.workspaceId,
+          chatId: chat.id,
+          surface: chat.surface,
+          sourceUserMessageId: sourceMessage.id,
+          request: {
+            sourceUserMessageText: input.sourceUserMessageText,
+            sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
+            descriptorMode: "revise_document",
+            sourceJson: input.directToolExecution.request,
+            sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
+          },
+          fileRef: requestedFileRef
+        });
+      }
+
       return this.enqueueRevision({
         assistantId: input.assistantId,
         userId: chat.userId,
@@ -242,7 +282,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           sourceJson: input.directToolExecution.request,
           sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
         },
-        requestedDocId: input.directToolExecution.request.docId ?? null,
+        requestedDocId,
         enrichPresentationTheme: true
       });
     }
@@ -574,6 +614,132 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     };
   }
 
+  /**
+   * ADR-097 Slice 4 — resolve an AssistantFile.id to a revision context for
+   * cross-chat PDF revise. Returns a typed result so the caller can emit the
+   * correct user-visible error without silent fallbacks. Pure: no side effects,
+   * no logging.
+   */
+  private async resolveFileRefToRevisionContext(
+    assistantId: string,
+    fileRef: string
+  ): Promise<
+    | { ok: true; context: AssistantDocumentRevisionContext }
+    | { ok: false; code: string; message: string }
+  > {
+    const result = await this.assistantDocumentJobService.findRevisionContextByFileRef({
+      assistantId,
+      fileRef
+    });
+    if (!result.ok) {
+      if (result.reason === "not_pdf_document") {
+        return {
+          ok: false,
+          code: "revise_document_file_ref_not_a_pdf_document",
+          message:
+            "The file identified by file_ref is not a PDF document — revise_document only supports PDF documents via file_ref. Presentations and other document types must be revised using doc_id within the chat where they were created."
+        };
+      }
+      return {
+        ok: false,
+        code: "revise_document_file_ref_not_found",
+        message:
+          "The file_ref does not resolve to a PDF document accessible to this assistant. Verify the file_ref is a valid AssistantFile.id for a document produced by this assistant."
+      };
+    }
+    return { ok: true, context: result.context };
+  }
+
+  private async enqueueRevisionByFileRef(input: {
+    assistantId: string;
+    userId: string;
+    workspaceId: string;
+    chatId: string;
+    surface: "web" | "telegram";
+    sourceUserMessageId: string;
+    request: {
+      sourceUserMessageText: string;
+      sourceUserMessageCreatedAt: string;
+      descriptorMode: "revise_document";
+      sourceJson: AssistantDocumentSourcePayload;
+      sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
+    };
+    fileRef: string;
+  }): Promise<
+    | {
+        accepted: true;
+        docId: string;
+        versionId: string;
+        renderJobId: string;
+        documentType: "pdf_document" | "presentation";
+      }
+    | {
+        accepted: false;
+        code: string;
+        message: string;
+        guidance: string | null;
+      }
+  > {
+    const resolved = await this.resolveFileRefToRevisionContext(input.assistantId, input.fileRef);
+    if (!resolved.ok) {
+      return { accepted: false, code: resolved.code, message: resolved.message, guidance: null };
+    }
+    const revisionContext = resolved.context;
+
+    // Guard: the cross-chat path only supports PDF documents (pdf_document type).
+    // Presentations must be revised within their origin chat via doc_id.
+    if (revisionContext.documentType !== "pdf_document") {
+      return {
+        accepted: false,
+        code: "revise_document_file_ref_not_a_pdf_document",
+        message:
+          "The file identified by file_ref is not a PDF document — revise_document only supports PDF documents via file_ref.",
+        guidance: null
+      };
+    }
+
+    // Guard: latest version must have renderedHtml for the patch-revise loop.
+    if (revisionContext.currentVersionRenderedHtml === null) {
+      return {
+        accepted: false,
+        code: "document_revise_unsupported_legacy_version",
+        message:
+          "This document version was created before patch-editing was enabled and cannot be revised directly — please create a new document instead. / Эта версия документа была создана до перехода на патч-редактирование и не может быть отредактирована напрямую — создайте новый документ.",
+        guidance: null
+      };
+    }
+
+    const outputFormat: AssistantDocumentOutputFormat = "pdf";
+    const requestSourceJson: AssistantDocumentSourcePayload = {
+      ...input.request.sourceJson,
+      outputFormat
+    };
+    const created = await this.assistantDocumentJobService.enqueueRevision({
+      assistantId: input.assistantId,
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+      // Write stays in the current chat — this is the cross-chat read / local write split.
+      chatId: input.chatId,
+      surface: input.surface,
+      sourceUserMessageId: input.sourceUserMessageId,
+      revisionContext,
+      provider: "pdfmonkey",
+      outputFormat,
+      request: {
+        ...input.request,
+        sourceJson: requestSourceJson
+      },
+      previousVersionRenderedHtml: revisionContext.currentVersionRenderedHtml
+    });
+    return {
+      accepted: true,
+      docId: created.docId,
+      versionId: created.versionId,
+      renderJobId: created.renderJobId,
+      documentType: "pdf_document"
+    };
+  }
+
   private async enqueueExportOrRedeliver(input: {
     assistantId: string;
     userId: string;
@@ -740,9 +906,14 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       );
     }
     const request = this.objectValue(row.request, "directToolExecution.request");
+    const fileRef =
+      typeof request.fileRef === "string" && request.fileRef.trim().length > 0
+        ? request.fileRef.trim()
+        : null;
     return {
       toolCode: "document",
       descriptorMode,
+      ...(fileRef !== null ? { fileRef } : {}),
       request: {
         prompt: this.requiredString(request.prompt, "directToolExecution.request.prompt"),
         instructions: typeof request.instructions === "string" ? request.instructions : null,

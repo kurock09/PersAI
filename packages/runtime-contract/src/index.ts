@@ -2148,6 +2148,18 @@ export interface RuntimeDocumentJobRunRequest {
       instructions?: string | null;
       outputFormat?: "pdf" | "pptx" | null;
       docId?: string | null;
+      /**
+       * ADR-097 Slice 4 — cross-chat revise via AssistantFile id.
+       *
+       * fileRef is an AssistantFile.id (resolved via files.search/files.read or
+       * Working Files aliases) and identifies a PDF document the assistant has
+       * produced before, possibly in another chat. Mutually exclusive with docId.
+       * When present, the API resolves it to the canonical AssistantDocument and
+       * feeds its latest renderedHtml into the patch-revise loop. The new revision
+       * is written to the current chat with parentVersionId pointing to the
+       * cross-chat ancestor version.
+       */
+      fileRef?: string | null;
       requestedName?: string | null;
       visualStyle?: PersaiRuntimePresentationVisualStyle | null;
       imagePolicy?: PersaiRuntimePresentationImagePolicy | null;

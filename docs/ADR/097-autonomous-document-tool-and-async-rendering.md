@@ -572,6 +572,27 @@ Key properties:
 - `AssistantDocumentVersion.renderedHtml` is the enabler for patch-revise (Slice 2): Slice 2 reads this field to avoid a full re-generation and rejects revisions of versions without it with an honest explicit error
 - Progress milestones ("Outline ready", "Section K of N", "Assembling PDF") are emitted as structured log lines with localized text; live in-chat progress updates require a progress-callback endpoint that is Slice 2+ infrastructure
 
+### Phase 10: Cross-chat revise via file_ref (ADR-097 Slice 4)
+
+**Commit:** `ADR-097 Slice 4 — cross-chat PDF revise via file_ref`
+
+The read crosses chats; the write stays chat-local.
+
+- **`file_ref` on `revise_document`:** Model may now pass `fileRef` (an `AssistantFile.id`) instead of `docId` on a `revise_document` call. The API resolves it via `AssistantDocumentDeliveredFile.assistantFileId` → `AssistantDocument` → latest `AssistantDocumentVersion`, reads `renderedHtml`, and feeds the existing Slice 2 patch-revise loop. The new `AssistantDocumentVersion` is created in the **current chat** with `parentVersionId` pointing to the cross-chat ancestor. `AssistantDocument.chatId` is NOT changed.
+- **Security:** `AssistantDocumentJobService.findRevisionContextByFileRef()` filters on `AssistantFile.assistantId === currentAssistantId`. Workspace-only scoping is explicitly rejected. Cross-assistant `fileRef` returns `revise_document_file_ref_not_found`.
+- **Latest-version semantics:** Uses `AssistantDocument.currentVersionId` (canonical latest version), NOT the version pinned by the delivered file row (which may be stale after subsequent revisions).
+- **Mutual exclusivity:** Passing both `file_ref` and `doc_id` → `revise_document_ambiguous_source`. Passing neither → existing `revise_document_requires_existing_pdf` path.
+- **Three new typed errors:** `revise_document_file_ref_not_found`, `revise_document_file_ref_not_a_pdf_document`, `revise_document_ambiguous_source`.
+- **Existing guards:** `document_revise_unsupported_legacy_version` fires on the cross-chat path when `renderedHtml` is null on the latest version. No silent fallbacks.
+- **Explicit non-change:** `listRecentChatPdfsForTurn` stays per-chat. Cross-chat PDF visibility is already handled by ADR-100 follow-up (`discoveredFileRefIds` + Working Files + token-aware `files.search`). Adding a second cross-chat hint would duplicate that infra.
+- **Files changed:**
+  - `packages/runtime-contract/src/index.ts` — `fileRef` in `RuntimeDocumentJobRunRequest.directToolExecution.request`
+  - `apps/runtime/src/modules/turns/runtime-document-tool.service.ts` — parse + thread `fileRef`; `resolveEffectiveDescriptorMode` updated to treat valid `fileRef` as confirmed revise intent
+  - `apps/api/src/modules/workspace-management/application/assistant-document-job.service.ts` — `findRevisionContextByFileRef()` new method
+  - `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts` — `fileRef` on `DocumentDirectToolExecutionPayload`; new `enqueueRevisionByFileRef()` + `resolveFileRefToRevisionContext()` private methods; ambiguity check in `execute()`
+  - `apps/runtime/src/modules/turns/native-tool-projection.ts` — `fileRef` field added to schema; `docId`/`file_ref` descriptions updated
+- **Tests added:** `apps/api/test/enqueue-runtime-deferred-document-job-file-ref-resolver.service.test.ts` (9 cases: cross-chat happy path, same-chat happy path, cross-assistant security, non-existent ref, non-PDF document, legacy-version null HTML, ambiguous source, neither-field fallback, secondary type guard)
+
 ### Phase 9: Hardening
 
 - **Timeout → chunked re-route (Gap A):** `RuntimeDocumentProviderAdapterService.run()` now catches `ProviderGatewayTimeoutError` (a new typed error surfaced by `ProviderGatewayClientService`) on the single-shot path. On timeout the attempt is counted against the retry budget, `useChunked` is flipped, and `[document-pdf-single-shot-timeout]` is logged. Chunked pipeline timeouts fail the job honestly with `document_pdf_chunked_timeout` (no further re-route). This is the second objective re-route signal alongside the existing truncation re-route.

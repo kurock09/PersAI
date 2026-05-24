@@ -239,6 +239,82 @@ export class AssistantDocumentJobService {
     };
   }
 
+  /**
+   * ADR-097 Slice 4 — resolve an AssistantFile.id (fileRef) to a revision
+   * context for cross-chat PDF revise. Does NOT filter by chatId: the read
+   * crosses chats, but the write stays in the current chat (handled by the
+   * caller). Uses AssistantFile.assistantId for scoping (assistant-level
+   * security, not workspace-level). Returns the LATEST version of the
+   * document (not the version pinned by the delivered file row).
+   */
+  async findRevisionContextByFileRef(input: {
+    assistantId: string;
+    fileRef: string;
+  }): Promise<
+    | { ok: true; context: AssistantDocumentRevisionContext }
+    | { ok: false; reason: "not_found" | "not_pdf_document" }
+  > {
+    if (!this.isUuid(input.fileRef)) {
+      return { ok: false, reason: "not_found" };
+    }
+    const deliveredFileRow = await this.prisma.assistantDocumentDeliveredFile.findFirst({
+      where: {
+        assistantFileId: input.fileRef,
+        assistantFile: {
+          assistantId: input.assistantId
+        }
+      },
+      select: {
+        document: {
+          select: {
+            id: true,
+            assistantId: true,
+            workspaceId: true,
+            chatId: true,
+            documentType: true,
+            currentVersionId: true,
+            currentVersion: {
+              select: {
+                id: true,
+                versionNumber: true,
+                sourceJson: true,
+                renderedHtml: true
+              }
+            }
+          }
+        }
+      }
+    });
+    if (deliveredFileRow === null || deliveredFileRow.document === null) {
+      return { ok: false, reason: "not_found" };
+    }
+    const doc = deliveredFileRow.document;
+    if (doc.documentType !== "pdf_document") {
+      return { ok: false, reason: "not_pdf_document" };
+    }
+    if (
+      doc.currentVersionId === null ||
+      doc.currentVersion === null ||
+      doc.currentVersion.id !== doc.currentVersionId
+    ) {
+      return { ok: false, reason: "not_found" };
+    }
+    return {
+      ok: true,
+      context: {
+        docId: doc.id,
+        assistantId: doc.assistantId,
+        workspaceId: doc.workspaceId,
+        chatId: doc.chatId,
+        documentType: doc.documentType,
+        currentVersionId: doc.currentVersion.id,
+        currentVersionNumber: doc.currentVersion.versionNumber,
+        currentSourceJson: this.normalizeSourcePayload(doc.currentVersion.sourceJson),
+        currentVersionRenderedHtml: doc.currentVersion.renderedHtml ?? null
+      }
+    };
+  }
+
   async enqueueRevision(input: {
     assistantId: string;
     userId: string;
