@@ -2030,6 +2030,7 @@ model AssistantDocumentVersion {
   providerInputJson Json?                           @map("provider_input_json") @db.JsonB
   sourceSummaryText String?                         @map("source_summary_text") @db.Text
   sourceOutlineJson Json?                           @map("source_outline_json") @db.JsonB
+  renderedHtml      String?                         @map("rendered_html") @db.Text
   status            AssistantDocumentVersionStatus
   createdAt         DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)

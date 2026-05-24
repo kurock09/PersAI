@@ -532,10 +532,13 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         if (claimed.count === 0) {
           return;
         }
+        const renderedHtml =
+          typeof outcome.result.renderedHtml === "string" ? outcome.result.renderedHtml : null;
         await tx.assistantDocumentVersion.update({
           where: { id: job.versionId },
           data: {
-            status: "rendering"
+            status: "rendering",
+            ...(renderedHtml !== null ? { renderedHtml } : {})
           }
         });
         await this.upsertProviderMapping(tx, job, {

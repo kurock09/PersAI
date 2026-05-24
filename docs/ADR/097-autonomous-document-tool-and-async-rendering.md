@@ -501,6 +501,45 @@ Sandbox may be reconsidered later for:
 - runtime now exposes current plus recent ready user-uploaded text/PDF/DOCX-like attachments to the `document` tool as document source candidates; previous attachments are forwarded only when the prompt/user text explicitly references a previous/attached/source file
 - if the model selects `revise_document` for an attached source-file alias or other non-UUID `docId`, runtime treats that as new document creation from source attachments instead of asking API to revise a non-existent PersAI document
 
+### 2026-05-24 — Long-document chunked generation + sticky HTML persistence landed locally
+
+Single-shot vs chunked routing decision:
+- made ONCE before any LLM call; if `sourceFiles[]` exist AND total inlined source text > 20 KB (`LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES`), route to chunked; otherwise single-shot
+- one explicitly-allowed re-route: single-shot output that is structurally truncated (no `</body>`/`</html>` AND body text below threshold) logs `[document-pdf-single-shot-truncated]` and switches to chunked once; this counts as one wasted attempt; no other cross-route switch is allowed
+- no keyword or prompt-text heuristics
+
+Chunked pipeline (outline → style anchor → sequential section generation → assembly):
+- **Outline call (1 LLM call):** strict JSON envelope `{ mode: "document_pdf_outline", sections: [{ heading, intent, expectedLength }] }`; invalid/empty outline fails the job with `document_pdf_outline_invalid`, no fallback
+- **Style anchor (no LLM call):** synthesized in worker from `prompt + instructions + persona.displayName + userContext.locale`; identical verbatim in every section call
+- **Section generation (sequential, 1 LLM call each):** each call gets style anchor, full outline, current/total position, proportional source-text slice (simple v1 weight split: short=1, medium=2, long=3), and tail summary of prior sections (≤1500 chars); model returns HTML fragment only (no DOCTYPE/html/body wrappers); parallel calls are explicitly forbidden per this ADR to prevent style drift
+- **Assembly:** concatenate fragments → wrap in `<!DOCTYPE html><html><head>...</head><body>...</body></html>` → run through existing `repairHtmlDocument` (parse5 + CSS inject + thead promotion) → send to PDFMonkey
+
+Sticky HTML persistence:
+- `AssistantDocumentVersion.renderedHtml TEXT` added via Prisma migration `20260524000000_adr097_persist_rendered_html`
+- worker returns `renderedHtml` in `RuntimeDocumentJobRunResult`; scheduler persists it to `AssistantDocumentVersion` when transitioning to `ready_for_delivery`
+- applies to both single-shot and chunked-assembled HTML
+- no retroactive backfill; Slice 2 will reject patch-revise of versions without `renderedHtml` with an honest error
+
+Output-token ceiling:
+- `DOCUMENT_HTML_MAX_OUTPUT_TOKENS = 16_000` removed; effective ceiling = `min(bundle.modelSlots[slot].maxOutputTokens, DEFENSIVE_OUTPUT_TOKEN_CAP=64_000)`
+- applies to both single-shot and per-section calls
+
+Timeout:
+- single-shot keeps `DEFAULT_DOCUMENT_TIMEOUT_MS` (6 min)
+- chunked uses `CHUNKED_DOCUMENT_TIMEOUT_MS = 15 * 60 * 1000`
+
+No presentations impact, no PDFMonkey API surface change, no legacy backfill, no revise_document business logic changed (Slice 2 territory).
+
+## Implementation Shape
+
+### Phase 7: Long-document chunked generation
+
+- `RuntimeDocumentProviderAdapterService` owns the entire chunked pipeline: routing decision, outline call, style-anchor synthesis, sequential section generation, assembly, and `repairHtmlDocument` pass
+- `RuntimeDocumentJobRunResult.renderedHtml` carries the exact post-repair HTML for persistence
+- `AssistantDocumentJobSchedulerService.processQueuedJob()` persists `renderedHtml` to `AssistantDocumentVersion` inside the same `ready_for_delivery` transition transaction
+- `AssistantDocumentVersion.renderedHtml` is the enabler for upcoming patch-revise (Slice 2): Slice 2 reads this field to avoid a full re-generation and will reject revisions of versions without it with an honest `rendered_html_missing` error
+- Progress milestones ("Outline ready", "Section K of N", "Assembling PDF") are emitted as structured log lines with localized text; live in-chat progress updates require a progress-callback endpoint that is Slice 2+ infrastructure
+
 ## Non-goals
 
 - no user-facing template editor

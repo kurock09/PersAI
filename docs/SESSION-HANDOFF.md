@@ -2,6 +2,42 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-24 — ADR-097 follow-up — chunked PDF generation + sticky HTML
+
+### What changed
+
+- **Routing:** One deterministic routing decision per job before any LLM call. If `sourceFiles[]` present AND total inlined source bytes > 20 KB → chunked path; otherwise single-shot. One allowed re-route: single-shot truncation (no `</body>`/`</html>` + short body text) switches to chunked once, logged as `[document-pdf-single-shot-truncated]`.
+- **Chunked pipeline:** Outline call (strict JSON, fail with `document_pdf_outline_invalid` on invalid) → style anchor (no LLM, synthesized from bundle) → sequential section generation (1 LLM call each, proportional source slice, tail summary) → assembly (concat → boilerplate wrap → `repairHtmlDocument` → PDFMonkey). No parallel section calls.
+- **Output-token ceiling:** `DOCUMENT_HTML_MAX_OUTPUT_TOKENS = 16_000` removed. Effective ceiling = `min(bundle.modelSlots[slot].maxOutputTokens, DEFENSIVE_OUTPUT_TOKEN_CAP=64_000)`.
+- **Timeouts:** Single-shot keeps `DEFAULT_DOCUMENT_TIMEOUT_MS` (6 min). Chunked uses `CHUNKED_DOCUMENT_TIMEOUT_MS = 15 min`.
+- **Sticky HTML:** `AssistantDocumentVersion.renderedHtml TEXT` added (migration `20260524000000_adr097_persist_rendered_html`). Worker returns `renderedHtml` in `RuntimeDocumentJobRunResult`; scheduler persists it in the `ready_for_delivery` transition. No retroactive backfill.
+- **Progress:** Progress milestones logged as structured log lines with localized text (en/ru). Live in-chat progress requires a callback endpoint (Slice 2 infrastructure, not implemented here).
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- Focused: `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-provider-adapter.service.test.ts`
+- Focused: `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job-scheduler.service.test.ts`
+- Full: `corepack pnpm --filter @persai/runtime run test`
+- Full: `corepack pnpm --filter @persai/api run test`
+
+### Residual risks
+
+- **Live progress UX:** Progress is logged but not visible to the user mid-execution. A progress-callback API endpoint and a chat message update mechanism are needed for live UX (Slice 2+).
+- **Parallel section generation:** Explicitly not implemented per founder anchor. Sequential is correct for style consistency but makes long documents slower; Slice 2+ can explore parallel with a style-consistency evaluation framework.
+- **Smart source retrieval:** Section source slicing uses simple proportional weight split (v1 per ADR-097). Semantic retrieval per section is Slice 2+ territory.
+- **revise_document patch loop:** `AssistantDocumentVersion.renderedHtml` is now populated but `revise_document` does not yet use it. Slice 2 will reject patch-revise of versions without `renderedHtml` with a `rendered_html_missing` error and implement the diff-based revision.
+- **Gamma/PPTX:** Not affected by this slice. Gamma path unchanged.
+
+### Next recommended step
+
+Slice 2: implement patch-revise using `renderedHtml`. In `revise_document` mode, read `AssistantDocumentVersion.renderedHtml` for the current version, apply the diff requested, run `repairHtmlDocument`, send to PDFMonkey, create a new version. Reject with `rendered_html_missing` if the field is null (old version).
+
 ## 2026-05-24 — ADR-100 follow-up — files-tool discovery aliases + knowledge relevance floor
 
 ### What changed

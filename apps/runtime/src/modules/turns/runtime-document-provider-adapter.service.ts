@@ -21,6 +21,23 @@ type SupportedDocumentProvider = "pdfmonkey" | "gamma";
 type NativeManagedProvider = "openai" | "anthropic";
 type ProviderSelection = { provider: NativeManagedProvider; model: string };
 
+type ChunkedOutlineSection = {
+  heading: string;
+  intent: string;
+  expectedLength: "short" | "medium" | "long";
+};
+
+type ChunkedOutline = {
+  sections: ChunkedOutlineSection[];
+};
+
+class DocumentPdfOutlineInvalidError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DocumentPdfOutlineInvalidError";
+  }
+}
+
 interface Parse5Node {
   nodeName: string;
   tagName?: string;
@@ -35,14 +52,28 @@ interface Parse5Document extends Parse5Node {
   mode?: string;
 }
 const DEFAULT_DOCUMENT_TIMEOUT_MS = 6 * 60 * 1000;
+const CHUNKED_DOCUMENT_TIMEOUT_MS = 15 * 60 * 1000;
 const PDFMONKEY_TEMPLATE_MISSING_CODE = "document_template_not_configured";
-const DOCUMENT_HTML_MAX_OUTPUT_TOKENS = 16_000;
+// Output-token ceiling resolved per-model from the runtime bundle modelSlots.
+// This cap is the hard defensive upper bound regardless of what the bundle says.
+const DEFENSIVE_OUTPUT_TOKEN_CAP = 64_000;
+// Route to the chunked pipeline when the job has source attachments AND the
+// total inlined source text exceeds this threshold. Simple v1 rule: purely
+// based on objective attachment bytes, no keyword/prompt-text heuristics.
+const LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES = 20_000;
 const DOCUMENT_PDF_MAX_RENDER_ATTEMPTS = 3;
 const PDF_VALIDATION_MIN_BYTES = 1_024;
 const PDF_VALIDATION_MIN_TEXT_LENGTH = 80;
 const PDF_VALIDATION_MIN_ALNUM_COUNT = 24;
 const DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH = 120;
 const PDF_VALIDATION_TAIL_INSPECTION_BYTES = 2_048;
+// Truncation detection: if single-shot HTML body text is below this fraction
+// of the minimum expected envelope, treat it as a truncated response even when
+// the provider did not report finish_reason=length.
+const TRUNCATION_BODY_TEXT_FRACTION = 0.5;
+// Tail-summary cap for chunked section generation (see D.3 in ADR-097 Slice 1).
+const CHUNKED_TAIL_SUMMARY_TOTAL_CAP = 1_500;
+const CHUNKED_TAIL_SUMMARY_PER_SECTION = 400;
 // Legacy baseline used as the kill-switch fallback when enhanced pagination is
 // explicitly disabled via RUNTIME_DOCUMENT_ENHANCED_PAGINATION=off. Keep this
 // in sync with the pre-pagination baseline behavior so an off-switch reverts to
@@ -188,7 +219,25 @@ export class RuntimeDocumentProviderAdapterService {
       };
     }
     const filename = this.resolveRequestedFilename(input.request, input.request.job.outputFormat);
-    const timeoutMs = this.resolveWorkerTimeoutMs(input.bundle);
+    const sourceFiles = input.request.sourceFiles ?? [];
+    const totalInlinedSourceBytes = sourceFiles.reduce(
+      (sum, entry) => sum + (entry.text === null ? 0 : Buffer.byteLength(entry.text, "utf8")),
+      0
+    );
+    const hasSourceAttachments = sourceFiles.length > 0 && sourceFiles.some((f) => f.text !== null);
+    // ONE deterministic routing decision before any LLM call. Route to chunked
+    // only when: (a) there are source attachments AND (b) total inlined source
+    // text exceeds the threshold. No keyword routing. No prompt-text heuristics.
+    let useChunked =
+      hasSourceAttachments && totalInlinedSourceBytes > LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES;
+    if (useChunked) {
+      this.logger.log(
+        `[document-pdf-route-chunked] jobId=${input.request.job.id} totalInlinedSourceBytes=${String(totalInlinedSourceBytes)} threshold=${String(LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES)}`
+      );
+    }
+    const timeoutMs = useChunked
+      ? CHUNKED_DOCUMENT_TIMEOUT_MS
+      : this.resolveWorkerTimeoutMs(input.bundle);
     let lastProviderFailure: {
       code: string | null;
       status: number | null;
@@ -207,41 +256,114 @@ export class RuntimeDocumentProviderAdapterService {
       providerStatus: Record<string, unknown>;
       billingFacts?: RuntimeOutputArtifact["billingFacts"];
     } | null = null;
+    let capturedRenderedHtml: string | null = null;
 
     this.logger.log(
-      `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} templateId=${templateId} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)}`
+      `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} templateId=${templateId} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)} useChunked=${String(useChunked)}`
     );
     for (let attempt = 1; attempt <= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS; attempt += 1) {
       let htmlContent: string;
-      try {
-        const generation = await this.generatePdfHtmlContent({
-          bundle: input.bundle,
-          request: input.request,
-          filename,
-          attempt
-        });
-        htmlContent = generation.htmlContent;
-        this.logger.log(
-          `[document-pdf-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(generation.bodyTextLength)}`
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(
-          `[document-pdf-html-generation-failed] jobId=${input.request.job.id} attempt=${String(attempt)} message=${message}`
-        );
-        lastValidationFailure = {
-          code: "document_html_generation_failed",
-          message,
-          metadata: {
-            attempt,
-            maxAttempts: DOCUMENT_PDF_MAX_RENDER_ATTEMPTS,
-            stage: "html_generation"
+      if (useChunked) {
+        // Chunked path: outline → style anchor → sequential section generation → assembly.
+        // Progress is logged at each milestone with localized text.
+        const locale = this.inferDocumentLocale(input.request);
+        try {
+          const chunkedResult = await this.runChunkedPdfPipeline({
+            bundle: input.bundle,
+            request: input.request,
+            sourceFiles,
+            locale,
+            attempt
+          });
+          htmlContent = chunkedResult.htmlContent;
+          capturedRenderedHtml = htmlContent;
+          this.logger.log(
+            `[document-pdf-chunked-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(chunkedResult.bodyTextLength)} sections=${String(chunkedResult.sectionCount)}`
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const code =
+            error instanceof DocumentPdfOutlineInvalidError
+              ? "document_pdf_outline_invalid"
+              : "document_html_generation_failed";
+          this.logger.warn(
+            `[document-pdf-chunked-generation-failed] jobId=${input.request.job.id} attempt=${String(attempt)} code=${code} message=${message}`
+          );
+          lastValidationFailure = {
+            code,
+            message,
+            metadata: {
+              attempt,
+              maxAttempts: DOCUMENT_PDF_MAX_RENDER_ATTEMPTS,
+              stage: "chunked_html_generation"
+            }
+          };
+          // Outline invalid → fail immediately, no retry (spec: no fallback)
+          if (error instanceof DocumentPdfOutlineInvalidError) {
+            break;
           }
-        };
-        if (attempt >= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS) {
-          break;
+          if (attempt >= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS) {
+            break;
+          }
+          continue;
         }
-        continue;
+      } else {
+        // Single-shot path.
+        try {
+          const generation = await this.generatePdfHtmlContent({
+            bundle: input.bundle,
+            request: input.request,
+            filename,
+            sourceFiles,
+            attempt
+          });
+          htmlContent = generation.htmlContent;
+          capturedRenderedHtml = htmlContent;
+          this.logger.log(
+            `[document-pdf-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(generation.bodyTextLength)}`
+          );
+          // ONE explicitly-allowed re-route: if single-shot output is truncated,
+          // switch to chunked for the remaining attempts. This counts as one
+          // wasted attempt against the retry budget. No silent fallback — the
+          // re-route is logged explicitly.
+          if (generation.isTruncated && !useChunked) {
+            this.logger.warn(
+              `[document-pdf-single-shot-truncated] jobId=${input.request.job.id} attempt=${String(attempt)} bodyTextLength=${String(generation.bodyTextLength)} htmlBytes=${String(htmlContent.length)} switchingToChunked=true`
+            );
+            useChunked = true;
+            lastValidationFailure = {
+              code: "document_single_shot_truncated",
+              message: `Single-shot output was truncated (bodyTextLength=${String(generation.bodyTextLength)}). Switched to chunked path.`,
+              metadata: {
+                attempt,
+                bodyTextLength: generation.bodyTextLength,
+                htmlBytes: htmlContent.length
+              }
+            };
+            if (attempt >= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS) {
+              break;
+            }
+            continue;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `[document-pdf-html-generation-failed] jobId=${input.request.job.id} attempt=${String(attempt)} message=${message}`
+          );
+          lastValidationFailure = {
+            code: "document_html_generation_failed",
+            message,
+            metadata: {
+              attempt,
+              maxAttempts: DOCUMENT_PDF_MAX_RENDER_ATTEMPTS,
+              stage: "html_generation"
+            }
+          };
+          if (attempt >= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS) {
+            break;
+          }
+          continue;
+        }
       }
       const providerOutcome = await this.providerGatewayClientService.generateDocumentOutcome(
         {
@@ -407,6 +529,7 @@ export class RuntimeDocumentProviderAdapterService {
         }
       ],
       rawText: null,
+      renderedHtml: capturedRenderedHtml,
       providerStatus: {
         ...successfulProviderResult.providerStatus,
         outputFormat: input.request.job.outputFormat,
@@ -1018,26 +1141,27 @@ export class RuntimeDocumentProviderAdapterService {
     bundle: AssistantRuntimeBundle;
     request: RuntimeDocumentJobRunRequest;
     filename: string;
+    sourceFiles: DocumentSourceFilePayload[];
     attempt: number;
-  }): Promise<{ htmlContent: string; bodyTextLength: number }> {
+  }): Promise<{ htmlContent: string; bodyTextLength: number; isTruncated: boolean }> {
     const providerSelection = this.resolveProviderSelection(input.bundle, "premium_reply");
-    const sourceFiles = input.request.sourceFiles ?? [];
-    if (sourceFiles.length > 0) {
-      const inlinedCount = sourceFiles.filter((entry) => entry.text !== null).length;
-      const totalBytes = sourceFiles.reduce(
+    const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
+    if (input.sourceFiles.length > 0) {
+      const inlinedCount = input.sourceFiles.filter((entry) => entry.text !== null).length;
+      const totalBytes = input.sourceFiles.reduce(
         (sum, entry) => sum + (entry.text === null ? 0 : Buffer.byteLength(entry.text, "utf8")),
         0
       );
       this.logger.log(
         `[document-pdf-source-attachments] jobId=${input.request.job.id} attempt=${String(
           input.attempt
-        )} attachments=${String(sourceFiles.length)} inlinedTextFiles=${String(
+        )} attachments=${String(input.sourceFiles.length)} inlinedTextFiles=${String(
           inlinedCount
         )} inlinedBytes=${String(totalBytes)}`
       );
     }
     const response = await this.providerGatewayClientService.generateText(
-      this.buildPdfContentRequest({ ...input, sourceFiles }, providerSelection)
+      this.buildPdfContentRequest({ ...input }, providerSelection, maxOutputTokens)
     );
     const rawText = response.text ?? "";
     this.logger.log(
@@ -1049,18 +1173,33 @@ export class RuntimeDocumentProviderAdapterService {
         "Document HTML generation produced no recognizable HTML in the model output."
       );
     }
+    // Truncation detection must happen on the pre-repaired HTML because
+    // repairHtmlDocument (parse5) always synthesises closing </body></html>
+    // tags — checking the repaired output would never detect a cut-off.
+    const hasHtmlCloseInExtracted = /<\/html\s*>/i.test(extracted);
+    const hasBodyCloseInExtracted = /<\/body\s*>/i.test(extracted);
     const repaired = this.repairHtmlDocument(extracted);
-    if (repaired.bodyTextLength < DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH) {
+    this.logger.log(
+      `[document-pdf-html-pagination] jobId=${input.request.job.id} attempt=${String(input.attempt)} paginationEnhanced=${String(repaired.paginationEnhanced)} theadPromoted=${String(repaired.theadPromoted)}`
+    );
+    // bodyTextShort = body text is below 50% of the minimum threshold,
+    // indicating the model cut off very early rather than producing a
+    // legitimately short but complete document.
+    const bodyTextShort =
+      repaired.bodyTextLength < DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH * TRUNCATION_BODY_TEXT_FRACTION;
+    // Truncation: original output was missing closing tags AND body text is
+    // very short — provider cut off mid-generation. Return isTruncated so the
+    // caller can switch to chunked. This is the ONLY case where we surface a
+    // truncated result instead of throwing.
+    const isTruncated = !hasHtmlCloseInExtracted && !hasBodyCloseInExtracted && bodyTextShort;
+    if (!isTruncated && repaired.bodyTextLength < DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH) {
       throw new Error(
         `Document HTML generation produced too little body text (length=${String(
           repaired.bodyTextLength
         )}, minimum=${String(DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH)}).`
       );
     }
-    this.logger.log(
-      `[document-pdf-html-pagination] jobId=${input.request.job.id} attempt=${String(input.attempt)} paginationEnhanced=${String(repaired.paginationEnhanced)} theadPromoted=${String(repaired.theadPromoted)}`
-    );
-    return { htmlContent: repaired.html, bodyTextLength: repaired.bodyTextLength };
+    return { htmlContent: repaired.html, bodyTextLength: repaired.bodyTextLength, isTruncated };
   }
 
   private buildPdfContentRequest(
@@ -1071,7 +1210,8 @@ export class RuntimeDocumentProviderAdapterService {
       attempt: number;
       sourceFiles: DocumentSourceFilePayload[];
     },
-    providerSelection: ProviderSelection
+    providerSelection: ProviderSelection,
+    maxOutputTokens: number
   ): ProviderGatewayTextGenerateRequest {
     const bundle = input.bundle;
     const request = input.request;
@@ -1177,7 +1317,7 @@ export class RuntimeDocumentProviderAdapterService {
           ]
         }
       ],
-      maxOutputTokens: DOCUMENT_HTML_MAX_OUTPUT_TOKENS,
+      maxOutputTokens,
       requestMetadata: {
         runtimeSessionId: `document-job:${request.job.id}`,
         runtimeRequestId: `document-html:${request.job.id}:attempt-${String(input.attempt)}`,
@@ -1419,6 +1559,492 @@ export class RuntimeDocumentProviderAdapterService {
     return Number.isInteger(configured) && Number(configured) > 0
       ? Number(configured)
       : DEFAULT_DOCUMENT_TIMEOUT_MS;
+  }
+
+  /**
+   * Resolve the effective max output tokens for HTML generation calls.
+   * Reads an optional `maxOutputTokens` from the bundle's modelSlots (future
+   * admin-configured per-model capability) and caps at DEFENSIVE_OUTPUT_TOKEN_CAP.
+   * Falls back to the cap when the bundle does not expose a per-model limit.
+   */
+  private resolveMaxOutputTokens(
+    bundle: AssistantRuntimeBundle,
+    providerSelection: ProviderSelection
+  ): number {
+    const routing = this.asObject(bundle.runtime.runtimeProviderRouting);
+    const modelSlots = this.asObject(routing?.modelSlots);
+    const slotCandidates = modelSlots
+      ? Object.values(modelSlots)
+          .map((slot) => this.asObject(slot))
+          .filter((slot) => slot !== null)
+          .filter(
+            (slot) =>
+              this.asNonEmptyString(slot!.modelKey) === providerSelection.model ||
+              this.asNonEmptyString(slot!.providerKey) === providerSelection.provider
+          )
+      : [];
+    for (const slot of slotCandidates) {
+      if (slot === null) continue;
+      const limit = slot.maxOutputTokens;
+      if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
+        return Math.min(limit, DEFENSIVE_OUTPUT_TOKEN_CAP);
+      }
+    }
+    return DEFENSIVE_OUTPUT_TOKEN_CAP;
+  }
+
+  /**
+   * Infer document locale from the runtime bundle's userContext or the source
+   * user message text (Cyrillic detection). Mirrors the server-side
+   * inferAssistantDocumentJobLocale in assistant-document-job-failure-copy.service.ts.
+   */
+  private inferDocumentLocale(request: RuntimeDocumentJobRunRequest): "ru" | "en" {
+    const bundleLocale = request.runtimeBundleDocument.includes('"locale":"ru"') ? "ru" : null;
+    if (bundleLocale !== null) {
+      return bundleLocale;
+    }
+    const sourceText = request.job.sourceUserMessageText ?? "";
+    if (/[\u0400-\u04FF]/.test(sourceText)) {
+      return "ru";
+    }
+    return "en";
+  }
+
+  /**
+   * Chunked PDF generation pipeline (ADR-097 Slice 1, Phase D):
+   * 1. Outline call (1 LLM call, strict JSON)
+   * 2. Style anchor (no LLM call, synthesized from bundle)
+   * 3. Section generation (sequential, 1 LLM call per section)
+   * 4. Assembly (concatenate → boilerplate wrap → repairHtmlDocument)
+   *
+   * Progress is emitted as structured logger.log lines with localized text.
+   * The pipeline runs sequentially — no parallel section calls (ADR-097 anchor:
+   * parallel risks style drift).
+   */
+  private async runChunkedPdfPipeline(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeDocumentJobRunRequest;
+    sourceFiles: DocumentSourceFilePayload[];
+    locale: "ru" | "en";
+    attempt: number;
+  }): Promise<{ htmlContent: string; bodyTextLength: number; sectionCount: number }> {
+    const providerSelection = this.resolveProviderSelection(input.bundle, "premium_reply");
+    const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
+    const jobId = input.request.job.id;
+
+    // Step D.1: Outline call
+    const outline = await this.generateChunkedOutline({
+      bundle: input.bundle,
+      request: input.request,
+      sourceFiles: input.sourceFiles,
+      providerSelection,
+      maxOutputTokens
+    });
+    const progressOutline =
+      input.locale === "ru"
+        ? `План готов (${String(outline.sections.length)} разделов)`
+        : `Outline ready (${String(outline.sections.length)} sections)`;
+    this.logger.log(
+      `[document-pdf-chunked-outline-ready] jobId=${jobId} attempt=${String(input.attempt)} sections=${String(outline.sections.length)} progress=${JSON.stringify(progressOutline)}`
+    );
+
+    // Step D.2: Style anchor (no LLM call)
+    const styleAnchor = this.buildStyleAnchor(input.bundle, input.request);
+
+    // Step D.3: Section generation (sequential)
+    const sectionFragments: string[] = [];
+    const tailSummaries: string[] = [];
+    for (let sectionIdx = 0; sectionIdx < outline.sections.length; sectionIdx += 1) {
+      const progressSection =
+        input.locale === "ru"
+          ? `Секция ${String(sectionIdx + 1)} из ${String(outline.sections.length)}`
+          : `Section ${String(sectionIdx + 1)} of ${String(outline.sections.length)}`;
+      this.logger.log(
+        `[document-pdf-chunked-section-start] jobId=${jobId} attempt=${String(input.attempt)} section=${String(sectionIdx + 1)}/${String(outline.sections.length)} progress=${JSON.stringify(progressSection)}`
+      );
+      const sourceSlice = this.sliceSourceForSection(
+        input.sourceFiles,
+        sectionIdx,
+        outline.sections
+      );
+      const tailSummary = this.buildTailSummary(tailSummaries);
+      const fragment = await this.generateSectionFragment({
+        bundle: input.bundle,
+        request: input.request,
+        providerSelection,
+        maxOutputTokens,
+        styleAnchor,
+        outline,
+        sectionIdx,
+        sourceSlice,
+        tailSummary
+      });
+      sectionFragments.push(fragment);
+      // Extract plain text tail for the next section's context
+      const plainText = this.extractPlainTextFromHtmlPassthrough(fragment);
+      const tail = plainText.replace(/\s+/g, " ").trim().slice(-CHUNKED_TAIL_SUMMARY_PER_SECTION);
+      tailSummaries.push(tail);
+    }
+
+    // Step D.4: Assembly
+    const progressAssembling = input.locale === "ru" ? "Собираю PDF" : "Assembling PDF";
+    this.logger.log(
+      `[document-pdf-chunked-assembling] jobId=${jobId} attempt=${String(input.attempt)} progress=${JSON.stringify(progressAssembling)}`
+    );
+    const rawAssembled = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${sectionFragments.join("\n")}</body></html>`;
+    const repaired = this.repairHtmlDocument(rawAssembled);
+    if (repaired.bodyTextLength < DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH) {
+      throw new Error(
+        `Chunked assembly produced too little body text (length=${String(repaired.bodyTextLength)}, minimum=${String(DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH)}).`
+      );
+    }
+    return {
+      htmlContent: repaired.html,
+      bodyTextLength: repaired.bodyTextLength,
+      sectionCount: outline.sections.length
+    };
+  }
+
+  private async generateChunkedOutline(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeDocumentJobRunRequest;
+    sourceFiles: DocumentSourceFilePayload[];
+    providerSelection: ProviderSelection;
+    maxOutputTokens: number;
+  }): Promise<ChunkedOutline> {
+    const bundle = input.bundle;
+    const request = input.request;
+    const developerInstructions = [
+      this.normalizeOptionalText(bundle.promptConstructor.ordinary.sections.heartbeat),
+      [
+        "You are generating a document outline for a PersAI PDF generation pipeline.",
+        'Return ONLY a JSON object in this EXACT envelope: { "mode": "document_pdf_outline", "sections": [ { "heading": "...", "intent": "...", "expectedLength": "short"|"medium"|"long" } ] }',
+        "Do not add any preamble, markdown fences, commentary, or extra fields.",
+        "Each section must have: heading (display title), intent (one sentence describing its content), expectedLength (short/medium/long).",
+        "Create 3-8 sections appropriate for the document scope. Every section must have a clear purpose.",
+        "Write headings and intents in the user's apparent language."
+      ].join("\n")
+    ]
+      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+      .join("\n\n");
+
+    const response = await this.providerGatewayClientService.generateText({
+      provider: input.providerSelection.provider,
+      model: input.providerSelection.model,
+      systemPrompt: this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt),
+      ...(developerInstructions.length === 0 ? {} : { developerInstructions }),
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  mode: "document_pdf_outline_request",
+                  documentRequest: {
+                    descriptorMode: request.directToolExecution.descriptorMode,
+                    prompt: request.directToolExecution.request.prompt,
+                    instructions: request.directToolExecution.request.instructions ?? null,
+                    requestedName: request.directToolExecution.request.requestedName ?? null
+                  },
+                  sourceUserMessage: {
+                    text: request.job.sourceUserMessageText,
+                    createdAt: request.job.sourceUserMessageCreatedAt
+                  },
+                  sourceFiles: input.sourceFiles.slice(0, 3).map((entry) => ({
+                    filename: entry.filename,
+                    mimeType: entry.mimeType,
+                    sizeBytes: entry.sizeBytes,
+                    // Only include a short excerpt in the outline call to keep it focused
+                    textExcerpt: entry.text !== null ? entry.text.slice(0, 2_000) : null,
+                    note: entry.note
+                  })),
+                  assistant: {
+                    name: bundle.persona.displayName,
+                    userLocale: bundle.userContext.locale
+                  }
+                },
+                null,
+                2
+              )
+            }
+          ]
+        }
+      ],
+      maxOutputTokens: Math.min(input.maxOutputTokens, 4_000),
+      requestMetadata: {
+        runtimeSessionId: `document-job:${request.job.id}`,
+        runtimeRequestId: `document-outline:${request.job.id}`,
+        toolLoopIteration: null,
+        compactionToolCode: null,
+        classification: "document_pdf_outline"
+      }
+    });
+
+    const rawText = (response.text ?? "").trim();
+    const outline = this.parseChunkedOutline(rawText);
+    if (outline === null || outline.sections.length === 0) {
+      throw new DocumentPdfOutlineInvalidError(
+        `Outline call returned invalid or empty JSON envelope. rawLength=${String(rawText.length)} preview=${JSON.stringify(rawText.slice(0, 200))}`
+      );
+    }
+    return outline;
+  }
+
+  private parseChunkedOutline(rawText: string): ChunkedOutline | null {
+    const stripped = this.stripMarkdownFences(rawText);
+    const candidate = stripped.trim();
+    const objectStart = candidate.indexOf("{");
+    const objectEnd = candidate.lastIndexOf("}");
+    if (objectStart === -1 || objectEnd <= objectStart) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(candidate.slice(objectStart, objectEnd + 1)) as unknown;
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+      const obj = parsed as Record<string, unknown>;
+      if (obj.mode !== "document_pdf_outline") {
+        return null;
+      }
+      if (!Array.isArray(obj.sections) || obj.sections.length === 0) {
+        return null;
+      }
+      const sections: ChunkedOutlineSection[] = [];
+      for (const entry of obj.sections as unknown[]) {
+        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+          return null;
+        }
+        const sec = entry as Record<string, unknown>;
+        if (typeof sec.heading !== "string" || typeof sec.intent !== "string") {
+          return null;
+        }
+        const expectedLength =
+          sec.expectedLength === "short" || sec.expectedLength === "long"
+            ? sec.expectedLength
+            : "medium";
+        sections.push({
+          heading: sec.heading,
+          intent: sec.intent,
+          expectedLength
+        });
+      }
+      return { sections };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Style anchor: synthesized from prompt + instructions + persona name + locale.
+   * 3-5 sentences covering tone, typographic style, header rhythm, list/table
+   * conventions, language, and audience. Identical verbatim string in every section call.
+   */
+  private buildStyleAnchor(
+    bundle: AssistantRuntimeBundle,
+    request: RuntimeDocumentJobRunRequest
+  ): string {
+    const locale = bundle.userContext.locale ?? "en";
+    const lang = locale.startsWith("ru") ? "Russian" : "English";
+    const personaName = bundle.persona.displayName ?? "PersAI";
+    const instructions = request.directToolExecution.request.instructions?.trim() ?? "";
+    const instructionNote =
+      instructions.length > 0 ? `User style guidance: "${instructions.slice(0, 300)}".` : "";
+    return [
+      `This document is authored by ${personaName} in ${lang}.`,
+      "Use a restrained editorial tone: professional, clear, and direct without being dry.",
+      "Heading hierarchy: H1 for the cover title, H2 for major chapters, H3 for subsections. Do not skip levels.",
+      "Lists are formatted as tight bullet points; tables use clean semantic markup with <thead>/<tbody>.",
+      `Target audience: readers who expect a polished, content-dense PDF document delivered in ${lang}.`,
+      ...(instructionNote.length > 0 ? [instructionNote] : [])
+    ].join(" ");
+  }
+
+  private async generateSectionFragment(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeDocumentJobRunRequest;
+    providerSelection: ProviderSelection;
+    maxOutputTokens: number;
+    styleAnchor: string;
+    outline: ChunkedOutline;
+    sectionIdx: number;
+    sourceSlice: string;
+    tailSummary: string;
+  }): Promise<string> {
+    const section = input.outline.sections[input.sectionIdx];
+    if (section === undefined) {
+      throw new Error(
+        `Section index ${String(input.sectionIdx)} is out of bounds for outline with ${String(input.outline.sections.length)} sections.`
+      );
+    }
+    const bundle = input.bundle;
+    const request = input.request;
+    const isFirstSection = input.sectionIdx === 0;
+    const developerInstructions = [
+      this.normalizeOptionalText(bundle.promptConstructor.ordinary.sections.heartbeat),
+      [
+        "You are generating ONE section of a multi-section PDF document.",
+        "Return ONLY the HTML fragment for this section. No <!DOCTYPE>, no <html>, no <head>, no <body> wrapper.",
+        "Cover page = <h1>, chapters = <h2>, subsections = <h3>.",
+        "Do not add preamble, markdown fences, JSON envelopes, or closing remarks.",
+        "Close every tag you open.",
+        "Do not embed external scripts, iframes, or remote stylesheets.",
+        "Apply the style anchor consistently — same tone, heading rhythm, and list/table style as specified."
+      ].join("\n")
+    ]
+      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+      .join("\n\n");
+
+    const response = await this.providerGatewayClientService.generateText({
+      provider: input.providerSelection.provider,
+      model: input.providerSelection.model,
+      systemPrompt: this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt),
+      ...(developerInstructions.length === 0 ? {} : { developerInstructions }),
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  mode: "document_pdf_section_generation",
+                  styleAnchor: input.styleAnchor,
+                  fullOutline: input.outline.sections.map((s, idx) => ({
+                    index: idx,
+                    heading: s.heading,
+                    intent: s.intent,
+                    expectedLength: s.expectedLength,
+                    isCurrent: idx === input.sectionIdx
+                  })),
+                  currentSectionIndex: input.sectionIdx,
+                  totalSections: input.outline.sections.length,
+                  currentSection: {
+                    heading: section.heading,
+                    intent: section.intent,
+                    expectedLength: section.expectedLength
+                  },
+                  // Proportional source slice for this section (v1: simple split by weight)
+                  sourceSliceText: input.sourceSlice.length > 0 ? input.sourceSlice : null,
+                  // Last 300-500 chars of each prior section concatenated, capped at 1500 chars total
+                  priorSectionsTailSummary: input.tailSummary.length > 0 ? input.tailSummary : null,
+                  isFirstSection,
+                  documentRequest: {
+                    descriptorMode: request.directToolExecution.descriptorMode,
+                    prompt: request.directToolExecution.request.prompt,
+                    instructions: request.directToolExecution.request.instructions ?? null
+                  },
+                  sourceUserMessage: {
+                    text: request.job.sourceUserMessageText
+                  },
+                  assistant: {
+                    name: bundle.persona.displayName,
+                    userLocale: bundle.userContext.locale
+                  }
+                },
+                null,
+                2
+              )
+            }
+          ]
+        }
+      ],
+      maxOutputTokens: input.maxOutputTokens,
+      requestMetadata: {
+        runtimeSessionId: `document-job:${request.job.id}`,
+        runtimeRequestId: `document-section:${request.job.id}:section-${String(input.sectionIdx)}`,
+        toolLoopIteration: null,
+        compactionToolCode: null,
+        classification: "document_pdf_section_generation"
+      }
+    });
+
+    const rawText = (response.text ?? "").trim();
+    if (rawText.length === 0) {
+      throw new Error(
+        `Section ${String(input.sectionIdx + 1)} of ${String(input.outline.sections.length)} returned empty output.`
+      );
+    }
+    // Extract the fragment: prefer inner HTML content, strip any accidental wrappers
+    const extracted = this.extractSectionFragment(rawText);
+    return extracted.length > 0 ? extracted : rawText;
+  }
+
+  /**
+   * Extract a section fragment from the model output. Strips any accidental
+   * <!DOCTYPE>/html/body wrappers that the model might have added despite
+   * being told not to. Returns a clean HTML fragment.
+   */
+  private extractSectionFragment(raw: string): string {
+    const stripped = this.stripMarkdownFences(raw);
+    const lower = stripped.toLowerCase();
+    // If model returned full document structure, extract body contents
+    const bodyStart = lower.indexOf("<body");
+    const bodyEnd = lower.lastIndexOf("</body>");
+    if (bodyStart !== -1 && bodyEnd !== -1 && bodyEnd > bodyStart) {
+      const bodyTagEnd = stripped.indexOf(">", bodyStart);
+      if (bodyTagEnd !== -1 && bodyTagEnd < bodyEnd) {
+        return stripped.slice(bodyTagEnd + 1, bodyEnd).trim();
+      }
+    }
+    // Strip DOCTYPE/html/head wrappers only
+    let result = stripped;
+    result = result.replace(/^\s*<!DOCTYPE[^>]*>\s*/i, "");
+    result = result.replace(/^\s*<html[^>]*>\s*/i, "");
+    result = result.replace(/\s*<\/html\s*>\s*$/i, "");
+    result = result.replace(/^\s*<head[\s\S]*?<\/head>\s*/i, "");
+    return result.trim();
+  }
+
+  /**
+   * Proportionally slice the total inlined source text for a given section.
+   * Weight: short=1, medium=2, long=3. Simple v1 implementation — not smart
+   * retrieval. Documented intentionally as v1 per ADR-097 Slice 1.
+   */
+  private sliceSourceForSection(
+    sourceFiles: DocumentSourceFilePayload[],
+    sectionIdx: number,
+    sections: ChunkedOutlineSection[]
+  ): string {
+    const allText = sourceFiles
+      .map((f) => f.text ?? "")
+      .filter((t) => t.length > 0)
+      .join("\n\n");
+    if (allText.length === 0) {
+      return "";
+    }
+    const weightOf = (s: ChunkedOutlineSection): number =>
+      s.expectedLength === "short" ? 1 : s.expectedLength === "long" ? 3 : 2;
+    const totalWeight = sections.reduce((sum, s) => sum + weightOf(s), 0);
+    if (totalWeight === 0) {
+      return "";
+    }
+    let startFraction = 0;
+    for (let i = 0; i < sectionIdx; i += 1) {
+      const s = sections[i];
+      if (s !== undefined) {
+        startFraction += weightOf(s) / totalWeight;
+      }
+    }
+    const currentSection = sections[sectionIdx];
+    const endFraction =
+      startFraction + (currentSection !== undefined ? weightOf(currentSection) : 0) / totalWeight;
+    const startIdx = Math.floor(startFraction * allText.length);
+    const endIdx = Math.min(Math.ceil(endFraction * allText.length), allText.length);
+    return allText.slice(startIdx, endIdx);
+  }
+
+  /** Concatenate tail summaries from prior sections, cap at CHUNKED_TAIL_SUMMARY_TOTAL_CAP. */
+  private buildTailSummary(priorTails: string[]): string {
+    if (priorTails.length === 0) {
+      return "";
+    }
+    const joined = priorTails.join(" … ");
+    return joined.length > CHUNKED_TAIL_SUMMARY_TOTAL_CAP
+      ? joined.slice(-CHUNKED_TAIL_SUMMARY_TOTAL_CAP)
+      : joined;
   }
 
   private resolveProviderSelection(

@@ -2160,6 +2160,10 @@ export interface RuntimeDocumentJobRunResult {
   rawText: string | null;
   providerStatus?: Record<string, unknown> | null;
   billingFacts?: RuntimeBillingFacts | null;
+  /** Exact post-repairHtmlDocument HTML sent to PDFMonkey. Null for Gamma/pptx
+   *  or when generation failed. Persisted on AssistantDocumentVersion so the
+   *  upcoming patch-revise loop (Slice 2) can read it without re-generating. */
+  renderedHtml?: string | null;
 }
 
 export type RuntimeDocumentGammaCompanionOriginal =
@@ -2438,6 +2442,8 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   "auto_extract_to_memory",
   "background_task_evaluation",
   "document_html_generation",
+  "document_pdf_outline",
+  "document_pdf_section_generation",
   "document_presentation_theme_picker",
   "document_job_completion",
   "media_job_completion",

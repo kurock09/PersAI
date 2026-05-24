@@ -727,6 +727,180 @@ describe("AssistantDocumentJobSchedulerService", () => {
     );
   });
 
+  test("successful document job persists renderedHtml on the matching AssistantDocumentVersion row", async () => {
+    const versionUpdates: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> =
+      [];
+    const service = new AssistantDocumentJobSchedulerService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantDocumentVersion: {
+              update: async (input: {
+                where: Record<string, unknown>;
+                data: Record<string, unknown>;
+              }) => {
+                versionUpdates.push(input);
+                return undefined;
+              }
+            },
+            assistantDocumentProviderMapping: {
+              findFirst: async () => null,
+              create: async () => undefined,
+              update: async () => undefined
+            }
+          }),
+        assistantDocumentRenderJob: {
+          updateMany: async () => ({ count: 0 })
+        }
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        async resolveCurrent() {
+          return {
+            runtimeBundleDocument: JSON.stringify({
+              metadata: {
+                assistantId: "assistant-1",
+                workspaceId: "workspace-1",
+                publishedVersionId: "version-html-1"
+              },
+              runtime: {},
+              promptConstructor: {}
+            })
+          };
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          return { runtimeTier: "paid_shared_restricted" };
+        }
+      } as never,
+      {
+        async run() {
+          return {
+            ok: true,
+            result: {
+              assistantText: null,
+              artifacts: [
+                {
+                  artifactId: "artifact-html-1",
+                  fileRef: "file-html-1",
+                  file: {
+                    fileRef: "file-html-1",
+                    origin: "runtime_output",
+                    sourceToolCode: "document",
+                    objectKey: "key/doc.pdf",
+                    relativePath: "doc.pdf",
+                    displayName: "doc.pdf",
+                    mimeType: "application/pdf",
+                    sizeBytes: 1500
+                  },
+                  kind: "file",
+                  sourceToolCode: "document",
+                  objectKey: "key/doc.pdf",
+                  mimeType: "application/pdf",
+                  filename: "doc.pdf",
+                  sizeBytes: 1500,
+                  voiceNote: false
+                }
+              ],
+              usage: null,
+              toolInvocations: [
+                { name: "document", iteration: 1, ok: true, executionMode: "worker" }
+              ],
+              rawText: null,
+              renderedHtml: "<!DOCTYPE html><html><body><h1>Test</h1></body></html>",
+              providerStatus: { provider: "pdfmonkey", state: "success" }
+            }
+          };
+        }
+      } as never,
+      {
+        async extractSourceFiles() {
+          return [];
+        }
+      } as never,
+      {
+        async deliverReadyJob() {
+          throw new Error("delivery must not run in this test");
+        }
+      } as never,
+      {
+        async getLeaseState() {
+          return null;
+        },
+        async acquire() {
+          return null;
+        },
+        async heartbeat() {
+          return true;
+        },
+        async release() {}
+      } as never,
+      {
+        recordTickSkipped() {},
+        recordTickAcquired() {},
+        recordLeaseLost() {},
+        recordLeaseExpiredRecovered() {}
+      } as never
+    );
+
+    await (
+      service as unknown as { processQueuedJob: (job: Record<string, unknown>) => Promise<void> }
+    ).processQueuedJob({
+      id: "job-html-persist-1",
+      docId: "doc-html-1",
+      versionId: "version-html-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      provider: "pdfmonkey",
+      outputFormat: "pdf",
+      sourceUserMessageId: "message-html-1",
+      requestJson: {
+        sourceUserMessageText: "Create a test document",
+        sourceUserMessageCreatedAt: "2026-05-24T10:00:00.000Z",
+        descriptorMode: "create_pdf_document",
+        sourceJson: { prompt: "Create a test document" }
+      },
+      attemptCount: 1,
+      maxAttempts: 5,
+      claimToken: "claim-html-1"
+    });
+
+    const versionHtmlUpdate = versionUpdates.find((u) => u.where.id === "version-html-1");
+    assert.ok(versionHtmlUpdate !== undefined, "must update AssistantDocumentVersion");
+    assert.equal(
+      versionHtmlUpdate.data.renderedHtml,
+      "<!DOCTYPE html><html><body><h1>Test</h1></body></html>",
+      "renderedHtml must be persisted on the AssistantDocumentVersion row"
+    );
+  });
+
   test("keeps document ready when a non-current revision fails", async () => {
     const documentUpdates: Array<Record<string, unknown>> = [];
     const service = new AssistantDocumentJobSchedulerService(
