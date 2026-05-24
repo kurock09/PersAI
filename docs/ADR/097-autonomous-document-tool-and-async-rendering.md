@@ -642,6 +642,17 @@ Verified that `docIdReq = "last generated file"` magical alias still fires as a 
 
 **Verification:** lint + format:check + 5× typecheck + 3× test suites — all PASS.
 
+### 2026-05-24 — Bounded hotfix: retrying DB-truth revision version allocation
+
+Addresses the first production race found after Slice 4/5 cross-chat revise reached the enqueue boundary.
+
+- **Observed failure:** two quick `revise_document` enqueues for the same document could both allocate `versionNumber = currentVersionNumber + 1` and collide on Prisma unique constraint `assistant_document_versions_doc_version_number_key` (`doc_id`, `version_number`).
+- **Root cause:** `AssistantDocument.currentVersionId/currentVersionNumber` remain delivery-promoted truth, so they intentionally lag while queued/rendering revisions already exist. Using them as the enqueue allocator source is therefore stale under concurrency.
+- **Hotfix shape:** `AssistantDocumentJobService.enqueueRevision()` now reads the latest persisted `AssistantDocumentVersion` for the target `docId` inside the transaction, allocates `nextVersionNumber` from that DB truth, and uses that number for the new row. This applies to both same-chat and cross-chat revise because both paths converge on `enqueueRevision()`.
+- **Concurrency behavior:** if another enqueue still wins between the read and insert, the service catches the specific Prisma `P2002` on `(doc_id, version_number)` and retries in a fresh transaction up to 3 bounded attempts, re-reading the latest version each time.
+- **Explicit non-changes:** no schema change, no migration, no global lock, no change to `parentVersionId` semantics, and no change to delivery-time promotion of `currentVersionId/currentVersionNumber`.
+- **Tests:** new focused `apps/api/test/assistant-document-job.service.test.ts` covers (1) allocation from latest persisted DB truth even when it is ahead of `revisionContext.currentVersionNumber`, and (2) a simulated unique-conflict retry that advances to the next free version number on the second attempt.
+
 ### Phase 9: Hardening
 
 - **Timeout → chunked re-route (Gap A):** `RuntimeDocumentProviderAdapterService.run()` now catches `ProviderGatewayTimeoutError` (a new typed error surfaced by `ProviderGatewayClientService`) on the single-shot path. On timeout the attempt is counted against the retry budget, `useChunked` is flipped, and `[document-pdf-single-shot-timeout]` is logged. Chunked pipeline timeouts fail the job honestly with `document_pdf_chunked_timeout` (no further re-route). This is the second objective re-route signal alongside the existing truncation re-route.

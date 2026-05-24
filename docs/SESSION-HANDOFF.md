@@ -2,6 +2,40 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-24 — ADR-097 hotfix — retrying DB-truth revision version allocation
+
+### What changed
+
+**Production diagnostic:** cross-chat revise now reaches enqueue successfully, but a second quick revise against the same document can still fail with Prisma unique constraint `assistant_document_versions_doc_version_number_key` on `(doc_id, version_number)`. Root cause: `AssistantDocumentJobService.enqueueRevision()` was allocating `versionNumber = currentVersionNumber + 1`, but `currentVersionId/currentVersionNumber` are only promoted on delivery, so two fast enqueues could both choose the same next number.
+
+**Fix:** `AssistantDocumentJobService.enqueueRevision()` now allocates the next revision `versionNumber` inside the transaction from the latest persisted `AssistantDocumentVersion` row for that `docId` (ordered by `versionNumber DESC`) instead of trusting the delivered `currentVersionNumber`. This keeps same-chat and cross-chat revise on the shared DB-truth path without changing revision ancestry, delivery-time current-version promotion, or schema.
+
+**Retry path:** when a concurrent enqueue still wins the race between read and insert, the service now catches the specific Prisma `P2002` conflict for `(doc_id, version_number)`, re-reads DB truth in a fresh transaction, and retries up to 3 bounded attempts. No global lock and no migration added.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/assistant-document-job.service.ts` — DB-truth allocator + bounded unique-conflict retry
+- `apps/api/test/assistant-document-job.service.test.ts` — focused allocator and retry regressions
+- `docs/ADR/097-autonomous-document-tool-and-async-rendering.md` — hotfix note
+- `docs/SESSION-HANDOFF.md` — this section
+- `docs/CHANGELOG.md` — top entry
+
+### Verification (all PASS)
+
+1. `corepack pnpm -r --if-present run lint` — PASS
+2. `corepack pnpm run format:check` — PASS
+3. `corepack pnpm --filter @persai/api run typecheck` — PASS
+4. `corepack pnpm --filter @persai/web run typecheck` — PASS
+5. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — PASS
+7. `corepack pnpm --filter @persai/api run test` — PASS
+8. `corepack pnpm --filter @persai/runtime run test` — PASS
+9. `corepack pnpm --filter @persai/provider-gateway run test` — PASS
+
+### Next recommended step
+
+Deploy to `persai-dev` and manually verify two back-to-back `revise_document` requests against the same PDF (same-chat and cross-chat). Confirm both enqueues succeed, version numbers advance monotonically, and only delivery still controls `currentVersionId/currentVersionNumber` promotion.
+
 ## 2026-05-24 — ADR-097 Slice 5 — cross-chat recent-PDFs hint + descriptor sharpening
 
 ### What changed

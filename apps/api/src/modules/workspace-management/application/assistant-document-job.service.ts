@@ -19,6 +19,7 @@ import type {
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_REVISION_VERSION_ALLOCATION_ATTEMPTS = 3;
 
 export type AssistantDocumentSourcePayload = {
   prompt: string;
@@ -338,86 +339,111 @@ export class AssistantDocumentJobService {
       input.revisionContext.currentSourceJson,
       input.request.sourceJson
     );
-    return this.prisma.$transaction(async (tx) => {
-      const version = await tx.assistantDocumentVersion.create({
-        data: {
-          docId: input.revisionContext.docId,
-          assistantId: input.assistantId,
-          workspaceId: input.workspaceId,
-          versionNumber: input.revisionContext.currentVersionNumber + 1,
-          parentVersionId: input.revisionContext.currentVersionId,
-          descriptorMode: "revise_document",
-          sourceJson: mergedSourceJson as never,
-          sourceSummaryText: input.request.sourceUserMessageText,
-          sourceOutlineJson:
-            mergedSourceJson.outline === undefined
-              ? Prisma.JsonNull
-              : (mergedSourceJson.outline as never),
-          status: "render_requested"
-        },
-        select: { id: true }
-      });
+    for (let attempt = 1; attempt <= MAX_REVISION_VERSION_ALLOCATION_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const latestVersionRow = await tx.assistantDocumentVersion.findFirst({
+            where: {
+              docId: input.revisionContext.docId
+            },
+            orderBy: [{ versionNumber: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+            select: { versionNumber: true }
+          });
+          const nextVersionNumber =
+            Math.max(
+              input.revisionContext.currentVersionNumber,
+              latestVersionRow?.versionNumber ?? 0
+            ) + 1;
 
-      await tx.assistantDocument.update({
-        where: { id: input.revisionContext.docId },
-        data: {
-          status: "rendering"
+          const version = await tx.assistantDocumentVersion.create({
+            data: {
+              docId: input.revisionContext.docId,
+              assistantId: input.assistantId,
+              workspaceId: input.workspaceId,
+              versionNumber: nextVersionNumber,
+              parentVersionId: input.revisionContext.currentVersionId,
+              descriptorMode: "revise_document",
+              sourceJson: mergedSourceJson as never,
+              sourceSummaryText: input.request.sourceUserMessageText,
+              sourceOutlineJson:
+                mergedSourceJson.outline === undefined
+                  ? Prisma.JsonNull
+                  : (mergedSourceJson.outline as never),
+              status: "render_requested"
+            },
+            select: { id: true }
+          });
+
+          await tx.assistantDocument.update({
+            where: { id: input.revisionContext.docId },
+            data: {
+              status: "rendering"
+            }
+          });
+
+          const renderJob = await tx.assistantDocumentRenderJob.create({
+            data: {
+              docId: input.revisionContext.docId,
+              versionId: version.id,
+              assistantId: input.assistantId,
+              userId: input.userId,
+              workspaceId: input.workspaceId,
+              chatId: input.chatId,
+              surface: input.surface,
+              provider: input.provider,
+              outputFormat: input.outputFormat,
+              status: "queued",
+              sourceUserMessageId: input.sourceUserMessageId,
+              requestJson: {
+                ...input.request,
+                sourceJson: mergedSourceJson,
+                ...(input.previousVersionRenderedHtml !== null
+                  ? { previousVersionRenderedHtml: input.previousVersionRenderedHtml }
+                  : {})
+              } as never
+            },
+            select: { id: true }
+          });
+
+          await tx.assistantDocumentRevisionLog.create({
+            data: {
+              docId: input.revisionContext.docId,
+              workspaceId: input.workspaceId,
+              previousVersionId: input.revisionContext.currentVersionId,
+              newVersionId: version.id,
+              userRevisionRequestText: input.request.sourceUserMessageText,
+              interpretedPatchIntent: input.request.sourceJson.prompt,
+              structuredPatchJson: {
+                revisionPrompt: input.request.sourceJson.prompt,
+                revisionInstructions: input.request.sourceJson.instructions ?? null,
+                requestedName: input.request.sourceJson.requestedName ?? null,
+                outputFormat: input.request.sourceJson.outputFormat ?? null,
+                outline: input.request.sourceJson.outline ?? null
+              } as never,
+              runtimeProvenanceJson: {
+                source: "assistant_document_job_service.enqueue_revision",
+                descriptorMode: "revise_document"
+              } as never
+            }
+          });
+
+          return {
+            docId: input.revisionContext.docId,
+            versionId: version.id,
+            renderJobId: renderJob.id,
+            status: "queued" as const
+          };
+        });
+      } catch (error) {
+        if (
+          !this.isRevisionVersionAllocationConflict(error) ||
+          attempt >= MAX_REVISION_VERSION_ALLOCATION_ATTEMPTS
+        ) {
+          throw error;
         }
-      });
-
-      const renderJob = await tx.assistantDocumentRenderJob.create({
-        data: {
-          docId: input.revisionContext.docId,
-          versionId: version.id,
-          assistantId: input.assistantId,
-          userId: input.userId,
-          workspaceId: input.workspaceId,
-          chatId: input.chatId,
-          surface: input.surface,
-          provider: input.provider,
-          outputFormat: input.outputFormat,
-          status: "queued",
-          sourceUserMessageId: input.sourceUserMessageId,
-          requestJson: {
-            ...input.request,
-            sourceJson: mergedSourceJson,
-            ...(input.previousVersionRenderedHtml !== null
-              ? { previousVersionRenderedHtml: input.previousVersionRenderedHtml }
-              : {})
-          } as never
-        },
-        select: { id: true }
-      });
-
-      await tx.assistantDocumentRevisionLog.create({
-        data: {
-          docId: input.revisionContext.docId,
-          workspaceId: input.workspaceId,
-          previousVersionId: input.revisionContext.currentVersionId,
-          newVersionId: version.id,
-          userRevisionRequestText: input.request.sourceUserMessageText,
-          interpretedPatchIntent: input.request.sourceJson.prompt,
-          structuredPatchJson: {
-            revisionPrompt: input.request.sourceJson.prompt,
-            revisionInstructions: input.request.sourceJson.instructions ?? null,
-            requestedName: input.request.sourceJson.requestedName ?? null,
-            outputFormat: input.request.sourceJson.outputFormat ?? null,
-            outline: input.request.sourceJson.outline ?? null
-          } as never,
-          runtimeProvenanceJson: {
-            source: "assistant_document_job_service.enqueue_revision",
-            descriptorMode: "revise_document"
-          } as never
-        }
-      });
-
-      return {
-        docId: input.revisionContext.docId,
-        versionId: version.id,
-        renderJobId: renderJob.id,
-        status: "queued" as const
-      };
-    });
+      }
+    }
+    throw new Error("enqueueRevision exhausted bounded allocation retries.");
   }
 
   async findExportOrRedeliverContext(input: {
@@ -751,6 +777,23 @@ export class AssistantDocumentJobService {
         revisionRequested: true
       }
     };
+  }
+
+  private isRevisionVersionAllocationConflict(error: unknown): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+      return false;
+    }
+    const metaTarget = error.meta?.target;
+    const targets = Array.isArray(metaTarget)
+      ? metaTarget.map((entry) => String(entry))
+      : typeof metaTarget === "string"
+        ? [metaTarget]
+        : [];
+    return (
+      targets.includes("assistant_document_versions_doc_version_number_key") ||
+      (targets.includes("doc_id") && targets.includes("version_number")) ||
+      (targets.includes("docId") && targets.includes("versionNumber"))
+    );
   }
 
   private buildExportOrRedeliverSourcePayload(
