@@ -19,6 +19,7 @@ import { runTurnContextHydrationServiceTest } from "./turn-context-hydration.ser
 import { runTurnExecutionServiceTest, runRecentPdfsHintTests } from "./turn-execution.service.test";
 import { runTurnFinalizationServiceTest } from "./turn-finalization.service.test";
 import { runTurnLeaseHeartbeatServiceTest } from "./turn-lease-heartbeat.service.test";
+import { runInternalRuntimeDocumentJobsControllerTest } from "./internal-runtime-document-jobs.controller.test";
 import { runRuntimeMediaTranscriptionServiceTest } from "./runtime-media-transcription.service.test";
 import { runRuntimeBackgroundTaskEvaluationServiceTest } from "./runtime-background-task-evaluation.service.test";
 import { runRuntimeQuotaStatusToolServiceTest } from "./runtime-quota-status-tool.service.test";
@@ -61,6 +62,7 @@ async function run(): Promise<void> {
   await runRecentPdfsHintTests();
   await runTurnFinalizationServiceTest();
   await runTurnLeaseHeartbeatServiceTest();
+  await runInternalRuntimeDocumentJobsControllerTest();
   const { runTurnRoutingServiceTest } = await import("./turn-routing.service.test");
   await runTurnRoutingServiceTest();
 }

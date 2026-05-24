@@ -107,6 +107,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     modulePath: "./turn-lease-heartbeat.service.test.ts",
     exportName: "runTurnLeaseHeartbeatServiceTest"
   },
+  {
+    modulePath: "./internal-runtime-document-jobs.controller.test.ts",
+    exportName: "runInternalRuntimeDocumentJobsControllerTest"
+  },
   { modulePath: "./turn-routing.service.test.ts", exportName: "runTurnRoutingServiceTest" }
 ];
 

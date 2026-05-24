@@ -62,6 +62,16 @@ export class InternalRuntimeDocumentJobsController {
     const job = this.objectField(row.job, "job");
     const direct = this.objectField(row.directToolExecution, "directToolExecution");
     const request = this.objectField(direct.request, "directToolExecution.request");
+    // ADR-097 Slice 2 — patch-revise loop. The scheduler forwards the exact
+    // previous-version rendered HTML for revise_document PDF jobs so the worker
+    // can apply SEARCH/REPLACE patches instead of re-generating the document.
+    // Empty strings and non-strings collapse to null (the adapter treats null
+    // as "no patch-revise available" and falls back to single-shot or chunked).
+    const previousVersionRenderedHtml =
+      typeof row.previousVersionRenderedHtml === "string" &&
+      row.previousVersionRenderedHtml.length > 0
+        ? row.previousVersionRenderedHtml
+        : null;
 
     return {
       assistantId: this.requiredString(row.assistantId, "assistantId"),
@@ -94,6 +104,7 @@ export class InternalRuntimeDocumentJobsController {
       },
       attachments: this.attachments(row.attachments),
       sourceFiles: this.sourceFiles(row.sourceFiles),
+      ...(previousVersionRenderedHtml === null ? {} : { previousVersionRenderedHtml }),
       directToolExecution: {
         toolCode: this.toolCode(direct.toolCode),
         descriptorMode: this.descriptorMode(direct.descriptorMode),
