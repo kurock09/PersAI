@@ -2,6 +2,43 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-24 — ADR-100 follow-up — token-aware files.search + Working Files recovery
+
+### What changed
+
+- Live transcript showed the model trying `files.search` three times with multi-token natural-language queries (`hudi nature photo`, `худи природа кепка фото`, `photo hoodie nature cap`) and getting empty results even though a stored file's `semanticSummary` covered the subject. Root cause was in `RuntimeAssistantFileRegistryService.search()` performing a single Postgres `contains: query` ILIKE across `displayName` / `relativePath` / `metadata.semanticSummary` — multi-word queries failed unless the literal phrase appeared verbatim. Secondary cause was the Working Files developer block phrasing the alias list as a closed world (`Use only these aliases ...`) with no explicit recovery instruction, so the model gave up and told the user the file was unavailable.
+- `RuntimeAssistantFileRegistryService.search()` is now multi-step: lowercase + whitespace-split + `len ≥ 2` + dedupe → token list. Empty token list (e.g. single-char queries) falls back to the previous single-substring `buildSearchWhere` path. Otherwise SQL fetches up to `min(max(limit*5, 50), 200)` candidates via `OR` of every token across the three fields (each token using `contains: token, mode: insensitive` for string fields and `string_contains` for `metadata.semanticSummary` JSON path), then ranks in memory by the number of distinct tokens that substring-match across `displayName` / `relativePath` / `semanticSummary`, ordered by score desc and Postgres-side `createdAt desc` as tiebreaker. Public method signature unchanged; no prisma migration, no `pg_trgm`/`tsvector` index.
+- `TurnExecutionService.buildWorkingFilesDeveloperSection()` rewords the alias block from `Server-owned reusable file aliases for this turn. Use only these aliases ...` to `These are the reusable file handles the system has already prepared for this turn. They are not the complete set of files available to you. Prefer these aliases ...`. A new recovery line is appended after the existing `files` / `image_edit` hints: `If the user refers to a file that is not in this list, do not assume it is unavailable. First call files.list to scan the assistant's full file corpus with its semantic hints, and if needed follow up with files.search for a narrower lookup. Only then, if nothing matches, tell the user the file is not available.` Other lines and helpers (`formatWorkingFileDeveloperLine`, `selectWorkingFilesForSemanticHints`, `limitModelVisibleWorkingFiles`) are untouched.
+- Hard constraints respected: no change to `turn-routing.service.ts`, `project-execution-profile.ts`, `orchestrate-runtime-retrieval.service.ts`, `read-assistant-knowledge.service.ts`, public `RuntimeFilesToolResult` / `RuntimeFilesToolItem` / `RuntimeFileRef` schemas, or any keyword matching anywhere.
+
+### Verification
+
+- Repo gates (`AGENTS.md`):
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+  - `corepack pnpm --filter @persai/runtime run typecheck`
+- Focused tests:
+  - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-assistant-file-registry.service.test.ts` (new file, 6 tests covering multi-token semantic match, createdAt-desc tiebreaker on equal score, 3-token vs 1-token ranking, short-token fallback without throw, token dedupe, limit respected after ranking)
+  - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts` (extended with one new multi-token search assertion)
+  - `corepack pnpm --filter @persai/runtime exec tsx test/working-files-developer-section.test.ts` (extended with one new test asserting closed-world phrasing gone and recovery instruction present)
+  - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution-discovered-file-refs.test.ts`
+  - `corepack pnpm --filter @persai/runtime exec tsx test/project-execution-profile.test.ts`
+  - Full `corepack pnpm --filter @persai/runtime run test` suite
+
+### Residual risks
+
+- `working-files-developer-section.test.ts` carries two unrelated pre-existing failures on HEAD (test 1 `pruneClosedOpenLoopRefsDeveloperBlock` undefined on `Object.create`-built service, and test 5 trailing-newline mismatch on `stripDeveloperOpenLoopArtifacts`). Both reproduce on clean `origin/main` without this slice's changes — confirmed by stash-and-rerun — so they belong to an earlier slice's residual and are out of scope. The new test 2 added by this slice passes.
+- Ranking still uses simple substring token matching, not stemming/lemmatization or trigram similarity. For long-tail natural-language queries where no token substring appears in any field this will still return empty. Mitigation is the new Working Files recovery instruction telling the model to fall back to `files.list` (full corpus with semantic hints) before declaring the file unavailable.
+- Candidate cap of 200 rows per search query is generous but bounded; in extreme corpora (thousands of assistant files with broad token coverage) some long-tail matches might be cut before in-memory ranking. Mitigation deferred until a real assistant hits the cap; current production assistants are well under it.
+
+### Next recommended step
+
+- Live-test in `persai-dev`: ask the assistant to find a file by subject in Russian (e.g. `найди фото где я в худи на природе`) and confirm `files.search` returns the right file on the first try. If it does not, the recovery instruction should now prompt a `files.list` fallback rather than a `file unavailable` response.
+- Then proceed with Slice 2 from the file-lifecycle plan: add `lifecycleClass` / `retentionExpiresAt` on `AssistantFile`, classifier on file creation sites, `AssistantFileRetentionReaperService`, and wire the existing "Clear cache" Assistant Settings button.
+
 ## 2026-05-24 — ADR-097 follow-up — patch-revise PDF loop (Slice 2)
 
 ### What changed

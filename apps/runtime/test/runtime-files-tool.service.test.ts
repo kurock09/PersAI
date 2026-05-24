@@ -996,6 +996,33 @@ async function run(): Promise<void> {
   assert.equal(invalidAliasSend.isError, true);
   assert.equal(invalidAliasSend.payload.action, "skipped");
   assert.equal(invalidAliasSend.payload.reason, "file_alias_not_found");
+
+  // Multi-token search: query contains multiple tokens where the only signal
+  // is `semanticSummary`. "EMEA" and "revenue" both appear in the semanticSummary
+  // of file-ref-1 but neither appears in displayName or relativePath.
+  const multiTokenSearchResult = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-search-multi-token",
+      name: "files",
+      arguments: {
+        action: "search",
+        query: "EMEA revenue quarterly"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-multi-token-1",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(multiTokenSearchResult.isError, false);
+  assert.equal(multiTokenSearchResult.payload.action, "results");
+  assert.equal(
+    multiTokenSearchResult.payload.items[0]?.fileRef,
+    "file-ref-1",
+    "multi-token search must surface the file whose only signal is semanticSummary"
+  );
 }
 
 void run();

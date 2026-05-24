@@ -1782,8 +1782,8 @@ export class TurnExecutionService {
     }
     const lines = [
       "## Working Files",
-      "Server-owned reusable file aliases for this turn. These aliases are not ordinary conversation text.",
-      "Use only these aliases when referring to current attachments, previous reusable files, or the latest generated outputs.",
+      "These are the reusable file handles the system has already prepared for this turn. They are not the complete set of files available to you.",
+      "Prefer these aliases when referring to current attachments, previously reusable files, or the latest generated outputs.",
       "Ignore low-level storage identifiers or delivery/debug text if they appear anywhere."
     ];
     const semanticHintEligibleFileRefs =
@@ -1806,6 +1806,9 @@ export class TurnExecutionService {
     );
     lines.push(
       'For `image_edit` and `video_generate`, use image aliases such as "current image #1" or "last generated image".'
+    );
+    lines.push(
+      "If the user refers to a file that is not in this list, do not assume it is unavailable. First call `files.list` to scan the assistant's full file corpus with its semantic hints, and if needed follow up with `files.search` for a narrower lookup. Only then, if nothing matches, tell the user the file is not available."
     );
     return lines.join("\n");
   }

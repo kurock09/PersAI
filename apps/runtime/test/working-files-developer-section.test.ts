@@ -74,6 +74,51 @@ describe("TurnExecutionService working-files developer section", () => {
     assert.match(refreshed ?? "", /## Open Media Jobs/);
   });
 
+  test("closed-world phrasing is gone and recovery instruction is present", () => {
+    const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
+    const section = (
+      service as unknown as {
+        buildWorkingFilesDeveloperSection(
+          availableWorkingFileRefs: Array<{
+            fileRef: string;
+            origin: string;
+            sourceToolCode: string | null;
+            objectKey: string;
+            relativePath: string;
+            displayName: string;
+            mimeType: string;
+            sizeBytes: number;
+            logicalSizeBytes: number;
+            aliases: string[];
+            semanticSummaryHint?: string | null;
+          }>
+        ): string | null;
+      }
+    ).buildWorkingFilesDeveloperSection([
+      {
+        fileRef: "file-ref-1",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "assistant-media/uploads/photo.jpg",
+        relativePath: "uploads/photo.jpg",
+        displayName: "photo.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 123,
+        logicalSizeBytes: 123,
+        aliases: ["current image #1"],
+        semanticSummaryHint: null
+      }
+    ]);
+
+    assert.ok(section, "section must be non-null");
+    assert.doesNotMatch(section ?? "", /Use only these aliases/);
+    assert.match(
+      section ?? "",
+      /These are the reusable file handles the system has already prepared for this turn\./
+    );
+    assert.match(section ?? "", /[Ff]irst call `files\.list`/);
+  });
+
   test("working files section shows bounded semantic hints without dumping previews", () => {
     const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
     const section = (

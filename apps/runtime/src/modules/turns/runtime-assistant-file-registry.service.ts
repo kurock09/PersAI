@@ -194,13 +194,78 @@ export class RuntimeAssistantFileRegistryService {
     limit: number;
   }): Promise<RuntimeAssistantFileRecord[]> {
     const normalizedQuery = input.query.trim();
-    const where = this.buildSearchWhere(input.assistantId, input.workspaceId, normalizedQuery);
-    const canonicalRows = await this.prisma.assistantFile.findMany({
+    const tokens = this.tokenizeSearchQuery(normalizedQuery);
+
+    if (tokens.length === 0) {
+      const where = this.buildSearchWhere(input.assistantId, input.workspaceId, normalizedQuery);
+      const canonicalRows = await this.prisma.assistantFile.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: input.limit
+      });
+      return canonicalRows.map((row) => this.mapRow(row));
+    }
+
+    const candidateCap = Math.min(Math.max(input.limit * 5, 50), 200);
+    const where = {
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      OR: tokens.flatMap((token) => [
+        { displayName: { contains: token, mode: "insensitive" as const } },
+        { relativePath: { contains: token, mode: "insensitive" as const } },
+        { metadata: { path: ["semanticSummary"], string_contains: token } }
+      ])
+    };
+    const candidateRows = await this.prisma.assistantFile.findMany({
       where,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: input.limit
+      take: candidateCap
     });
-    return canonicalRows.map((row) => this.mapRow(row));
+
+    const scored = candidateRows
+      .map((row) => ({ row, score: this.scoreRowAgainstTokens(row, tokens) }))
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    return scored.slice(0, input.limit).map(({ row }) => this.mapRow(row));
+  }
+
+  private tokenizeSearchQuery(query: string): string[] {
+    const seen = new Set<string>();
+    const tokens: string[] = [];
+    for (const part of query.split(/\s+/)) {
+      const token = part.toLowerCase().trim();
+      if (token.length >= 2 && !seen.has(token)) {
+        seen.add(token);
+        tokens.push(token);
+      }
+    }
+    return tokens;
+  }
+
+  private scoreRowAgainstTokens(row: RegistryRow, tokens: string[]): number {
+    const displayName = (row.displayName ?? "").toLowerCase();
+    const relativePath = row.relativePath.toLowerCase();
+    const rawSummary =
+      row.metadata !== null &&
+      typeof row.metadata === "object" &&
+      !Array.isArray(row.metadata) &&
+      typeof (row.metadata as Record<string, unknown>)["semanticSummary"] === "string"
+        ? ((row.metadata as Record<string, unknown>)["semanticSummary"] as string)
+        : "";
+    const semanticSummary = rawSummary.toLowerCase();
+
+    let score = 0;
+    for (const token of tokens) {
+      if (
+        displayName.includes(token) ||
+        relativePath.includes(token) ||
+        semanticSummary.includes(token)
+      ) {
+        score += 1;
+      }
+    }
+    return score;
   }
 
   async ensureAttachmentBackedFile(input: {
