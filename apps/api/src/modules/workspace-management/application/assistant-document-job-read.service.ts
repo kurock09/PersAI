@@ -120,6 +120,93 @@ export class AssistantDocumentJobReadService {
     });
   }
 
+  /**
+   * ADR-097 Slice 5 — assistant-scoped recent-PDF context for the cross-chat developer-block hint.
+   *
+   * Returns up to `limit` (default 6) PDF documents across ALL chats of this assistant,
+   * ordered by updatedAt DESC, whose current version has a non-null renderedHtml (patch-revisable).
+   *
+   * Each result includes `fileRef` = AssistantDocumentDeliveredFile.assistantFileId, which is the
+   * UUID the model must use in `revise_document { fileRef }`. The `chatId` field lets the
+   * caller compute chatRef (current_chat vs other_chat).
+   *
+   * Only `pdf_document` documentType — presentations excluded.
+   * Documents without a delivered file (assistantFileId) are excluded because the model
+   * cannot anchor to a UUID-backed fileRef without one.
+   */
+  async listRecentAssistantPdfsForTurn(input: {
+    assistantId: string;
+    workspaceId: string;
+    currentChatId: string;
+    limit?: number;
+  }): Promise<
+    Array<{
+      docId: string;
+      fileRef: string;
+      filename: string | null;
+      chatId: string;
+      currentVersionId: string;
+      deliveredAt: Date;
+    }>
+  > {
+    const MAX_RESULTS = input.limit ?? 6;
+
+    const documents = await this.prisma.assistantDocument.findMany({
+      where: {
+        assistantId: input.assistantId,
+        documentType: "pdf_document",
+        currentVersionId: { not: null },
+        currentVersion: { renderedHtml: { not: null } }
+      },
+      orderBy: { updatedAt: "desc" },
+      take: MAX_RESULTS * 2, // over-fetch to account for docs without a delivered file
+      select: {
+        id: true,
+        chatId: true,
+        updatedAt: true,
+        currentVersionId: true,
+        deliveredFiles: {
+          where: { isCurrentOutput: true },
+          orderBy: { deliveredAt: "desc" },
+          take: 1,
+          select: {
+            assistantFileId: true,
+            deliveredAt: true,
+            assistantFile: {
+              select: { displayName: true, relativePath: true }
+            }
+          }
+        }
+      }
+    });
+
+    const results: Array<{
+      docId: string;
+      fileRef: string;
+      filename: string | null;
+      chatId: string;
+      currentVersionId: string;
+      deliveredAt: Date;
+    }> = [];
+
+    for (const doc of documents) {
+      if (results.length >= MAX_RESULTS) break;
+      const df = doc.deliveredFiles[0];
+      if (!df) continue; // no delivered file → no UUID anchor → skip
+      const filename = df.assistantFile?.displayName ?? df.assistantFile?.relativePath ?? null;
+      results.push({
+        docId: doc.id,
+        fileRef: df.assistantFileId,
+        filename,
+        chatId: doc.chatId,
+        currentVersionId: doc.currentVersionId!,
+        deliveredAt: df.deliveredAt
+      });
+    }
+
+    return results;
+  }
+
   async listOpenJobsForWebChat(input: {
     assistantId: string;
     userId: string;

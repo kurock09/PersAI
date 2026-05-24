@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { AssistantDocumentJobReadService } from "../src/modules/workspace-management/application/assistant-document-job-read.service";
 
-// ADR-097 Slice 3 — tests for listRecentChatPdfsForTurn
+// ADR-097 Slice 3/5 — tests for listRecentChatPdfsForTurn and listRecentAssistantPdfsForTurn
 
 describe("AssistantDocumentJobReadService.listRecentChatPdfsForTurn", () => {
   const BASE_NOW = new Date("2026-05-24T10:00:00.000Z");
@@ -152,5 +152,182 @@ describe("AssistantDocumentJobReadService.listRecentChatPdfsForTurn", () => {
       maxMessageWindow: 10
     });
     assert.equal(result.length, 3, "must return at most 3 documents");
+  });
+});
+
+// ADR-097 Slice 5 — tests for listRecentAssistantPdfsForTurn (assistant-scope)
+
+describe("AssistantDocumentJobReadService.listRecentAssistantPdfsForTurn", () => {
+  const BASE_NOW = new Date("2026-05-24T10:00:00.000Z");
+
+  /** Build a mock prisma for the assistant-scope query (no chat message window). */
+  function makePrismaAssistantScope(
+    documents: Array<{
+      id: string;
+      chatId: string;
+      updatedAt: Date;
+      currentVersionId: string | null;
+      deliveredFiles: Array<{
+        assistantFileId: string;
+        deliveredAt: Date;
+        assistantFile: { displayName: string | null; relativePath: string } | null;
+      }>;
+    }>
+  ) {
+    return {
+      assistantDocument: {
+        findMany: async () => documents
+      }
+    } as never;
+  }
+
+  test("returns PDFs from multiple chats of the same assistant, ordered by updatedAt", async () => {
+    const docs = [
+      {
+        id: "doc-1",
+        chatId: "chat-A",
+        updatedAt: new Date("2026-05-24T09:50:00.000Z"),
+        currentVersionId: "ver-1",
+        deliveredFiles: [
+          {
+            assistantFileId: "file-uuid-1",
+            deliveredAt: new Date("2026-05-24T09:50:00.000Z"),
+            assistantFile: { displayName: "Report A.pdf", relativePath: "report-a.pdf" }
+          }
+        ]
+      },
+      {
+        id: "doc-2",
+        chatId: "chat-B",
+        updatedAt: new Date("2026-05-24T09:45:00.000Z"),
+        currentVersionId: "ver-2",
+        deliveredFiles: [
+          {
+            assistantFileId: "file-uuid-2",
+            deliveredAt: new Date("2026-05-24T09:45:00.000Z"),
+            assistantFile: { displayName: "Report B.pdf", relativePath: "report-b.pdf" }
+          }
+        ]
+      }
+    ];
+    const service = new AssistantDocumentJobReadService(makePrismaAssistantScope(docs));
+    const result = await service.listRecentAssistantPdfsForTurn({
+      assistantId: "a-1",
+      workspaceId: "w-1",
+      currentChatId: "chat-A"
+    });
+    assert.equal(result.length, 2, "must return docs from both chats");
+    assert.equal(result[0]!.docId, "doc-1", "most recent first");
+    assert.equal(result[0]!.fileRef, "file-uuid-1", "must include fileRef (assistantFileId)");
+    assert.equal(result[0]!.chatId, "chat-A", "must include chatId");
+    assert.equal(result[0]!.filename, "Report A.pdf");
+    assert.equal(result[1]!.chatId, "chat-B", "second doc from different chat");
+  });
+
+  test("excludes PDFs from a different assistant (Prisma mock returns nothing when filtering by assistantId)", async () => {
+    // Mock returns empty simulating Prisma filtered out a different assistant's docs
+    const service = new AssistantDocumentJobReadService(makePrismaAssistantScope([]));
+    const result = await service.listRecentAssistantPdfsForTurn({
+      assistantId: "a-other",
+      workspaceId: "w-1",
+      currentChatId: "chat-X"
+    });
+    assert.equal(result.length, 0, "must exclude other assistants");
+  });
+
+  test("excludes PDFs whose latest version has renderedHtml = null (Prisma mock returns nothing)", async () => {
+    // Mock returns empty simulating Prisma filtered out no-renderedHtml docs
+    const service = new AssistantDocumentJobReadService(makePrismaAssistantScope([]));
+    const result = await service.listRecentAssistantPdfsForTurn({
+      assistantId: "a-1",
+      workspaceId: "w-1",
+      currentChatId: "chat-1"
+    });
+    assert.equal(result.length, 0, "must exclude docs without renderedHtml");
+  });
+
+  test("excludes documents that have no delivered file (no UUID anchor)", async () => {
+    const docs = [
+      {
+        id: "doc-no-file",
+        chatId: "chat-A",
+        updatedAt: BASE_NOW,
+        currentVersionId: "ver-1",
+        deliveredFiles: [] // no delivered file
+      }
+    ];
+    const service = new AssistantDocumentJobReadService(makePrismaAssistantScope(docs));
+    const result = await service.listRecentAssistantPdfsForTurn({
+      assistantId: "a-1",
+      workspaceId: "w-1",
+      currentChatId: "chat-A"
+    });
+    assert.equal(result.length, 0, "must exclude docs without a delivered file UUID");
+  });
+
+  test("caps at 6 rows even when more documents exist", async () => {
+    const docs = Array.from({ length: 8 }, (_, i) => ({
+      id: `doc-${String(i + 1)}`,
+      chatId: `chat-${String(i + 1)}`,
+      updatedAt: new Date(BASE_NOW.getTime() - i * 60_000),
+      currentVersionId: `ver-${String(i + 1)}`,
+      deliveredFiles: [
+        {
+          assistantFileId: `file-uuid-${String(i + 1)}`,
+          deliveredAt: new Date(BASE_NOW.getTime() - i * 60_000),
+          assistantFile: {
+            displayName: `Doc ${String(i + 1)}.pdf`,
+            relativePath: `doc-${String(i + 1)}.pdf`
+          }
+        }
+      ]
+    }));
+    // over-fetch mock returns first 12 but service caps at 6
+    const service = new AssistantDocumentJobReadService(
+      makePrismaAssistantScope(docs.slice(0, 12))
+    );
+    const result = await service.listRecentAssistantPdfsForTurn({
+      assistantId: "a-1",
+      workspaceId: "w-1",
+      currentChatId: "chat-1",
+      limit: 6
+    });
+    assert.equal(result.length, 6, "must cap at 6 rows");
+  });
+
+  test("each result row includes fileRef, filename, chatId, deliveredAt, currentVersionId", async () => {
+    const deliveredAt = new Date("2026-05-24T09:55:00.000Z");
+    const docs = [
+      {
+        id: "doc-complete",
+        chatId: "chat-current",
+        updatedAt: deliveredAt,
+        currentVersionId: "ver-complete",
+        deliveredFiles: [
+          {
+            assistantFileId: "afile-uuid-complete",
+            deliveredAt,
+            assistantFile: { displayName: null, relativePath: "my-doc.pdf" }
+          }
+        ]
+      }
+    ];
+    const service = new AssistantDocumentJobReadService(makePrismaAssistantScope(docs));
+    const result = await service.listRecentAssistantPdfsForTurn({
+      assistantId: "a-1",
+      workspaceId: "w-1",
+      currentChatId: "chat-current"
+    });
+    assert.equal(result.length, 1);
+    assert.equal(result[0]!.fileRef, "afile-uuid-complete");
+    assert.equal(result[0]!.docId, "doc-complete");
+    assert.equal(result[0]!.chatId, "chat-current");
+    assert.equal(result[0]!.currentVersionId, "ver-complete");
+    assert.equal(
+      result[0]!.filename,
+      "my-doc.pdf",
+      "falls back to relativePath when displayName is null"
+    );
+    assert.deepEqual(result[0]!.deliveredAt, deliveredAt);
   });
 });

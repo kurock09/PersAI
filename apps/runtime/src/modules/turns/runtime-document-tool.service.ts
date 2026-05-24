@@ -349,6 +349,13 @@ export class RuntimeDocumentToolService {
     ) {
       return input.descriptorMode;
     }
+    // ADR-097 Slice 5: log when fileRef was provided but is not a valid UUID.
+    // This means the model passed an alias string instead of the server-resolved UUID.
+    if (input.fileRef !== null && input.fileRef !== undefined) {
+      this.logger.warn(
+        `[document-tool] fileRef-not-uuid — model passed a non-UUID fileRef value: "${input.fileRef}"`
+      );
+    }
     // ADR-097 Slice 2: for PDF revise without a valid docId, do NOT silently
     // convert to create_pdf_document. The API layer will resolve the latest
     // PDF document in the chat via latestRevisionContextForChat, and return

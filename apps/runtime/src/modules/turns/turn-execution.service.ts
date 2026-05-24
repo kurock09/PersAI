@@ -1799,16 +1799,23 @@ export class TurnExecutionService {
       projectedTools?.tools.some((t) => t.name === DOCUMENT_TOOL_CODE) ?? false;
     if (!hasDocumentTool) return null;
 
-    const nowMs = Date.now();
-    const lines = ["RECENT PDFS IN THIS CHAT (server-resolved, not user-typed):"];
+    // ADR-097 Slice 5: updated format — make the UUID anchor explicit so the model
+    // uses fileRef instead of passing aliases like "last generated file".
+    const lines = ["RECENT PDFS YOU CAN REVISE (server-resolved, not user-typed):"];
     for (const pdf of pdfs) {
-      const ageMinutes = Math.round((nowMs - new Date(pdf.updatedAt).getTime()) / 60_000);
-      const label = pdf.filename ?? pdf.docId;
-      lines.push(`- "${label}" (docId=${pdf.docId}, generated ${String(ageMinutes)} minutes ago)`);
+      const uuidAnchor = pdf.fileRef ?? pdf.docId;
+      const name = pdf.filename ?? pdf.docId;
+      const origin = pdf.chatRef ?? "current_chat";
+      const age = pdf.relativeAge ?? "unknown age";
+      lines.push(`- fileRef: ${uuidAnchor}  filename: ${name}  origin: ${origin}  age: ${age}`);
     }
     lines.push("");
     lines.push(
-      "If the user wants to modify any of these PDFs, you SHOULD use the document tool with descriptorMode=revise_document — the docId field is optional, the server will auto-resolve to the latest matching PDF. Use create_pdf_document ONLY for documents that are genuinely new and unrelated to the listed PDFs. This is a contextual hint, not a hard rule."
+      'To revise one of these, call `revise_document` with `fileRef: "<exact uuid above>"`. Do NOT use aliases like "last generated file" or "recent file #N" or "previous attachment #1" or "current attachment #1" as fileRef values — those resolve elsewhere and will fail.'
+    );
+    lines.push("");
+    lines.push(
+      "When the developer-block lists fileRefs in RECENT PDFS YOU CAN REVISE, prefer revise_document with one of those fileRef UUIDs over create_pdf_document."
     );
     return lines.join("\n");
   }

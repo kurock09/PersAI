@@ -2304,10 +2304,10 @@ export interface RuntimeMediaJobCompletionResult {
 }
 
 /**
- * ADR-097 Slice 3 — server-resolved recent-PDF context passed from API to runtime.
- * Populated by listRecentChatPdfsForTurn when the document tool is available for the
+ * ADR-097 Slice 3/5 — server-resolved recent-PDF context passed from API to runtime.
+ * Populated by listRecentAssistantPdfsForTurn when the document tool is available for the
  * turn. The runtime injects this into the developer block so the model knows about
- * existing PDFs in the chat without relying on keyword routing.
+ * revisable PDFs across this assistant's chats without relying on keyword routing.
  */
 export interface RuntimeRecentChatPdf {
   docId: string;
@@ -2315,6 +2315,22 @@ export interface RuntimeRecentChatPdf {
   currentVersionId: string;
   /** ISO timestamp of last document update. */
   updatedAt: string;
+  /**
+   * ADR-097 Slice 5 — UUID of the AssistantFile that holds this PDF.
+   * The model MUST pass this value as `fileRef` when calling revise_document
+   * for cross-chat documents. Populated by listRecentAssistantPdfsForTurn.
+   */
+  fileRef?: string;
+  /**
+   * ADR-097 Slice 5 — indicates whether the PDF originated in the current
+   * chat or a different chat of the same assistant.
+   */
+  chatRef?: "current_chat" | "other_chat";
+  /**
+   * ADR-097 Slice 5 — short human-readable age string, e.g. "5 min ago",
+   * "3h ago", "yesterday", "5 days ago".
+   */
+  relativeAge?: string;
 }
 
 export interface RuntimeTurnRequest {

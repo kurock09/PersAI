@@ -2,6 +2,61 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-24 — ADR-097 Slice 5 — cross-chat recent-PDFs hint + descriptor sharpening
+
+### What changed
+
+**Production diagnostic:** Slice 4 shipped but the model kept passing aliases (`"last generated file"`, `"previous attachment #1"`) instead of UUIDs in `fileRef`. DB showed zero UUID fileRef calls. Root cause: the `RECENT PDFS IN THIS CHAT` hint only covered the current chat, so cross-chat revises had no server-resolved UUID anchor.
+
+**Fix 1 — Assistant-scope hint:** `AssistantDocumentJobReadService.listRecentAssistantPdfsForTurn()` added — queries PDFs across ALL chats of the assistant (not just current chat), returns `fileRef` (= `assistantFileId`), `filename`, `chatId`, `currentVersionId`, `deliveredAt`. Cap 6, ordered by `updatedAt DESC`, only documents with non-null `renderedHtml`. Per-chat `listRecentChatPdfsForTurn` kept for backwards compat.
+
+`RuntimeRecentChatPdf` extended with `fileRef?`, `chatRef?` (`"current_chat" | "other_chat"`), `relativeAge?`. All 5 API entry points (stream-web, send-web, send-native-web, handle-internal-telegram, send-native-telegram) now call `listRecentAssistantPdfsForTurn` and pass `recentChatPdfs` with the new fields.
+
+`TurnExecutionService.buildRecentChatPdfsHintSection()` updated to render `fileRef:`, `origin:`, `age:` per row with an explicit anti-alias warning: do NOT use aliases like `"last generated file"` or `"previous attachment #1"` as `fileRef` values.
+
+**Fix 2 — Descriptor sharpening:** `native-tool-projection.ts` `fileRef` field description rewritten to explicitly say "MUST be a UUID" with an example UUID and list of invalid alias patterns. All `file_ref` (snake-case) references in the tool description replaced with `fileRef` (camelCase).
+
+**Fix 3 — Log:** `[document-tool] fileRef-not-uuid` log line added when model passes a non-UUID fileRef.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts` — `fileRef?`, `chatRef?`, `relativeAge?` on `RuntimeRecentChatPdf`
+- `apps/api/src/modules/workspace-management/application/assistant-document-job-read.service.ts` — `listRecentAssistantPdfsForTurn()`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` — switch to new method
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts` — add call + pass through
+- `apps/api/src/modules/workspace-management/application/send-native-web-chat-turn.service.ts` — `recentChatPdfs` on input type
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts` — new dep + call
+- `apps/api/src/modules/workspace-management/application/send-native-telegram-turn.service.ts` — `recentChatPdfs` on input type
+- `apps/runtime/src/modules/turns/turn-execution.service.ts` — updated hint format
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` — sharpened descriptor
+- `apps/runtime/src/modules/turns/runtime-document-tool.service.ts` — `[document-tool] fileRef-not-uuid` log
+- `apps/api/test/assistant-document-job-read.service.test.ts` — 5 new `listRecentAssistantPdfsForTurn` tests
+- `apps/runtime/test/turn-execution.service.test.ts` — updated hint tests + 2 new cross-chat tests
+- `apps/api/test/stream-web-chat-turn.service.test.ts` — mock switched + 3 new contract tests
+- `apps/api/test/send-web-chat-turn.service.test.ts` — mock updated
+- `apps/api/test/handle-internal-telegram-turn.service.test.ts` — all 9 instantiations updated
+- `apps/runtime/test/native-tool-projection.test.ts` — 4 new descriptor assertions
+- `apps/runtime/test/runtime-document-tool.service.test.ts` — 1 new log test
+- `docs/ADR/097-autonomous-document-tool-and-async-rendering.md` — Phase 11 section
+- `docs/SESSION-HANDOFF.md` — this section
+- `docs/CHANGELOG.md` — top entry
+
+### Verification (all PASS)
+
+1. `corepack pnpm -r --if-present run lint` — PASS
+2. `corepack pnpm run format:check` — PASS
+3. `corepack pnpm --filter @persai/api run typecheck` — PASS
+4. `corepack pnpm --filter @persai/web run typecheck` — PASS
+5. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — PASS
+7. `corepack pnpm --filter @persai/api run test` — PASS
+8. `corepack pnpm --filter @persai/runtime run test` — PASS
+9. `corepack pnpm --filter @persai/provider-gateway run test` — PASS
+
+### Next recommended step
+
+Deploy to `persai-dev`. Validate cross-chat revise end-to-end: create a PDF in chat A, open chat B, call `revise_document`. Confirm the model now picks up the fileRef UUID from the `RECENT PDFS YOU CAN REVISE` developer block and passes it as `fileRef` (not an alias). Confirm `[document-pdf-patch-revise-success]` log emits with a valid UUID fileRef.
+
 ## 2026-05-24 — ADR-097 Slice 4 — cross-chat PDF revise via file_ref
 
 ### What changed

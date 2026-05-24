@@ -593,6 +593,55 @@ The read crosses chats; the write stays chat-local.
   - `apps/runtime/src/modules/turns/native-tool-projection.ts` — `fileRef` field added to schema; `docId`/`file_ref` descriptions updated
 - **Tests added:** `apps/api/test/enqueue-runtime-deferred-document-job-file-ref-resolver.service.test.ts` (9 cases: cross-chat happy path, same-chat happy path, cross-assistant security, non-existent ref, non-PDF document, legacy-version null HTML, ambiguous source, neither-field fallback, secondary type guard)
 
+### Phase 11: Cross-chat recent-PDFs hint + descriptor sharpening (ADR-097 Slice 5)
+
+**Production diagnostic that motivated this slice:**
+
+After Slice 4 shipped (`5ead1632`), DB inspection showed 4 revise jobs across 4 hours all with `fileRef = null` and `docIdReq = "last generated file"`. The model had the `fileRef` schema field but kept passing aliases (`"last generated file"`, `"previous attachment #1"`, `"current attachment #1"`) instead of UUIDs. Error: `file_alias_not_found`. Root cause: descriptor-level — the model had no server-resolved UUID anchor for cross-chat documents since `listRecentChatPdfsForTurn` (Slice 3) only covered the current chat.
+
+**Fix 1 — Assistant-scope recent-PDFs hint:**
+
+- `AssistantDocumentJobReadService.listRecentAssistantPdfsForTurn()`: new method querying `AssistantDocument` filtered by `assistantId` (not `chatId`) with `documentType = "pdf_document"`, `currentVersionId IS NOT NULL`, `currentVersion.renderedHtml IS NOT NULL`; ordered by `updatedAt DESC`; cap 6; includes `AssistantDocumentDeliveredFile.assistantFileId` (= `fileRef`) and `deliveredAt`. Per-chat `listRecentChatPdfsForTurn` kept intact for backwards compat.
+- `RuntimeRecentChatPdf` extended with three optional fields: `fileRef?: string` (the UUID the model must use), `chatRef?: "current_chat" | "other_chat"`, `relativeAge?: string` (short human-readable age, e.g. `"5 min ago"`, `"3h ago"`, `"yesterday"`).
+- All 5 API entry points updated: `stream-web-chat-turn.service.ts` (was already calling `listRecentChatPdfsForTurn` — switched), `send-web-chat-turn.service.ts` (new call added), `send-native-web-chat-turn.service.ts` (new `recentChatPdfs` field on `SendNativeWebChatTurnInput`), `handle-internal-telegram-turn.service.ts` (new `AssistantDocumentJobReadService` dependency + call), `send-native-telegram-turn.service.ts` (new `recentChatPdfs` field on `SendNativeTelegramTurnInput`). Each entry point computes `chatRef` and `relativeAge` before passing the list.
+- `TurnExecutionService.buildRecentChatPdfsHintSection()` updated to new format: header `RECENT PDFS YOU CAN REVISE (server-resolved, not user-typed):`, each row `fileRef: <uuid>  filename: <name>  origin: <chatRef>  age: <relativeAge>`, followed by explicit anti-alias warning: "Do NOT use aliases like 'last generated file' or 'recent file #N' as fileRef values — those resolve elsewhere and will fail."
+
+**Fix 2 — Descriptor sharpening:**
+
+- `native-tool-projection.ts` `fileRef` field description replaced with: "fileRef MUST be a UUID — the exact `fileRef` value returned by `files.search`/`files.read` response items, or the `fileRef:` value listed in the `RECENT PDFS YOU CAN REVISE` developer-block section. Example valid value: `\"abc12345-0000-4000-8000-deadbeef1234\"`. Aliases such as `\"last generated file\"`, `\"recent file #1\"`, `\"previous attachment #1\"`, or `\"current attachment #1\"` are NOT valid fileRef values — they belong to different resolution paths and will fail with `file_alias_not_found`. Mutually exclusive with `docId`; do not pass both."
+- All `file_ref` (snake-case) references in the supporting description text replaced with `fileRef` (camelCase) to match the field name. Added sentence: "When the developer-block lists fileRefs in RECENT PDFS YOU CAN REVISE, prefer revise_document with one of those fileRef UUIDs over create_pdf_document."
+
+**Fix 3 — Guardrail check (no code change):**
+
+Verified that `docIdReq = "last generated file"` magical alias still fires as a fallback AFTER `fileRef` and `docId` paths in `enqueue-runtime-deferred-document-job.service.ts`. The existing routing handles this correctly; no code change needed.
+
+- `runtime-document-tool.service.ts`: added `logger.warn('[document-tool] fileRef-not-uuid')` when `fileRef` is provided but fails UUID validation — makes future debugging easier without changing any routing.
+
+**Files changed:**
+
+- `packages/runtime-contract/src/index.ts` — `fileRef?`, `chatRef?`, `relativeAge?` on `RuntimeRecentChatPdf`
+- `apps/api/src/modules/workspace-management/application/assistant-document-job-read.service.ts` — `listRecentAssistantPdfsForTurn()` new method
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` — switched to `listRecentAssistantPdfsForTurn`, `computeRelativeAge` utility, new field mapping
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts` — added `listRecentAssistantPdfsForTurn` call, `computeRelativeAge`, `recentChatPdfs` in `buildNativeSyncTurnInput`
+- `apps/api/src/modules/workspace-management/application/send-native-web-chat-turn.service.ts` — `recentChatPdfs` on `SendNativeWebChatTurnInput`, passed to `RuntimeTurnRequest`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts` — new `AssistantDocumentJobReadService` dep, call `listRecentAssistantPdfsForTurn`, pass `recentChatPdfs`
+- `apps/api/src/modules/workspace-management/application/send-native-telegram-turn.service.ts` — `recentChatPdfs` on `SendNativeTelegramTurnInput`, passed to `RuntimeTurnRequest`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts` — updated `buildRecentChatPdfsHintSection` to new format with `fileRef:`, `origin:`, `age:`, anti-alias warning
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` — sharpened `fileRef` field description, `file_ref` → `fileRef` in tool description
+- `apps/runtime/src/modules/turns/runtime-document-tool.service.ts` — `[document-tool] fileRef-not-uuid` log line
+
+**Tests added/updated:**
+
+- `apps/api/test/assistant-document-job-read.service.test.ts` — 5 new `listRecentAssistantPdfsForTurn` tests (multi-chat, cross-assistant exclusion, null-renderedHtml exclusion, no-file exclusion, cap at 6)
+- `apps/runtime/test/turn-execution.service.test.ts` — updated existing hint tests to new format; 2 new cross-chat tests (`origin: other_chat`, `age:` field)
+- `apps/api/test/stream-web-chat-turn.service.test.ts` — mock switched to `listRecentAssistantPdfsForTurn`; 3 new contract tests for new fields
+- `apps/api/test/send-web-chat-turn.service.test.ts` — mock updated to add `listRecentAssistantPdfsForTurn`
+- `apps/api/test/handle-internal-telegram-turn.service.test.ts` — all 9 instantiations updated with `noopAssistantDocumentJobReadService`
+- `apps/runtime/test/native-tool-projection.test.ts` — 4 new assertions: `fileRef` description contains "MUST be a UUID", contains example UUID, tool description uses `fileRef` not `file_ref`
+- `apps/runtime/test/runtime-document-tool.service.test.ts` — 1 new test asserting `[document-tool] fileRef-not-uuid` log when alias is passed
+
+**Verification:** lint + format:check + 5× typecheck + 3× test suites — all PASS.
+
 ### Phase 9: Hardening
 
 - **Timeout → chunked re-route (Gap A):** `RuntimeDocumentProviderAdapterService.run()` now catches `ProviderGatewayTimeoutError` (a new typed error surfaced by `ProviderGatewayClientService`) on the single-shot path. On timeout the attempt is counted against the retry budget, `useChunked` is flipped, and `[document-pdf-single-shot-timeout]` is logged. Chunked pipeline timeouts fail the job honestly with `document_pdf_chunked_timeout` (no further re-route). This is the second objective re-route signal alongside the existing truncation re-route.

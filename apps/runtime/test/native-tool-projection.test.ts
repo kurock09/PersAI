@@ -393,6 +393,7 @@ async function run(): Promise<void> {
       properties?: {
         descriptorMode?: { enum?: unknown[] };
         docId?: { description?: string };
+        fileRef?: { description?: string };
         visualStyle?: { enum?: unknown[]; description?: string };
         imagePolicy?: { enum?: unknown[]; description?: string };
         visualDensity?: { enum?: unknown[]; description?: string };
@@ -409,6 +410,27 @@ async function run(): Promise<void> {
   assert.match(
     documentProperties?.docId?.description ?? "",
     /revise_document and export_or_redeliver/
+  );
+  // ADR-097 Slice 5 — descriptor sharpening assertions
+  assert.match(
+    documentProperties?.fileRef?.description ?? "",
+    /MUST be a UUID/,
+    "fileRef description must contain 'MUST be a UUID'"
+  );
+  assert.match(
+    documentProperties?.fileRef?.description ?? "",
+    /deadbeef/,
+    "fileRef description must contain an example UUID"
+  );
+  assert.doesNotMatch(
+    document?.description ?? "",
+    /file_ref/,
+    "tool description must not use snake_case file_ref (should be camelCase fileRef)"
+  );
+  assert.match(
+    document?.description ?? "",
+    /fileRef/,
+    "tool description must use camelCase fileRef"
   );
   assert.deepEqual(documentProperties?.visualStyle?.enum, [
     "professional_modern",

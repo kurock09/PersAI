@@ -7125,7 +7125,8 @@ export async function runRecentPdfsHintTests(): Promise<void> {
   const service = buildMinimalTurnExecutionService();
   const accessor = service as unknown as HintSectionAccessor;
 
-  // B.5 — developer block injects recent-PDFs hint when listRecentChatPdfsForTurn returns rows
+  // B.5 — developer block injects recent-PDFs hint when listRecentAssistantPdfsForTurn returns rows
+  // ADR-097 Slice 5: updated assertions for new format (fileRef:, origin:, age:)
   {
     const request: RuntimeTurnRequest = {
       requestId: "req-1",
@@ -7157,9 +7158,12 @@ export async function runRecentPdfsHintTests(): Promise<void> {
       recentChatPdfs: [
         {
           docId: "doc-abc",
+          fileRef: "abc12345-0000-4000-8000-deadbeef1234",
           filename: "Report Q1.pdf",
           currentVersionId: "ver-1",
-          updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString()
+          updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+          chatRef: "current_chat",
+          relativeAge: "5 min ago"
         }
       ]
     };
@@ -7169,15 +7173,75 @@ export async function runRecentPdfsHintTests(): Promise<void> {
       hint !== null,
       "hint must be non-null when document tool is present and recentChatPdfs has entries"
     );
-    assert.match(hint!, /RECENT PDFS IN THIS CHAT/, "hint must include the RECENT PDFS header");
+    assert.match(
+      hint!,
+      /RECENT PDFS YOU CAN REVISE/,
+      "hint must include the RECENT PDFS YOU CAN REVISE header"
+    );
     assert.match(hint!, /Report Q1\.pdf/, "hint must include the PDF filename");
-    assert.match(hint!, /docId=doc-abc/, "hint must include the docId");
+    assert.match(
+      hint!,
+      /fileRef: abc12345-0000-4000-8000-deadbeef1234/,
+      "hint must include the fileRef UUID"
+    );
+    assert.match(hint!, /origin: current_chat/, "hint must include origin from chatRef");
+    assert.match(hint!, /age: 5 min ago/, "hint must include relativeAge");
     assert.match(hint!, /revise_document/, "hint must mention revise_document");
+    assert.match(hint!, /Do NOT use aliases/, "hint must contain anti-alias warning");
     assert.doesNotMatch(
       hint!,
       /regex|keyword|user.*said/,
       "hint must not contain keyword-routing language (regression guard)"
     );
+  }
+
+  // B.5 Slice 5 — cross-chat row renders origin: other_chat
+  {
+    const request: RuntimeTurnRequest = {
+      requestId: "req-cross",
+      idempotencyKey: "key-cross",
+      runtimeTier: "paid_shared_restricted",
+      bundle: {
+        bundleId: "bundle-1",
+        assistantId: "a-1",
+        workspaceId: "w-1",
+        publishedVersionId: "v-1",
+        bundleHash: "hash-1",
+        compiledAt: "2026-05-24T10:00:00.000Z"
+      },
+      conversation: {
+        assistantId: "a-1",
+        workspaceId: "w-1",
+        channel: "web",
+        externalThreadKey: "t-1",
+        externalUserKey: "u-1",
+        mode: "direct"
+      },
+      message: {
+        text: "revise from other chat",
+        attachments: [],
+        locale: "en",
+        timezone: "UTC",
+        receivedAt: "2026-05-24T10:00:00.000Z"
+      },
+      recentChatPdfs: [
+        {
+          docId: "doc-cross",
+          fileRef: "cross123-0000-4000-8000-deadbeef9999",
+          filename: "Cross Chat PDF.pdf",
+          currentVersionId: "ver-cross",
+          updatedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+          chatRef: "other_chat",
+          relativeAge: "3h ago"
+        }
+      ]
+    };
+    const projectedTools = { tools: [{ name: "document" }] };
+    const hint = accessor.buildRecentChatPdfsHintSection(request, projectedTools);
+    assert.ok(hint !== null, "hint must be non-null for cross-chat row");
+    assert.match(hint!, /origin: other_chat/, "cross-chat row must render origin: other_chat");
+    assert.match(hint!, /age: 3h ago/, "cross-chat row must render relativeAge");
+    assert.match(hint!, /cross123-0000-4000-8000-deadbeef9999/, "must show fileRef UUID");
   }
 
   // B.5 — developer block omits the hint section entirely when recentChatPdfs is empty

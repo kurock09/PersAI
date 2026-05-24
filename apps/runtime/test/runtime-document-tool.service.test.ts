@@ -482,4 +482,55 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(capturedInputs[1]!.directToolExecution.request.targetSlideCount, 30);
     assert.equal(capturedInputs[2]!.directToolExecution.request.targetSlideCount, null);
   });
+
+  // ADR-097 Slice 5 — [document-tool] fileRef-not-uuid log line guard
+  test("logs [document-tool] fileRef-not-uuid when model passes an alias string as fileRef", async () => {
+    const loggedMessages: string[] = [];
+    const service = new RuntimeDocumentToolService({
+      async enqueueDeferredDocumentJob() {
+        return {
+          accepted: true as const,
+          jobId: "doc-alias-job",
+          documentType: "pdf_document" as const
+        };
+      }
+    } as never);
+
+    // Patch the logger.warn to capture calls
+    const originalWarn = (service as unknown as { logger: { warn: (msg: string) => void } }).logger
+      .warn;
+    (service as unknown as { logger: { warn: (msg: string) => void } }).logger.warn = (
+      msg: string
+    ) => {
+      loggedMessages.push(msg);
+      if (originalWarn)
+        originalWarn.call(
+          (service as unknown as { logger: { warn: (msg: string) => void } }).logger,
+          msg
+        );
+    };
+
+    await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-alias-1",
+        name: "document",
+        arguments: {
+          descriptorMode: "revise_document",
+          prompt: "Make it shorter",
+          fileRef: "last generated file" // alias, not a UUID
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-alias-1",
+        sourceUserMessageText: "Make it shorter",
+        attachments: []
+      }
+    });
+
+    assert.ok(
+      loggedMessages.some((msg) => msg.includes("[document-tool] fileRef-not-uuid")),
+      "must log [document-tool] fileRef-not-uuid when fileRef is a non-UUID alias"
+    );
+  });
 });

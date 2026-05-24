@@ -69,7 +69,9 @@ function createQuotaAdvisoryFollowUpServiceMock() {
 
 function createAssistantDocumentJobReadServiceMock() {
   return {
-    listOpenJobsForWebChat: async () => []
+    listOpenJobsForWebChat: async () => [],
+    // ADR-097 Slice 5: send-web now also calls listRecentAssistantPdfsForTurn
+    listRecentAssistantPdfsForTurn: async () => []
   };
 }
 

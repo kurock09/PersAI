@@ -4,6 +4,7 @@ import { loadApiConfig } from "@persai/config";
 import type {
   RuntimeOpenMediaJobContext,
   RuntimeAttachmentRef,
+  RuntimeRecentChatPdf,
   RuntimeSkillStateCheckResult,
   RuntimeSkillStateContext,
   RuntimeTurnRequest,
@@ -44,6 +45,8 @@ export interface SendNativeWebChatTurnInput {
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
   skillStateContext?: RuntimeSkillStateContext;
+  /** ADR-097 Slice 5 — assistant-scoped recent PDFs for the developer-block hint. */
+  recentChatPdfs?: RuntimeRecentChatPdf[] | null;
 }
 
 interface JsonResponse {
@@ -131,7 +134,8 @@ export class SendNativeWebChatTurnService {
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
       ...(input.skillStateContext === undefined
         ? {}
-        : { skillStateContext: input.skillStateContext })
+        : { skillStateContext: input.skillStateContext }),
+      ...(input.recentChatPdfs == null ? {} : { recentChatPdfs: input.recentChatPdfs })
     };
     const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
       materializedSpec.runtimeBundle,
