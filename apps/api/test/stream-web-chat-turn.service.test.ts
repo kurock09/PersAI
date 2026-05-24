@@ -87,7 +87,9 @@ function createSkillStatePersistenceServiceMock() {
 
 function createAssistantDocumentJobReadServiceMock() {
   return {
-    listOpenJobsForWebChat: async () => []
+    listOpenJobsForWebChat: async () => [],
+    // ADR-097 Slice 3: added for recent-PDFs developer-block hint
+    listRecentChatPdfsForTurn: async () => []
   };
 }
 

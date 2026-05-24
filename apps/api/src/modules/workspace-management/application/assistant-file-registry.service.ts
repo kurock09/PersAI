@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { Prisma, type SandboxFileOrigin } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
@@ -11,6 +11,9 @@ import type {
 
 type AttachmentBackedOrigin = Extract<SandboxFileOrigin, "uploaded_attachment" | "runtime_output">;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CLEANUP_TTL_BY_REASON: Record<Exclude<AssistantFileCleanupReason, null>, number> = {
+  voice_upload_cache: 24 * 60 * 60 * 1000
+};
 const INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_KEY = "internalRuntimeFileExtractionCache";
 const INTERNAL_RUNTIME_FILE_EXTRACTION_CACHE_SCHEMA =
   "persai.internalRuntimeFileExtractionCache.v1";
@@ -63,6 +66,7 @@ export type AssistantFileRegistryRecord = {
   fileBucket: AssistantFileBucket;
   cleanupEligible: boolean;
   cleanupReason: AssistantFileCleanupReason;
+  cleanupEligibleAt: Date | null;
   documentLink: AssistantFileDocumentLink | null;
   createdAt: Date;
 };
@@ -75,6 +79,7 @@ export type AssistantFileCleanupSummary = {
 export type AssistantFileCleanupResult = AssistantFileCleanupSummary & {
   deletedCount: number;
   deletedBytes: number;
+  skippedPinnedCount: number;
 };
 
 export function readAssistantFileInternalRuntimeExtractionCache(
@@ -112,6 +117,8 @@ export function readAssistantFileInternalRuntimeExtractionCache(
 
 @Injectable()
 export class AssistantFileRegistryService {
+  private readonly logger = new Logger(AssistantFileRegistryService.name);
+
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService
@@ -344,20 +351,36 @@ export class AssistantFileRegistryService {
     ]);
   }
 
-  async cleanupAssistantFileCache(input: {
-    assistantId: string;
-    workspaceId: string;
-  }): Promise<AssistantFileCleanupResult> {
+  async cleanupAssistantFileCache(
+    input: { assistantId: string; workspaceId: string },
+    now: Date = new Date()
+  ): Promise<AssistantFileCleanupResult> {
     const files = await this.listAssistantFiles({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
       limit: 1000
     });
-    const eligible = this.summarizeCleanupFromFiles(files);
+    const eligible = this.summarizeCleanupFromFiles(files, now);
     let deletedCount = 0;
     let deletedBytes = 0;
+    let skippedPinnedCount = 0;
 
-    for (const file of files.filter((candidate) => candidate.cleanupEligible)) {
+    for (const file of files.filter(
+      (candidate) =>
+        candidate.cleanupEligible &&
+        candidate.cleanupEligibleAt !== null &&
+        candidate.cleanupEligibleAt <= now
+    )) {
+      const pinCount = await this.prisma.assistantChatMessageAttachment.count({
+        where: { assistantFileId: file.fileRef }
+      });
+      if (pinCount > 0) {
+        skippedPinnedCount += 1;
+        this.logger.debug(
+          `[cleanup] skipping pinned file ${file.fileRef}: referenced by ${pinCount} message attachment(s)`
+        );
+        continue;
+      }
       await this.deleteAssistantFile({
         assistantId: input.assistantId,
         workspaceId: input.workspaceId,
@@ -371,7 +394,8 @@ export class AssistantFileRegistryService {
     return {
       ...eligible,
       deletedCount,
-      deletedBytes
+      deletedBytes,
+      skippedPinnedCount
     };
   }
 
@@ -584,11 +608,12 @@ export class AssistantFileRegistryService {
   }
 
   private summarizeCleanupFromFiles(
-    files: AssistantFileRegistryRecord[]
+    files: AssistantFileRegistryRecord[],
+    now: Date = new Date()
   ): AssistantFileCleanupSummary {
     return files.reduce(
       (summary, file) =>
-        file.cleanupEligible
+        file.cleanupEligible && file.cleanupEligibleAt !== null && file.cleanupEligibleAt <= now
           ? {
               eligibleCount: summary.eligibleCount + 1,
               eligibleBytes: summary.eligibleBytes + file.sizeBytes
@@ -707,6 +732,10 @@ export class AssistantFileRegistryService {
       relativePath: row.relativePath,
       metadata
     });
+    const cleanupEligibleAt =
+      classification.cleanupReason !== null
+        ? new Date(row.createdAt.getTime() + CLEANUP_TTL_BY_REASON[classification.cleanupReason])
+        : null;
     return {
       fileRef: row.id,
       assistantId: row.assistantId,
@@ -721,6 +750,7 @@ export class AssistantFileRegistryService {
       sha256: row.sha256,
       metadata,
       ...classification,
+      cleanupEligibleAt,
       documentLink: null,
       createdAt: row.createdAt
     };

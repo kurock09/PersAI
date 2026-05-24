@@ -11,7 +11,8 @@ export const SCHEDULER_KEYS = [
   "document_job",
   "upload_micro_description",
   "materialization_rollout",
-  "telegram_album_finalizer"
+  "telegram_album_finalizer",
+  "assistant_file_cleanup_reaper"
 ] as const;
 
 export type SchedulerKey = (typeof SCHEDULER_KEYS)[number];

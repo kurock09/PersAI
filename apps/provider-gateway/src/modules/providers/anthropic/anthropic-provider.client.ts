@@ -104,9 +104,18 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       throw new Error("Anthropic provider client is not warmed.");
     }
 
-    const { signal, dispose } = this.createTimedSignal(
-      this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
+    // ADR-097 Slice 3: honour per-request timeoutMsHint when larger than the config default.
+    // Gateway enforces a hard cap of 600_000ms regardless of the caller's hint.
+    const ANTHROPIC_TEXT_GENERATION_MAX_TIMEOUT_MS = 600_000;
+    const hintedTimeout =
+      Number.isInteger(input.timeoutMsHint) && Number(input.timeoutMsHint) > 0
+        ? Math.min(ANTHROPIC_TEXT_GENERATION_MAX_TIMEOUT_MS, Number(input.timeoutMsHint))
+        : null;
+    const effectiveTimeoutMs = Math.max(
+      this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS,
+      hintedTimeout ?? 0
     );
+    const { signal, dispose } = this.createTimedSignal(effectiveTimeoutMs);
     try {
       const toolChoice = this.toAnthropicToolChoice(input);
       const outputConfig = this.toAnthropicOutputConfig(input.outputSchema);

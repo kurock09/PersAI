@@ -383,6 +383,15 @@ export class StreamWebChatTurnService {
       decisionState: prepared.chat.skillDecisionState,
       cadenceState: prepared.chat.skillCadenceState
     });
+    // ADR-097 Slice 3: resolve recent PDFs for the developer-block hint.
+    // Queried unconditionally here because bundle tool-presence is not cheaply detectable at
+    // this layer; the query is index-friendly (chatId + updatedAt + documentType filter).
+    const recentChatPdfs = await this.assistantDocumentJobReadService.listRecentChatPdfsForTurn({
+      assistantId: prepared.assistantId,
+      workspaceId: prepared.workspaceId,
+      chatId: prepared.chat.id,
+      maxMessageWindow: 10
+    });
     const nativeTurnInput = this.buildNativeStreamTurnInput({
       requestId: trace.getTraceId(),
       assistantId: prepared.assistantId,
@@ -405,7 +414,17 @@ export class StreamWebChatTurnService {
             providerOverride: prepared.quotaDegradeModelOverride.provider,
             modelOverride: prepared.quotaDegradeModelOverride.model
           }
-        : {})
+        : {}),
+      ...(recentChatPdfs.length === 0
+        ? {}
+        : {
+            recentChatPdfs: recentChatPdfs.map((p) => ({
+              docId: p.docId,
+              filename: p.filename,
+              currentVersionId: p.currentVersionId,
+              updatedAt: p.updatedAt.toISOString()
+            }))
+          })
     });
     trace.stage("native_turn_input_built");
     this.logWebRuntimeRoute({
@@ -987,6 +1006,7 @@ export class StreamWebChatTurnService {
     modelRoleOverride?: StreamNativeWebChatTurnInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic";
     modelOverride?: string;
+    recentChatPdfs?: StreamNativeWebChatTurnInput["recentChatPdfs"];
   }): StreamNativeWebChatTurnInput {
     return {
       ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
@@ -1011,7 +1031,9 @@ export class StreamWebChatTurnService {
         ? {}
         : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
-      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
+      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
+      // ADR-097 Slice 3: recent PDFs for developer-block hint.
+      ...(input.recentChatPdfs == null ? {} : { recentChatPdfs: input.recentChatPdfs })
     };
   }
 

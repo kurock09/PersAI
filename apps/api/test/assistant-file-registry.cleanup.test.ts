@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { AssistantFileRegistryService } from "../src/modules/workspace-management/application/assistant-file-registry.service";
 
 const now = new Date("2026-05-02T00:00:00.000Z");
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
 function createRow(input: {
   id: string;
@@ -90,7 +91,8 @@ async function run(): Promise<void> {
         attachmentMetadata.push(data.metadata);
         return {};
       },
-      updateMany: async () => ({ count: 1 })
+      updateMany: async () => ({ count: 1 }),
+      count: async () => 0
     },
     assistantDocumentDeliveredFile: {
       findMany: async () => [],
@@ -130,7 +132,8 @@ async function run(): Promise<void> {
     eligibleCount: 1,
     eligibleBytes: 30,
     deletedCount: 1,
-    deletedBytes: 30
+    deletedBytes: 30,
+    skippedPinnedCount: 0
   });
   assert.deepEqual(deletedObjects, ["objects/voice.webm"]);
   assert.equal(
@@ -243,3 +246,154 @@ async function runArchivesDeliveredDocumentDeletion(): Promise<void> {
 }
 
 void runArchivesDeliveredDocumentDeletion();
+
+async function runTtlGating(): Promise<void> {
+  const createdRecently = new Date(now.getTime() - 23 * 60 * 60 * 1000 - 59 * 60 * 1000);
+  const createdOld = new Date(now.getTime() - TWENTY_FOUR_HOURS_MS - 60 * 1000);
+
+  function makeVoiceRow(id: string, createdAt: Date) {
+    return {
+      id,
+      assistantId: "assistant-ttl",
+      workspaceId: "workspace-ttl",
+      sandboxJobId: null,
+      sourceToolCode: null,
+      origin: "uploaded_attachment" as const,
+      objectKey: `objects/${id}.webm`,
+      relativePath: `uploads/${id}/recording.webm`,
+      displayName: "recording.webm",
+      mimeType: "audio/webm",
+      sizeBytes: BigInt(100),
+      logicalSizeBytes: BigInt(100),
+      sha256: null,
+      metadata: { source: "web_staged_upload" },
+      createdAt,
+      updatedAt: createdAt
+    };
+  }
+
+  const rows = [
+    makeVoiceRow("voice-fresh", createdRecently),
+    makeVoiceRow("voice-old", createdOld)
+  ];
+  const deletedIds: string[] = [];
+  const countResults: Record<string, number> = { "voice-fresh": 0, "voice-old": 0 };
+
+  const prisma = {
+    assistantFile: {
+      findMany: async () => rows,
+      findFirst: async ({ where }: { where: { id: string } }) =>
+        rows.find((r) => r.id === where.id) ?? null,
+      delete: async ({ where }: { where: { id: string } }) => {
+        const idx = rows.findIndex((r) => r.id === where.id);
+        assert.notEqual(idx, -1, `Expected row ${where.id} to exist`);
+        const [deleted] = rows.splice(idx, 1);
+        deletedIds.push(where.id);
+        return deleted;
+      }
+    },
+    assistantChatMessageAttachment: {
+      findMany: async () => [],
+      update: async () => ({}),
+      updateMany: async () => ({ count: 0 }),
+      count: async ({ where }: { where: { assistantFileId: string } }) =>
+        countResults[where.assistantFileId] ?? 0
+    },
+    assistantDocumentDeliveredFile: {
+      findMany: async () => [],
+      findFirst: async () => null
+    },
+    $transaction: async (ops: Array<Promise<unknown>>) => Promise.all(ops)
+  };
+
+  const service = new AssistantFileRegistryService(
+    prisma as never,
+    { async deleteObject() {} } as never
+  );
+
+  const result = await service.cleanupAssistantFileCache(
+    { assistantId: "assistant-ttl", workspaceId: "workspace-ttl" },
+    now
+  );
+
+  assert.equal(result.eligibleCount, 1, "only the old file should be eligible");
+  assert.equal(result.deletedCount, 1, "only the old file should be deleted");
+  assert.deepEqual(deletedIds, ["voice-old"], "fresh file must not be deleted");
+  assert.equal(result.skippedPinnedCount, 0);
+}
+
+void runTtlGating();
+
+async function runPinningProtection(): Promise<void> {
+  const createdOld = new Date(now.getTime() - TWENTY_FOUR_HOURS_MS - 60 * 1000);
+
+  const rows = [
+    {
+      id: "voice-pinned",
+      assistantId: "assistant-pin",
+      workspaceId: "workspace-pin",
+      sandboxJobId: null,
+      sourceToolCode: null,
+      origin: "uploaded_attachment" as const,
+      objectKey: "objects/pinned.webm",
+      relativePath: "uploads/pinned/recording.webm",
+      displayName: "recording.webm",
+      mimeType: "audio/webm",
+      sizeBytes: BigInt(50),
+      logicalSizeBytes: BigInt(50),
+      sha256: null,
+      metadata: { source: "web_staged_upload" },
+      createdAt: createdOld,
+      updatedAt: createdOld
+    }
+  ];
+  const deletedIds: string[] = [];
+  const deletedObjects: string[] = [];
+
+  const prisma = {
+    assistantFile: {
+      findMany: async () => rows,
+      findFirst: async ({ where }: { where: { id: string } }) =>
+        rows.find((r) => r.id === where.id) ?? null,
+      delete: async ({ where }: { where: { id: string } }) => {
+        deletedIds.push(where.id);
+        const idx = rows.findIndex((r) => r.id === where.id);
+        const [d] = rows.splice(idx, 1);
+        return d;
+      }
+    },
+    assistantChatMessageAttachment: {
+      findMany: async () => [],
+      update: async () => ({}),
+      updateMany: async () => ({ count: 0 }),
+      count: async ({ where }: { where: { assistantFileId: string } }) =>
+        where.assistantFileId === "voice-pinned" ? 1 : 0
+    },
+    assistantDocumentDeliveredFile: {
+      findMany: async () => [],
+      findFirst: async () => null
+    },
+    $transaction: async (ops: Array<Promise<unknown>>) => Promise.all(ops)
+  };
+
+  const service = new AssistantFileRegistryService(
+    prisma as never,
+    {
+      async deleteObject(key: string) {
+        deletedObjects.push(key);
+      }
+    } as never
+  );
+
+  const result = await service.cleanupAssistantFileCache(
+    { assistantId: "assistant-pin", workspaceId: "workspace-pin" },
+    now
+  );
+
+  assert.equal(result.deletedCount, 0, "pinned file must not be deleted");
+  assert.equal(result.skippedPinnedCount, 1, "pinned file should be counted as skipped");
+  assert.deepEqual(deletedIds, [], "no DB deletion should occur");
+  assert.deepEqual(deletedObjects, [], "no storage deletion should occur");
+}
+
+void runPinningProtection();

@@ -2291,6 +2291,20 @@ export interface RuntimeMediaJobCompletionResult {
   rawText: string | null;
 }
 
+/**
+ * ADR-097 Slice 3 — server-resolved recent-PDF context passed from API to runtime.
+ * Populated by listRecentChatPdfsForTurn when the document tool is available for the
+ * turn. The runtime injects this into the developer block so the model knows about
+ * existing PDFs in the chat without relying on keyword routing.
+ */
+export interface RuntimeRecentChatPdf {
+  docId: string;
+  filename: string | null;
+  currentVersionId: string;
+  /** ISO timestamp of last document update. */
+  updatedAt: string;
+}
+
 export interface RuntimeTurnRequest {
   requestId: string;
   idempotencyKey: string;
@@ -2299,6 +2313,12 @@ export interface RuntimeTurnRequest {
   conversation: RuntimeConversationAddress;
   message: RuntimeInboundMessage;
   openMediaJobs?: RuntimeOpenMediaJobContext[];
+  /**
+   * ADR-097 Slice 3 — server-resolved recent PDFs for this chat.
+   * Populated by the API when the document tool is in scope. Empty array or absent
+   * means no hint is injected in the developer block.
+   */
+  recentChatPdfs?: RuntimeRecentChatPdf[] | null;
   chatMode?: "normal" | "smart" | "project";
   deepMode?: boolean;
   modelRoleOverride?: PersaiRuntimeModelRole;
@@ -2512,6 +2532,16 @@ export interface ProviderGatewayTextGenerateRequest {
   requestMetadata?: ProviderGatewayRequestMetadata;
   outputSchema?: ProviderGatewayStructuredOutputSchema;
   promptCache?: ProviderGatewayPromptCacheConfig;
+  /**
+   * ADR-097 Slice 3 — optional per-request timeout hint for the provider LLM call.
+   * When set to a positive integer, provider clients use min(600_000, timeoutMsHint)
+   * as the effective timeout. Non-document calls omit this field and keep the default
+   * PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS (90s). Document classifications
+   * (document_html_generation, document_pdf_outline, document_pdf_patch_revise) set
+   * this to 240_000ms to accommodate large 64k-token output budgets.
+   * The gateway enforces a hard cap of 600_000ms regardless of the hint value.
+   */
+  timeoutMsHint?: number;
 }
 
 export interface ProviderGatewayTextGenerateResult {

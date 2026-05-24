@@ -16,7 +16,7 @@ import { runCrossSessionCarryOverRendererTest } from "./cross-session-carry-over
 import { runPresenceRendererTest } from "./presence-renderer.test";
 import { runRelativeTimeFormatterTest } from "./relative-time-formatter.test";
 import { runTurnContextHydrationServiceTest } from "./turn-context-hydration.service.test";
-import { runTurnExecutionServiceTest } from "./turn-execution.service.test";
+import { runTurnExecutionServiceTest, runRecentPdfsHintTests } from "./turn-execution.service.test";
 import { runTurnFinalizationServiceTest } from "./turn-finalization.service.test";
 import { runTurnLeaseHeartbeatServiceTest } from "./turn-lease-heartbeat.service.test";
 import { runRuntimeMediaTranscriptionServiceTest } from "./runtime-media-transcription.service.test";
@@ -58,6 +58,7 @@ async function run(): Promise<void> {
   await runToolBudgetPolicyTest();
   await runSanitizeToolResultForModelTest();
   await runTurnExecutionServiceTest();
+  await runRecentPdfsHintTests();
   await runTurnFinalizationServiceTest();
   await runTurnLeaseHeartbeatServiceTest();
   const { runTurnRoutingServiceTest } = await import("./turn-routing.service.test");

@@ -82,6 +82,7 @@ export class ProviderTextGenerationService {
     this.assertValidOutputSchema(input);
     this.assertValidRequestMetadata(input);
     this.assertValidPromptCache(input);
+    this.assertValidTimeoutMsHint(input);
   }
 
   private async assertProviderReady(input: ProviderGatewayTextGenerateRequest): Promise<void> {
@@ -373,6 +374,18 @@ export class ProviderTextGenerationService {
       throw new BadRequestException(
         "promptCache.retention must be one of the supported provider prompt cache retention values"
       );
+    }
+  }
+
+  private assertValidTimeoutMsHint(input: ProviderGatewayTextGenerateRequest): void {
+    if (input.timeoutMsHint === undefined) {
+      return;
+    }
+    if (!Number.isInteger(input.timeoutMsHint) || Number(input.timeoutMsHint) <= 0) {
+      throw new BadRequestException("timeoutMsHint must be a positive integer when provided");
+    }
+    if (Number(input.timeoutMsHint) > 600_000) {
+      throw new BadRequestException("timeoutMsHint must not exceed 600000ms (10 minutes)");
     }
   }
 

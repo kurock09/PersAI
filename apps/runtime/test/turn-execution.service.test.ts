@@ -7075,3 +7075,243 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     }
   }
 }
+
+// ADR-097 Slice 3 — developer-block recent-PDFs hint tests.
+// These tests exercise buildRecentChatPdfsHintSection via private-method access to keep
+// the setup minimal and focused on the hint logic itself.
+
+type HintSectionAccessor = {
+  buildRecentChatPdfsHintSection: (
+    request: RuntimeTurnRequest | undefined,
+    projectedTools:
+      | {
+          tools: Array<{ name: string }>;
+        }
+      | undefined
+  ) => string | null;
+};
+
+function buildMinimalTurnExecutionService(): TurnExecutionService {
+  return new TurnExecutionService(
+    null as never, // runtimeBundleRegistryService
+    null as never, // providerGatewayClientService
+    null as never, // persaiInternalApiClientService
+    null as never, // runtimeBundleAutoRefreshService
+    null as never, // turnContextHydrationService
+    null as never, // turnAcceptanceService
+    null as never, // skillStateRoutingService
+    null as never, // turnRoutingService
+    null as never, // turnFinalizationService
+    null as never, // sessionCompactionService
+    null as never, // runtimeBrowserToolService
+    null as never, // runtimeDocumentToolService
+    null as never, // runtimeFilesToolService
+    null as never, // runtimeImageEditToolService
+    null as never, // runtimeImageGenerateToolService
+    null as never, // runtimeKnowledgeToolService
+    null as never, // runtimeMemoryWriteToolService
+    null as never, // runtimeQuotaStatusToolService
+    null as never, // runtimeSandboxToolService
+    null as never, // runtimeBackgroundTaskToolService
+    null as never, // runtimeScheduledActionToolService
+    null as never, // runtimeTtsToolService
+    null as never, // runtimeVideoGenerateToolService
+    null as never, // runtimeObservabilityService
+    null as never // runtimeExecutionAdmissionService
+  );
+}
+
+export async function runRecentPdfsHintTests(): Promise<void> {
+  const service = buildMinimalTurnExecutionService();
+  const accessor = service as unknown as HintSectionAccessor;
+
+  // B.5 — developer block injects recent-PDFs hint when listRecentChatPdfsForTurn returns rows
+  {
+    const request: RuntimeTurnRequest = {
+      requestId: "req-1",
+      idempotencyKey: "key-1",
+      runtimeTier: "paid_shared_restricted",
+      bundle: {
+        bundleId: "bundle-1",
+        assistantId: "a-1",
+        workspaceId: "w-1",
+        publishedVersionId: "v-1",
+        bundleHash: "hash-1",
+        compiledAt: "2026-05-24T10:00:00.000Z"
+      },
+      conversation: {
+        assistantId: "a-1",
+        workspaceId: "w-1",
+        channel: "web",
+        externalThreadKey: "t-1",
+        externalUserKey: "u-1",
+        mode: "direct"
+      },
+      message: {
+        text: "modify the document",
+        attachments: [],
+        locale: "en",
+        timezone: "UTC",
+        receivedAt: "2026-05-24T10:00:00.000Z"
+      },
+      recentChatPdfs: [
+        {
+          docId: "doc-abc",
+          filename: "Report Q1.pdf",
+          currentVersionId: "ver-1",
+          updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString()
+        }
+      ]
+    };
+    const projectedTools = { tools: [{ name: "document" }] };
+    const hint = accessor.buildRecentChatPdfsHintSection(request, projectedTools);
+    assert.ok(
+      hint !== null,
+      "hint must be non-null when document tool is present and recentChatPdfs has entries"
+    );
+    assert.match(hint!, /RECENT PDFS IN THIS CHAT/, "hint must include the RECENT PDFS header");
+    assert.match(hint!, /Report Q1\.pdf/, "hint must include the PDF filename");
+    assert.match(hint!, /docId=doc-abc/, "hint must include the docId");
+    assert.match(hint!, /revise_document/, "hint must mention revise_document");
+    assert.doesNotMatch(
+      hint!,
+      /regex|keyword|user.*said/,
+      "hint must not contain keyword-routing language (regression guard)"
+    );
+  }
+
+  // B.5 — developer block omits the hint section entirely when recentChatPdfs is empty
+  {
+    const request: RuntimeTurnRequest = {
+      requestId: "req-2",
+      idempotencyKey: "key-2",
+      runtimeTier: "paid_shared_restricted",
+      bundle: {
+        bundleId: "bundle-1",
+        assistantId: "a-1",
+        workspaceId: "w-1",
+        publishedVersionId: "v-1",
+        bundleHash: "hash-1",
+        compiledAt: "2026-05-24T10:00:00.000Z"
+      },
+      conversation: {
+        assistantId: "a-1",
+        workspaceId: "w-1",
+        channel: "web",
+        externalThreadKey: "t-1",
+        externalUserKey: "u-1",
+        mode: "direct"
+      },
+      message: {
+        text: "create a document",
+        attachments: [],
+        locale: "en",
+        timezone: "UTC",
+        receivedAt: "2026-05-24T10:00:00.000Z"
+      },
+      recentChatPdfs: []
+    };
+    const projectedTools = { tools: [{ name: "document" }] };
+    const hint = accessor.buildRecentChatPdfsHintSection(request, projectedTools);
+    assert.equal(hint, null, "hint must be null when recentChatPdfs is empty");
+  }
+
+  // B.5 — no hint when document tool is not in projected tools
+  {
+    const request: RuntimeTurnRequest = {
+      requestId: "req-3",
+      idempotencyKey: "key-3",
+      runtimeTier: "paid_shared_restricted",
+      bundle: {
+        bundleId: "bundle-1",
+        assistantId: "a-1",
+        workspaceId: "w-1",
+        publishedVersionId: "v-1",
+        bundleHash: "hash-1",
+        compiledAt: "2026-05-24T10:00:00.000Z"
+      },
+      conversation: {
+        assistantId: "a-1",
+        workspaceId: "w-1",
+        channel: "web",
+        externalThreadKey: "t-1",
+        externalUserKey: "u-1",
+        mode: "direct"
+      },
+      message: {
+        text: "hello",
+        attachments: [],
+        locale: "en",
+        timezone: "UTC",
+        receivedAt: "2026-05-24T10:00:00.000Z"
+      },
+      recentChatPdfs: [
+        {
+          docId: "doc-xyz",
+          filename: "Some PDF.pdf",
+          currentVersionId: "ver-2",
+          updatedAt: new Date().toISOString()
+        }
+      ]
+    };
+    // No document tool in scope
+    const projectedTools = { tools: [{ name: "web_search" }, { name: "memory_write" }] };
+    const hint = accessor.buildRecentChatPdfsHintSection(request, projectedTools);
+    assert.equal(hint, null, "hint must be null when document tool is not in scope");
+  }
+
+  // B.5 — no regex/keyword matching on user prompt (regression sanity check)
+  // The hint text must be purely factual (server-resolved), never dependent on user message content.
+  {
+    const request: RuntimeTurnRequest = {
+      requestId: "req-4",
+      idempotencyKey: "key-4",
+      runtimeTier: "paid_shared_restricted",
+      bundle: {
+        bundleId: "bundle-1",
+        assistantId: "a-1",
+        workspaceId: "w-1",
+        publishedVersionId: "v-1",
+        bundleHash: "hash-1",
+        compiledAt: "2026-05-24T10:00:00.000Z"
+      },
+      conversation: {
+        assistantId: "a-1",
+        workspaceId: "w-1",
+        channel: "web",
+        externalThreadKey: "t-1",
+        externalUserKey: "u-1",
+        mode: "direct"
+      },
+      message: {
+        text: "nothing related to documents at all — completely unrelated user message",
+        attachments: [],
+        locale: "en",
+        timezone: "UTC",
+        receivedAt: "2026-05-24T10:00:00.000Z"
+      },
+      recentChatPdfs: [
+        {
+          docId: "doc-factual",
+          filename: "Business Plan.pdf",
+          currentVersionId: "ver-3",
+          updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString()
+        }
+      ]
+    };
+    const projectedTools = { tools: [{ name: "document" }] };
+    const hint = accessor.buildRecentChatPdfsHintSection(request, projectedTools);
+    // Hint is based purely on recentChatPdfs (server state), not on message.text content.
+    assert.ok(hint !== null, "hint must be injected regardless of user message content");
+    // Verify the hint does not reference the user message text at all.
+    assert.ok(
+      !hint!.includes("nothing related to documents"),
+      "hint must not reference user message text"
+    );
+    assert.match(
+      hint!,
+      /Business Plan\.pdf/,
+      "hint must reference the factual server-resolved PDF name"
+    );
+  }
+}

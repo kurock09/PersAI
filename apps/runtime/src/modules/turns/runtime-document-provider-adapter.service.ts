@@ -14,7 +14,10 @@ import type {
 } from "@persai/runtime-contract";
 import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
-import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import {
+  ProviderGatewayClientService,
+  ProviderGatewayTimeoutError
+} from "./provider-gateway.client.service";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
 type SupportedDocumentProvider = "pdfmonkey" | "gamma";
@@ -86,6 +89,11 @@ interface Parse5Document extends Parse5Node {
 }
 const DEFAULT_DOCUMENT_TIMEOUT_MS = 6 * 60 * 1000;
 const CHUNKED_DOCUMENT_TIMEOUT_MS = 15 * 60 * 1000;
+// ADR-097 Slice 3: per-request timeout hint for document LLM generation calls that may
+// produce up to 64k output tokens. Applied to document_html_generation, document_pdf_outline,
+// and document_pdf_patch_revise. Section generation keeps the default 90s since each
+// section is small (~1-2k tokens). NOT applied to the PDFMonkey render call.
+const DOCUMENT_CLASSIFICATION_TIMEOUT_MS = 240_000;
 const PDFMONKEY_TEMPLATE_MISSING_CODE = "document_template_not_configured";
 // Output-token ceiling resolved per-model from the runtime bundle modelSlots.
 // This cap is the hard defensive upper bound regardless of what the bundle says.
@@ -337,6 +345,23 @@ export class RuntimeDocumentProviderAdapterService {
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          // ADR-097 Slice 3: if chunked itself times out, fail the job honestly with a
+          // distinct error code — do NOT re-route again (no third path).
+          if (error instanceof ProviderGatewayTimeoutError) {
+            this.logger.warn(
+              `[document-pdf-chunked-timeout] jobId=${input.request.job.id} attempt=${String(attempt)} timeoutMs=${String(error.timeoutMs)}`
+            );
+            lastValidationFailure = {
+              code: "document_pdf_chunked_timeout",
+              message: `Chunked pipeline LLM call timed out after ${String(error.timeoutMs)}ms. No further re-route.`,
+              metadata: {
+                attempt,
+                timeoutMs: error.timeoutMs,
+                stage: "chunked_html_generation"
+              }
+            };
+            break;
+          }
           const code =
             error instanceof DocumentPdfOutlineInvalidError
               ? "document_pdf_outline_invalid"
@@ -402,6 +427,28 @@ export class RuntimeDocumentProviderAdapterService {
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          // ADR-097 Slice 3: provider-gateway timeout on single-shot → re-route to chunked.
+          // This is the second objective re-route signal alongside truncation. The timed-out
+          // attempt counts as one consumed retry attempt — no retry of single-shot.
+          if (error instanceof ProviderGatewayTimeoutError && !useChunked) {
+            this.logger.warn(
+              `[document-pdf-single-shot-timeout] jobId=${input.request.job.id} attempt=${String(attempt)} timeoutMs=${String(error.timeoutMs)} switchingToChunked=true`
+            );
+            useChunked = true;
+            lastValidationFailure = {
+              code: "document_single_shot_timeout",
+              message: `Single-shot LLM call timed out after ${String(error.timeoutMs)}ms. Switched to chunked path.`,
+              metadata: {
+                attempt,
+                timeoutMs: error.timeoutMs,
+                stage: "html_generation"
+              }
+            };
+            if (attempt >= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS) {
+              break;
+            }
+            continue;
+          }
           this.logger.warn(
             `[document-pdf-html-generation-failed] jobId=${input.request.job.id} attempt=${String(attempt)} message=${message}`
           );
@@ -987,7 +1034,10 @@ export class RuntimeDocumentProviderAdapterService {
         runtimeSessionId: input.request.job.chatId,
         toolLoopIteration: null,
         compactionToolCode: null
-      }
+      },
+      // ADR-097 Slice 3: patch-revise may produce a large HTML body (full document replacement);
+      // raise the timeout to match document_html_generation.
+      timeoutMsHint: DOCUMENT_CLASSIFICATION_TIMEOUT_MS
     };
   }
 
@@ -1774,7 +1824,9 @@ export class RuntimeDocumentProviderAdapterService {
         toolLoopIteration: null,
         compactionToolCode: null,
         classification: "document_html_generation"
-      }
+      },
+      // ADR-097 Slice 3: raise LLM timeout for document_html_generation to support 64k token output.
+      timeoutMsHint: DOCUMENT_CLASSIFICATION_TIMEOUT_MS
     };
   }
 
@@ -2229,7 +2281,10 @@ export class RuntimeDocumentProviderAdapterService {
         toolLoopIteration: null,
         compactionToolCode: null,
         classification: "document_pdf_outline"
-      }
+      },
+      // ADR-097 Slice 3: raise timeout for outline call — it can produce a moderately large
+      // structured JSON envelope and deserves the same extended budget as html generation.
+      timeoutMsHint: DOCUMENT_CLASSIFICATION_TIMEOUT_MS
     });
 
     const rawText = (response.text ?? "").trim();

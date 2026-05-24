@@ -6,6 +6,7 @@ import type {
   ProviderGatewayDocumentGenerateResult
 } from "@persai/runtime-contract";
 import { RuntimeDocumentProviderAdapterService } from "../src/modules/turns/runtime-document-provider-adapter.service";
+import { ProviderGatewayTimeoutError } from "../src/modules/turns/provider-gateway.client.service";
 
 function readPdfMonkeyTemplateId(input: ProviderGatewayDocumentGenerateRequest): string {
   return input.credential.providerId === "pdfmonkey"
@@ -3886,5 +3887,379 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.ok(typeof result.renderedHtml === "string", "renderedHtml must be a string");
     assert.match(result.renderedHtml!, /Patched body text that is new/);
     assert.equal(result.renderedHtml!.includes("Old body text"), false);
+  });
+
+  test("single-shot path that times out on attempt 1 logs document-pdf-single-shot-timeout and re-routes to chunked for attempt 2", async () => {
+    const textGenerateCalls: Array<{ classification: string }> = [];
+    const logMessages: string[] = [];
+
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
+          const classification = input.requestMetadata?.classification ?? "unknown";
+          textGenerateCalls.push({ classification });
+          if (classification === "document_html_generation") {
+            throw new ProviderGatewayTimeoutError(240_000);
+          }
+          if (classification === "document_pdf_outline") {
+            return {
+              provider: "openai",
+              model: "gpt-4.1-mini",
+              text: JSON.stringify({
+                mode: "document_pdf_outline",
+                sections: [
+                  { heading: "Overview", intent: "Provide an overview.", expectedLength: "medium" }
+                ]
+              }),
+              respondedAt: "2026-05-24T10:00:01.000Z",
+              stopReason: "completed",
+              toolCalls: [],
+              usage: null
+            };
+          }
+          if (classification === "document_pdf_section_generation") {
+            return {
+              provider: "openai",
+              model: "gpt-4.1-mini",
+              text: "<h2>Overview</h2><p>This is the overview section with sufficient body content to pass the minimum character threshold for section validation in the chunked pipeline path.</p>",
+              respondedAt: "2026-05-24T10:00:02.000Z",
+              stopReason: "completed",
+              toolCalls: [],
+              usage: null
+            };
+          }
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: "{}",
+            respondedAt: "2026-05-24T10:00:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-timeout-1",
+              templateId: readPdfMonkeyTemplateId(input),
+              filename: input.filename,
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.alloc(1400, "T"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-24T10:00:03.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey" as const,
+                state: "success" as const,
+                documentId: "doc-timeout-1",
+                documentTemplateId: readPdfMonkeyTemplateId(input),
+                downloadUrl: "https://example.com/doc-timeout.pdf",
+                previewUrl: "https://example.com/doc-timeout-preview",
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf" as const,
+                status: "success" as const,
+                updatedAt: null
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes
+          };
+        }
+      } as never
+    );
+    // Intercept logger to capture warn calls
+    (service as unknown as { logger: { warn: (m: string) => void } }).logger.warn = (
+      message: string
+    ) => {
+      logMessages.push(message);
+    };
+    mockExtractedPdfText(
+      service,
+      "Overview section content providing sufficient body text for chunked path validation.",
+      null
+    );
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: JSON.stringify(createBundle()),
+        job: {
+          id: "job-timeout-single-1",
+          docId: "doc-1",
+          versionId: "version-1",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "msg-1",
+          sourceUserMessageText: "Generate a comprehensive report.",
+          sourceUserMessageCreatedAt: "2026-05-24T10:00:00.000Z"
+        },
+        attachments: [],
+        sourceFiles: [],
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: { prompt: "Generate a comprehensive report.", requestedName: "report" }
+        }
+      }
+    });
+
+    // Verify the single-shot timeout was logged
+    const timeoutLog = logMessages.find((m) => m.includes("document-pdf-single-shot-timeout"));
+    assert.ok(timeoutLog !== undefined, "must log [document-pdf-single-shot-timeout]");
+    assert.ok(timeoutLog.includes("job-timeout-single-1"), "timeout log must include the jobId");
+
+    // Verify re-route happened: outline call was made (chunked path was entered)
+    const outlineCalls = textGenerateCalls.filter(
+      (c) => c.classification === "document_pdf_outline"
+    );
+    assert.ok(
+      outlineCalls.length >= 1,
+      "must have made at least one outline call after re-routing to chunked"
+    );
+
+    // Job must complete successfully via chunked path
+    assert.equal(result.artifacts.length, 1, "job must still complete with a PDF artifact");
+  });
+
+  test("chunked path that times out fails the job with document_pdf_chunked_timeout (no further re-route)", async () => {
+    const textGenerateCalls: Array<{ classification: string }> = [];
+    const logMessages: string[] = [];
+
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
+          const classification = input.requestMetadata?.classification ?? "unknown";
+          textGenerateCalls.push({ classification });
+          if (classification === "document_pdf_outline") {
+            // Timeout on the outline call — this is a chunked pipeline call
+            throw new ProviderGatewayTimeoutError(240_000);
+          }
+          // Single-shot first attempt returns truncated HTML to trigger re-route
+          if (classification === "document_html_generation") {
+            return {
+              provider: "openai",
+              model: "gpt-4.1-mini",
+              text: "<h1>Report</h1><p>Truncated without closing tags",
+              respondedAt: "2026-05-24T10:00:00.000Z",
+              stopReason: "completed",
+              toolCalls: [],
+              usage: null
+            };
+          }
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: "{}",
+            respondedAt: "2026-05-24T10:00:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(): Promise<never> {
+          throw new Error("PDFMonkey must not be called if chunked pipeline fails");
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey() {
+          return "";
+        },
+        async saveObject() {
+          return { objectKey: "", sizeBytes: 0, mimeType: "" };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes
+          };
+        }
+      } as never
+    );
+    // Intercept logger to capture warn calls
+    (service as unknown as { logger: { warn: (m: string) => void } }).logger.warn = (
+      message: string
+    ) => {
+      logMessages.push(message);
+    };
+    mockExtractedPdfText(service, null, null);
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: JSON.stringify(createBundle()),
+        job: {
+          id: "job-chunked-timeout-1",
+          docId: "doc-1",
+          versionId: "version-1",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "msg-1",
+          sourceUserMessageText: "Generate a comprehensive multi-page report.",
+          sourceUserMessageCreatedAt: "2026-05-24T10:00:00.000Z"
+        },
+        attachments: [],
+        sourceFiles: [],
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt: "Generate a comprehensive multi-page report.",
+            requestedName: "report"
+          }
+        }
+      }
+    });
+
+    // Verify chunked timeout was logged
+    const chunkedTimeoutLog = logMessages.find((m) => m.includes("document-pdf-chunked-timeout"));
+    assert.ok(chunkedTimeoutLog !== undefined, "must log [document-pdf-chunked-timeout]");
+
+    // Job must have failed (no artifacts)
+    assert.equal(result.artifacts.length, 0, "no artifact must be produced when chunked times out");
+
+    // Failure code must be document_pdf_chunked_timeout (surfaced in providerStatus.errorCode)
+    const errorCode =
+      result.providerStatus != null && typeof result.providerStatus === "object"
+        ? (result.providerStatus as { errorCode?: string }).errorCode
+        : undefined;
+    assert.equal(
+      errorCode,
+      "document_pdf_chunked_timeout",
+      "providerStatus.errorCode must be document_pdf_chunked_timeout"
+    );
+
+    // Verify no single-shot retry happened after chunked timeout (no second html generation call)
+    const htmlCalls = textGenerateCalls.filter(
+      (c) => c.classification === "document_html_generation"
+    );
+    const outlineCalls = textGenerateCalls.filter(
+      (c) => c.classification === "document_pdf_outline"
+    );
+    assert.equal(
+      outlineCalls.length,
+      1,
+      "outline was called exactly once (no retry after chunked timeout)"
+    );
+    assert.ok(htmlCalls.length <= 1, "single-shot was attempted at most once before re-route");
   });
 });

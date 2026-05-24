@@ -61,6 +61,21 @@ const DIRECT_INPUT_PAYLOAD_TOO_LARGE_MESSAGE =
   "Current-turn file payload is too large for direct model input. Remove some files or send a smaller file.";
 const PROVIDER_GATEWAY_READY_TIMEOUT_MS = 10_000;
 
+/**
+ * ADR-097 Slice 3 — typed timeout error from the provider gateway HTTP client.
+ * Thrown instead of ServiceUnavailableException when a request to the gateway
+ * times out so callers (e.g. document adapter) can distinguish a clean timeout
+ * from other gateway errors without parsing freeform message text.
+ */
+export class ProviderGatewayTimeoutError extends Error {
+  readonly timeoutMs: number;
+  constructor(timeoutMs: number) {
+    super(`Provider gateway request timed out after ${timeoutMs}ms.`);
+    this.name = "ProviderGatewayTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 @Injectable()
 export class ProviderGatewayClientService {
   private readonly logger = new Logger(ProviderGatewayClientService.name);
@@ -106,6 +121,18 @@ export class ProviderGatewayClientService {
       throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
     }
 
+    // ADR-097 Slice 3: use timeoutMsHint from the request if it is a valid positive integer
+    // and larger than the default, capped at a defensive maximum (gateway also caps at 600s).
+    const DOCUMENT_CLASSIFICATION_HTTP_CAP_MS = 600_000;
+    const requestedTimeout =
+      Number.isInteger(input.timeoutMsHint) && Number(input.timeoutMsHint) > 0
+        ? Math.min(DOCUMENT_CLASSIFICATION_HTTP_CAP_MS, Number(input.timeoutMsHint))
+        : null;
+    const effectiveTimeoutMs = Math.max(
+      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS,
+      requestedTimeout ?? 0
+    );
+
     const response = await this.fetchJson(
       this.buildUrl("/api/v1/providers/generate-text"),
       {
@@ -115,7 +142,7 @@ export class ProviderGatewayClientService {
         },
         body: JSON.stringify(input)
       },
-      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS,
+      effectiveTimeoutMs,
       options?.signal
     );
     if (!response.ok) {
@@ -566,9 +593,7 @@ export class ProviderGatewayClientService {
       });
     } catch (error) {
       if (this.isAbortError(error) && !externalSignal?.aborted) {
-        throw new ServiceUnavailableException(
-          `Provider gateway request timed out after ${timeoutMs}ms.`
-        );
+        throw new ProviderGatewayTimeoutError(timeoutMs);
       }
       throw error;
     }

@@ -4191,6 +4191,7 @@ export type AssistantFilesCleanupSummary = {
 export type AssistantFilesCleanupResult = AssistantFilesCleanupSummary & {
   deletedCount: number;
   deletedBytes: number;
+  skippedPinnedCount?: number;
 };
 
 export type AdminKnowledgeConnectorState = {

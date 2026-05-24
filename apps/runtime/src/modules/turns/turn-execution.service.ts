@@ -321,7 +321,8 @@ type DeveloperInstructionSectionKey =
   | "presence"
   | "tool_follow_up"
   | "deferred_media_follow_up"
-  | "deferred_document_follow_up";
+  | "deferred_document_follow_up"
+  | "recent_pdfs_hint";
 
 type DeveloperInstructionSection = {
   key: DeveloperInstructionSectionKey;
@@ -1756,6 +1757,13 @@ export class TurnExecutionService {
       input.request !== undefined && isProjectChatMode(input.request)
         ? PROJECT_EXECUTION_DEVELOPER_CONTRACT
         : null;
+    // ADR-097 Slice 3: inject contextual hint about recent chat PDFs so the model
+    // prefers revise_document over create_pdf_document for existing documents.
+    // Only injected when the document tool is in scope and request has recent PDFs.
+    const recentPdfsHintSection = this.buildRecentChatPdfsHintSection(
+      input.request,
+      input.projectedTools
+    );
     return this.createDeveloperInstructionSections([
       { key: "project_execution_contract", content: projectExecutionSection },
       { key: "routing_hints", content: routingGuidance },
@@ -1763,8 +1771,35 @@ export class TurnExecutionService {
       { key: "working_files", content: workingFilesSection },
       { key: "retrieved_knowledge", content: retrievedKnowledgeSection },
       { key: "open_media_jobs", content: openMediaJobsSection },
-      { key: "presence", content: presenceSection }
+      { key: "presence", content: presenceSection },
+      { key: "recent_pdfs_hint", content: recentPdfsHintSection }
     ]);
+  }
+
+  private buildRecentChatPdfsHintSection(
+    request: RuntimeTurnRequest | undefined,
+    projectedTools: RuntimeNativeToolProjection | undefined
+  ): string | null {
+    if (request === undefined) return null;
+    const pdfs = request.recentChatPdfs;
+    if (!pdfs || pdfs.length === 0) return null;
+    // Only inject when the document tool is available for this turn.
+    const hasDocumentTool =
+      projectedTools?.tools.some((t) => t.name === DOCUMENT_TOOL_CODE) ?? false;
+    if (!hasDocumentTool) return null;
+
+    const nowMs = Date.now();
+    const lines = ["RECENT PDFS IN THIS CHAT (server-resolved, not user-typed):"];
+    for (const pdf of pdfs) {
+      const ageMinutes = Math.round((nowMs - new Date(pdf.updatedAt).getTime()) / 60_000);
+      const label = pdf.filename ?? pdf.docId;
+      lines.push(`- "${label}" (docId=${pdf.docId}, generated ${String(ageMinutes)} minutes ago)`);
+    }
+    lines.push("");
+    lines.push(
+      "If the user wants to modify any of these PDFs, you SHOULD use the document tool with descriptorMode=revise_document — the docId field is optional, the server will auto-resolve to the latest matching PDF. Use create_pdf_document ONLY for documents that are genuinely new and unrelated to the listed PDFs. This is a contextual hint, not a hard rule."
+    );
+    return lines.join("\n");
   }
 
   private buildRetrievedKnowledgeContextDeveloperSection(
@@ -1808,7 +1843,10 @@ export class TurnExecutionService {
       'For `image_edit` and `video_generate`, use image aliases such as "current image #1" or "last generated image".'
     );
     lines.push(
-      "If the user refers to a file that is not in this list, do not assume it is unavailable. First call `files.list` to scan the assistant's full file corpus with its semantic hints, and if needed follow up with `files.search` for a narrower lookup. Only then, if nothing matches, tell the user the file is not available."
+      "Mentioning a filename in conversation text does NOT deliver the file. To actually deliver a file to the user, you MUST call `files.send` with the file's resolved alias in the same response."
+    );
+    lines.push(
+      "If the user asks to find, list, search, or re-check files, or refers to a file not in this list, do NOT answer from this block alone. Always call `files.list` first (full corpus with semantic hints), then `files.search` only as a narrower follow-up. Only after both return empty may you tell the user the file is unavailable."
     );
     return lines.join("\n");
   }

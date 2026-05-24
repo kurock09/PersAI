@@ -116,7 +116,100 @@ describe("TurnExecutionService working-files developer section", () => {
       section ?? "",
       /These are the reusable file handles the system has already prepared for this turn\./
     );
-    assert.match(section ?? "", /[Ff]irst call `files\.list`/);
+    assert.match(section ?? "", /[Aa]lways call `files\.list`/);
+  });
+
+  test("delivery rule is present", () => {
+    const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
+    const section = (
+      service as unknown as {
+        buildWorkingFilesDeveloperSection(
+          availableWorkingFileRefs: Array<{
+            fileRef: string;
+            origin: string;
+            sourceToolCode: string | null;
+            objectKey: string;
+            relativePath: string;
+            displayName: string;
+            mimeType: string;
+            sizeBytes: number;
+            logicalSizeBytes: number;
+            aliases: string[];
+            semanticSummaryHint?: string | null;
+          }>
+        ): string | null;
+      }
+    ).buildWorkingFilesDeveloperSection([
+      {
+        fileRef: "file-ref-1",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "assistant-media/uploads/photo.jpg",
+        relativePath: "uploads/photo.jpg",
+        displayName: "photo.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 123,
+        logicalSizeBytes: 123,
+        aliases: ["current image #1"],
+        semanticSummaryHint: null
+      }
+    ]);
+
+    assert.ok(section, "section must be non-null");
+    assert.match(
+      section ?? "",
+      /MUST call `files\.send`.*alias/i,
+      "delivery rule must instruct model to call files.send with alias"
+    );
+  });
+
+  test("corpus rule covers find/list/search/re-check and orders files.list before files.search", () => {
+    const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
+    const section = (
+      service as unknown as {
+        buildWorkingFilesDeveloperSection(
+          availableWorkingFileRefs: Array<{
+            fileRef: string;
+            origin: string;
+            sourceToolCode: string | null;
+            objectKey: string;
+            relativePath: string;
+            displayName: string;
+            mimeType: string;
+            sizeBytes: number;
+            logicalSizeBytes: number;
+            aliases: string[];
+            semanticSummaryHint?: string | null;
+          }>
+        ): string | null;
+      }
+    ).buildWorkingFilesDeveloperSection([
+      {
+        fileRef: "file-ref-1",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "assistant-media/uploads/photo.jpg",
+        relativePath: "uploads/photo.jpg",
+        displayName: "photo.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 123,
+        logicalSizeBytes: 123,
+        aliases: ["current image #1"],
+        semanticSummaryHint: null
+      }
+    ]);
+
+    assert.ok(section, "section must be non-null");
+    assert.match(
+      section ?? "",
+      /find.*list.*search.*re-check|find, list, search, or re-check/i,
+      "corpus rule must mention find/list/search/re-check triggers"
+    );
+    const listPos = (section ?? "").indexOf("files.list");
+    const searchPos = (section ?? "").indexOf("files.search");
+    assert.ok(listPos !== -1, "files.list must appear in corpus rule");
+    assert.ok(searchPos !== -1, "files.search must appear in corpus rule");
+    assert.ok(listPos < searchPos, "files.list must appear before files.search in corpus rule");
   });
 
   test("working files section shows bounded semantic hints without dumping previews", () => {

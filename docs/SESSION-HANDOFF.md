@@ -2,6 +2,65 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-24 — ADR-097 Slice 3 — single-shot timeout re-route + recent-PDFs developer hint
+
+### What changed
+
+**Gap A — Provider-gateway timeout hardening:**
+- `ProviderGatewayTimeoutError` (typed, exported from `provider-gateway.client.service.ts`) replaces a generic `ServiceUnavailableException` for timeout cases; `fetchWithSignal` now throws this typed error on `AbortError`.
+- `RuntimeDocumentProviderAdapterService.run()` catches `ProviderGatewayTimeoutError` on the single-shot path: logs `[document-pdf-single-shot-timeout]`, flips `useChunked`, counts the attempt against the retry budget. Parallels the existing truncation re-route.
+- Chunked pipeline `ProviderGatewayTimeoutError` → logs `[document-pdf-chunked-timeout]`, sets `document_pdf_chunked_timeout` failure code, breaks loop. No further re-route.
+- `ProviderGatewayTextGenerateRequest.timeoutMsHint?: number` added to runtime-contract. Worker passes `DOCUMENT_CLASSIFICATION_TIMEOUT_MS = 240_000` for `document_html_generation`, `document_pdf_outline`, `document_pdf_patch_revise`. OpenAI and Anthropic provider clients use `max(default, hint)` capped at `600_000ms`. Gateway `assertValidRequest` validates: positive integer, ≤ 600_000.
+
+**Gap B — Contextual revise hint:**
+- `AssistantDocumentJobReadService.listRecentChatPdfsForTurn()`: queries up to 3 `pdf_document` rows with `currentVersion.renderedHtml IS NOT NULL` and `updatedAt >= windowFloor` (oldest of last N=10 messages), ordered `updatedAt DESC`.
+- `RuntimeRecentChatPdf` interface + `RuntimeTurnRequest.recentChatPdfs?: RuntimeRecentChatPdf[] | null` added to runtime-contract.
+- `StreamWebChatTurnService.stream()` calls `listRecentChatPdfsForTurn` and passes result as `recentChatPdfs` in `StreamNativeWebChatTurnInput` → `RuntimeTurnRequest`.
+- `TurnExecutionService.buildBaseDeveloperInstructionSections()` now calls `buildRecentChatPdfsHintSection()` which injects `RECENT PDFS IN THIS CHAT (server-resolved, not user-typed)` + `revise_document` guidance into the `recent_pdfs_hint` developer section when document tool is in scope and list is non-empty. No prompt cost when list is empty.
+- `DeveloperInstructionSectionKey` extended with `"recent_pdfs_hint"`.
+- `native-tool-projection.ts` `document` tool description: one sentence added: "When a developer hint lists recent PDFs in this chat, prefer `revise_document` over `create_pdf_document` for any modification to one of those PDFs."
+- NO keyword routing. NO server-side reject of `create_pdf_document`.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts` — `timeoutMsHint`, `RuntimeRecentChatPdf`, `RuntimeTurnRequest.recentChatPdfs`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts` — `ProviderGatewayTimeoutError`, `fetchWithSignal` throw, `generateText` effective timeout
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts` — `effectiveTimeoutMs` with `timeoutMsHint`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` — same
+- `apps/provider-gateway/src/modules/providers/provider-text-generation.service.ts` — `assertValidTimeoutMsHint`
+- `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts` — timeout re-route + `timeoutMsHint` on 3 classification builds
+- `apps/api/src/modules/workspace-management/application/assistant-document-job-read.service.ts` — `listRecentChatPdfsForTurn`
+- `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts` — `recentChatPdfs` field + wiring
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` — query + pass `recentChatPdfs`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts` — `DeveloperInstructionSectionKey` + `buildRecentChatPdfsHintSection` + hint injection
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` — descriptor reinforcement
+- `apps/runtime/test/runtime-document-provider-adapter.service.test.ts` — 2 new timeout tests
+- `apps/runtime/test/turn-execution.service.test.ts` — 4 new developer-block hint tests (`runRecentPdfsHintTests`)
+- `apps/provider-gateway/test/provider-text-generation.service.test.ts` — 3 new `timeoutMsHint` validation tests
+- `apps/api/test/assistant-document-job-read.service.test.ts` — 5 new `listRecentChatPdfsForTurn` tests (new file)
+- `apps/api/test/stream-web-chat-turn.service.test.ts` — mock updated with `listRecentChatPdfsForTurn`
+- `apps/runtime/test/run-suite.ts` + `run-suite-isolated.ts` — registered `runRecentPdfsHintTests`
+- `docs/ADR/097-autonomous-document-tool-and-async-rendering.md` — Phase 9 + dated log entry
+- `docs/SESSION-HANDOFF.md` — this section
+- `docs/CHANGELOG.md` — top entry
+
+### Verification (all PASS)
+
+1. `corepack pnpm -r --if-present run lint` — PASS
+2. `corepack pnpm run format:check` — PASS
+3. `corepack pnpm --filter @persai/api run typecheck` — PASS
+4. `corepack pnpm --filter @persai/web run typecheck` — PASS
+5. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — PASS
+7. Focused new tests — PASS (embedded in full suite runs below)
+8. `corepack pnpm --filter @persai/runtime run test` — PASS
+9. `corepack pnpm --filter @persai/api run test` — PASS
+10. `corepack pnpm --filter @persai/provider-gateway run test` — PASS
+
+### Next recommended step
+
+Deploy to `persai-dev` and run the 10-page PDF scenario to validate that the timeout re-route path fires and jobs complete via chunked generation. Also test the "modify only item 5" scenario to validate the developer-block hint steers the model to `revise_document`.
+
 ## 2026-05-24 — ADR-100 follow-up — token-aware files.search + Working Files recovery
 
 ### What changed

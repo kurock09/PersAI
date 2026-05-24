@@ -451,4 +451,35 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
       }),
     /toolLoopIteration must be >= 1/
   );
+
+  // ADR-097 Slice 3: timeoutMsHint validation
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        timeoutMsHint: 0
+      }),
+    /timeoutMsHint must be a positive integer/,
+    "zero timeoutMsHint must be rejected"
+  );
+
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        timeoutMsHint: -500
+      }),
+    /timeoutMsHint must be a positive integer/,
+    "negative timeoutMsHint must be rejected"
+  );
+
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        timeoutMsHint: 600_001
+      }),
+    /timeoutMsHint must not exceed 600000ms/,
+    "timeoutMsHint exceeding 600s must be rejected"
+  );
 }

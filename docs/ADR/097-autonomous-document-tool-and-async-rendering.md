@@ -530,6 +530,23 @@ Timeout:
 
 No presentations impact, no PDFMonkey API surface change, no legacy backfill, no revise_document business logic changed (Slice 2 territory).
 
+### 2026-05-24 — Slice 3 hardening landed locally
+
+Addresses two production observations from `persai-dev` manual test.
+
+**Gap A — Timeout → chunked re-route:**
+- `ProviderGatewayTimeoutError` (typed) replaces generic `ServiceUnavailableException` for timeout cases in `ProviderGatewayClientService`
+- `RuntimeDocumentProviderAdapterService` catches `ProviderGatewayTimeoutError` on single-shot attempts → flips `useChunked`, logs `[document-pdf-single-shot-timeout]`, counts attempt against retry budget (parallels existing truncation re-route)
+- Chunked pipeline `ProviderGatewayTimeoutError` → fails job with `document_pdf_chunked_timeout`, no re-route
+- `ProviderGatewayTextGenerateRequest.timeoutMsHint` (optional `number`) extends runtime contract; worker passes `240_000ms` for `document_html_generation`, `document_pdf_outline`, `document_pdf_patch_revise`; provider clients use `max(default, hint)` capped at `600_000ms`; gateway validates at `assertValidRequest`; `document_pdf_section_generation` keeps default 90s
+
+**Gap B — Contextual revise hint:**
+- `AssistantDocumentJobReadService.listRecentChatPdfsForTurn()`: queries up to 3 `pdf_document` rows with `currentVersion.renderedHtml IS NOT NULL` and `updatedAt >= createdAt of N-th most recent message` (N=10); ordered by `updatedAt DESC`
+- Result flows through `RuntimeTurnRequest.recentChatPdfs` (new contract field `RuntimeRecentChatPdf[]`)
+- `TurnExecutionService.buildRecentChatPdfsHintSection()` injects `RECENT PDFS IN THIS CHAT (server-resolved, not user-typed)` block into developer section when document tool is in scope and list is non-empty; zero-cost when list is empty
+- `native-tool-projection.ts` descriptor: one sentence added reinforcing `revise_document` preference when developer hint lists PDFs
+- NO keyword routing on user message; NO server-side reject of `create_pdf_document`
+
 ### 2026-05-24 — Patch-revise loop for PDF documents landed locally
 
 `revise_document` for PDF is now an honest patch-edit on top of `AssistantDocumentVersion.renderedHtml` persisted by Slice 1.
@@ -554,6 +571,15 @@ Key properties:
 - `AssistantDocumentJobSchedulerService.processQueuedJob()` persists `renderedHtml` to `AssistantDocumentVersion` inside the same `ready_for_delivery` transition transaction
 - `AssistantDocumentVersion.renderedHtml` is the enabler for patch-revise (Slice 2): Slice 2 reads this field to avoid a full re-generation and rejects revisions of versions without it with an honest explicit error
 - Progress milestones ("Outline ready", "Section K of N", "Assembling PDF") are emitted as structured log lines with localized text; live in-chat progress updates require a progress-callback endpoint that is Slice 2+ infrastructure
+
+### Phase 9: Hardening
+
+- **Timeout → chunked re-route (Gap A):** `RuntimeDocumentProviderAdapterService.run()` now catches `ProviderGatewayTimeoutError` (a new typed error surfaced by `ProviderGatewayClientService`) on the single-shot path. On timeout the attempt is counted against the retry budget, `useChunked` is flipped, and `[document-pdf-single-shot-timeout]` is logged. Chunked pipeline timeouts fail the job honestly with `document_pdf_chunked_timeout` (no further re-route). This is the second objective re-route signal alongside the existing truncation re-route.
+- **Per-classification timeout hint (Gap A):** `ProviderGatewayTextGenerateRequest` extended with optional `timeoutMsHint?: number`. Worker passes `240_000ms` for `document_html_generation`, `document_pdf_outline`, and `document_pdf_patch_revise`. Provider clients (OpenAI, Anthropic) use `max(default, hint)` capped at `600_000ms`. Gateway validates the hint and rejects values ≤ 0 or > 600_000ms. Default 90s unchanged for non-document classifications.
+- **Recent-PDFs developer hint (Gap B):** `AssistantDocumentJobReadService.listRecentChatPdfsForTurn()` queries up to 3 recent `pdf_document` rows whose `currentVersion.renderedHtml IS NOT NULL` and whose `updatedAt >= windowFloor` (the oldest of the last 10 chat messages). API layer calls this before dispatching the turn and passes the result as `recentChatPdfs` in `RuntimeTurnRequest`. `TurnExecutionService.buildRecentChatPdfsHintSection()` injects a factual `RECENT PDFS IN THIS CHAT` block into the developer section when the `document` tool is in scope and the list is non-empty. No hint when list is empty — zero prompt cost for chats without recent PDFs.
+- **Descriptor reinforcement:** `native-tool-projection.ts` `document` tool description updated with one sentence: "When a developer hint lists recent PDFs in this chat, prefer `revise_document` over `create_pdf_document` for any modification to one of those PDFs. `revise_document` with no `docId` auto-resolves to the latest matching PDF in the chat."
+- **No keyword routing, no hard reject:** The hint is server-resolved factual state. `create_pdf_document` is not blocked. User message text is never pattern-matched.
+- **Contract changes:** `RuntimeRecentChatPdf` interface and `RuntimeTurnRequest.recentChatPdfs` added to `packages/runtime-contract/src/index.ts`.
 
 ### Phase 8: PDF patch-revise loop
 
