@@ -224,7 +224,12 @@ async function run(): Promise<void> {
       } as unknown as NotificationIntentService
     );
 
-    const scheduledAt = new Date("2026-05-24T12:00:00.000Z");
+    // Use a dynamically-computed future date so this test does not become a
+    // date time-bomb. The service routes priority to "scheduled" only when
+    // scheduledAt is strictly in the future relative to Date.now(); a
+    // hardcoded calendar date silently flips the assertion to "immediate"
+    // once that date has passed.
+    const scheduledAt = new Date(Date.now() + 60 * 60 * 1000);
     await service.emitEvent({
       eventCode: "runtime_apply_failed",
       summary: "Scheduled admin event",
