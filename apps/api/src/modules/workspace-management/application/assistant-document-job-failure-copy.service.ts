@@ -44,6 +44,16 @@ export function buildAssistantDocumentJobPreparingMessage(
   return locale === "ru" ? "Готовлю документ..." : "Preparing your document...";
 }
 
+/**
+ * ADR-097 Slice 2 — patch-revise loop placeholder.
+ * Shown while the PDF patch-revise job runs (one LLM call + one PDFMonkey call).
+ */
+export function buildAssistantDocumentJobApplyingEditsMessage(
+  locale: AssistantDocumentJobLocale
+): string {
+  return locale === "ru" ? "Применяю правки..." : "Applying edits...";
+}
+
 function isPolicyLikeFailure(input: { code?: string | null; message?: string | null }): boolean {
   const haystack = `${input.code ?? ""} ${input.message ?? ""}`.toLowerCase();
   return /(content|policy|safety|moderat|violat|censor|blocked|nsfw|explicit)/.test(haystack);

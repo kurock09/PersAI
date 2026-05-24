@@ -608,6 +608,8 @@ async function runRevisionFallsBackToLatestChatDocumentWhenDocIdIsNotUuid(): Pro
           documentType: "pdf_document" as const,
           currentVersionId: "version-1",
           currentVersionNumber: 1,
+          currentVersionRenderedHtml:
+            "<!DOCTYPE html><html><head></head><body><h1>PersAI Overview</h1></body></html>",
           currentSourceJson: {
             prompt: "Original document",
             outputFormat: "pdf",
@@ -1369,6 +1371,291 @@ async function runPresentationPdfToPptxExportQueuesPptxRender(): Promise<void> {
   );
 }
 
+// ─── ADR-097 Slice 2 — patch-revise enqueue tests ─────────────────────────
+
+function buildStandardServiceMocks(overrides: {
+  findRevisionContext?: () => Promise<unknown>;
+  findLatestRevisionContextForChat?: () => Promise<unknown>;
+  enqueueRevision?: (input: unknown) => Promise<unknown>;
+}) {
+  return {
+    chatRepo: {
+      async findMessageByIdForAssistant(messageId: string, assistantId: string) {
+        return {
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "user" as const,
+          createdAt: new Date("2026-05-24T10:00:00.000Z")
+        };
+      },
+      async findChatById(chatId: string) {
+        return {
+          id: chatId,
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "web" as const
+        };
+      }
+    } as never,
+    docJobService: {
+      async countOpenJobsForChat() {
+        return 0;
+      },
+      async enqueue() {
+        throw new Error("plain enqueue should not run for revision");
+      },
+      async findRevisionContext() {
+        return overrides.findRevisionContext ? overrides.findRevisionContext() : null;
+      },
+      async findLatestRevisionContextForChat() {
+        return overrides.findLatestRevisionContextForChat
+          ? overrides.findLatestRevisionContextForChat()
+          : null;
+      },
+      async enqueueRevision(input: unknown) {
+        return overrides.enqueueRevision
+          ? overrides.enqueueRevision(input)
+          : {
+              docId: "doc-1",
+              versionId: "version-1",
+              renderJobId: "render-1",
+              status: "queued" as const
+            };
+      }
+    } as never,
+    quotaCopy: {
+      async build() {
+        return null;
+      }
+    } as never,
+    quotaStatus: {
+      async execute() {
+        return {
+          planCode: "pro",
+          monthlyToolQuotas: {
+            planCode: "pro",
+            periodStartedAt: "2026-05-01T00:00:00.000Z",
+            periodEndsAt: "2026-06-01T00:00:00.000Z",
+            periodSource: "subscription_period" as const,
+            tools: [
+              {
+                toolCode: "document",
+                displayName: "Document",
+                usedUnits: 0,
+                reservedUnits: 0,
+                settledUnits: 0,
+                releasedUnits: 0,
+                reconciliationRequiredUnits: 0,
+                limitUnits: 10,
+                effectiveLimitUnits: 10,
+                remainingUnits: 10,
+                usageAvailable: true,
+                status: "ok" as const
+              }
+            ]
+          }
+        };
+      }
+    } as never,
+    dailyPolicy: {
+      async execute() {
+        return {
+          planCode: "pro",
+          tools: [{ toolCode: "document", activationStatus: "active" as const }]
+        };
+      }
+    } as never,
+    secretStore: {
+      async resolveSecretValueByProviderKey() {
+        return "template-123";
+      }
+    } as never
+  };
+}
+
+async function runFindLatestRevisionContextSurfacesRenderedHtmlPresence(): Promise<void> {
+  let capturedEnqueueInput: Record<string, unknown> | null = null;
+  const previousHtml = "<!DOCTYPE html><html><head></head><body><h1>Latest Doc</h1></body></html>";
+
+  const mocks = buildStandardServiceMocks({
+    async findLatestRevisionContextForChat() {
+      return {
+        docId: "aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee",
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        chatId: "chat-1",
+        documentType: "pdf_document" as const,
+        currentVersionId: "version-3",
+        currentVersionNumber: 3,
+        currentVersionRenderedHtml: previousHtml,
+        currentSourceJson: {
+          prompt: "Latest version",
+          outputFormat: "pdf",
+          requestedName: "Report"
+        }
+      };
+    },
+    async enqueueRevision(input: unknown) {
+      capturedEnqueueInput = input as Record<string, unknown>;
+      return {
+        docId: "aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee",
+        versionId: "version-4",
+        renderJobId: "render-4",
+        status: "queued" as const
+      };
+    }
+  });
+
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    mocks.chatRepo,
+    mocks.docJobService,
+    mocks.quotaCopy,
+    mocks.quotaStatus,
+    mocks.dailyPolicy,
+    mocks.secretStore,
+    noopGammaThemePickerMock()
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-latest",
+    sourceUserMessageText: "Add a summary",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "revise_document",
+      request: {
+        prompt: "Add an executive summary section",
+        outputFormat: "pdf"
+        // docId omitted → should resolve via findLatestRevisionContextForChat
+      }
+    }
+  });
+
+  assert.equal(result.accepted, true, "latest-context revision must be accepted");
+  assert.ok(capturedEnqueueInput !== null, "enqueueRevision must have been called");
+  assert.equal(
+    (capturedEnqueueInput as { previousVersionRenderedHtml: string }).previousVersionRenderedHtml,
+    previousHtml,
+    "renderedHtml from findLatestRevisionContextForChat must flow through to enqueueRevision"
+  );
+}
+
+async function runEnqueueRevisionRejectsLegacyVersionWithNullRenderedHtml(): Promise<void> {
+  const mocks = buildStandardServiceMocks({
+    async findRevisionContext() {
+      return {
+        docId: "12345678-1234-4234-9234-1234567890ab",
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        chatId: "chat-1",
+        documentType: "pdf_document" as const,
+        currentVersionId: "version-legacy-1",
+        currentVersionNumber: 1,
+        currentVersionRenderedHtml: null, // legacy version — no rendered HTML
+        currentSourceJson: { prompt: "Original PDF", outputFormat: "pdf", requestedName: "Report" }
+      };
+    }
+  });
+
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    mocks.chatRepo,
+    mocks.docJobService,
+    mocks.quotaCopy,
+    mocks.quotaStatus,
+    mocks.dailyPolicy,
+    mocks.secretStore,
+    noopGammaThemePickerMock()
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Update the document",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "revise_document",
+      request: {
+        prompt: "Update the title",
+        docId: "12345678-1234-4234-9234-1234567890ab",
+        outputFormat: "pdf"
+      }
+    }
+  });
+
+  assert.equal(result.accepted, false, "legacy version must be rejected");
+  assert.equal(
+    result.accepted === false ? result.code : null,
+    "document_revise_unsupported_legacy_version",
+    "error code must be document_revise_unsupported_legacy_version"
+  );
+}
+
+async function runEnqueueRevisionAttachesPreviousRenderedHtmlToRuntimeRequest(): Promise<void> {
+  const previousHtml =
+    "<!DOCTYPE html><html><head></head><body><h1>Report</h1><p>Full body content.</p></body></html>";
+  let capturedEnqueueInput: Record<string, unknown> | null = null;
+
+  const mocks = buildStandardServiceMocks({
+    async findRevisionContext() {
+      return {
+        docId: "12345678-1234-4234-9234-1234567890ab",
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        chatId: "chat-1",
+        documentType: "pdf_document" as const,
+        currentVersionId: "version-1",
+        currentVersionNumber: 1,
+        currentVersionRenderedHtml: previousHtml,
+        currentSourceJson: { prompt: "Original PDF", outputFormat: "pdf", requestedName: "Report" }
+      };
+    },
+    async enqueueRevision(input: unknown) {
+      capturedEnqueueInput = input as Record<string, unknown>;
+      return {
+        docId: "12345678-1234-4234-9234-1234567890ab",
+        versionId: "version-2",
+        renderJobId: "render-2",
+        status: "queued" as const
+      };
+    }
+  });
+
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    mocks.chatRepo,
+    mocks.docJobService,
+    mocks.quotaCopy,
+    mocks.quotaStatus,
+    mocks.dailyPolicy,
+    mocks.secretStore,
+    noopGammaThemePickerMock()
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-1",
+    sourceUserMessageText: "Fix the conclusion",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "revise_document",
+      request: {
+        prompt: "Fix the conclusion section",
+        docId: "12345678-1234-4234-9234-1234567890ab",
+        outputFormat: "pdf"
+      }
+    }
+  });
+
+  assert.equal(result.accepted, true, "revision with renderedHtml must be accepted");
+  assert.ok(capturedEnqueueInput !== null, "enqueueRevision must have been called");
+  assert.equal(
+    (capturedEnqueueInput as { previousVersionRenderedHtml: string }).previousVersionRenderedHtml,
+    previousHtml,
+    "previousVersionRenderedHtml must be forwarded verbatim to enqueueRevision"
+  );
+}
+
 async function run(): Promise<void> {
   await runAcceptedCase();
   await runPresentationDefaultsToPdfCase();
@@ -1380,6 +1667,9 @@ async function run(): Promise<void> {
   await runPdfCreateSkipsThemePickerCase();
   await runPresentationThemePickerPersistenceCase();
   await runPresentationPdfToPptxExportQueuesPptxRender();
+  await runFindLatestRevisionContextSurfacesRenderedHtmlPresence();
+  await runEnqueueRevisionRejectsLegacyVersionWithNullRenderedHtml();
+  await runEnqueueRevisionAttachesPreviousRenderedHtmlToRuntimeRequest();
 }
 
 void run();

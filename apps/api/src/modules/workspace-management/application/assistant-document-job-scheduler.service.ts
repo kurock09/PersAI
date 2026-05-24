@@ -52,6 +52,14 @@ type DocumentJobRequestPayload = {
   // Attachments persisted on the job at enqueue time. Optional / nullable
   // so jobs queued before this field existed still parse cleanly.
   sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
+  /**
+   * ADR-097 Slice 2 — patch-revise. For PDF revise jobs, the post-repair HTML
+   * persisted on the previous AssistantDocumentVersion is forwarded here so
+   * the runtime worker can apply SEARCH/REPLACE patches. Null for create,
+   * presentation, or pre-Slice-1 legacy versions (those are rejected at
+   * enqueue time).
+   */
+  previousVersionRenderedHtml?: string | null;
 };
 
 type ClaimedDocumentJob = {
@@ -433,6 +441,13 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         // document extraction pipeline.
         attachments,
         sourceFiles,
+        // ADR-097 Slice 2: forward previousVersionRenderedHtml for PDF revise
+        // jobs. The field is absent for create/presentation jobs and for legacy
+        // PDF versions (which are rejected at enqueue time, so they never reach
+        // the scheduler).
+        ...(typeof requestPayload.previousVersionRenderedHtml === "string"
+          ? { previousVersionRenderedHtml: requestPayload.previousVersionRenderedHtml }
+          : {}),
         directToolExecution: {
           toolCode: "document",
           descriptorMode:

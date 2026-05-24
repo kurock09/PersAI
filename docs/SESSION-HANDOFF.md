@@ -2,6 +2,43 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-24 — ADR-097 follow-up — patch-revise PDF loop (Slice 2)
+
+### What changed
+
+- **Patch-revise path:** `revise_document` for PDF now routes to `RuntimeDocumentProviderAdapterService.runPdfPatchRevise()` when `previousVersionRenderedHtml` is present. One LLM call with `document_pdf_patch_revise` classification returns a strict JSON envelope `{ mode: "document_pdf_patch_revise", patches: [{ search, replace }] }`. Patches applied sequentially with uniqueness validation, then `repairHtmlDocument`, then PDFMonkey.
+- **Silent fallback removed:** `RuntimeDocumentToolService.resolveEffectiveDescriptorMode` no longer converts PDF `revise_document` without a valid UUID docId into `create_pdf_document`. The mode stays `revise_document` and the API resolves or honestly rejects.
+- **Legacy rejection:** PDF revise on a version with `renderedHtml === null` returns `document_revise_unsupported_legacy_version` at enqueue time. No silent full-regeneration fallback.
+- **No-document rejection:** PDF revise with no resolvable document in chat returns `revise_document_requires_existing_pdf`.
+- **Context plumbing:** `AssistantDocumentRevisionContext` now carries `currentVersionRenderedHtml`; `findRevisionContext` and `findLatestRevisionContextForChat` select it from the DB. Scheduler forwards it through `DocumentJobRequestPayload` → `RuntimeDocumentJobRunRequest.previousVersionRenderedHtml`.
+- **UX:** Delivery service emits "Applying edits…" / "Применяю правки…" for PDF revise jobs.
+- **Contract:** `PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS` extended with `"document_pdf_patch_revise"`; `RuntimeDocumentJobRunRequest` extended with `previousVersionRenderedHtml?: string | null`.
+- **Tool descriptor:** `native-tool-projection.ts` updated to describe revise as patch-based; silent fallback hint removed.
+- **Tests:** 6 new adapter tests, 3 new tool-service tests, 3 new API enqueue tests added in-file.
+- **Docs:** ADR-097 updated with Slice 2 section and Phase 8 implementation shape; CHANGELOG entry added.
+
+### Verification
+
+Run in order:
+1. `corepack pnpm --filter @persai/runtime run typecheck` — must pass
+2. `corepack pnpm --filter @persai/api run typecheck` — must pass
+3. `corepack pnpm --filter @persai/runtime run test` — must pass (pre-existing timing flake in `admin-system-notification-producer.service.test.ts` is out of scope)
+4. `corepack pnpm --filter @persai/api run test` — must pass
+5. `corepack pnpm -r --if-present run lint` — must pass
+6. `corepack pnpm run format:check` — must pass
+
+### Residual risks
+
+- **LLM hallucination on search blocks:** if the model returns a `search` block that doesn't match the previous HTML character-for-exactly, the job fails with `document_pdf_patch_revise_search_not_found`. This is the intended honest failure; no fuzzy retry. Model prompt discipline is the mitigation.
+- **Large patch for full rewrites:** a full-body patch with `search = <body>...</body>` is technically valid but burns large context on both input (previous HTML) and output (entire new body). For very large documents this may approach token limits. Mitigation deferred to Slice 3 (chunked patch-revise or hybrid path).
+- **No streaming progress for patch-revise:** one LLM call → one PDFMonkey call → done. No intermediate progress events. The "Applying edits…" placeholder is the only signal. Acceptable for now.
+- **Presentations untouched:** Gamma revise path still uses the old behaviour. Patch-revise is PDF-only.
+
+### Next recommended step
+
+- **Slice 3 (if needed):** Chunked patch-revise for very large documents — split the previous HTML into sections, patch each section independently, reassemble. Only needed if token-limit failures are observed in production.
+- Alternatively: Model prompt hardening based on production search-not-found error rates.
+
 ## 2026-05-24 — ADR-097 follow-up — chunked PDF generation + sticky HTML
 
 ### What changed

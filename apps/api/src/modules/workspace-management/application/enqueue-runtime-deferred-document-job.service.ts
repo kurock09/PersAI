@@ -482,6 +482,20 @@ export class EnqueueRuntimeDeferredDocumentJobService {
             chatId: input.chatId
           });
     if (revisionContext === null) {
+      // ADR-097 Slice 2: for PDF revise with no existing document in chat,
+      // return the dedicated honest error instead of "document_not_found".
+      // Presentations keep the existing "document_not_found" wording since
+      // the Gamma path is untouched in this slice.
+      const isPdfModeRequest = (input.request.sourceJson.outputFormat ?? "pdf") !== "pptx";
+      if (requestedDocId.length === 0 && isPdfModeRequest) {
+        return {
+          accepted: false,
+          code: "revise_document_requires_existing_pdf",
+          message:
+            "revise_document requires an existing PDF document in this chat — there is no previous document to patch. Use create_pdf_document to create a new one.",
+          guidance: null
+        };
+      }
       return {
         accepted: false,
         code: "document_not_found",
@@ -492,6 +506,24 @@ export class EnqueueRuntimeDeferredDocumentJobService {
             : "Use a document created in this chat, or create a new document if there is no existing document to revise."
       };
     }
+
+    // ADR-097 Slice 2: for PDF documents, the patch-revise loop requires
+    // renderedHtml from the previous version. Legacy versions (created before
+    // Slice 1) have renderedHtml === null and are rejected with an explicit
+    // error. NO silent full-regeneration fallback.
+    if (
+      revisionContext.documentType === "pdf_document" &&
+      revisionContext.currentVersionRenderedHtml === null
+    ) {
+      return {
+        accepted: false,
+        code: "document_revise_unsupported_legacy_version",
+        message:
+          "This document version was created before patch-editing was enabled and cannot be revised directly — please create a new document instead. / Эта версия документа была создана до перехода на патч-редактирование и не может быть отредактирована напрямую — создайте новый документ.",
+        guidance: null
+      };
+    }
+
     const provider = revisionContext.documentType === "presentation" ? "gamma" : "pdfmonkey";
     // Chat delivery is PDF-only for presentations, by system contract. We do
     // not inherit the previous version's outputFormat AND we do not honour a
@@ -511,6 +543,12 @@ export class EnqueueRuntimeDeferredDocumentJobService {
             input.request.sourceUserMessageText
           )
         : requestSourceJson;
+    // ADR-097 Slice 2: pass previousVersionRenderedHtml for PDF revise jobs.
+    // For presentations the Gamma path is untouched, so we pass null.
+    const previousVersionRenderedHtml =
+      revisionContext.documentType === "pdf_document"
+        ? revisionContext.currentVersionRenderedHtml
+        : null;
     const created = await this.assistantDocumentJobService.enqueueRevision({
       assistantId: input.assistantId,
       userId: input.userId,
@@ -524,7 +562,8 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       request: {
         ...input.request,
         sourceJson
-      }
+      },
+      previousVersionRenderedHtml
     });
     return {
       accepted: true,

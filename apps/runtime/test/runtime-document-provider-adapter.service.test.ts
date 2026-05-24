@@ -3578,4 +3578,313 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       "providerStatus.errorCode must be document_pdf_outline_invalid when outline returns invalid JSON"
     );
   });
+
+  // ─── ADR-097 Slice 2 — patch-revise tests ─────────────────────────────────
+
+  function makePatchReviseEnvelope(patches: Array<{ search: string; replace: string }>): string {
+    return JSON.stringify({ mode: "document_pdf_patch_revise", patches });
+  }
+
+  function createPatchReviseService(options: {
+    llmResponse: string;
+    onDocumentGenerate?: (req: ProviderGatewayDocumentGenerateRequest) => void;
+    pdfValid?: boolean;
+  }) {
+    const savedObjects: Array<{ objectKey: string }> = [];
+    const gatewayCalls: ProviderGatewayDocumentGenerateRequest[] = [];
+
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText() {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: options.llmResponse,
+            respondedAt: "2026-05-24T16:00:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          gatewayCalls.push(input);
+          if (options.onDocumentGenerate) options.onDocumentGenerate(input);
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-patch-1",
+              templateId: "template-123",
+              filename: input.filename,
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.alloc(1400, "P"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-24T16:01:00.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "success",
+                documentId: "doc-patch-1",
+                documentTemplateId: "template-123",
+                downloadUrl: "https://example.com/patched.pdf",
+                previewUrl: null,
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf",
+                status: "success",
+                updatedAt: "2026-05-24T16:01:00.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          savedObjects.push({ objectKey: input.objectKey });
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+
+    service["extractPdfText"] = async () => ({
+      text: "Enough PDF text to pass validation in the patch-revise PDFMonkey output artifact.",
+      error: null
+    });
+
+    return { service, gatewayCalls, savedObjects };
+  }
+
+  function makePatchReviseRequest(
+    previousVersionRenderedHtml: string,
+    prompt = "Fix the intro paragraph"
+  ) {
+    return {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      runtimeTier: "paid_shared_restricted" as const,
+      runtimeBundleDocument: "{}",
+      previousVersionRenderedHtml,
+      job: {
+        id: "job-patch-1",
+        docId: "doc-1",
+        versionId: "version-2",
+        surface: "web" as const,
+        chatId: "chat-1",
+        provider: "pdfmonkey" as const,
+        outputFormat: "pdf" as const,
+        sourceUserMessageId: "msg-1",
+        sourceUserMessageText: prompt,
+        sourceUserMessageCreatedAt: "2026-05-24T12:00:00.000Z"
+      },
+      attachments: [],
+      directToolExecution: {
+        toolCode: "document" as const,
+        descriptorMode: "revise_document" as const,
+        request: { prompt, requestedName: "Report" }
+      }
+    };
+  }
+
+  test("patch-revise applies single SEARCH/REPLACE patch to previousVersion.renderedHtml and returns repaired HTML", async () => {
+    const previousHtml =
+      "<!DOCTYPE html><html><head></head><body><h1>Introduction</h1><p>Old intro text here.</p></body></html>";
+    const envelope = makePatchReviseEnvelope([
+      { search: "<p>Old intro text here.</p>", replace: "<p>New improved intro text.</p>" }
+    ]);
+
+    const { service, gatewayCalls } = createPatchReviseService({ llmResponse: envelope });
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: makePatchReviseRequest(previousHtml)
+    });
+
+    assert.equal(result.artifacts.length, 1, "must produce one PDF artifact");
+    assert.equal(gatewayCalls.length, 1, "must call PDFMonkey exactly once");
+    assert.match(
+      gatewayCalls[0]!.htmlContent,
+      /New improved intro text/,
+      "PDFMonkey must receive the patched HTML"
+    );
+    assert.equal(
+      gatewayCalls[0]!.htmlContent.includes("Old intro text here"),
+      false,
+      "old text must be replaced"
+    );
+    assert.ok(
+      typeof result.renderedHtml === "string" &&
+        result.renderedHtml.includes("New improved intro text"),
+      "renderedHtml on result must carry the post-patch post-repair HTML"
+    );
+  });
+
+  test("patch-revise applies multiple patches in array order against intermediate state", async () => {
+    const previousHtml =
+      "<!DOCTYPE html><html><head></head><body><h1>Title</h1><p>First paragraph.</p><p>Second paragraph.</p></body></html>";
+    const envelope = makePatchReviseEnvelope([
+      { search: "<p>First paragraph.</p>", replace: "<p>Updated first paragraph.</p>" },
+      { search: "<p>Second paragraph.</p>", replace: "<p>Updated second paragraph.</p>" }
+    ]);
+
+    const { service, gatewayCalls } = createPatchReviseService({ llmResponse: envelope });
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: makePatchReviseRequest(previousHtml)
+    });
+
+    assert.equal(result.artifacts.length, 1, "must produce one artifact");
+    assert.match(gatewayCalls[0]!.htmlContent, /Updated first paragraph/);
+    assert.match(gatewayCalls[0]!.htmlContent, /Updated second paragraph/);
+    assert.equal(gatewayCalls[0]!.htmlContent.includes("First paragraph."), false);
+  });
+
+  test("patch-revise fails with document_pdf_patch_revise_search_not_found when search block missing", async () => {
+    const previousHtml =
+      "<!DOCTYPE html><html><head></head><body><h1>Title</h1><p>Existing content.</p></body></html>";
+    const envelope = makePatchReviseEnvelope([
+      { search: "<p>This text does not exist in the HTML.</p>", replace: "<p>Replacement.</p>" }
+    ]);
+
+    const { service } = createPatchReviseService({ llmResponse: envelope });
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: makePatchReviseRequest(previousHtml)
+    });
+
+    assert.equal(result.artifacts.length, 0, "must produce no artifacts on search-not-found");
+    const errorCode = (result.providerStatus as Record<string, unknown>)?.errorCode;
+    assert.equal(
+      errorCode,
+      "document_pdf_patch_revise_search_not_found",
+      "errorCode must be document_pdf_patch_revise_search_not_found"
+    );
+  });
+
+  test("patch-revise fails with document_pdf_patch_revise_search_ambiguous when search block matches twice", async () => {
+    const previousHtml =
+      "<!DOCTYPE html><html><head></head><body><p>Repeated.</p><p>Repeated.</p></body></html>";
+    const envelope = makePatchReviseEnvelope([
+      { search: "<p>Repeated.</p>", replace: "<p>Fixed.</p>" }
+    ]);
+
+    const { service } = createPatchReviseService({ llmResponse: envelope });
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: makePatchReviseRequest(previousHtml)
+    });
+
+    assert.equal(result.artifacts.length, 0, "must produce no artifacts on ambiguous search");
+    const errorCode = (result.providerStatus as Record<string, unknown>)?.errorCode;
+    assert.equal(
+      errorCode,
+      "document_pdf_patch_revise_search_ambiguous",
+      "errorCode must be document_pdf_patch_revise_search_ambiguous"
+    );
+  });
+
+  test("patch-revise fails with document_pdf_patch_revise_invalid_envelope on malformed JSON", async () => {
+    const previousHtml = "<!DOCTYPE html><html><head></head><body><p>Content.</p></body></html>";
+
+    const { service } = createPatchReviseService({
+      llmResponse: "Sorry, I cannot do that. Here is my reasoning instead."
+    });
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: makePatchReviseRequest(previousHtml)
+    });
+
+    assert.equal(result.artifacts.length, 0, "must produce no artifacts on invalid envelope");
+    const errorCode = (result.providerStatus as Record<string, unknown>)?.errorCode;
+    assert.equal(
+      errorCode,
+      "document_pdf_patch_revise_invalid_envelope",
+      "errorCode must be document_pdf_patch_revise_invalid_envelope"
+    );
+  });
+
+  test("patch-revise persists new renderedHtml (post-apply, post-repair) to result", async () => {
+    const previousHtml =
+      "<!DOCTYPE html><html><head></head><body><h2>Section</h2><p>Old body text.</p></body></html>";
+    const envelope = makePatchReviseEnvelope([
+      { search: "<p>Old body text.</p>", replace: "<p>Patched body text that is new.</p>" }
+    ]);
+
+    const { service } = createPatchReviseService({ llmResponse: envelope });
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: makePatchReviseRequest(previousHtml)
+    });
+
+    assert.ok(typeof result.renderedHtml === "string", "renderedHtml must be a string");
+    assert.match(result.renderedHtml!, /Patched body text that is new/);
+    assert.equal(result.renderedHtml!.includes("Old body text"), false);
+  });
 });

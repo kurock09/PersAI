@@ -2126,6 +2126,16 @@ export interface RuntimeDocumentJobRunRequest {
   // API-extracted source payloads for transient generation attachments. These
   // are not persisted into Knowledge unless the user explicitly saves them.
   sourceFiles?: RuntimeDocumentSourceFile[];
+  /**
+   * ADR-097 Slice 2 — patch-revise loop. For revise_document PDF jobs, the
+   * scheduler passes the exact post-repairHtmlDocument HTML that was persisted
+   * on the previous AssistantDocumentVersion so the worker can apply
+   * SEARCH/REPLACE patches instead of re-generating the full document. Null for
+   * create_pdf_document, create_presentation, export_or_redeliver, presentation
+   * revise jobs, or any PDF version created before Slice 1 (those are rejected
+   * at enqueue time with document_revise_unsupported_legacy_version).
+   */
+  previousVersionRenderedHtml?: string | null;
   directToolExecution: {
     toolCode: "document";
     descriptorMode:
@@ -2444,6 +2454,7 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   "document_html_generation",
   "document_pdf_outline",
   "document_pdf_section_generation",
+  "document_pdf_patch_revise",
   "document_presentation_theme_picker",
   "document_job_completion",
   "media_job_completion",

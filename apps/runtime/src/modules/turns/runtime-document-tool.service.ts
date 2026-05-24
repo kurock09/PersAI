@@ -329,14 +329,27 @@ export class RuntimeDocumentToolService {
     docId: string | null;
     sourceAttachmentCount: number;
   }): "create_pdf_document" | "create_presentation" | "revise_document" | "export_or_redeliver" {
-    if (
-      input.descriptorMode !== "revise_document" ||
-      input.sourceAttachmentCount === 0 ||
-      (input.docId !== null && UUID_REGEX.test(input.docId.trim()))
-    ) {
+    if (input.descriptorMode !== "revise_document") {
       return input.descriptorMode;
     }
-    return input.outputFormat === "pptx" ? "create_presentation" : "create_pdf_document";
+    // Valid docId present → proceed as revise_document regardless.
+    if (input.docId !== null && UUID_REGEX.test(input.docId.trim())) {
+      return input.descriptorMode;
+    }
+    // ADR-097 Slice 2: for PDF revise without a valid docId, do NOT silently
+    // convert to create_pdf_document. The API layer will resolve the latest
+    // PDF document in the chat via latestRevisionContextForChat, and return
+    // an honest error if none is found. Return revise_document as-is.
+    if (input.outputFormat !== "pptx") {
+      return input.descriptorMode;
+    }
+    // Presentation revise without a docId: keep the existing Gamma behaviour
+    // (untouched in Slice 2) — fall through to create_presentation when there
+    // are source attachments but no valid doc_id.
+    if (input.sourceAttachmentCount > 0) {
+      return "create_presentation";
+    }
+    return input.descriptorMode;
   }
 
   private normalizePresentationRequest(input: {

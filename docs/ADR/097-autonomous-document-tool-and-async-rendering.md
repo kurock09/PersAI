@@ -530,6 +530,21 @@ Timeout:
 
 No presentations impact, no PDFMonkey API surface change, no legacy backfill, no revise_document business logic changed (Slice 2 territory).
 
+### 2026-05-24 — Patch-revise loop for PDF documents landed locally
+
+`revise_document` for PDF is now an honest patch-edit on top of `AssistantDocumentVersion.renderedHtml` persisted by Slice 1.
+
+Key properties:
+- One LLM call per revise job using new `document_pdf_patch_revise` classification; model returns a strict JSON envelope `{ mode: "document_pdf_patch_revise", patches: [{ search, replace }] }`
+- Each `search` block must match the previous HTML **exactly once** — non-empty, found at least once, found exactly once. Violation → job fails with `document_pdf_patch_revise_search_not_found` / `document_pdf_patch_revise_search_ambiguous`; no retry, no fuzzy match
+- Patches applied sequentially with `String.replace` (first match, guaranteed unique); result passes through existing `repairHtmlDocument`; output HTML persisted to new `AssistantDocumentVersion.renderedHtml`
+- Malformed JSON envelope → `document_pdf_patch_revise_invalid_envelope`; no fallback
+- Silent `revise_document → create_pdf_document` fallback removed from `RuntimeDocumentToolService.resolveEffectiveDescriptorMode`; PDF revise without a valid docId now routes as `revise_document` and the API resolves via `findLatestRevisionContextForChat` or returns honest `revise_document_requires_existing_pdf`
+- Legacy versions with `renderedHtml === null` rejected at enqueue time with `document_revise_unsupported_legacy_version`; no silent full-regeneration fallback
+- Single placeholder message "Applying edits…" / "Применяю правки…" via existing delivery service
+- Timeout: `DEFAULT_DOCUMENT_TIMEOUT_MS` (6 min) — no chunked budget needed
+- Presentations / Gamma path entirely untouched
+
 ## Implementation Shape
 
 ### Phase 7: Long-document chunked generation
@@ -537,8 +552,18 @@ No presentations impact, no PDFMonkey API surface change, no legacy backfill, no
 - `RuntimeDocumentProviderAdapterService` owns the entire chunked pipeline: routing decision, outline call, style-anchor synthesis, sequential section generation, assembly, and `repairHtmlDocument` pass
 - `RuntimeDocumentJobRunResult.renderedHtml` carries the exact post-repair HTML for persistence
 - `AssistantDocumentJobSchedulerService.processQueuedJob()` persists `renderedHtml` to `AssistantDocumentVersion` inside the same `ready_for_delivery` transition transaction
-- `AssistantDocumentVersion.renderedHtml` is the enabler for upcoming patch-revise (Slice 2): Slice 2 reads this field to avoid a full re-generation and will reject revisions of versions without it with an honest `rendered_html_missing` error
+- `AssistantDocumentVersion.renderedHtml` is the enabler for patch-revise (Slice 2): Slice 2 reads this field to avoid a full re-generation and rejects revisions of versions without it with an honest explicit error
 - Progress milestones ("Outline ready", "Section K of N", "Assembling PDF") are emitted as structured log lines with localized text; live in-chat progress updates require a progress-callback endpoint that is Slice 2+ infrastructure
+
+### Phase 8: PDF patch-revise loop
+
+- `RuntimeDocumentProviderAdapterService.runPdfPatchRevise()` is the new third generation path (alongside single-shot and chunked); triggered when `descriptorMode === "revise_document"` AND `previousVersionRenderedHtml` is present on the job request
+- `PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS` extended with `"document_pdf_patch_revise"`
+- `RuntimeDocumentJobRunRequest.previousVersionRenderedHtml` carries the prior rendered HTML from API to worker; populated by `EnqueueRuntimeDeferredDocumentJobService` from `AssistantDocumentRevisionContext.currentVersionRenderedHtml`
+- `AssistantDocumentRevisionContext.currentVersionRenderedHtml` added to both `findRevisionContext` and `findLatestRevisionContextForChat`
+- `AssistantDocumentJobSchedulerService` forwards `previousVersionRenderedHtml` from `DocumentJobRequestPayload` into the runtime run request
+- `AssistantDocumentJobDeliveryService` emits "Applying edits…" / "Применяю правки…" placeholder for PDF revise jobs instead of the standard "Preparing…" copy
+- New error codes: `document_pdf_patch_revise_invalid_envelope`, `document_pdf_patch_revise_search_not_found`, `document_pdf_patch_revise_search_ambiguous`, `document_pdf_patch_revise_repair_failed`, `document_revise_unsupported_legacy_version`, `revise_document_requires_existing_pdf`
 
 ## Non-goals
 

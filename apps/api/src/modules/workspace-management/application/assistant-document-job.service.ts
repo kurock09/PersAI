@@ -60,6 +60,8 @@ export type AssistantDocumentRevisionContext = {
   currentVersionId: string;
   currentVersionNumber: number;
   currentSourceJson: AssistantDocumentSourcePayload;
+  /** ADR-097 Slice 2 — null when the version pre-dates Slice 1 (legacy). */
+  currentVersionRenderedHtml: string | null;
 };
 
 export type AssistantDocumentExportOrRedeliverContext = AssistantDocumentRevisionContext & {
@@ -210,7 +212,8 @@ export class AssistantDocumentJobService {
           select: {
             id: true,
             versionNumber: true,
-            sourceJson: true
+            sourceJson: true,
+            renderedHtml: true
           }
         }
       }
@@ -231,7 +234,8 @@ export class AssistantDocumentJobService {
       documentType: document.documentType,
       currentVersionId: document.currentVersion.id,
       currentVersionNumber: document.currentVersion.versionNumber,
-      currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson)
+      currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
+      currentVersionRenderedHtml: document.currentVersion.renderedHtml ?? null
     };
   }
 
@@ -246,6 +250,13 @@ export class AssistantDocumentJobService {
     request: AssistantDocumentRequestPayload;
     provider: AssistantDocumentRenderProvider;
     outputFormat: AssistantDocumentOutputFormat;
+    /**
+     * ADR-097 Slice 2 — for PDF revise jobs, the HTML persisted on the
+     * previous version is forwarded here so the scheduler can pass it to the
+     * runtime worker. Null for presentations or when absent for legacy versions
+     * (caller must pre-validate before calling enqueueRevision).
+     */
+    previousVersionRenderedHtml: string | null;
   }): Promise<{ docId: string; versionId: string; renderJobId: string; status: "queued" }> {
     const mergedSourceJson = this.buildRevisionSourcePayload(
       input.revisionContext.currentSourceJson,
@@ -293,7 +304,10 @@ export class AssistantDocumentJobService {
           sourceUserMessageId: input.sourceUserMessageId,
           requestJson: {
             ...input.request,
-            sourceJson: mergedSourceJson
+            sourceJson: mergedSourceJson,
+            ...(input.previousVersionRenderedHtml !== null
+              ? { previousVersionRenderedHtml: input.previousVersionRenderedHtml }
+              : {})
           } as never
         },
         select: { id: true }
@@ -358,7 +372,8 @@ export class AssistantDocumentJobService {
             id: true,
             versionNumber: true,
             sourceJson: true,
-            status: true
+            status: true,
+            renderedHtml: true
           }
         },
         deliveredFiles: {
@@ -402,6 +417,7 @@ export class AssistantDocumentJobService {
       documentType: document.documentType,
       currentVersionId: document.currentVersion.id,
       currentVersionNumber: document.currentVersion.versionNumber,
+      currentVersionRenderedHtml: document.currentVersion.renderedHtml,
       currentVersionStatus: document.currentVersion.status,
       currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
       currentOutputFormat: this.resolveCurrentOutputFormat({
@@ -453,7 +469,8 @@ export class AssistantDocumentJobService {
           select: {
             id: true,
             versionNumber: true,
-            sourceJson: true
+            sourceJson: true,
+            renderedHtml: true
           }
         }
       }
@@ -474,7 +491,8 @@ export class AssistantDocumentJobService {
       documentType: document.documentType,
       currentVersionId: document.currentVersion.id,
       currentVersionNumber: document.currentVersion.versionNumber,
-      currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson)
+      currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
+      currentVersionRenderedHtml: document.currentVersion.renderedHtml ?? null
     };
   }
 

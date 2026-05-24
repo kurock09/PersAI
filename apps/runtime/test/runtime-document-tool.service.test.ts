@@ -143,7 +143,10 @@ describe("RuntimeDocumentToolService", () => {
     assert.deepEqual(capturedAttachments[0], []);
   });
 
-  test("treats revise_document against an attached source file as new PDF creation", async () => {
+  // ADR-097 Slice 2: the old silent revise → create_pdf_document fallback is
+  // gone for PDF. The mode must remain revise_document and the API layer
+  // handles honest rejection / auto-resolution via latestRevisionContextForChat.
+  test("revise_document silent fallback to create_pdf_document path is gone", async () => {
     const capturedInputs: Array<{
       attachments: unknown[];
       directToolExecution: { descriptorMode: string; request: { docId?: string | null } };
@@ -192,10 +195,82 @@ describe("RuntimeDocumentToolService", () => {
     });
 
     const input = capturedInputs[0]!;
-    assert.equal(input.directToolExecution.descriptorMode, "create_pdf_document");
-    assert.equal(input.directToolExecution.request.docId, null);
-    assert.equal(input.attachments.length, 1);
-    assert.equal(result.payload.descriptorMode, "create_pdf_document");
+    // Must NOT fall back to create_pdf_document — revise_document is preserved.
+    assert.equal(input.directToolExecution.descriptorMode, "revise_document");
+    assert.equal(result.payload.descriptorMode, "revise_document");
+  });
+
+  test("revise_document without docId and without recent PDF in chat returns revise_document_requires_existing_pdf", async () => {
+    const service = new RuntimeDocumentToolService({
+      async enqueueDeferredDocumentJob() {
+        return {
+          accepted: false as const,
+          code: "revise_document_requires_existing_pdf",
+          message:
+            "revise_document requires an existing PDF in this chat. Use create_pdf_document to generate a new document first.",
+          guidance: null
+        };
+      }
+    } as never);
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-revise-no-doc",
+        name: "document",
+        arguments: {
+          descriptorMode: "revise_document",
+          prompt: "Fix the title on page 1",
+          outputFormat: "pdf"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-revise-no-doc",
+        sourceUserMessageText: "Исправь заголовок на первой странице",
+        attachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "revise_document_requires_existing_pdf");
+  });
+
+  test("revise_document with docId pointing at version with null renderedHtml returns honest legacy-unsupported error to model", async () => {
+    const service = new RuntimeDocumentToolService({
+      async enqueueDeferredDocumentJob() {
+        return {
+          accepted: false as const,
+          code: "document_revise_unsupported_legacy_version",
+          message:
+            "Эта версия документа была создана до перехода на патч-редактирование и не может быть отредактирована напрямую — создайте новый документ.",
+          guidance: null
+        };
+      }
+    } as never);
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-legacy-revise",
+        name: "document",
+        arguments: {
+          descriptorMode: "revise_document",
+          prompt: "Update the conclusion section",
+          docId: "a1b2c3d4-e5f6-1234-a1b2-c3d4e5f6a1b2",
+          outputFormat: "pdf"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-legacy-revise",
+        sourceUserMessageText: "Обнови заключение",
+        attachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "document_revise_unsupported_legacy_version");
   });
 
   test("maps rejected enqueue into skipped payload", async () => {

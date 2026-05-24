@@ -20,6 +20,7 @@ import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.s
 import { AssistantDocumentJobCompletionTurnService } from "./assistant-document-job-completion-turn.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import {
+  buildAssistantDocumentJobApplyingEditsMessage,
   buildAssistantDocumentJobFailureMessage,
   buildAssistantDocumentJobPreparingMessage,
   buildAssistantDocumentJobSuccessFallbackMessage,
@@ -254,11 +255,19 @@ export class AssistantDocumentJobDeliveryService {
           preferredLocale: null,
           sourceText: this.readSourceUserMessageText(currentPayload)
         });
+        // ADR-097 Slice 2: patch-revise PDF jobs show "Applying edits..." instead
+        // of "Preparing your document..." since it's one targeted LLM call, not a
+        // full re-generation. Presentation revise keeps the generic placeholder.
+        const isPdfPatchRevise =
+          currentPayload.descriptorMode === "revise_document" &&
+          (currentPayload.outputFormat === "pdf" || currentPayload.outputFormat === undefined);
         const completionMessage = await this.assistantChatRepository.createMessage({
           chatId: job.chatId,
           assistantId: job.assistantId,
           author: "assistant",
-          content: buildAssistantDocumentJobPreparingMessage(placeholderLocale)
+          content: isPdfPatchRevise
+            ? buildAssistantDocumentJobApplyingEditsMessage(placeholderLocale)
+            : buildAssistantDocumentJobPreparingMessage(placeholderLocale)
         });
         completionAssistantMessageId = completionMessage.id;
         const remembered = await this.rememberCompletionMessage(

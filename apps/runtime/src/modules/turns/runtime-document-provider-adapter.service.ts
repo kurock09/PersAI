@@ -38,6 +38,39 @@ class DocumentPdfOutlineInvalidError extends Error {
   }
 }
 
+class DocumentPdfPatchReviseInvalidEnvelopeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DocumentPdfPatchReviseInvalidEnvelopeError";
+  }
+}
+
+class DocumentPdfPatchReviseSearchNotFoundError extends Error {
+  readonly patchIndex: number;
+  readonly excerpt: string;
+  constructor(patchIndex: number, excerpt: string) {
+    super(
+      `Patch #${String(patchIndex)}: search block not found in current HTML. Excerpt: ${excerpt}`
+    );
+    this.name = "DocumentPdfPatchReviseSearchNotFoundError";
+    this.patchIndex = patchIndex;
+    this.excerpt = excerpt;
+  }
+}
+
+class DocumentPdfPatchReviseSearchAmbiguousError extends Error {
+  readonly patchIndex: number;
+  readonly excerpt: string;
+  constructor(patchIndex: number, excerpt: string) {
+    super(
+      `Patch #${String(patchIndex)}: search block matches more than once in current HTML. Excerpt: ${excerpt}`
+    );
+    this.name = "DocumentPdfPatchReviseSearchAmbiguousError";
+    this.patchIndex = patchIndex;
+    this.excerpt = excerpt;
+  }
+}
+
 interface Parse5Node {
   nodeName: string;
   tagName?: string;
@@ -219,6 +252,28 @@ export class RuntimeDocumentProviderAdapterService {
       };
     }
     const filename = this.resolveRequestedFilename(input.request, input.request.job.outputFormat);
+
+    // ADR-097 Slice 2 — patch-revise path: when descriptorMode is "revise_document"
+    // and previousVersionRenderedHtml is present, run the SEARCH/REPLACE patch loop
+    // instead of full HTML re-generation. This is its own third path, separate from
+    // single-shot and chunked. One LLM call. One PDFMonkey render. No retry loop.
+    const descriptorMode = input.request.directToolExecution.descriptorMode;
+    const previousVersionRenderedHtml =
+      typeof input.request.previousVersionRenderedHtml === "string" &&
+      input.request.previousVersionRenderedHtml.length > 0
+        ? input.request.previousVersionRenderedHtml
+        : null;
+    if (descriptorMode === "revise_document" && previousVersionRenderedHtml !== null) {
+      return this.runPdfPatchRevise({
+        bundle: input.bundle,
+        request: input.request,
+        credential,
+        templateId,
+        filename,
+        previousVersionRenderedHtml
+      });
+    }
+
     const sourceFiles = input.request.sourceFiles ?? [];
     const totalInlinedSourceBytes = sourceFiles.reduce(
       (sum, entry) => sum + (entry.text === null ? 0 : Buffer.byteLength(entry.text, "utf8")),
@@ -537,6 +592,401 @@ export class RuntimeDocumentProviderAdapterService {
         sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
         assistantFileRegistryAvailable:
           typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+      }
+    };
+  }
+
+  /**
+   * ADR-097 Slice 2 — SEARCH/REPLACE patch-revise loop for PDF documents.
+   *
+   * One LLM call (classification: document_pdf_patch_revise) → validates JSON
+   * envelope → applies patches in array order → repairHtmlDocument → PDFMonkey.
+   * No retry loop. No fallback. One shot; fail honestly on any violation.
+   */
+  private async runPdfPatchRevise(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeDocumentJobRunRequest;
+    credential: AssistantRuntimeBundleToolCredentialRef;
+    templateId: string;
+    filename: string;
+    previousVersionRenderedHtml: string;
+  }): Promise<RuntimeDocumentJobRunResult> {
+    const timeoutMs = this.resolveWorkerTimeoutMs(input.bundle);
+    const providerSelection = this.resolveProviderSelection(input.bundle, "premium_reply");
+    const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
+
+    this.logger.log(
+      `[document-pdf-patch-revise-start] jobId=${input.request.job.id} provider=${providerSelection.provider} model=${providerSelection.model} maxOutputTokens=${String(maxOutputTokens)} previousHtmlBytes=${String(input.previousVersionRenderedHtml.length)}`
+    );
+
+    // Build the LLM request for patch-revise.
+    const patchRequest = this.buildPdfPatchReviseRequest(input, providerSelection, maxOutputTokens);
+    let rawText: string;
+    try {
+      const response = await this.providerGatewayClientService.generateText(patchRequest);
+      rawText = response.text ?? "";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `[document-pdf-patch-revise-llm-failed] jobId=${input.request.job.id} message=${message}`
+      );
+      return this.buildPatchReviseFailResult(input, {
+        errorCode: "document_pdf_patch_revise_invalid_envelope",
+        retryable: true,
+        message: `Patch-revise LLM call failed: ${message}`
+      });
+    }
+
+    this.logger.log(
+      `[document-pdf-patch-revise-raw] jobId=${input.request.job.id} rawLength=${String(rawText.length)} preview=${JSON.stringify(rawText.slice(0, 300))}`
+    );
+
+    // Parse the JSON envelope.
+    let patches: Array<{ search: string; replace: string }>;
+    try {
+      patches = this.parsePatchReviseEnvelope(rawText);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `[document-pdf-patch-revise-envelope-invalid] jobId=${input.request.job.id} message=${message}`
+      );
+      return this.buildPatchReviseFailResult(input, {
+        errorCode: "document_pdf_patch_revise_invalid_envelope",
+        retryable: false,
+        message: `Patch envelope invalid: ${message}`
+      });
+    }
+
+    this.logger.log(
+      `[document-pdf-patch-revise-patches-parsed] jobId=${input.request.job.id} patchCount=${String(patches.length)}`
+    );
+
+    // Apply patches in order.
+    let workingHtml = input.previousVersionRenderedHtml;
+    for (let i = 0; i < patches.length; i++) {
+      const patch = patches[i]!;
+      const searchBlock = patch.search;
+      const replaceBlock = patch.replace;
+
+      if (searchBlock.length === 0) {
+        return this.buildPatchReviseFailResult(input, {
+          errorCode: "document_pdf_patch_revise_invalid_envelope",
+          retryable: false,
+          message: `Patch #${String(i)}: search block is empty.`
+        });
+      }
+
+      const firstIdx = workingHtml.indexOf(searchBlock);
+      if (firstIdx === -1) {
+        const excerpt = searchBlock.slice(0, 120);
+        this.logger.warn(
+          `[document-pdf-patch-revise-not-found] jobId=${input.request.job.id} patchIndex=${String(i)} excerpt=${JSON.stringify(excerpt)}`
+        );
+        return this.buildPatchReviseFailResult(input, {
+          errorCode: "document_pdf_patch_revise_search_not_found",
+          retryable: false,
+          message: new DocumentPdfPatchReviseSearchNotFoundError(i, excerpt).message
+        });
+      }
+      const secondIdx = workingHtml.indexOf(searchBlock, firstIdx + 1);
+      if (secondIdx !== -1) {
+        const excerpt = searchBlock.slice(0, 120);
+        this.logger.warn(
+          `[document-pdf-patch-revise-ambiguous] jobId=${input.request.job.id} patchIndex=${String(i)} excerpt=${JSON.stringify(excerpt)}`
+        );
+        return this.buildPatchReviseFailResult(input, {
+          errorCode: "document_pdf_patch_revise_search_ambiguous",
+          retryable: false,
+          message: new DocumentPdfPatchReviseSearchAmbiguousError(i, excerpt).message
+        });
+      }
+
+      workingHtml =
+        workingHtml.slice(0, firstIdx) +
+        replaceBlock +
+        workingHtml.slice(firstIdx + searchBlock.length);
+    }
+
+    // Run repairHtmlDocument.
+    let repaired: { html: string; bodyTextLength: number };
+    try {
+      repaired = this.repairHtmlDocument(workingHtml);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `[document-pdf-patch-revise-repair-failed] jobId=${input.request.job.id} message=${message}`
+      );
+      return this.buildPatchReviseFailResult(input, {
+        errorCode: "document_pdf_patch_revise_repair_failed",
+        retryable: false,
+        message: `HTML repair failed after patch application: ${message}`
+      });
+    }
+
+    const repairedHtml = repaired.html;
+    this.logger.log(
+      `[document-pdf-patch-revise-repaired] jobId=${input.request.job.id} repairedBytes=${String(repairedHtml.length)} bodyTextLength=${String(repaired.bodyTextLength)}`
+    );
+
+    // Send to PDFMonkey.
+    const providerOutcome = await this.providerGatewayClientService.generateDocumentOutcome(
+      {
+        htmlContent: repairedHtml,
+        filename: input.filename,
+        credential: {
+          toolCode: "document",
+          secretId: input.credential.secretRef.id,
+          providerId: "pdfmonkey"
+        },
+        providerOptions: {
+          pdfmonkeyTemplateId: input.templateId,
+          outputFormat: "pdf"
+        }
+      },
+      { timeoutMs }
+    );
+
+    if (!providerOutcome.ok) {
+      this.logger.warn(
+        `[document-pdf-patch-revise-provider-failed] jobId=${input.request.job.id} status=${String(providerOutcome.status)} code=${String(providerOutcome.code)} retryable=${String(providerOutcome.retryable)}`
+      );
+      return {
+        assistantText: null,
+        artifacts: [],
+        usage: null,
+        toolInvocations: [{ name: "document", iteration: 1, ok: false, executionMode: "worker" }],
+        rawText: null,
+        providerStatus: {
+          provider: "pdfmonkey",
+          state: "failed",
+          errorCode: providerOutcome.code ?? "provider_document_generation_failed",
+          retryable: providerOutcome.retryable,
+          httpStatus: providerOutcome.status,
+          message: providerOutcome.message,
+          outputFormat: input.request.job.outputFormat,
+          requestedName: input.filename,
+          sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
+          assistantFileRegistryAvailable:
+            typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function",
+          ...(providerOutcome.providerStatus === null
+            ? {}
+            : { providerFailure: providerOutcome.providerStatus })
+        }
+      };
+    }
+
+    const providerResult = providerOutcome.result;
+    const pdfBuffer = Buffer.from(providerResult.bytesBase64, "base64");
+    const validationFailure = await this.validateGeneratedPdfArtifact(pdfBuffer, {
+      jobId: input.request.job.id,
+      attempt: 1
+    });
+    if (validationFailure !== null) {
+      this.logger.warn(
+        `[document-pdf-patch-revise-validation-failed] jobId=${input.request.job.id} code=${validationFailure.code} message=${validationFailure.message}`
+      );
+      return this.buildPatchReviseFailResult(input, {
+        errorCode: validationFailure.code,
+        retryable: false,
+        message: validationFailure.message
+      });
+    }
+
+    const artifact = await this.persistGeneratedArtifact({
+      assistantId: input.bundle.metadata.assistantId,
+      workspaceId: input.bundle.metadata.workspaceId,
+      sessionId: input.request.job.chatId,
+      requestId: input.request.job.id,
+      filename: input.filename,
+      requestPrompt: input.request.directToolExecution.request.prompt,
+      requestedName: input.request.directToolExecution.request.requestedName ?? null,
+      buffer: pdfBuffer,
+      mimeType: providerResult.mimeType,
+      billingFacts: providerResult.billingFacts ?? null
+    });
+
+    this.logger.log(
+      `[document-pdf-patch-revise-success] jobId=${input.request.job.id} pdfBytes=${String(pdfBuffer.length)} renderedHtmlBytes=${String(repairedHtml.length)}`
+    );
+
+    return {
+      assistantText: null,
+      artifacts: [artifact],
+      usage: null,
+      billingFacts: artifact.billingFacts ?? null,
+      toolInvocations: [{ name: "document", iteration: 1, ok: true, executionMode: "worker" }],
+      rawText: null,
+      renderedHtml: repairedHtml,
+      providerStatus: {
+        ...providerResult.providerStatus,
+        outputFormat: input.request.job.outputFormat,
+        requestedName: input.filename,
+        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
+        assistantFileRegistryAvailable:
+          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+      }
+    };
+  }
+
+  private buildPatchReviseFailResult(
+    input: {
+      request: RuntimeDocumentJobRunRequest;
+      filename: string;
+    },
+    failure: { errorCode: string; retryable: boolean; message: string }
+  ): RuntimeDocumentJobRunResult {
+    return {
+      assistantText: null,
+      artifacts: [],
+      usage: null,
+      toolInvocations: [{ name: "document", iteration: 1, ok: false, executionMode: "worker" }],
+      rawText: null,
+      providerStatus: {
+        provider: "pdfmonkey",
+        state: "failed",
+        errorCode: failure.errorCode,
+        retryable: failure.retryable,
+        message: failure.message,
+        outputFormat: input.request.job.outputFormat,
+        requestedName: input.filename,
+        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
+        assistantFileRegistryAvailable:
+          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+      }
+    };
+  }
+
+  /**
+   * Parse the strict JSON envelope returned by the patch-revise LLM call.
+   * Accepts the raw model text, strips optional markdown fences, then
+   * validates the { mode, patches: [{search, replace}] } shape.
+   */
+  private parsePatchReviseEnvelope(rawText: string): Array<{ search: string; replace: string }> {
+    const trimmed = rawText.trim();
+    const unfenced = this.stripMarkdownFences(trimmed);
+    const objectStart = unfenced.indexOf("{");
+    const objectEnd = unfenced.lastIndexOf("}");
+    if (objectStart === -1 || objectEnd === -1 || objectEnd <= objectStart) {
+      throw new DocumentPdfPatchReviseInvalidEnvelopeError("No JSON object found in model output.");
+    }
+    const objectSlice = unfenced.slice(objectStart, objectEnd + 1);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(objectSlice);
+    } catch {
+      throw new DocumentPdfPatchReviseInvalidEnvelopeError(
+        "Failed to parse JSON envelope from model output."
+      );
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new DocumentPdfPatchReviseInvalidEnvelopeError("Envelope is not a JSON object.");
+    }
+    const envelope = parsed as Record<string, unknown>;
+    if (envelope.mode !== "document_pdf_patch_revise") {
+      throw new DocumentPdfPatchReviseInvalidEnvelopeError(
+        `Envelope mode must be "document_pdf_patch_revise", got: ${JSON.stringify(envelope.mode)}`
+      );
+    }
+    if (!Array.isArray(envelope.patches)) {
+      throw new DocumentPdfPatchReviseInvalidEnvelopeError('Envelope must have a "patches" array.');
+    }
+    const patches: Array<{ search: string; replace: string }> = [];
+    for (let i = 0; i < envelope.patches.length; i++) {
+      const patch = envelope.patches[i];
+      if (patch === null || typeof patch !== "object" || Array.isArray(patch)) {
+        throw new DocumentPdfPatchReviseInvalidEnvelopeError(
+          `patches[${String(i)}] must be an object.`
+        );
+      }
+      const patchObj = patch as Record<string, unknown>;
+      if (typeof patchObj.search !== "string") {
+        throw new DocumentPdfPatchReviseInvalidEnvelopeError(
+          `patches[${String(i)}].search must be a string.`
+        );
+      }
+      if (typeof patchObj.replace !== "string") {
+        throw new DocumentPdfPatchReviseInvalidEnvelopeError(
+          `patches[${String(i)}].replace must be a string.`
+        );
+      }
+      patches.push({ search: patchObj.search, replace: patchObj.replace });
+    }
+    return patches;
+  }
+
+  private buildPdfPatchReviseRequest(
+    input: {
+      bundle: AssistantRuntimeBundle;
+      request: RuntimeDocumentJobRunRequest;
+      previousVersionRenderedHtml: string;
+    },
+    providerSelection: ProviderSelection,
+    maxOutputTokens: number
+  ): import("@persai/runtime-contract").ProviderGatewayTextGenerateRequest {
+    const docRequest = input.request.directToolExecution.request;
+    const sourceFiles = input.request.sourceFiles ?? [];
+    const sourceFileContext =
+      sourceFiles.length > 0 && sourceFiles.some((f) => f.text !== null)
+        ? sourceFiles
+            .filter((f) => f.text !== null)
+            .map(
+              (f, idx) =>
+                `--- Source attachment ${String(idx + 1)} (${f.filename ?? "file"}, ${f.mimeType}) ---\n${f.text!}`
+            )
+            .join("\n\n")
+        : null;
+
+    const revisionIntent = [
+      `Revision request: ${docRequest.prompt}`,
+      docRequest.instructions ? `Additional instructions: ${docRequest.instructions}` : null,
+      sourceFileContext
+        ? `\n\nSource attachment delta (for reference):\n${sourceFileContext}`
+        : null
+    ]
+      .filter((x) => x !== null)
+      .join("\n");
+
+    const systemPrompt = [
+      "You are a precise HTML patch editor for a PDF document generation pipeline.",
+      "You will receive the FULL HTML of an existing PDF document and a revision request.",
+      "You MUST return ONLY a JSON envelope in this exact shape — no prose, no markdown, no preamble:",
+      '{"mode":"document_pdf_patch_revise","patches":[{"search":"...","replace":"..."}]}',
+      "",
+      "Rules you MUST follow:",
+      "- Each `search` must match the previous HTML EXACTLY (whitespace and tags preserved).",
+      "- Each `search` must be UNIQUE inside the previous HTML (no ambiguous matches). Include enough surrounding context to make it unique.",
+      "- Patches are applied in array order; later patches operate on the result of earlier patches.",
+      "- To insert content without removing, duplicate the surrounding anchor in `search` and in `replace`.",
+      '- To delete content, set `replace` to empty string "".',
+      "- If the requested change is structurally cardinal (e.g. completely rewrite), return ONE patch whose `search` is the entire <body>...</body> content.",
+      "- Do NOT invent new content unrelated to the revision request.",
+      "- Do NOT change the document structure outside the requested change.",
+      "- Do NOT include ```json``` markdown fences or any wrapper text around the JSON.",
+      "- The JSON must be valid and parseable as-is."
+    ].join("\n");
+
+    const userContent = [
+      "=== PREVIOUS HTML (read-only source) ===",
+      input.previousVersionRenderedHtml,
+      "",
+      "=== REVISION REQUEST ===",
+      revisionIntent,
+      "",
+      "Return the JSON envelope with the SEARCH/REPLACE patches to apply."
+    ].join("\n");
+
+    return {
+      provider: providerSelection.provider,
+      model: providerSelection.model,
+      systemPrompt,
+      messages: [{ role: "user", content: userContent }],
+      maxOutputTokens,
+      requestMetadata: {
+        classification: "document_pdf_patch_revise",
+        runtimeRequestId: input.request.job.id,
+        runtimeSessionId: input.request.job.chatId,
+        toolLoopIteration: null,
+        compactionToolCode: null
       }
     };
   }
