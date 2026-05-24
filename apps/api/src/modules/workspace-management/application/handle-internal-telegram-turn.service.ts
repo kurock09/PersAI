@@ -320,7 +320,11 @@ export class HandleInternalTelegramTurnService {
           chatId: chat.id,
           assistantId: resolved.assistantId,
           author: "assistant",
-          content: assistantMessage
+          content: assistantMessage,
+          ...(runtimeResponse.discoveredFileRefIds !== undefined &&
+          runtimeResponse.discoveredFileRefIds.length > 0
+            ? { metadata: { discoveredFileRefIds: runtimeResponse.discoveredFileRefIds } }
+            : {})
         });
         assistantMessageId = assistantChatMessage.id;
         trace.stage("assistant_message_saved");

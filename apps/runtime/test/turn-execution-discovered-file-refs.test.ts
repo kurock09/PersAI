@@ -25,6 +25,8 @@ type TurnExecutionState = {
   deferredDocumentJobs: unknown[];
   closedOpenLoopRefs: string[];
   sharedCompaction: { invoked: boolean; durableStatePersisted: boolean };
+  /** ADR-100 Piece 1 — canonical ids of files discovered via the files tool this turn. */
+  discoveredFileRefIdSet: string[];
 };
 
 type ToolExecutionOutcomeShape = {
@@ -43,7 +45,8 @@ function createTurnState(): TurnExecutionState {
     deferredMediaJobs: [],
     deferredDocumentJobs: [],
     closedOpenLoopRefs: [],
-    sharedCompaction: { invoked: false, durableStatePersisted: false }
+    sharedCompaction: { invoked: false, durableStatePersisted: false },
+    discoveredFileRefIdSet: []
   };
 }
 
@@ -159,6 +162,12 @@ async function run(): Promise<void> {
       turnState.fileRefs[0]?.aliases,
       ["found image #1", "found file #1"],
       "discoveredFileRefs aliases survive the merge"
+    );
+    // ADR-100 Piece 1 — fileRef id must also be tracked in discoveredFileRefIdSet.
+    assert.deepEqual(
+      turnState.discoveredFileRefIdSet,
+      ["file-ref-discovered-1"],
+      "discoveredFileRefIdSet must be populated with the discovered fileRef id"
     );
   }
 

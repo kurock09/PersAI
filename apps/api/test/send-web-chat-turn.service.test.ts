@@ -1205,4 +1205,116 @@ describe("SendWebChatTurnService", () => {
     assert.equal(nativeCalls, 1);
     assert.equal(compactionWaitCalls, 2);
   });
+
+  // ADR-100 Piece 1 — when the runtime turn result contains discoveredFileRefIds,
+  // the persistence call must include them as metadata.discoveredFileRefIds.
+  test("persists discoveredFileRefIds as message metadata when runtime returns file discoveries", async () => {
+    let capturedCreateMessageInput: Record<string, unknown> | null = null;
+
+    const service = new SendWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => {
+          capturedCreateMessageInput = input;
+          return {
+            id: "assistant-msg-1",
+            chatId: input.chatId,
+            assistantId: input.assistantId,
+            author: input.author,
+            content: input.content,
+            createdAt: new Date("2026-04-05T12:00:02.000Z")
+          };
+        }
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        completeWebTurnProcessing: async () => undefined,
+        releaseWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async () => ({
+          assistantMessage: "reply with discovered files",
+          respondedAt: "2026-04-05T12:00:01.000Z",
+          media: [],
+          discoveredFileRefIds: ["file-adr100-1", "file-adr100-2"]
+        })
+      } as never,
+      {
+        execute: async () => ({
+          chat: {
+            id: "chat-1",
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: "Chat",
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: "2026-04-05T12:00:00.000Z",
+            updatedAt: "2026-04-05T12:00:00.000Z"
+          },
+          userMessage: {
+            id: "user-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "find my files",
+            attachments: [],
+            createdAt: "2026-04-05T12:00:00.000Z"
+          },
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "workspace-1"
+          },
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          quotaDegradeModelOverride: null,
+          quotaDegradeReason: null,
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          workspaceTimezone: "UTC"
+        })
+      } as never,
+      {
+        resolveByUserId: async () => ({ assistantId: "assistant-1" })
+      } as never,
+      {
+        execute: async () => undefined
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never
+    );
+
+    await service.execute("user-1", {
+      surfaceThreadKey: "thread-1",
+      message: "find my files"
+    });
+
+    assert.ok(capturedCreateMessageInput !== null, "createMessage must have been called");
+    assert.deepEqual(
+      (capturedCreateMessageInput as Record<string, unknown>).metadata,
+      { discoveredFileRefIds: ["file-adr100-1", "file-adr100-2"] },
+      "metadata.discoveredFileRefIds must match the runtime return value in insertion order"
+    );
+  });
 });

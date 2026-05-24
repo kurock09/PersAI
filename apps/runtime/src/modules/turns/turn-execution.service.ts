@@ -191,6 +191,14 @@ type TurnExecutionState = {
   deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
   deferredDocumentJobs: RuntimeDeferredDocumentJobSummary[];
   closedOpenLoopRefs: string[];
+  /**
+   * ADR-100 Piece 1 — ordered set of canonical AssistantFile ids (fileRef
+   * strings) discovered via `files.list / search / get / read` during this
+   * turn's tool loop. Capped at 20 (insertion order, deduplicated). Surfaced
+   * on the turn result so the API can persist them on the assistant message's
+   * metadata for next-turn hydration.
+   */
+  discoveredFileRefIdSet: string[];
 };
 
 type ToolExecutionOutcome = {
@@ -1556,7 +1564,10 @@ export class TurnExecutionService {
         : { deferredMediaJobs: [...turnState.deferredMediaJobs] }),
       ...(turnState.deferredDocumentJobs.length === 0
         ? {}
-        : { deferredDocumentJobs: [...turnState.deferredDocumentJobs] })
+        : { deferredDocumentJobs: [...turnState.deferredDocumentJobs] }),
+      ...(turnState.discoveredFileRefIdSet.length === 0
+        ? {}
+        : { discoveredFileRefIds: [...turnState.discoveredFileRefIdSet] })
     };
     if (trace !== undefined) {
       this.runtimeObservabilityService.recordStreamTurn(trace);
@@ -1815,16 +1826,27 @@ export class TurnExecutionService {
     if (modelVisibleWorkingFiles.length === 0) {
       return null;
     }
+
+    // ADR-100 Piece 3 — partition into regular working files and recent
+    // discovered files (identified by a `recent file #N` alias).
+    const regularFiles = modelVisibleWorkingFiles.filter(
+      (file) => !this.isRecentDiscoveredFile(file)
+    );
+    const recentFiles = modelVisibleWorkingFiles.filter((file) =>
+      this.isRecentDiscoveredFile(file)
+    );
+
     const lines = [
       "## Working Files",
       "These are the reusable file handles the system has already prepared for this turn. They are not the complete set of files available to you.",
       "Prefer these aliases when referring to current attachments, previously reusable files, or the latest generated outputs.",
       "Ignore low-level storage identifiers or delivery/debug text if they appear anywhere."
     ];
+
     const semanticHintEligibleFileRefs =
       this.selectWorkingFilesForSemanticHints(modelVisibleWorkingFiles);
     let semanticHintsCharsUsed = 0;
-    for (const file of modelVisibleWorkingFiles) {
+    for (const file of regularFiles) {
       lines.push(
         this.formatWorkingFileDeveloperLine(
           file,
@@ -1836,6 +1858,31 @@ export class TurnExecutionService {
         )
       );
     }
+
+    if (recentFiles.length > 0) {
+      lines.push("");
+      lines.push("### Recent Files (found via the files tool earlier in this chat)");
+      // Force each recent file to be hint-eligible so semanticSummaryHint
+      // always surfaces when present — that visibility is the purpose of
+      // this sub-section.
+      const recentEligible = new Set([
+        ...semanticHintEligibleFileRefs,
+        ...recentFiles.map((f) => f.fileRef)
+      ]);
+      for (const file of recentFiles) {
+        lines.push(
+          this.formatWorkingFileDeveloperLine(
+            file,
+            recentEligible,
+            semanticHintsCharsUsed,
+            (charsAdded) => {
+              semanticHintsCharsUsed += charsAdded;
+            }
+          )
+        );
+      }
+    }
+
     lines.push(
       "For `files`, prefer alias first, then `path` or `query` when a reusable alias is unavailable."
     );
@@ -1846,9 +1893,17 @@ export class TurnExecutionService {
       "Mentioning a filename in conversation text does NOT deliver the file. To actually deliver a file to the user, you MUST call `files.send` with the file's resolved alias in the same response."
     );
     lines.push(
-      "If the user asks to find, list, search, or re-check files, or refers to a file not in this list, do NOT answer from this block alone. Always call `files.list` first (full corpus with semantic hints), then `files.search` only as a narrower follow-up. Only after both return empty may you tell the user the file is unavailable."
+      "If the user asks to find, list, search, or re-check files, or refers to a file not in this list or Recent Files, do NOT answer from this block alone. Always call `files.list` first (full corpus with semantic hints), then `files.search` only as a narrower follow-up. Only after both return empty may you tell the user the file is unavailable."
     );
     return lines.join("\n");
+  }
+
+  /**
+   * ADR-100 Piece 3 — a file is a "recent discovered file" when its aliases
+   * list contains at least one entry matching `recent file #N`.
+   */
+  private isRecentDiscoveredFile(file: RuntimeFileRef): boolean {
+    return (file.aliases ?? []).some((alias) => /^recent file #\d+$/i.test(alias.trim()));
   }
 
   private buildOpenMediaJobsDeveloperSection(
@@ -4126,7 +4181,8 @@ export class TurnExecutionService {
       toolInvocations: [],
       deferredMediaJobs: [],
       deferredDocumentJobs: [],
-      closedOpenLoopRefs: []
+      closedOpenLoopRefs: [],
+      discoveredFileRefIdSet: []
     };
   }
 
@@ -4229,6 +4285,15 @@ export class TurnExecutionService {
           };
         } else {
           turnState.fileRefs.push(discoveredRef);
+        }
+        // ADR-100 Piece 1 — also track the canonical id for durable persistence
+        // so the API can write them to the assistant message metadata and future
+        // hydration can surface them as "recent file #N" aliases.
+        if (
+          turnState.discoveredFileRefIdSet.length < 20 &&
+          !turnState.discoveredFileRefIdSet.includes(discoveredRef.fileRef)
+        ) {
+          turnState.discoveredFileRefIdSet.push(discoveredRef.fileRef);
         }
       }
     }

@@ -171,7 +171,11 @@ export class SendNativeWebChatTurnService {
       ...(response.body.autoCompaction === undefined
         ? {}
         : { autoCompaction: response.body.autoCompaction }),
-      ...(response.body.trace === undefined ? {} : { runtimeTrace: response.body.trace })
+      ...(response.body.trace === undefined ? {} : { runtimeTrace: response.body.trace }),
+      ...(response.body.discoveredFileRefIds === undefined ||
+      response.body.discoveredFileRefIds.length === 0
+        ? {}
+        : { discoveredFileRefIds: response.body.discoveredFileRefIds })
     };
   }
 

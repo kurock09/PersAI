@@ -2385,6 +2385,14 @@ export interface RuntimeTurnResult {
   toolInvocations?: RuntimeTurnToolInvocation[];
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
   deferredDocumentJobs?: RuntimeDeferredDocumentJobSummary[];
+  /**
+   * ADR-100 Piece 1 — canonical AssistantFile ids discovered via
+   * `files.list / search / get / read` during this turn's tool loop.
+   * Capped at 20, insertion order. API persists this on the assistant
+   * message metadata so future turn hydration can surface them as
+   * "recent file #N" entries in Working Files.
+   */
+  discoveredFileRefIds?: string[];
 }
 
 export interface RuntimeSkillStateCheckResult {

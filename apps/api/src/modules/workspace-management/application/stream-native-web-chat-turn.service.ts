@@ -370,7 +370,11 @@ export class StreamNativeWebChatTurnService {
               ...(event.result.turnRouting === undefined
                 ? {}
                 : { turnRouting: event.result.turnRouting }),
-              ...(event.result.trace === undefined ? {} : { runtimeTrace: event.result.trace })
+              ...(event.result.trace === undefined ? {} : { runtimeTrace: event.result.trace }),
+              ...(event.result.discoveredFileRefIds === undefined ||
+              event.result.discoveredFileRefIds.length === 0
+                ? {}
+                : { discoveredFileRefIds: event.result.discoveredFileRefIds })
             };
             return;
           }

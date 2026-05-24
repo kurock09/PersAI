@@ -343,6 +343,7 @@ export class StreamWebChatTurnService {
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
     let toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"] = undefined;
+    let discoveredFileRefIds: string[] | undefined = undefined;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let mediaDeliveryCompleted = false;
     const trace =
@@ -470,6 +471,7 @@ export class StreamWebChatTurnService {
         turnRouting = result.turnRouting;
         deferredMediaJobs = result.deferredMediaJobs;
         toolInvocations = result.toolInvocations;
+        discoveredFileRefIds = result.discoveredFileRefIds;
         for (const m of result.collectedMedia) collectedMedia.push(m);
         if (result.primaryFirstDeltaMs !== null) {
           primaryFirstDeltaMs = result.primaryFirstDeltaMs;
@@ -642,7 +644,10 @@ export class StreamWebChatTurnService {
         chatId: prepared.chat.id,
         assistantId: prepared.assistantId,
         author: "assistant",
-        content: cleanedAccumulated
+        content: cleanedAccumulated,
+        ...(discoveredFileRefIds !== undefined && discoveredFileRefIds.length > 0
+          ? { metadata: { discoveredFileRefIds } }
+          : {})
       });
       trace.stage("assistant_message_saved");
       if (deferredMediaJobs !== undefined && deferredMediaJobs.length > 0) {
@@ -1138,6 +1143,7 @@ export class StreamWebChatTurnService {
     turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
     deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"];
     toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"];
+    discoveredFileRefIds: string[] | undefined;
     collectedMedia: RuntimeMediaArtifact[];
     primaryFirstDeltaMs: number | null;
     toolEventCount: number;
@@ -1149,6 +1155,7 @@ export class StreamWebChatTurnService {
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
     let toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"] = undefined;
+    let discoveredFileRefIds: string[] | undefined = undefined;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let primaryFirstDeltaMs = input.primaryFirstDeltaMs;
     let toolEventCount = 0;
@@ -1196,6 +1203,7 @@ export class StreamWebChatTurnService {
             turnRouting,
             deferredMediaJobs,
             toolInvocations,
+            discoveredFileRefIds,
             collectedMedia,
             primaryFirstDeltaMs,
             toolEventCount,
@@ -1336,6 +1344,7 @@ export class StreamWebChatTurnService {
           turnRouting = chunk.turnRouting ?? null;
           deferredMediaJobs = chunk.deferredMediaJobs;
           toolInvocations = chunk.toolInvocations;
+          discoveredFileRefIds = chunk.discoveredFileRefIds;
           if (chunk.runtimeTrace) {
             input.trace.attachExternalTrace(chunk.runtimeTrace);
           }
@@ -1362,6 +1371,7 @@ export class StreamWebChatTurnService {
           turnRouting,
           deferredMediaJobs,
           toolInvocations,
+          discoveredFileRefIds,
           collectedMedia,
           primaryFirstDeltaMs,
           toolEventCount,
@@ -1389,6 +1399,7 @@ export class StreamWebChatTurnService {
           turnRouting,
           deferredMediaJobs,
           toolInvocations,
+          discoveredFileRefIds,
           collectedMedia,
           primaryFirstDeltaMs,
           toolEventCount,
@@ -1409,6 +1420,7 @@ export class StreamWebChatTurnService {
         turnRouting,
         deferredMediaJobs,
         toolInvocations,
+        discoveredFileRefIds,
         collectedMedia,
         primaryFirstDeltaMs,
         toolEventCount,
@@ -1427,6 +1439,7 @@ export class StreamWebChatTurnService {
         turnRouting,
         deferredMediaJobs,
         toolInvocations,
+        discoveredFileRefIds,
         collectedMedia,
         primaryFirstDeltaMs,
         toolEventCount,
@@ -1442,6 +1455,7 @@ export class StreamWebChatTurnService {
       turnRouting,
       deferredMediaJobs,
       toolInvocations,
+      discoveredFileRefIds,
       collectedMedia,
       primaryFirstDeltaMs,
       toolEventCount,

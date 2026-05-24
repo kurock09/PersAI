@@ -205,6 +205,8 @@ class FakeRuntimeStatePrismaService {
     author: "user" | "assistant" | "system";
     content: string;
     createdAt?: Date | null;
+    /** ADR-100 Piece 2 — optional message-level metadata, may carry discoveredFileRefIds. */
+    metadata?: Record<string, unknown> | null;
     attachments: Array<{
       id: string;
       attachmentType: "image" | "audio" | "voice" | "video" | "document" | "tool_output";
@@ -251,7 +253,8 @@ class FakeRuntimeStatePrismaService {
       sizeBytes: bigint;
       logicalSizeBytes: bigint;
       sha256: string | null;
-      metadata: { attachmentId?: string };
+      /** ADR-100 Piece 2 — broadened to allow semanticSummary alongside attachmentId. */
+      metadata: Record<string, unknown>;
       createdAt: Date;
     }
   >();
@@ -360,7 +363,7 @@ class FakeRuntimeStatePrismaService {
         sizeBytes: bigint;
         logicalSizeBytes: bigint;
         sha256?: string;
-        metadata: { attachmentId?: string };
+        metadata: Record<string, unknown>;
       };
       create: {
         assistantId: string;
@@ -375,7 +378,7 @@ class FakeRuntimeStatePrismaService {
         sizeBytes: bigint;
         logicalSizeBytes: bigint;
         sha256: string | null;
-        metadata: { attachmentId?: string };
+        metadata: Record<string, unknown>;
       };
     }) => {
       const existing = [...this.assistantFiles.values()].find(
@@ -1680,5 +1683,288 @@ async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
     );
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(harness.persaiInternalApiClient.markFiredInputs.length, 1);
+  }
+}
+
+// ADR-100 Piece 2 — recent discovered file refs hydration acceptance tests.
+export async function runRecentDiscoveredFileRefsHydrationTest(): Promise<void> {
+  function buildHarness(): {
+    service: TurnContextHydrationService;
+    prisma: FakeRuntimeStatePrismaService;
+  } {
+    const prisma = new FakeRuntimeStatePrismaService();
+    const runtimeStatePostgres = new FakeRuntimeStatePostgresService();
+    const runtimeStateKeyspace = new FakeRuntimeStateKeyspaceService();
+    const mediaObjectStorage = {
+      async downloadObject() {
+        return null;
+      }
+    };
+    const persaiInternalApiClient = new FakePersaiInternalApiClientService();
+    const service = new TurnContextHydrationService(
+      prisma as unknown as RuntimeStatePrismaService,
+      runtimeStatePostgres as never,
+      runtimeStateKeyspace as never,
+      mediaObjectStorage as never,
+      new RuntimeAssistantFileRegistryService(
+        prisma as unknown as RuntimeStatePrismaService,
+        mediaObjectStorage as never
+      ),
+      persaiInternalApiClient as unknown as PersaiInternalApiClientService
+    );
+    return { service, prisma };
+  }
+
+  function buildConversation(): RuntimeTurnRequest["conversation"] {
+    return {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "thread-recent",
+      externalUserKey: "user-1",
+      mode: "direct"
+    };
+  }
+
+  function makeFileRow(
+    id: string,
+    relativePath: string,
+    semanticSummary?: string
+  ): FakeRuntimeStatePrismaService["assistantFiles"] extends Map<string, infer V> ? V : never {
+    return {
+      id,
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      sandboxJobId: null,
+      origin: "runtime_output",
+      sourceToolCode: null,
+      objectKey: `assistant-media/${relativePath}`,
+      relativePath,
+      displayName: relativePath.split("/").pop() ?? null,
+      mimeType: "image/png",
+      sizeBytes: BigInt(1024),
+      logicalSizeBytes: BigInt(1024),
+      sha256: null,
+      metadata: semanticSummary !== undefined ? { semanticSummary } : {},
+      createdAt: new Date("2026-05-01T12:00:00.000Z")
+    };
+  }
+
+  // Scenario 1 — last 5 assistant messages contain 3 distinct discovered ids.
+  // All 3 appear in Working Files as `recent file #1..#3` with semanticSummaryHint.
+  {
+    const { service, prisma } = buildHarness();
+    prisma.chat = { id: "chat-recent-1" };
+    prisma.assistantFiles.set(
+      "file-a",
+      makeFileRow("file-a", "discoveries/viking.png", "A photo of a viking")
+    );
+    prisma.assistantFiles.set(
+      "file-b",
+      makeFileRow("file-b", "discoveries/revenue.xlsx", "Q2 revenue spreadsheet")
+    );
+    prisma.assistantFiles.set(
+      "file-c",
+      makeFileRow("file-c", "discoveries/logo.svg", "Company logo design")
+    );
+    prisma.messages = [
+      { id: "u-1", author: "user", content: "user turn 1", attachments: [] },
+      {
+        id: "a-1",
+        author: "assistant",
+        content: "assistant turn 1",
+        attachments: [],
+        metadata: { discoveredFileRefIds: ["file-a", "file-b"] }
+      },
+      { id: "u-2", author: "user", content: "user turn 2", attachments: [] },
+      {
+        id: "a-2",
+        author: "assistant",
+        content: "assistant turn 2",
+        attachments: [],
+        metadata: { discoveredFileRefIds: ["file-c"] }
+      }
+    ];
+    const refs = await service.listAvailableWorkingFileRefs({
+      conversation: buildConversation(),
+      currentAttachments: []
+    });
+    const recentRefs = refs.filter((r) =>
+      (r.aliases ?? []).some((a) => /^recent file #\d+$/.test(a))
+    );
+    assert.equal(recentRefs.length, 3, "scenario 1: 3 recent files expected");
+    const recentAliases = recentRefs.flatMap((r) =>
+      (r.aliases ?? []).filter((a) => /^recent file #\d+$/.test(a))
+    );
+    assert.ok(recentAliases.includes("recent file #1"), "scenario 1: recent file #1 missing");
+    assert.ok(recentAliases.includes("recent file #2"), "scenario 1: recent file #2 missing");
+    assert.ok(recentAliases.includes("recent file #3"), "scenario 1: recent file #3 missing");
+    for (const ref of recentRefs) {
+      assert.ok(
+        typeof ref.semanticSummaryHint === "string" && ref.semanticSummaryHint.length > 0,
+        `scenario 1: semanticSummaryHint missing for ${String(ref.aliases?.[0])}`
+      );
+    }
+  }
+
+  // Scenario 2 — 7 distinct ids across the window → only top 6 most-recent appear; 7th dropped.
+  {
+    const { service, prisma } = buildHarness();
+    prisma.chat = { id: "chat-recent-2" };
+    for (let i = 1; i <= 7; i += 1) {
+      prisma.assistantFiles.set(
+        `file-${String(i)}`,
+        makeFileRow(`file-${String(i)}`, `f${String(i)}.png`)
+      );
+    }
+    // Most-recent assistant message lists file-1..file-4, older one lists file-5..file-7.
+    // After scanning in reverse order: candidateIds = [file-1, file-2, file-3, file-4, file-5, file-6, file-7]
+    // Cap at 6 → file-7 is dropped.
+    prisma.messages = [
+      {
+        id: "a-old",
+        author: "assistant",
+        content: "older",
+        attachments: [],
+        metadata: { discoveredFileRefIds: ["file-5", "file-6", "file-7"] }
+      },
+      {
+        id: "a-new",
+        author: "assistant",
+        content: "newer",
+        attachments: [],
+        metadata: { discoveredFileRefIds: ["file-1", "file-2", "file-3", "file-4"] }
+      }
+    ];
+    const refs = await service.listAvailableWorkingFileRefs({
+      conversation: buildConversation(),
+      currentAttachments: []
+    });
+    const recentRefs = refs.filter((r) =>
+      (r.aliases ?? []).some((a) => /^recent file #\d+$/.test(a))
+    );
+    assert.equal(recentRefs.length, 6, "scenario 2: exactly 6 recent files expected");
+    assert.ok(
+      !recentRefs.some((r) => r.fileRef === "file-7"),
+      "scenario 2: file-7 must be dropped (7th distinct id over cap)"
+    );
+  }
+
+  // Scenario 3 — one discovered id refers to an AssistantFile row that has since been deleted.
+  // Silently dropped; no error; other refs still appear.
+  {
+    const { service, prisma } = buildHarness();
+    prisma.chat = { id: "chat-recent-3" };
+    prisma.assistantFiles.set(
+      "file-alive",
+      makeFileRow("file-alive", "alive.png", "Surviving file")
+    );
+    // "file-deleted" is intentionally NOT in the map — simulates a deleted row.
+    prisma.messages = [
+      {
+        id: "a-1",
+        author: "assistant",
+        content: "assistant",
+        attachments: [],
+        metadata: { discoveredFileRefIds: ["file-deleted", "file-alive"] }
+      }
+    ];
+    let refs: Awaited<ReturnType<typeof service.listAvailableWorkingFileRefs>>;
+    try {
+      refs = await service.listAvailableWorkingFileRefs({
+        conversation: buildConversation(),
+        currentAttachments: []
+      });
+    } catch (error) {
+      assert.fail(`scenario 3: must not throw; got: ${String(error)}`);
+    }
+    const recentRefs = refs.filter((r) =>
+      (r.aliases ?? []).some((a) => /^recent file #\d+$/.test(a))
+    );
+    assert.equal(recentRefs.length, 1, "scenario 3: only the alive file must appear");
+    assert.equal(recentRefs[0]?.fileRef, "file-alive", "scenario 3: alive file must be file-alive");
+  }
+
+  // Scenario 4 — one discovered id is also in current attachments.
+  // The standard alias wins; no duplicate `recent file #N` entry for that file.
+  {
+    const { service, prisma } = buildHarness();
+    prisma.chat = { id: "chat-recent-4" };
+    prisma.assistantFiles.set(
+      "file-ref-att-1",
+      makeFileRow("file-ref-att-1", "shared/photo.png", "The shared photo")
+    );
+    prisma.assistantFiles.set("file-other", makeFileRow("file-other", "other.png", "Other file"));
+    prisma.messages = [
+      {
+        id: "a-1",
+        author: "assistant",
+        content: "assistant",
+        attachments: [],
+        metadata: { discoveredFileRefIds: ["file-ref-att-1", "file-other"] }
+      }
+    ];
+    const refs = await service.listAvailableWorkingFileRefs({
+      conversation: buildConversation(),
+      currentAttachments: [
+        {
+          attachmentId: "att-1",
+          kind: "image",
+          objectKey: "assistant-media/shared/photo.png",
+          mimeType: "image/png",
+          filename: "photo.png",
+          sizeBytes: 1024,
+          fileRef: "file-ref-att-1"
+        }
+      ]
+    });
+    const attachedRef = refs.find((r) => r.fileRef === "file-ref-att-1");
+    assert.ok(attachedRef !== undefined, "scenario 4: file-ref-att-1 must be present");
+    const attachedAliases = attachedRef?.aliases ?? [];
+    const hasCurrentAttachment = attachedAliases.some((a) => a.startsWith("current attachment #"));
+    const hasRecentAlias = attachedAliases.some((a) => /^recent file #/.test(a));
+    assert.ok(
+      hasCurrentAttachment,
+      "scenario 4: file-ref-att-1 must have current attachment alias"
+    );
+    assert.ok(
+      !hasRecentAlias,
+      "scenario 4: file-ref-att-1 must NOT have a recent file alias (dedup wins)"
+    );
+    // The other file not in current attachments still gets the recent file alias.
+    const otherRef = refs.find((r) => r.fileRef === "file-other");
+    assert.ok(otherRef !== undefined, "scenario 4: file-other must be present");
+    assert.ok(
+      (otherRef?.aliases ?? []).some((a) => /^recent file #/.test(a)),
+      "scenario 4: file-other must have recent file alias"
+    );
+  }
+
+  // Scenario 5 — empty discovery history → no recent file entries; Working Files unchanged.
+  {
+    const { service, prisma } = buildHarness();
+    prisma.chat = { id: "chat-recent-5" };
+    prisma.messages = [
+      { id: "u-1", author: "user", content: "hello", attachments: [] },
+      {
+        id: "a-1",
+        author: "assistant",
+        content: "hi",
+        attachments: []
+        // no metadata / no discoveredFileRefIds
+      }
+    ];
+    const refs = await service.listAvailableWorkingFileRefs({
+      conversation: buildConversation(),
+      currentAttachments: []
+    });
+    const recentRefs = refs.filter((r) =>
+      (r.aliases ?? []).some((a) => /^recent file #\d+$/.test(a))
+    );
+    assert.equal(
+      recentRefs.length,
+      0,
+      "scenario 5: no recent files expected when discovery history is empty"
+    );
   }
 }

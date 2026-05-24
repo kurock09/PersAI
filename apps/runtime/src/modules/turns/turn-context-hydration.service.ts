@@ -48,6 +48,12 @@ const MAX_HYDRATED_MEMORY_TOTAL_CHARS = 1800;
 const MAX_RECENT_IMAGE_TOOL_MESSAGES = 8;
 const MAX_RECENT_IMAGE_TOOL_ATTACHMENTS = 6;
 const MAX_RECENT_DOCUMENT_SOURCE_ATTACHMENTS = 4;
+/** ADR-100 Piece 2 — how many most-recent assistant messages to scan for discovered file ids. */
+const RECENT_FILE_DISCOVERY_MESSAGE_WINDOW = 5;
+/** ADR-100 Piece 2 — hard cap on Working Files entries injected from discovery history. */
+const MAX_RECENT_DISCOVERED_FILES = 6;
+/** ADR-100 Piece 2 — max chars for semanticSummaryHint on a recent file entry. */
+const RECENT_FILE_SEMANTIC_HINT_MAX_CHARS = 240;
 const MAX_OPEN_LOOP_REFS_DEVELOPER_ITEMS = 5;
 const MAX_OPEN_LOOP_REF_SUMMARY_CHARS = 72;
 const MAX_OPEN_LOOP_REF_SELECTION_TOKENS = 12;
@@ -221,6 +227,8 @@ type CanonicalChatMessageRow = {
   content: string;
   createdAt: Date | null;
   attachments: CanonicalChatAttachmentRow[];
+  /** ADR-100 Piece 2 — optional JSONB metadata from the message row; may contain discoveredFileRefIds. */
+  metadata?: Record<string, unknown> | null;
 };
 
 // ADR-074 Slice M3.2 — minimal `assistant_chats` row metadata needed to
@@ -643,7 +651,107 @@ export class TurnContextHydrationService {
       this.upsertWorkingFileRef(refs, fileRef, [`current file #${String(++currentFileOrdinal)}`]);
     }
 
+    // ADR-100 Piece 2 — inject recent discovered files from the last K assistant
+    // messages into Working Files so the model can reference them without
+    // re-calling the files tool.
+    await this.injectRecentDiscoveredFileRefs(input.conversation, refs);
+
     return [...refs.values()];
+  }
+
+  /**
+   * ADR-100 Piece 2 — scans the last RECENT_FILE_DISCOVERY_MESSAGE_WINDOW
+   * assistant messages for `metadata.discoveredFileRefIds`, fetches the
+   * corresponding AssistantFile rows (single bounded query), drops missing
+   * rows silently, dedupes against already-present Working Files entries,
+   * and upserts survivors as `recent file #N` (most-recent-first, 1-based,
+   * cap MAX_RECENT_DISCOVERED_FILES). The `semanticSummaryHint` is populated
+   * from `AssistantFile.metadata.semanticSummary` (trimmed, capped at
+   * RECENT_FILE_SEMANTIC_HINT_MAX_CHARS).
+   */
+  private async injectRecentDiscoveredFileRefs(
+    conversation: RuntimeConversationAddress,
+    refs: Map<string, RuntimeFileRef>
+  ): Promise<void> {
+    const canonicalSurface = toHydratedCanonicalSurface(conversation.channel);
+    if (canonicalSurface === null) {
+      return;
+    }
+
+    const storedMessages = await this.loadCanonicalChatMessages(conversation);
+    if (storedMessages === null || storedMessages.length === 0) {
+      return;
+    }
+
+    // Collect distinct discovered file ref ids, most-recent-first, across
+    // the last K assistant messages that have non-empty discoveredFileRefIds.
+    const candidateIds: string[] = [];
+    let assistantMessagesScanned = 0;
+    for (const message of [...storedMessages].reverse()) {
+      if (message.author !== "assistant") {
+        continue;
+      }
+      if (assistantMessagesScanned >= RECENT_FILE_DISCOVERY_MESSAGE_WINDOW) {
+        break;
+      }
+      assistantMessagesScanned += 1;
+      const meta = message.metadata;
+      const rawIds = meta?.discoveredFileRefIds;
+      if (!Array.isArray(rawIds)) {
+        continue;
+      }
+      for (const id of rawIds) {
+        if (typeof id === "string" && id.trim().length > 0 && !candidateIds.includes(id)) {
+          candidateIds.push(id);
+        }
+      }
+    }
+
+    if (candidateIds.length === 0) {
+      return;
+    }
+
+    // Drop ids that are already present in Working Files — the existing alias
+    // wins; we do not add a duplicate `recent file #N` entry.
+    const newIds = candidateIds.filter((id) => !refs.has(id));
+    if (newIds.length === 0) {
+      return;
+    }
+
+    // Fetch corresponding AssistantFile rows (single bounded query). Any id
+    // whose row no longer exists is silently dropped.
+    const records = await this.runtimeAssistantFileRegistryService.listByFileRefs({
+      assistantId: conversation.assistantId,
+      workspaceId: conversation.workspaceId,
+      fileRefs: newIds
+    });
+
+    // Upsert surviving records, most-recent-first, capped at
+    // MAX_RECENT_DISCOVERED_FILES.
+    let recentFileOrdinal = 0;
+    for (const record of records) {
+      if (recentFileOrdinal >= MAX_RECENT_DISCOVERED_FILES) {
+        break;
+      }
+      recentFileOrdinal += 1;
+      const baseFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record);
+      const rawSummary =
+        typeof record.metadata?.semanticSummary === "string"
+          ? record.metadata.semanticSummary.trim()
+          : null;
+      const semanticSummaryHint =
+        rawSummary !== null && rawSummary.length > 0
+          ? rawSummary.slice(0, RECENT_FILE_SEMANTIC_HINT_MAX_CHARS)
+          : null;
+      this.upsertWorkingFileRef(
+        refs,
+        {
+          ...baseFileRef,
+          ...(semanticSummaryHint !== null ? { semanticSummaryHint } : {})
+        },
+        [`recent file #${String(recentFileOrdinal)}`]
+      );
+    }
   }
 
   private composeWithCarryOverDurableMemoryAndConversation(
@@ -1202,6 +1310,7 @@ export class TurnContextHydrationService {
         author: true,
         content: true,
         createdAt: true,
+        metadata: true,
         attachments: {
           where: {
             processingStatus: "ready"
@@ -1227,6 +1336,7 @@ export class TurnContextHydrationService {
       author: message.author,
       content: message.content,
       createdAt: message.createdAt instanceof Date ? message.createdAt : null,
+      metadata: this.asObject(message.metadata),
       attachments: message.attachments
         .filter((attachment) => {
           const metadata = this.asObject(attachment.metadata);

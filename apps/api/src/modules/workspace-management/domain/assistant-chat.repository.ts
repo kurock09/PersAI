@@ -35,6 +35,8 @@ export type CreateAssistantChatMessageInput = {
   assistantId: string;
   author: AssistantChatMessage["author"];
   content: string;
+  /** ADR-100 Piece 1 — optional JSONB metadata written to the message row. */
+  metadata?: Record<string, unknown>;
 };
 
 export type AssistantChatListMetadata = {

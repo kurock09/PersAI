@@ -312,6 +312,113 @@ describe("TurnExecutionService working-files developer section", () => {
     assert.doesNotMatch(section ?? "", /fileRef|artifactId|objectKey|attachmentId/);
   });
 
+  test("recent files sub-header appears and semanticSummaryHint is shown when recent file aliases present", () => {
+    const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
+    const section = (
+      service as unknown as {
+        buildWorkingFilesDeveloperSection(
+          availableWorkingFileRefs: Array<{
+            fileRef: string;
+            origin: string;
+            sourceToolCode: string | null;
+            objectKey: string;
+            relativePath: string;
+            displayName: string;
+            mimeType: string;
+            sizeBytes: number;
+            logicalSizeBytes: number;
+            aliases: string[];
+            semanticSummaryHint?: string | null;
+          }>
+        ): string | null;
+      }
+    ).buildWorkingFilesDeveloperSection([
+      {
+        fileRef: "file-ref-attach-1",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "assistant-media/uploads/report.pdf",
+        relativePath: "uploads/report.pdf",
+        displayName: "report.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 512,
+        logicalSizeBytes: 512,
+        aliases: ["current attachment #1"],
+        semanticSummaryHint: null
+      },
+      {
+        fileRef: "file-ref-recent-1",
+        origin: "runtime_output",
+        sourceToolCode: null,
+        objectKey: "assistant-media/discoveries/viking.png",
+        relativePath: "discoveries/viking.png",
+        displayName: "viking.png",
+        mimeType: "image/png",
+        sizeBytes: 1024,
+        logicalSizeBytes: 1024,
+        aliases: ["recent file #1"],
+        semanticSummaryHint: "A photo of a Viking warrior on a longship"
+      }
+    ]);
+
+    assert.ok(section, "section must be non-null");
+    assert.match(
+      section ?? "",
+      /### Recent Files \(found via the files tool earlier in this chat\)/,
+      "recent files sub-header must be present"
+    );
+    assert.match(
+      section ?? "",
+      /A photo of a Viking warrior on a longship/,
+      "semanticSummaryHint must appear in the recent files sub-section"
+    );
+    assert.match(section ?? "", /current attachment #1/, "regular attachment must still appear");
+  });
+
+  test("recent files sub-header is absent when no entry has a recent file alias", () => {
+    const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
+    const section = (
+      service as unknown as {
+        buildWorkingFilesDeveloperSection(
+          availableWorkingFileRefs: Array<{
+            fileRef: string;
+            origin: string;
+            sourceToolCode: string | null;
+            objectKey: string;
+            relativePath: string;
+            displayName: string;
+            mimeType: string;
+            sizeBytes: number;
+            logicalSizeBytes: number;
+            aliases: string[];
+            semanticSummaryHint?: string | null;
+          }>
+        ): string | null;
+      }
+    ).buildWorkingFilesDeveloperSection([
+      {
+        fileRef: "file-ref-1",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "assistant-media/uploads/photo.jpg",
+        relativePath: "uploads/photo.jpg",
+        displayName: "photo.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 123,
+        logicalSizeBytes: 123,
+        aliases: ["current image #1"],
+        semanticSummaryHint: null
+      }
+    ]);
+
+    assert.ok(section, "section must be non-null");
+    assert.doesNotMatch(
+      section ?? "",
+      /### Recent Files/,
+      "recent files sub-header must be absent when no recent file aliases are present"
+    );
+  });
+
   test("legacy technical attachment summary is stripped before tool-loop reinjection", () => {
     const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
     const merged = (

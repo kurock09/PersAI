@@ -390,7 +390,11 @@ export class SendWebChatTurnService {
         chatId: prepared.chat.id,
         assistantId: prepared.assistantId,
         author: "assistant",
-        content: runtimeResponse.assistantMessage
+        content: runtimeResponse.assistantMessage,
+        ...(runtimeResponse.discoveredFileRefIds !== undefined &&
+        runtimeResponse.discoveredFileRefIds.length > 0
+          ? { metadata: { discoveredFileRefIds: runtimeResponse.discoveredFileRefIds } }
+          : {})
       });
       trace.stage("assistant_message_saved");
       if (

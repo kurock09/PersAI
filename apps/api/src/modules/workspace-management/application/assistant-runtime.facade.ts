@@ -138,6 +138,8 @@ export interface AssistantRuntimeWebChatTurnResult {
     totalMs: number;
     stages: Array<{ key: string; durationMs: number }>;
   };
+  /** ADR-100 Piece 1 — canonical AssistantFile ids discovered this turn. */
+  discoveredFileRefIds?: string[];
 }
 
 export interface AssistantRuntimeSetupPreviewTurnInput {
@@ -175,6 +177,8 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   toolInvocations?: RuntimeTurnToolInvocation[];
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
+  /** ADR-100 Piece 1 — carried on the `done` chunk only. */
+  discoveredFileRefIds?: string[];
   code?: string;
   message?: string;
   media?: RuntimeMediaArtifact[];
