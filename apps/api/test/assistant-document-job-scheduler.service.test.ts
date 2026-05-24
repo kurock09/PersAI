@@ -901,6 +901,178 @@ describe("AssistantDocumentJobSchedulerService", () => {
     );
   });
 
+  test("scheduler forwards previousVersionRenderedHtml from persisted requestJson to runtime worker request", async () => {
+    let capturedRuntimeRequest: Record<string, unknown> | null = null;
+    const previousHtml = "<html><body><h1>Previous version HTML</h1></body></html>";
+    const service = new AssistantDocumentJobSchedulerService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantDocumentVersion: {
+              update: async () => undefined
+            },
+            assistantDocumentProviderMapping: {
+              findFirst: async () => null,
+              create: async () => undefined,
+              update: async () => undefined
+            }
+          }),
+        assistantDocumentRenderJob: {
+          updateMany: async () => ({ count: 1 })
+        }
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        async resolveCurrent() {
+          return {
+            runtimeBundleDocument: JSON.stringify({
+              metadata: {
+                assistantId: "assistant-1",
+                workspaceId: "workspace-1",
+                publishedVersionId: "version-1"
+              },
+              runtime: {},
+              promptConstructor: {}
+            })
+          };
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          return {
+            runtimeTier: "paid_shared_restricted"
+          };
+        }
+      } as never,
+      {
+        async run(input: Record<string, unknown>) {
+          capturedRuntimeRequest = input;
+          return {
+            ok: true,
+            result: {
+              assistantText: null,
+              artifacts: [
+                {
+                  artifactId: "artifact-revise-1",
+                  fileRef: "file-revise-1",
+                  file: {
+                    fileRef: "file-revise-1",
+                    origin: "runtime_output",
+                    sourceToolCode: "document",
+                    objectKey: "key/revised.pdf",
+                    relativePath: "revised.pdf",
+                    displayName: "revised.pdf",
+                    mimeType: "application/pdf",
+                    sizeBytes: 2000
+                  },
+                  kind: "file",
+                  sourceToolCode: "document",
+                  objectKey: "key/revised.pdf",
+                  mimeType: "application/pdf",
+                  filename: "revised.pdf",
+                  sizeBytes: 2000,
+                  voiceNote: false
+                }
+              ],
+              usage: null,
+              toolInvocations: [],
+              rawText: null,
+              providerStatus: { provider: "pdfmonkey", state: "success" }
+            }
+          };
+        }
+      } as never,
+      {
+        async extractSourceFiles() {
+          return [];
+        }
+      } as never,
+      {
+        async deliverReadyJob() {
+          throw new Error("delivery should not run in this test");
+        }
+      } as never,
+      {
+        async getLeaseState() {
+          return null;
+        },
+        async acquire() {
+          return null;
+        },
+        async heartbeat() {
+          return true;
+        },
+        async release() {}
+      } as never,
+      {
+        recordTickSkipped() {},
+        recordTickAcquired() {},
+        recordLeaseLost() {},
+        recordLeaseExpiredRecovered() {}
+      } as never
+    );
+
+    await (
+      service as unknown as { processQueuedJob: (job: Record<string, unknown>) => Promise<void> }
+    ).processQueuedJob({
+      id: "job-revise-html-1",
+      docId: "doc-1",
+      versionId: "version-5",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      provider: "pdfmonkey",
+      outputFormat: "pdf",
+      sourceUserMessageId: "message-revise-1",
+      requestJson: {
+        sourceUserMessageText: "Shorten the introduction",
+        sourceUserMessageCreatedAt: "2026-05-24T10:00:00.000Z",
+        descriptorMode: "revise_document",
+        previousVersionRenderedHtml: previousHtml,
+        sourceJson: {
+          prompt: "Shorten the introduction",
+          docId: "doc-1"
+        }
+      },
+      attemptCount: 1,
+      maxAttempts: 5,
+      claimToken: "claim-revise-html-1"
+    });
+
+    assert.ok(capturedRuntimeRequest !== null, "runtime client must have been called");
+    assert.equal(
+      (capturedRuntimeRequest as { previousVersionRenderedHtml?: string })
+        .previousVersionRenderedHtml,
+      previousHtml,
+      "previousVersionRenderedHtml must be forwarded from requestJson to the runtime request"
+    );
+  });
+
   test("keeps document ready when a non-current revision fails", async () => {
     const documentUpdates: Array<Record<string, unknown>> = [];
     const service = new AssistantDocumentJobSchedulerService(

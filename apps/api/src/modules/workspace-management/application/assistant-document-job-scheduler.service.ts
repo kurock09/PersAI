@@ -747,7 +747,12 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
       },
       sourceUserMessageAttachments: this.parseAttachmentsFromPersistedJson(
         row.sourceUserMessageAttachments
-      )
+      ),
+      previousVersionRenderedHtml:
+        typeof row.previousVersionRenderedHtml === "string" &&
+        row.previousVersionRenderedHtml.length > 0
+          ? row.previousVersionRenderedHtml
+          : null
     };
   }
 
