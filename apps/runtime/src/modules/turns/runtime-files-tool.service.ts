@@ -14,7 +14,10 @@ import {
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
-import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
+import {
+  RuntimeAssistantFileRegistryService,
+  type RuntimeAssistantFileRecord
+} from "./runtime-assistant-file-registry.service";
 import { SandboxClientService } from "./sandbox-client.service";
 
 const DEFAULT_FILES_SEARCH_LIMIT = 8;
@@ -120,7 +123,7 @@ type ParsedFilesToolRequest =
   | FilesSendRequest;
 
 type ResolvedFilesToolTarget =
-  | { item: RuntimeFilesToolItem; warning: string | null }
+  | { item: RuntimeFilesToolItem; runtimeFileRef: RuntimeFileRef; warning: string | null }
   | { item: null; reason: string; warning: string | null; items?: RuntimeFilesToolItem[] };
 
 type SandboxFilesAction = "read" | "write" | "edit" | "delete";
@@ -136,6 +139,17 @@ export interface RuntimeFilesToolExecutionResult {
   payload: RuntimeFilesToolResult;
   artifacts: RuntimeOutputArtifact[];
   isError: boolean;
+  /**
+   * Files registry-resolved refs that the model just discovered through
+   * `files.search` / `files.list` / `files.get` / `files.read`. The runtime
+   * caller merges these into `turnState.fileRefs` so the next iteration's
+   * Working Files developer block carries the fresh discovery aliases
+   * (`found file #N`, `listed image #N`, `fetched file`, `read image`, ...).
+   * This is runtime-internal state only; the public model-visible
+   * `RuntimeFilesToolResult` schema is unchanged beyond populating the
+   * already-optional `aliases` field on `items[]` / `item`.
+   */
+  discoveredFileRefs?: RuntimeFileRef[];
 }
 
 @Injectable()
@@ -255,14 +269,13 @@ export class RuntimeFilesToolService {
     bundle: AssistantRuntimeBundle,
     request: FilesSearchRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const items = (
-      await this.runtimeAssistantFileRegistryService.search({
-        assistantId: bundle.metadata.assistantId,
-        workspaceId: bundle.metadata.workspaceId,
-        query: request.query,
-        limit: request.limit
-      })
-    ).map((item) => this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(item));
+    const records = await this.runtimeAssistantFileRegistryService.search({
+      assistantId: bundle.metadata.assistantId,
+      workspaceId: bundle.metadata.workspaceId,
+      query: request.query,
+      limit: request.limit
+    });
+    const { items, discoveredFileRefs } = this.buildDiscoveredFromRecords(records, "found");
     return {
       payload: {
         toolCode: "files",
@@ -279,7 +292,8 @@ export class RuntimeFilesToolService {
         queuedArtifacts: 0
       },
       artifacts: [],
-      isError: false
+      isError: false,
+      discoveredFileRefs
     };
   }
 
@@ -294,9 +308,7 @@ export class RuntimeFilesToolService {
       recursive: request.recursive,
       limit: request.limit
     });
-    const items = listing.files.map((file) =>
-      this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(file)
-    );
+    const { items, discoveredFileRefs } = this.buildDiscoveredFromRecords(listing.files, "listed");
     return {
       payload: {
         toolCode: "files",
@@ -320,7 +332,8 @@ export class RuntimeFilesToolService {
         queuedArtifacts: 0
       },
       artifacts: [],
-      isError: false
+      isError: false,
+      discoveredFileRefs
     };
   }
 
@@ -353,6 +366,14 @@ export class RuntimeFilesToolService {
         isError: true
       };
     }
+    const fetchedAliases = this.buildSingleResultAliases(resolved.item, "fetched");
+    const itemWithAliases = this.applyAliasesToItem(resolved.item, fetchedAliases);
+    const discoveredFileRefs = [
+      {
+        ...resolved.runtimeFileRef,
+        aliases: this.mergeAliasList(resolved.runtimeFileRef.aliases ?? null, fetchedAliases)
+      }
+    ];
     return {
       payload: {
         toolCode: "files",
@@ -361,15 +382,16 @@ export class RuntimeFilesToolService {
         action: "fetched",
         reason: null,
         warning: resolved.warning,
-        item: resolved.item,
-        items: [resolved.item],
+        item: itemWithAliases,
+        items: [itemWithAliases],
         content: null,
         job: null,
-        fileRefs: [resolved.item.fileRef],
+        fileRefs: [itemWithAliases.fileRef],
         queuedArtifacts: 0
       },
       artifacts: [],
-      isError: false
+      isError: false,
+      discoveredFileRefs
     };
   }
 
@@ -409,12 +431,21 @@ export class RuntimeFilesToolService {
       };
     }
 
-    if (!this.isTextReadableFile(resolved.item)) {
-      if (this.isDocumentExtractableFile(resolved.item)) {
+    const readAliases = this.buildSingleResultAliases(resolved.item, "read");
+    const itemWithAliases = this.applyAliasesToItem(resolved.item, readAliases);
+    const discoveredFileRefs = [
+      {
+        ...resolved.runtimeFileRef,
+        aliases: this.mergeAliasList(resolved.runtimeFileRef.aliases ?? null, readAliases)
+      }
+    ];
+
+    if (!this.isTextReadableFile(itemWithAliases)) {
+      if (this.isDocumentExtractableFile(itemWithAliases)) {
         const extraction = await this.persaiInternalApiClientService.extractAssistantFileText({
           assistantId: params.bundle.metadata.assistantId,
           workspaceId: params.bundle.metadata.workspaceId,
-          fileRef: resolved.item.fileRef
+          fileRef: itemWithAliases.fileRef
         });
         if (extraction.extracted) {
           return {
@@ -426,16 +457,17 @@ export class RuntimeFilesToolService {
               reason: null,
               warning:
                 extraction.note ??
-                `Extracted text from "${resolved.item.displayName ?? resolved.item.relativePath}" through PersAI document extraction.`,
-              item: resolved.item,
-              items: [resolved.item],
+                `Extracted text from "${itemWithAliases.displayName ?? itemWithAliases.relativePath}" through PersAI document extraction.`,
+              item: itemWithAliases,
+              items: [itemWithAliases],
               content: extraction.text,
               job: null,
-              fileRefs: [resolved.item.fileRef],
+              fileRefs: [itemWithAliases.fileRef],
               queuedArtifacts: 0
             },
             artifacts: [],
-            isError: false
+            isError: false,
+            discoveredFileRefs
           };
         }
         return {
@@ -446,15 +478,16 @@ export class RuntimeFilesToolService {
             action: "skipped",
             reason: "document_text_extraction_failed",
             warning: extraction.note,
-            item: resolved.item,
-            items: [resolved.item],
+            item: itemWithAliases,
+            items: [itemWithAliases],
             content: null,
             job: null,
-            fileRefs: [resolved.item.fileRef],
+            fileRefs: [itemWithAliases.fileRef],
             queuedArtifacts: 0
           },
           artifacts: [],
-          isError: true
+          isError: true,
+          discoveredFileRefs
         };
       }
       return {
@@ -464,16 +497,17 @@ export class RuntimeFilesToolService {
           requestedAction: "read",
           action: "skipped",
           reason: "binary_file_read_unsupported",
-          warning: `Direct files.read is only for text files. "${resolved.item.displayName ?? resolved.item.relativePath}" is ${resolved.item.mimeType}; do not read or quote raw binary bytes. Use a document extraction flow for PDFs/DOCX, or ask the user for a text source.`,
-          item: resolved.item,
-          items: [resolved.item],
+          warning: `Direct files.read is only for text files. "${itemWithAliases.displayName ?? itemWithAliases.relativePath}" is ${itemWithAliases.mimeType}; do not read or quote raw binary bytes. Use a document extraction flow for PDFs/DOCX, or ask the user for a text source.`,
+          item: itemWithAliases,
+          items: [itemWithAliases],
           content: null,
           job: null,
-          fileRefs: [resolved.item.fileRef],
+          fileRefs: [itemWithAliases.fileRef],
           queuedArtifacts: 0
         },
         artifacts: [],
-        isError: true
+        isError: true,
+        discoveredFileRefs
       };
     }
 
@@ -484,10 +518,10 @@ export class RuntimeFilesToolService {
       action: "read",
       args: {
         action: "read",
-        fileRef: resolved.item.fileRef,
-        path: resolved.item.relativePath
+        fileRef: itemWithAliases.fileRef,
+        path: itemWithAliases.relativePath
       },
-      mountedFileRefs: [resolved.item.fileRef]
+      mountedFileRefs: [itemWithAliases.fileRef]
     });
 
     return {
@@ -498,15 +532,16 @@ export class RuntimeFilesToolService {
         action: job.status === "completed" ? "read" : "skipped",
         reason: job.reason,
         warning: job.warning ?? job.violationMessage,
-        item: resolved.item,
-        items: [resolved.item],
+        item: itemWithAliases,
+        items: [itemWithAliases],
         content: job.content,
         job,
-        fileRefs: [resolved.item.fileRef],
+        fileRefs: [itemWithAliases.fileRef],
         queuedArtifacts: 0
       },
       artifacts: [],
-      isError: job.status !== "completed"
+      isError: job.status !== "completed",
+      discoveredFileRefs
     };
   }
 
@@ -1118,7 +1153,11 @@ export class RuntimeFilesToolService {
         (item.aliases ?? []).some((candidate) => this.normalizeAlias(candidate) === normalizedAlias)
       );
       if (current !== undefined) {
-        return { item: this.toItemFromRuntimeFileRef(current), warning: null };
+        return {
+          item: this.toItemFromRuntimeFileRef(current),
+          runtimeFileRef: current,
+          warning: null
+        };
       }
       return {
         item: null,
@@ -1130,30 +1169,42 @@ export class RuntimeFilesToolService {
     if (input.path !== null) {
       const current = input.currentFileRefs.find((item) => item.relativePath === input.path);
       if (current !== undefined) {
-        return { item: this.toItemFromRuntimeFileRef(current), warning: null };
+        return {
+          item: this.toItemFromRuntimeFileRef(current),
+          runtimeFileRef: current,
+          warning: null
+        };
       }
       const stored = await this.runtimeAssistantFileRegistryService.findLatestByPath({
         assistantId: input.assistantId,
         workspaceId: input.workspaceId,
         relativePath: input.path
       });
-      return stored === null
-        ? { item: null, reason: "file_not_found", warning: `No file found at "${input.path}".` }
-        : {
-            item: this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(stored),
-            warning: null
-          };
+      if (stored === null) {
+        return {
+          item: null,
+          reason: "file_not_found",
+          warning: `No file found at "${input.path}".`
+        };
+      }
+      return {
+        item: this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(stored),
+        runtimeFileRef: this.runtimeAssistantFileRegistryService.toRuntimeFileRef(stored),
+        warning: null
+      };
     }
 
     if (input.query !== null) {
-      const matches = (
-        await this.runtimeAssistantFileRegistryService.search({
-          assistantId: input.assistantId,
-          workspaceId: input.workspaceId,
-          query: input.query,
-          limit: 2
-        })
-      ).map((item) => this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(item));
+      const matchedRecords = await this.runtimeAssistantFileRegistryService.search({
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        query: input.query,
+        limit: 2
+      });
+      const matches = matchedRecords.map((record) => ({
+        item: this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(record),
+        runtimeFileRef: this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record)
+      }));
       if (matches.length === 0) {
         return {
           item: null,
@@ -1166,10 +1217,14 @@ export class RuntimeFilesToolService {
           item: null,
           reason: "ambiguous_file_query",
           warning: `Multiple assistant files matched "${input.query}". Refine the query or use a working-file alias.`,
-          items: matches
+          items: matches.map((entry) => entry.item)
         };
       }
-      return { item: matches[0]!, warning: null };
+      return {
+        item: matches[0]!.item,
+        runtimeFileRef: matches[0]!.runtimeFileRef,
+        warning: null
+      };
     }
 
     return {
@@ -1455,6 +1510,80 @@ export class RuntimeFilesToolService {
       aliases: file.fileRef.aliases ?? null,
       semanticSummaryHint: file.fileRef.semanticSummaryHint ?? null
     }));
+  }
+
+  /**
+   * Build runtime working-files discovery aliases for a multi-result action
+   * (`files.search` / `files.list`). The returned `items` carry the same
+   * `aliases` the model sees in the tool-result JSON; `discoveredFileRefs`
+   * carries those aliases on a `RuntimeFileRef[]` so the runtime caller can
+   * merge them into `turnState.fileRefs` for the next iteration.
+   *
+   * Aliases per item N (1-indexed across the result set):
+   * - image: `["${verb} image #N", "${verb} file #N"]`
+   * - non-image: `["${verb} file #N"]`
+   */
+  private buildDiscoveredFromRecords(
+    records: RuntimeAssistantFileRecord[],
+    verb: "found" | "listed"
+  ): { items: RuntimeFilesToolItem[]; discoveredFileRefs: RuntimeFileRef[] } {
+    const items: RuntimeFilesToolItem[] = [];
+    const discoveredFileRefs: RuntimeFileRef[] = [];
+    let imageOrdinal = 0;
+    let fileOrdinal = 0;
+    for (const record of records) {
+      fileOrdinal += 1;
+      const isImage = this.isImageMimeType(record.mimeType);
+      const aliases: string[] = [];
+      if (isImage) {
+        imageOrdinal += 1;
+        aliases.push(`${verb} image #${String(imageOrdinal)}`);
+      }
+      aliases.push(`${verb} file #${String(fileOrdinal)}`);
+      const item = this.applyAliasesToItem(
+        this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(record),
+        aliases
+      );
+      items.push(item);
+      const fileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record);
+      discoveredFileRefs.push({
+        ...fileRef,
+        aliases: this.mergeAliasList(fileRef.aliases ?? null, aliases)
+      });
+    }
+    return { items, discoveredFileRefs };
+  }
+
+  private buildSingleResultAliases(item: RuntimeFilesToolItem, verb: "fetched" | "read"): string[] {
+    if (this.isImageMimeType(item.mimeType)) {
+      return [`${verb} image`, `${verb} file`];
+    }
+    return [`${verb} file`];
+  }
+
+  private applyAliasesToItem(item: RuntimeFilesToolItem, aliases: string[]): RuntimeFilesToolItem {
+    return {
+      ...item,
+      aliases: this.mergeAliasList(item.aliases ?? null, aliases)
+    };
+  }
+
+  private mergeAliasList(existing: string[] | null | undefined, next: string[]): string[] {
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    for (const alias of [...(existing ?? []), ...next]) {
+      const normalized = alias.trim().toLowerCase();
+      if (normalized.length === 0 || seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      merged.push(alias);
+    }
+    return merged;
+  }
+
+  private isImageMimeType(mimeType: string): boolean {
+    return mimeType.trim().toLowerCase().startsWith("image/");
   }
 
   private toItemFromRuntimeFileRef(fileRef: RuntimeFileRef): RuntimeFilesToolItem {

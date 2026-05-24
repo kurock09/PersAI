@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { ReadAssistantKnowledgeService } from "../src/modules/workspace-management/application/read-assistant-knowledge.service";
+import {
+  ReadAssistantKnowledgeService,
+  passesRelevanceFloor
+} from "../src/modules/workspace-management/application/read-assistant-knowledge.service";
 
 type KnowledgeChunkRow = {
   assistantId: string;
@@ -1764,6 +1767,109 @@ async function run(): Promise<void> {
         referenceId: "source-1:1:1"
       }),
     /Only document, memory, chat, subscription, and Product KB knowledge fetch/
+  );
+
+  // ADR-100 follow-up — Fix C. Relevance floor (`passesRelevanceFloor`)
+  // tests. These cover the pure floor shape independent of any scoring
+  // weight tuning, so they are stable against future ranking iteration.
+  // Single-token query: fuzzy-only candidates always fail.
+  assert.equal(
+    passesRelevanceFloor({ score: 5, exactTokenHits: 0 }, { topScore: 5, queryTokenCount: 1 }),
+    false,
+    "Fix C: single-token query with no exact-token hits is rejected"
+  );
+  // Single-token query: a candidate with at least one exact-token hit
+  // always passes regardless of how cheap the score looks.
+  assert.equal(
+    passesRelevanceFloor({ score: 0.5, exactTokenHits: 1 }, { topScore: 100, queryTokenCount: 1 }),
+    true,
+    "Fix C: single-token query with at least one exact-token hit always passes"
+  );
+  // `score <= 0` always fails.
+  assert.equal(
+    passesRelevanceFloor({ score: 0, exactTokenHits: 4 }, { topScore: 10, queryTokenCount: 2 }),
+    false,
+    "Fix C: zero score is always rejected even with exact-token hits"
+  );
+  // Multi-token query: fuzzy-only tail survives only when score >= 0.5 *
+  // topScore. Just-at-half-of-top must pass; just below must fail.
+  assert.equal(
+    passesRelevanceFloor({ score: 5, exactTokenHits: 0 }, { topScore: 10, queryTokenCount: 2 }),
+    true,
+    "Fix C: multi-token fuzzy-only at exactly half of topScore survives"
+  );
+  assert.equal(
+    passesRelevanceFloor({ score: 4.99, exactTokenHits: 0 }, { topScore: 10, queryTokenCount: 2 }),
+    false,
+    "Fix C: multi-token fuzzy-only just below half of topScore is rejected"
+  );
+  // Multi-token query: an exact hit always passes regardless of score
+  // proportion to the top.
+  assert.equal(
+    passesRelevanceFloor({ score: 0.1, exactTokenHits: 1 }, { topScore: 100, queryTokenCount: 3 }),
+    true,
+    "Fix C: multi-token exact hit passes regardless of relative score"
+  );
+  // Multi-token query with topScore = 0 (degenerate): fuzzy-only fails.
+  assert.equal(
+    passesRelevanceFloor({ score: 1, exactTokenHits: 0 }, { topScore: 0, queryTokenCount: 2 }),
+    false,
+    "Fix C: multi-token query with topScore=0 cannot promote fuzzy-only candidates"
+  );
+
+  // Single-token query, fuzzy-only knowledge: searchDocuments must drop
+  // every candidate whose only signal was a fuzzy/trigram match. We use
+  // a one-token query that does not match any whole token in the test
+  // documents but that will still build trigrams.
+  const singleTokenFuzzyMissHits = await service.searchDocuments({
+    assistantId: "assistant-1",
+    query: "xyzqq",
+    maxResults: 5
+  });
+  assert.equal(
+    singleTokenFuzzyMissHits.length,
+    0,
+    "Fix C: single-token query with no exact-token document hit returns no rows"
+  );
+
+  // Single-token query that has exactly one whole-token exact match in
+  // the document corpus. Only that document survives, and not because of
+  // an unrelated fuzzy hit.
+  const singleTokenExactHits = await service.searchDocuments({
+    assistantId: "assistant-1",
+    query: "appendix",
+    maxResults: 5
+  });
+  assert.ok(
+    singleTokenExactHits.length >= 1,
+    "Fix C: single-token query with one exact-hit document returns that document"
+  );
+  assert.ok(
+    singleTokenExactHits.every((hit) => {
+      const ksId = (hit.metadata as { knowledgeSourceId?: string } | null)?.knowledgeSourceId;
+      return ksId === "source-4";
+    }),
+    "Fix C: single-token query results are bounded to the exact-hit document"
+  );
+
+  // Multi-token query with at least one strong exact hit. The exact-hit
+  // top result must always be kept as the highest-ranked survivor. The
+  // detailed half-of-top fuzzy-only floor is exhaustively covered by the
+  // pure `passesRelevanceFloor` cases above; here we just sanity-check
+  // that the integration path yields a non-empty result with the exact
+  // hit at the top.
+  const multiTokenHits = await service.searchDocuments({
+    assistantId: "assistant-1",
+    query: "appendix pricing",
+    maxResults: 8
+  });
+  assert.ok(
+    multiTokenHits.length >= 1,
+    "Fix C: multi-token query keeps at least the exact-hit document"
+  );
+  assert.ok(
+    multiTokenHits.every((hit) => hit.score > 0),
+    "Fix C: every survivor has a positive score (no zero-score leakage)"
   );
 }
 

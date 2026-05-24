@@ -215,6 +215,16 @@ type ToolExecutionOutcome = {
     | RuntimeWebFetchToolResult
     | Record<string, unknown>;
   artifacts?: RuntimeOutputArtifact[];
+  /**
+   * Files-tool registry-resolved refs that the model just discovered through
+   * `files.search` / `files.list` / `files.get` / `files.read`. The runtime
+   * caller merges these into `turnState.fileRefs` so the next provider
+   * iteration's Working Files developer block carries fresh discovery
+   * aliases (`found file #N`, `listed image #N`, `fetched file`,
+   * `read image`, ...) instead of the model trying to re-select via stale
+   * `previous attachment #1` aliases that point to unrelated past uploads.
+   */
+  discoveredFileRefs?: RuntimeFileRef[];
   sharedCompaction?: {
     toolCode: PersaiRuntimeSharedCompactionToolCode;
     durableStatePersisted: boolean;
@@ -2612,7 +2622,8 @@ export class TurnExecutionService {
           result.payload,
           result.isError,
           undefined,
-          result.artifacts
+          result.artifacts,
+          result.discoveredFileRefs
         );
       }
       case EXEC_TOOL_CODE:
@@ -3124,7 +3135,8 @@ export class TurnExecutionService {
       | Record<string, unknown>,
     isError = false,
     sharedCompaction?: ToolExecutionOutcome["sharedCompaction"],
-    artifacts?: RuntimeOutputArtifact[]
+    artifacts?: RuntimeOutputArtifact[],
+    discoveredFileRefs?: RuntimeFileRef[]
   ): ToolExecutionOutcome {
     return {
       exchange: {
@@ -3146,6 +3158,9 @@ export class TurnExecutionService {
       },
       payload,
       ...(artifacts === undefined ? {} : { artifacts }),
+      ...(discoveredFileRefs === undefined || discoveredFileRefs.length === 0
+        ? {}
+        : { discoveredFileRefs }),
       ...(sharedCompaction === undefined ? {} : { sharedCompaction })
     };
   }
@@ -4152,6 +4167,30 @@ export class TurnExecutionService {
         }
       }
     }
+    // ADR-100 follow-up — files-tool discovery refs (search/list/get/read)
+    // surface as a parallel signal: they don't replace any existing entry
+    // for `fileRef.fileRef`, but they merge their working-files aliases
+    // (e.g. `found image #1`, `fetched file`, `read file`) onto whichever
+    // entry already exists so the next provider iteration's Working Files
+    // developer block can show the just-discovered alias and the model
+    // can address it through `files.send` / `image_edit` instead of stale
+    // `previous attachment #N` ordinals that point to unrelated history.
+    if (outcome.discoveredFileRefs !== undefined && outcome.discoveredFileRefs.length > 0) {
+      for (const discoveredRef of outcome.discoveredFileRefs) {
+        const existingIndex = turnState.fileRefs.findIndex(
+          (existingFileRef) => existingFileRef.fileRef === discoveredRef.fileRef
+        );
+        if (existingIndex >= 0) {
+          const existing = turnState.fileRefs[existingIndex]!;
+          turnState.fileRefs[existingIndex] = {
+            ...existing,
+            aliases: this.mergeFileRefAliases(existing.aliases, discoveredRef.aliases)
+          };
+        } else {
+          turnState.fileRefs.push(discoveredRef);
+        }
+      }
+    }
     const toolUsage = this.extractToolUsageSnapshot(outcome.payload);
     if (toolUsage !== null) {
       this.recordUsageEntry(turnState, {
@@ -4281,6 +4320,32 @@ export class TurnExecutionService {
       descriptorMode: row.descriptorMode,
       documentType: row.documentType
     };
+  }
+
+  /**
+   * Case-insensitive alias merge that mirrors
+   * `TurnContextHydrationService.mergeAliases` (which is private to that
+   * service). Used when merging files-tool discovery refs into
+   * `turnState.fileRefs` so a discovered file's `found file #1` /
+   * `fetched image` / `read file` markers are appended to whatever aliases
+   * the existing turnState ref already carried, instead of duplicating or
+   * silently shadowing them.
+   */
+  private mergeFileRefAliases(
+    existing: string[] | null | undefined,
+    next: string[] | null | undefined
+  ): string[] {
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    for (const alias of [...(existing ?? []), ...(next ?? [])]) {
+      const normalized = alias.trim().toLowerCase();
+      if (normalized.length === 0 || seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      merged.push(alias);
+    }
+    return merged;
   }
 
   private extractProducedFileRefs(payload: ToolExecutionOutcome["payload"]): RuntimeFileRef[] {

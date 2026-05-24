@@ -436,6 +436,22 @@ async function run(): Promise<void> {
     searchResult.payload.items[0]?.semanticSummaryHint,
     "Quarterly revenue report for the EMEA region."
   );
+  assert.deepEqual(
+    searchResult.payload.items[0]?.aliases,
+    ["found file #1"],
+    "ADR-100 follow-up: search items get `found file #N` ordinal alias"
+  );
+  assert.equal(searchResult.payload.item?.aliases?.[0], "found file #1");
+  assert.ok(
+    Array.isArray(searchResult.discoveredFileRefs) && searchResult.discoveredFileRefs.length > 0,
+    "ADR-100 follow-up: search returns non-empty discoveredFileRefs"
+  );
+  assert.equal(searchResult.discoveredFileRefs?.[0]?.fileRef, "file-ref-1");
+  assert.deepEqual(
+    searchResult.discoveredFileRefs?.[0]?.aliases,
+    ["found file #1"],
+    "ADR-100 follow-up: discoveredFileRefs aliases match items aliases"
+  );
 
   const semanticSearchResult = await service.executeToolCall({
     bundle: createBundle(),
@@ -455,6 +471,34 @@ async function run(): Promise<void> {
   });
   assert.equal(semanticSearchResult.isError, false);
   assert.equal(semanticSearchResult.payload.items[0]?.fileRef, "file-ref-1");
+
+  const imageSearchResult = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-search-image",
+      name: "files",
+      arguments: {
+        action: "search",
+        query: "generated.png"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-1z",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(imageSearchResult.isError, false);
+  assert.equal(imageSearchResult.payload.items[0]?.fileRef, "file-ref-generated-1");
+  assert.deepEqual(
+    imageSearchResult.payload.items[0]?.aliases,
+    ["found image #1", "found file #1"],
+    "ADR-100 follow-up: image search items get both image and file ordinal aliases"
+  );
+  assert.deepEqual(imageSearchResult.discoveredFileRefs?.[0]?.aliases, [
+    "found image #1",
+    "found file #1"
+  ]);
 
   const listRoot = await service.executeToolCall({
     bundle: createBundle(),
@@ -534,6 +578,14 @@ async function run(): Promise<void> {
   assert.equal(readUploadedPdfByQuery.payload.item?.fileRef, "file-ref-uploaded-pdf");
   assert.equal(readUploadedPdfByQuery.payload.content, "Extracted PDF text");
   assert.match(readUploadedPdfByQuery.payload.warning ?? "", /Extracted text/);
+  assert.deepEqual(
+    readUploadedPdfByQuery.payload.item?.aliases,
+    ["read file"],
+    "ADR-100 follow-up: read on a non-image registry file gets `read file` alias"
+  );
+  assert.equal(readUploadedPdfByQuery.discoveredFileRefs?.length, 1);
+  assert.equal(readUploadedPdfByQuery.discoveredFileRefs?.[0]?.fileRef, "file-ref-uploaded-pdf");
+  assert.deepEqual(readUploadedPdfByQuery.discoveredFileRefs?.[0]?.aliases, ["read file"]);
   assert.equal(sandboxClientService.calls.length, 0);
 
   const ambiguousGet = await service.executeToolCall({

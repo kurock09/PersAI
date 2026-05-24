@@ -2,6 +2,46 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-24 — ADR-100 follow-up — files-tool discovery aliases + knowledge relevance floor
+
+### What changed
+
+- Architectural finalization of the assistant's file search/send/edit loop so a `files.search` result reliably drives the next `files.send` / `image_edit` instead of the model falling back to a stale `previous attachment #N` ordinal that points to an unrelated past upload.
+- Fix A — Runtime files tool now emits `discoveredFileRefs: RuntimeFileRef[]` on its internal execution outcome for `search` / `list` / `get` / `read`. Each discovered ref carries fresh, unambiguous working-files aliases: ordinal `found image #N` / `found file #N` for search results, `listed image #N` / `listed file #N` for directory listings, singular `fetched image` / `fetched file` for single-target `get`, and `read image` / `read file` for `read`. The same aliases are populated on the already-optional `aliases` field of the model-visible `RuntimeFilesToolItem`, so the model sees them directly in the search result JSON.
+- `TurnExecutionService.applyToolExecutionOutcome` now merges `discoveredFileRefs` into `turnState.fileRefs` (push if absent, otherwise merge aliases case-insensitively without duplicating the entry). The existing `TurnContextHydrationService.upsertWorkingFileRef` already merges incoming `fileRef.aliases` via `mergeAliases`, so the next iteration's Working Files developer block now lists discovered files with both the discovery alias (`found image #1`) and the standard ordinal (`current file #N`), and the model can address them through `files.send` / `image_edit` without guessing.
+- Fix C — `read-assistant-knowledge.service` now propagates whole-token `exactTokenHits` from `scoreFieldMatch` through `rankStructuredCandidate` into a new `RankedSearchCandidate.exactTokenHits` field. The four `.filter((row) => row.score > 0)` filter sites (text knowledge documents, memory rows, chat messages, product knowledge text entries) are replaced with a single exported `passesRelevanceFloor` helper.
+- `passesRelevanceFloor` rules: `score <= 0` rejected; any candidate with at least one exact whole-token hit always passes (recall protection); single-token queries reject fuzzy/trigram-only candidates; multi-token queries pass fuzzy-only candidates only when `score >= 0.5 * topScore`. Scoring weights, ranking order, and `selectRankedCandidates` are untouched — only the final pass-through filter changes.
+- Hard constraints respected: no change to `turn-routing.service.ts`, `project-execution-profile.ts`, `orchestrate-runtime-retrieval.service.ts`, or any public schema. No keyword-matching anywhere in routing.
+
+### Verification
+
+- Repo gates (`AGENTS.md`):
+ - `corepack pnpm -r --if-present run lint`
+ - `corepack pnpm run format:check`
+ - `corepack pnpm --filter @persai/api run typecheck`
+ - `corepack pnpm --filter @persai/web run typecheck`
+- Focused tests:
+ - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution-discovered-file-refs.test.ts`
+ - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+ - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+ - `corepack pnpm --filter @persai/runtime exec tsx test/project-execution-profile.test.ts`
+ - `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+ - `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+ - Full `corepack pnpm --filter @persai/api run test` and `corepack pnpm --filter @persai/runtime run test` suites
+- Focused typecheck:
+ - `corepack pnpm --filter @persai/runtime run typecheck`
+ - `corepack pnpm --filter @persai/api run typecheck`
+
+### Residual risks
+
+- Fix A is bounded to runtime turnState propagation. Live verification should confirm that on a real `files.search` → `files.send` flow the model picks the `found file #N` alias from Working Files instead of a `previous attachment #N` from history; the failure mode prior to this slice was sending a cat photo when the user asked for a logo.
+- Fix C's relative-floor threshold (`0.5 * topScore` for multi-token fuzzy-only) is conservative on purpose. If live retrieval shows that some legitimate fuzzy-only multi-token recall is being dropped (rare; needs both no exact hits at all and a long tail of weak fuzzy candidates), the threshold is in a single helper and trivial to relax.
+- No routing change was made (keyword precheck was explicitly rejected by founder). If a future slice wants to also stop the orchestrator from pre-loading knowledge for clearly file-handling intents, that decision will come from the LLM router itself, not from new keyword precheck branches.
+
+### Next recommended step
+
+- Live-test in `persai-dev`: ask the assistant to find a specific file by subject (no exact filename), then ask it to send the file — confirm the right file is delivered. Separately probe a single-token nonsense query against knowledge so the relevance floor visibly drops irrelevant documents from Retrieved Knowledge Context.
+
 ## 2026-05-24 — ADR-100 follow-up — LLM-authored async media replies for Web/TG
 
 ### What changed

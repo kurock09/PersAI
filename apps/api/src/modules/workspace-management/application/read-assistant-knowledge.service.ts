@@ -200,6 +200,15 @@ type RankedSearchCandidate<Row> = {
   row: Row;
   score: number;
   lexicalScore: number;
+  /**
+   * Number of whole-token exact matches encountered while ranking this
+   * candidate (across title/filename/locator/content/metadata fields).
+   * Fuzzy/trigram-only matches do NOT count here. Used by the relevance
+   * floor (`passesRelevanceFloor`) to keep weak single-token fuzzy hits
+   * out of Retrieved Knowledge Context without changing scoring or
+   * ranking order.
+   */
+  exactTokenHits: number;
   dedupeKey: string;
   groupKey: string | null;
   groupLimit: number | null;
@@ -562,16 +571,17 @@ function scoreFieldMatch(params: {
   query: SearchQueryInfo;
   weight: number;
   lengthNormalize: boolean;
-}): number {
+}): { score: number; exactTokenHits: number } {
   const sourceText = params.text?.trim() ?? "";
   if (sourceText.length === 0) {
-    return 0;
+    return { score: 0, exactTokenHits: 0 };
   }
 
   const normalized = normalizeSearchText(sourceText);
   const words = tokenizeWords(sourceText);
   const counts = buildTokenCounts(words);
   let score = 0;
+  let exactTokenHits = 0;
 
   if (
     params.query.normalizedQuery.length > 0 &&
@@ -587,6 +597,7 @@ function scoreFieldMatch(params: {
       const occurrences = counts.get(token) ?? 0;
       if (occurrences > 0) {
         exactMatches += 1;
+        exactTokenHits += 1;
         score += params.weight * 4 * Math.min(3, occurrences);
         continue;
       }
@@ -619,7 +630,7 @@ function scoreFieldMatch(params: {
     score /= 1 + Math.log1p(Math.max(0, words.length - 12)) / 4;
   }
 
-  return score;
+  return { score, exactTokenHits };
 }
 
 function buildRelativeRecencyResolver(params: {
@@ -693,7 +704,7 @@ function rankStructuredCandidate(params: {
   sourceWeight?: number;
   recencyBonus?: number;
   enableSemanticRerank?: boolean;
-}): { lexicalScore: number; score: number } {
+}): { lexicalScore: number; score: number; exactTokenHits: number } {
   const weights: SearchFieldWeights = {
     title: 3.4,
     filename: 3.0,
@@ -703,42 +714,54 @@ function rankStructuredCandidate(params: {
     ...params.fieldWeights
   };
 
+  const titleHit = scoreFieldMatch({
+    text: params.title,
+    query: params.query,
+    weight: weights.title,
+    lengthNormalize: false
+  });
+  const filenameHit = scoreFieldMatch({
+    text: params.filename,
+    query: params.query,
+    weight: weights.filename,
+    lengthNormalize: false
+  });
+  const locatorHit = scoreFieldMatch({
+    text: params.locator,
+    query: params.query,
+    weight: weights.locator,
+    lengthNormalize: false
+  });
+  const contentHit = scoreFieldMatch({
+    text: params.content,
+    query: params.query,
+    weight: weights.content,
+    lengthNormalize: true
+  });
+  const metadataHit = scoreFieldMatch({
+    text: params.metadataText,
+    query: params.query,
+    weight: weights.metadata,
+    lengthNormalize: false
+  });
+
   const lexicalScore =
-    scoreFieldMatch({
-      text: params.title,
-      query: params.query,
-      weight: weights.title,
-      lengthNormalize: false
-    }) +
-    scoreFieldMatch({
-      text: params.filename,
-      query: params.query,
-      weight: weights.filename,
-      lengthNormalize: false
-    }) +
-    scoreFieldMatch({
-      text: params.locator,
-      query: params.query,
-      weight: weights.locator,
-      lengthNormalize: false
-    }) +
-    scoreFieldMatch({
-      text: params.content,
-      query: params.query,
-      weight: weights.content,
-      lengthNormalize: true
-    }) +
-    scoreFieldMatch({
-      text: params.metadataText,
-      query: params.query,
-      weight: weights.metadata,
-      lengthNormalize: false
-    }) +
+    titleHit.score +
+    filenameHit.score +
+    locatorHit.score +
+    contentHit.score +
+    metadataHit.score +
     (params.sourceWeight ?? 0) +
     (params.recencyBonus ?? 0);
+  const exactTokenHits =
+    titleHit.exactTokenHits +
+    filenameHit.exactTokenHits +
+    locatorHit.exactTokenHits +
+    contentHit.exactTokenHits +
+    metadataHit.exactTokenHits;
 
   if (lexicalScore <= 0) {
-    return { lexicalScore, score: lexicalScore };
+    return { lexicalScore, score: lexicalScore, exactTokenHits };
   }
 
   const semanticBonus =
@@ -754,7 +777,8 @@ function rankStructuredCandidate(params: {
 
   return {
     lexicalScore,
-    score: lexicalScore + semanticBonus
+    score: lexicalScore + semanticBonus,
+    exactTokenHits
   };
 }
 
@@ -845,6 +869,49 @@ function renderMetadataSearchText(metadata: Record<string, unknown> | null): str
   return lines.length > 0 ? lines.join("\n") : null;
 }
 
+/**
+ * Tighter relevance floor for `knowledge_search`. Independent of scoring or
+ * ranking order. Drops weak single-token fuzzy/trigram-only matches from
+ * Retrieved Knowledge Context while preserving honest recall:
+ *
+ * - `score <= 0` always rejected.
+ * - any candidate with at least one whole-token exact hit always passes.
+ * - single-token query: fuzzy-only candidates are rejected (single-token
+ *   queries have no co-occurrence safety net for typo guesses).
+ * - multi-token query: fuzzy-only candidates pass only when their score is
+ *   at least 50% of the top scoring candidate, so a clear top-of-list
+ *   exact hit pulls a weak fuzzy tail along with it but a flat tail of
+ *   weak fuzzy noise is dropped.
+ *
+ * Exported as a pure helper so focused regressions can verify the floor
+ * shape without the full prisma harness.
+ */
+export function passesRelevanceFloor(
+  candidate: { score: number; exactTokenHits: number },
+  context: { topScore: number; queryTokenCount: number }
+): boolean {
+  if (candidate.score <= 0) {
+    return false;
+  }
+  if (candidate.exactTokenHits >= 1) {
+    return true;
+  }
+  if (context.queryTokenCount <= 1) {
+    return false;
+  }
+  return context.topScore > 0 && candidate.score >= context.topScore * 0.5;
+}
+
+function computeTopScore(rows: ReadonlyArray<{ score: number }>): number {
+  let topScore = 0;
+  for (const row of rows) {
+    if (row.score > topScore) {
+      topScore = row.score;
+    }
+  }
+  return topScore;
+}
+
 function selectRankedCandidates<Row>(
   candidates: RankedSearchCandidate<Row>[],
   maxResults: number
@@ -901,26 +968,33 @@ function searchTextKnowledgeDocuments(params: {
   }
 
   const queryInfo = buildSearchQueryInfo(normalizedQuery);
-  const ranked = params.documents
-    .map((row) => {
-      const { lexicalScore, score } = rankStructuredCandidate({
-        query: queryInfo,
-        title: row.title,
-        locator: row.locator,
-        content: row.content,
-        metadataText: renderMetadataSearchText(row.metadata),
-        sourceWeight: resolveTextKnowledgeSourceWeight(row)
-      });
-      return {
-        row,
-        score,
-        lexicalScore,
-        dedupeKey: row.referenceId,
-        groupKey: null,
-        groupLimit: null
-      } satisfies RankedSearchCandidate<TextKnowledgeDocumentRow>;
-    })
-    .filter((row) => row.score > 0)
+  const scored = params.documents.map((row) => {
+    const { lexicalScore, score, exactTokenHits } = rankStructuredCandidate({
+      query: queryInfo,
+      title: row.title,
+      locator: row.locator,
+      content: row.content,
+      metadataText: renderMetadataSearchText(row.metadata),
+      sourceWeight: resolveTextKnowledgeSourceWeight(row)
+    });
+    return {
+      row,
+      score,
+      lexicalScore,
+      exactTokenHits,
+      dedupeKey: row.referenceId,
+      groupKey: null,
+      groupLimit: null
+    } satisfies RankedSearchCandidate<TextKnowledgeDocumentRow>;
+  });
+  const topScore = computeTopScore(scored);
+  const ranked = scored
+    .filter((candidate) =>
+      passesRelevanceFloor(candidate, {
+        topScore,
+        queryTokenCount: queryInfo.tokens.length
+      })
+    )
     .sort((left, right) => {
       if (right.score !== left.score) {
         return right.score - left.score;
@@ -1665,7 +1739,7 @@ export class ReadAssistantKnowledgeService {
       };
 
       for (const row of rows) {
-        const { lexicalScore, score } = rankStructuredCandidate({
+        const { lexicalScore, score, exactTokenHits } = rankStructuredCandidate({
           query: queryInfo,
           title: row.knowledgeSource.displayName,
           filename: row.knowledgeSource.originalFilename,
@@ -1693,6 +1767,7 @@ export class ReadAssistantKnowledgeService {
           row,
           score,
           lexicalScore,
+          exactTokenHits,
           dedupeKey: [
             row.knowledgeSourceId,
             normalizeSearchText(row.locator ?? ""),
@@ -1751,7 +1826,7 @@ export class ReadAssistantKnowledgeService {
           if (vectorSimilarity <= 0.18) {
             continue;
           }
-          const { lexicalScore } = rankStructuredCandidate({
+          const { lexicalScore, exactTokenHits } = rankStructuredCandidate({
             query: queryInfo,
             title: row.knowledgeSource.displayName,
             filename: row.knowledgeSource.originalFilename,
@@ -1776,6 +1851,7 @@ export class ReadAssistantKnowledgeService {
             row,
             score: vectorSimilarity * 42 + lexicalScore * 0.35,
             lexicalScore: lexicalScore + vectorSimilarity * 10,
+            exactTokenHits,
             dedupeKey: [
               row.knowledgeSourceId,
               normalizeSearchText(row.locator ?? ""),
@@ -1977,34 +2053,41 @@ export class ReadAssistantKnowledgeService {
         halfLifeDays: 14,
         maxBonus: 8
       });
-      const ranked = rows
-        .map((row) => {
-          const { lexicalScore, score } = rankStructuredCandidate({
-            query: queryInfo,
-            title: resolveMemoryTitle(row),
-            locator: resolveMemoryLocator(row),
-            content: row.summary,
-            fieldWeights: {
-              title: 2.8,
-              filename: 0,
-              locator: 1.9,
-              content: 2.2,
-              metadata: 0
-            },
-            sourceWeight: row.sourceType === "memory_write" ? 9 : 4,
-            recencyBonus: recencyBonus(row.createdAt),
-            enableSemanticRerank: true
-          });
-          return {
-            row,
-            score,
-            lexicalScore,
-            dedupeKey: `${row.sourceType}:${normalizeSearchText(row.summary)}`,
-            groupKey: row.chatId,
-            groupLimit: row.chatId === null ? null : 2
-          } satisfies RankedSearchCandidate<MemoryRegistryRow>;
-        })
-        .filter((row) => row.score > 0)
+      const scored = rows.map((row) => {
+        const { lexicalScore, score, exactTokenHits } = rankStructuredCandidate({
+          query: queryInfo,
+          title: resolveMemoryTitle(row),
+          locator: resolveMemoryLocator(row),
+          content: row.summary,
+          fieldWeights: {
+            title: 2.8,
+            filename: 0,
+            locator: 1.9,
+            content: 2.2,
+            metadata: 0
+          },
+          sourceWeight: row.sourceType === "memory_write" ? 9 : 4,
+          recencyBonus: recencyBonus(row.createdAt),
+          enableSemanticRerank: true
+        });
+        return {
+          row,
+          score,
+          lexicalScore,
+          exactTokenHits,
+          dedupeKey: `${row.sourceType}:${normalizeSearchText(row.summary)}`,
+          groupKey: row.chatId,
+          groupLimit: row.chatId === null ? null : 2
+        } satisfies RankedSearchCandidate<MemoryRegistryRow>;
+      });
+      const topScore = computeTopScore(scored);
+      const ranked = scored
+        .filter((candidate) =>
+          passesRelevanceFloor(candidate, {
+            topScore,
+            queryTokenCount: queryInfo.tokens.length
+          })
+        )
         .sort((left, right) => {
           if (right.score !== left.score) {
             return right.score - left.score;
@@ -2127,35 +2210,42 @@ export class ReadAssistantKnowledgeService {
         halfLifeDays: 7,
         maxBonus: 10
       });
-      const ranked = rows
-        .map((row) => {
-          const { lexicalScore, score } = rankStructuredCandidate({
-            query: queryInfo,
-            title: resolveChatTitle(row.chat),
-            locator: resolveChatLocator(row),
-            content: row.content,
-            fieldWeights: {
-              title: 2.5,
-              filename: 0,
-              locator: 1.8,
-              content: 2.15,
-              metadata: 0
-            },
-            sourceWeight:
-              (row.chat.archivedAt === null ? 4 : 1) + (row.author === "assistant" ? 1.5 : 0),
-            recencyBonus: recencyBonus(row.createdAt),
-            enableSemanticRerank: true
-          });
-          return {
-            row,
-            score,
-            lexicalScore,
-            dedupeKey: `${row.chatId}:${normalizeSearchText(row.content)}`,
-            groupKey: row.chatId,
-            groupLimit: 2
-          } satisfies RankedSearchCandidate<ChatMessageRow>;
-        })
-        .filter((row) => row.score > 0)
+      const scored = rows.map((row) => {
+        const { lexicalScore, score, exactTokenHits } = rankStructuredCandidate({
+          query: queryInfo,
+          title: resolveChatTitle(row.chat),
+          locator: resolveChatLocator(row),
+          content: row.content,
+          fieldWeights: {
+            title: 2.5,
+            filename: 0,
+            locator: 1.8,
+            content: 2.15,
+            metadata: 0
+          },
+          sourceWeight:
+            (row.chat.archivedAt === null ? 4 : 1) + (row.author === "assistant" ? 1.5 : 0),
+          recencyBonus: recencyBonus(row.createdAt),
+          enableSemanticRerank: true
+        });
+        return {
+          row,
+          score,
+          lexicalScore,
+          exactTokenHits,
+          dedupeKey: `${row.chatId}:${normalizeSearchText(row.content)}`,
+          groupKey: row.chatId,
+          groupLimit: 2
+        } satisfies RankedSearchCandidate<ChatMessageRow>;
+      });
+      const topScore = computeTopScore(scored);
+      const ranked = scored
+        .filter((candidate) =>
+          passesRelevanceFloor(candidate, {
+            topScore,
+            queryTokenCount: queryInfo.tokens.length
+          })
+        )
         .sort((left, right) => {
           if (right.score !== left.score) {
             return right.score - left.score;
@@ -2960,7 +3050,7 @@ export class ReadAssistantKnowledgeService {
     };
 
     for (const row of rows) {
-      const { lexicalScore, score } = rankStructuredCandidate({
+      const { lexicalScore, score, exactTokenHits } = rankStructuredCandidate({
         query: queryInfo,
         title: row.globalKnowledgeSource.displayName,
         filename: row.globalKnowledgeSource.originalFilename,
@@ -2988,6 +3078,7 @@ export class ReadAssistantKnowledgeService {
         row,
         score,
         lexicalScore,
+        exactTokenHits,
         dedupeKey: [
           row.globalKnowledgeSourceId,
           normalizeSearchText(row.locator ?? ""),
@@ -3047,7 +3138,7 @@ export class ReadAssistantKnowledgeService {
         if (vectorSimilarity <= 0.18) {
           continue;
         }
-        const { lexicalScore } = rankStructuredCandidate({
+        const { lexicalScore, exactTokenHits } = rankStructuredCandidate({
           query: queryInfo,
           title: row.globalKnowledgeSource.displayName,
           filename: row.globalKnowledgeSource.originalFilename,
@@ -3072,6 +3163,7 @@ export class ReadAssistantKnowledgeService {
           row,
           score: vectorSimilarity * 42 + lexicalScore * 0.35,
           lexicalScore: lexicalScore + vectorSimilarity * 10,
+          exactTokenHits,
           dedupeKey: [
             row.globalKnowledgeSourceId,
             normalizeSearchText(row.locator ?? ""),
@@ -3191,27 +3283,33 @@ export class ReadAssistantKnowledgeService {
       orderBy: [{ textEntryId: "asc" }, { sourceVersion: "desc" }, { chunkIndex: "asc" }],
       take: Math.max(input.maxResults * 3, input.maxResults)
     })) as ProductKnowledgeTextEntrySearchRow[];
-    const ranked = rows
-      .map((row) => {
-        const { lexicalScore, score } = rankStructuredCandidate({
-          query: input.queryInfo,
-          title: row.textEntry.title,
-          filename: null,
-          locator: row.locator,
-          content: row.content,
-          fieldWeights: {
-            title: 3.4,
-            filename: 0,
-            locator: 2.0,
-            content: 1.3,
-            metadata: 0
-          },
-          sourceWeight: 4,
-          enableSemanticRerank: true
-        });
-        return { row, score, lexicalScore };
-      })
-      .filter((candidate) => candidate.score > 0)
+    const scored = rows.map((row) => {
+      const { lexicalScore, score, exactTokenHits } = rankStructuredCandidate({
+        query: input.queryInfo,
+        title: row.textEntry.title,
+        filename: null,
+        locator: row.locator,
+        content: row.content,
+        fieldWeights: {
+          title: 3.4,
+          filename: 0,
+          locator: 2.0,
+          content: 1.3,
+          metadata: 0
+        },
+        sourceWeight: 4,
+        enableSemanticRerank: true
+      });
+      return { row, score, lexicalScore, exactTokenHits };
+    });
+    const topScore = computeTopScore(scored);
+    const ranked = scored
+      .filter((candidate) =>
+        passesRelevanceFloor(candidate, {
+          topScore,
+          queryTokenCount: input.queryInfo.tokens.length
+        })
+      )
       .sort((left, right) => {
         if (right.score !== left.score) {
           return right.score - left.score;
