@@ -152,6 +152,7 @@ function createScheduler(
   overrides?: {
     schedulerLeaseService?: FakeSchedulerLeaseService;
     backgroundSchedulerMetricsService?: FakeBackgroundSchedulerMetricsService;
+    captureBrief?: (brief: string) => void;
   }
 ): PersaiIdleReengagementSchedulerService {
   const notificationIntentService = {
@@ -190,6 +191,7 @@ function createScheduler(
       evaluate: async (input: unknown) => {
         const task = (input as { task: { brief: string; evaluationAttemptId?: string } }).task;
         assert.ok(task.brief.includes("Context packet"));
+        overrides?.captureBrief?.(task.brief);
         // ADR-090: unique evaluationAttemptId must always be provided
         assert.ok(
           typeof task.evaluationAttemptId === "string" && task.evaluationAttemptId.length > 0,
@@ -227,6 +229,24 @@ async function runPushCreatesIntentTest(): Promise<void> {
   const upsertArgs = (prisma.idleMarker.upsertCalls[0] as { create: Record<string, unknown> })
     .create;
   assert.equal(upsertArgs["attemptsForCurrentUserMessage"], 2, "push must close marker (MAX=2)");
+}
+
+async function runBriefFreshCheckInGuardTest(): Promise<void> {
+  const prisma = new FakeIdlePrisma();
+  let capturedBrief = "";
+  const scheduler = createScheduler(prisma, undefined, {
+    captureBrief: (brief) => {
+      capturedBrief = brief;
+    }
+  });
+
+  const processed = await scheduler.processDueIdleReengagementBatch(1);
+
+  assert.equal(processed, 1);
+  assert.match(capturedBrief, /brief natural greeting or soft check-in/i);
+  assert.match(capturedBrief, /It is okay to continue an earlier topic/i);
+  assert.match(capturedBrief, /still needs help with it or wants to continue it/i);
+  assert.match(capturedBrief, /Do not imply that PersAI has been continuously waiting/i);
 }
 
 // ── Test: secondary cooldown (notificationIntent) skips candidate ─────────────
@@ -500,6 +520,7 @@ async function runTickAbortsDrainAfterLeaseLostTest(): Promise<void> {
 
 async function run(): Promise<void> {
   await runPushCreatesIntentTest();
+  await runBriefFreshCheckInGuardTest();
   await runCooldownSkipsTest();
   await runNoPushDoesNotCreateIntentTest();
   await runMarkerExhaustedSkipsTest();

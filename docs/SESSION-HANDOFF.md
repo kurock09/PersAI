@@ -2,6 +2,45 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-26 — Idle re-engagement greeting-first topic continuation
+
+### What changed
+
+Adjusted the idle re-engagement prompt contract after founder feedback: the model should not be told to avoid continuing an older topic outright.
+
+The bounded prompt change is now:
+
+1. Start the notification with a brief natural greeting or soft check-in.
+2. Allow the model to continue an earlier topic after that greeting/check-in.
+3. Require wording that acknowledges time passed and gently asks whether the user still wants help or wants to continue.
+4. Keep the existing non-pushy constraints: no guilt, no exact idle duration, and no implication that PersAI was continuously waiting on the user.
+
+No runtime routing, schema, delivery channel, or scheduling cadence changed. This is a bounded LLM-instruction/brief correction only.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/persai-idle-reengagement-scheduler.service.ts`
+- `apps/api/test/persai-idle-reengagement-scheduler.service.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Verification
+
+1. `corepack pnpm --filter @persai/api exec tsx test/persai-idle-reengagement-scheduler.service.test.ts` — PASS
+2. `corepack pnpm -r --if-present run lint` — PASS
+3. `corepack pnpm run format:check` — PASS
+4. `corepack pnpm --filter @persai/api run typecheck` — PASS
+5. `corepack pnpm --filter @persai/web run typecheck` — PASS
+
+### Risks / residuals
+
+- This slice changes instruction wording only; actual notification tone quality still depends on model behavior in live traffic.
+- We now permit topic continuation again, so future live review should confirm the greeting/check-in consistently appears before topic follow-up.
+
+### Next recommended step
+
+Observe a few live idle re-engagement pushes in `persai-dev` and confirm they now open with a greeting/check-in before softly returning to the earlier topic.
+
 ## 2026-05-26 — Honest image-provider safety rejection + one safer retry
 
 ### What changed

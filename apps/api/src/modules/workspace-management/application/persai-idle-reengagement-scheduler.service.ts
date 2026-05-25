@@ -36,6 +36,9 @@ const DEFAULT_COOLDOWN_HOURS = 72;
 const DEFAULT_LLM_INSTRUCTION = [
   "Decide whether to send a short, warm reengagement message after the user has been away.",
   "Use the recent conversation context and active open loops. Push only when it is genuinely helpful.",
+  "Start with a brief natural greeting or check-in, and make the user feel freshly welcomed back.",
+  "It is okay to continue an earlier topic, but do it only after that greeting/check-in and phrase it as a renewed conversation after some time has passed.",
+  "If you mention an earlier topic, gently ask whether the user still needs help with it or wants to continue it.",
   "The message must be one brief user-facing sentence, non-pushy, no guilt, no exact idle duration."
 ].join("\n");
 
@@ -417,6 +420,10 @@ export class PersaiIdleReengagementSchedulerService implements OnModuleInit, OnM
           "Decide whether PersAI should send one proactive idle reengagement notification now.",
           "Use the compact context packet. Return push only when a short, warm message would be genuinely helpful.",
           "Never mention the exact idle duration, never guilt the user, and avoid needy or sales-like language.",
+          "Start with a brief natural greeting or soft check-in before returning to any earlier topic.",
+          "It is okay to continue an earlier topic, but only after that greeting/check-in and with wording that acknowledges time has passed.",
+          "If you reference an earlier topic, ask whether the user still needs help with it or wants to continue it.",
+          "Do not imply that PersAI has been continuously waiting on the user or obsessing over the old topic.",
           "Admin instruction:",
           candidate.llmInstruction,
           "Context packet:",
