@@ -155,8 +155,10 @@ export async function runRuntimeBackgroundTaskEvaluationServiceTest(): Promise<v
   assert.ok(providerRequest !== undefined);
   assert.ok(providerRequest.requestMetadata !== undefined);
   assert.equal(providerRequest.requestMetadata.runtimeRequestId, toolRunRequest.requestId);
-  assert.equal(toolRunRequest.modelRoleOverride, "premium_reply");
+  assert.equal(toolRunRequest.modelRoleOverride, "system_tool");
   assert.equal(providerRequest.model, "system-tool-slot-model");
+  assert.doesNotMatch(String(providerRequest.systemPrompt ?? ""), /Answer as PersAI\./);
+  assert.equal(providerRequest.developerInstructions ?? null, null);
 }
 
 // ADR-090: unique externalThreadKey when evaluationAttemptId is provided

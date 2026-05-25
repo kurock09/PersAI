@@ -88,7 +88,7 @@ export class RuntimeDocumentJobCompletionService {
     bundle: AssistantRuntimeBundle
   ): Promise<RuntimeDocumentJobCompletionResult> {
     try {
-      const providerSelection = this.resolveProviderSelection(bundle, "normal_reply");
+      const providerSelection = this.resolveProviderSelection(bundle, "system_tool");
       const response = await this.providerGatewayClientService.generateText(
         this.buildProviderRequest(acceptedTurn, input, bundle, providerSelection)
       );
@@ -153,7 +153,7 @@ export class RuntimeDocumentJobCompletionService {
         timezone: bundle.userContext.timezone,
         receivedAt: new Date().toISOString()
       },
-      modelRoleOverride: "normal_reply"
+      modelRoleOverride: "system_tool"
     };
   }
 
@@ -165,7 +165,6 @@ export class RuntimeDocumentJobCompletionService {
   ): ProviderGatewayTextGenerateRequest {
     const isFailure = input.failure !== undefined;
     const developerInstructions = [
-      this.normalizeOptionalText(bundle.promptConstructor.ordinary.sections.heartbeat),
       isFailure
         ? [
             "You are explaining to the user that a PersAI async document job did NOT finish successfully.",

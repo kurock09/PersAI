@@ -2630,6 +2630,369 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     );
   });
 
+  test("explicit word-for-word DOCX rebuild bypasses chunked LLM generation and transfers extracted source text directly", async () => {
+    const textGenerateCalls: Array<{ classification: string }> = [];
+    const pdfCalls: ProviderGatewayDocumentGenerateRequest[] = [];
+    const sourceText = `${"ДОГОВОР ПОСТАВКИ\n\n".repeat(20)}${"Пункт 1. Текст должен быть перенесен слово в слово без сокращений и пропусков.\n\n".repeat(400)}`;
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
+          textGenerateCalls.push({
+            classification: input.requestMetadata?.classification ?? "unknown"
+          });
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: "{}",
+            respondedAt: "2026-05-26T01:00:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          pdfCalls.push(input);
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-direct-transfer-1",
+              templateId: "template-123",
+              filename: input.filename,
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.alloc(1400, "D"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-26T01:00:01.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey" as const,
+                state: "success" as const,
+                documentId: "doc-direct-transfer-1",
+                documentTemplateId: "template-123",
+                downloadUrl: "https://example.com/direct-transfer.pdf",
+                previewUrl: null,
+                failureCause: null,
+                filename: null,
+                outputType: "pdf" as const,
+                status: "success" as const,
+                updatedAt: null
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes
+          };
+        }
+      } as never
+    );
+    mockExtractedPdfText(
+      service,
+      "ДОГОВОР ПОСТАВКИ Пункт 1. Текст должен быть перенесен слово в слово без сокращений и пропусков."
+    );
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: JSON.stringify(createBundle()),
+        job: {
+          id: "job-direct-transfer-1",
+          docId: "doc-1",
+          versionId: "version-1",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "msg-1",
+          sourceUserMessageText:
+            "заново собери новый PDF перенести все слово в слово из моего docs",
+          sourceUserMessageCreatedAt: "2026-05-26T01:00:00.000Z"
+        },
+        attachments: [],
+        sourceFiles: [
+          {
+            attachmentId: "att-docx-1",
+            filename: "contract.docx",
+            mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            sizeBytes: Buffer.byteLength(sourceText, "utf8"),
+            text: sourceText,
+            markdown: null,
+            note: null,
+            provider: null,
+            quality: {
+              status: "ok" as const,
+              score: null,
+              reasonCodes: [],
+              textChars: sourceText.length
+            }
+          }
+        ],
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt:
+              "Create a new PDF from the attached DOCX source file, preserving every word exactly as in the document. Do not summarize, rewrite, shorten, reorder, or omit any text.",
+            requestedName: "contract-copy"
+          }
+        }
+      }
+    });
+
+    assert.equal(
+      textGenerateCalls.length,
+      0,
+      "verbatim transfer path must not call text generation"
+    );
+    assert.equal(pdfCalls.length, 1, "verbatim transfer path must still render one PDF");
+    assert.match(
+      pdfCalls[0]!.htmlContent,
+      /Текст должен быть перенесен слово в слово без сокращений и пропусков/,
+      "rendered HTML must contain the extracted source text"
+    );
+    assert.equal(result.artifacts.length, 1);
+  });
+
+  test("document generation prefers systemTool slot and does not forward ordinary chat prompt or heartbeat", async () => {
+    const bundle = createBundle() as AssistantRuntimeBundle & {
+      runtime: { runtimeProviderRouting: { modelSlots: Record<string, unknown> } };
+    };
+    bundle.runtime.runtimeProviderRouting.modelSlots.systemTool = {
+      providerKey: "openai",
+      modelKey: "gpt-5-mini-doc-worker"
+    };
+    let capturedModel = "";
+    let capturedSystemPrompt = "";
+    let capturedDeveloperInstructions = "";
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: {
+          model?: string;
+          systemPrompt?: string | null;
+          developerInstructions?: string;
+          requestMetadata?: { classification?: string };
+        }) {
+          if (input.requestMetadata?.classification === "document_html_generation") {
+            capturedModel = input.model ?? "";
+            capturedSystemPrompt = input.systemPrompt ?? "";
+            capturedDeveloperInstructions = input.developerInstructions ?? "";
+          }
+          return {
+            provider: "openai",
+            model: input.model ?? "gpt-4.1-mini",
+            text: isHtmlGenerationRequest(input)
+              ? makeHtmlGenerationText(
+                  "<!DOCTYPE html><html><body><h1>Short Document</h1><p>Enough body text to produce a valid rendered document for the focused worker-prompt regression test.</p></body></html>"
+                )
+              : "{}",
+            respondedAt: "2026-05-26T01:00:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-system-tool-1",
+              templateId: "template-123",
+              filename: input.filename,
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.alloc(1400, "S"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-26T01:00:01.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey" as const,
+                state: "success" as const,
+                documentId: "doc-system-tool-1",
+                documentTemplateId: "template-123",
+                downloadUrl: "https://example.com/system-tool.pdf",
+                previewUrl: null,
+                failureCause: null,
+                filename: null,
+                outputType: "pdf" as const,
+                status: "success" as const,
+                updatedAt: null
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes
+          };
+        }
+      } as never
+    );
+    mockExtractedPdfText(
+      service,
+      "Short Document Enough body text to produce a valid rendered document for the focused worker-prompt regression test."
+    );
+
+    await service.run({
+      bundle,
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: JSON.stringify(bundle),
+        job: {
+          id: "job-system-tool-1",
+          docId: "doc-1",
+          versionId: "version-1",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "msg-1",
+          sourceUserMessageText: "Create a short business brief.",
+          sourceUserMessageCreatedAt: "2026-05-26T01:00:00.000Z"
+        },
+        attachments: [],
+        sourceFiles: [],
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: { prompt: "Create a short business brief.", requestedName: "brief" }
+        }
+      }
+    });
+
+    assert.equal(capturedModel, "gpt-5-mini-doc-worker");
+    assert.match(capturedSystemPrompt, /non-conversational document generation worker/i);
+    assert.doesNotMatch(capturedSystemPrompt, /You are PersAI\./);
+    assert.doesNotMatch(capturedDeveloperInstructions, /Stay grounded\./);
+  });
+
   test("single-shot path with small request returns valid HTML and surfaces renderedHtml in result", async () => {
     const service = new RuntimeDocumentProviderAdapterService(
       {

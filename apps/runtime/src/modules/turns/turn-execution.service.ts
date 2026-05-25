@@ -142,6 +142,7 @@ type PreparedTurnExecution = {
   bundle: AssistantRuntimeBundle;
   projectedTools: RuntimeNativeToolProjection;
   runtimeTier: RuntimeTurnRequest["runtimeTier"];
+  promptMode: "chat" | "background_worker";
   providerRequest: ProviderGatewayTextGenerateRequest;
   developerInstructionSections: DeveloperInstructionSection[];
   currentMessageAttachments: RuntimeTurnRequest["message"]["attachments"];
@@ -434,7 +435,8 @@ export class TurnExecutionService {
         return this.runtimeExecutionAdmissionService.runWithAdmission("background", async () => {
           const execution = await this.prepareTurnExecution(input, {
             allowModelToolExposure: true,
-            excludedToolNames: BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS
+            excludedToolNames: BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS,
+            promptMode: "background_worker"
           });
           const turnState = this.createTurnExecutionState();
           this.applyPreparedTurnExecutionState(turnState, execution);
@@ -555,6 +557,7 @@ export class TurnExecutionService {
     options?: {
       allowModelToolExposure?: boolean;
       excludedToolNames?: ReadonlySet<string>;
+      promptMode?: "chat" | "background_worker";
       trace?: RuntimeStreamTraceCollector;
     }
   ): Promise<PreparedTurnExecution> {
@@ -666,19 +669,22 @@ export class TurnExecutionService {
       presenceBlock,
       openMediaJobs: input.openMediaJobs
     });
+    const promptMode = options?.promptMode ?? "chat";
     const providerRequest = this.buildProviderRequest(
       bundleEntry.parsedBundle,
       providerSelection,
       hydratedMessages,
       projectedTools,
       input.deepMode === true,
-      developerInstructionSections
+      developerInstructionSections,
+      promptMode
     );
     options?.trace?.stage("prepare.provider_request_built");
     return {
       bundle: bundleEntry.parsedBundle,
       projectedTools,
       runtimeTier: input.runtimeTier,
+      promptMode,
       currentMessageAttachments: input.message.attachments,
       developerInstructionSections,
       availableWorkingFileRefs,
@@ -1697,12 +1703,18 @@ export class TurnExecutionService {
     messages: ProviderGatewayTextMessage[],
     projectedTools: RuntimeNativeToolProjection,
     deepModeEnabled: boolean,
-    developerInstructionSections: DeveloperInstructionSection[]
+    developerInstructionSections: DeveloperInstructionSection[],
+    promptMode: "chat" | "background_worker"
   ): ProviderGatewayTextGenerateRequest {
     const promptCache = this.buildPromptCacheConfig({
       bundle,
       provider: providerSelection.provider,
-      family: deepModeEnabled ? "deep_chat" : "ordinary_chat",
+      family:
+        promptMode === "background_worker"
+          ? "background_worker"
+          : deepModeEnabled
+            ? "deep_chat"
+            : "ordinary_chat",
       messages,
       deepModeEnabled,
       projectedTools
@@ -1713,7 +1725,7 @@ export class TurnExecutionService {
     return {
       provider: providerSelection.provider,
       model: providerSelection.model,
-      systemPrompt: this.buildSystemPrompt(bundle),
+      systemPrompt: this.buildSystemPrompt(bundle, promptMode),
       ...(developerInstructions === null ? {} : { developerInstructions }),
       messages,
       ...(promptCache === undefined ? {} : { promptCache }),
@@ -1726,7 +1738,17 @@ export class TurnExecutionService {
     };
   }
 
-  private buildSystemPrompt(bundle: AssistantRuntimeBundle): string | null {
+  private buildSystemPrompt(
+    bundle: AssistantRuntimeBundle,
+    promptMode: "chat" | "background_worker"
+  ): string | null {
+    if (promptMode === "background_worker") {
+      return [
+        "You are a non-conversational PersAI background worker.",
+        "Focus on tool use, evidence gathering, structured reasoning, and concise task results.",
+        "Do not add chat-style greetings, relationship framing, or assistant-persona flourishes unless the explicit task output requires them."
+      ].join(" ");
+    }
     // ADR-074 P1: `systemPrompt` is the cached stable prefix only. Per-turn variability (routing
     // guidance, presence) is moved to `developerInstructions` so provider prompt caching stays
     // hot across turns for the same assistant + bundle.
@@ -4732,7 +4754,8 @@ export class TurnExecutionService {
       hydratedMessages,
       execution.projectedTools,
       execution.deepModeEnabled,
-      developerInstructionSections
+      developerInstructionSections,
+      execution.promptMode
     );
   }
 

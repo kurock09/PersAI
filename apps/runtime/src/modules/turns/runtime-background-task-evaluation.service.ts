@@ -114,7 +114,7 @@ export class RuntimeBackgroundTaskEvaluationService {
         timezone: bundle.userContext.timezone,
         receivedAt: new Date().toISOString()
       },
-      modelRoleOverride: "premium_reply"
+      modelRoleOverride: "system_tool"
     };
   }
 
@@ -125,8 +125,6 @@ export class RuntimeBackgroundTaskEvaluationService {
     toolRun: RuntimeTurnResult
   ): ProviderGatewayTextGenerateRequest {
     const systemPrompt = [
-      bundle.promptConstructor.ordinary.systemPrompt,
-      "",
       "You are the PersAI background-task evaluator. You run outside a user chat turn.",
       "Return only the requested structured JSON. Do not call tools, do not create reminders, and do not write conversational prose.",
       "You already received the complete output of a separate tool-enabled background run. Base your decision on that evidence.",
@@ -144,7 +142,6 @@ export class RuntimeBackgroundTaskEvaluationService {
       provider: providerSelection.provider,
       model: providerSelection.model,
       systemPrompt,
-      developerInstructions: bundle.promptConstructor.ordinary.sections.heartbeat,
       messages: [
         {
           role: "user",

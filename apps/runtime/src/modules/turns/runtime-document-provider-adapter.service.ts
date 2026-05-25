@@ -288,11 +288,22 @@ export class RuntimeDocumentProviderAdapterService {
       0
     );
     const hasSourceAttachments = sourceFiles.length > 0 && sourceFiles.some((f) => f.text !== null);
+    const useDirectSourceTransfer =
+      descriptorMode === "create_pdf_document" &&
+      hasSourceAttachments &&
+      this.shouldUseDirectSourceTransfer(input.request);
     // ONE deterministic routing decision before any LLM call. Route to chunked
     // only when: (a) there are source attachments AND (b) total inlined source
     // text exceeds the threshold. No keyword routing. No prompt-text heuristics.
     let useChunked =
-      hasSourceAttachments && totalInlinedSourceBytes > LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES;
+      !useDirectSourceTransfer &&
+      hasSourceAttachments &&
+      totalInlinedSourceBytes > LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES;
+    if (useDirectSourceTransfer) {
+      this.logger.log(
+        `[document-pdf-route-direct-source-transfer] jobId=${input.request.job.id} totalInlinedSourceBytes=${String(totalInlinedSourceBytes)} explicitVerbatimRequest=true`
+      );
+    }
     if (useChunked) {
       this.logger.log(
         `[document-pdf-route-chunked] jobId=${input.request.job.id} totalInlinedSourceBytes=${String(totalInlinedSourceBytes)} threshold=${String(LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES)}`
@@ -322,11 +333,20 @@ export class RuntimeDocumentProviderAdapterService {
     let capturedRenderedHtml: string | null = null;
 
     this.logger.log(
-      `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} templateId=${templateId} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)} useChunked=${String(useChunked)}`
+      `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} templateId=${templateId} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)} useChunked=${String(useChunked)} useDirectSourceTransfer=${String(useDirectSourceTransfer)}`
     );
     for (let attempt = 1; attempt <= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS; attempt += 1) {
       let htmlContent: string;
-      if (useChunked) {
+      if (useDirectSourceTransfer) {
+        const directTransferResult = this.buildDirectSourceTransferHtml({
+          sourceFiles
+        });
+        htmlContent = directTransferResult.htmlContent;
+        capturedRenderedHtml = htmlContent;
+        this.logger.log(
+          `[document-pdf-direct-source-transfer-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(directTransferResult.bodyTextLength)}`
+        );
+      } else if (useChunked) {
         // Chunked path: outline → style anchor → sequential section generation → assembly.
         // Progress is logged at each milestone with localized text.
         const locale = this.inferDocumentLocale(input.request);
@@ -659,7 +679,7 @@ export class RuntimeDocumentProviderAdapterService {
     previousVersionRenderedHtml: string;
   }): Promise<RuntimeDocumentJobRunResult> {
     const timeoutMs = this.resolveWorkerTimeoutMs(input.bundle);
-    const providerSelection = this.resolveProviderSelection(input.bundle, "premium_reply");
+    const providerSelection = this.resolveDocumentGenerationProviderSelection(input.bundle);
     const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
 
     this.logger.log(
@@ -1644,7 +1664,7 @@ export class RuntimeDocumentProviderAdapterService {
     sourceFiles: DocumentSourceFilePayload[];
     attempt: number;
   }): Promise<{ htmlContent: string; bodyTextLength: number; isTruncated: boolean }> {
-    const providerSelection = this.resolveProviderSelection(input.bundle, "premium_reply");
+    const providerSelection = this.resolveDocumentGenerationProviderSelection(input.bundle);
     const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
     if (input.sourceFiles.length > 0) {
       const inlinedCount = input.sourceFiles.filter((entry) => entry.text !== null).length;
@@ -1760,17 +1780,14 @@ export class RuntimeDocumentProviderAdapterService {
           "Prefer short paragraphs and concise bullet points over long prose."
         ]
       : [];
-    const developerInstructions = [
-      this.normalizeOptionalText(bundle.promptConstructor.ordinary.sections.heartbeat),
-      [...baseInstructions, ...retryInstructions].join("\n")
-    ]
+    const developerInstructions = [[...baseInstructions, ...retryInstructions].join("\n")]
       .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
       .join("\n\n");
 
     return {
       provider: providerSelection.provider,
       model: providerSelection.model,
-      systemPrompt: this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt),
+      systemPrompt: this.buildDocumentWorkerSystemPrompt(),
       ...(developerInstructions.length === 0 ? {} : { developerInstructions }),
       messages: [
         {
@@ -2130,7 +2147,7 @@ export class RuntimeDocumentProviderAdapterService {
     locale: "ru" | "en";
     attempt: number;
   }): Promise<{ htmlContent: string; bodyTextLength: number; sectionCount: number }> {
-    const providerSelection = this.resolveProviderSelection(input.bundle, "premium_reply");
+    const providerSelection = this.resolveDocumentGenerationProviderSelection(input.bundle);
     const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
     const jobId = input.request.job.id;
 
@@ -2217,7 +2234,6 @@ export class RuntimeDocumentProviderAdapterService {
     const bundle = input.bundle;
     const request = input.request;
     const developerInstructions = [
-      this.normalizeOptionalText(bundle.promptConstructor.ordinary.sections.heartbeat),
       [
         "You are generating a document outline for a PersAI PDF generation pipeline.",
         'Return ONLY a JSON object in this EXACT envelope: { "mode": "document_pdf_outline", "sections": [ { "heading": "...", "intent": "...", "expectedLength": "short"|"medium"|"long" } ] }',
@@ -2233,7 +2249,7 @@ export class RuntimeDocumentProviderAdapterService {
     const response = await this.providerGatewayClientService.generateText({
       provider: input.providerSelection.provider,
       model: input.providerSelection.model,
-      systemPrompt: this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt),
+      systemPrompt: this.buildDocumentWorkerSystemPrompt(),
       ...(developerInstructions.length === 0 ? {} : { developerInstructions }),
       messages: [
         {
@@ -2388,7 +2404,6 @@ export class RuntimeDocumentProviderAdapterService {
     const request = input.request;
     const isFirstSection = input.sectionIdx === 0;
     const developerInstructions = [
-      this.normalizeOptionalText(bundle.promptConstructor.ordinary.sections.heartbeat),
       [
         "You are generating ONE section of a multi-section PDF document.",
         "Return ONLY the HTML fragment for this section. No <!DOCTYPE>, no <html>, no <head>, no <body> wrapper.",
@@ -2405,7 +2420,7 @@ export class RuntimeDocumentProviderAdapterService {
     const response = await this.providerGatewayClientService.generateText({
       provider: input.providerSelection.provider,
       model: input.providerSelection.model,
-      systemPrompt: this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt),
+      systemPrompt: this.buildDocumentWorkerSystemPrompt(),
       ...(developerInstructions.length === 0 ? {} : { developerInstructions }),
       messages: [
         {
@@ -2605,6 +2620,112 @@ export class RuntimeDocumentProviderAdapterService {
     const provider = this.asNativeManagedProvider(slot?.providerKey);
     const model = this.asNonEmptyString(slot?.modelKey);
     return provider !== null && model !== null ? { provider, model } : null;
+  }
+
+  private resolveDocumentGenerationProviderSelection(
+    bundle: AssistantRuntimeBundle
+  ): ProviderSelection {
+    const systemTool = this.resolveModelSlotSelection(bundle, "system_tool");
+    if (systemTool !== null) {
+      return systemTool;
+    }
+    return this.resolveProviderSelection(bundle, "premium_reply");
+  }
+
+  private buildDocumentWorkerSystemPrompt(): string {
+    return [
+      "You are a non-conversational document generation worker inside PersAI.",
+      "Ignore chat persona tone, greetings, relationship framing, and follow-up suggestions unless the explicit document request requires them in the document body itself.",
+      "Produce only the exact structured output requested for this document stage."
+    ].join(" ");
+  }
+
+  private shouldUseDirectSourceTransfer(request: RuntimeDocumentJobRunRequest): boolean {
+    const prompt = request.directToolExecution.request.prompt ?? "";
+    const sourceMessage = request.job.sourceUserMessageText ?? "";
+    const combined = `${prompt}\n${sourceMessage}`.toLowerCase();
+    return (
+      /word[\s-]?for[\s-]?word|every word exactly|exact copy|full text|without omissions|do not summarize|do not rewrite|do not shorten|do not reorder|do not omit/.test(
+        combined
+      ) ||
+      /слово в слово|дословно|весь текст|полный текст|без сокращ|без изменений|не сокращ|не переписы|не меняя текст|не пропускай|не опускай/.test(
+        combined
+      )
+    );
+  }
+
+  private buildDirectSourceTransferHtml(input: { sourceFiles: DocumentSourceFilePayload[] }): {
+    htmlContent: string;
+    bodyTextLength: number;
+  } {
+    const extractedText = input.sourceFiles
+      .map((sourceFile) => sourceFile.text ?? "")
+      .filter((text) => text.trim().length > 0)
+      .join("\n\n")
+      .trim();
+    if (extractedText.length === 0) {
+      throw new Error(
+        "Direct source transfer requested but no extracted source text is available."
+      );
+    }
+    const rawHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><article>${this.renderVerbatimSourceText(extractedText)}</article></body></html>`;
+    const repaired = this.repairHtmlDocument(rawHtml);
+    if (repaired.bodyTextLength < DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH) {
+      throw new Error(
+        `Direct source transfer produced too little body text (length=${String(
+          repaired.bodyTextLength
+        )}, minimum=${String(DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH)}).`
+      );
+    }
+    return {
+      htmlContent: repaired.html,
+      bodyTextLength: repaired.bodyTextLength
+    };
+  }
+
+  private renderVerbatimSourceText(text: string): string {
+    const blocks = text
+      .replace(/\r\n?/g, "\n")
+      .split(/\n{2,}/)
+      .map((block) => block.trim())
+      .filter((block) => block.length > 0);
+    if (blocks.length === 0) {
+      return `<p>${this.escapeHtml(text.trim())}</p>`;
+    }
+    return blocks
+      .map((block) => {
+        if (this.looksLikeStandaloneHeading(block)) {
+          return `<h2>${this.escapeHtml(block)}</h2>`;
+        }
+        const lines = block
+          .split("\n")
+          .map((line) => this.escapeHtml(line.trimEnd()))
+          .filter((line) => line.length > 0);
+        return `<p>${lines.join("<br>")}</p>`;
+      })
+      .join("\n");
+  }
+
+  private looksLikeStandaloneHeading(block: string): boolean {
+    if (block.includes("\n") || block.length > 120) {
+      return false;
+    }
+    if (/^\d+([.)]|\.)\s/.test(block)) {
+      return false;
+    }
+    if (/[.!?;:]$/.test(block)) {
+      return false;
+    }
+    return block === block.toUpperCase();
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   /**

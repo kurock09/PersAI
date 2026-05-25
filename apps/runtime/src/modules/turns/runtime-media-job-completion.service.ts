@@ -89,7 +89,7 @@ export class RuntimeMediaJobCompletionService {
     bundle: AssistantRuntimeBundle
   ): Promise<RuntimeMediaJobCompletionResult> {
     try {
-      const providerSelection = this.resolveProviderSelection(bundle, "normal_reply");
+      const providerSelection = this.resolveProviderSelection(bundle, "system_tool");
       const response = await this.providerGatewayClientService.generateText(
         this.buildProviderRequest(acceptedTurn, input, bundle, providerSelection)
       );
@@ -156,7 +156,7 @@ export class RuntimeMediaJobCompletionService {
         timezone: bundle.userContext.timezone,
         receivedAt: new Date().toISOString()
       },
-      modelRoleOverride: "normal_reply"
+      modelRoleOverride: "system_tool"
     };
   }
 
@@ -170,10 +170,7 @@ export class RuntimeMediaJobCompletionService {
     const explicitRules = isFailure
       ? this.buildFailureExplicitRules()
       : this.buildSuccessExplicitRules();
-    const developerInstructions = [
-      this.normalizeOptionalText(bundle.promptConstructor.ordinary.sections.heartbeat),
-      explicitRules
-    ]
+    const developerInstructions = [explicitRules]
       .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
       .join("\n\n");
 

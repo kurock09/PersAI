@@ -2,6 +2,53 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-26 — Runtime background-turn economics follow-up
+
+### What changed
+
+Audited the remaining runtime background/helper LLM paths after the document worker cleanup and removed the clearest unnecessary chat-persona / expensive-slot carry-over.
+
+The bounded runtime changes are now:
+
+1. `RuntimeBackgroundTaskEvaluationService` starts its synthetic tool-enabled run on `system_tool` instead of `premium_reply`.
+2. The same background-task evaluator no longer prepends the full ordinary chat `systemPrompt` or `heartbeat` when it is only returning structured `push | no_push | complete` JSON.
+3. `TurnExecutionService.createBackgroundTaskToolRun()` now uses an explicit internal `background_worker` prompt mode with a short non-conversational worker system prompt instead of the ordinary chat persona prefix.
+4. Async `RuntimeDocumentJobCompletionService` and `RuntimeMediaJobCompletionService` switched their short completion/failure framers from `normal_reply` to `system_tool`.
+5. Those async completion framers also stopped appending the ordinary `heartbeat` tail. They still keep the ordinary `systemPrompt`, because their final text remains user-facing assistant copy.
+
+No public API/schema changed. No user-visible product flow changed besides cheaper internal model routing/prompt composition for these background paths.
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/runtime-background-task-evaluation.service.ts`
+- `apps/runtime/src/modules/turns/runtime-document-job-completion.service.ts`
+- `apps/runtime/src/modules/turns/runtime-media-job-completion.service.ts`
+- `apps/runtime/test/runtime-background-task-evaluation.service.test.ts`
+- `apps/runtime/test/runtime-document-job-completion.service.test.ts`
+- `apps/runtime/test/runtime-media-job-completion.service.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Verification
+
+Focused:
+
+1. `corepack pnpm --filter @persai/runtime exec tsx test/runtime-background-task-evaluation.service.test.ts` — PASS
+2. `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-job-completion.service.test.ts` — PASS
+3. `corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-completion.service.test.ts` — PASS
+4. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+
+### Risks / residuals
+
+- This slice intentionally leaves the ordinary `systemPrompt` in document/media completion framing because those messages are still delivered as user-facing assistant copy.
+- `preview-assistant-setup.service.ts` still uses `premium_reply`, but that path is an explicit user-facing preview turn rather than a hidden background worker/helper.
+- Other API-side helper paths already use narrow dedicated prompts (`upload micro-description`, retrieval helper, image safety rewrite, admin Skill authoring) and were not changed in this slice.
+
+### Next recommended step
+
+Check live provider/runtime cost logs for `background_task_evaluation`, `document_job_completion`, and `media_job_completion` after deploy to confirm the expected slot/prompt-token drop, then decide whether any remaining user-facing-but-short helper paths still merit a smaller style prompt instead of the full ordinary persona.
+
 ## 2026-05-26 — Idle re-engagement greeting-first topic continuation
 
 ### What changed

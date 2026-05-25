@@ -147,6 +147,7 @@ describe("RuntimeDocumentJobCompletionService", () => {
     const recordedAcceptance = acceptedRequest as RuntimeTurnRequest;
     assert.equal(recordedAcceptance.conversation.channel, "web");
     assert.match(recordedAcceptance.requestId, /^document-job-completion:job-1:/);
+    assert.equal(recordedAcceptance.modelRoleOverride, "system_tool");
     assert.match(
       recordedAcceptance.conversation.externalThreadKey,
       /^system:document-job-completion:job-1$/
@@ -165,6 +166,10 @@ describe("RuntimeDocumentJobCompletionService", () => {
     assert.match(
       String(recordedProviderRequest.developerInstructions ?? ""),
       /Do not claim the file was already sent, attached, uploaded, or delivered/
+    );
+    assert.doesNotMatch(
+      String(recordedProviderRequest.developerInstructions ?? ""),
+      /Stay calm and helpful/
     );
 
     assert.ok(finalizedResult);
@@ -307,6 +312,7 @@ describe("RuntimeDocumentJobCompletionService", () => {
     );
     assert.ok(acceptedRequest);
     const recordedAcceptance = acceptedRequest as RuntimeTurnRequest;
+    assert.equal(recordedAcceptance.modelRoleOverride, "system_tool");
     assert.match(
       recordedAcceptance.conversation.externalThreadKey,
       /^system:document-job-failure:job-failure-1$/

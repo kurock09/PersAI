@@ -144,11 +144,16 @@ describe("RuntimeMediaJobCompletionService", () => {
     const recordedAcceptance = acceptedRequest as RuntimeTurnRequest;
     assert.equal(recordedAcceptance.conversation.channel, "telegram");
     assert.match(recordedAcceptance.requestId, /^media-job-completion:job-1:/);
+    assert.equal(recordedAcceptance.modelRoleOverride, "system_tool");
     assert.ok(providerRequest);
     const recordedProviderRequest = providerRequest as ProviderGatewayTextGenerateRequest;
     assert.equal(recordedProviderRequest.requestMetadata?.classification, "media_job_completion");
     assert.match(JSON.stringify(recordedProviderRequest.messages), /Please draw a skyline at dusk/);
     assert.match(JSON.stringify(recordedProviderRequest.messages), /Your image is ready/);
+    assert.doesNotMatch(
+      String(recordedProviderRequest.developerInstructions ?? ""),
+      /Stay calm and helpful/
+    );
     assert.ok(finalizedResult);
     const recordedFinalizedResult = finalizedResult as RuntimeTurnResult;
     assert.equal(recordedFinalizedResult.assistantText, "Fresh completion framing.");
@@ -288,6 +293,7 @@ describe("RuntimeMediaJobCompletionService", () => {
     assert.ok(acceptedRequest);
     const recordedAcceptance = acceptedRequest as RuntimeTurnRequest;
     assert.match(recordedAcceptance.requestId, /^media-job-completion-failure:job-fail-1:/);
+    assert.equal(recordedAcceptance.modelRoleOverride, "system_tool");
     assert.match(
       recordedAcceptance.conversation.externalThreadKey,
       /^system:media-job-failure:job-fail-1$/
@@ -303,6 +309,10 @@ describe("RuntimeMediaJobCompletionService", () => {
     assert.match(serializedMessages, /OpenAI moderation blocked the prompt/);
     assert.match(serializedMessages, /image_generate_blocked/);
     assert.equal(serializedMessages.includes("workerResult"), false);
+    assert.doesNotMatch(
+      String(recordedProviderRequest.developerInstructions ?? ""),
+      /Stay calm and helpful/
+    );
     assert.match(
       String(recordedProviderRequest.developerInstructions ?? ""),
       /explaining to the user that an async PersAI media job did NOT finish successfully/
