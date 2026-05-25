@@ -35,6 +35,7 @@ import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service
 import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
 import { AssistantUploadMicroDescriptionJobService } from "./assistant-upload-micro-description-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
+import { persistAssistantMessage } from "./persist-assistant-message";
 
 /** ADR-097 Slice 5 — short human-readable age from a past Date. */
 function computeTelegramRelativeAge(date: Date): string {
@@ -350,28 +351,18 @@ export class HandleInternalTelegramTurnService {
       let assistantMessageId = "";
       let deliveredMedia = runtimeResponse.media;
       try {
-        const assistantChatMessage = await this.chatRepository.createMessage({
+        const assistantChatMessage = await persistAssistantMessage({
+          chatRepository: this.chatRepository,
+          assistantMediaJobService: this.assistantMediaJobService,
           chatId: chat.id,
           assistantId: resolved.assistantId,
-          author: "assistant",
           content: assistantMessage,
-          ...(runtimeResponse.discoveredFileRefIds !== undefined &&
-          runtimeResponse.discoveredFileRefIds.length > 0
-            ? { metadata: { discoveredFileRefIds: runtimeResponse.discoveredFileRefIds } }
-            : {})
+          discoveredFileRefIds: runtimeResponse.discoveredFileRefIds,
+          deferredMediaJobCount: runtimeResponse.deferredMediaJobs?.length,
+          sourceUserMessageId: userMessage.id
         });
         assistantMessageId = assistantChatMessage.id;
         trace.stage("assistant_message_saved");
-        if (
-          runtimeResponse.deferredMediaJobs !== undefined &&
-          runtimeResponse.deferredMediaJobs.length > 0
-        ) {
-          await this.assistantMediaJobService.attachAcknowledgementMessageId({
-            assistantId: resolved.assistantId,
-            sourceUserMessageId: userMessage.id,
-            assistantAcknowledgementMessageId: assistantChatMessage.id
-          });
-        }
       } catch (error) {
         this.logger.error(
           `[telegram-turn] Completed runtime turn could not persist assistant message for ${resolved.assistantId}: ${

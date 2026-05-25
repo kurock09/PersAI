@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { BadRequestException } from "@nestjs/common";
 import { describe, test } from "node:test";
 import type { ProviderGatewayToolCall } from "@persai/runtime-contract";
 import { RuntimeObservabilityService } from "../src/modules/observability/runtime-observability.service";
@@ -85,5 +86,87 @@ describe("RuntimeMediaJobRunService", () => {
     assert.ok(capturedToolCall);
     const recordedToolCall = capturedToolCall as ProviderGatewayToolCall;
     assert.equal(recordedToolCall.name, "image_generate");
+  });
+
+  test("fails image jobs honestly on provider safety rejection", async () => {
+    const service = new RuntimeMediaJobRunService(
+      {
+        executeToolCall: async () => ({
+          payload: {
+            toolCode: "image_generate",
+            executionMode: "worker",
+            provider: "openai",
+            model: "gpt-image-1",
+            prompt: "make me superman",
+            revisedPrompt: null,
+            requestedCount: 1,
+            size: "1024x1024",
+            artifacts: [],
+            usage: null,
+            action: "skipped",
+            reason: "image_provider_safety_rejected",
+            warning:
+              "The provider rejected the original image prompt under its safety system. Request id req_safety_123."
+          },
+          artifacts: [],
+          isError: true
+        })
+      } as never,
+      {} as never,
+      {} as never,
+      new RuntimeExecutionAdmissionService(new RuntimeObservabilityService())
+    );
+
+    await assert.rejects(
+      () =>
+        service.run({
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          runtimeTier: "paid_shared_restricted",
+          runtimeBundleDocument: JSON.stringify({
+            metadata: {
+              assistantId: "assistant-1",
+              workspaceId: "workspace-1",
+              publishedVersionId: "version-1"
+            },
+            runtime: {},
+            promptConstructor: {},
+            userContext: {
+              locale: "en",
+              timezone: "UTC"
+            }
+          }),
+          job: {
+            id: "job-1",
+            surface: "web",
+            kind: "image",
+            chatId: "chat-1",
+            sourceUserMessageId: "user-message-1",
+            sourceUserMessageText: "make me superman",
+            sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z"
+          },
+          attachments: [],
+          directToolExecution: {
+            toolCode: "image_generate",
+            request: {
+              toolCode: "image_generate",
+              prompt: "make me superman",
+              count: 1,
+              filename: null,
+              size: "1024x1024",
+              background: "auto"
+            }
+          }
+        }),
+      (error) => {
+        assert.ok(error instanceof BadRequestException);
+        const response = (error as BadRequestException).getResponse() as {
+          error?: { code?: string; message?: string };
+        };
+        assert.equal(response.error?.code, "image_provider_safety_rejected");
+        assert.match(response.error?.message ?? "", /safety system/i);
+        return true;
+      }
+    );
   });
 });

@@ -55,7 +55,7 @@ function createPlatformHttpMetricsServiceMock() {
   };
 }
 
-function createSendNativeWebChatTurnServiceMock() {
+function createWebRuntimeTurnClientServiceMock() {
   return {
     checkSkillRouting: async () => {
       throw new Error("background skill routing should not run in this test");
@@ -245,7 +245,7 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
-      createSendNativeWebChatTurnServiceMock() as never,
+      createWebRuntimeTurnClientServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called in this test");
@@ -450,7 +450,7 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
-      createSendNativeWebChatTurnServiceMock() as never,
+      createWebRuntimeTurnClientServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called in this test");
@@ -577,6 +577,161 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(transport.followUpAssistantMessage?.content, "Please start a new chat.");
   });
 
+  test("treats streamed follow-up delivery failure as non-blocking and does not persist an interrupted duplicate", async () => {
+    const createdMessages: Array<Record<string, unknown>> = [];
+
+    const service = new StreamWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => {
+          createdMessages.push(input);
+          return {
+            id: "assistant-msg-1",
+            chatId: input.chatId,
+            assistantId: input.assistantId,
+            author: input.author,
+            content: input.content,
+            createdAt: new Date("2026-04-05T12:00:00.000Z")
+          };
+        },
+        findChatById: async () => ({
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+          createdAt: new Date("2026-04-05T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant",
+          content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        releaseWebTurnProcessing: async () => undefined,
+        completeWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async function* () {
+          yield {
+            type: "delta",
+            delta: "Here is your answer.",
+            accumulated: "Here is your answer."
+          };
+          yield {
+            type: "done",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            turnRouting: null
+          };
+        }
+      } as never,
+      createWebRuntimeTurnClientServiceMock() as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called in this test");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => {
+          throw new Error("resolve should not be called in this test");
+        }
+      } as never,
+      {
+        execute: async () => undefined
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      {
+        deliverIntentNow: async () => {
+          throw new Error("follow-up delivery failed");
+        }
+      } as never,
+      {
+        maybeCreateFollowUp: async () => ({
+          intentId: "intent-quota-1"
+        })
+      } as never
+    );
+
+    const outcome = await service.streamToCompletion(
+      {
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: "2026-04-05T12:00:00.000Z",
+          updatedAt: "2026-04-05T12:00:00.000Z"
+        },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "hello",
+          attachments: [],
+          createdAt: "2026-04-05T12:00:00.000Z"
+        },
+        assistant: {
+          id: "assistant-1",
+          workspaceId: "workspace-1"
+        },
+        assistantId: "assistant-1",
+        publishedVersionId: "pub-1",
+        runtimeTier: "paid_shared",
+        quotaDegradeModelOverride: null,
+        quotaDegradeReason: null,
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        workspaceTimezone: "UTC"
+      } as never,
+      {
+        isClientAborted: () => false,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onDone: () => undefined
+      }
+    );
+
+    assert.equal(outcome.status, "completed");
+    assert.equal(createdMessages.length, 1);
+    assert.equal(createdMessages[0]?.content, "Here is your answer.");
+    assert.ok(
+      !("followUpAssistantMessage" in (outcome as { transport: Record<string, unknown> }).transport)
+    );
+  });
+
   test("corrects streamed assistant text when runtime queued media but final web delivery produced no attachments", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
     const updatedContents: string[] = [];
@@ -671,7 +826,7 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
-      createSendNativeWebChatTurnServiceMock() as never,
+      createWebRuntimeTurnClientServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called in this test");
@@ -983,12 +1138,12 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(backgroundCheckContext?.currentUserMessageIndex, 24);
   });
 
-  test("routes stream web turns through the native runtime service", async () => {
+  test("routes stream web turns through the web runtime client service", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
     const toolEvents: Array<Record<string, unknown>> = [];
     const callbackOrder: string[] = [];
-    let nativeRuntimeCalls = 0;
-    let capturedNativeUserMessage = "";
+    let webRuntimeCalls = 0;
+    let capturedWebRuntimeUserMessage = "";
     let capturedOpenMediaJobs: unknown[] | undefined;
 
     const service = new StreamWebChatTurnService(
@@ -1025,8 +1180,8 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       {
         execute: async function* (input: { userMessage: string; openMediaJobs?: unknown[] }) {
-          nativeRuntimeCalls += 1;
-          capturedNativeUserMessage = input.userMessage;
+          webRuntimeCalls += 1;
+          capturedWebRuntimeUserMessage = input.userMessage;
           capturedOpenMediaJobs = input.openMediaJobs;
           yield { type: "delta", delta: "native", accumulated: "native" };
           yield {
@@ -1053,7 +1208,7 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
-      createSendNativeWebChatTurnServiceMock() as never,
+      createWebRuntimeTurnClientServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called in this test");
@@ -1155,8 +1310,8 @@ describe("StreamWebChatTurnService", () => {
     );
 
     assert.equal(outcome.status, "completed");
-    assert.equal(nativeRuntimeCalls, 1);
-    assert.equal(capturedNativeUserMessage, "hello");
+    assert.equal(webRuntimeCalls, 1);
+    assert.equal(capturedWebRuntimeUserMessage, "hello");
     assert.deepEqual(capturedOpenMediaJobs, [
       {
         jobId: "job-1",
@@ -1202,7 +1357,7 @@ describe("StreamWebChatTurnService", () => {
   });
 
   test("retries stream web turn after waiting for active compaction conflict", async () => {
-    let nativeRuntimeCalls = 0;
+    let webRuntimeCalls = 0;
     let compactionWaitCalls = 0;
 
     const service = new StreamWebChatTurnService(
@@ -1236,8 +1391,8 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       {
         execute: async function* () {
-          nativeRuntimeCalls += 1;
-          if (nativeRuntimeCalls === 1) {
+          webRuntimeCalls += 1;
+          if (webRuntimeCalls === 1) {
             throw createAssistantInboundConflict(
               "native_runtime_conflict",
               "Session is already processing another turn."
@@ -1251,7 +1406,7 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
-      createSendNativeWebChatTurnServiceMock() as never,
+      createWebRuntimeTurnClientServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called in this test");
@@ -1352,13 +1507,13 @@ describe("StreamWebChatTurnService", () => {
     );
 
     assert.equal(outcome.status, "completed");
-    assert.equal(nativeRuntimeCalls, 2);
+    assert.equal(webRuntimeCalls, 2);
     assert.equal(compactionWaitCalls, 2);
     assert.equal(outcome.transport?.assistantMessage.content, "recovered");
   });
 
   test("uses the admin-managed onboarding prompt for welcome stream turns", async () => {
-    let capturedNativeUserMessage = "";
+    let capturedWebRuntimeUserMessage = "";
     const memoryWrites: Array<Record<string, unknown>> = [];
 
     const service = new StreamWebChatTurnService(
@@ -1392,12 +1547,12 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       {
         execute: async function* (input: { userMessage: string }) {
-          capturedNativeUserMessage = input.userMessage;
+          capturedWebRuntimeUserMessage = input.userMessage;
           yield { type: "delta", delta: "Hi Alex", accumulated: "Hi Alex" };
           yield { type: "done", respondedAt: "2026-04-05T12:00:01.000Z" };
         }
       } as never,
-      createSendNativeWebChatTurnServiceMock() as never,
+      createWebRuntimeTurnClientServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called in this test");
@@ -1485,7 +1640,7 @@ describe("StreamWebChatTurnService", () => {
 
     assert.equal(outcome.status, "completed");
     assert.equal(
-      capturedNativeUserMessage,
+      capturedWebRuntimeUserMessage,
       "You just came online. Introduce yourself warmly to Alex."
     );
     assert.equal(
@@ -1537,10 +1692,10 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       {
         execute: async () => {
-          throw new Error("native runtime stream should not be used for replay");
+          throw new Error("web runtime stream should not be used for replay");
         }
       } as never,
-      createSendNativeWebChatTurnServiceMock() as never,
+      createWebRuntimeTurnClientServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called for replay");
@@ -1711,7 +1866,7 @@ function buildToolStreamingServiceForTraceTest(options: {
         };
       }
     } as never,
-    createSendNativeWebChatTurnServiceMock() as never,
+    createWebRuntimeTurnClientServiceMock() as never,
     {
       execute: async () => {
         throw new Error("prepare should not be called in this test");

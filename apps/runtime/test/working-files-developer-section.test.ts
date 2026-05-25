@@ -5,6 +5,20 @@ import { TurnExecutionService } from "../src/modules/turns/turn-execution.servic
 describe("TurnExecutionService working-files developer section", () => {
   test("tool-loop rebuild preserves neighboring sections and avoids duplicates", () => {
     const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
+    (
+      service as unknown as {
+        turnContextHydrationService: {
+          pruneClosedOpenLoopRefsDeveloperBlock(
+            block: string | null,
+            closedRefs: readonly string[]
+          ): string | null;
+        };
+      }
+    ).turnContextHydrationService = {
+      pruneClosedOpenLoopRefsDeveloperBlock(block: string | null): string | null {
+        return block;
+      }
+    };
     const baseSections = [
       {
         key: "routing_hints",
@@ -42,9 +56,13 @@ describe("TurnExecutionService working-files developer section", () => {
             logicalSizeBytes: number;
             aliases: string[];
           }>,
+          closedOpenLoopRefs: string[],
           hasToolHistory: boolean,
+          toolHistory: Array<unknown>,
+          availableToolNames: string[],
           forceFinalTextOnly: boolean,
-          deferredMediaJobs: Array<{ toolCode: string }>
+          deferredMediaJobs: Array<{ toolCode: string }>,
+          deferredDocumentJobs: Array<unknown>
         ): string | null;
       }
     ).buildToolLoopDeveloperInstructions(
@@ -63,8 +81,12 @@ describe("TurnExecutionService working-files developer section", () => {
           aliases: ["current image #1", "current attachment #1"]
         }
       ],
+      [],
       false,
+      [],
+      [],
       false,
+      [],
       []
     );
 
@@ -312,7 +334,7 @@ describe("TurnExecutionService working-files developer section", () => {
     assert.doesNotMatch(section ?? "", /fileRef|artifactId|objectKey|attachmentId/);
   });
 
-  test("recent files sub-header appears and semanticSummaryHint is shown when recent file aliases present", () => {
+  test("document roles and priority note are rendered inside Working Files", () => {
     const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
     const section = (
       service as unknown as {
@@ -334,15 +356,127 @@ describe("TurnExecutionService working-files developer section", () => {
       }
     ).buildWorkingFilesDeveloperSection([
       {
-        fileRef: "file-ref-attach-1",
+        fileRef: "file-ref-current-1",
         origin: "uploaded_attachment",
         sourceToolCode: null,
-        objectKey: "assistant-media/uploads/report.pdf",
-        relativePath: "uploads/report.pdf",
-        displayName: "report.pdf",
-        mimeType: "application/pdf",
+        objectKey: "assistant-media/uploads/proposal.docx",
+        relativePath: "uploads/proposal.docx",
+        displayName: "proposal.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
         logicalSizeBytes: 512,
+        aliases: ["current attachment #1"],
+        semanticSummaryHint: "Founder-ready proposal draft for PersAI enterprise launch."
+      },
+      {
+        fileRef: "file-ref-last-pdf",
+        origin: "runtime_output",
+        sourceToolCode: "document",
+        objectKey: "assistant-media/generated/proposal.pdf",
+        relativePath: "generated/proposal.pdf",
+        displayName: "proposal.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        logicalSizeBytes: 1024,
+        aliases: ["last generated file", "previous attachment #1"],
+        semanticSummaryHint: "Previously delivered PDF version of the proposal."
+      },
+      {
+        fileRef: "file-ref-history-1",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "assistant-media/uploads/notes.txt",
+        relativePath: "uploads/notes.txt",
+        displayName: "notes.txt",
+        mimeType: "text/plain",
+        sizeBytes: 256,
+        logicalSizeBytes: 256,
+        aliases: ["previous attachment #2"],
+        semanticSummaryHint: "Earlier draft notes from the same discussion."
+      }
+    ]);
+
+    assert.ok(section, "section must be non-null");
+    assert.match(
+      section ?? "",
+      /Document-tool priority:/,
+      "document priority note must be present"
+    );
+    assert.match(section ?? "", /CURRENT_SOURCE/, "current source role must be rendered");
+    assert.match(
+      section ?? "",
+      /LAST_DELIVERED_RESULT/,
+      "last delivered result role must be rendered"
+    );
+    assert.match(section ?? "", /HISTORY/, "history role must be rendered");
+    assert.match(
+      section ?? "",
+      /prefer `CURRENT_SOURCE` when the user wants a new PDF/,
+      "priority note must make current source authoritative for new document creation"
+    );
+    assert.match(
+      section ?? "",
+      /Use `LAST_DELIVERED_RESULT` only when the user explicitly wants to modify/,
+      "priority note must mark last delivered result as modify-only"
+    );
+    assert.doesNotMatch(
+      section ?? "",
+      /RECENT PDFS YOU CAN REVISE/,
+      "separate recent-pdfs revise section must be gone"
+    );
+    assert.match(
+      section ?? "",
+      /- current attachment #1: file "proposal\.docx" — Founder-ready proposal draft/,
+      "current-source rendering must keep the current alias authoritative"
+    );
+    assert.doesNotMatch(
+      section ?? "",
+      /current attachment #1, previous attachment #1: file "proposal\.docx"/,
+      "current-source rendering must not mix conflicting history aliases into the CURRENT_SOURCE line"
+    );
+    assert.match(
+      section ?? "",
+      /- last generated file: document "proposal\.pdf" — Previously delivered PDF version/,
+      "last-delivered rendering must keep the last-generated alias authoritative"
+    );
+    assert.doesNotMatch(
+      section ?? "",
+      /last generated file, previous attachment #1: document "proposal\.pdf"/,
+      "last-delivered rendering must not mix conflicting history aliases into the LAST_DELIVERED_RESULT line"
+    );
+  });
+
+  test("recent discovered files stay inside Working Files without separate revise section", () => {
+    const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
+    const section = (
+      service as unknown as {
+        buildWorkingFilesDeveloperSection(
+          availableWorkingFileRefs: Array<{
+            fileRef: string;
+            origin: string;
+            sourceToolCode: string | null;
+            objectKey: string;
+            relativePath: string;
+            displayName: string;
+            mimeType: string;
+            sizeBytes: number;
+            logicalSizeBytes: number;
+            aliases: string[];
+            semanticSummaryHint?: string | null;
+          }>
+        ): string | null;
+      }
+    ).buildWorkingFilesDeveloperSection([
+      {
+        fileRef: "file-ref-1",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "assistant-media/uploads/report.docx",
+        relativePath: "uploads/report.docx",
+        displayName: "report.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sizeBytes: 123,
+        logicalSizeBytes: 123,
         aliases: ["current attachment #1"],
         semanticSummaryHint: null
       },
@@ -358,24 +492,139 @@ describe("TurnExecutionService working-files developer section", () => {
         logicalSizeBytes: 1024,
         aliases: ["recent file #1"],
         semanticSummaryHint: "A photo of a Viking warrior on a longship"
+      },
+      {
+        fileRef: "file-ref-recent-2",
+        origin: "runtime_output",
+        sourceToolCode: null,
+        objectKey: "assistant-media/discoveries/outline.pdf",
+        relativePath: "discoveries/outline.pdf",
+        displayName: "outline.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        logicalSizeBytes: 1024,
+        aliases: ["recent file #2"],
+        semanticSummaryHint: "Earlier discovered PDF outline."
+      },
+      {
+        fileRef: "file-ref-other-1",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "assistant-media/uploads/photo.jpg",
+        relativePath: "uploads/photo.jpg",
+        displayName: "photo.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 123,
+        logicalSizeBytes: 123,
+        aliases: ["current image #1"],
+        semanticSummaryHint: null
       }
     ]);
 
     assert.ok(section, "section must be non-null");
     assert.match(
       section ?? "",
-      /### Recent Files \(found via the files tool earlier in this chat\)/,
-      "recent files sub-header must be present"
+      /### RECENT_DISCOVERED/,
+      "recent discovered role must be present when recent file aliases exist"
     );
     assert.match(
       section ?? "",
       /A photo of a Viking warrior on a longship/,
-      "semanticSummaryHint must appear in the recent files sub-section"
+      "recent discovered semanticSummaryHint must still be shown"
     );
-    assert.match(section ?? "", /current attachment #1/, "regular attachment must still appear");
+    assert.doesNotMatch(
+      section ?? "",
+      /RECENT PDFS YOU CAN REVISE/,
+      "recent discovered files must not be rendered through a separate revise section"
+    );
   });
 
-  test("recent files sub-header is absent when no entry has a recent file alias", () => {
+  test("important document roles always surface semantic hints even with strong filenames", () => {
+    const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
+    const section = (
+      service as unknown as {
+        buildWorkingFilesDeveloperSection(
+          availableWorkingFileRefs: Array<{
+            fileRef: string;
+            origin: string;
+            sourceToolCode: string | null;
+            objectKey: string;
+            relativePath: string;
+            displayName: string;
+            mimeType: string;
+            sizeBytes: number;
+            logicalSizeBytes: number;
+            aliases: string[];
+            semanticSummaryHint?: string | null;
+          }>
+        ): string | null;
+      }
+    ).buildWorkingFilesDeveloperSection([
+      {
+        fileRef: "file-ref-current-strong",
+        origin: "uploaded_attachment",
+        sourceToolCode: null,
+        objectKey: "assistant-media/uploads/final-client-brief.docx",
+        relativePath: "uploads/final-client-brief.docx",
+        displayName: "final-client-brief.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sizeBytes: 512,
+        logicalSizeBytes: 512,
+        aliases: ["current attachment #1"],
+        semanticSummaryHint: "Current source document for the new branded PDF."
+      },
+      {
+        fileRef: "file-ref-last-strong",
+        origin: "runtime_output",
+        sourceToolCode: "document",
+        objectKey: "assistant-media/generated/final-client-brief.pdf",
+        relativePath: "generated/final-client-brief.pdf",
+        displayName: "final-client-brief.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        logicalSizeBytes: 1024,
+        aliases: ["last generated file", "previous attachment #1"],
+        semanticSummaryHint: "Most recent delivered PDF result for revision only."
+      },
+      {
+        fileRef: "file-ref-recent-strong",
+        origin: "runtime_output",
+        sourceToolCode: null,
+        objectKey: "assistant-media/discoveries/brand-guidelines.pdf",
+        relativePath: "discoveries/brand-guidelines.pdf",
+        displayName: "brand-guidelines.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 768,
+        logicalSizeBytes: 768,
+        aliases: ["recent file #1"],
+        semanticSummaryHint:
+          "Recently discovered brand-guidelines PDF from an earlier files search."
+      }
+    ]);
+
+    assert.ok(section, "section must be non-null");
+    assert.match(
+      section ?? "",
+      /- current attachment #1: file "final-client-brief\.docx" — Current source document/,
+      "strong filenames must still show the current-source alias and semantic hint cleanly"
+    );
+    assert.match(section ?? "", /final-client-brief\.docx" — Current source document/);
+    assert.match(
+      section ?? "",
+      /- last generated file: document "final-client-brief\.pdf" — Most recent delivered PDF result/,
+      "strong filenames must still show the last-delivered alias and semantic hint cleanly"
+    );
+    assert.match(section ?? "", /final-client-brief\.pdf" — Most recent delivered PDF result/);
+    assert.match(section ?? "", /brand-guidelines\.pdf" — Recently discovered brand-guidelines/);
+    assert.doesNotMatch(
+      section ?? "",
+      /last generated file, previous attachment #1: document "final-client-brief\.pdf"/,
+      "strong filename rendering must not reintroduce conflicting history aliases for the last delivered result"
+    );
+    assert.doesNotMatch(section ?? "", /fileRef|objectKey|contentPreview/);
+  });
+
+  test("recent discovered role is absent when no entry has a recent file alias", () => {
     const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
     const section = (
       service as unknown as {
@@ -414,8 +663,8 @@ describe("TurnExecutionService working-files developer section", () => {
     assert.ok(section, "section must be non-null");
     assert.doesNotMatch(
       section ?? "",
-      /### Recent Files/,
-      "recent files sub-header must be absent when no recent file aliases are present"
+      /### RECENT_DISCOVERED/,
+      "recent discovered role must be absent when no recent file aliases are present"
     );
   });
 
@@ -430,7 +679,7 @@ describe("TurnExecutionService working-files developer section", () => {
       'Here you go.\n\nAssistant sent an attachment: document "plan.md", fileRef: "file-ref-1".'
     );
 
-    assert.equal(merged, "Here you go.");
+    assert.equal(merged.trimEnd(), "Here you go.");
     assert.doesNotMatch(merged, /Assistant sent an attachment|fileRef/i);
   });
 });

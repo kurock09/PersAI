@@ -15,6 +15,7 @@ import type {
 } from "@persai/runtime-contract";
 import {
   ProviderGatewayClientService,
+  ProviderGatewaySafetyRejectedError,
   type ProviderGatewayDependencyReadiness
 } from "../src/modules/turns/provider-gateway.client.service";
 
@@ -840,6 +841,58 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
         retryable: false
       }
     });
+
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (
+        url.endsWith("/api/v1/providers/generate-image") ||
+        url.endsWith("/api/v1/providers/edit-image")
+      ) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "image_provider_safety_rejected",
+              message:
+                "OpenAI image request was rejected by the provider safety system (request id req_safety_123).",
+              retryable: false,
+              providerStatus: {
+                provider: "openai",
+                requestId: "req_safety_123"
+              }
+            }
+          }),
+          {
+            status: 400,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => service.generateImage(createImageGenerateRequest()),
+      (error) => {
+        assert.ok(error instanceof ProviderGatewaySafetyRejectedError);
+        assert.equal(error.code, "image_provider_safety_rejected");
+        assert.equal(error.requestId, "req_safety_123");
+        assert.match(error.message, /safety system/i);
+        return true;
+      }
+    );
+
+    await assert.rejects(
+      () => service.editImage(createImageEditRequest()),
+      (error) => {
+        assert.ok(error instanceof ProviderGatewaySafetyRejectedError);
+        assert.equal(error.code, "image_provider_safety_rejected");
+        assert.equal(error.requestId, "req_safety_123");
+        return true;
+      }
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -2,6 +2,386 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-26 — Honest image-provider safety rejection + one safer retry
+
+### What changed
+
+Closed the concrete media failure seam found in live usage where OpenAI image generate/edit safety rejects were being flattened into generic provider/runtime failures and could later show up as `media_job_artifacts_missing`.
+
+The bounded runtime/provider behavior is now:
+
+1. `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts` detects OpenAI image safety rejects for both generate/edit and returns a typed `image_provider_safety_rejected` bad-request payload with preserved provider request id/status metadata.
+2. `apps/runtime/src/modules/turns/provider-gateway.client.service.ts` maps that payload to a dedicated `ProviderGatewaySafetyRejectedError` instead of a generic gateway exception.
+3. `apps/runtime/src/modules/turns/runtime-image-generate-tool.service.ts` and `runtime-image-edit-tool.service.ts` now do exactly one bounded safer paraphrase via the existing `systemTool` model slot, retry the provider call once, and if the retry succeeds they keep the safer wording on `revisedPrompt` plus an honest retry warning.
+4. If the rewrite or the single retry still fails, the tool result stays `reason="image_provider_safety_rejected"` with honest warning text instead of degrading into a fake "render still running" or later "no artifacts" explanation.
+5. `apps/runtime/src/modules/turns/runtime-media-job-run.service.ts` now converts that typed image-tool failure into an honest async media-job execution failure so the API can surface the real safety rejection instead of `media_job_artifacts_missing`.
+
+No schema changed. No UI protocol/state machine was added. No docs besides this handoff/changelog reconciliation were changed.
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/test/openai-provider.client.test.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-image-generate-tool.service.ts`
+- `apps/runtime/src/modules/turns/runtime-image-edit-tool.service.ts`
+- `apps/runtime/src/modules/turns/runtime-media-job-run.service.ts`
+- `apps/runtime/src/modules/turns/image-provider-safety-rewrite.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/runtime-image-generate-tool.service.test.ts`
+- `apps/runtime/test/runtime-image-edit-tool.service.test.ts`
+- `apps/runtime/test/runtime-media-job-run.service.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Verification
+
+Focused:
+
+1. `corepack pnpm --filter @persai/provider-gateway exec tsx --test test/openai-provider.client.test.ts` — PASS
+2. `corepack pnpm --filter @persai/runtime exec tsx --test test/provider-gateway.client.service.test.ts test/runtime-image-generate-tool.service.test.ts test/runtime-image-edit-tool.service.test.ts test/runtime-media-job-run.service.test.ts` — PASS
+
+Repo gates / full suites:
+
+1. `corepack pnpm -r --if-present run lint` — PASS
+2. `corepack pnpm run format:check` — PASS
+3. `corepack pnpm --filter @persai/api run typecheck` — PASS
+4. `corepack pnpm --filter @persai/web run typecheck` — PASS
+5. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — PASS
+7. `corepack pnpm --filter @persai/api run test` — PASS
+8. `corepack pnpm --filter @persai/runtime run test` — PASS
+9. `corepack pnpm --filter @persai/provider-gateway run test` — PASS
+10. `corepack pnpm --filter @persai/web run test` — PASS
+
+### Risks / residuals
+
+- This slice intentionally adds only one safer rewrite + one retry; it does not introduce an open-ended retry framework.
+- The user-visible intermediate "retrying with a safer phrasing" remains warning-level tool/result semantics, not a new async job-progress state.
+- Safety-reject detection is intentionally narrow to the provider's explicit image safety-reject shape/message rather than broad keyword heuristics.
+
+### Next recommended step
+
+Run the live `persai-dev` image cases that originally failed (`image_generate` and `image_edit`) and confirm both branches: one safer retry succeeds for benign intent, and repeated provider rejection now surfaces as an honest safety error.
+
+## 2026-05-26 — Working Files document-role priority cleanup
+
+### What changed
+
+Closed the model-facing document-context gap that was causing conflicting source signals between the old `RECENT PDFS YOU CAN REVISE` block and the `Working Files` block.
+
+The runtime-only prompt cleanup is:
+
+1. Removed the separate `RECENT PDFS YOU CAN REVISE` developer section.
+2. Folded revisable-PDF truth directly into `Working Files`, including explicit `fileRef` UUID anchors on relevant PDF lines.
+3. Added explicit roles for document-relevant files: `CURRENT_SOURCE`, `LAST_DELIVERED_RESULT`, `HISTORY`, `RECENT_DISCOVERED`, `OTHER_FILES`.
+4. Added priority guidance so current source attachments win when the user is asking to create a new document, while revisable delivered PDFs remain available when the user is clearly editing an existing document.
+5. Kept semantic hints visible even for weak filenames and stopped mixing conflicting historical aliases on the same document-role line.
+
+No API/schema behavior changed. This is a runtime prompt-shaping correction only.
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/working-files-developer-section.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Verification
+
+Focused:
+
+1. `corepack pnpm --filter @persai/runtime exec tsx --test test/working-files-developer-section.test.ts` — PASS
+
+Repo gates / full suites:
+
+1. `corepack pnpm -r --if-present run lint` — PASS
+2. `corepack pnpm run format:check` — PASS
+3. `corepack pnpm --filter @persai/api run typecheck` — PASS
+4. `corepack pnpm --filter @persai/web run typecheck` — PASS
+5. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — PASS
+7. `corepack pnpm --filter @persai/api run test` — PASS
+8. `corepack pnpm --filter @persai/runtime run test` — PASS
+9. `corepack pnpm --filter @persai/provider-gateway run test` — PASS
+10. `corepack pnpm --filter @persai/web run test` — PASS
+
+### Risks / residuals
+
+- This slice improves prompt truth but does not add any server-side hard guard that forbids the model from choosing the wrong document action.
+- The broader turn-entrypoint cleanup and the new media safety-reject slice are independent workstreams and stay intentionally separate at the code level.
+
+### Next recommended step
+
+Watch live document turns for the original failure mode: when a new source file is present beside an older delivered PDF, the model should now prefer create-from-current-source instead of blindly revising the old result.
+
+## 2026-05-25 — Turn-entrypoint consolidation Slice 4 — honest internal web runtime session/compaction client naming
+
+### What changed
+
+Completed the final bounded residue-cleanup slice explicitly left after today's Slice 3 rename: the two remaining internal web session/compaction transport helpers now use honest web-runtime client naming instead of implying they are separate "native web chat session" services.
+
+The hot-path behavior stayed unchanged:
+
+1. `apps/api/src/modules/workspace-management/application/compact-native-web-chat-session.service.ts` was replaced by `web-runtime-compaction-client.service.ts`, and `CompactNativeWebChatSessionService` / `CompactNativeWebChatSessionInput` were renamed to `WebRuntimeCompactionClientService` / `WebRuntimeCompactionClientInput`.
+2. `apps/api/src/modules/workspace-management/application/resolve-native-web-chat-session-state.service.ts` was replaced by `web-runtime-session-state-client.service.ts`, and `ResolveNativeWebChatSessionStateService` / `ResolveNativeWebChatSessionStateInput` were renamed to `WebRuntimeSessionStateClientService` / `WebRuntimeSessionStateClientInput`.
+3. `manage-web-chat-list.service.ts` and `workspace-management.module.ts` now use the honest client names consistently for the compaction/action and session-state read paths.
+4. The two focused helper test files kept their existing filenames for continuity in the current verification plan, but their imports/descriptions now point at the honest internal client names.
+5. Error text inside the renamed adapters now refers honestly to the internal web runtime compaction/session-state clients instead of "native runtime web" helpers.
+
+No public HTTP/SSE route changed. No schema changed. No Telegram behavior changed. No config/shadow residue cleanup was included in this slice.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/web-runtime-compaction-client.service.ts`
+- `apps/api/src/modules/workspace-management/application/web-runtime-session-state-client.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/compact-native-web-chat-session.service.test.ts`
+- `apps/api/test/resolve-native-web-chat-session-state.service.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Verification
+
+Focused:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/compact-native-web-chat-session.service.test.ts` — PASS
+2. `corepack pnpm --filter @persai/api exec tsx test/resolve-native-web-chat-session-state.service.test.ts` — PASS
+3. `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts` — PASS
+4. `corepack pnpm --filter @persai/api run typecheck` — PASS
+5. `corepack pnpm --filter @persai/api exec eslint src/modules/workspace-management/application test` — PASS
+
+### Risks / residuals
+
+- This slice is naming cleanup only; it does not reduce the remaining historical `native` wording in route metrics, env/config flags, shadow-comparison seams, or older archive docs.
+- The two focused helper test files still keep their old filenames for verification continuity, even though their class/import names are now honest.
+- `ManageWebChatListService` still owns both the compaction-state read path and the manual compaction action path; this slice only renames the helper clients, it does not refactor that service structure.
+
+### Next recommended step
+
+If more residue cleanup is needed later, keep it separate from this finished rename slice: either tackle config/shadow naming residue or pursue a larger architectural consolidation, but do not mix either with route/behavior changes in the same session.
+
+## 2026-05-25 — Turn-entrypoint consolidation Slice 3 — honest internal web runtime client naming
+
+### What changed
+
+Completed the next bounded API turn-entry cleanup slice after the late-path hardening: renamed the misleading internal web runtime transport adapters so the code no longer reads like these are user-facing "native web chat turn services".
+
+The hot-path behavior stayed unchanged:
+
+1. `apps/api/src/modules/workspace-management/application/send-native-web-chat-turn.service.ts` was replaced by `web-runtime-turn-client.service.ts`, and `SendNativeWebChatTurnService` / `SendNativeWebChatTurnInput` were renamed to `WebRuntimeTurnClientService` / `WebRuntimeTurnClientInput`.
+2. `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts` was replaced by `web-runtime-stream-client.service.ts`, and `StreamNativeWebChatTurnService` / `StreamNativeWebChatTurnInput` were renamed to `WebRuntimeStreamClientService` / `WebRuntimeStreamClientInput`.
+3. `send-web-chat-turn.service.ts`, `stream-web-chat-turn.service.ts`, and `workspace-management.module.ts` now use the new internal client names consistently. Helper names and test descriptions were updated to match.
+4. The two focused adapter test files kept their existing filenames for continuity in the current verification plan, but their imports/descriptions now point at the honest internal client names.
+5. Error text inside the renamed adapter classes now refers to the internal web runtime client/stream honestly instead of "native runtime web sync/stream". Public route behavior, runtime request shape, Telegram path, and config/shadow residue were intentionally left untouched.
+
+No public HTTP/SSE route changed. No schema changed. No Telegram behavior changed. No shadow/config cleanup was included in this slice.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/web-runtime-turn-client.service.ts`
+- `apps/api/src/modules/workspace-management/application/web-runtime-stream-client.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/send-native-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-native-web-chat-turn.service.test.ts`
+- `apps/api/test/send-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Verification
+
+Focused:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/send-native-web-chat-turn.service.test.ts` — PASS
+2. `corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts` — PASS
+3. `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts` — PASS
+4. `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts` — PASS
+5. `corepack pnpm --filter @persai/api run typecheck` — PASS
+6. `corepack pnpm --filter @persai/api exec eslint src/modules/workspace-management/application test` — PASS
+
+### Risks / residuals
+
+- This slice is naming cleanup only; it does not reduce the remaining `native` wording in config flags, route metrics, shadow comparison, or other historical residue outside these two internal client adapters.
+- The two focused adapter test files still keep their old filenames for verification continuity, even though their class/import names are now honest.
+- Because this remains the web turn-entry hot path, later cleanup should keep reusing these focused send/stream suites before removing more residue or folding layers together.
+
+### Next recommended step
+
+Take the next bounded residue slice separately: either rename the remaining internal `native` web session-state/compaction helpers, or clean up the config/shadow naming residue, but do not mix that with route or behavior changes.
+
+## 2026-05-25 — Turn-entrypoint consolidation Slice 2 follow-up — bounded late-path failure hardening
+
+### What changed
+
+Applied a narrow correctness fix on top of the just-landed shared web post-runtime completion seam without widening into route, schema, Telegram, or rename/consolidation work.
+
+The hot-path behavioral changes are intentionally small:
+
+1. `complete-web-post-runtime-turn.ts` now treats web quota/compaction follow-up delivery as **best-effort**. If `deliverIntentNow()` or related follow-up work fails after the main assistant reply is already persisted, the turn still completes and no late-path exception escapes the helper.
+2. `send-web-chat-turn.service.ts` and `stream-web-chat-turn.service.ts` now treat post-replay skill-state persistence / background-check queueing as **best-effort**. A failure there logs a warning but no longer downgrades an already completed main reply into a failed/interrupted turn.
+3. `stream-web-chat-turn.service.ts` now explicitly avoids creating a second interrupted assistant message if an unexpected late-path error happens after the main assistant reply was already persisted.
+4. `web-chat-turn-attempt.service.ts` now refuses terminal downgrades: `markFailed()` / `markInterrupted()` only update attempts that are still `accepted` or `running`, and `markCompleted()` also no-ops cleanly when the row is already terminal. This preserves the completed-attempt idempotency truth instead of letting a later failure write overwrite it.
+
+No public HTTP/SSE route changed. No schema changed. No Telegram behavior changed. The shared helper/module naming introduced in Slice 2 remains as-is; this is only the bounded failure-path hardening that was missing on that seam.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/complete-web-post-runtime-turn.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/web-chat-turn-attempt.service.ts`
+- `apps/api/test/send-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/api/test/web-chat-turn-attempt.service.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Verification
+
+Focused:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts` — PASS
+2. `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts` — PASS
+3. `corepack pnpm --filter @persai/api exec tsx test/web-chat-turn-attempt.service.test.ts` — PASS
+4. `corepack pnpm --filter @persai/api run typecheck` — PASS
+5. `corepack pnpm --filter @persai/api exec eslint src/modules/workspace-management/application/send-web-chat-turn.service.ts src/modules/workspace-management/application/stream-web-chat-turn.service.ts src/modules/workspace-management/application/complete-web-post-runtime-turn.ts src/modules/workspace-management/application/web-chat-turn-attempt.service.ts test/send-web-chat-turn.service.test.ts test/stream-web-chat-turn.service.test.ts test/web-chat-turn-attempt.service.test.ts` — PASS
+
+### Risks / residuals
+
+- This slice intentionally hardens only the bounded **late optional** path after the main assistant reply exists; it does not redesign the broader sync/stream completion flow.
+- Core failures before assistant-message persistence still fail the turn honestly, and required replay-completion/binding writes still remain part of the main path.
+- The later `web` vs `native-web` naming/service cleanup remains separate and unchanged.
+
+### Next recommended step
+
+Keep the next slice tight: continue the planned service-layer naming/consolidation cleanup without changing routes, and preserve these new late-path safety guarantees while doing it.
+
+## 2026-05-25 — Turn-entrypoint consolidation Slice 2 — shared web post-runtime completion seam
+
+### What changed
+
+Finished the next bounded API cleanup slice after the shared assistant-message persistence helper: extracted a new shared web-only post-runtime helper module,
+`apps/api/src/modules/workspace-management/application/complete-web-post-runtime-turn.ts`,
+and switched both `send-web-chat-turn.service.ts` and `stream-web-chat-turn.service.ts` to use it after the assistant message has already been persisted.
+
+A tiny follow-up cleanup removed one unused local left behind in `stream-web-chat-turn.service.ts` during the extraction so the workspace lint gate stays green. No runtime behavior changed in that follow-up.
+
+The extracted seam now centralizes the overlapping web completion path that was still hand-copied in both services:
+
+1. read active web media/document jobs for the final transport payload
+2. deliver runtime-produced media to the web chat thread
+3. apply and persist final-delivery honesty correction when delivery outcome differs from assistant text
+4. record memory, quota, model-cost ledger, and tool-path ledger from the finalized assistant content
+5. create and immediately deliver quota/compaction follow-up messages
+6. write replay-complete state for `clientTurnId`
+7. persist post-turn skill routing state and queue the background recheck when needed
+
+Stream-only behavior remains local to `StreamWebChatTurnService`: stall retry, SSE callbacks, interrupted partial persistence, and timing/metrics were intentionally **not** pushed into the shared helper. No public HTTP/SSE route changed. No schema changed. No Telegram behavior changed. `send-native-web-chat-turn.service.ts` and `stream-native-web-chat-turn.service.ts` were left in place unchanged.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/complete-web-post-runtime-turn.ts` — new shared web post-runtime helper module
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts` — helper adoption
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` — helper adoption
+- `docs/SESSION-HANDOFF.md` — this section
+- `docs/CHANGELOG.md` — top entry
+
+### Verification
+
+Focused:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts` — PASS
+2. `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts` — PASS
+3. `corepack pnpm --filter @persai/api run typecheck` — PASS
+
+Repo gates / full suites:
+
+1. `corepack pnpm -r --if-present run lint` — PASS
+2. `corepack pnpm run format:check` — PASS
+3. `corepack pnpm --filter @persai/api run typecheck` — PASS
+4. `corepack pnpm --filter @persai/web run typecheck` — PASS
+5. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+6. `corepack pnpm --filter @persai/api run test` — PASS
+7. `corepack pnpm --filter @persai/runtime run test` — PASS
+8. `corepack pnpm --filter @persai/web run test` — PASS
+
+Note: an earlier parallelized verification attempt produced unrelated Vitest timeouts under local machine contention; rerunning the full `@persai/web` suite alone passed clean, so no persistent web regression was attributed to this slice.
+
+### Risks / residuals
+
+- This slice intentionally keeps `send-native-web-chat-turn.service.ts` and `stream-native-web-chat-turn.service.ts` untouched; the naming/consolidation step is still later.
+- Only the honest post-runtime overlap was extracted. Pre-runtime input-building, replay-state rebuild helpers, and stream-specific interrupted/stall paths still live in the individual services.
+- Because this is still a hot-path turn-entry slice, later consolidation work should keep reusing the focused send/stream regression suites before any rename/removal step.
+
+### Next recommended step
+
+Prepare the next honest consolidation slice: reduce the remaining `web` vs `native-web` naming/service-layer ambiguity without changing routes, and only extract any further shared code where sync and stream semantics are still truly aligned.
+
+## 2026-05-25 — Turn-entrypoint consolidation Slice 1 — shared assistant-message persistence helper
+
+### What changed
+
+Started the API-side turn-entrypoint cleanup from the readonly audit with the safest bounded slice first: centralize the assistant-reply persistence seam before renaming/removing any services or touching HTTP routes.
+
+Added `apps/api/src/modules/workspace-management/application/persist-assistant-message.ts` and switched the three hot-path orchestrators that actually persist assistant replies today:
+
+- `send-web-chat-turn.service.ts`
+- `stream-web-chat-turn.service.ts`
+- `handle-internal-telegram-turn.service.ts`
+
+The helper now owns the two duplicated behaviors that mattered for future consolidation:
+
+1. persist `discoveredFileRefIds` onto assistant-message metadata in one place
+2. attach the created assistant acknowledgement message id onto queued deferred media jobs in one place
+
+No public route changed. No runtime request contract changed. No schema/migration changed. This slice is intentionally preparatory: it reduces duplication in the turn-entry hot path so later consolidation of `web`/`native-web` layering can be done with less drift risk.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/persist-assistant-message.ts` — new shared helper
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts` — helper adoption
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` — helper adoption
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts` — helper adoption
+- `apps/api/test/persist-assistant-message.test.ts` — new focused helper coverage
+- `docs/SESSION-HANDOFF.md` — this section
+- `docs/CHANGELOG.md` — top entry
+
+### Verification
+
+Focused:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/persist-assistant-message.test.ts` — PASS
+2. `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts` — PASS
+3. `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts` — PASS
+4. `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts` — PASS
+
+Repo gates / full suites:
+
+1. `corepack pnpm -r --if-present run lint` — PASS
+2. `corepack pnpm run format:check` — PASS
+3. `corepack pnpm --filter @persai/api run typecheck` — PASS
+4. `corepack pnpm --filter @persai/web run typecheck` — PASS
+5. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+6. `corepack pnpm --filter @persai/api run test` — PASS
+7. `corepack pnpm --filter @persai/web run test` — PASS
+8. `corepack pnpm --filter @persai/runtime run test` — PASS
+
+Note: the first full `@persai/web` run hit one transient timeout in `app/admin/runtime/page.test.tsx`; isolated rerun of that file passed, and the repeated full web suite then passed clean.
+
+### Risks / residuals
+
+- This slice intentionally does **not** remove `send-native-web-chat-turn.service.ts` / `stream-native-web-chat-turn.service.ts` yet.
+- The audited config/doc residue around `PERSAI_WEB_CHAT_*_RUNTIME_MODE` and `web-runtime-shadow-comparison.service.ts` is still present and remains the next cleanup area.
+- The turn-entry hot path remains risky for replay/stream/compaction behavior, so later slices should keep using focused send/stream/telegram regression suites plus full repo gates.
+
+### Next recommended step
+
+Slice 2: extract the shared web-turn post-runtime orchestration seam and prepare the honest rename/consolidation plan for the `web` vs `native-web` service split, while keeping current HTTP routes and Telegram behavior unchanged.
+
 ## 2026-05-24 — ADR-097 hotfix — retrying DB-truth revision version allocation
 
 ### What changed
@@ -128,12 +508,14 @@ Deploy to `persai-dev`. Validate cross-chat revise end-to-end: create a PDF in c
 ### What changed
 
 **Gap A — Provider-gateway timeout hardening:**
+
 - `ProviderGatewayTimeoutError` (typed, exported from `provider-gateway.client.service.ts`) replaces a generic `ServiceUnavailableException` for timeout cases; `fetchWithSignal` now throws this typed error on `AbortError`.
 - `RuntimeDocumentProviderAdapterService.run()` catches `ProviderGatewayTimeoutError` on the single-shot path: logs `[document-pdf-single-shot-timeout]`, flips `useChunked`, counts the attempt against the retry budget. Parallels the existing truncation re-route.
 - Chunked pipeline `ProviderGatewayTimeoutError` → logs `[document-pdf-chunked-timeout]`, sets `document_pdf_chunked_timeout` failure code, breaks loop. No further re-route.
 - `ProviderGatewayTextGenerateRequest.timeoutMsHint?: number` added to runtime-contract. Worker passes `DOCUMENT_CLASSIFICATION_TIMEOUT_MS = 240_000` for `document_html_generation`, `document_pdf_outline`, `document_pdf_patch_revise`. OpenAI and Anthropic provider clients use `max(default, hint)` capped at `600_000ms`. Gateway `assertValidRequest` validates: positive integer, ≤ 600_000.
 
 **Gap B — Contextual revise hint:**
+
 - `AssistantDocumentJobReadService.listRecentChatPdfsForTurn()`: queries up to 3 `pdf_document` rows with `currentVersion.renderedHtml IS NOT NULL` and `updatedAt >= windowFloor` (oldest of last N=10 messages), ordered `updatedAt DESC`.
 - `RuntimeRecentChatPdf` interface + `RuntimeTurnRequest.recentChatPdfs?: RuntimeRecentChatPdf[] | null` added to runtime-contract.
 - `StreamWebChatTurnService.stream()` calls `listRecentChatPdfsForTurn` and passes result as `recentChatPdfs` in `StreamNativeWebChatTurnInput` → `RuntimeTurnRequest`.
@@ -237,6 +619,7 @@ Deploy to `persai-dev` and run the 10-page PDF scenario to validate that the tim
 ### Verification
 
 Run in order:
+
 1. `corepack pnpm --filter @persai/runtime run typecheck` — must pass
 2. `corepack pnpm --filter @persai/api run typecheck` — must pass
 3. `corepack pnpm --filter @persai/runtime run test` — must pass (pre-existing timing flake in `admin-system-notification-producer.service.test.ts` is out of scope)
@@ -306,21 +689,21 @@ Slice 2: implement patch-revise using `renderedHtml`. In `revise_document` mode,
 ### Verification
 
 - Repo gates (`AGENTS.md`):
- - `corepack pnpm -r --if-present run lint`
- - `corepack pnpm run format:check`
- - `corepack pnpm --filter @persai/api run typecheck`
- - `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
 - Focused tests:
- - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution-discovered-file-refs.test.ts`
- - `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
- - `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
- - `corepack pnpm --filter @persai/runtime exec tsx test/project-execution-profile.test.ts`
- - `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
- - `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
- - Full `corepack pnpm --filter @persai/api run test` and `corepack pnpm --filter @persai/runtime run test` suites
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution-discovered-file-refs.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/project-execution-profile.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- Full `corepack pnpm --filter @persai/api run test` and `corepack pnpm --filter @persai/runtime run test` suites
 - Focused typecheck:
- - `corepack pnpm --filter @persai/runtime run typecheck`
- - `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
 
 ### Residual risks
 
@@ -767,7 +1150,7 @@ Slice 2: implement patch-revise using `renderedHtml`. In `revise_document` mode,
 
 - Resume **deploy prep + live project verification** only: confirm the upload micro-description helper now lands both semantic-summary truth and internal ledger rows in the target environment, then prepare deploy. Do not start the hidden B2B cluster plan until the pre-deploy Slice 6 behavior is live-verified end to end.
 
-## 2026-05-22 — ADR-100 Slices 2–6F — **Complete in working tree (uncommitted)** 
+## 2026-05-22 — ADR-100 Slices 2–6F — **Complete in working tree (uncommitted)**
 
 ### What changed
 

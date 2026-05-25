@@ -126,8 +126,8 @@ describe("SendWebChatTurnService", () => {
     );
   });
 
-  test("replays duplicate clientTurnId without starting a second sync runtime turn", async () => {
-    let nativeRuntimeCalls = 0;
+  test("replays duplicate clientTurnId without starting a second web runtime turn", async () => {
+    let webRuntimeCalls = 0;
     const completedState = {
       clientTurnId: "turn-1",
       chatId: "chat-1",
@@ -176,7 +176,7 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         execute: async () => {
-          nativeRuntimeCalls += 1;
+          webRuntimeCalls += 1;
           return {
             assistantMessage: "native",
             respondedAt: "2026-04-05T12:00:01.000Z",
@@ -191,7 +191,10 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         resolveByUserId: async () => ({
-          assistantId: "assistant-1"
+          assistantId: "assistant-1",
+          assistant: {
+            workspaceId: "workspace-1"
+          }
         })
       } as never,
       {} as never,
@@ -220,7 +223,7 @@ describe("SendWebChatTurnService", () => {
       clientTurnId: "turn-1"
     });
 
-    assert.equal(nativeRuntimeCalls, 0);
+    assert.equal(webRuntimeCalls, 0);
     assert.equal(result.userMessage.id, "user-msg-1");
     assert.equal(result.assistantMessage.id, "assistant-msg-1");
     assert.equal(result.assistantMessage.content, "hi back");
@@ -231,9 +234,9 @@ describe("SendWebChatTurnService", () => {
     });
   });
 
-  test("routes sync web turns through the native runtime service", async () => {
-    let nativeRuntimeCalls = 0;
-    let capturedNativeUserMessage = "";
+  test("routes sync web turns through the web runtime client service", async () => {
+    let webRuntimeCalls = 0;
+    let capturedWebRuntimeUserMessage = "";
     let capturedOpenMediaJobs: unknown[] | undefined;
 
     const service = new SendWebChatTurnService(
@@ -256,8 +259,8 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         execute: async (input: { userMessage: string; openMediaJobs?: unknown[] }) => {
-          nativeRuntimeCalls += 1;
-          capturedNativeUserMessage = input.userMessage;
+          webRuntimeCalls += 1;
+          capturedWebRuntimeUserMessage = input.userMessage;
           capturedOpenMediaJobs = input.openMediaJobs;
           return {
             assistantMessage: "native",
@@ -309,7 +312,10 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         resolveByUserId: async () => ({
-          assistantId: "assistant-1"
+          assistantId: "assistant-1",
+          assistant: {
+            workspaceId: "workspace-1"
+          }
         })
       } as never,
       {
@@ -353,8 +359,8 @@ describe("SendWebChatTurnService", () => {
       message: "hello"
     });
 
-    assert.equal(nativeRuntimeCalls, 1);
-    assert.equal(capturedNativeUserMessage, "hello");
+    assert.equal(webRuntimeCalls, 1);
+    assert.equal(capturedWebRuntimeUserMessage, "hello");
     assert.deepEqual(capturedOpenMediaJobs, [
       {
         jobId: "job-1",
@@ -457,7 +463,10 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         resolveByUserId: async () => ({
-          assistantId: "assistant-1"
+          assistantId: "assistant-1",
+          assistant: {
+            workspaceId: "workspace-1"
+          }
         })
       } as never,
       {
@@ -520,7 +529,7 @@ describe("SendWebChatTurnService", () => {
   });
 
   test("uses the admin-managed onboarding prompt for welcome sync turns", async () => {
-    let capturedNativeUserMessage = "";
+    let capturedWebRuntimeUserMessage = "";
     const memoryWrites: Array<Record<string, unknown>> = [];
     const quotaWrites: Array<Record<string, unknown>> = [];
 
@@ -544,7 +553,7 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         execute: async (input: { userMessage: string }) => {
-          capturedNativeUserMessage = input.userMessage;
+          capturedWebRuntimeUserMessage = input.userMessage;
           return {
             assistantMessage: "native",
             respondedAt: "2026-04-05T12:00:01.000Z",
@@ -632,7 +641,7 @@ describe("SendWebChatTurnService", () => {
     });
 
     assert.equal(
-      capturedNativeUserMessage,
+      capturedWebRuntimeUserMessage,
       "You just came online. Introduce yourself warmly to Alex."
     );
     assert.equal(
@@ -645,7 +654,7 @@ describe("SendWebChatTurnService", () => {
     );
   });
 
-  test("delivers native runtime media through the shared web media delivery path", async () => {
+  test("delivers web runtime media through the shared web media delivery path", async () => {
     const deliveredAttachments = [
       {
         id: "attachment-1",
@@ -732,7 +741,10 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         resolveByUserId: async () => ({
-          assistantId: "assistant-1"
+          assistantId: "assistant-1",
+          assistant: {
+            workspaceId: "workspace-1"
+          }
         })
       } as never,
       {
@@ -958,6 +970,145 @@ describe("SendWebChatTurnService", () => {
     assert.equal(ledgerWrites[0]?.purpose, "chat_main_reply");
     assert.equal(ledgerWrites[0]?.surface, "web");
     assert.equal(ledgerWrites[0]?.occurredAt, "2026-04-05T12:00:01.000Z");
+  });
+
+  test("treats post-replay skill-state persistence failure as non-blocking", async () => {
+    const service = new SendWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:02.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        claimWebTurnProcessing: async () => "claimed",
+        completeWebTurnProcessing: async () => undefined,
+        releaseWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async () => ({
+          assistantMessage: "native",
+          respondedAt: "2026-04-05T12:00:01.000Z",
+          media: []
+        })
+      } as never,
+      {
+        execute: async () => ({
+          chat: {
+            id: "chat-1",
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: "Chat",
+            skillDecisionState: {
+              status: "active",
+              activeSkillId: "skill-1",
+              activeSkillName: "Helper",
+              topicSummary: "old",
+              confidence: "high",
+              checkedAtMessageIndex: 1
+            },
+            skillCadenceState: {
+              messageCountSinceCheck: 0,
+              backgroundCheckQueuedAtMessageIndex: null,
+              needsBootstrap: false,
+              bootstrapReason: null
+            },
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: "2026-04-05T12:00:00.000Z",
+            updatedAt: "2026-04-05T12:00:00.000Z"
+          },
+          userMessage: {
+            id: "user-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "hello",
+            attachments: [],
+            createdAt: "2026-04-05T12:00:00.000Z"
+          },
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "workspace-1"
+          },
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          quotaDegradeModelOverride: null,
+          quotaDegradeReason: null,
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          workspaceTimezone: "UTC"
+        })
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1"
+        })
+      } as never,
+      {
+        execute: async () => undefined
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      {
+        buildRuntimeContext: async () => ({
+          currentUserMessageIndex: 2,
+          recentMessages: []
+        }),
+        createBackgroundCheckContext: () => {
+          throw new Error("should not build background check context");
+        },
+        persistFromTurnRouting: async () => {
+          throw new Error("skill-state write failed");
+        },
+        markBackgroundCheckQueued: async () => undefined,
+        shouldRunBackgroundCheck: () => false,
+        runBackgroundCheck: () => undefined
+      } as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never
+    );
+
+    const result = await service.execute("user-1", {
+      surfaceThreadKey: "thread-1",
+      message: "hello",
+      clientTurnId: "turn-1"
+    });
+
+    assert.equal(result.assistantMessage.content, "native");
+    assert.deepEqual(result.chat.skillDecisionState, {
+      status: "active",
+      activeSkillId: "skill-1",
+      activeSkillName: "Helper",
+      topicSummary: "old",
+      confidence: "high",
+      checkedAtMessageIndex: 1
+    });
   });
 
   test("retries sync web turn after waiting for active compaction conflict", async () => {

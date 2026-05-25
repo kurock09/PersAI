@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { type AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayToolCall,
@@ -50,6 +50,11 @@ export class RuntimeMediaJobRunService {
           sessionId: `media-job:${input.job.id}`,
           requestId: toolRunKey
         });
+        this.assertImageToolResultAccepted(
+          result.payload.reason,
+          result.payload.warning,
+          result.isError
+        );
         return {
           assistantText: "",
           artifacts: result.artifacts,
@@ -74,6 +79,11 @@ export class RuntimeMediaJobRunService {
           sessionId: `media-job:${input.job.id}`,
           requestId: toolRunKey
         });
+        this.assertImageToolResultAccepted(
+          result.payload.reason,
+          result.payload.warning,
+          result.isError
+        );
         return {
           assistantText: "",
           artifacts: result.artifacts,
@@ -161,5 +171,41 @@ export class RuntimeMediaJobRunService {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private assertImageToolResultAccepted(
+    reason: string | null,
+    warning: string | null,
+    isError: boolean
+  ): void {
+    if (reason === null) {
+      return;
+    }
+    const message =
+      typeof warning === "string" && warning.trim().length > 0
+        ? warning.trim()
+        : "Media-job image worker did not produce deliverable artifacts.";
+    if (reason === "image_provider_safety_rejected") {
+      throw new BadRequestException({
+        error: {
+          code: reason,
+          message
+        }
+      });
+    }
+    if (isError) {
+      throw new ServiceUnavailableException({
+        error: {
+          code: reason,
+          message
+        }
+      });
+    }
+    throw new BadRequestException({
+      error: {
+        code: reason,
+        message
+      }
+    });
   }
 }

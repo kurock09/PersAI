@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import { AssistantRuntimeError } from "../src/modules/workspace-management/application/assistant-runtime.facade";
-import { StreamNativeWebChatTurnService } from "../src/modules/workspace-management/application/stream-native-web-chat-turn.service";
+import { WebRuntimeStreamClientService } from "../src/modules/workspace-management/application/web-runtime-stream-client.service";
 import type { AssistantMaterializedSpecRepository } from "../src/modules/workspace-management/domain/assistant-materialized-spec.repository";
 
 const ORIGINAL_ENV = process.env;
@@ -55,8 +55,8 @@ afterEach(() => {
   process.env = ORIGINAL_ENV;
 });
 
-describe("StreamNativeWebChatTurnService", () => {
-  test("builds a native runtime stream request and maps runtime events", async () => {
+describe("WebRuntimeStreamClientService", () => {
+  test("builds a web runtime stream request and maps runtime events", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
     let capturedUrl = "";
@@ -149,7 +149,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new StreamNativeWebChatTurnService({
+      const service = new WebRuntimeStreamClientService({
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
@@ -301,7 +301,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new StreamNativeWebChatTurnService({
+      const service = new WebRuntimeStreamClientService({
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
@@ -340,7 +340,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }
   });
 
-  test("includes chatMode on native runtime stream request body", async () => {
+  test("includes chatMode on web runtime stream request body", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
     let capturedBody: Record<string, unknown> | null = null;
@@ -378,7 +378,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new StreamNativeWebChatTurnService({
+      const service = new WebRuntimeStreamClientService({
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
@@ -449,7 +449,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new StreamNativeWebChatTurnService({
+      const service = new WebRuntimeStreamClientService({
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
@@ -487,7 +487,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }
   });
 
-  test("surfaces native runtime stream conflicts as inbound conflicts", async () => {
+  test("surfaces web runtime stream conflicts as inbound conflicts", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
 
@@ -508,7 +508,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new StreamNativeWebChatTurnService({
+      const service = new WebRuntimeStreamClientService({
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
@@ -537,7 +537,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }
   });
 
-  test("maps oversized native runtime payload responses to input validation", async () => {
+  test("maps oversized web runtime payload responses to input validation", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
 
@@ -558,7 +558,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new StreamNativeWebChatTurnService({
+      const service = new WebRuntimeStreamClientService({
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
@@ -593,9 +593,9 @@ describe("StreamNativeWebChatTurnService", () => {
     }
   });
 
-  test("fails clearly when the runtime base url is missing while native stream mode is enabled", async () => {
+  test("fails clearly when the runtime base url is missing while the web runtime stream client is enabled", async () => {
     setApiEnv({ PERSAI_RUNTIME_BASE_URL: "" });
-    const service = new StreamNativeWebChatTurnService({
+    const service = new WebRuntimeStreamClientService({
       findByPublishedVersionId: async () => {
         throw new Error("repository should not be called");
       }
@@ -679,7 +679,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new StreamNativeWebChatTurnService({
+      const service = new WebRuntimeStreamClientService({
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 
@@ -758,7 +758,7 @@ describe("StreamNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new StreamNativeWebChatTurnService({
+      const service = new WebRuntimeStreamClientService({
         findByPublishedVersionId: async () => createMaterializedSpec()
       } as AssistantMaterializedSpecRepository);
 

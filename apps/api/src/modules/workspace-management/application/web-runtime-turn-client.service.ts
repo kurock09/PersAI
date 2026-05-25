@@ -26,7 +26,7 @@ import {
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
 import type { RuntimeTier } from "./runtime-assignment";
 
-export interface SendNativeWebChatTurnInput {
+export interface WebRuntimeTurnClientInput {
   assistantId: string;
   publishedVersionId: string;
   runtimeTier: RuntimeTier;
@@ -56,19 +56,19 @@ interface JsonResponse {
 }
 
 @Injectable()
-export class SendNativeWebChatTurnService {
+export class WebRuntimeTurnClientService {
   constructor(
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository
   ) {}
 
-  async execute(input: SendNativeWebChatTurnInput): Promise<AssistantRuntimeWebChatTurnResult> {
+  async execute(input: WebRuntimeTurnClientInput): Promise<AssistantRuntimeWebChatTurnResult> {
     const config = loadApiConfig(process.env);
     const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
     if (!baseUrl) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime web sync is enabled but PERSAI_RUNTIME_BASE_URL is not configured."
+        "Web runtime turn client requires PERSAI_RUNTIME_BASE_URL."
       );
     }
 
@@ -79,13 +79,13 @@ export class SendNativeWebChatTurnService {
     if (materializedSpec === null) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime materialized spec is missing for the current published version."
+        "Web runtime materialized spec is missing for the current published version."
       );
     }
     if (materializedSpec.assistantId !== input.assistantId) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime materialized spec assistant identity does not match the prepared turn."
+        "Web runtime materialized spec assistant identity does not match the prepared turn."
       );
     }
 
@@ -93,7 +93,7 @@ export class SendNativeWebChatTurnService {
     if (!bundleHash) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime bundle hash is missing for the current published version."
+        "Web runtime bundle hash is missing for the current published version."
       );
     }
 
@@ -153,7 +153,7 @@ export class SendNativeWebChatTurnService {
     if (!this.isRuntimeTurnResult(response.body)) {
       throw new AssistantRuntimeError(
         "invalid_response",
-        "Native runtime returned an invalid sync turn response."
+        "Web runtime returned an invalid sync turn response."
       );
     }
     return {
@@ -183,14 +183,12 @@ export class SendNativeWebChatTurnService {
     };
   }
 
-  async checkSkillRouting(
-    input: SendNativeWebChatTurnInput
-  ): Promise<RuntimeSkillStateCheckResult> {
+  async checkSkillRouting(input: WebRuntimeTurnClientInput): Promise<RuntimeSkillStateCheckResult> {
     const request = await this.buildRuntimeTurnRequest(input);
     const config = loadApiConfig(process.env);
     const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
     if (!baseUrl) {
-      throw new AssistantRuntimeError("runtime_unreachable", "Native runtime base URL is missing.");
+      throw new AssistantRuntimeError("runtime_unreachable", "Web runtime base URL is missing.");
     }
     const response = await this.postJson(
       new URL("/api/v1/turns/skill-routing-check", baseUrl).toString(),
@@ -203,14 +201,14 @@ export class SendNativeWebChatTurnService {
     if (!this.isRuntimeSkillStateCheckResult(response.body)) {
       throw new AssistantRuntimeError(
         "invalid_response",
-        "Native runtime returned an invalid Skill routing check response."
+        "Web runtime returned an invalid Skill routing check response."
       );
     }
     return response.body;
   }
 
   private async buildRuntimeTurnRequest(
-    input: SendNativeWebChatTurnInput
+    input: WebRuntimeTurnClientInput
   ): Promise<RuntimeTurnRequest> {
     const materializedSpec =
       await this.assistantMaterializedSpecRepository.findByPublishedVersionId(
@@ -219,20 +217,20 @@ export class SendNativeWebChatTurnService {
     if (materializedSpec === null) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime materialized spec is missing for the current published version."
+        "Web runtime materialized spec is missing for the current published version."
       );
     }
     if (materializedSpec.assistantId !== input.assistantId) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime materialized spec assistant identity does not match the prepared turn."
+        "Web runtime materialized spec assistant identity does not match the prepared turn."
       );
     }
     const bundleHash = materializedSpec.runtimeBundleHash?.trim() ?? "";
     if (!bundleHash) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime bundle hash is missing for the current published version."
+        "Web runtime bundle hash is missing for the current published version."
       );
     }
     return {
@@ -308,14 +306,13 @@ export class SendNativeWebChatTurnService {
       if (error instanceof Error && error.name === "AbortError") {
         throw new AssistantRuntimeError(
           "timeout",
-          `Native runtime sync turn timed out after ${timeoutMs}ms.`
+          `Web runtime sync turn timed out after ${timeoutMs}ms.`
         );
       }
-      const message =
-        error instanceof Error ? error.message : "Unknown native runtime sync failure.";
+      const message = error instanceof Error ? error.message : "Unknown web runtime sync failure.";
       throw new AssistantRuntimeError(
         "runtime_unreachable",
-        `Native runtime sync turn failed: ${message}`
+        `Web runtime sync turn failed: ${message}`
       );
     } finally {
       clearTimeout(timeoutId);
@@ -325,7 +322,7 @@ export class SendNativeWebChatTurnService {
   private throwForFailedResponse(response: JsonResponse): never {
     const message =
       this.extractErrorMessage(response.body) ??
-      `Native runtime sync turn failed with HTTP ${response.status}.`;
+      `Web runtime sync turn failed with HTTP ${response.status}.`;
 
     if (response.status === 400 || response.status === 413) {
       throw createAssistantInboundValidationError("native_runtime_request_invalid", message);

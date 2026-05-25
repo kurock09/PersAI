@@ -76,6 +76,35 @@ export class ProviderGatewayTimeoutError extends Error {
   }
 }
 
+export class ProviderGatewaySafetyRejectedError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly providerStatus: Record<string, unknown> | null;
+  readonly requestId: string | null;
+
+  constructor(input: {
+    status: number;
+    code: string;
+    message: string;
+    providerStatus: Record<string, unknown> | null;
+  }) {
+    super(input.message);
+    this.name = "ProviderGatewaySafetyRejectedError";
+    this.status = input.status;
+    this.code = input.code;
+    this.providerStatus = input.providerStatus;
+    this.requestId = ProviderGatewaySafetyRejectedError.readRequestId(input.providerStatus);
+  }
+
+  private static readRequestId(providerStatus: Record<string, unknown> | null): string | null {
+    if (providerStatus === null) {
+      return null;
+    }
+    const candidate = providerStatus.requestId;
+    return typeof candidate === "string" && candidate.trim().length > 0 ? candidate.trim() : null;
+  }
+}
+
 @Injectable()
 export class ProviderGatewayClientService {
   private readonly logger = new Logger(ProviderGatewayClientService.name);
@@ -288,6 +317,17 @@ export class ProviderGatewayClientService {
       options?.timeoutMs ?? this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
     );
     if (!response.ok) {
+      const extracted = this.extractStructuredError(response.body);
+      if (this.isImageProviderSafetyRejected(response.status, extracted.code)) {
+        throw new ProviderGatewaySafetyRejectedError({
+          status: response.status,
+          code: extracted.code ?? "image_provider_safety_rejected",
+          message:
+            extracted.message ??
+            `Provider gateway rejected the image request with status ${response.status}.`,
+          providerStatus: extracted.providerStatus
+        });
+      }
       throw this.toGatewayException(response);
     }
     if (!this.isImageGenerateResult(response.body)) {
@@ -322,6 +362,17 @@ export class ProviderGatewayClientService {
       options?.timeoutMs ?? this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
     );
     if (!response.ok) {
+      const extracted = this.extractStructuredError(response.body);
+      if (this.isImageProviderSafetyRejected(response.status, extracted.code)) {
+        throw new ProviderGatewaySafetyRejectedError({
+          status: response.status,
+          code: extracted.code ?? "image_provider_safety_rejected",
+          message:
+            extracted.message ??
+            `Provider gateway rejected the image-edit request with status ${response.status}.`,
+          providerStatus: extracted.providerStatus
+        });
+      }
       throw this.toGatewayException(response);
     }
     if (!this.isImageEditResult(response.body)) {
@@ -738,6 +789,13 @@ export class ProviderGatewayClientService {
       retryable: typeof error?.retryable === "boolean" ? error.retryable : null,
       providerStatus: this.asObject(error?.providerStatus)
     };
+  }
+
+  private isImageProviderSafetyRejected(status: number, code: string | null): boolean {
+    return (
+      status === 400 &&
+      (code === "image_provider_safety_rejected" || code === "provider_safety_rejected")
+    );
   }
 
   private isPayloadTooLargeFailure(status: number, message: string | null): boolean {

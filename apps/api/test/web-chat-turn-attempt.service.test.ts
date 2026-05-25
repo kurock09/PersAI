@@ -74,4 +74,93 @@ describe("WebChatTurnAttemptService", () => {
     assert.equal(status.status, "running");
     assert.deepEqual(status.currentActivity, attempt.currentActivity);
   });
+
+  test("does not overwrite a completed attempt with later failed or interrupted writes", async () => {
+    const attempt = {
+      status: "running",
+      assistantMessageId: null as string | null,
+      errorCode: null as string | null,
+      errorMessage: null as string | null,
+      currentActivity: { type: "tool_use" }
+    };
+    const prisma = {
+      assistantWebChatTurnAttempt: {
+        updateMany: async (input: {
+          where?: { status?: { in?: string[] } };
+          data?: Record<string, unknown>;
+        }) => {
+          const allowedStatuses = input.where?.status?.in ?? [];
+          if (!allowedStatuses.includes(attempt.status)) {
+            return { count: 0 };
+          }
+          if (input.data?.status === "completed") {
+            attempt.status = "completed";
+            attempt.assistantMessageId = String(input.data.assistantMessageId ?? "");
+            attempt.errorCode = null;
+            attempt.errorMessage = null;
+            attempt.currentActivity = null;
+            return { count: 1 };
+          }
+          attempt.status = String(input.data?.status ?? attempt.status);
+          attempt.assistantMessageId =
+            input.data?.assistantMessageId === undefined
+              ? attempt.assistantMessageId
+              : (input.data.assistantMessageId as string | null);
+          attempt.errorCode = (input.data?.errorCode as string | null) ?? null;
+          attempt.errorMessage = (input.data?.errorMessage as string | null) ?? null;
+          attempt.currentActivity = null;
+          return { count: 1 };
+        }
+      }
+    };
+    const service = new WebChatTurnAttemptService(
+      prisma as never,
+      {
+        resolveByUserId: async () => ({ assistantId: "assistant-1" })
+      } as never
+    );
+
+    await service.markCompleted({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "turn-1",
+      assistantMessageId: "assistant-msg-1",
+      respondedAt: "2026-04-29T13:00:00.000Z",
+      terminalPayload: {
+        clientTurnId: "turn-1",
+        chatId: "chat-1",
+        userMessageId: "user-message-1",
+        assistantMessageId: "assistant-msg-1",
+        respondedAt: "2026-04-29T13:00:00.000Z",
+        degradedByQuotaFallback: false,
+        quotaFallbackReason: null,
+        quotaFallbackModel: null,
+        completedAt: "2026-04-29T13:00:01.000Z"
+      }
+    });
+    await service.markFailed({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "turn-1",
+      code: "late_failure",
+      message: "should be ignored"
+    });
+    await service.markInterrupted({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surfaceThreadKey: "thread-1",
+      clientTurnId: "turn-1",
+      assistantMessageId: "assistant-msg-2",
+      code: "late_interrupt",
+      message: "should also be ignored"
+    });
+
+    assert.equal(attempt.status, "completed");
+    assert.equal(attempt.assistantMessageId, "assistant-msg-1");
+    assert.equal(attempt.errorCode, null);
+    assert.equal(attempt.errorMessage, null);
+    assert.equal(attempt.currentActivity, null);
+  });
 });

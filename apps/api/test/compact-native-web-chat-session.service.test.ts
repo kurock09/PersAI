@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import { AssistantRuntimeError } from "../src/modules/workspace-management/application/assistant-runtime.facade";
-import { CompactNativeWebChatSessionService } from "../src/modules/workspace-management/application/compact-native-web-chat-session.service";
+import { WebRuntimeCompactionClientService } from "../src/modules/workspace-management/application/web-runtime-compaction-client.service";
 
 const ORIGINAL_ENV = process.env;
 
@@ -22,8 +22,8 @@ afterEach(() => {
   process.env = ORIGINAL_ENV;
 });
 
-describe("CompactNativeWebChatSessionService", () => {
-  test("posts the native shared compaction request and returns the runtime result", async () => {
+describe("WebRuntimeCompactionClientService", () => {
+  test("posts the web runtime compaction request and returns the runtime result", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
     let capturedUrl = "";
@@ -100,7 +100,7 @@ describe("CompactNativeWebChatSessionService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new CompactNativeWebChatSessionService();
+      const service = new WebRuntimeCompactionClientService();
       const result = await service.execute({
         assistantId: "assistant-1",
         workspaceId: "workspace-1",
@@ -131,7 +131,7 @@ describe("CompactNativeWebChatSessionService", () => {
     }
   });
 
-  test("maps native runtime 409 responses to compaction_unavailable", async () => {
+  test("maps web runtime 409 responses to compaction_unavailable", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
 
@@ -151,7 +151,7 @@ describe("CompactNativeWebChatSessionService", () => {
       )) as typeof fetch;
 
     try {
-      const service = new CompactNativeWebChatSessionService();
+      const service = new WebRuntimeCompactionClientService();
       await assert.rejects(
         () =>
           service.execute({
@@ -171,9 +171,9 @@ describe("CompactNativeWebChatSessionService", () => {
     }
   });
 
-  test("fails clearly when the native runtime base url is missing", async () => {
+  test("fails clearly when the web runtime base url is missing", async () => {
     setApiEnv({ PERSAI_RUNTIME_BASE_URL: "" });
-    const service = new CompactNativeWebChatSessionService();
+    const service = new WebRuntimeCompactionClientService();
 
     await assert.rejects(
       () =>

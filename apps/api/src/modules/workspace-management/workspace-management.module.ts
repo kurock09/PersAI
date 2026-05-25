@@ -193,8 +193,6 @@ import { MaterializeAssistantPublishedVersionService } from "./application/mater
 import { ManageAdminPlansService } from "./application/manage-admin-plans.service";
 import { ManageSitePagesService } from "./application/manage-site-pages.service";
 import { ManageWebChatListService } from "./application/manage-web-chat-list.service";
-import { CompactNativeWebChatSessionService } from "./application/compact-native-web-chat-session.service";
-import { ResolveNativeWebChatSessionStateService } from "./application/resolve-native-web-chat-session-state.service";
 import { PublishAssistantDraftService } from "./application/publish-assistant-draft.service";
 import { RecordWebChatMemoryTurnService } from "./application/record-web-chat-memory-turn.service";
 import { RecordModelCostLedgerService } from "./application/record-model-cost-ledger.service";
@@ -204,9 +202,11 @@ import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
 import { PreviewAssistantSetupService } from "./application/preview-assistant-setup.service";
 import { SendNativeTelegramTurnService } from "./application/send-native-telegram-turn.service";
-import { SendNativeWebChatTurnService } from "./application/send-native-web-chat-turn.service";
+import { WebRuntimeCompactionClientService } from "./application/web-runtime-compaction-client.service";
+import { WebRuntimeSessionStateClientService } from "./application/web-runtime-session-state-client.service";
+import { WebRuntimeTurnClientService } from "./application/web-runtime-turn-client.service";
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
-import { StreamNativeWebChatTurnService } from "./application/stream-native-web-chat-turn.service";
+import { WebRuntimeStreamClientService } from "./application/web-runtime-stream-client.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
 import { AssistantMediaJobCompletionTurnService } from "./application/assistant-media-job-completion-turn.service";
 import { AssistantMediaJobCompletionDeliveryService } from "./application/assistant-media-job-completion-delivery.service";
@@ -572,8 +572,8 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     TrackWorkspaceQuotaUsageService,
     RecordModelCostLedgerService,
     RecordToolPathLedgerFromToolInvocationsService,
-    CompactNativeWebChatSessionService,
-    ResolveNativeWebChatSessionStateService,
+    WebRuntimeCompactionClientService,
+    WebRuntimeSessionStateClientService,
     ManageWebChatListService,
     CreateAssistantService,
     PublishAssistantDraftService,
@@ -583,8 +583,8 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     PreviewAssistantSetupService,
     RecordWebChatMemoryTurnService,
     SendNativeTelegramTurnService,
-    SendNativeWebChatTurnService,
-    StreamNativeWebChatTurnService,
+    WebRuntimeTurnClientService,
+    WebRuntimeStreamClientService,
     WebRuntimeShadowComparisonService,
     ListAssistantMemoryItemsService,
     ForgetAssistantMemoryItemService,

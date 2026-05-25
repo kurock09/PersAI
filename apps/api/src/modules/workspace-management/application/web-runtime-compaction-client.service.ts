@@ -4,7 +4,7 @@ import type { RuntimeCompactionRequest, RuntimeCompactionResult } from "@persai/
 import { AssistantRuntimeError } from "./assistant-runtime.facade";
 import type { RuntimeTier } from "./runtime-assignment";
 
-export interface CompactNativeWebChatSessionInput {
+export interface WebRuntimeCompactionClientInput {
   assistantId: string;
   workspaceId: string;
   runtimeTier: RuntimeTier;
@@ -20,14 +20,14 @@ interface JsonResponse {
 }
 
 @Injectable()
-export class CompactNativeWebChatSessionService {
-  async execute(input: CompactNativeWebChatSessionInput): Promise<RuntimeCompactionResult> {
+export class WebRuntimeCompactionClientService {
+  async execute(input: WebRuntimeCompactionClientInput): Promise<RuntimeCompactionResult> {
     const config = loadApiConfig(process.env);
     const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
     if (!baseUrl) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime web compaction requires PERSAI_RUNTIME_BASE_URL."
+        "Internal web runtime compaction client requires PERSAI_RUNTIME_BASE_URL."
       );
     }
 
@@ -55,7 +55,7 @@ export class CompactNativeWebChatSessionService {
     if (!this.isRuntimeCompactionResult(response.body)) {
       throw new AssistantRuntimeError(
         "invalid_response",
-        "Native runtime returned an invalid web compaction response."
+        "Internal web runtime compaction client returned an invalid response."
       );
     }
     return response.body;
@@ -101,14 +101,16 @@ export class CompactNativeWebChatSessionService {
       if (error instanceof Error && error.name === "AbortError") {
         throw new AssistantRuntimeError(
           "timeout",
-          `Native runtime web compaction timed out after ${timeoutMs}ms.`
+          `Internal web runtime compaction client timed out after ${timeoutMs}ms.`
         );
       }
       const message =
-        error instanceof Error ? error.message : "Unknown native runtime web compaction failure.";
+        error instanceof Error
+          ? error.message
+          : "Unknown internal web runtime compaction client failure.";
       throw new AssistantRuntimeError(
         "runtime_unreachable",
-        `Native runtime web compaction failed: ${message}`
+        `Internal web runtime compaction client failed: ${message}`
       );
     } finally {
       clearTimeout(timeoutId);
@@ -118,7 +120,7 @@ export class CompactNativeWebChatSessionService {
   private throwForFailedResponse(response: JsonResponse): never {
     const message =
       this.extractErrorMessage(response.body) ??
-      `Native runtime web compaction failed with HTTP ${response.status}.`;
+      `Internal web runtime compaction client failed with HTTP ${response.status}.`;
 
     if (response.status === 409) {
       throw new AssistantRuntimeError("compaction_unavailable", message);

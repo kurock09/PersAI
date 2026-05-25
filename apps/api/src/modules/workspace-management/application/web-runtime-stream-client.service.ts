@@ -32,7 +32,7 @@ import type { RuntimeTier } from "./runtime-assignment";
 const HIDDEN_RUNTIME_TOOL_NAMES = new Set<string>();
 const DEGRADED_TOOL_OUTPUT_MESSAGE = "Tool completed, but follow-up text was interrupted.";
 
-export interface StreamNativeWebChatTurnInput {
+export interface WebRuntimeStreamClientInput {
   requestId?: string;
   assistantId: string;
   publishedVersionId: string;
@@ -63,14 +63,14 @@ interface JsonResponse {
 }
 
 @Injectable()
-export class StreamNativeWebChatTurnService {
+export class WebRuntimeStreamClientService {
   constructor(
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository
   ) {}
 
   async *execute(
-    input: StreamNativeWebChatTurnInput,
+    input: WebRuntimeStreamClientInput,
     options?: { signal?: AbortSignal; traceEnabled?: boolean }
   ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk> {
     const config = loadApiConfig(process.env);
@@ -78,7 +78,7 @@ export class StreamNativeWebChatTurnService {
     if (!baseUrl) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime web stream is enabled but PERSAI_RUNTIME_BASE_URL is not configured."
+        "Web runtime stream client requires PERSAI_RUNTIME_BASE_URL."
       );
     }
 
@@ -89,13 +89,13 @@ export class StreamNativeWebChatTurnService {
     if (materializedSpec === null) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime materialized spec is missing for the current published version."
+        "Web runtime materialized spec is missing for the current published version."
       );
     }
     if (materializedSpec.assistantId !== input.assistantId) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime materialized spec assistant identity does not match the prepared turn."
+        "Web runtime materialized spec assistant identity does not match the prepared turn."
       );
     }
 
@@ -103,7 +103,7 @@ export class StreamNativeWebChatTurnService {
     if (!bundleHash) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime bundle hash is missing for the current published version."
+        "Web runtime bundle hash is missing for the current published version."
       );
     }
 
@@ -172,7 +172,7 @@ export class StreamNativeWebChatTurnService {
       if (response.body === null) {
         throw new AssistantRuntimeError(
           "invalid_response",
-          "Native runtime returned an empty stream response body."
+          "Web runtime returned an empty stream response body."
         );
       }
 
@@ -386,7 +386,7 @@ export class StreamNativeWebChatTurnService {
       }
       throw new AssistantRuntimeError(
         "invalid_response",
-        "Native runtime stream completed without a terminal done event."
+        "Web runtime stream completed without a terminal done event."
       );
     } catch (error) {
       if (this.isAbortError(error) && options?.signal?.aborted) {
@@ -395,7 +395,7 @@ export class StreamNativeWebChatTurnService {
       if (this.isAbortError(error)) {
         throw new AssistantRuntimeError(
           "timeout",
-          `Native runtime stream timed out after ${config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS}ms.`
+          `Web runtime stream timed out after ${config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS}ms.`
         );
       }
       if (error instanceof AssistantRuntimeError) {
@@ -431,10 +431,10 @@ export class StreamNativeWebChatTurnService {
         throw error;
       }
       const message =
-        error instanceof Error ? error.message : "Unknown native runtime stream failure.";
+        error instanceof Error ? error.message : "Unknown web runtime stream failure.";
       throw new AssistantRuntimeError(
         "runtime_unreachable",
-        `Native runtime stream failed: ${message}`
+        `Web runtime stream failed: ${message}`
       );
     }
   }
@@ -492,7 +492,7 @@ export class StreamNativeWebChatTurnService {
     } catch {
       throw new AssistantRuntimeError(
         "invalid_response",
-        "Native runtime returned malformed NDJSON stream output."
+        "Web runtime returned malformed NDJSON stream output."
       );
     }
 
@@ -618,7 +618,7 @@ export class StreamNativeWebChatTurnService {
 
     throw new AssistantRuntimeError(
       "invalid_response",
-      "Native runtime returned an invalid text stream event."
+      "Web runtime returned an invalid text stream event."
     );
   }
 
@@ -657,8 +657,8 @@ export class StreamNativeWebChatTurnService {
     return new AssistantRuntimeError(
       "runtime_degraded",
       event.assistantText.trim().length > 0
-        ? "Native runtime stream interrupted before completion."
-        : "Native runtime stream interrupted without assistant output."
+        ? "Web runtime stream interrupted before completion."
+        : "Web runtime stream interrupted without assistant output."
     );
   }
 
@@ -670,7 +670,7 @@ export class StreamNativeWebChatTurnService {
   private throwForFailedResponse(response: JsonResponse): never {
     const message =
       this.extractErrorMessage(response.body) ??
-      `Native runtime stream failed with HTTP ${response.status}.`;
+      `Web runtime stream failed with HTTP ${response.status}.`;
 
     if (response.status === 400 || response.status === 413) {
       throw createAssistantInboundValidationError("native_runtime_request_invalid", message);

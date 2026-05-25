@@ -14,6 +14,7 @@ import {
   type PersaiRuntimeImageGenerateProviderId,
   type PersaiRuntimeImageGenerateSize,
   type ProviderGatewayToolCall,
+  type ProviderGatewayImageGenerateResult,
   type RuntimeImageGenerateRequest,
   type RuntimeImageGenerateToolResult,
   type RuntimeOutputArtifact,
@@ -21,8 +22,15 @@ import {
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
-import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import {
+  ProviderGatewayClientService,
+  ProviderGatewaySafetyRejectedError
+} from "./provider-gateway.client.service";
 import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
+import {
+  buildImageSafetyRetryFailureWarning,
+  rewritePromptAfterProviderSafetyReject
+} from "./image-provider-safety-rewrite";
 import { selectMediaModelForRequest } from "./media-model-routing";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
@@ -291,23 +299,100 @@ export class RuntimeImageGenerateToolService {
       }
 
       const timeoutMs = this.resolveWorkerTimeoutMs(params.bundle);
-      const providerResult = await this.providerGatewayClientService.generateImage(
-        {
-          prompt: request.prompt,
-          model: modelSelection.model,
-          count: request.count,
-          size: request.size,
-          background: request.background,
-          credential: {
-            toolCode: IMAGE_GENERATE_TOOL_CODE,
-            secretId: modelSelection.credential.secretRef.id,
-            providerId
-          }
-        },
-        {
-          timeoutMs
+      const baseProviderRequest = {
+        model: modelSelection.model,
+        count: request.count,
+        size: request.size,
+        background: request.background,
+        credential: {
+          toolCode: IMAGE_GENERATE_TOOL_CODE,
+          secretId: modelSelection.credential.secretRef.id,
+          providerId
         }
-      );
+      } as const;
+      let effectivePrompt = request.prompt;
+      let safetyRetryWarning: string | null = null;
+      let providerResult: ProviderGatewayImageGenerateResult;
+      try {
+        providerResult = await this.providerGatewayClientService.generateImage(
+          {
+            ...baseProviderRequest,
+            prompt: effectivePrompt
+          },
+          {
+            timeoutMs
+          }
+        );
+      } catch (error) {
+        if (!(error instanceof ProviderGatewaySafetyRejectedError)) {
+          throw error;
+        }
+        const rewriteOutcome = await rewritePromptAfterProviderSafetyReject({
+          bundle: params.bundle,
+          providerGatewayClientService: this.providerGatewayClientService,
+          requestId: params.requestId,
+          toolCode: IMAGE_GENERATE_TOOL_CODE,
+          originalPrompt: request.prompt,
+          failure: error
+        });
+        if (!rewriteOutcome.ok) {
+          return {
+            payload: {
+              toolCode: IMAGE_GENERATE_TOOL_CODE,
+              executionMode: "worker",
+              provider: providerId,
+              model: modelSelection.model,
+              prompt: request.prompt,
+              revisedPrompt: null,
+              requestedCount: request.count,
+              size: request.size,
+              artifacts: [],
+              usage: null,
+              action: "skipped",
+              reason: "image_provider_safety_rejected",
+              warning: rewriteOutcome.failureWarning
+            },
+            artifacts: [],
+            isError: true
+          };
+        }
+        effectivePrompt = rewriteOutcome.rewrittenPrompt;
+        safetyRetryWarning = rewriteOutcome.retryWarning;
+        try {
+          providerResult = await this.providerGatewayClientService.generateImage(
+            {
+              ...baseProviderRequest,
+              prompt: effectivePrompt
+            },
+            {
+              timeoutMs
+            }
+          );
+        } catch (retryError) {
+          return {
+            payload: {
+              toolCode: IMAGE_GENERATE_TOOL_CODE,
+              executionMode: "worker",
+              provider: providerId,
+              model: modelSelection.model,
+              prompt: request.prompt,
+              revisedPrompt: effectivePrompt,
+              requestedCount: request.count,
+              size: request.size,
+              artifacts: [],
+              usage: null,
+              action: "skipped",
+              reason: "image_provider_safety_rejected",
+              warning: buildImageSafetyRetryFailureWarning({
+                originalFailure: error,
+                retryError
+              })
+            },
+            artifacts: [],
+            isError: true
+          };
+        }
+      }
       const artifacts = await Promise.all(
         providerResult.images.map((image, index) =>
           this.persistGeneratedArtifact({
@@ -316,7 +401,7 @@ export class RuntimeImageGenerateToolService {
             sessionId: params.sessionId,
             requestId: params.requestId,
             filenameHint: request.filename,
-            requestPrompt: request.prompt,
+            requestPrompt: effectivePrompt,
             image,
             index,
             billingFacts: providerResult.billingFacts
@@ -357,10 +442,11 @@ export class RuntimeImageGenerateToolService {
       }
 
       const revisedPrompt =
-        providerResult.images.find((image) => image.revisedPrompt !== null)?.revisedPrompt ?? null;
+        providerResult.images.find((image) => image.revisedPrompt !== null)?.revisedPrompt ??
+        (safetyRetryWarning === null ? null : effectivePrompt);
       const warning =
         providerResult.images.length === request.count
-          ? this.mergeWarnings(modelSelection.warning, providerResult.warning)
+          ? this.mergeWarnings(modelSelection.warning, safetyRetryWarning, providerResult.warning)
           : `Requested ${String(request.count)} image(s), received ${String(providerResult.images.length)}.`;
       return {
         payload: {

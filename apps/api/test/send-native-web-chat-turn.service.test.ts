@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import { AssistantRuntimeError } from "../src/modules/workspace-management/application/assistant-runtime.facade";
-import { SendNativeWebChatTurnService } from "../src/modules/workspace-management/application/send-native-web-chat-turn.service";
+import { WebRuntimeTurnClientService } from "../src/modules/workspace-management/application/web-runtime-turn-client.service";
 import type { AssistantMaterializedSpecRepository } from "../src/modules/workspace-management/domain/assistant-materialized-spec.repository";
 
 const ORIGINAL_ENV = process.env;
@@ -23,8 +23,8 @@ afterEach(() => {
   process.env = ORIGINAL_ENV;
 });
 
-describe("SendNativeWebChatTurnService", () => {
-  test("builds a native runtime sync turn request and maps the result", async () => {
+describe("WebRuntimeTurnClientService", () => {
+  test("builds a web runtime sync turn request and maps the result", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
     let capturedUrl = "";
@@ -79,7 +79,7 @@ describe("SendNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new SendNativeWebChatTurnService({
+      const service = new WebRuntimeTurnClientService({
         findByPublishedVersionId: async () => ({
           id: "spec-1",
           assistantId: "assistant-1",
@@ -181,7 +181,7 @@ describe("SendNativeWebChatTurnService", () => {
     }
   });
 
-  test("includes chatMode on native runtime sync and skill-routing-check bodies", async () => {
+  test("includes chatMode on web runtime sync and skill-routing-check bodies", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
     const capturedBodies: Array<Record<string, unknown>> = [];
@@ -213,7 +213,7 @@ describe("SendNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new SendNativeWebChatTurnService({
+      const service = new WebRuntimeTurnClientService({
         findByPublishedVersionId: async () => ({
           id: "spec-1",
           assistantId: "assistant-1",
@@ -260,7 +260,7 @@ describe("SendNativeWebChatTurnService", () => {
     }
   });
 
-  test("surfaces native runtime conflicts as inbound conflicts", async () => {
+  test("surfaces web runtime conflicts as inbound conflicts", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
 
@@ -281,7 +281,7 @@ describe("SendNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new SendNativeWebChatTurnService({
+      const service = new WebRuntimeTurnClientService({
         findByPublishedVersionId: async () => ({
           id: "spec-1",
           assistantId: "assistant-1",
@@ -326,7 +326,7 @@ describe("SendNativeWebChatTurnService", () => {
     }
   });
 
-  test("maps oversized native runtime payload responses to input validation", async () => {
+  test("maps oversized web runtime payload responses to input validation", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
 
@@ -347,7 +347,7 @@ describe("SendNativeWebChatTurnService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new SendNativeWebChatTurnService({
+      const service = new WebRuntimeTurnClientService({
         findByPublishedVersionId: async () => ({
           id: "spec-1",
           assistantId: "assistant-1",
@@ -398,9 +398,9 @@ describe("SendNativeWebChatTurnService", () => {
     }
   });
 
-  test("fails clearly when the runtime base url is missing while native mode is enabled", async () => {
+  test("fails clearly when the runtime base url is missing while the web runtime client is enabled", async () => {
     setApiEnv({ PERSAI_RUNTIME_BASE_URL: "" });
-    const service = new SendNativeWebChatTurnService({
+    const service = new WebRuntimeTurnClientService({
       findByPublishedVersionId: async () => {
         throw new Error("repository should not be called");
       }

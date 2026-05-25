@@ -11,6 +11,7 @@ import {
   type PersaiRuntimeImageBackground,
   type PersaiRuntimeImageEditProviderId,
   type PersaiRuntimeImageGenerateSize,
+  type ProviderGatewayImageEditResult,
   type ProviderGatewayToolCall,
   type RuntimeAttachmentRef,
   type RuntimeImageEditRequest,
@@ -20,8 +21,15 @@ import {
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
-import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import {
+  ProviderGatewayClientService,
+  ProviderGatewaySafetyRejectedError
+} from "./provider-gateway.client.service";
 import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
+import {
+  buildImageSafetyRetryFailureWarning,
+  rewritePromptAfterProviderSafetyReject
+} from "./image-provider-safety-rewrite";
 import { selectMediaModelForRequest } from "./media-model-routing";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
@@ -415,24 +423,107 @@ export class RuntimeImageEditToolService {
       }
 
       const timeoutMs = this.resolveWorkerTimeoutMs(params.bundle);
-      const providerResult = await this.providerGatewayClientService.editImage(
-        {
-          prompt: request.prompt,
-          model: modelSelection.model,
-          size: request.size,
-          background: request.background,
-          sourceImage: selection.sourceImage,
-          referenceImage: selection.referenceImage,
-          credential: {
-            toolCode: IMAGE_EDIT_TOOL_CODE,
-            secretId: modelSelection.credential.secretRef.id,
-            providerId
-          }
-        },
-        {
-          timeoutMs
+      const baseProviderRequest = {
+        model: modelSelection.model,
+        size: request.size,
+        background: request.background,
+        sourceImage: selection.sourceImage,
+        referenceImage: selection.referenceImage,
+        credential: {
+          toolCode: IMAGE_EDIT_TOOL_CODE,
+          secretId: modelSelection.credential.secretRef.id,
+          providerId
         }
-      );
+      } as const;
+      let effectivePrompt = request.prompt;
+      let safetyRetryWarning: string | null = null;
+      let providerResult: ProviderGatewayImageEditResult;
+      try {
+        providerResult = await this.providerGatewayClientService.editImage(
+          {
+            ...baseProviderRequest,
+            prompt: effectivePrompt
+          },
+          {
+            timeoutMs
+          }
+        );
+      } catch (error) {
+        if (!(error instanceof ProviderGatewaySafetyRejectedError)) {
+          throw error;
+        }
+        const rewriteOutcome = await rewritePromptAfterProviderSafetyReject({
+          bundle: params.bundle,
+          providerGatewayClientService: this.providerGatewayClientService,
+          requestId: params.requestId,
+          toolCode: IMAGE_EDIT_TOOL_CODE,
+          originalPrompt: request.prompt,
+          failure: error
+        });
+        if (!rewriteOutcome.ok) {
+          return {
+            payload: {
+              toolCode: IMAGE_EDIT_TOOL_CODE,
+              executionMode: "worker",
+              provider: providerId,
+              model: modelSelection.model,
+              prompt: request.prompt,
+              revisedPrompt: null,
+              sourceImageAlias: selection.sourceImageAlias,
+              referenceImageAlias: selection.referenceImageAlias,
+              sourceFilename: selection.sourceFilename,
+              referenceFilename: selection.referenceFilename,
+              size: request.size,
+              artifacts: [],
+              usage: null,
+              action: "skipped",
+              reason: "image_provider_safety_rejected",
+              warning: rewriteOutcome.failureWarning
+            },
+            artifacts: [],
+            isError: true
+          };
+        }
+        effectivePrompt = rewriteOutcome.rewrittenPrompt;
+        safetyRetryWarning = rewriteOutcome.retryWarning;
+        try {
+          providerResult = await this.providerGatewayClientService.editImage(
+            {
+              ...baseProviderRequest,
+              prompt: effectivePrompt
+            },
+            {
+              timeoutMs
+            }
+          );
+        } catch (retryError) {
+          return {
+            payload: {
+              toolCode: IMAGE_EDIT_TOOL_CODE,
+              executionMode: "worker",
+              provider: providerId,
+              model: modelSelection.model,
+              prompt: request.prompt,
+              revisedPrompt: effectivePrompt,
+              sourceImageAlias: selection.sourceImageAlias,
+              referenceImageAlias: selection.referenceImageAlias,
+              sourceFilename: selection.sourceFilename,
+              referenceFilename: selection.referenceFilename,
+              size: request.size,
+              artifacts: [],
+              usage: null,
+              action: "skipped",
+              reason: "image_provider_safety_rejected",
+              warning: buildImageSafetyRetryFailureWarning({
+                originalFailure: error,
+                retryError
+              })
+            },
+            artifacts: [],
+            isError: true
+          };
+        }
+      }
       this.logger.log(
         `[image-edit] requestId=${params.requestId} provider=${providerId} sourceAlias="${selection.sourceImageAlias}" referenceAlias="${selection.referenceImageAlias ?? "none"}"`
       );
@@ -444,7 +535,7 @@ export class RuntimeImageEditToolService {
             sessionId: params.sessionId,
             requestId: params.requestId,
             filenameHint: request.filename,
-            requestPrompt: request.prompt,
+            requestPrompt: effectivePrompt,
             sourceFilename: selection.sourceFilename,
             image,
             index,
@@ -481,7 +572,8 @@ export class RuntimeImageEditToolService {
       }
 
       const revisedPrompt =
-        providerResult.images.find((image) => image.revisedPrompt !== null)?.revisedPrompt ?? null;
+        providerResult.images.find((image) => image.revisedPrompt !== null)?.revisedPrompt ??
+        (safetyRetryWarning === null ? null : effectivePrompt);
       this.logger.log(
         `[image-edit] completed requestId=${params.requestId} provider=${providerId} artifacts=${String(
           artifacts.length
@@ -506,7 +598,11 @@ export class RuntimeImageEditToolService {
           usage: providerResult.usage,
           action: "generated",
           reason: null,
-          warning: this.mergeWarnings(modelSelection.warning, providerResult.warning)
+          warning: this.mergeWarnings(
+            modelSelection.warning,
+            safetyRetryWarning,
+            providerResult.warning
+          )
         },
         artifacts,
         isError: false

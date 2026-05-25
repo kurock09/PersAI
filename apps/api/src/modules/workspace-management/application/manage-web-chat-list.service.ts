@@ -17,10 +17,10 @@ import { chatModeToDeepModeEnabled, isAssistantChatMode } from "../domain/assist
 import type { Assistant } from "../domain/assistant.entity";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { AssistantRuntimeError } from "./assistant-runtime.facade";
-import { CompactNativeWebChatSessionService } from "./compact-native-web-chat-session.service";
-import { ResolveNativeWebChatSessionStateService } from "./resolve-native-web-chat-session-state.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
+import { WebRuntimeCompactionClientService } from "./web-runtime-compaction-client.service";
+import { WebRuntimeSessionStateClientService } from "./web-runtime-session-state-client.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
 import type {
@@ -106,8 +106,8 @@ export class ManageWebChatListService {
     private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly compactNativeWebChatSessionService: CompactNativeWebChatSessionService,
-    private readonly resolveNativeWebChatSessionStateService: ResolveNativeWebChatSessionStateService,
+    private readonly webRuntimeCompactionClientService: WebRuntimeCompactionClientService,
+    private readonly webRuntimeSessionStateClientService: WebRuntimeSessionStateClientService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
     private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
@@ -416,7 +416,7 @@ export class ManageWebChatListService {
       assistant.id
     );
     const [runtimeSessionState, compactionConfig] = await Promise.all([
-      this.resolveNativeWebChatSessionStateService.execute({
+      this.webRuntimeSessionStateClientService.execute({
         assistantId: assistant.id,
         runtimeTier,
         workspaceId: assistant.workspaceId,
@@ -455,7 +455,7 @@ export class ManageWebChatListService {
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
-    const result = await this.compactNativeWebChatSessionService.execute({
+    const result = await this.webRuntimeCompactionClientService.execute({
       assistantId: assistant.id,
       workspaceId: assistant.workspaceId,
       runtimeTier,

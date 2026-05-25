@@ -7076,19 +7076,26 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   }
 }
 
-// ADR-097 Slice 3 — developer-block recent-PDFs hint tests.
-// These tests exercise buildRecentChatPdfsHintSection via private-method access to keep
-// the setup minimal and focused on the hint logic itself.
+// ADR-097 follow-up — developer-block document priority tests.
+// These tests keep coverage on the surrounding section builder now that the
+// standalone RECENT PDFS YOU CAN REVISE block is intentionally removed.
 
-type HintSectionAccessor = {
-  buildRecentChatPdfsHintSection: (
-    request: RuntimeTurnRequest | undefined,
+type DeveloperSectionsAccessor = {
+  buildBaseDeveloperInstructionSections(input: {
+    request?: RuntimeTurnRequest;
     projectedTools:
       | {
           tools: Array<{ name: string }>;
         }
-      | undefined
-  ) => string | null;
+      | undefined;
+    availableWorkingFileRefs: RuntimeFileRef[];
+    deepModeEnabled: boolean;
+    routeDecision: undefined;
+    retrievedKnowledgeContext: null;
+    openLoopRefsBlock: null;
+    presenceBlock: null;
+    openMediaJobs: undefined;
+  }): Array<{ key: string; content: string }>;
 };
 
 function buildMinimalTurnExecutionService(): TurnExecutionService {
@@ -7123,10 +7130,8 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
 
 export async function runRecentPdfsHintTests(): Promise<void> {
   const service = buildMinimalTurnExecutionService();
-  const accessor = service as unknown as HintSectionAccessor;
+  const accessor = service as unknown as DeveloperSectionsAccessor;
 
-  // B.5 — developer block injects recent-PDFs hint when listRecentAssistantPdfsForTurn returns rows
-  // ADR-097 Slice 5: updated assertions for new format (fileRef:, origin:, age:)
   {
     const request: RuntimeTurnRequest = {
       requestId: "req-1",
@@ -7149,7 +7154,7 @@ export async function runRecentPdfsHintTests(): Promise<void> {
         mode: "direct"
       },
       message: {
-        text: "modify the document",
+        text: "make my document into a beautiful PDF",
         attachments: [],
         locale: "en",
         timezone: "UTC",
@@ -7159,7 +7164,7 @@ export async function runRecentPdfsHintTests(): Promise<void> {
         {
           docId: "doc-abc",
           fileRef: "abc12345-0000-4000-8000-deadbeef1234",
-          filename: "Report Q1.pdf",
+          filename: "Older Delivery.pdf",
           currentVersionId: "ver-1",
           updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
           chatRef: "current_chat",
@@ -7167,215 +7172,71 @@ export async function runRecentPdfsHintTests(): Promise<void> {
         }
       ]
     };
-    const projectedTools = { tools: [{ name: "document" }] };
-    const hint = accessor.buildRecentChatPdfsHintSection(request, projectedTools);
-    assert.ok(
-      hint !== null,
-      "hint must be non-null when document tool is present and recentChatPdfs has entries"
+    const sections = accessor.buildBaseDeveloperInstructionSections({
+      request,
+      projectedTools: { tools: [{ name: "document" }] },
+      availableWorkingFileRefs: [
+        {
+          fileRef: "file-ref-current",
+          origin: "uploaded_attachment",
+          sourceToolCode: null,
+          objectKey: "assistant-media/uploads/proposal.docx",
+          relativePath: "uploads/proposal.docx",
+          displayName: "proposal.docx",
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          sizeBytes: 512,
+          logicalSizeBytes: 512,
+          aliases: ["current attachment #1"],
+          semanticSummaryHint: "Current source document for the new PDF."
+        },
+        {
+          fileRef: "file-ref-last",
+          origin: "runtime_output",
+          sourceToolCode: "document",
+          objectKey: "assistant-media/generated/proposal.pdf",
+          relativePath: "generated/proposal.pdf",
+          displayName: "proposal.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+          logicalSizeBytes: 1024,
+          aliases: ["last generated file", "previous attachment #1"],
+          semanticSummaryHint: "Most recent delivered PDF result."
+        }
+      ],
+      deepModeEnabled: false,
+      routeDecision: undefined,
+      retrievedKnowledgeContext: null,
+      openLoopRefsBlock: null,
+      presenceBlock: null,
+      openMediaJobs: undefined
+    });
+    const workingFiles =
+      sections.find((section) => section.key === "working_files")?.content ?? null;
+    assert.ok(workingFiles, "working files section must still be present");
+    assert.match(
+      workingFiles!,
+      /Document-tool priority:/,
+      "working files must carry the document priority note"
     );
     assert.match(
-      hint!,
-      /RECENT PDFS YOU CAN REVISE/,
-      "hint must include the RECENT PDFS YOU CAN REVISE header"
+      workingFiles!,
+      /CURRENT_SOURCE/,
+      "working files must expose the current source role"
     );
-    assert.match(hint!, /Report Q1\.pdf/, "hint must include the PDF filename");
     assert.match(
-      hint!,
-      /fileRef: abc12345-0000-4000-8000-deadbeef1234/,
-      "hint must include the fileRef UUID"
+      workingFiles!,
+      /LAST_DELIVERED_RESULT/,
+      "working files must expose the last delivered result role"
     );
-    assert.match(hint!, /origin: current_chat/, "hint must include origin from chatRef");
-    assert.match(hint!, /age: 5 min ago/, "hint must include relativeAge");
-    assert.match(hint!, /revise_document/, "hint must mention revise_document");
-    assert.match(hint!, /Do NOT use aliases/, "hint must contain anti-alias warning");
     assert.doesNotMatch(
-      hint!,
-      /regex|keyword|user.*said/,
-      "hint must not contain keyword-routing language (regression guard)"
+      workingFiles!,
+      /RECENT PDFS YOU CAN REVISE/,
+      "the separate recent-pdfs revise section must not be reintroduced inside Working Files"
     );
-  }
-
-  // B.5 Slice 5 — cross-chat row renders origin: other_chat
-  {
-    const request: RuntimeTurnRequest = {
-      requestId: "req-cross",
-      idempotencyKey: "key-cross",
-      runtimeTier: "paid_shared_restricted",
-      bundle: {
-        bundleId: "bundle-1",
-        assistantId: "a-1",
-        workspaceId: "w-1",
-        publishedVersionId: "v-1",
-        bundleHash: "hash-1",
-        compiledAt: "2026-05-24T10:00:00.000Z"
-      },
-      conversation: {
-        assistantId: "a-1",
-        workspaceId: "w-1",
-        channel: "web",
-        externalThreadKey: "t-1",
-        externalUserKey: "u-1",
-        mode: "direct"
-      },
-      message: {
-        text: "revise from other chat",
-        attachments: [],
-        locale: "en",
-        timezone: "UTC",
-        receivedAt: "2026-05-24T10:00:00.000Z"
-      },
-      recentChatPdfs: [
-        {
-          docId: "doc-cross",
-          fileRef: "cross123-0000-4000-8000-deadbeef9999",
-          filename: "Cross Chat PDF.pdf",
-          currentVersionId: "ver-cross",
-          updatedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-          chatRef: "other_chat",
-          relativeAge: "3h ago"
-        }
-      ]
-    };
-    const projectedTools = { tools: [{ name: "document" }] };
-    const hint = accessor.buildRecentChatPdfsHintSection(request, projectedTools);
-    assert.ok(hint !== null, "hint must be non-null for cross-chat row");
-    assert.match(hint!, /origin: other_chat/, "cross-chat row must render origin: other_chat");
-    assert.match(hint!, /age: 3h ago/, "cross-chat row must render relativeAge");
-    assert.match(hint!, /cross123-0000-4000-8000-deadbeef9999/, "must show fileRef UUID");
-  }
-
-  // B.5 — developer block omits the hint section entirely when recentChatPdfs is empty
-  {
-    const request: RuntimeTurnRequest = {
-      requestId: "req-2",
-      idempotencyKey: "key-2",
-      runtimeTier: "paid_shared_restricted",
-      bundle: {
-        bundleId: "bundle-1",
-        assistantId: "a-1",
-        workspaceId: "w-1",
-        publishedVersionId: "v-1",
-        bundleHash: "hash-1",
-        compiledAt: "2026-05-24T10:00:00.000Z"
-      },
-      conversation: {
-        assistantId: "a-1",
-        workspaceId: "w-1",
-        channel: "web",
-        externalThreadKey: "t-1",
-        externalUserKey: "u-1",
-        mode: "direct"
-      },
-      message: {
-        text: "create a document",
-        attachments: [],
-        locale: "en",
-        timezone: "UTC",
-        receivedAt: "2026-05-24T10:00:00.000Z"
-      },
-      recentChatPdfs: []
-    };
-    const projectedTools = { tools: [{ name: "document" }] };
-    const hint = accessor.buildRecentChatPdfsHintSection(request, projectedTools);
-    assert.equal(hint, null, "hint must be null when recentChatPdfs is empty");
-  }
-
-  // B.5 — no hint when document tool is not in projected tools
-  {
-    const request: RuntimeTurnRequest = {
-      requestId: "req-3",
-      idempotencyKey: "key-3",
-      runtimeTier: "paid_shared_restricted",
-      bundle: {
-        bundleId: "bundle-1",
-        assistantId: "a-1",
-        workspaceId: "w-1",
-        publishedVersionId: "v-1",
-        bundleHash: "hash-1",
-        compiledAt: "2026-05-24T10:00:00.000Z"
-      },
-      conversation: {
-        assistantId: "a-1",
-        workspaceId: "w-1",
-        channel: "web",
-        externalThreadKey: "t-1",
-        externalUserKey: "u-1",
-        mode: "direct"
-      },
-      message: {
-        text: "hello",
-        attachments: [],
-        locale: "en",
-        timezone: "UTC",
-        receivedAt: "2026-05-24T10:00:00.000Z"
-      },
-      recentChatPdfs: [
-        {
-          docId: "doc-xyz",
-          filename: "Some PDF.pdf",
-          currentVersionId: "ver-2",
-          updatedAt: new Date().toISOString()
-        }
-      ]
-    };
-    // No document tool in scope
-    const projectedTools = { tools: [{ name: "web_search" }, { name: "memory_write" }] };
-    const hint = accessor.buildRecentChatPdfsHintSection(request, projectedTools);
-    assert.equal(hint, null, "hint must be null when document tool is not in scope");
-  }
-
-  // B.5 — no regex/keyword matching on user prompt (regression sanity check)
-  // The hint text must be purely factual (server-resolved), never dependent on user message content.
-  {
-    const request: RuntimeTurnRequest = {
-      requestId: "req-4",
-      idempotencyKey: "key-4",
-      runtimeTier: "paid_shared_restricted",
-      bundle: {
-        bundleId: "bundle-1",
-        assistantId: "a-1",
-        workspaceId: "w-1",
-        publishedVersionId: "v-1",
-        bundleHash: "hash-1",
-        compiledAt: "2026-05-24T10:00:00.000Z"
-      },
-      conversation: {
-        assistantId: "a-1",
-        workspaceId: "w-1",
-        channel: "web",
-        externalThreadKey: "t-1",
-        externalUserKey: "u-1",
-        mode: "direct"
-      },
-      message: {
-        text: "nothing related to documents at all — completely unrelated user message",
-        attachments: [],
-        locale: "en",
-        timezone: "UTC",
-        receivedAt: "2026-05-24T10:00:00.000Z"
-      },
-      recentChatPdfs: [
-        {
-          docId: "doc-factual",
-          filename: "Business Plan.pdf",
-          currentVersionId: "ver-3",
-          updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString()
-        }
-      ]
-    };
-    const projectedTools = { tools: [{ name: "document" }] };
-    const hint = accessor.buildRecentChatPdfsHintSection(request, projectedTools);
-    // Hint is based purely on recentChatPdfs (server state), not on message.text content.
-    assert.ok(hint !== null, "hint must be injected regardless of user message content");
-    // Verify the hint does not reference the user message text at all.
-    assert.ok(
-      !hint!.includes("nothing related to documents"),
-      "hint must not reference user message text"
-    );
-    assert.match(
-      hint!,
-      /Business Plan\.pdf/,
-      "hint must reference the factual server-resolved PDF name"
+    assert.equal(
+      sections.some((section) => section.key === "recent_pdfs_hint"),
+      false,
+      "base developer sections must no longer inject a separate recent_pdfs_hint section"
     );
   }
 }

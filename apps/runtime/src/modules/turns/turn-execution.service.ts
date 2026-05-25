@@ -329,8 +329,7 @@ type DeveloperInstructionSectionKey =
   | "presence"
   | "tool_follow_up"
   | "deferred_media_follow_up"
-  | "deferred_document_follow_up"
-  | "recent_pdfs_hint";
+  | "deferred_document_follow_up";
 
 type DeveloperInstructionSection = {
   key: DeveloperInstructionSectionKey;
@@ -1768,13 +1767,6 @@ export class TurnExecutionService {
       input.request !== undefined && isProjectChatMode(input.request)
         ? PROJECT_EXECUTION_DEVELOPER_CONTRACT
         : null;
-    // ADR-097 Slice 3: inject contextual hint about recent chat PDFs so the model
-    // prefers revise_document over create_pdf_document for existing documents.
-    // Only injected when the document tool is in scope and request has recent PDFs.
-    const recentPdfsHintSection = this.buildRecentChatPdfsHintSection(
-      input.request,
-      input.projectedTools
-    );
     return this.createDeveloperInstructionSections([
       { key: "project_execution_contract", content: projectExecutionSection },
       { key: "routing_hints", content: routingGuidance },
@@ -1782,42 +1774,8 @@ export class TurnExecutionService {
       { key: "working_files", content: workingFilesSection },
       { key: "retrieved_knowledge", content: retrievedKnowledgeSection },
       { key: "open_media_jobs", content: openMediaJobsSection },
-      { key: "presence", content: presenceSection },
-      { key: "recent_pdfs_hint", content: recentPdfsHintSection }
+      { key: "presence", content: presenceSection }
     ]);
-  }
-
-  private buildRecentChatPdfsHintSection(
-    request: RuntimeTurnRequest | undefined,
-    projectedTools: RuntimeNativeToolProjection | undefined
-  ): string | null {
-    if (request === undefined) return null;
-    const pdfs = request.recentChatPdfs;
-    if (!pdfs || pdfs.length === 0) return null;
-    // Only inject when the document tool is available for this turn.
-    const hasDocumentTool =
-      projectedTools?.tools.some((t) => t.name === DOCUMENT_TOOL_CODE) ?? false;
-    if (!hasDocumentTool) return null;
-
-    // ADR-097 Slice 5: updated format — make the UUID anchor explicit so the model
-    // uses fileRef instead of passing aliases like "last generated file".
-    const lines = ["RECENT PDFS YOU CAN REVISE (server-resolved, not user-typed):"];
-    for (const pdf of pdfs) {
-      const uuidAnchor = pdf.fileRef ?? pdf.docId;
-      const name = pdf.filename ?? pdf.docId;
-      const origin = pdf.chatRef ?? "current_chat";
-      const age = pdf.relativeAge ?? "unknown age";
-      lines.push(`- fileRef: ${uuidAnchor}  filename: ${name}  origin: ${origin}  age: ${age}`);
-    }
-    lines.push("");
-    lines.push(
-      'To revise one of these, call `revise_document` with `fileRef: "<exact uuid above>"`. Do NOT use aliases like "last generated file" or "recent file #N" or "previous attachment #1" or "current attachment #1" as fileRef values — those resolve elsewhere and will fail.'
-    );
-    lines.push("");
-    lines.push(
-      "When the developer-block lists fileRefs in RECENT PDFS YOU CAN REVISE, prefer revise_document with one of those fileRef UUIDs over create_pdf_document."
-    );
-    return lines.join("\n");
   }
 
   private buildRetrievedKnowledgeContextDeveloperSection(
@@ -1834,13 +1792,28 @@ export class TurnExecutionService {
       return null;
     }
 
-    // ADR-100 Piece 3 — partition into regular working files and recent
-    // discovered files (identified by a `recent file #N` alias).
-    const regularFiles = modelVisibleWorkingFiles.filter(
-      (file) => !this.isRecentDiscoveredFile(file)
+    const currentSourceFiles = modelVisibleWorkingFiles.filter((file) =>
+      this.isCurrentSourceWorkingFile(file)
     );
-    const recentFiles = modelVisibleWorkingFiles.filter((file) =>
+    const lastDeliveredResultFiles = modelVisibleWorkingFiles.filter((file) =>
+      this.isLastDeliveredDocumentResultWorkingFile(file)
+    );
+    const recentDiscoveredFiles = modelVisibleWorkingFiles.filter((file) =>
       this.isRecentDiscoveredFile(file)
+    );
+    const historyFiles = modelVisibleWorkingFiles.filter(
+      (file) =>
+        this.isHistoryDocumentWorkingFile(file) &&
+        !currentSourceFiles.some((candidate) => candidate.fileRef === file.fileRef) &&
+        !lastDeliveredResultFiles.some((candidate) => candidate.fileRef === file.fileRef) &&
+        !recentDiscoveredFiles.some((candidate) => candidate.fileRef === file.fileRef)
+    );
+    const otherFiles = modelVisibleWorkingFiles.filter(
+      (file) =>
+        !currentSourceFiles.some((candidate) => candidate.fileRef === file.fileRef) &&
+        !lastDeliveredResultFiles.some((candidate) => candidate.fileRef === file.fileRef) &&
+        !recentDiscoveredFiles.some((candidate) => candidate.fileRef === file.fileRef) &&
+        !historyFiles.some((candidate) => candidate.fileRef === file.fileRef)
     );
 
     const lines = [
@@ -1850,45 +1823,92 @@ export class TurnExecutionService {
       "Ignore low-level storage identifiers or delivery/debug text if they appear anywhere."
     ];
 
-    const semanticHintEligibleFileRefs =
-      this.selectWorkingFilesForSemanticHints(modelVisibleWorkingFiles);
-    let semanticHintsCharsUsed = 0;
-    for (const file of regularFiles) {
+    const hasDocumentRoleContext =
+      currentSourceFiles.length > 0 ||
+      lastDeliveredResultFiles.length > 0 ||
+      historyFiles.length > 0 ||
+      recentDiscoveredFiles.some((file) => this.isDocumentRelatedWorkingFile(file));
+    if (hasDocumentRoleContext) {
+      lines.push("");
+      lines.push("Document-tool priority:");
       lines.push(
-        this.formatWorkingFileDeveloperLine(
-          file,
-          semanticHintEligibleFileRefs,
-          semanticHintsCharsUsed,
-          (charsAdded) => {
-            semanticHintsCharsUsed += charsAdded;
-          }
-        )
+        "- For `document`, prefer `CURRENT_SOURCE` when the user wants a new PDF from a file attached in this turn."
+      );
+      lines.push(
+        "- Use `LAST_DELIVERED_RESULT` only when the user explicitly wants to modify an already generated PDF."
+      );
+      lines.push(
+        "- Do not let `HISTORY` or `RECENT_DISCOVERED` override a current source attachment unless the user explicitly points to the older PDF."
       );
     }
 
-    if (recentFiles.length > 0) {
-      lines.push("");
-      lines.push("### Recent Files (found via the files tool earlier in this chat)");
-      // Force each recent file to be hint-eligible so semanticSummaryHint
-      // always surfaces when present — that visibility is the purpose of
-      // this sub-section.
-      const recentEligible = new Set([
-        ...semanticHintEligibleFileRefs,
-        ...recentFiles.map((f) => f.fileRef)
-      ]);
-      for (const file of recentFiles) {
-        lines.push(
-          this.formatWorkingFileDeveloperLine(
-            file,
-            recentEligible,
-            semanticHintsCharsUsed,
-            (charsAdded) => {
-              semanticHintsCharsUsed += charsAdded;
-            }
-          )
-        );
+    const semanticHintEligibleFileRefs =
+      this.selectWorkingFilesForSemanticHints(modelVisibleWorkingFiles);
+    let semanticHintsCharsUsed = 0;
+    this.appendWorkingFileRoleSection({
+      lines,
+      title: "### CURRENT_SOURCE",
+      description:
+        "Files attached in this turn that are authoritative source material for new document creation.",
+      role: "current_source",
+      files: currentSourceFiles,
+      semanticHintEligibleFileRefs,
+      getSemanticHintsCharsUsed: () => semanticHintsCharsUsed,
+      onHintCharsAdded: (charsAdded) => {
+        semanticHintsCharsUsed += charsAdded;
       }
-    }
+    });
+    this.appendWorkingFileRoleSection({
+      lines,
+      title: "### LAST_DELIVERED_RESULT",
+      description:
+        "The most recent assistant-generated PDF result. Use it only when the user explicitly wants to modify that delivered PDF.",
+      role: "last_delivered_result",
+      files: lastDeliveredResultFiles,
+      semanticHintEligibleFileRefs,
+      getSemanticHintsCharsUsed: () => semanticHintsCharsUsed,
+      onHintCharsAdded: (charsAdded) => {
+        semanticHintsCharsUsed += charsAdded;
+      }
+    });
+    this.appendWorkingFileRoleSection({
+      lines,
+      title: "### HISTORY",
+      description:
+        "Older document-related files from chat history. They provide background context but do not outrank a current source attachment.",
+      role: "history",
+      files: historyFiles,
+      semanticHintEligibleFileRefs,
+      getSemanticHintsCharsUsed: () => semanticHintsCharsUsed,
+      onHintCharsAdded: (charsAdded) => {
+        semanticHintsCharsUsed += charsAdded;
+      }
+    });
+    this.appendWorkingFileRoleSection({
+      lines,
+      title: "### RECENT_DISCOVERED",
+      description:
+        "Recent files surfaced by earlier files-tool discovery in this chat. Treat them as optional context, not stronger than CURRENT_SOURCE.",
+      role: "recent_discovered",
+      files: recentDiscoveredFiles,
+      semanticHintEligibleFileRefs,
+      getSemanticHintsCharsUsed: () => semanticHintsCharsUsed,
+      onHintCharsAdded: (charsAdded) => {
+        semanticHintsCharsUsed += charsAdded;
+      }
+    });
+    this.appendWorkingFileRoleSection({
+      lines,
+      title: "### OTHER_FILES",
+      description: "Other reusable files available this turn.",
+      role: "other_files",
+      files: otherFiles,
+      semanticHintEligibleFileRefs,
+      getSemanticHintsCharsUsed: () => semanticHintsCharsUsed,
+      onHintCharsAdded: (charsAdded) => {
+        semanticHintsCharsUsed += charsAdded;
+      }
+    });
 
     lines.push(
       "For `files`, prefer alias first, then `path` or `query` when a reusable alias is unavailable."
@@ -1900,7 +1920,7 @@ export class TurnExecutionService {
       "Mentioning a filename in conversation text does NOT deliver the file. To actually deliver a file to the user, you MUST call `files.send` with the file's resolved alias in the same response."
     );
     lines.push(
-      "If the user asks to find, list, search, or re-check files, or refers to a file not in this list or Recent Files, do NOT answer from this block alone. Always call `files.list` first (full corpus with semantic hints), then `files.search` only as a narrower follow-up. Only after both return empty may you tell the user the file is unavailable."
+      "If the user asks to find, list, search, or re-check files, or refers to a file not in this list, do NOT answer from this block alone. Always call `files.list` first (full corpus with semantic hints), then `files.search` only as a narrower follow-up. Only after both return empty may you tell the user the file is unavailable."
     );
     return lines.join("\n");
   }
@@ -1911,6 +1931,66 @@ export class TurnExecutionService {
    */
   private isRecentDiscoveredFile(file: RuntimeFileRef): boolean {
     return (file.aliases ?? []).some((alias) => /^recent file #\d+$/i.test(alias.trim()));
+  }
+
+  private isCurrentSourceWorkingFile(file: RuntimeFileRef): boolean {
+    return (
+      this.hasWorkingFileAlias(file, /^current attachment #\d+$/i) &&
+      this.isDocumentSourceWorkingFileMime(file.mimeType)
+    );
+  }
+
+  private isLastDeliveredDocumentResultWorkingFile(file: RuntimeFileRef): boolean {
+    return (
+      this.hasWorkingFileAlias(file, /^last generated file$/i) &&
+      this.isAssistantGeneratedWorkingFile(file) &&
+      (this.isPdfWorkingFileMime(file.mimeType) || file.sourceToolCode === DOCUMENT_TOOL_CODE)
+    );
+  }
+
+  private isHistoryDocumentWorkingFile(file: RuntimeFileRef): boolean {
+    return (
+      this.isDocumentRelatedWorkingFile(file) &&
+      !this.isCurrentSourceWorkingFile(file) &&
+      !this.isLastDeliveredDocumentResultWorkingFile(file) &&
+      !this.isRecentDiscoveredFile(file)
+    );
+  }
+
+  private isDocumentRelatedWorkingFile(file: RuntimeFileRef): boolean {
+    return (
+      this.isDocumentSourceWorkingFileMime(file.mimeType) ||
+      this.isPdfWorkingFileMime(file.mimeType) ||
+      file.sourceToolCode === DOCUMENT_TOOL_CODE
+    );
+  }
+
+  private isDocumentSourceWorkingFileMime(mimeType: string): boolean {
+    const normalized = mimeType.trim().toLowerCase();
+    return (
+      normalized.startsWith("text/") ||
+      normalized === "application/pdf" ||
+      normalized === "application/x-pdf" ||
+      normalized === "application/json" ||
+      normalized === "application/x-ndjson" ||
+      normalized === "application/xml" ||
+      normalized === "application/x-yaml" ||
+      normalized === "application/yaml" ||
+      normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+  }
+
+  private isPdfWorkingFileMime(mimeType: string): boolean {
+    const normalized = mimeType.trim().toLowerCase();
+    return normalized === "application/pdf" || normalized === "application/x-pdf";
+  }
+
+  private isAssistantGeneratedWorkingFile(file: RuntimeFileRef): boolean {
+    return file.origin !== "uploaded_attachment";
+  }
+
+  private hasWorkingFileAlias(file: RuntimeFileRef, pattern: RegExp): boolean {
+    return (file.aliases ?? []).some((alias) => pattern.test(alias.trim()));
   }
 
   private buildOpenMediaJobsDeveloperSection(
@@ -3494,11 +3574,17 @@ export class TurnExecutionService {
 
   private formatWorkingFileDeveloperLine(
     file: RuntimeFileRef,
+    role:
+      | "current_source"
+      | "last_delivered_result"
+      | "history"
+      | "recent_discovered"
+      | "other_files",
     semanticHintEligibleFileRefs: Set<string>,
     semanticHintsCharsUsed: number,
     onHintCharsAdded: (charsAdded: number) => void
   ): string {
-    const aliases = file.aliases?.length ? file.aliases.join(", ") : "unaliased file";
+    const aliases = this.resolveWorkingFileDisplayAliases(file, role);
     const displayName = file.displayName ?? file.relativePath.split("/").pop() ?? "file";
     const kind = this.describeWorkingFileKind(file.mimeType);
     const hint = this.formatWorkingFileSemanticHint(
@@ -3510,6 +3596,45 @@ export class TurnExecutionService {
     return hint === null
       ? `- ${aliases}: ${kind} "${displayName}"`
       : `- ${aliases}: ${kind} "${displayName}" — ${hint}`;
+  }
+
+  private resolveWorkingFileDisplayAliases(
+    file: RuntimeFileRef,
+    role:
+      | "current_source"
+      | "last_delivered_result"
+      | "history"
+      | "recent_discovered"
+      | "other_files"
+  ): string {
+    const roleScopedAliases =
+      role === "current_source"
+        ? this.filterWorkingFileAliases(file, [
+            /^current attachment #\d+$/i,
+            /^current file #\d+$/i
+          ])
+        : role === "last_delivered_result"
+          ? this.filterWorkingFileAliases(file, [
+              /^last generated file$/i,
+              /^generated file #\d+$/i
+            ])
+          : role === "history"
+            ? this.filterWorkingFileAliases(file, [/^previous attachment #\d+$/i])
+            : role === "recent_discovered"
+              ? this.filterWorkingFileAliases(file, [/^recent file #\d+$/i])
+              : [];
+    if (roleScopedAliases.length > 0) {
+      return roleScopedAliases.join(", ");
+    }
+    const aliases = (file.aliases ?? [])
+      .map((alias) => alias.trim())
+      .filter((alias) => alias.length > 0);
+    return aliases.length > 0 ? aliases.join(", ") : "unaliased file";
+  }
+
+  private filterWorkingFileAliases(file: RuntimeFileRef, patterns: readonly RegExp[]): string[] {
+    const aliases = file.aliases ?? [];
+    return aliases.filter((alias) => patterns.some((pattern) => pattern.test(alias.trim())));
   }
 
   private formatWorkingFileSemanticHint(
@@ -3540,6 +3665,19 @@ export class TurnExecutionService {
   private selectWorkingFilesForSemanticHints(
     availableWorkingFileRefs: RuntimeFileRef[]
   ): Set<string> {
+    const forced = availableWorkingFileRefs
+      .filter(
+        (file) =>
+          this.isCurrentSourceWorkingFile(file) ||
+          this.isLastDeliveredDocumentResultWorkingFile(file) ||
+          this.isRecentDiscoveredFile(file)
+      )
+      .filter(
+        (file) =>
+          typeof file.semanticSummaryHint === "string" &&
+          file.semanticSummaryHint.replace(/\s+/g, " ").trim().length > 0
+      )
+      .map((file) => file.fileRef);
     const candidates = availableWorkingFileRefs
       .map((file, index) => ({
         fileRef: file.fileRef,
@@ -3558,9 +3696,44 @@ export class TurnExecutionService {
       }
       return left.index - right.index;
     });
-    return new Set(
-      candidates.slice(0, MAX_WORKING_FILES_SEMANTIC_HINTS).map((candidate) => candidate.fileRef)
-    );
+    return new Set([
+      ...forced,
+      ...candidates.slice(0, MAX_WORKING_FILES_SEMANTIC_HINTS).map((candidate) => candidate.fileRef)
+    ]);
+  }
+
+  private appendWorkingFileRoleSection(input: {
+    lines: string[];
+    title: string;
+    description: string;
+    role:
+      | "current_source"
+      | "last_delivered_result"
+      | "history"
+      | "recent_discovered"
+      | "other_files";
+    files: RuntimeFileRef[];
+    semanticHintEligibleFileRefs: Set<string>;
+    getSemanticHintsCharsUsed: () => number;
+    onHintCharsAdded: (charsAdded: number) => void;
+  }): void {
+    if (input.files.length === 0) {
+      return;
+    }
+    input.lines.push("");
+    input.lines.push(input.title);
+    input.lines.push(input.description);
+    for (const file of input.files) {
+      input.lines.push(
+        this.formatWorkingFileDeveloperLine(
+          file,
+          input.role,
+          input.semanticHintEligibleFileRefs,
+          input.getSemanticHintsCharsUsed(),
+          input.onHintCharsAdded
+        )
+      );
+    }
   }
 
   private isWeakWorkingFileDisplayName(displayName: string): boolean {

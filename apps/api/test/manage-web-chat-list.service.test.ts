@@ -467,7 +467,7 @@ describe("ManageWebChatListService", () => {
     assert.deepEqual(releasedBytes, [BigInt(5)]);
   });
 
-  test("routes manual web compaction through the native shared seam", async () => {
+  test("routes manual web compaction through the web runtime compaction client", async () => {
     const { service, compactInputs, sessionResolveInputs } = createService();
 
     const result = await service.compactChat("user-1", "chat-1", "keep project decisions");
@@ -509,7 +509,7 @@ describe("ManageWebChatListService", () => {
     });
   });
 
-  test("loads web compaction state through the native session resolve seam", async () => {
+  test("loads web compaction state through the web runtime session-state client", async () => {
     const { service, sessionResolveInputs } = createService({
       sessionResolveResult: {
         found: true,
@@ -656,7 +656,7 @@ describe("ManageWebChatListService", () => {
     assert.equal(state.currentTokens, 7_900);
   });
 
-  test("maps native unavailable reasons back to compaction_unavailable", async () => {
+  test("maps web runtime client unavailable reasons back to compaction_unavailable", async () => {
     const { service } = createService({
       compactResult: {
         compacted: false,

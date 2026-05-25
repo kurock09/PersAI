@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { unlinkSync, writeFileSync } from "node:fs";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayImageEditRequest,
@@ -321,9 +321,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         background: input.background,
         ...(input.size === null ? {} : { size: input.size })
       };
-      const response = (await client.images.generate(payload, {
-        signal
-      })) as OpenAIImageGenerateResponse;
+      let response: OpenAIImageGenerateResponse;
+      try {
+        response = (await client.images.generate(payload, {
+          signal
+        })) as OpenAIImageGenerateResponse;
+      } catch (error) {
+        throw this.toOpenAIImageException(error, "generate");
+      }
       const mimeType = this.resolveGeneratedImageMimeType(
         this.asObject(response)?.output_format ?? "png"
       );
@@ -412,9 +417,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         background: input.background,
         ...(input.size === null ? {} : { size: input.size })
       };
-      const response = (await client.images.edit(payload, {
-        signal
-      })) as OpenAIImageGenerateResponse;
+      let response: OpenAIImageGenerateResponse;
+      try {
+        response = (await client.images.edit(payload, {
+          signal
+        })) as OpenAIImageGenerateResponse;
+      } catch (error) {
+        throw this.toOpenAIImageException(error, "edit");
+      }
       const mimeType = this.resolveGeneratedImageMimeType(
         this.asObject(response)?.output_format ?? "png"
       );
@@ -486,6 +496,114 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       Math.max(configured, this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS),
       MAX_OPENAI_IMAGE_EDIT_TIMEOUT_MS
     );
+  }
+
+  private toOpenAIImageException(error: unknown, action: "generate" | "edit"): Error {
+    const details = this.extractOpenAIImageErrorDetails(error);
+    if (!this.isOpenAIImageSafetyReject(details)) {
+      return error instanceof Error
+        ? error
+        : new Error(`OpenAI image ${action} request failed unexpectedly.`);
+    }
+    return new BadRequestException({
+      error: {
+        code: "image_provider_safety_rejected",
+        message: this.buildOpenAIImageSafetyRejectMessage(action, details),
+        retryable: false,
+        providerStatus: {
+          provider: "openai",
+          state: "failed",
+          category: "safety_reject",
+          action,
+          requestId: details.requestId,
+          httpStatus: details.status,
+          upstreamCode: details.code,
+          upstreamType: details.type,
+          upstreamMessage: details.message,
+          safetyViolations: details.safetyViolations,
+          retryable: false
+        }
+      }
+    });
+  }
+
+  private extractOpenAIImageErrorDetails(error: unknown): {
+    status: number | null;
+    message: string | null;
+    code: string | null;
+    type: string | null;
+    requestId: string | null;
+    safetyViolations: string[] | null;
+  } {
+    const row = this.asObject(error);
+    const response = this.asObject(row?.response);
+    const body = this.asObject(row?.body);
+    const nestedError =
+      this.asObject(row?.error) ?? this.asObject(body?.error) ?? this.asObject(response?.error);
+    const requestIdCandidate =
+      row?.request_id ??
+      row?.requestId ??
+      body?.request_id ??
+      body?.requestId ??
+      response?.request_id ??
+      response?.requestId;
+    const requestId =
+      typeof requestIdCandidate === "string" && requestIdCandidate.trim().length > 0
+        ? requestIdCandidate.trim()
+        : null;
+    const messageCandidate =
+      nestedError?.message ?? row?.message ?? body?.message ?? response?.message ?? null;
+    const message =
+      typeof messageCandidate === "string" && messageCandidate.trim().length > 0
+        ? messageCandidate.trim()
+        : null;
+    const codeCandidate = nestedError?.code ?? row?.code ?? null;
+    const typeCandidate = nestedError?.type ?? row?.type ?? null;
+    const safetyViolationsCandidate =
+      nestedError?.safety_violations ?? body?.safety_violations ?? row?.safety_violations ?? null;
+    return {
+      status: this.asPositiveInteger(row?.status) ?? this.asPositiveInteger(response?.status),
+      message,
+      code:
+        typeof codeCandidate === "string" && codeCandidate.trim().length > 0 ? codeCandidate : null,
+      type:
+        typeof typeCandidate === "string" && typeCandidate.trim().length > 0 ? typeCandidate : null,
+      requestId,
+      safetyViolations: Array.isArray(safetyViolationsCandidate)
+        ? safetyViolationsCandidate.filter(
+            (entry): entry is string => typeof entry === "string" && entry.trim().length > 0
+          )
+        : null
+    };
+  }
+
+  private isOpenAIImageSafetyReject(input: {
+    status: number | null;
+    message: string | null;
+    safetyViolations: string[] | null;
+  }): boolean {
+    const haystack =
+      `${input.message ?? ""} ${(input.safetyViolations ?? []).join(" ")}`.toLowerCase();
+    return (
+      input.status === 400 &&
+      (haystack.includes("rejected by the safety system") ||
+        haystack.includes("safety system") ||
+        haystack.includes("safety_violations") ||
+        haystack.includes("safety violations"))
+    );
+  }
+
+  private buildOpenAIImageSafetyRejectMessage(
+    action: "generate" | "edit",
+    input: {
+      message: string | null;
+      requestId: string | null;
+    }
+  ): string {
+    const requestIdText = input.requestId === null ? "" : ` (request id ${input.requestId})`;
+    const upstreamMessage =
+      input.message ?? "Your request was rejected by the OpenAI safety system.";
+    return `OpenAI image ${action} request was rejected by the provider safety system${requestIdText}: ${upstreamMessage}`;
   }
 
   async generateVideo(
@@ -1247,6 +1365,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private asPositiveInteger(value: unknown): number | null {
+    return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
   }
 
   private isContextWindowExceededMessage(message: string): boolean {

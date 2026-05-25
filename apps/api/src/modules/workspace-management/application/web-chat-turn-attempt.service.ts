@@ -321,14 +321,13 @@ export class WebChatTurnAttemptService {
     respondedAt: string;
     terminalPayload: CompletedWebTurnReplayState;
   }): Promise<void> {
-    await this.prisma.assistantWebChatTurnAttempt.update({
+    const updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
       where: {
-        assistantId_userId_surfaceThreadKey_clientTurnId: {
-          assistantId: input.assistantId,
-          userId: input.userId,
-          surfaceThreadKey: input.surfaceThreadKey,
-          clientTurnId: input.clientTurnId
-        }
+        assistantId: input.assistantId,
+        userId: input.userId,
+        surfaceThreadKey: input.surfaceThreadKey,
+        clientTurnId: input.clientTurnId,
+        status: { in: ["accepted", "running"] }
       },
       data: {
         status: "completed",
@@ -341,6 +340,12 @@ export class WebChatTurnAttemptService {
         errorMessage: null
       }
     });
+    if (updated.count === 0) {
+      this.logger.log(
+        `web_turn_attempt_completed_ignored assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} reason=already_terminal`
+      );
+      return;
+    }
     this.logger.log(
       `web_turn_attempt_completed assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} assistantMessageId=${input.assistantMessageId}`
     );
@@ -493,14 +498,13 @@ export class WebChatTurnAttemptService {
     code?: string | null;
     message?: string | null;
   }): Promise<void> {
-    await this.prisma.assistantWebChatTurnAttempt.update({
+    const updated = await this.prisma.assistantWebChatTurnAttempt.updateMany({
       where: {
-        assistantId_userId_surfaceThreadKey_clientTurnId: {
-          assistantId: input.assistantId,
-          userId: input.userId,
-          surfaceThreadKey: input.surfaceThreadKey,
-          clientTurnId: input.clientTurnId
-        }
+        assistantId: input.assistantId,
+        userId: input.userId,
+        surfaceThreadKey: input.surfaceThreadKey,
+        clientTurnId: input.clientTurnId,
+        status: { in: ["accepted", "running"] }
       },
       data: {
         status: input.status,
@@ -513,6 +517,11 @@ export class WebChatTurnAttemptService {
         ...(input.status === "failed" ? { failedAt: new Date() } : { interruptedAt: new Date() })
       }
     });
+    if (updated.count === 0) {
+      this.logger.log(
+        `web_turn_attempt_terminal_write_ignored assistantId=${input.assistantId} threadKey=${input.surfaceThreadKey} clientTurnId=${input.clientTurnId} status=${input.status} reason=already_terminal`
+      );
+    }
   }
 
   private async buildStatus(attemptId: string): Promise<WebChatTurnStatusState> {

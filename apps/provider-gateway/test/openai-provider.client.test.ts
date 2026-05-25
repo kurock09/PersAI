@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { BadRequestException } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayImageEditRequest,
@@ -1162,4 +1163,74 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   } finally {
     globalThis.fetch = originalFetch;
   }
+
+  const safetyClient = new OpenAIProviderClient(createConfig());
+  (
+    safetyClient as unknown as {
+      getApiClient(apiKey?: string): {
+        images: {
+          generate(payload: unknown): Promise<unknown>;
+          edit(payload: unknown): Promise<unknown>;
+        };
+      };
+    }
+  ).getApiClient = () => ({
+    images: {
+      generate: async () => {
+        const error = new Error("Your request was rejected by the safety system.");
+        Object.assign(error, {
+          status: 400,
+          request_id: "req_generate_safety",
+          error: {
+            code: "content_policy_violation",
+            type: "invalid_request_error",
+            message: "Your request was rejected by the safety system.",
+            safety_violations: ["abuse"]
+          }
+        });
+        throw error;
+      },
+      edit: async () => {
+        const error = new Error("Your request was rejected by the safety system.");
+        Object.assign(error, {
+          status: 400,
+          request_id: "req_edit_safety",
+          error: {
+            code: "content_policy_violation",
+            type: "invalid_request_error",
+            message: "Your request was rejected by the safety system."
+          }
+        });
+        throw error;
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => safetyClient.generateImage(createImageGenerateRequest()),
+    (error) => {
+      assert.ok(error instanceof BadRequestException);
+      const response = (error as BadRequestException).getResponse() as {
+        error?: { code?: string; message?: string; providerStatus?: Record<string, unknown> };
+      };
+      assert.equal(response.error?.code, "image_provider_safety_rejected");
+      assert.match(response.error?.message ?? "", /req_generate_safety/);
+      assert.equal(response.error?.providerStatus?.requestId, "req_generate_safety");
+      return true;
+    }
+  );
+
+  await assert.rejects(
+    () => safetyClient.editImage(createImageEditRequest({ includeReference: false })),
+    (error) => {
+      assert.ok(error instanceof BadRequestException);
+      const response = (error as BadRequestException).getResponse() as {
+        error?: { code?: string; message?: string; providerStatus?: Record<string, unknown> };
+      };
+      assert.equal(response.error?.code, "image_provider_safety_rejected");
+      assert.match(response.error?.message ?? "", /req_edit_safety/);
+      assert.equal(response.error?.providerStatus?.requestId, "req_edit_safety");
+      return true;
+    }
+  );
 }

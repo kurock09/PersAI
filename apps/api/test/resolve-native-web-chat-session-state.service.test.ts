@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import { AssistantRuntimeError } from "../src/modules/workspace-management/application/assistant-runtime.facade";
-import { ResolveNativeWebChatSessionStateService } from "../src/modules/workspace-management/application/resolve-native-web-chat-session-state.service";
+import { WebRuntimeSessionStateClientService } from "../src/modules/workspace-management/application/web-runtime-session-state-client.service";
 
 const ORIGINAL_ENV = process.env;
 
@@ -22,8 +22,8 @@ afterEach(() => {
   process.env = ORIGINAL_ENV;
 });
 
-describe("ResolveNativeWebChatSessionStateService", () => {
-  test("posts the native session resolve request and returns the runtime result", async () => {
+describe("WebRuntimeSessionStateClientService", () => {
+  test("posts the web runtime session-state request and returns the runtime result", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;
     let capturedUrl = "";
@@ -67,7 +67,7 @@ describe("ResolveNativeWebChatSessionStateService", () => {
     }) as typeof fetch;
 
     try {
-      const service = new ResolveNativeWebChatSessionStateService();
+      const service = new WebRuntimeSessionStateClientService();
       const result = await service.execute({
         assistantId: "assistant-1",
         workspaceId: "workspace-1",
@@ -95,9 +95,9 @@ describe("ResolveNativeWebChatSessionStateService", () => {
     }
   });
 
-  test("fails clearly when the native runtime base url is missing", async () => {
+  test("fails clearly when the web runtime base url is missing", async () => {
     setApiEnv({ PERSAI_RUNTIME_BASE_URL: "" });
-    const service = new ResolveNativeWebChatSessionStateService();
+    const service = new WebRuntimeSessionStateClientService();
 
     await assert.rejects(
       () =>

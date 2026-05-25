@@ -7,7 +7,7 @@ import type {
 import { AssistantRuntimeError } from "./assistant-runtime.facade";
 import type { RuntimeTier } from "./runtime-assignment";
 
-export interface ResolveNativeWebChatSessionStateInput {
+export interface WebRuntimeSessionStateClientInput {
   assistantId: string;
   workspaceId: string;
   runtimeTier: RuntimeTier;
@@ -22,16 +22,14 @@ interface JsonResponse {
 }
 
 @Injectable()
-export class ResolveNativeWebChatSessionStateService {
-  async execute(
-    input: ResolveNativeWebChatSessionStateInput
-  ): Promise<RuntimeSessionResolveResult> {
+export class WebRuntimeSessionStateClientService {
+  async execute(input: WebRuntimeSessionStateClientInput): Promise<RuntimeSessionResolveResult> {
     const config = loadApiConfig(process.env);
     const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
     if (!baseUrl) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime web session-state reads require PERSAI_RUNTIME_BASE_URL."
+        "Internal web runtime session-state client requires PERSAI_RUNTIME_BASE_URL."
       );
     }
 
@@ -58,7 +56,7 @@ export class ResolveNativeWebChatSessionStateService {
     if (!this.isRuntimeSessionResolveResult(response.body)) {
       throw new AssistantRuntimeError(
         "invalid_response",
-        "Native runtime returned an invalid web session-state response."
+        "Internal web runtime session-state client returned an invalid response."
       );
     }
     return response.body;
@@ -96,16 +94,16 @@ export class ResolveNativeWebChatSessionStateService {
       if (error instanceof Error && error.name === "AbortError") {
         throw new AssistantRuntimeError(
           "timeout",
-          `Native runtime web session-state read timed out after ${timeoutMs}ms.`
+          `Internal web runtime session-state client timed out after ${timeoutMs}ms.`
         );
       }
       const message =
         error instanceof Error
           ? error.message
-          : "Unknown native runtime web session-state read failure.";
+          : "Unknown internal web runtime session-state client failure.";
       throw new AssistantRuntimeError(
         "runtime_unreachable",
-        `Native runtime web session-state read failed: ${message}`
+        `Internal web runtime session-state client failed: ${message}`
       );
     } finally {
       clearTimeout(timeoutId);
@@ -115,7 +113,7 @@ export class ResolveNativeWebChatSessionStateService {
   private throwForFailedResponse(response: JsonResponse): never {
     const message =
       this.extractErrorMessage(response.body) ??
-      `Native runtime web session-state read failed with HTTP ${response.status}.`;
+      `Internal web runtime session-state client failed with HTTP ${response.status}.`;
 
     if (response.status === 401 || response.status === 403) {
       throw new AssistantRuntimeError("auth_failure", message);

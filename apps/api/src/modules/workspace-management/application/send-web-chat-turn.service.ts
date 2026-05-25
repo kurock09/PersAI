@@ -19,7 +19,6 @@ import {
   type CompletedWebTurnReplayState
 } from "../domain/assistant-channel-surface-binding.repository";
 import { type AssistantRuntimeWebChatTurnResult } from "./assistant-runtime.facade";
-import { WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT } from "../domain/memory-source-policy";
 import { RecordWebChatMemoryTurnService } from "./record-web-chat-memory-turn.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { AssistantWebChatTurnState } from "./web-chat.types";
@@ -35,11 +34,15 @@ import { toRuntimeAttachmentRef, type MediaArtifact } from "./media/media.types"
 import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
-import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
 import {
-  SendNativeWebChatTurnService,
-  type SendNativeWebChatTurnInput
-} from "./send-native-web-chat-turn.service";
+  completeWebTurnReplay,
+  finalizePersistedWebTurn,
+  persistWebTurnSkillStateAndQueueBackgroundCheck
+} from "./complete-web-post-runtime-turn";
+import {
+  WebRuntimeTurnClientService,
+  type WebRuntimeTurnClientInput
+} from "./web-runtime-turn-client.service";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
@@ -50,6 +53,7 @@ import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import { BackgroundCompactionQueueService } from "./background-compaction-queue.service";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
+import { persistAssistantMessage } from "./persist-assistant-message";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 
@@ -149,14 +153,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function parseWebThreadProviderMessageId(providerRef: string | null): string | null {
-  if (typeof providerRef !== "string") {
-    return null;
-  }
-  const match = providerRef.match(/^web_thread:[^:]+:(.+)$/);
-  return match?.[1] ?? null;
-}
-
 function resolveWelcomeUserMessage(
   welcomeFirstTurnPrompt: string | null,
   welcomeLocale?: string
@@ -175,7 +171,7 @@ export class SendWebChatTurnService {
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
-    private readonly sendNativeWebChatTurnService: SendNativeWebChatTurnService,
+    private readonly webRuntimeTurnClientService: WebRuntimeTurnClientService,
     private readonly prepareAssistantInboundTurnService: PrepareAssistantInboundTurnService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
@@ -343,7 +339,7 @@ export class SendWebChatTurnService {
           workspaceId: prepared.workspaceId,
           currentChatId: prepared.chat.id
         });
-      const nativeTurnInput = this.buildNativeSyncTurnInput({
+      const webRuntimeTurnInput = this.buildWebRuntimeTurnInput({
         assistantId: prepared.assistantId,
         publishedVersionId: prepared.publishedVersionId,
         runtimeTier: prepared.runtimeTier,
@@ -397,7 +393,7 @@ export class SendWebChatTurnService {
 
       let runtimeResponse: AssistantRuntimeWebChatTurnResult;
       try {
-        runtimeResponse = await this.sendNativeWebChatTurnService.execute(nativeTurnInput);
+        runtimeResponse = await this.webRuntimeTurnClientService.execute(webRuntimeTurnInput);
       } catch (error: unknown) {
         if (
           await this.shouldRetryAfterCompactionWait(
@@ -407,7 +403,7 @@ export class SendWebChatTurnService {
           )
         ) {
           try {
-            runtimeResponse = await this.sendNativeWebChatTurnService.execute(nativeTurnInput);
+            runtimeResponse = await this.webRuntimeTurnClientService.execute(webRuntimeTurnInput);
           } catch (retryError: unknown) {
             throw toAssistantInboundHttpException(retryError);
           }
@@ -421,168 +417,73 @@ export class SendWebChatTurnService {
       trace.stage("runtime_done");
       pendingMediaForReconciliation = runtimeResponse.media;
 
-      const assistantMessage = await this.assistantChatRepository.createMessage({
+      const assistantMessage = await persistAssistantMessage({
+        chatRepository: this.assistantChatRepository,
+        assistantMediaJobService: this.assistantMediaJobService,
         chatId: prepared.chat.id,
         assistantId: prepared.assistantId,
-        author: "assistant",
         content: runtimeResponse.assistantMessage,
-        ...(runtimeResponse.discoveredFileRefIds !== undefined &&
-        runtimeResponse.discoveredFileRefIds.length > 0
-          ? { metadata: { discoveredFileRefIds: runtimeResponse.discoveredFileRefIds } }
-          : {})
+        discoveredFileRefIds: runtimeResponse.discoveredFileRefIds,
+        deferredMediaJobCount: runtimeResponse.deferredMediaJobs?.length,
+        sourceUserMessageId: prepared.userMessage.id
       });
       trace.stage("assistant_message_saved");
-      if (
-        runtimeResponse.deferredMediaJobs !== undefined &&
-        runtimeResponse.deferredMediaJobs.length > 0
-      ) {
-        await this.assistantMediaJobService.attachAcknowledgementMessageId({
-          assistantId: prepared.assistantId,
-          sourceUserMessageId: prepared.userMessage.id,
-          assistantAcknowledgementMessageId: assistantMessage.id
-        });
-      }
-      const activeMediaJobs = await this.assistantMediaJobService.listOpenJobsForWebChat({
+      const postRuntime = await finalizePersistedWebTurn({
+        logger: this.logger,
+        assistantChatRepository: this.assistantChatRepository,
+        attachmentRepository: this.attachmentRepository,
+        assistantMediaJobService: this.assistantMediaJobService,
+        assistantDocumentJobReadService: this.assistantDocumentJobReadService,
+        mediaDeliveryService: this.mediaDeliveryService,
+        recordWebChatMemoryTurnService: this.recordWebChatMemoryTurnService,
+        trackWorkspaceQuotaUsageService: this.trackWorkspaceQuotaUsageService,
+        notificationDeliveryWorkerService: this.notificationDeliveryWorkerService,
+        quotaAdvisoryFollowUpService: this.quotaAdvisoryFollowUpService,
+        compactionAdvisoryFollowUpService: this.compactionAdvisoryFollowUpService,
+        appendModelCostLedgerEvents: ({ assistantMessageId, respondedAt }) =>
+          this.appendModelCostLedgerEvents({
+            assistantId: prepared.assistantId,
+            workspaceId: prepared.workspaceId,
+            userId: prepared.userId,
+            assistantMessageId,
+            respondedAt,
+            traceId: trace.getTraceId(),
+            ...(runtimeResponse.usageAccounting === undefined
+              ? {}
+              : { usageAccounting: runtimeResponse.usageAccounting }),
+            ...(runtimeResponse.toolInvocations === undefined
+              ? {}
+              : { toolInvocations: runtimeResponse.toolInvocations })
+          }),
         assistantId: prepared.assistantId,
         userId: prepared.userId,
-        chatId: prepared.chat.id
-      });
-      const activeDocumentJobs = await this.assistantDocumentJobReadService.listOpenJobsForWebChat({
-        assistantId: prepared.assistantId,
-        userId: prepared.userId,
-        chatId: prepared.chat.id
-      });
-
-      const delivered = await this.mediaDeliveryService.deliver({
-        artifacts: runtimeResponse.media,
-        channel: "web",
-        assistantId: prepared.assistantId,
+        workspaceId: prepared.workspaceId,
         chatId: prepared.chat.id,
-        messageId: assistantMessage.id,
-        workspaceId: prepared.assistant.workspaceId
+        surfaceThreadKey: prepared.chat.surfaceThreadKey,
+        userMessageId: prepared.userMessage.id,
+        userContent: baseMessage,
+        assistant: prepared.assistant,
+        assistantMessage,
+        assistantText: runtimeResponse.assistantMessage,
+        mediaArtifacts: runtimeResponse.media,
+        respondedAt: runtimeResponse.respondedAt,
+        ...(runtimeResponse.usageAccounting === undefined
+          ? {}
+          : { usageAccounting: runtimeResponse.usageAccounting }),
+        traceId: trace.getTraceId(),
+        quotaSource: "web_chat_turn_sync",
+        locale: request.welcomeLocale ?? null,
+        markTraceStage: (stage) => trace.stage(stage)
       });
       mediaDeliveryCompleted = true;
-      trace.stage("media_delivered");
-      const finalAssistantContent = await this.persistFinalAssistantContentIfNeeded({
-        assistantMessage,
-        assistantId: prepared.assistantId,
-        assistantText: runtimeResponse.assistantMessage,
-        attemptedArtifactCount: runtimeResponse.media.length,
-        deliveredAttachmentCount: delivered.attachments.length,
-        deliveredAttachmentFilenames: delivered.attachments
-          .map((attachment) => attachment.originalFilename)
-          .filter((filename): filename is string => typeof filename === "string"),
-        locale: request.welcomeLocale ?? null
-      });
-
-      await this.recordWebChatMemoryTurnService.execute({
-        assistantId: prepared.assistantId,
-        userId: prepared.userId,
-        workspaceId: prepared.workspaceId,
-        chatId: prepared.chat.id,
-        userMessageId: prepared.userMessage.id,
-        assistantMessageId: assistantMessage.id,
-        userContent: baseMessage,
-        assistantContent: finalAssistantContent,
-        memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
-      });
-      trace.stage("memory_recorded");
-      await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
-        assistant: prepared.assistant,
-        userContent: baseMessage,
-        assistantContent: finalAssistantContent,
-        ...(runtimeResponse.usageAccounting === undefined
-          ? {}
-          : { usageAccounting: runtimeResponse.usageAccounting }),
-        source: "web_chat_turn_sync"
-      });
-      trace.stage("quota_recorded");
-      await this.appendModelCostLedgerEvents({
-        assistantId: prepared.assistantId,
-        workspaceId: prepared.workspaceId,
-        userId: prepared.userId,
-        assistantMessageId: assistantMessage.id,
-        respondedAt: runtimeResponse.respondedAt,
-        traceId: trace.getTraceId(),
-        ...(runtimeResponse.usageAccounting === undefined
-          ? {}
-          : { usageAccounting: runtimeResponse.usageAccounting }),
-        ...(runtimeResponse.toolInvocations === undefined
-          ? {}
-          : { toolInvocations: runtimeResponse.toolInvocations })
-      });
-      trace.stage("cost_ledger_recorded");
-      const quotaAdvisoryFollowUp =
-        (await this.quotaAdvisoryFollowUpService?.maybeCreateFollowUp({
-          assistantId: prepared.assistantId,
-          workspaceId: prepared.workspaceId,
-          userId: prepared.userId,
-          chatId: prepared.chat.id,
-          surface: "web",
-          surfaceThreadKey: prepared.chat.surfaceThreadKey,
-          mainAssistantMessage: finalAssistantContent,
-          traceId: trace.getTraceId()
-        })) ?? null;
-      const compactionAdvisoryFollowUp =
-        quotaAdvisoryFollowUp === null
-          ? ((await this.compactionAdvisoryFollowUpService?.maybeCreateFollowUp({
-              assistantId: prepared.assistantId,
-              workspaceId: prepared.workspaceId,
-              userId: prepared.userId,
-              chatId: prepared.chat.id,
-              surface: "web",
-              surfaceThreadKey: prepared.chat.surfaceThreadKey,
-              externalUserKey: prepared.userId,
-              mainAssistantMessage: finalAssistantContent,
-              traceId: trace.getTraceId()
-            })) ?? null)
-          : null;
-      let followUpAssistantMessageId: string | null = null;
-      let followUpAssistantMessage: {
-        id: string;
-        chatId: string;
-        assistantId: string;
-        author: "assistant";
-        content: string;
-        attachments: ReturnType<typeof toAttachmentState>[];
-        createdAt: string;
-      } | null = null;
-      const followUpIntent = quotaAdvisoryFollowUp ?? compactionAdvisoryFollowUp;
-      if (quotaAdvisoryFollowUp !== null) {
-        trace.stage("quota_advisory_follow_up_intent_created");
-      }
-      if (compactionAdvisoryFollowUp !== null) {
-        trace.stage("compaction_advisory_follow_up_intent_created");
-      }
-      if (followUpIntent !== null) {
-        const delivery = await this.notificationDeliveryWorkerService.deliverIntentNow(
-          followUpIntent.intentId
-        );
-        followUpAssistantMessageId = parseWebThreadProviderMessageId(delivery.providerRef);
-        if (followUpAssistantMessageId !== null) {
-          const deliveredFollowUp = await this.assistantChatRepository.findMessageByIdForAssistant(
-            followUpAssistantMessageId,
-            prepared.assistantId
-          );
-          if (deliveredFollowUp !== null) {
-            const followUpAttachments = await this.attachmentRepository.listByMessageId(
-              deliveredFollowUp.id
-            );
-            followUpAssistantMessage = {
-              id: deliveredFollowUp.id,
-              chatId: deliveredFollowUp.chatId,
-              assistantId: deliveredFollowUp.assistantId,
-              author: "assistant",
-              content: deliveredFollowUp.content,
-              attachments: followUpAttachments.map((attachment) => toAttachmentState(attachment)),
-              createdAt: deliveredFollowUp.createdAt.toISOString()
-            };
-          }
-        }
-      }
 
       if (request.clientTurnId !== undefined) {
-        const replayState = {
+        await completeWebTurnReplay({
+          bindingRepository: this.bindingRepository,
+          webChatTurnAttemptService: this.webChatTurnAttemptService,
+          assistantId: prepared.assistantId,
+          userId: prepared.userId,
+          surfaceThreadKey: prepared.chat.surfaceThreadKey,
           clientTurnId: request.clientTurnId,
           chatId: prepared.chat.id,
           userMessageId: prepared.userMessage.id,
@@ -591,66 +492,43 @@ export class SendWebChatTurnService {
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
           quotaFallbackReason: prepared.quotaDegradeReason,
           quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
-          followUpAssistantMessageId,
+          followUpAssistantMessageId: postRuntime.followUpAssistantMessageId,
           ...(runtimeResponse.turnRouting === undefined
             ? {}
             : { turnRouting: runtimeResponse.turnRouting }),
-          completedAt: new Date().toISOString()
-        };
-        if (this.webChatTurnAttemptService) {
-          await this.webChatTurnAttemptService.markCompleted({
-            assistantId: prepared.assistantId,
-            userId: prepared.userId,
-            surfaceThreadKey: prepared.chat.surfaceThreadKey,
-            clientTurnId: request.clientTurnId,
-            assistantMessageId: assistantMessage.id,
-            respondedAt: runtimeResponse.respondedAt,
-            terminalPayload: replayState
+          markTraceStage: (stage) => trace.stage(stage)
+        });
+      }
+      const persistedSkillState = await (async () => {
+        try {
+          return await persistWebTurnSkillStateAndQueueBackgroundCheck({
+            autoSkillRoutingStateService: this.autoSkillRoutingStateService,
+            chatId: prepared.chat.id,
+            userMessageId: prepared.userMessage.id,
+            currentUserMessageIndex: skillStateContext.currentUserMessageIndex,
+            turnRouting: runtimeResponse.turnRouting,
+            runBackgroundSkillCheck: (backgroundSkillStateContext) =>
+              this.webRuntimeTurnClientService.checkSkillRouting({
+                ...webRuntimeTurnInput,
+                skillStateContext: backgroundSkillStateContext
+              })
           });
+        } catch (error) {
+          this.logger.warn(
+            `[web-turn] Non-blocking skill-state persistence failed for assistant ${prepared.assistantId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+          return {
+            skillDecisionState: prepared.chat.skillDecisionState,
+            skillCadenceState: prepared.chat.skillCadenceState
+          };
         }
-        await this.bindingRepository.completeWebTurnProcessing(
-          prepared.assistantId,
-          WEB_TURN_PROVIDER_KEY,
-          WEB_TURN_SURFACE_TYPE,
-          replayState
-        );
-        trace.stage("replay_completed");
-      }
-      const persistedSkillState = await this.autoSkillRoutingStateService.persistFromTurnRouting({
-        chatId: prepared.chat.id,
-        currentUserMessageIndex: skillStateContext.currentUserMessageIndex,
-        turnRouting: runtimeResponse.turnRouting
-      });
-      const postTurnSkillStateContext = await this.autoSkillRoutingStateService.buildRuntimeContext(
-        {
-          chatId: prepared.chat.id,
-          currentUserMessageId: prepared.userMessage.id,
-          decisionState: persistedSkillState.skillDecisionState,
-          cadenceState: persistedSkillState.skillCadenceState
-        }
-      );
-      if (
-        await this.autoSkillRoutingStateService.shouldRunBackgroundCheck(postTurnSkillStateContext)
-      ) {
-        const backgroundSkillStateContext =
-          this.autoSkillRoutingStateService.createBackgroundCheckContext(postTurnSkillStateContext);
-        await this.autoSkillRoutingStateService.markBackgroundCheckQueued({
-          chatId: prepared.chat.id,
-          context: postTurnSkillStateContext
-        });
-        this.autoSkillRoutingStateService.runBackgroundCheck({
-          chatId: prepared.chat.id,
-          execute: () =>
-            this.sendNativeWebChatTurnService.checkSkillRouting({
-              ...nativeTurnInput,
-              skillStateContext: backgroundSkillStateContext
-            })
-        });
-      }
+      })();
 
       trace.finish({
         status: "completed",
-        outputPreview: finalAssistantContent
+        outputPreview: postRuntime.finalAssistantContent
       });
       return {
         chat: {
@@ -664,13 +542,15 @@ export class SendWebChatTurnService {
           chatId: assistantMessage.chatId,
           assistantId: assistantMessage.assistantId,
           author: assistantMessage.author,
-          content: finalAssistantContent,
-          attachments: delivered.attachments,
+          content: postRuntime.finalAssistantContent,
+          attachments: postRuntime.deliveredAttachments,
           createdAt: assistantMessage.createdAt.toISOString()
         },
-        ...(followUpAssistantMessage === null ? {} : { followUpAssistantMessage }),
-        activeMediaJobs,
-        activeDocumentJobs,
+        ...(postRuntime.followUpAssistantMessage === null
+          ? {}
+          : { followUpAssistantMessage: postRuntime.followUpAssistantMessage }),
+        activeMediaJobs: postRuntime.activeMediaJobs,
+        activeDocumentJobs: postRuntime.activeDocumentJobs,
         runtime: {
           respondedAt: runtimeResponse.respondedAt,
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
@@ -895,46 +775,7 @@ export class SendWebChatTurnService {
     };
   }
 
-  private async persistFinalAssistantContentIfNeeded(input: {
-    assistantMessage: {
-      id: string;
-      chatId: string;
-      assistantId: string;
-      author: "assistant" | "user" | "system";
-      content: string;
-      createdAt: Date;
-    };
-    assistantId: string;
-    assistantText: string;
-    attemptedArtifactCount: number;
-    deliveredAttachmentCount: number;
-    deliveredAttachmentFilenames: string[];
-    locale: string | null;
-  }): Promise<string> {
-    const finalAssistantContent = applyFinalDeliveryHonestyCorrection({
-      assistantText: input.assistantText,
-      attemptedArtifactCount: input.attemptedArtifactCount,
-      deliveredAttachmentCount: input.deliveredAttachmentCount,
-      deliveredAttachmentFilenames: input.deliveredAttachmentFilenames,
-      locale: input.locale
-    });
-    if (finalAssistantContent === input.assistantMessage.content) {
-      return finalAssistantContent;
-    }
-    const updated = await this.assistantChatRepository.updateMessageContent(
-      input.assistantMessage.id,
-      input.assistantId,
-      finalAssistantContent
-    );
-    if (updated === null) {
-      this.logger.warn(
-        `Failed to persist final delivery-honesty correction for assistant message "${input.assistantMessage.id}".`
-      );
-    }
-    return finalAssistantContent;
-  }
-
-  private buildNativeSyncTurnInput(input: {
+  private buildWebRuntimeTurnInput(input: {
     assistantId: string;
     publishedVersionId: string;
     runtimeTier: import("./runtime-assignment").RuntimeTier;
@@ -943,18 +784,18 @@ export class SendWebChatTurnService {
     surfaceThreadKey: string;
     userMessageId: string;
     userMessage: string;
-    attachments: SendNativeWebChatTurnInput["attachments"];
-    openMediaJobs?: SendNativeWebChatTurnInput["openMediaJobs"];
+    attachments: WebRuntimeTurnClientInput["attachments"];
+    openMediaJobs?: WebRuntimeTurnClientInput["openMediaJobs"];
     userTimezone: string;
     currentTimeIso: string;
-    skillStateContext?: SendNativeWebChatTurnInput["skillStateContext"];
-    chatMode?: SendNativeWebChatTurnInput["chatMode"];
-    deepMode?: SendNativeWebChatTurnInput["deepMode"];
-    modelRoleOverride?: SendNativeWebChatTurnInput["modelRoleOverride"];
+    skillStateContext?: WebRuntimeTurnClientInput["skillStateContext"];
+    chatMode?: WebRuntimeTurnClientInput["chatMode"];
+    deepMode?: WebRuntimeTurnClientInput["deepMode"];
+    modelRoleOverride?: WebRuntimeTurnClientInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic";
     modelOverride?: string;
-    recentChatPdfs?: SendNativeWebChatTurnInput["recentChatPdfs"];
-  }): SendNativeWebChatTurnInput {
+    recentChatPdfs?: WebRuntimeTurnClientInput["recentChatPdfs"];
+  }): WebRuntimeTurnClientInput {
     return {
       assistantId: input.assistantId,
       publishedVersionId: input.publishedVersionId,
