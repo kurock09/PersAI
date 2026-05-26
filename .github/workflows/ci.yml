@@ -8,6 +8,11 @@ on:
       - infra/helm/values-dev.yaml
   pull_request:
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: "Optional base commit SHA for affected detection when manually dispatching."
+        required: false
+        type: string
 
 jobs:
   detect-affected:
@@ -36,7 +41,7 @@ jobs:
       - name: Detect affected projects
         id: detect
         env:
-          BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          BASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.base_sha || (github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before) }}
           HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           node scripts/ci/detect-affected.mjs \
