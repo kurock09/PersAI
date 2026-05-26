@@ -3,6 +3,7 @@ import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 const AVATAR_URL_PREFIX = "/api/avatar/";
 
@@ -48,7 +49,8 @@ export class ManageAssistantAvatarService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async upload(params: {
@@ -57,10 +59,8 @@ export class ManageAssistantAvatarService {
     mimeType: string;
     originalFilename: string;
   }): Promise<{ avatarUrl: string }> {
-    const assistant = await this.assistantRepository.findByUserId(params.userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId: params.userId }))
+      .assistant;
 
     const validated = await validatePersaiMediaFile({
       buffer: params.fileBuffer,
@@ -83,7 +83,7 @@ export class ManageAssistantAvatarService {
     });
 
     const avatarUrl = buildAssistantAvatarUrl(normalized);
-    const updated = await this.assistantRepository.updateDraft(params.userId, {
+    const updated = await this.assistantRepository.updateDraftByAssistantId(assistant.id, {
       draftDisplayName: assistant.draftDisplayName,
       draftInstructions: assistant.draftInstructions,
       draftAvatarUrl: avatarUrl
@@ -105,10 +105,7 @@ export class ManageAssistantAvatarService {
     userId: string,
     hash: string
   ): Promise<{ buffer: Buffer; contentType: string } | null> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const currentHash = extractAvatarHashFromUrl(assistant.draftAvatarUrl);
     if (currentHash === null || currentHash !== hash) {

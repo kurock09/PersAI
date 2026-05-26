@@ -1,11 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException
-} from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
@@ -14,7 +7,6 @@ import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
@@ -33,6 +25,7 @@ import { AppendAssistantAuditEventService } from "./append-assistant-audit-event
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { resolveTelegramBindingMetadataState } from "./telegram-integration.metadata";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 function telegramBotSecretKey(assistantId: string): string {
   return `telegram_bot:${assistantId}`;
@@ -43,8 +36,6 @@ export class RevokeTelegramIntegrationSecretService {
   private readonly logger = new Logger(RevokeTelegramIntegrationSecretService.name);
 
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
@@ -55,7 +46,8 @@ export class RevokeTelegramIntegrationSecretService {
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
     private readonly secretStoreService: PlatformRuntimeProviderSecretStoreService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   parseInput(body: unknown): TelegramSecretRevokeInput {
@@ -84,10 +76,7 @@ export class RevokeTelegramIntegrationSecretService {
     input: TelegramSecretRevokeInput,
     emergency: boolean
   ): Promise<TelegramIntegrationState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
     const governance =
       (await this.assistantGovernanceRepository.findByAssistantId(assistant.id)) ??
       (await this.assistantGovernanceRepository.createBaseline(assistant.id));

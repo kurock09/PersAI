@@ -3,6 +3,7 @@ import type { AssistantGovernance } from "../domain/assistant-governance.entity"
 import type { AssistantMaterializedSpec } from "../domain/assistant-materialized-spec.entity";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import type {
+  AssistantListItemState,
   AssistantGovernanceState,
   AssistantLifecycleState,
   AssistantPublishedVersionState
@@ -132,6 +133,22 @@ export function toAssistantLifecycleState(
       assistantConfigDocument: materialization?.assistantConfigDocument ?? null,
       assistantWorkspaceDocument: materialization?.assistantWorkspaceDocument ?? null
     },
+    createdAt: assistant.createdAt.toISOString(),
+    updatedAt: assistant.updatedAt.toISOString()
+  };
+}
+
+export function toAssistantListItemState(
+  assistant: Pick<
+    Assistant,
+    "id" | "draftDisplayName" | "draftAvatarEmoji" | "draftAvatarUrl" | "createdAt" | "updatedAt"
+  >
+): AssistantListItemState {
+  return {
+    id: assistant.id,
+    displayName: assistant.draftDisplayName,
+    avatarEmoji: assistant.draftAvatarEmoji,
+    avatarUrl: sanitizeAvatarUrl(assistant.draftAvatarUrl),
     createdAt: assistant.createdAt.toISOString(),
     updatedAt: assistant.updatedAt.toISOString()
   };

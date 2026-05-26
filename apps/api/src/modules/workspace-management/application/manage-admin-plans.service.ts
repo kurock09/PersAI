@@ -205,6 +205,16 @@ function parsePositiveIntWithDefault(
   return parseRequiredPositiveInt(value, fieldName);
 }
 
+function parsePlanAssistantPolicy(value: unknown): AdminPlanInput["assistantPolicy"] {
+  if (value === undefined || value === null) {
+    return { maxAssistants: 1 };
+  }
+  const parsed = parseObject(value, "assistantPolicy");
+  return {
+    maxAssistants: parseRequiredPositiveInt(parsed.maxAssistants, "assistantPolicy.maxAssistants")
+  };
+}
+
 function parseObject(value: unknown, fieldName: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new BadRequestException(`${fieldName} must be an object.`);
@@ -524,6 +534,7 @@ export class ManageAdminPlansService {
         entitlements: plan.entitlements,
         quotaLimits: plan.quotaLimits,
         skillPolicy: plan.skillPolicy,
+        assistantPolicy: plan.assistantPolicy,
         presentation: plan.presentation
       }));
   }
@@ -782,6 +793,7 @@ export class ManageAdminPlansService {
       parsed.skillPolicy !== undefined && parsed.skillPolicy !== null
         ? parseObject(parsed.skillPolicy, "skillPolicy")
         : {};
+    const assistantPolicy = parsePlanAssistantPolicy(parsed.assistantPolicy);
     const contextPolicy =
       parsed.contextPolicy === undefined || parsed.contextPolicy === null
         ? createDefaultPlanContextHydrationPolicy()
@@ -863,6 +875,7 @@ export class ManageAdminPlansService {
       skillPolicy: {
         maxEnabledSkills: toNullableNonNegativeInt(skillPolicyRaw.maxEnabledSkills)
       },
+      assistantPolicy,
       contextPolicy,
       retrievalPolicy,
       sandboxPolicy,
@@ -1029,6 +1042,10 @@ export class ManageAdminPlansService {
         ...(input.skillPolicy.maxEnabledSkills !== null
           ? { skillPolicy: { maxEnabledSkills: input.skillPolicy.maxEnabledSkills } }
           : {}),
+        assistantPolicy: {
+          schema: "persai.assistantPolicy.v1",
+          maxAssistants: input.assistantPolicy.maxAssistants
+        },
         contextPolicy: toPlanContextHydrationPolicyDocument(input.contextPolicy),
         retrievalPolicy: input.retrievalPolicy,
         sandboxPolicy: toPlanSandboxPolicyDocument(input.sandboxPolicy),
@@ -1222,6 +1239,7 @@ export class ManageAdminPlansService {
       !Array.isArray(billingHints.skillPolicy)
         ? (billingHints.skillPolicy as Record<string, unknown>)
         : {};
+    const assistantPolicy = parsePlanAssistantPolicy(billingHints.assistantPolicy);
     const lifecyclePolicyRaw =
       billingHints.lifecyclePolicy !== null &&
       typeof billingHints.lifecyclePolicy === "object" &&
@@ -1338,6 +1356,7 @@ export class ManageAdminPlansService {
           toNullableNonNegativeInt(skillPolicyRaw.maxEnabledSkills) ??
           readEnabledSkillLimitFromLimitsPermissions(entitlement?.limitsPermissions)
       },
+      assistantPolicy,
       contextPolicy,
       retrievalPolicy,
       sandboxPolicy,

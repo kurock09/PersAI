@@ -11,6 +11,7 @@ import type {
 } from "./assistant-notification-preference.types";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 export interface UpdateAssistantNotificationPreferenceRequest {
   channel: AssistantPreferredNotificationChannel;
@@ -31,7 +32,8 @@ function isPreferredNotificationChannel(
 export class UpdateAssistantNotificationPreferenceService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   parseInput(payload: unknown): UpdateAssistantNotificationPreferenceRequest {
@@ -51,8 +53,9 @@ export class UpdateAssistantNotificationPreferenceService {
     userId: string,
     request: UpdateAssistantNotificationPreferenceRequest
   ): Promise<AssistantNotificationPreferenceState> {
+    const resolved = await this.resolveActiveAssistantService.execute({ userId });
     const assistant = await this.prisma.assistant.findUnique({
-      where: { userId },
+      where: { id: resolved.assistantId },
       select: {
         id: true,
         workspaceId: true,
@@ -67,7 +70,7 @@ export class UpdateAssistantNotificationPreferenceService {
       }
     });
     if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
 
     const availableChannels = new Set<AssistantPreferredNotificationChannel>(["web"]);

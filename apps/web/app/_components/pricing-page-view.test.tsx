@@ -88,6 +88,9 @@ function makePlan(overrides: Partial<PublicPricingPlanState> = {}): PublicPricin
     skillPolicy: {
       maxEnabledSkills: 12
     },
+    assistantPolicy: {
+      maxAssistants: 1
+    },
     presentation: {
       showOnPricingPage: true,
       displayOrder: 1,

@@ -28,6 +28,7 @@ import {
   normalizeAssistantVoiceProfile
 } from "./assistant-voice-profile";
 import { normalizeAssistantGender } from "./assistant-gender";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 export interface RollbackAssistantRequest {
   targetVersion: number;
@@ -46,7 +47,8 @@ export class RollbackAssistantService {
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
     private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   parseInput(payload: unknown): RollbackAssistantRequest {
@@ -72,10 +74,7 @@ export class RollbackAssistantService {
     userId: string,
     request: RollbackAssistantRequest
   ): Promise<AssistantLifecycleState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const latestPublishedVersion =
       await this.assistantPublishedVersionRepository.findLatestByAssistantId(assistant.id);
@@ -127,7 +126,7 @@ export class RollbackAssistantService {
       }
     });
 
-    const updatedAssistant = await this.assistantRepository.updateDraft(userId, {
+    const updatedAssistant = await this.assistantRepository.updateDraftByAssistantId(assistant.id, {
       draftDisplayName: targetVersion.snapshotDisplayName,
       draftInstructions: targetVersion.snapshotInstructions,
       draftTraits: targetVersion.snapshotTraits,
@@ -137,15 +136,15 @@ export class RollbackAssistantService {
       draftVoiceProfile: snapshotVoiceProfile
     });
     if (updatedAssistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
 
-    const assistantWithPendingApply = await this.assistantRepository.markApplyPending(
-      userId,
+    const assistantWithPendingApply = await this.assistantRepository.markApplyPendingByAssistantId(
+      assistant.id,
       rolledBackVersion.id
     );
     if (assistantWithPendingApply === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
 
     await this.materializeAssistantPublishedVersionService.execute(
@@ -155,9 +154,9 @@ export class RollbackAssistantService {
     );
     await this.applyAssistantPublishedVersionService.execute(userId, rolledBackVersion, false);
 
-    const refreshedAssistant = await this.assistantRepository.findByUserId(userId);
+    const refreshedAssistant = await this.assistantRepository.findById(assistant.id);
     if (refreshedAssistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
 
     const governance = await this.assistantGovernanceRepository.findByAssistantId(

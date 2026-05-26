@@ -9,14 +9,13 @@ import {
 } from "../domain/assistant-task-registry.repository";
 import { getTasksUserControlFlags } from "../domain/tasks-user-controls";
 import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { ControlInternalScheduledActionService } from "./control-internal-scheduled-action.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 @Injectable()
 export class EnableAssistantTaskRegistryItemService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_TASK_REGISTRY_REPOSITORY)
@@ -25,10 +24,7 @@ export class EnableAssistantTaskRegistryItemService {
   ) {}
 
   async execute(userId: string, itemId: string): Promise<{ enabled: true }> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const governance = await this.assistantGovernanceRepository.findByAssistantId(assistant.id);
     const envelope = resolveEffectiveTasksControlFromGovernance(governance);

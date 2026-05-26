@@ -13,6 +13,7 @@ import {
 import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
 import { normalizeModelKey } from "./model-key-normalization";
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 type RuntimeModelOverride = {
   provider: "openai" | "anthropic";
@@ -90,15 +91,13 @@ export class ResolveAssistantInboundRuntimeContextService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
-    private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService
+    private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async resolveByUserId(userId: string): Promise<ResolvedAssistantInboundRuntimeContext> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-    return this.resolveFromAssistant(assistant);
+    const resolved = await this.resolveActiveAssistantService.execute({ userId });
+    return this.resolveFromAssistant(resolved.assistant);
   }
 
   async resolveByAssistantId(assistantId: string): Promise<ResolvedAssistantInboundRuntimeContext> {

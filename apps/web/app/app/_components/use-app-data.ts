@@ -4,17 +4,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import type {
   AssistantLifecycleState,
+  AssistantLimitState,
+  AssistantListItemState,
   AssistantWebChatListItemState,
   TelegramIntegrationState,
   UserPlanVisibilityState
 } from "@persai/contracts";
 import {
-  getAssistant,
+  getAssistantLifecycleView,
   getAssistantNotificationPreference,
   getAssistantWebChats,
   getAssistantTelegramIntegration,
   getAssistantPlanVisibility,
   getAdminPlanVisibility,
+  postAssistantCreateLifecycleView,
+  postAssistantSwitch,
+  type AssistantLifecycleViewState,
   type AssistantNotificationPreferenceState
 } from "../assistant-api-client";
 import type { AppBootstrapInitialData } from "../_server/fetch-app-bootstrap";
@@ -34,6 +39,9 @@ export function deriveAssistantStatus(state: AssistantLifecycleState | null): As
 
 export interface AppData {
   assistant: AssistantLifecycleState | null;
+  assistants: AssistantListItemState[];
+  activeAssistantId: string | null;
+  assistantLimit: AssistantLimitState | null;
   assistantStatus: AssistantStatus;
   /** true once getAssistant resolved (even if result is null/404) */
   assistantResolved: boolean;
@@ -68,11 +76,16 @@ export interface AppData {
   error: string | null;
   reload: () => Promise<void>;
   reloadChats: () => Promise<void>;
+  createAssistant: () => Promise<void>;
+  switchAssistant: (assistantId: string) => Promise<void>;
   markChatListActivity: (surfaceThreadKey: string) => void;
 }
 
 interface SeededState {
   assistant: AssistantLifecycleState | null;
+  assistants: AssistantListItemState[];
+  activeAssistantId: string | null;
+  assistantLimit: AssistantLimitState | null;
   chats: AssistantWebChatListItemState[];
   telegram: TelegramIntegrationState | null;
   notificationPreference: AssistantNotificationPreferenceState | null;
@@ -94,6 +107,9 @@ function seedFromInitialData(initialData: AppBootstrapInitialData | null): Seede
   if (initialData === null) {
     return {
       assistant: null,
+      assistants: [],
+      activeAssistantId: null,
+      assistantLimit: null,
       chats: [],
       telegram: null,
       notificationPreference: null,
@@ -114,7 +130,10 @@ function seedFromInitialData(initialData: AppBootstrapInitialData | null): Seede
   const adminSection = initialData.admin;
 
   return {
-    assistant: assistantSection.ok ? assistantSection.data : null,
+    assistant: assistantSection.ok ? assistantSection.data.assistant : null,
+    assistants: assistantSection.ok ? assistantSection.data.assistants : [],
+    activeAssistantId: assistantSection.ok ? assistantSection.data.activeAssistantId : null,
+    assistantLimit: assistantSection.ok ? assistantSection.data.assistantLimit : null,
     chats: chatsSection.ok ? chatsSection.data : [],
     telegram: telegramSection.ok ? telegramSection.data : null,
     notificationPreference: preferenceSection.ok ? preferenceSection.data : null,
@@ -140,6 +159,13 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
   const [assistant, setAssistant] = useState<AssistantLifecycleState | null>(
     seed.current.assistant
   );
+  const [assistants, setAssistants] = useState<AssistantListItemState[]>(seed.current.assistants);
+  const [activeAssistantId, setActiveAssistantId] = useState<string | null>(
+    seed.current.activeAssistantId
+  );
+  const [assistantLimit, setAssistantLimit] = useState<AssistantLimitState | null>(
+    seed.current.assistantLimit
+  );
   const [chats, setChats] = useState<AssistantWebChatListItemState[]>(seed.current.chats);
   const [telegram, setTelegram] = useState<TelegramIntegrationState | null>(seed.current.telegram);
   const [notificationPreference, setNotificationPreference] =
@@ -151,6 +177,62 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
   const [isReloadingChats, setIsReloadingChats] = useState(false);
   const [assistantResolved, setAssistantResolved] = useState(seed.current.assistantResolved);
   const [error, setError] = useState<string | null>(seed.current.error);
+
+  const applyAssistantLifecycleView = useCallback((view: AssistantLifecycleViewState) => {
+    setAssistant(view.assistant);
+    setAssistants(view.assistants);
+    setActiveAssistantId(view.activeAssistantId);
+    setAssistantLimit(view.assistantLimit);
+    setAssistantResolved(true);
+  }, []);
+
+  const refreshAssistantScopedSlices = useCallback(
+    async (token: string) => {
+      const [chatsRes, telegramRes, preferenceRes] = await Promise.allSettled([
+        getAssistantWebChats(token),
+        getAssistantTelegramIntegration(token),
+        getAssistantNotificationPreference(token)
+      ]);
+
+      if (chatsRes.status === "fulfilled") {
+        setChats(chatsRes.value);
+      }
+      if (telegramRes.status === "fulfilled") {
+        setTelegram(telegramRes.value);
+      }
+      if (preferenceRes.status === "fulfilled") {
+        setNotificationPreference(preferenceRes.value);
+      }
+    },
+    [setChats, setNotificationPreference, setTelegram]
+  );
+
+  const runAssistantDirectoryMutation = useCallback(
+    async (action: (token: string) => Promise<AssistantLifecycleViewState>) => {
+      const token = await getToken({ skipCache: true });
+      if (token === null) return;
+
+      setIsReloading(true);
+      setError(null);
+
+      try {
+        const view = await action(token);
+        applyAssistantLifecycleView(view);
+        setChats([]);
+        setTelegram(null);
+        setNotificationPreference(null);
+        await refreshAssistantScopedSlices(token);
+      } catch (mutationError) {
+        setError(
+          mutationError instanceof Error ? mutationError.message : "Failed to update assistant."
+        );
+        throw mutationError;
+      } finally {
+        setIsReloading(false);
+      }
+    },
+    [applyAssistantLifecycleView, getToken, refreshAssistantScopedSlices]
+  );
 
   /**
    * ADR-076 Slice 5 — `isLoading` is reserved for the cold-start fan-out only
@@ -171,7 +253,7 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
     try {
       const [assistantRes, chatsRes, telegramRes, preferenceRes, planRes, adminProbe] =
         await Promise.allSettled([
-          getAssistant(token),
+          getAssistantLifecycleView(token),
           getAssistantWebChats(token),
           getAssistantTelegramIntegration(token),
           getAssistantNotificationPreference(token),
@@ -180,8 +262,7 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
         ]);
 
       if (assistantRes.status === "fulfilled") {
-        setAssistant(assistantRes.value);
-        setAssistantResolved(true);
+        applyAssistantLifecycleView(assistantRes.value);
       } else if (assistantRes.status === "rejected") {
         setError(
           assistantRes.reason instanceof Error
@@ -200,7 +281,7 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
       setIsLoading(false);
       setIsReloading(false);
     }
-  }, [getToken, assistantResolved]);
+  }, [applyAssistantLifecycleView, getToken, assistantResolved]);
 
   const reloadChats = useCallback(async () => {
     const token = await getToken();
@@ -256,6 +337,9 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
 
   return {
     assistant,
+    assistants,
+    activeAssistantId,
+    assistantLimit,
     assistantStatus: deriveAssistantStatus(assistant),
     assistantResolved,
     chats,
@@ -269,6 +353,10 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
     error,
     reload: loadAll,
     reloadChats,
+    createAssistant: () =>
+      runAssistantDirectoryMutation((token) => postAssistantCreateLifecycleView(token)),
+    switchAssistant: (assistantId: string) =>
+      runAssistantDirectoryMutation((token) => postAssistantSwitch(token, assistantId)),
     markChatListActivity
   };
 }

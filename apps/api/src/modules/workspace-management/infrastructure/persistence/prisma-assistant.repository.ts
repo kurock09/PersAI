@@ -21,10 +21,16 @@ export class PrismaAssistantRepository implements AssistantRepository {
   }
 
   async findByUserId(userId: string): Promise<Assistant | null> {
-    const assistant = await this.prisma.assistant.findUnique({
-      where: { userId }
+    const assistants = await this.prisma.assistant.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+      take: 2
     });
 
+    if (assistants.length > 1) {
+      throw new Error("Assistant lookup by userId is ambiguous for multi-assistant users.");
+    }
+    const assistant = assistants[0] ?? null;
     return assistant ? this.mapToDomain(assistant) : null;
   }
 
@@ -40,15 +46,17 @@ export class PrismaAssistantRepository implements AssistantRepository {
   }
 
   async updateDraft(userId: string, input: UpdateAssistantDraftInput): Promise<Assistant | null> {
-    const existingAssistant = await this.prisma.assistant.findUnique({
-      where: { userId },
-      select: { id: true }
-    });
-
-    if (existingAssistant === null) {
+    const assistantId = await this.findSingleAssistantIdByUserId(userId);
+    if (assistantId === null) {
       return null;
     }
+    return this.updateDraftByAssistantId(assistantId, input);
+  }
 
+  async updateDraftByAssistantId(
+    assistantId: string,
+    input: UpdateAssistantDraftInput
+  ): Promise<Assistant | null> {
     const data: Record<string, unknown> = {
       draftDisplayName: input.draftDisplayName,
       draftInstructions: input.draftInstructions,
@@ -71,7 +79,7 @@ export class PrismaAssistantRepository implements AssistantRepository {
     }
 
     const assistant = await this.prisma.assistant.update({
-      where: { userId },
+      where: { id: assistantId },
       data
     });
 
@@ -79,17 +87,19 @@ export class PrismaAssistantRepository implements AssistantRepository {
   }
 
   async markApplyPending(userId: string, targetVersionId: string): Promise<Assistant | null> {
-    const existingAssistant = await this.prisma.assistant.findUnique({
-      where: { userId },
-      select: { id: true }
-    });
-
-    if (existingAssistant === null) {
+    const assistantId = await this.findSingleAssistantIdByUserId(userId);
+    if (assistantId === null) {
       return null;
     }
+    return this.markApplyPendingByAssistantId(assistantId, targetVersionId);
+  }
 
+  async markApplyPendingByAssistantId(
+    assistantId: string,
+    targetVersionId: string
+  ): Promise<Assistant | null> {
     const assistant = await this.prisma.assistant.update({
-      where: { userId },
+      where: { id: assistantId },
       data: {
         applyStatus: "pending",
         applyTargetVersionId: targetVersionId,
@@ -106,17 +116,19 @@ export class PrismaAssistantRepository implements AssistantRepository {
   }
 
   async markApplyInProgress(userId: string, targetVersionId: string): Promise<Assistant | null> {
-    const existingAssistant = await this.prisma.assistant.findUnique({
-      where: { userId },
-      select: { id: true }
-    });
-
-    if (existingAssistant === null) {
+    const assistantId = await this.findSingleAssistantIdByUserId(userId);
+    if (assistantId === null) {
       return null;
     }
+    return this.markApplyInProgressByAssistantId(assistantId, targetVersionId);
+  }
 
+  async markApplyInProgressByAssistantId(
+    assistantId: string,
+    targetVersionId: string
+  ): Promise<Assistant | null> {
     const assistant = await this.prisma.assistant.update({
-      where: { userId },
+      where: { id: assistantId },
       data: {
         applyStatus: "in_progress",
         applyTargetVersionId: targetVersionId,
@@ -132,17 +144,19 @@ export class PrismaAssistantRepository implements AssistantRepository {
   }
 
   async markApplySucceeded(userId: string, appliedVersionId: string): Promise<Assistant | null> {
-    const existingAssistant = await this.prisma.assistant.findUnique({
-      where: { userId },
-      select: { id: true }
-    });
-
-    if (existingAssistant === null) {
+    const assistantId = await this.findSingleAssistantIdByUserId(userId);
+    if (assistantId === null) {
       return null;
     }
+    return this.markApplySucceededByAssistantId(assistantId, appliedVersionId);
+  }
 
+  async markApplySucceededByAssistantId(
+    assistantId: string,
+    appliedVersionId: string
+  ): Promise<Assistant | null> {
     const assistant = await this.prisma.assistant.update({
-      where: { userId },
+      where: { id: assistantId },
       data: {
         applyStatus: "succeeded",
         applyAppliedVersionId: appliedVersionId,
@@ -161,17 +175,21 @@ export class PrismaAssistantRepository implements AssistantRepository {
     errorCode: string,
     errorMessage: string
   ): Promise<Assistant | null> {
-    const existingAssistant = await this.prisma.assistant.findUnique({
-      where: { userId },
-      select: { id: true }
-    });
-
-    if (existingAssistant === null) {
+    const assistantId = await this.findSingleAssistantIdByUserId(userId);
+    if (assistantId === null) {
       return null;
     }
+    return this.markApplyFailedByAssistantId(assistantId, targetVersionId, errorCode, errorMessage);
+  }
 
+  async markApplyFailedByAssistantId(
+    assistantId: string,
+    targetVersionId: string,
+    errorCode: string,
+    errorMessage: string
+  ): Promise<Assistant | null> {
     const assistant = await this.prisma.assistant.update({
-      where: { userId },
+      where: { id: assistantId },
       data: {
         applyStatus: "failed",
         applyTargetVersionId: targetVersionId,
@@ -190,17 +208,26 @@ export class PrismaAssistantRepository implements AssistantRepository {
     errorCode: string,
     errorMessage: string
   ): Promise<Assistant | null> {
-    const existingAssistant = await this.prisma.assistant.findUnique({
-      where: { userId },
-      select: { id: true }
-    });
-
-    if (existingAssistant === null) {
+    const assistantId = await this.findSingleAssistantIdByUserId(userId);
+    if (assistantId === null) {
       return null;
     }
+    return this.markApplyDegradedByAssistantId(
+      assistantId,
+      targetVersionId,
+      errorCode,
+      errorMessage
+    );
+  }
 
+  async markApplyDegradedByAssistantId(
+    assistantId: string,
+    targetVersionId: string,
+    errorCode: string,
+    errorMessage: string
+  ): Promise<Assistant | null> {
     const assistant = await this.prisma.assistant.update({
-      where: { userId },
+      where: { id: assistantId },
       data: {
         applyStatus: "degraded",
         applyTargetVersionId: targetVersionId,
@@ -211,6 +238,19 @@ export class PrismaAssistantRepository implements AssistantRepository {
     });
 
     return this.mapToDomain(assistant);
+  }
+
+  private async findSingleAssistantIdByUserId(userId: string): Promise<string | null> {
+    const assistants = await this.prisma.assistant.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+      take: 2
+    });
+    if (assistants.length > 1) {
+      throw new Error("Assistant mutation by userId is ambiguous for multi-assistant users.");
+    }
+    return assistants[0]?.id ?? null;
   }
 
   private mapToDomain(assistant: PrismaAssistant): Assistant {

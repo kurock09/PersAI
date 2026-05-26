@@ -114,3 +114,27 @@ export interface AssistantLifecycleState {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface AssistantListItemState {
+  id: string;
+  displayName: string | null;
+  avatarEmoji: string | null;
+  avatarUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AssistantLimitState {
+  usedAssistants: number;
+  maxAssistants: number;
+}
+
+export interface AssistantDirectoryState {
+  assistants: AssistantListItemState[];
+  activeAssistantId: string | null;
+  assistantLimit: AssistantLimitState;
+}
+
+export interface AssistantLifecycleViewState extends AssistantDirectoryState {
+  assistant: AssistantLifecycleState | null;
+}

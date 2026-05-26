@@ -194,6 +194,7 @@ export function Sidebar({
   };
   const assistantName = data.assistant?.draft.displayName ?? t("defaultAssistant");
   const hasUnreadSupport = supportUnreadCount > 0;
+  const hasMultiAssistantAccess = (data.assistantLimit?.maxAssistants ?? 1) > 1;
   /*
    * Hydration safety: groupChatsByDate / formatChatRowTimestamp depend on
    * `new Date()` and the device timezone. On the server (UTC pod) and on
@@ -257,8 +258,15 @@ export function Sidebar({
           onClick={onAssistantCardClick}
           aria-label={t("assistantSettingsHint")}
           title={t("assistantSettingsHint")}
-          className="group flex w-full cursor-pointer items-center gap-3 rounded-xl bg-surface-raised p-3 transition-colors hover:bg-surface-hover"
+          className="group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden rounded-xl bg-surface-raised p-3 transition-colors hover:bg-surface-hover"
         >
+          {hasMultiAssistantAccess ? (
+            <span
+              data-testid="assistant-card-premium-strip"
+              aria-hidden="true"
+              className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-gradient-to-b from-[#b9c9a8]/90 via-[#d7c48d]/85 to-[#c29d62]/85"
+            />
+          ) : null}
           <AssistantAvatar
             avatarUrl={data.assistant?.draft.avatarUrl ?? undefined}
             avatarEmoji={data.assistant?.draft.avatarEmoji ?? undefined}
@@ -350,6 +358,7 @@ export function Sidebar({
                   <ChatListItem
                     key={item.chat.id}
                     item={item}
+                    assistantId={data.activeAssistantId}
                     locale={locale}
                     isActive={activeThread === item.chat.surfaceThreadKey}
                     onNavigate={() => {
@@ -781,12 +790,14 @@ function AccountFooter({
 
 function ChatListItem({
   item,
+  assistantId,
   locale,
   isActive,
   onNavigate,
   onChanged
 }: {
   item: AssistantWebChatListItemState;
+  assistantId: string | null;
   locale: string;
   isActive: boolean;
   onNavigate: () => void;
@@ -797,9 +808,15 @@ function ChatListItem({
   // Slice 1.1 — surface a small pulsing dot on rows whose stream is in
   // flight. Pure read of the shared registry — no work happens here when
   // the thread is idle.
-  const isThreadStreaming = useIsThreadStreaming(item.chat.surfaceThreadKey);
-  const hasThreadActiveMediaJobs = useHasThreadActiveMediaJobs(item.chat.surfaceThreadKey);
-  const hasThreadActiveDocumentJobs = useHasThreadActiveDocumentJobs(item.chat.surfaceThreadKey);
+  const isThreadStreaming = useIsThreadStreaming(item.chat.surfaceThreadKey, assistantId);
+  const hasThreadActiveMediaJobs = useHasThreadActiveMediaJobs(
+    item.chat.surfaceThreadKey,
+    assistantId
+  );
+  const hasThreadActiveDocumentJobs = useHasThreadActiveDocumentJobs(
+    item.chat.surfaceThreadKey,
+    assistantId
+  );
   const showLiveIndicator =
     isThreadStreaming ||
     hasThreadActiveMediaJobs ||

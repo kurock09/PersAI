@@ -137,6 +137,9 @@ async function run(): Promise<void> {
     skillPolicy: {
       maxEnabledSkills: 2
     },
+    assistantPolicy: {
+      maxAssistants: 1
+    },
     contextPolicy,
     primaryModelKey: null,
     imageGenerateModelKey: "gpt-image-2",
@@ -242,6 +245,10 @@ async function run(): Promise<void> {
   assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).skillPolicy, {
     maxEnabledSkills: 2
   });
+  assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).assistantPolicy, {
+    schema: "persai.assistantPolicy.v1",
+    maxAssistants: 1
+  });
   assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).contextPolicy, {
     schema: "persai.planContextHydration.v1",
     ...contextPolicy
@@ -275,6 +282,7 @@ async function run(): Promise<void> {
           knowledgeStorageBytesLimit: number | null;
         };
         skillPolicy: { maxEnabledSkills: number | null };
+        assistantPolicy: { maxAssistants: number };
       };
     }
   ).toAdminPlanState({
@@ -313,6 +321,75 @@ async function run(): Promise<void> {
   assert.equal(state.quotaLimits.videoGenerateMonthlyUnitsLimit, 4);
   assert.equal(state.quotaLimits.knowledgeStorageBytesLimit, 4096);
   assert.equal(state.skillPolicy.maxEnabledSkills, 2);
+  assert.equal(state.assistantPolicy.maxAssistants, 1);
+
+  const businessAssistantPolicyParsed = service.parseUpdateInput({
+    ...parsed,
+    assistantPolicy: {
+      maxAssistants: 5
+    }
+  });
+  const businessAssistantPolicyWriteInput = (
+    service as unknown as {
+      toWriteInput(input: typeof businessAssistantPolicyParsed): { billingProviderHints: unknown };
+    }
+  ).toWriteInput(businessAssistantPolicyParsed);
+  assert.deepEqual(
+    (businessAssistantPolicyWriteInput.billingProviderHints as Record<string, unknown>)
+      .assistantPolicy,
+    {
+      schema: "persai.assistantPolicy.v1",
+      maxAssistants: 5
+    }
+  );
+  assert.equal(
+    (
+      service as unknown as {
+        toAdminPlanState(plan: AssistantPlanCatalog): {
+          assistantPolicy: { maxAssistants: number };
+        };
+      }
+    ).toAdminPlanState({
+      id: "plan-business-assistants",
+      code: "business-assistants",
+      displayName: "Business Assistants",
+      description: null,
+      status: "active",
+      billingProviderHints: businessAssistantPolicyWriteInput.billingProviderHints,
+      entitlementModel: null,
+      toolActivations: [],
+      isDefaultFirstRegistrationPlan: false,
+      isTrialPlan: false,
+      trialDurationDays: null,
+      createdAt: new Date("2026-04-14T12:00:00.000Z"),
+      updatedAt: new Date("2026-04-14T12:00:00.000Z")
+    }).assistantPolicy.maxAssistants,
+    5
+  );
+  assert.equal(
+    (
+      service as unknown as {
+        toAdminPlanState(plan: AssistantPlanCatalog): {
+          assistantPolicy: { maxAssistants: number };
+        };
+      }
+    ).toAdminPlanState({
+      id: "plan-legacy-assistant-policy",
+      code: "legacy-assistant-policy",
+      displayName: "Legacy Assistant Policy",
+      description: null,
+      status: "active",
+      billingProviderHints: null,
+      entitlementModel: null,
+      toolActivations: [],
+      isDefaultFirstRegistrationPlan: false,
+      isTrialPlan: false,
+      trialDurationDays: null,
+      createdAt: new Date("2026-04-14T12:00:00.000Z"),
+      updatedAt: new Date("2026-04-14T12:00:00.000Z")
+    }).assistantPolicy.maxAssistants,
+    1
+  );
 
   const zeroSkillLimitParsed = service.parseUpdateInput({
     ...parsed,
@@ -1416,6 +1493,9 @@ async function run(): Promise<void> {
               },
               skillPolicy: {
                 maxEnabledSkills: 10
+              },
+              assistantPolicy: {
+                maxAssistants: 3
               }
             },
             entitlementModel: null,
@@ -1512,6 +1592,7 @@ async function run(): Promise<void> {
   assert.equal(publicPlans[0]?.defaultOnRegistration, true);
   assert.equal(publicPlans[1]?.presentation.price.amount, 4900);
   assert.equal(publicPlans[1]?.skillPolicy.maxEnabledSkills, 10);
+  assert.equal(publicPlans[1]?.assistantPolicy.maxAssistants, 3);
   assert.deepEqual(publicPlans[1]?.enabledToolCodes, ["image_generate"]);
 }
 

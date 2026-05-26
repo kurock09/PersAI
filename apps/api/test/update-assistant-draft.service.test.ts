@@ -18,6 +18,7 @@ async function run(): Promise<void> {
     null as never,
     null as never,
     null as never,
+    null as never,
     null as never
   );
 

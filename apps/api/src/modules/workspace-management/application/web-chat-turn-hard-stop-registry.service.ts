@@ -26,7 +26,9 @@ import { Injectable, Logger } from "@nestjs/common";
  *     existing `client-aborted` → `persistInterruptedOutcome` path.
  *
  * This registry is the in-memory dispatch table that lets the new endpoint
- * find a turn's `AbortController`. Keys are `clientTurnId` (already required
+ * find a turn's `AbortController`. Keys are `assistantId + clientTurnId`
+ * so two assistants owned by the same user cannot collide when the client
+ * reuses a local turn id. `clientTurnId` is already required
  * by the streaming endpoint and propagated end-to-end through
  * `streamWebChatTurnService.prepare`/`streamToCompletion`). Each entry also
  * carries the owning `userId` so the Stop endpoint can refuse cross-user
@@ -46,7 +48,12 @@ import { Injectable, Logger } from "@nestjs/common";
 interface RegisteredTurn {
   controller: AbortController;
   userId: string;
+  assistantId: string;
   registeredAt: number;
+}
+
+function buildTurnKey(assistantId: string, clientTurnId: string): string {
+  return `${assistantId}:${clientTurnId}`;
 }
 
 @Injectable()
@@ -63,16 +70,23 @@ export class WebChatTurnHardStopRegistry {
    * caller-controlled `release` path handles teardown of the older
    * controller via the SSE handler that owns it.
    */
-  register(input: { clientTurnId: string; userId: string; controller: AbortController }): void {
-    const existing = this.turns.get(input.clientTurnId);
+  register(input: {
+    assistantId: string;
+    clientTurnId: string;
+    userId: string;
+    controller: AbortController;
+  }): void {
+    const key = buildTurnKey(input.assistantId, input.clientTurnId);
+    const existing = this.turns.get(key);
     if (existing !== undefined) {
       this.logger.warn(
-        `[hard-stop-registry] reregister clientTurnId=${input.clientTurnId} userId=${input.userId} (replacing prior entry registered at ${new Date(existing.registeredAt).toISOString()})`
+        `[hard-stop-registry] reregister assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} userId=${input.userId} (replacing prior entry registered at ${new Date(existing.registeredAt).toISOString()})`
       );
     }
-    this.turns.set(input.clientTurnId, {
+    this.turns.set(key, {
       controller: input.controller,
       userId: input.userId,
+      assistantId: input.assistantId,
       registeredAt: Date.now()
     });
   }
@@ -84,8 +98,9 @@ export class WebChatTurnHardStopRegistry {
    * the SSE handler that registered *this exact* controller is allowed to
    * release it.
    */
-  release(input: { clientTurnId: string; controller: AbortController }): void {
-    const existing = this.turns.get(input.clientTurnId);
+  release(input: { assistantId: string; clientTurnId: string; controller: AbortController }): void {
+    const key = buildTurnKey(input.assistantId, input.clientTurnId);
+    const existing = this.turns.get(key);
     if (existing === undefined) {
       return;
     }
@@ -93,7 +108,7 @@ export class WebChatTurnHardStopRegistry {
       // A newer registration replaced ours; do not delete.
       return;
     }
-    this.turns.delete(input.clientTurnId);
+    this.turns.delete(key);
   }
 
   /**
@@ -106,19 +121,20 @@ export class WebChatTurnHardStopRegistry {
    * request via auth before reaching this method, so this is the second
    * line of defense, not the first.
    */
-  signalHardStop(input: { clientTurnId: string; userId: string }): boolean {
-    const entry = this.turns.get(input.clientTurnId);
+  signalHardStop(input: { assistantId: string; clientTurnId: string; userId: string }): boolean {
+    const key = buildTurnKey(input.assistantId, input.clientTurnId);
+    const entry = this.turns.get(key);
     if (entry === undefined) {
       return false;
     }
     if (entry.userId !== input.userId) {
       this.logger.warn(
-        `[hard-stop-registry] cross-user stop refused clientTurnId=${input.clientTurnId} actualOwner=${entry.userId} attemptedBy=${input.userId}`
+        `[hard-stop-registry] cross-user stop refused assistantId=${input.assistantId} clientTurnId=${input.clientTurnId} actualOwner=${entry.userId} attemptedBy=${input.userId}`
       );
       return false;
     }
     entry.controller.abort();
-    this.turns.delete(input.clientTurnId);
+    this.turns.delete(key);
     return true;
   }
 
@@ -128,7 +144,7 @@ export class WebChatTurnHardStopRegistry {
    * point in the SSE lifecycle. Production code paths use only `register`,
    * `release`, and `signalHardStop`.
    */
-  hasForTesting(clientTurnId: string): boolean {
-    return this.turns.has(clientTurnId);
+  hasForTesting(assistantId: string, clientTurnId: string): boolean {
+    return this.turns.has(buildTurnKey(assistantId, clientTurnId));
   }
 }

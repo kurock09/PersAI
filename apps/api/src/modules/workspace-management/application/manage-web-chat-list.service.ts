@@ -15,7 +15,6 @@ import type {
 } from "../domain/assistant-chat.entity";
 import { chatModeToDeepModeEnabled, isAssistantChatMode } from "../domain/assistant-chat.entity";
 import type { Assistant } from "../domain/assistant.entity";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { AssistantRuntimeError } from "./assistant-runtime.facade";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
@@ -43,6 +42,7 @@ import {
   isCompactionExhaustedAtPlanLimit,
   isLatestAutoCompactionWeak
 } from "./compaction-advisory-state";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 export interface UpdateWebChatRequest {
   title?: string | null;
@@ -96,8 +96,6 @@ function toChatState(chat: {
 @Injectable()
 export class ManageWebChatListService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
@@ -111,6 +109,7 @@ export class ManageWebChatListService {
     private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
     private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -184,10 +183,7 @@ export class ManageWebChatListService {
   }
 
   async listChats(userId: string): Promise<AssistantWebChatListItemState[]> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const chats = await this.assistantChatRepository.listChatsByAssistantId(assistant.id);
     const webChats = chats.filter((chat) => chat.surface === "web");
@@ -226,10 +222,7 @@ export class ManageWebChatListService {
     chatId: string,
     request: UpdateWebChatRequest
   ): Promise<AssistantWebChatListItemState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const chat = await this.assistantChatRepository.findChatById(chatId);
     if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
@@ -266,10 +259,7 @@ export class ManageWebChatListService {
   }
 
   async archiveChat(userId: string, chatId: string): Promise<AssistantWebChatListItemState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const chat = await this.assistantChatRepository.findChatById(chatId);
     if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
@@ -313,10 +303,7 @@ export class ManageWebChatListService {
     activeMediaJobs: AssistantWebChatActiveMediaJobState[];
     activeDocumentJobs: AssistantWebChatActiveDocumentJobState[];
   }> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const chat = await this.assistantChatRepository.findChatById(chatId);
     if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
@@ -509,10 +496,7 @@ export class ManageWebChatListService {
       throw new BadRequestException("confirmText must equal DELETE for hard delete.");
     }
 
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const chat = await this.assistantChatRepository.findChatById(chatId);
     if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
@@ -640,15 +624,12 @@ export class ManageWebChatListService {
     userId: string,
     chatId: string
   ): Promise<{
-    assistant: NonNullable<Awaited<ReturnType<AssistantRepository["findByUserId"]>>>;
+    assistant: Assistant;
     chat: NonNullable<Awaited<ReturnType<AssistantChatRepository["findChatById"]>>>;
     messageCount: number;
     assistantMessageCount: number;
   }> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const chat = await this.assistantChatRepository.findChatById(chatId);
     if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {

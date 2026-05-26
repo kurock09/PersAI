@@ -7,6 +7,7 @@
 import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
 import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
 import type { AdminPlanSkillPolicy } from "./adminPlanSkillPolicy";
+import type { AdminPlanAssistantPolicy } from "./adminPlanAssistantPolicy";
 import type { AdminPlanPresentation } from "./adminPlanPresentation";
 
 export interface PublicPricingPlanState {
@@ -22,5 +23,6 @@ export interface PublicPricingPlanState {
   entitlements: AdminPlanEntitlements;
   quotaLimits: AdminPlanQuotaLimits;
   skillPolicy: AdminPlanSkillPolicy;
+  assistantPolicy: AdminPlanAssistantPolicy;
   presentation: AdminPlanPresentation;
 }

@@ -65,7 +65,7 @@ describe("WebChatTurnAttemptService", () => {
     const service = new WebChatTurnAttemptService(
       prisma as never,
       {
-        resolveByUserId: async () => ({ assistantId: "assistant-1" })
+        execute: async () => ({ assistantId: "assistant-1" })
       } as never
     );
 
@@ -116,7 +116,7 @@ describe("WebChatTurnAttemptService", () => {
     const service = new WebChatTurnAttemptService(
       prisma as never,
       {
-        resolveByUserId: async () => ({ assistantId: "assistant-1" })
+        execute: async () => ({ assistantId: "assistant-1" })
       } as never
     );
 
@@ -162,5 +162,33 @@ describe("WebChatTurnAttemptService", () => {
     assert.equal(attempt.errorCode, null);
     assert.equal(attempt.errorMessage, null);
     assert.equal(attempt.currentActivity, null);
+  });
+
+  test("returns unknown when the active assistant differs from the turn owner", async () => {
+    let lookedUpAssistantId: string | null = null;
+    const prisma = {
+      assistantWebChatTurnAttempt: {
+        findFirst: async (input: {
+          where?: { assistantId?: string; userId?: string; clientTurnId?: string };
+        }) => {
+          lookedUpAssistantId = input.where?.assistantId ?? null;
+          return null;
+        }
+      }
+    };
+    const service = new WebChatTurnAttemptService(
+      prisma as never,
+      {
+        execute: async () => ({ assistantId: "assistant-2" })
+      } as never
+    );
+
+    const status = await service.getStatusForUser("user-1", "turn-1");
+
+    assert.equal(lookedUpAssistantId, "assistant-2");
+    assert.equal(status.status, "unknown");
+    assert.equal(status.chat, null);
+    assert.equal(status.userMessage, null);
+    assert.equal(status.assistantMessage, null);
   });
 });

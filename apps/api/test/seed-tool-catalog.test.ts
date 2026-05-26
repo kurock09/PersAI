@@ -121,7 +121,8 @@ async function run(): Promise<void> {
         billingProviderHints: {
           schema: "persai.billingHints.v1",
           providerAgnostic: true,
-          runtimeTierDefault: "paid_shared_restricted"
+          runtimeTierDefault: "paid_shared_restricted",
+          assistantPolicy: { schema: "persai.assistantPolicy.v1", maxAssistants: 1 }
         }
       }
     });
@@ -153,7 +154,8 @@ async function run(): Promise<void> {
     assert.deepEqual(getUpdatePayload(), {
       schema: "persai.billingHints.v1",
       providerAgnostic: true,
-      runtimeTierDefault: "free_shared_restricted"
+      runtimeTierDefault: "free_shared_restricted",
+      assistantPolicy: { schema: "persai.assistantPolicy.v1", maxAssistants: 1 }
     });
   }
 

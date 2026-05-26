@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type { AssistantKnowledgeSource as PrismaAssistantKnowledgeSource } from "@prisma/client";
 import { createKnowledgeStorageQuotaExceededError } from "./assistant-inbound-error";
 import type {
@@ -10,8 +10,9 @@ import { KnowledgeIndexingJobWorkerService } from "./knowledge-indexing-job-work
 import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import type { Assistant } from "../domain/assistant.entity";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 const KNOWLEDGE_DOCUMENT_MIMES = new Set([
   "application/json",
@@ -25,8 +26,7 @@ const KNOWLEDGE_DOCUMENT_MIMES = new Set([
 @Injectable()
 export class ManageAssistantKnowledgeSourcesService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly knowledgeObjectStorage: PersaiKnowledgeObjectStorageService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
@@ -294,12 +294,8 @@ export class ManageAssistantKnowledgeSourcesService {
     return this.toState(updated);
   }
 
-  private async resolveAssistant(userId: string) {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-    return assistant;
+  private async resolveAssistant(userId: string): Promise<Assistant> {
+    return (await this.resolveActiveAssistantService.execute({ userId })).assistant;
   }
 
   private toState(row: PrismaAssistantKnowledgeSource): AssistantKnowledgeSourceState {

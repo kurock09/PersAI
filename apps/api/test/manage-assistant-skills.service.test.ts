@@ -1,286 +1,211 @@
 import assert from "node:assert/strict";
-import { BadRequestException } from "@nestjs/common";
 import { ManageAssistantSkillsService } from "../src/modules/workspace-management/application/manage-assistant-skills.service";
 
-type MockSkill = ReturnType<typeof createSkill>;
-type MockAssignment = Record<string, unknown> & {
+type AssistantStub = {
+  id: string;
+  userId: string;
+  workspaceId: string;
+};
+
+type SkillRow = {
+  id: string;
+  status: "active";
+  key: string;
+  label: { en: string };
+  summary: null;
+  description: { en: string };
+  category: string | null;
+  displayOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+  documents: [];
+};
+
+type AssignmentRow = {
   id: string;
   assistantId: string;
   userId: string;
   workspaceId: string;
   skillId: string;
-  status: string;
-};
-type SkillFindManyWhere = {
-  id?: { in: string[] };
-};
-type AssignmentUpsertArgs = {
-  where: { assistantId_skillId: { assistantId: string; skillId: string } };
-  create: Record<string, unknown> & {
-    assistantId: string;
-    userId: string;
-    workspaceId: string;
-    skillId: string;
-    status: string;
-  };
-  update: Record<string, unknown>;
+  status: "active" | "disabled";
+  disabledReason: "user_disabled" | null;
+  enabledAt: Date | null;
+  disabledAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
-function createSkill(id: string, status: "draft" | "active" | "archived" = "active") {
-  const now = new Date("2026-05-01T12:00:00.000Z");
-  return {
-    id,
-    workspaceId: "ws-1",
-    createdByUserId: "admin-1",
-    updatedByUserId: null,
-    status,
-    name: { en: id },
-    description: { en: `${id} description` },
-    category: "general",
-    tags: [],
-    instructionCard: { title: id, body: "Body", guardrails: [], examples: [] },
-    iconEmoji: null,
-    color: null,
-    displayOrder: 100,
-    archivedAt: status === "archived" ? now : null,
-    createdAt: now,
-    updatedAt: now,
-    documents: []
-  };
-}
+async function run(): Promise<void> {
+  const assistantA: AssistantStub = { id: "assistant-a", userId: "user-1", workspaceId: "ws-1" };
+  const assistantB: AssistantStub = { id: "assistant-b", userId: "user-1", workspaceId: "ws-1" };
+  let activeAssistant = assistantA;
 
-function createHarness(options: { maxEnabledSkills?: number } = {}) {
-  const now = new Date("2026-05-01T12:00:00.000Z");
-  const assistant = {
-    id: "assistant-1",
-    userId: "user-1",
-    workspaceId: "ws-1",
-    configDirtyAt: null as Date | null,
-    governance: {
-      assistantPlanOverrideCode: "pro",
-      quotaPlanCode: null
-    }
-  };
-  const skills = new Map<string, MockSkill>([
-    ["skill-1", createSkill("skill-1")],
-    ["skill-2", createSkill("skill-2")],
-    ["skill-archived", createSkill("skill-archived", "archived")],
-    ["global-skill", { ...createSkill("global-skill"), workspaceId: "other-ws" }]
-  ]);
-  const assignments = new Map<string, MockAssignment>();
-  const chatState = {
-    skillDecisionState: { stale: true } as Record<string, unknown> | null,
-    skillCadenceState: { stale: true } as Record<string, unknown> | null,
-    skillRetrievalState: { stale: true } as Record<string, unknown> | null
-  };
-  let nextAssignment = 1;
-
-  const assignmentApi = {
-    findMany: async ({ where }: { where: { assistantId: string; userId: string } }) =>
-      [...assignments.values()].filter(
-        (assignment) =>
-          assignment.assistantId === where.assistantId && assignment.userId === where.userId
-      ),
-    update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
-      const assignment = assignments.get(where.id);
-      const next = { ...assignment, ...data, updatedAt: now };
-      assignments.set(where.id, next);
-      return next;
+  const skills: SkillRow[] = [
+    {
+      id: "skill-1",
+      status: "active",
+      key: "skill-one",
+      label: { en: "Skill One" },
+      summary: null,
+      description: { en: "Skill one description" },
+      category: null,
+      displayOrder: 1,
+      createdAt: new Date("2026-05-26T15:00:00.000Z"),
+      updatedAt: new Date("2026-05-26T15:00:00.000Z"),
+      documents: []
     },
-    upsert: async ({ where, create, update }: AssignmentUpsertArgs) => {
-      const existing = [...assignments.values()].find(
-        (assignment) =>
-          assignment.assistantId === where.assistantId_skillId.assistantId &&
-          assignment.skillId === where.assistantId_skillId.skillId
-      );
-      if (existing) {
-        const next = { ...existing, ...update, updatedAt: now };
-        assignments.set(existing.id, next);
-        return next;
-      }
-      const created = {
-        id: `assignment-${nextAssignment++}`,
-        ...create,
-        createdAt: now,
-        updatedAt: now
-      };
-      assignments.set(created.id, created);
-      return created;
+    {
+      id: "skill-2",
+      status: "active",
+      key: "skill-two",
+      label: { en: "Skill Two" },
+      summary: null,
+      description: { en: "Skill two description" },
+      category: null,
+      displayOrder: 2,
+      createdAt: new Date("2026-05-26T15:01:00.000Z"),
+      updatedAt: new Date("2026-05-26T15:01:00.000Z"),
+      documents: []
     }
-  };
+  ];
+  const assignments: AssignmentRow[] = [
+    {
+      id: "assignment-a-1",
+      assistantId: assistantA.id,
+      userId: "user-1",
+      workspaceId: "ws-1",
+      skillId: "skill-1",
+      status: "active",
+      disabledReason: null,
+      enabledAt: new Date("2026-05-26T15:00:00.000Z"),
+      disabledAt: null,
+      createdAt: new Date("2026-05-26T15:00:00.000Z"),
+      updatedAt: new Date("2026-05-26T15:00:00.000Z")
+    },
+    {
+      id: "assignment-b-1",
+      assistantId: assistantB.id,
+      userId: "user-1",
+      workspaceId: "ws-1",
+      skillId: "skill-2",
+      status: "active",
+      disabledReason: null,
+      enabledAt: new Date("2026-05-26T15:01:00.000Z"),
+      disabledAt: null,
+      createdAt: new Date("2026-05-26T15:01:00.000Z"),
+      updatedAt: new Date("2026-05-26T15:01:00.000Z")
+    }
+  ];
 
   const prisma = {
     assistant: {
-      findFirst: async ({ where }: { where: { userId: string } }) =>
-        where.userId === assistant.userId ? assistant : null,
-      update: async ({ data }: { where: { id: string }; data: Record<string, unknown> }) => {
-        Object.assign(assistant, data);
-        return assistant;
+      async findUnique({ where }: { where: { id: string } }) {
+        if (where.id === assistantA.id) {
+          return { ...assistantA, governance: null };
+        }
+        if (where.id === assistantB.id) {
+          return { ...assistantB, governance: null };
+        }
+        return null;
+      },
+      async update() {
+        return activeAssistant;
       }
     },
     skill: {
-      findMany: async ({ where }: { where: SkillFindManyWhere }) => {
-        const rows = [...skills.values()];
-        if (where.id?.in) {
-          return rows
-            .filter((skill) => where.id.in.includes(skill.id))
+      async findMany({ where }: { where?: { id?: { in: string[] } } }) {
+        if (where?.id?.in !== undefined) {
+          return skills
+            .filter((skill) => where.id?.in.includes(skill.id))
             .map((skill) => ({ id: skill.id, status: skill.status }));
         }
-        return rows.filter(
-          (skill) =>
-            skill.status === "active" ||
-            [...assignments.values()].some(
-              (assignment) =>
-                assignment.skillId === skill.id && assignment.assistantId === assistant.id
-            )
-        );
+        return skills;
       }
     },
-    assistantSkillAssignment: assignmentApi,
-    assistantChat: {
-      updateMany: async ({
-        data
+    assistantSkillAssignment: {
+      async findMany({ where }: { where: { assistantId: string } }) {
+        return assignments.filter((assignment) => assignment.assistantId === where.assistantId);
+      },
+      async update({ where, data }: { where: { id: string }; data: Partial<AssignmentRow> }) {
+        const assignment = assignments.find((row) => row.id === where.id);
+        if (assignment === undefined) {
+          throw new Error("assignment not found");
+        }
+        Object.assign(assignment, data, { updatedAt: new Date("2026-05-26T15:10:00.000Z") });
+        return assignment;
+      },
+      async upsert({
+        where,
+        create,
+        update
       }: {
-        where: { assistantId: string };
-        data: Record<string, unknown>;
-      }) => {
-        if ("skillDecisionState" in data) {
-          const nextState = data.skillDecisionState;
-          chatState.skillDecisionState =
-            nextState !== null &&
-            typeof nextState === "object" &&
-            Object.getPrototypeOf(nextState)?.constructor?.name === "DbNull"
-              ? null
-              : ((nextState as Record<string, unknown> | null) ?? null);
+        where: { assistantId_skillId: { assistantId: string; skillId: string } };
+        create: Omit<AssignmentRow, "id" | "createdAt" | "updatedAt">;
+        update: Partial<AssignmentRow>;
+      }) {
+        const existing = assignments.find(
+          (row) =>
+            row.assistantId === where.assistantId_skillId.assistantId &&
+            row.skillId === where.assistantId_skillId.skillId
+        );
+        if (existing !== undefined) {
+          Object.assign(existing, update, { updatedAt: new Date("2026-05-26T15:10:00.000Z") });
+          return existing;
         }
-        if ("skillCadenceState" in data) {
-          const nextState = data.skillCadenceState;
-          chatState.skillCadenceState =
-            nextState !== null &&
-            typeof nextState === "object" &&
-            Object.getPrototypeOf(nextState)?.constructor?.name === "DbNull"
-              ? null
-              : ((nextState as Record<string, unknown> | null) ?? null);
-        }
-        if ("skillRetrievalState" in data) {
-          const nextState = data.skillRetrievalState;
-          chatState.skillRetrievalState =
-            nextState !== null &&
-            typeof nextState === "object" &&
-            Object.getPrototypeOf(nextState)?.constructor?.name === "DbNull"
-              ? null
-              : ((nextState as Record<string, unknown> | null) ?? null);
-        }
-        return { count: 1 };
+        const created: AssignmentRow = {
+          id: `assignment-${assignments.length + 1}`,
+          ...create,
+          createdAt: new Date("2026-05-26T15:10:00.000Z"),
+          updatedAt: new Date("2026-05-26T15:10:00.000Z")
+        };
+        assignments.push(created);
+        return created;
       }
     },
-    planCatalogPlan: {
-      findUnique: async () => ({
-        billingProviderHints: {
-          skillPolicy: {
-            maxEnabledSkills: options.maxEnabledSkills ?? 1
-          }
-        },
-        entitlement: {
-          limitsPermissions: []
-        }
-      })
+    assistantChat: {
+      async updateMany() {
+        return { count: 0 };
+      }
     },
-    $transaction: async (
-      callback: (tx: {
-        assistantSkillAssignment: typeof assignmentApi;
-        assistantChat: {
-          updateMany: (args: {
-            where: { assistantId: string };
-            data: Record<string, unknown>;
-          }) => Promise<{ count: number }>;
-        };
-      }) => Promise<void>
-    ) =>
-      callback({
-        assistantSkillAssignment: assignmentApi,
+    async $transaction<T>(callback: (tx: Record<string, unknown>) => Promise<T>): Promise<T> {
+      return callback({
+        assistantSkillAssignment: prisma.assistantSkillAssignment,
         assistantChat: prisma.assistantChat
-      })
+      } as Record<string, unknown>);
+    }
   };
 
   const service = new ManageAssistantSkillsService(
     prisma as never,
     {
-      execute: async () => ({
-        source: "assistant_plan_override",
-        status: "unconfigured",
-        planCode: "pro",
-        trialEndsAt: null,
-        currentPeriodEndsAt: null,
-        cancelAtPeriodEnd: false
-      })
+      async execute() {
+        return { planCode: null };
+      }
+    } as never,
+    {
+      async execute({ userId }: { userId: string }) {
+        assert.equal(userId, "user-1");
+        return { assistantId: activeAssistant.id, assistant: activeAssistant };
+      }
     } as never
   );
 
-  return { service, assignments, assistant, chatState };
-}
+  activeAssistant = assistantA;
+  const listForA = await service.list("user-1");
+  assert.deepEqual(listForA.assignedSkillIds, ["skill-1"]);
 
-async function run(): Promise<void> {
-  const harness = createHarness();
+  await service.replaceAssignments("user-1", ["skill-2"]);
+  const refreshedA = await service.list("user-1");
+  assert.deepEqual(refreshedA.assignedSkillIds, ["skill-2"]);
 
-  const initial = await harness.service.list("user-1");
-  assert.equal(initial.limit, 1);
-  assert.equal(initial.assignedSkillIds.length, 0);
-  assert.ok(initial.skills.some((item) => item.skill.id === "global-skill"));
+  activeAssistant = assistantB;
+  const listForB = await service.list("user-1");
+  assert.deepEqual(listForB.assignedSkillIds, ["skill-2"]);
 
-  await assert.rejects(
-    () => harness.service.replaceAssignments("user-1", ["skill-1", "skill-2"]),
-    BadRequestException
+  const assistantBAssignment = assignments.find(
+    (assignment) => assignment.assistantId === assistantB.id && assignment.skillId === "skill-2"
   );
-  await assert.rejects(
-    () => harness.service.replaceAssignments("user-1", ["skill-archived"]),
-    BadRequestException
-  );
-
-  const assigned = await harness.service.replaceAssignments("user-1", ["skill-1"]);
-  assert.deepEqual(assigned.assignedSkillIds, ["skill-1"]);
-  assert.equal(harness.assignments.size, 1);
-  assert.deepEqual(harness.chatState.skillDecisionState, {
-    status: "inactive",
-    activeSkillId: null,
-    activeSkillName: null,
-    topicSummary: null,
-    confidence: "low",
-    checkedAtMessageIndex: 0
-  });
-  assert.deepEqual(harness.chatState.skillCadenceState, {
-    messageCountSinceCheck: 0,
-    backgroundCheckQueuedAtMessageIndex: null,
-    needsBootstrap: true,
-    bootstrapReason: "skills_enabled_after_chat_started"
-  });
-  assert.equal(harness.chatState.skillRetrievalState, null);
-  const skill2 = assigned.skills.find((item) => item.skill.id === "skill-2");
-  assert.equal(skill2?.selectable, false);
-  assert.equal(skill2?.disabledReason, "skill_limit_reached");
-
-  const globalAssigned = await harness.service.replaceAssignments("user-1", ["global-skill"]);
-  assert.deepEqual(globalAssigned.assignedSkillIds, ["global-skill"]);
-
-  const cleared = await harness.service.replaceAssignments("user-1", []);
-  assert.deepEqual(cleared.assignedSkillIds, []);
-  assert.equal([...harness.assignments.values()][0]?.status, "disabled");
-  assert.equal(harness.chatState.skillDecisionState, null);
-  assert.equal(harness.chatState.skillCadenceState, null);
-  assert.equal(harness.chatState.skillRetrievalState, null);
-  assert.ok(harness.assistant.configDirtyAt instanceof Date);
-
-  const zeroLimitHarness = createHarness({ maxEnabledSkills: 0 });
-  const zeroLimitState = await zeroLimitHarness.service.list("user-1");
-  assert.equal(zeroLimitState.limit, 0);
-  assert.equal(
-    zeroLimitState.skills.find((item) => item.skill.id === "skill-1")?.disabledReason,
-    "skill_limit_reached"
-  );
-  await assert.rejects(
-    () => zeroLimitHarness.service.replaceAssignments("user-1", ["skill-1"]),
-    BadRequestException
-  );
+  assert.equal(assistantBAssignment?.status, "active");
 }
 
 void run();

@@ -419,9 +419,17 @@ export class ManageNotificationPlatformService {
     // - web_thread / web_notification_center: first active web chat
     // - email: recipientEmail only
     // - admin_webhook / push placeholders: no user chat context required
-    const adminAssistant = await this.prisma.assistant.findUnique({
-      where: { userId }
+    const adminAssistants = await this.prisma.assistant.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+      take: 2
     });
+    if (adminAssistants.length > 1) {
+      throw new BadRequestException(
+        "Active assistant context is required for notification test sends."
+      );
+    }
+    const adminAssistant = adminAssistants[0] ?? null;
     let chatId: string | null = null;
     let surface: string | null = null;
     let surfaceThreadKey: string | null = null;
@@ -613,9 +621,18 @@ export class ManageNotificationPlatformService {
 
     // Look up the admin's assistant once — used both for semantic-channel
     // resolution and for building the synthetic intent later.
-    const fallbackAdminAssistantId = await this.prisma.assistant
-      .findUnique({ where: { userId }, select: { id: true } })
-      .then((row) => row?.id ?? null);
+    const fallbackAdminAssistants = await this.prisma.assistant.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+      take: 2
+    });
+    if (fallbackAdminAssistants.length > 1) {
+      throw new BadRequestException(
+        "Active assistant context is required for notification test sends."
+      );
+    }
+    const fallbackAdminAssistantId = fallbackAdminAssistants[0]?.id ?? null;
     const adminAssistantId =
       adminSystemConfig?.recipientAssistantIds[0] ?? fallbackAdminAssistantId ?? null;
     const adminAssistant =

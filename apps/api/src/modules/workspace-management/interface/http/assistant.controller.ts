@@ -5,7 +5,6 @@ import {
   Delete,
   Get,
   HttpCode,
-  NotFoundException,
   Param,
   Patch,
   Post,
@@ -24,7 +23,6 @@ import {
 import type { AssistantLifecycleState } from "../../application/assistant-lifecycle.types";
 import type { UserPlanVisibilityState } from "../../application/plan-visibility.types";
 import { CreateAssistantService } from "../../application/create-assistant.service";
-import { GetAssistantByUserIdService } from "../../application/get-assistant-by-user-id.service";
 import { PublishAssistantDraftService } from "../../application/publish-assistant-draft.service";
 import { ReapplyAssistantService } from "../../application/reapply-assistant.service";
 import { ResetAssistantService } from "../../application/reset-assistant.service";
@@ -81,16 +79,32 @@ import {
   type WorkspaceMemoryItemState
 } from "../../application/manage-assistant-workspace-memory.service";
 import { ManagePersonaArchetypesService } from "../../application/manage-persona-archetypes.service";
+import { ResolveActiveAssistantService } from "../../application/resolve-active-assistant.service";
+import { ResolveAssistantLifecycleViewService } from "../../application/resolve-assistant-lifecycle-view.service";
+import { SwitchActiveAssistantService } from "../../application/switch-active-assistant.service";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 import { createStreamWriterInstrumentation } from "./stream-writer-instrumentation";
 
 const WEB_CHAT_STREAM_HEARTBEAT_INTERVAL_MS = 10_000;
+type AssistantLifecycleView = Awaited<ReturnType<ResolveAssistantLifecycleViewService["execute"]>>;
+type AssistantContractResponse = {
+  requestId: string | null;
+  assistant: AssistantLifecycleState;
+  assistants: AssistantLifecycleView["assistants"];
+  activeAssistantId: string | null;
+  assistantLimit: AssistantLifecycleView["assistantLimit"];
+};
+type AssistantListResponse = {
+  requestId: string | null;
+  assistants: AssistantLifecycleView["assistants"];
+  activeAssistantId: string | null;
+  assistantLimit: AssistantLifecycleView["assistantLimit"];
+};
 
 @Controller("api/v1")
 export class AssistantController {
   constructor(
     private readonly createAssistantService: CreateAssistantService,
-    private readonly getAssistantByUserIdService: GetAssistantByUserIdService,
     private readonly publishAssistantDraftService: PublishAssistantDraftService,
     private readonly reapplyAssistantService: ReapplyAssistantService,
     private readonly rollbackAssistantService: RollbackAssistantService,
@@ -127,38 +141,64 @@ export class AssistantController {
     private readonly manageAssistantWorkspaceMemoryService: ManageAssistantWorkspaceMemoryService,
     private readonly managePersonaArchetypesService: ManagePersonaArchetypesService,
     private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
+    private readonly resolveAssistantLifecycleViewService: ResolveAssistantLifecycleViewService,
+    private readonly switchActiveAssistantService: SwitchActiveAssistantService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   @Post("assistant")
-  async createAssistant(@Req() req: RequestWithPlatformContext): Promise<{
-    requestId: string | null;
-    assistant: AssistantLifecycleState;
-  }> {
+  async createAssistant(
+    @Req() req: RequestWithPlatformContext
+  ): Promise<AssistantContractResponse> {
     const userId = this.resolveRequestUserId(req);
-    const assistant = await this.createAssistantService.execute(userId);
-
-    return {
-      requestId: req.requestId ?? null,
-      assistant
-    };
+    await this.createAssistantService.execute(userId);
+    return this.buildAssistantResponse(
+      userId,
+      req.requestId ?? null,
+      "Assistant not found after creation."
+    );
   }
 
   @Get("assistant")
-  async getAssistant(@Req() req: RequestWithPlatformContext): Promise<{
-    requestId: string | null;
-    assistant: AssistantLifecycleState;
-  }> {
-    const userId = this.resolveRequestUserId(req);
-    const assistant = await this.getAssistantByUserIdService.execute(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+  async getAssistant(@Req() req: RequestWithPlatformContext): Promise<AssistantContractResponse> {
+    return this.buildAssistantResponse(
+      this.resolveRequestUserId(req),
+      req.requestId ?? null,
+      "Assistant does not exist for this workspace."
+    );
+  }
 
+  @Get("assistant/list")
+  async listAssistants(@Req() req: RequestWithPlatformContext): Promise<AssistantListResponse> {
+    const state = await this.resolveAssistantLifecycleViewService.execute(
+      this.resolveRequestUserId(req)
+    );
     return {
       requestId: req.requestId ?? null,
-      assistant
+      assistants: state.assistants,
+      activeAssistantId: state.activeAssistantId,
+      assistantLimit: state.assistantLimit
     };
+  }
+
+  @Post("assistant/switch")
+  @HttpCode(200)
+  async switchAssistant(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<AssistantContractResponse> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.parseSwitchAssistantInput(body);
+    await this.switchActiveAssistantService.execute({
+      userId,
+      assistantId: input.assistantId
+    });
+    return this.buildAssistantResponse(
+      userId,
+      req.requestId ?? null,
+      "Assistant not found after switch."
+    );
   }
 
   @Get("assistant/voice/settings")
@@ -209,18 +249,15 @@ export class AssistantController {
   async updateDraft(
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown
-  ): Promise<{
-    requestId: string | null;
-    assistant: AssistantLifecycleState;
-  }> {
+  ): Promise<AssistantContractResponse> {
     const userId = this.resolveRequestUserId(req);
     const input = this.updateAssistantDraftService.parseInput(body);
-    const assistant = await this.updateAssistantDraftService.execute(userId, input);
-
-    return {
-      requestId: req.requestId ?? null,
-      assistant
-    };
+    await this.updateAssistantDraftService.execute(userId, input);
+    return this.buildAssistantResponse(
+      userId,
+      req.requestId ?? null,
+      "Assistant does not exist for this workspace."
+    );
   }
 
   @Post("assistant/setup/preview")
@@ -473,15 +510,12 @@ export class AssistantController {
     }>;
   }> {
     const userId = this.resolveRequestUserId(req);
-    const assistant = await this.prisma.assistant.findUnique({
-      where: { userId },
-      select: { id: true }
-    });
+    const assistant = await this.resolveActiveAssistantService.executeOptional({ userId });
     if (!assistant) {
       return { requestId: req.requestId ?? null, groups: [] };
     }
     const allGroups = await this.prisma.assistantTelegramGroup.findMany({
-      where: { assistantId: assistant.id },
+      where: { assistantId: assistant.assistantId },
       orderBy: { updatedAt: "desc" }
     });
     const seen = new Map<string, (typeof allGroups)[number]>();
@@ -522,68 +556,56 @@ export class AssistantController {
 
   @Post("assistant/publish")
   @HttpCode(200)
-  async publishAssistant(@Req() req: RequestWithPlatformContext): Promise<{
-    requestId: string | null;
-    assistant: AssistantLifecycleState;
-  }> {
+  async publishAssistant(
+    @Req() req: RequestWithPlatformContext
+  ): Promise<AssistantContractResponse> {
     const userId = this.resolveRequestUserId(req);
-    const assistant = await this.publishAssistantDraftService.execute(userId);
-
-    return {
-      requestId: req.requestId ?? null,
-      assistant
-    };
+    await this.publishAssistantDraftService.execute(userId);
+    return this.buildAssistantResponse(
+      userId,
+      req.requestId ?? null,
+      "Assistant does not exist for this workspace."
+    );
   }
 
   @Post("assistant/rollback")
   async rollbackAssistant(
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown
-  ): Promise<{
-    requestId: string | null;
-    assistant: AssistantLifecycleState;
-  }> {
+  ): Promise<AssistantContractResponse> {
     const userId = this.resolveRequestUserId(req);
     const input = this.rollbackAssistantService.parseInput(body);
-    const assistant = await this.rollbackAssistantService.execute(userId, input);
-
-    return {
-      requestId: req.requestId ?? null,
-      assistant
-    };
+    await this.rollbackAssistantService.execute(userId, input);
+    return this.buildAssistantResponse(
+      userId,
+      req.requestId ?? null,
+      "Assistant does not exist for this workspace."
+    );
   }
 
   @Post("assistant/reset")
-  async resetAssistant(@Req() req: RequestWithPlatformContext): Promise<{
-    requestId: string | null;
-    assistant: AssistantLifecycleState;
-  }> {
+  async resetAssistant(@Req() req: RequestWithPlatformContext): Promise<AssistantContractResponse> {
     const userId = this.resolveRequestUserId(req);
     await this.resetAssistantService.execute(userId);
-    const assistant = await this.getAssistantByUserIdService.execute(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant not found after reset.");
-    }
-
-    return {
-      requestId: req.requestId ?? null,
-      assistant
-    };
+    return this.buildAssistantResponse(
+      userId,
+      req.requestId ?? null,
+      "Assistant not found after reset."
+    );
   }
 
   @Post("assistant/reapply")
   @HttpCode(200)
-  async reapplyAssistant(@Req() req: RequestWithPlatformContext): Promise<{
-    requestId: string | null;
-    assistant: AssistantLifecycleState;
-  }> {
+  async reapplyAssistant(
+    @Req() req: RequestWithPlatformContext
+  ): Promise<AssistantContractResponse> {
     const userId = this.resolveRequestUserId(req);
-    const assistant = await this.reapplyAssistantService.execute(userId);
-
-    return {
-      requestId: req.requestId ?? null,
-      assistant
-    };
+    await this.reapplyAssistantService.execute(userId);
+    return this.buildAssistantResponse(
+      userId,
+      req.requestId ?? null,
+      "Assistant does not exist for this workspace."
+    );
   }
 
   @Get("assistant/runtime/preflight")
@@ -1042,6 +1064,7 @@ export class AssistantController {
     if (normalizedClientTurnId.length === 0) {
       throw new BadRequestException("clientTurnId must be a non-empty string.");
     }
+    const resolvedAssistant = await this.resolveActiveAssistantService.execute({ userId });
 
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -1083,7 +1106,8 @@ export class AssistantController {
 
     const initialStatus = await this.webChatTurnAttemptService.getStatusForUser(
       userId,
-      normalizedClientTurnId
+      normalizedClientTurnId,
+      resolvedAssistant.assistantId
     );
     sendSse("turn_status", { turn: initialStatus });
     if (initialStatus.status !== "accepted" && initialStatus.status !== "running") {
@@ -1093,6 +1117,7 @@ export class AssistantController {
     }
 
     const detach = this.webChatTurnStreamRegistry.attach({
+      assistantId: resolvedAssistant.assistantId,
       clientTurnId: normalizedClientTurnId,
       userId,
       onEvent: sendSse
@@ -1104,7 +1129,8 @@ export class AssistantController {
       try {
         const status = await this.webChatTurnAttemptService.getStatusForUser(
           userId,
-          normalizedClientTurnId
+          normalizedClientTurnId,
+          resolvedAssistant.assistantId
         );
         const nextPayload = JSON.stringify(status);
         if (nextPayload !== lastStatusPayload) {
@@ -1203,11 +1229,13 @@ export class AssistantController {
     });
 
     let clientTurnIdForRegistry: string | undefined;
+    let assistantIdForRegistry: string | undefined;
     let streamRegistryUserId: string | undefined;
     const sseWriterInstrumentation = createStreamWriterInstrumentation();
     const sendSse = (event: string, payload: unknown): void => {
-      if (clientTurnIdForRegistry !== undefined) {
+      if (assistantIdForRegistry !== undefined && clientTurnIdForRegistry !== undefined) {
         this.webChatTurnStreamRegistry.publish({
+          assistantId: assistantIdForRegistry,
           clientTurnId: clientTurnIdForRegistry,
           userId,
           event,
@@ -1258,13 +1286,16 @@ export class AssistantController {
       clientTurnIdForRegistry =
         preparation.mode === "prepared" ? preparation.prepared.clientTurnId : undefined;
       if (clientTurnIdForRegistry !== undefined && preparation.mode === "prepared") {
+        assistantIdForRegistry = preparation.prepared.assistantId;
         streamRegistryUserId = preparation.prepared.userId;
         this.webChatTurnHardStopRegistry.register({
+          assistantId: preparation.prepared.assistantId,
           clientTurnId: clientTurnIdForRegistry,
           userId: preparation.prepared.userId,
           controller: clientAbortController
         });
         this.webChatTurnStreamRegistry.register({
+          assistantId: preparation.prepared.assistantId,
           clientTurnId: clientTurnIdForRegistry,
           userId: preparation.prepared.userId
         });
@@ -1357,13 +1388,15 @@ export class AssistantController {
       res.end();
     } finally {
       clearInterval(heartbeat);
-      if (clientTurnIdForRegistry !== undefined) {
+      if (assistantIdForRegistry !== undefined && clientTurnIdForRegistry !== undefined) {
         this.webChatTurnHardStopRegistry.release({
+          assistantId: assistantIdForRegistry,
           clientTurnId: clientTurnIdForRegistry,
           controller: clientAbortController
         });
         if (streamRegistryUserId !== undefined) {
           this.webChatTurnStreamRegistry.release({
+            assistantId: assistantIdForRegistry,
             clientTurnId: clientTurnIdForRegistry,
             userId: streamRegistryUserId
           });
@@ -1402,11 +1435,50 @@ export class AssistantController {
     if (typeof clientTurnId !== "string" || clientTurnId.trim().length === 0) {
       throw new BadRequestException("clientTurnId must be a non-empty string.");
     }
+    const resolvedAssistant = await this.resolveActiveAssistantService
+      .executeOptional({ userId })
+      .catch(() => null);
+    if (resolvedAssistant === null) {
+      return;
+    }
 
     this.webChatTurnHardStopRegistry.signalHardStop({
-      clientTurnId,
+      assistantId: resolvedAssistant.assistantId,
+      clientTurnId: clientTurnId.trim(),
       userId
     });
+  }
+
+  private parseSwitchAssistantInput(payload: unknown): { assistantId: string } {
+    if (typeof payload !== "object" || payload === null) {
+      throw new BadRequestException("Switch payload must be an object.");
+    }
+    const assistantId =
+      "assistantId" in payload && typeof payload.assistantId === "string"
+        ? payload.assistantId.trim()
+        : "";
+    if (assistantId.length === 0) {
+      throw new BadRequestException("assistantId must be a non-empty string.");
+    }
+    return { assistantId };
+  }
+
+  private async buildAssistantResponse(
+    userId: string,
+    requestId: string | null,
+    notFoundMessage: string
+  ): Promise<AssistantContractResponse> {
+    const state = await this.resolveAssistantLifecycleViewService.execute(userId);
+    return {
+      requestId,
+      assistant: this.resolveAssistantLifecycleViewService.assertActiveAssistant(
+        state,
+        notFoundMessage
+      ),
+      assistants: state.assistants,
+      activeAssistantId: state.activeAssistantId,
+      assistantLimit: state.assistantLimit
+    };
   }
 
   private resolveRequestUserId(req: RequestWithPlatformContext): string {

@@ -60,8 +60,13 @@ type BindingRecord = {
 async function run(): Promise<void> {
   let binding: BindingRecord | null = null;
 
-  const assistantRepository = {
-    findByUserId: async (userId: string) => (userId === assistant.userId ? assistant : null)
+  const activeAssistantResolver = {
+    execute: async ({ userId }: { userId: string }) => {
+      if (userId !== assistant.userId) {
+        throw new Error("assistant not found");
+      }
+      return { assistantId: assistant.id, assistant };
+    }
   };
   const governanceRepository = {
     findByAssistantId: async () => governance,
@@ -158,10 +163,10 @@ async function run(): Promise<void> {
   };
 
   const resolveStateService = new ResolveTelegramIntegrationStateService(
-    assistantRepository as never,
     governanceRepository as never,
     bindingRepository as never,
-    capabilityResolver as never
+    capabilityResolver as never,
+    activeAssistantResolver as never
   );
   const prismaServiceMock = {
     assistant: { update: async () => ({}), updateMany: async () => ({}) }
@@ -183,7 +188,6 @@ async function run(): Promise<void> {
     }
   };
   const connectService = new ConnectTelegramIntegrationService(
-    assistantRepository as never,
     governanceRepository as never,
     bindingRepository as never,
     publishedVersionRepositoryMock as never,
@@ -192,19 +196,19 @@ async function run(): Promise<void> {
     resolveStateService,
     auditEventService as never,
     secretStoreServiceMock as never,
-    prismaServiceMock as never
+    prismaServiceMock as never,
+    activeAssistantResolver as never
   );
   const updateConfigService = new UpdateTelegramIntegrationConfigService(
-    assistantRepository as never,
     bindingRepository as never,
     publishedVersionRepositoryMock as never,
     applyServiceMock as never,
     resolveStateService,
     auditEventService as never,
-    prismaServiceMock as never
+    prismaServiceMock as never,
+    activeAssistantResolver as never
   );
   const revokeService = new RevokeTelegramIntegrationSecretService(
-    assistantRepository as never,
     governanceRepository as never,
     bindingRepository as never,
     publishedVersionRepositoryMock as never,
@@ -212,7 +216,8 @@ async function run(): Promise<void> {
     resolveStateService,
     auditEventService as never,
     secretStoreServiceMock as never,
-    prismaServiceMock as never
+    prismaServiceMock as never,
+    activeAssistantResolver as never
   );
 
   const originalFetch = globalThis.fetch;

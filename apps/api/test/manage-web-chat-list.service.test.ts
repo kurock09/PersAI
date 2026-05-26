@@ -268,9 +268,6 @@ function createService(overrides?: {
 
   const service = new ManageWebChatListService(
     {
-      findByUserId: async (userId: string) => (userId === "user-1" ? createAssistant() : null)
-    } as never,
-    {
       listChatsByAssistantId: async () => [createChat()],
       findChatById: async (chatId: string) => (chatId === "chat-1" ? createChat() : null),
       getChatListMetadata: async () => ({
@@ -372,6 +369,12 @@ function createService(overrides?: {
       getActiveTurnForChat: async () => null
     } as never,
     {
+      execute: async ({ userId }: { userId: string }) => {
+        assert.equal(userId, "user-1");
+        return { assistant: createAssistant() };
+      }
+    } as never,
+    {
       runtimeSession: {
         findUnique: async () => ({
           currentTokens: 12_000,
@@ -409,6 +412,120 @@ function createService(overrides?: {
 }
 
 describe("ManageWebChatListService", () => {
+  test("lists chats for the resolved active assistant only", async () => {
+    const service = new ManageWebChatListService(
+      {
+        listChatsByAssistantId: async (assistantId: string) => {
+          assert.equal(assistantId, "assistant-2");
+          return [
+            {
+              ...createChat(),
+              id: "chat-2",
+              assistantId,
+              surfaceThreadKey: "thread-2"
+            }
+          ];
+        },
+        getChatListMetadata: async () => ({
+          messageCount: 1,
+          lastMessagePreview: "message-1"
+        })
+      } as never,
+      {
+        listByMessageIds: async () => [],
+        listByChatId: async () => [],
+        deleteByChatId: async () => undefined
+      } as never,
+      {
+        resolveCurrent: async () => ({
+          runtimeBundle: null,
+          runtimeBundleDocument: JSON.stringify({
+            runtime: {
+              sharedCompaction: {
+                reserveTokens: 24_000,
+                keepRecentTokens: 16_000,
+                recentTurnsPreserve: 4
+              },
+              contextHydration: {
+                autoCompactionWeb: false
+              }
+            }
+          })
+        })
+      } as never,
+      {
+        resolveByAssistantId: async () => "free_shared_restricted"
+      } as never,
+      {
+        releaseMediaStorage: async () => undefined,
+        refreshActiveWebChatsUsage: async () => undefined
+      } as never,
+      {
+        buildChatPrefix: () => "",
+        deletePrefix: async () => undefined,
+        deleteObject: async () => undefined
+      } as never,
+      {
+        execute: async () => ({
+          compacted: false,
+          reason: "threshold_not_reached",
+          tokensBefore: null,
+          tokensAfter: null,
+          session: null,
+          toolResult: createCompactionToolResult({
+            action: "skipped",
+            reason: "threshold_not_reached"
+          })
+        })
+      } as never,
+      {
+        execute: async () => ({ found: false, session: null })
+      } as never,
+      {
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      {
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      {
+        getActiveTurnForChat: async () => null
+      } as never,
+      {
+        execute: async ({ userId }: { userId: string }) => {
+          assert.equal(userId, "user-1");
+          return {
+            assistantId: "assistant-2",
+            assistant: {
+              ...createAssistant(),
+              id: "assistant-2"
+            }
+          };
+        }
+      } as never,
+      {
+        runtimeSession: {
+          findUnique: async () => null
+        },
+        runtimeSessionCompaction: {
+          findMany: async () => []
+        },
+        assistantChatMessageAttachment: {
+          findMany: async () => []
+        },
+        assistantFile: {
+          findMany: async () => [],
+          deleteMany: async () => ({ count: 0 })
+        }
+      } as never
+    );
+
+    const chats = await service.listChats("user-1");
+
+    assert.equal(chats.length, 1);
+    assert.equal(chats[0]?.chat.assistantId, "assistant-2");
+    assert.equal(chats[0]?.chat.surfaceThreadKey, "thread-2");
+  });
+
   test("projects active media jobs for web chat continuity reads", async () => {
     const { service } = createService({
       mediaJobs: [

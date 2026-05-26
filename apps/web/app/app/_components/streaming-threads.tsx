@@ -43,6 +43,13 @@ export interface StreamingThreadsRegistry {
 
 const StreamingThreadsContext = createContext<StreamingThreadsRegistry | null>(null);
 
+export function scopeThreadKey(threadKey: string, assistantId?: string | null): string {
+  if (!assistantId) {
+    return threadKey;
+  }
+  return `${assistantId}::${threadKey}`;
+}
+
 function useRegistryState(): StreamingThreadsRegistry {
   const [activeThreads, setActiveThreads] = useState<ReadonlySet<string>>(() => new Set());
   const [activeMediaThreads, setActiveMediaThreads] = useState<ReadonlySet<string>>(
@@ -138,17 +145,23 @@ export function useStreamingThreadsRegistry(): StreamingThreadsRegistry {
 }
 
 /** Narrow read-only hook for components that only need a per-thread boolean. */
-export function useIsThreadStreaming(threadKey: string): boolean {
+export function useIsThreadStreaming(threadKey: string, assistantId?: string | null): boolean {
   const { activeThreads } = useStreamingThreadsRegistry();
-  return activeThreads.has(threadKey);
+  return activeThreads.has(scopeThreadKey(threadKey, assistantId));
 }
 
-export function useHasThreadActiveMediaJobs(threadKey: string): boolean {
+export function useHasThreadActiveMediaJobs(
+  threadKey: string,
+  assistantId?: string | null
+): boolean {
   const { activeMediaThreads } = useStreamingThreadsRegistry();
-  return activeMediaThreads.has(threadKey);
+  return activeMediaThreads.has(scopeThreadKey(threadKey, assistantId));
 }
 
-export function useHasThreadActiveDocumentJobs(threadKey: string): boolean {
+export function useHasThreadActiveDocumentJobs(
+  threadKey: string,
+  assistantId?: string | null
+): boolean {
   const { activeDocumentThreads } = useStreamingThreadsRegistry();
-  return activeDocumentThreads.has(threadKey);
+  return activeDocumentThreads.has(scopeThreadKey(threadKey, assistantId));
 }

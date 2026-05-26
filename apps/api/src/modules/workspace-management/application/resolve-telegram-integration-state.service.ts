@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
@@ -7,7 +7,6 @@ import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import type { TelegramIntegrationState } from "./telegram-integration.types";
 import { resolveTelegramSecretLifecycleState } from "./assistant-secret-refs-lifecycle";
@@ -17,6 +16,7 @@ import {
   resolveTelegramBindingMetadataState,
   resolveTelegramConnectionStatus
 } from "./telegram-integration.metadata";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -32,20 +32,16 @@ function toStringOrNull(value: unknown): string | null {
 @Injectable()
 export class ResolveTelegramIntegrationStateService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
-    private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService
+    private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async execute(userId: string): Promise<TelegramIntegrationState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
     const governance =
       (await this.assistantGovernanceRepository.findByAssistantId(assistant.id)) ??
       (await this.assistantGovernanceRepository.createBaseline(assistant.id));

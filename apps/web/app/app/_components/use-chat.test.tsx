@@ -1708,6 +1708,51 @@ describe("useChat", () => {
     });
   });
 
+  it("namespaces stored active turns by assistant id", async () => {
+    window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-stale");
+    window.sessionStorage.setItem("persai.active-web-turn.v1.assistant-2::thread-1", "turn-2");
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+      status: "running",
+      chat: {
+        id: "chat-2",
+        assistantId: "assistant-2",
+        surface: "web",
+        surfaceThreadKey: "thread-1",
+        title: "Scoped chat",
+        deepModeEnabled: false,
+        archivedAt: null,
+        lastMessageAt: "2026-04-25T17:45:35.000Z",
+        createdAt: "2026-04-25T17:45:35.000Z",
+        updatedAt: "2026-04-25T17:45:35.000Z"
+      },
+      userMessage: {
+        id: "server-user-2",
+        chatId: "chat-2",
+        assistantId: "assistant-2",
+        author: "user",
+        content: "search this",
+        attachments: [],
+        createdAt: "2026-04-25T17:45:35.000Z"
+      },
+      assistantMessage: null,
+      currentActivity: null,
+      runtime: null,
+      error: null
+    });
+
+    const { result } = renderHook(() => useChat("thread-1", { assistantId: "assistant-2" }), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await waitFor(() => {
+      expect(result.current.chatId).toBe("chat-2");
+    });
+    expect(assistantApiMocks.getAssistantWebChatTurnStatus).toHaveBeenCalledWith(
+      "token-1",
+      "turn-2"
+    );
+  });
+
   it("renders server-projected activeTurn from the messages response", async () => {
     assistantApiMocks.getChatMessages.mockResolvedValueOnce({
       nextCursor: null,

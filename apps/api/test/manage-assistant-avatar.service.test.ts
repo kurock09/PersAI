@@ -78,15 +78,7 @@ async function run(): Promise<void> {
   let storedAvatar: Buffer | null = null;
   const service = new ManageAssistantAvatarService(
     {
-      async findByUserId() {
-        return {
-          id: "assistant-1",
-          draftDisplayName: "PersAI",
-          draftInstructions: "Be helpful",
-          draftAvatarUrl: null
-        };
-      },
-      async updateDraft() {
+      async updateDraftByAssistantId() {
         return {};
       }
     } as never,
@@ -99,6 +91,19 @@ async function run(): Promise<void> {
       },
       async saveObject(input: { buffer: Buffer }) {
         storedAvatar = input.buffer;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          assistantId: "assistant-1",
+          assistant: {
+            id: "assistant-1",
+            draftDisplayName: "PersAI",
+            draftInstructions: "Be helpful",
+            draftAvatarUrl: null
+          }
+        };
       }
     } as never
   );

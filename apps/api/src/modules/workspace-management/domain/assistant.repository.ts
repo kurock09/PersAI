@@ -19,17 +19,45 @@ export interface AssistantRepository {
   findByUserId(userId: string): Promise<Assistant | null>;
   create(userId: string, workspaceId: string): Promise<Assistant>;
   updateDraft(userId: string, input: UpdateAssistantDraftInput): Promise<Assistant | null>;
+  updateDraftByAssistantId(
+    assistantId: string,
+    input: UpdateAssistantDraftInput
+  ): Promise<Assistant | null>;
   markApplyPending(userId: string, targetVersionId: string): Promise<Assistant | null>;
+  markApplyPendingByAssistantId(
+    assistantId: string,
+    targetVersionId: string
+  ): Promise<Assistant | null>;
   markApplyInProgress(userId: string, targetVersionId: string): Promise<Assistant | null>;
+  markApplyInProgressByAssistantId(
+    assistantId: string,
+    targetVersionId: string
+  ): Promise<Assistant | null>;
   markApplySucceeded(userId: string, appliedVersionId: string): Promise<Assistant | null>;
+  markApplySucceededByAssistantId(
+    assistantId: string,
+    appliedVersionId: string
+  ): Promise<Assistant | null>;
   markApplyFailed(
     userId: string,
     targetVersionId: string,
     errorCode: string,
     errorMessage: string
   ): Promise<Assistant | null>;
+  markApplyFailedByAssistantId(
+    assistantId: string,
+    targetVersionId: string,
+    errorCode: string,
+    errorMessage: string
+  ): Promise<Assistant | null>;
   markApplyDegraded(
     userId: string,
+    targetVersionId: string,
+    errorCode: string,
+    errorMessage: string
+  ): Promise<Assistant | null>;
+  markApplyDegradedByAssistantId(
+    assistantId: string,
     targetVersionId: string,
     errorCode: string,
     errorMessage: string

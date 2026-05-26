@@ -173,7 +173,12 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
 
   const service = new ManageAssistantKnowledgeSourcesService(
     {
-      findByUserId: async (userId: string) => (userId === "user-1" ? assistant : null)
+      execute: async ({ userId }: { userId: string }) => {
+        if (userId !== "user-1") {
+          throw new Error("assistant not found");
+        }
+        return { assistantId: assistant.id, assistant };
+      }
     } as never,
     prisma as never,
     {

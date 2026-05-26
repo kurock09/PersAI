@@ -20,8 +20,8 @@ import {
 } from "../domain/assistant-memory-registry.repository";
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
 import { isGlobalMemoryReadAllowed } from "../domain/memory-source-policy";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -30,8 +30,7 @@ function isUuid(value: string): boolean {
 @Injectable()
 export class DoNotRememberAssistantMemoryService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_MEMORY_REGISTRY_REPOSITORY)
@@ -69,10 +68,7 @@ export class DoNotRememberAssistantMemoryService {
     userId: string,
     input: { assistantMessageId: string; userMessageId: string | null }
   ): Promise<{ forgottenRegistryItems: number }> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const assistantMessage = await this.assistantChatRepository.findMessageByIdForAssistant(
       input.assistantMessageId,

@@ -74,7 +74,9 @@ export class AdminOpsUserDirectoryService {
           email: true,
           displayName: true,
           createdAt: true,
-          assistant: {
+          assistants: {
+            orderBy: { createdAt: "asc" as const },
+            take: 2,
             select: {
               id: true,
               draftDisplayName: true,
@@ -126,7 +128,7 @@ export class AdminOpsUserDirectoryService {
     return {
       total,
       users: users.map((u) => {
-        const a = u.assistant;
+        const a = u.assistants.length === 1 ? u.assistants[0] : null;
         const workspaceLink = u.workspaceLinks[0] ?? null;
         const subscription = workspaceLink?.workspace.subscription ?? null;
         const quota = workspaceLink?.workspace.quotaAccountingState ?? null;
@@ -163,7 +165,7 @@ export class AdminOpsUserDirectoryService {
   private async resolvePeriodEconomicsForUsers(
     users: Array<{
       id: string;
-      assistant: { id: string } | null;
+      assistants: Array<{ id: string }>;
       workspaceLinks: Array<{ workspaceId: string }>;
     }>
   ): Promise<Map<string, AdminOpsPeriodEconomicsSnapshot>> {
@@ -171,10 +173,14 @@ export class AdminOpsUserDirectoryService {
     await Promise.all(
       users.map(async (user) => {
         const workspaceId = user.workspaceLinks[0]?.workspaceId ?? null;
-        if (workspaceId === null || user.assistant === null) {
+        if (workspaceId === null || user.assistants.length !== 1) {
           return;
         }
-        const assistant = await this.assistantRepository.findById(user.assistant.id);
+        const assistantRow = user.assistants[0];
+        if (assistantRow === undefined) {
+          return;
+        }
+        const assistant = await this.assistantRepository.findById(assistantRow.id);
         if (assistant === null) {
           return;
         }

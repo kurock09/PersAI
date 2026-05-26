@@ -2,6 +2,469 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-26 — ADR-101 Slice 6 — web shell switcher and assistant-scoped client state
+
+### Scope
+
+Bounded ADR-101 web-only slice:
+
+- keep the ordinary single-assistant shell visually unchanged
+- land the quiet multi-assistant switch/create UX inside Assistant Settings instead of turning the sidebar card into a loud selector
+- scope chat/session/streaming thread state by `assistantId` so assistant A UI state cannot leak into assistant B
+- refresh the active assistant's lifecycle/chat/Telegram/notification surfaces on switch/create without changing backend contracts
+
+Out of scope:
+
+- backend/API contract changes beyond the already landed Slice 1-5 surfaces
+- deploy/live verification for the new multi-assistant shell
+- final cleanup of remaining legacy user-only assistant lookup bridges
+- downgrade/delete-extra-assistants policy redesign beyond the current backend truth
+
+### What changed
+
+Implemented the sixth bounded ADR-101 slice:
+
+1. Preserved the normal single-assistant shell for `assistantLimit.maxAssistants = 1`, so B2C users do not see noisy new selector chrome.
+2. Kept the sidebar assistant card as the settings entry point and added only a quiet 3px premium gradient accent when the workspace can have more than one assistant.
+3. Moved assistant switching into the assistant settings character section behind a quiet `Switch assistant` / `Сменить ассистента` button instead of promoting the sidebar card into a permanent selector.
+4. Added a switch modal that lists assistants with avatar/name plus a future specialty placeholder, exposes `Select` per assistant, and shows the create-assistant CTA only while slots remain; the full-limit state stays calm and relies on existing backend plan truth.
+5. Scoped web chat/session/streaming thread state by `assistantId` and refreshed lifecycle/chat/Telegram/notification slices after switch/create so the product shell no longer leaks assistant A state into assistant B while preserving workspace-level billing/plan/admin state.
+
+### Files / modules
+
+Primary Slice 6 web modules touched:
+
+- `apps/web/app/app/_components/sidebar.tsx`
+- `apps/web/app/app/_components/sidebar.test.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/assistant-settings.test.tsx`
+- `apps/web/app/app/_components/use-app-data.ts`
+- `apps/web/app/app/_components/use-app-data.test.tsx`
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/use-chat.test.tsx`
+- `apps/web/app/app/_components/streaming-threads.tsx`
+- `apps/web/app/app/chat/page.tsx`
+- `apps/web/app/app/chat/page.test.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/assistant-api-client.test.ts`
+- `apps/web/app/app/_server/fetch-app-bootstrap.ts`
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/app/admin/plans/page.test.tsx`
+- `apps/web/app/_components/pricing-page-view.test.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/ADR/101-multi-assistant-workspace-model.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused verification already passed for the implemented Slice 6 web surface:
+
+1. Focused web Vitest suite covering `apps/web/app/app/_components/use-app-data.test.tsx`, `apps/web/app/app/_components/sidebar.test.tsx`, `apps/web/app/app/_components/assistant-settings.test.tsx`, `apps/web/app/app/_components/use-chat.test.tsx`, and `apps/web/app/app/chat/page.test.tsx` — PASS (`5` files, `163` tests).
+2. `corepack pnpm -r --if-present run lint` — PASS
+3. `corepack pnpm run format:check` — PASS
+4. `corepack pnpm --filter @persai/api run typecheck` — PASS
+5. `corepack pnpm --filter @persai/web run typecheck` — PASS
+6. `corepack pnpm --filter @persai/contracts run typecheck` — PASS
+
+### Risks / residuals
+
+- Slice 7 still needs deploy/live smoke plus the runtime/integration isolation audit; this handoff records the already verified local web implementation, not live environment proof.
+- Slice 8 still must remove the remaining legacy `findByUserId` / user-only assistant lookup residue before ADR-101 can be called complete.
+- Downgrade/delete-extra-assistants policy remains backend residual truth; the Slice 6 UI stays calm and only reflects the current backend assistant-limit state instead of adding new product policy.
+
+### Next recommended step
+
+Proceed to ADR-101 Slice 7: run the runtime/integration isolation audit and deploy/live smoke for the landed multi-assistant shell, with special attention to assistant-scoped session keys, dedupe behavior, and cross-assistant state separation after real switch/create flows.
+
+## 2026-05-26 — ADR-101 Slice 5 — assistant-scoped surface isolation
+
+### What changed
+
+Implemented the fifth bounded ADR-101 slice:
+
+1. Migrated the remaining user-facing assistant-scoped memory surfaces off legacy user-only assistant lookup so workspace-memory CRUD, Memory Center list/forget, do-not-remember, and UI close-by-ref now resolve the active assistant before reading or mutating assistant-owned rows.
+2. Migrated assistant task/background-task product surfaces onto active assistant context so list and control operations no longer read or mutate another assistant's rows for the same user.
+3. Migrated the remaining assistant-owned product configuration surfaces onto active assistant resolution: Skill assignment, assistant knowledge source CRUD/reindex, avatar upload/download, voice settings/runtime-tier reads, direct/staged file upload plus voice transcription, Telegram integration connect/state/config/revoke/resend, and the lifecycle/settings mutation path (`draft`, `publish`, `reapply`, `rollback`, `reset`, `setup preview`).
+4. Added assistant-id-backed repository mutations for draft/apply lifecycle writes so publish/reapply/rollback and related auto-apply flows no longer rely on ambiguous user-keyed assistant mutation in multi-assistant workspaces.
+5. Added focused regressions proving representative assistant isolation across memory, tasks, skills, and file/media surfaces while keeping existing single-assistant flows green.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/domain/assistant.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant.repository.ts`
+- `apps/api/src/modules/workspace-management/application/apply-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-assistant-workspace-memory.service.ts`
+- `apps/api/src/modules/workspace-management/application/list-assistant-memory-items.service.ts`
+- `apps/api/src/modules/workspace-management/application/forget-assistant-memory-item.service.ts`
+- `apps/api/src/modules/workspace-management/application/do-not-remember-assistant-memory.service.ts`
+- `apps/api/src/modules/workspace-management/application/close-assistant-memory-by-ref.service.ts`
+- `apps/api/src/modules/workspace-management/application/list-assistant-task-items.service.ts`
+- `apps/api/src/modules/workspace-management/application/list-assistant-background-task-items.service.ts`
+- `apps/api/src/modules/workspace-management/application/control-assistant-background-task.service.ts`
+- `apps/api/src/modules/workspace-management/application/enable-assistant-task-registry-item.service.ts`
+- `apps/api/src/modules/workspace-management/application/disable-assistant-task-registry-item.service.ts`
+- `apps/api/src/modules/workspace-management/application/cancel-assistant-task-registry-item.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-assistant-skills.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-assistant-knowledge-sources.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-assistant-avatar.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-voice-settings.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-runtime-tier.service.ts`
+- `apps/api/src/modules/workspace-management/application/update-assistant-draft.service.ts`
+- `apps/api/src/modules/workspace-management/application/publish-assistant-draft.service.ts`
+- `apps/api/src/modules/workspace-management/application/reapply-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/rollback-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/reset-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-telegram-integration-state.service.ts`
+- `apps/api/src/modules/workspace-management/application/connect-telegram-integration.service.ts`
+- `apps/api/src/modules/workspace-management/application/update-telegram-integration-config.service.ts`
+- `apps/api/src/modules/workspace-management/application/revoke-telegram-integration-secret.service.ts`
+- `apps/api/src/modules/workspace-management/application/resend-telegram-owner-message.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/media-attachment.controller.ts`
+- `apps/api/test/manage-assistant-workspace-memory.service.test.ts`
+- `apps/api/test/assistant-task-active-assistant.service.test.ts`
+- `apps/api/test/manage-assistant-skills.service.test.ts`
+- `apps/api/test/media-attachment.controller.test.ts`
+- updated focused API tests under `apps/api/test/*` for media, avatar, knowledge, Telegram, lifecycle, reset, preview, and close-by-ref
+- `docs/ADR/101-multi-assistant-workspace-model.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused checks passed:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-workspace-memory.service.test.ts`
+2. `corepack pnpm --filter @persai/api exec tsx test/assistant-task-active-assistant.service.test.ts`
+3. `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-skills.service.test.ts`
+4. `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+5. `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.transcribe-voice.test.ts`
+6. `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-avatar.service.test.ts`
+7. `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-knowledge-sources.service.test.ts`
+8. `corepack pnpm --filter @persai/api exec tsx test/update-assistant-draft.service.test.ts`
+9. `corepack pnpm --filter @persai/api exec tsx test/publish-assistant-draft.service.test.ts`
+10. `corepack pnpm --filter @persai/api exec tsx test/telegram-integration.test.ts`
+11. `corepack pnpm --filter @persai/api exec tsx test/resend-telegram-owner-message.service.test.ts`
+12. `corepack pnpm --filter @persai/api exec tsx test/reset-assistant.service.test.ts`
+13. `corepack pnpm --filter @persai/api exec tsx test/preview-assistant-setup.service.test.ts`
+14. `corepack pnpm --filter @persai/api exec tsx test/close-assistant-memory-by-ref.service.test.ts`
+15. `corepack pnpm --filter @persai/api exec tsx test/media-attachment.controller.test.ts`
+
+Additional verification:
+
+1. `corepack pnpm -r --if-present run lint` — PASS
+2. `corepack pnpm run format:check` — PASS
+3. `corepack pnpm --filter @persai/api run typecheck` — PASS
+4. `corepack pnpm --filter @persai/web run typecheck` — PASS
+5. `corepack pnpm --filter @persai/contracts run typecheck` — PASS
+
+### Risks / residuals
+
+- Remaining `findByUserId` / user-only assistant lookup residue is now concentrated in explicit later-slice or out-of-scope surfaces such as billing/payment/package purchase, plan visibility, and admin ops/support tooling; do not claim ADR-101 complete until Slice 8 removes those bridges.
+- Slice 5 intentionally does not add the Slice 6 web switcher or client-side assistant-state namespacing; current UX still depends on active-assistant fallback until the switcher lands.
+- No Slice 7 live/deploy/runtime isolation audit was done here; this slice only migrates application-level assistant-scoped product surfaces and focused regressions around them.
+
+### Next recommended step
+
+Proceed to ADR-101 Slice 6: add the web shell assistant switcher and assistant-id-scoped client state so the newly isolated API surfaces are fully reflected in the product UI.
+
+## 2026-05-26 — ADR-101 Slice 4 — active-assistant web chat isolation
+
+### What changed
+
+Implemented the fourth bounded ADR-101 slice:
+
+1. Migrated the web chat list/bootstrap read path off the legacy user-only assistant lookup so `ManageWebChatListService` now resolves the active assistant through `ResolveActiveAssistantService` before listing, reading, mutating, compacting, or deleting web chats.
+2. Migrated inbound web chat runtime context resolution off `findByUserId`, so send/stream preparation now resolves the current active assistant before selecting the published version/runtime bundle used for a turn.
+3. Tightened web turn status lookup to the resolved active assistant instead of a user-only assistant selection, so `/assistant/chat/web/turns/:clientTurnId` no longer sees another assistant's turn state for the same user.
+4. Namespaced the in-memory reattach/hard-stop registries by `assistantId + clientTurnId`, and updated the SSE controller reattach/stop flow to resolve the current active assistant before attaching/stopping, preventing same-user cross-assistant collisions when client turn ids are reused.
+5. Added focused regressions proving active-assistant chat list selection, inbound runtime-context resolution, assistant-scoped turn-status lookup, and assistant-scoped hard-stop dispatch.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/manage-web-chat-list.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-inbound-runtime-context.service.ts`
+- `apps/api/src/modules/workspace-management/application/web-chat-turn-attempt.service.ts`
+- `apps/api/src/modules/workspace-management/application/web-chat-turn-hard-stop-registry.service.ts`
+- `apps/api/src/modules/workspace-management/application/web-chat-turn-stream-registry.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/test/manage-web-chat-list.service.test.ts`
+- `apps/api/test/resolve-assistant-inbound-runtime-context.service.test.ts`
+- `apps/api/test/web-chat-turn-attempt.service.test.ts`
+- `apps/api/test/web-chat-turn-hard-stop-registry.test.ts`
+- `docs/ADR/101-multi-assistant-workspace-model.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused checks passed:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+2. `corepack pnpm --filter @persai/api exec tsx test/web-chat-turn-attempt.service.test.ts`
+3. `corepack pnpm --filter @persai/api exec tsx test/web-chat-turn-hard-stop-registry.test.ts`
+4. `corepack pnpm --filter @persai/api exec tsx test/resolve-assistant-inbound-runtime-context.service.test.ts`
+5. `corepack pnpm --filter @persai/api exec tsx test/get-assistant-app-bootstrap.service.test.ts`
+6. `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+7. `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+8. `corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts`
+
+Additional verification:
+
+1. `corepack pnpm -r --if-present run lint` — PASS
+2. `corepack pnpm run format:check` — PASS
+3. `corepack pnpm --filter @persai/api run typecheck` — PASS
+4. `corepack pnpm --filter @persai/web run typecheck` — PASS
+5. `corepack pnpm --filter @persai/contracts run typecheck` — PASS
+
+### Risks / residuals
+
+- Slice 4 keeps the public chat contract shape unchanged and relies on active-assistant fallback; it does not add explicit `assistantId` request/query parameters or any Slice 6 client-side assistant-state namespacing.
+- Broader assistant-scoped settings/surfaces such as memory, tasks, files, skills, Telegram, and notification/UI reads remain Slice 5 work.
+- Final production cleanup of remaining non-chat `findByUserId` residue remains Slice 8 work.
+
+### Next recommended step
+
+Proceed to ADR-101 Slice 5: migrate the remaining assistant-scoped product surfaces (memory, tasks/background actions, skills, files/settings, Telegram, and related reads/mutations) onto the same active-assistant resolution boundary.
+
+## 2026-05-26 — ADR-101 Slice 3 — lifecycle/bootstrap contracts + active assistant list/switch
+
+### What changed
+
+Implemented the third bounded ADR-101 slice:
+
+1. Added resolver-backed lifecycle view state with explicit `assistants[]`, `activeAssistantId`, and `assistantLimit`, including the honest "selection required" bootstrap/list case when a workspace has multiple assistants but no active pointer.
+2. Exposed public `GET /api/v1/assistant/list` and `POST /api/v1/assistant/switch` contracts, with switch validation delegated to `SwitchActiveAssistantService`.
+3. Updated `GET /api/v1/assistant`, `POST /api/v1/assistant`, and the existing lifecycle mutation responses touched by the current contract boundary (`draft`, `publish`, `rollback`, `reset`, `reapply`) so they now return active assistant detail plus the assistant list/active metadata needed for future web switching.
+4. Migrated bootstrap's assistant section off the legacy singular assistant read and onto the new lifecycle view service, preserving the existing sectioned bootstrap envelope while returning multi-assistant state.
+5. Updated the web contract/client boundary so bootstrap seeding and client reloads understand the richer lifecycle view, and added explicit list/switch client helpers without widening into Slice 6 UI work.
+6. Regenerated the OpenAPI contract artifacts and updated Clerk middleware coverage for the new list/switch routes.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/assistant-lifecycle.types.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-lifecycle.mapper.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-lifecycle-view.service.ts`
+- `apps/api/src/modules/workspace-management/application/get-assistant-app-bootstrap.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/src/modules/identity-access/identity-access.module.ts`
+- `apps/api/test/get-assistant-app-bootstrap.service.test.ts`
+- `apps/api/test/identity-access.module.test.ts`
+- `apps/api/test/resolve-assistant-lifecycle-view.service.test.ts`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/assistant-api-client.test.ts`
+- `apps/web/app/app/_components/use-app-data.ts`
+- `apps/web/app/app/_components/use-app-data.test.tsx`
+- `apps/web/app/app/_components/sidebar.test.tsx`
+- `apps/web/app/app/_server/fetch-app-bootstrap.ts`
+- `packages/contracts/openapi.yaml`
+- generated `packages/contracts/src/generated/*`
+- `docs/ADR/101-multi-assistant-workspace-model.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused checks passed:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/get-assistant-app-bootstrap.service.test.ts`
+2. `corepack pnpm --filter @persai/api exec tsx test/resolve-assistant-lifecycle-view.service.test.ts`
+3. `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts`
+4. `corepack pnpm --filter @persai/api exec tsx test/create-assistant.service.test.ts`
+5. `corepack pnpm --filter @persai/api exec tsx test/switch-active-assistant.service.test.ts`
+6. `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-app-data.test.tsx app/app/assistant-api-client.test.ts --config vitest.config.ts`
+7. `corepack pnpm --filter @persai/api run typecheck`
+8. `corepack pnpm --filter @persai/web run typecheck`
+9. `corepack pnpm contracts:generate`
+
+Additional verification:
+
+- `corepack pnpm -r --if-present run lint` — PASS.
+- `corepack pnpm run format:check` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm --filter @persai/contracts run typecheck` — PASS.
+
+### Risks / residuals
+
+- Slice 3 intentionally does not migrate chat/runtime entrypoints; bootstrap still contains the existing chat section, but broader active-assistant chat routing remains Slice 4 work.
+- The public lifecycle/bootstrap contract is now multi-assistant aware, but broader assistant-scoped settings/mutation surfaces still rely on pre-Slice-5 user-only service paths behind those endpoints.
+- No Slice 6 switcher UI or assistant-id local-state namespacing was added; the richer web contract/client surface is present, but the product shell still needs the dedicated switcher/state follow-up.
+- Final `findByUserId` cleanup remains blocked on later slices, especially Slice 8.
+
+### Next recommended step
+
+Proceed to ADR-101 Slice 4: migrate web chat list/send/stream/reattach/status/stop and the bootstrap-adjacent chat reads onto active/explicit assistant context so assistant A/B chat state cannot collide.
+
+## 2026-05-26 — ADR-101 Slice 2 — active assistant resolution + creation limit enforcement
+
+### What changed
+
+Implemented the second bounded ADR-101 API slice:
+
+1. Added `ResolveActiveAssistantService` as the central workspace-member-first resolution boundary for explicit `assistantId`, active assistant fallback, single-assistant bootstrap fallback, and honest multi-assistant/no-pointer failure.
+2. Added `SwitchActiveAssistantService` at the application layer to validate and persist active assistant changes without inventing a public contract ahead of Slice 3.
+3. Added `EnforceAssistantCreationLimitService` so assistant creation now resolves workspace plan truth from subscription/default plan catalog state and blocks creation when `assistantPolicy.maxAssistants` is reached.
+4. Updated `CreateAssistantService` to use the new limit enforcement service and to set the creating member's `activeAssistantId` to the newly created assistant.
+5. Replaced the small set of Slice 1 stopgap ambiguity checks already added on assistant-scoped API surfaces (`notification preference`, `Telegram group refresh`, `knowledge indexing jobs`, and `assistant/integrations/telegram/groups`) so they now share the same active-assistant rules instead of hand-rolling their own.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/assistant-policy.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-active-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/switch-active-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/enforce-assistant-creation-limit.service.ts`
+- `apps/api/src/modules/workspace-management/application/create-assistant.service.ts`
+- `apps/api/src/modules/workspace-management/application/list-knowledge-indexing-jobs.service.ts`
+- `apps/api/src/modules/workspace-management/application/refresh-telegram-groups.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-notification-preference.service.ts`
+- `apps/api/src/modules/workspace-management/application/update-assistant-notification-preference.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/create-assistant.service.test.ts`
+- `apps/api/test/update-assistant-notification-preference.service.test.ts`
+- `apps/api/test/resolve-active-assistant.service.test.ts`
+- `apps/api/test/enforce-assistant-creation-limit.service.test.ts`
+- `apps/api/test/switch-active-assistant.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused checks passed:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/resolve-active-assistant.service.test.ts`
+2. `corepack pnpm --filter @persai/api exec tsx test/enforce-assistant-creation-limit.service.test.ts`
+3. `corepack pnpm --filter @persai/api exec tsx test/switch-active-assistant.service.test.ts`
+4. `corepack pnpm --filter @persai/api exec tsx test/create-assistant.service.test.ts`
+5. `corepack pnpm --filter @persai/api exec tsx test/update-assistant-notification-preference.service.test.ts`
+6. `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / residuals
+
+- Slice 2 adds the shared application services and wires a few already-touched assistant-scoped reads, but it intentionally does not add the public list/create/switch/bootstrap contracts from Slice 3.
+- `GetAssistantByUserIdService`, `findByUserId`, and other legacy user-only assistant hot paths still exist outside this bounded slice; ADR-101 remains incomplete until later slices migrate and finally delete them.
+- No public switch endpoint was added yet. `SwitchActiveAssistantService` is ready, but exposing it cleanly belongs with the Slice 3 lifecycle/bootstrap contract work.
+- Chat/runtime entrypoints, broader assistant-scoped settings surfaces, and multi-assistant web shell/state namespacing remain out of scope for this slice.
+
+### Next recommended step
+
+Proceed to ADR-101 Slice 3: expose assistant list/create/switch/bootstrap contracts, return `assistants[]` plus `activeAssistantId`, and route lifecycle/bootstrap reads through the new Slice 2 services.
+
+## 2026-05-26 — ADR-101 Slice 1 — schema unlock + plan assistant limit
+
+### What changed
+
+Implemented the first bounded ADR-101 implementation slice:
+
+1. Removed Prisma's root single-assistant uniqueness from `Assistant.userId` and `(workspaceId, userId)`.
+2. Changed `AppUser` / `WorkspaceMember` assistant relations to plural and added `WorkspaceMember.activeAssistantId`.
+3. Added a migration that backfills each existing workspace member's active assistant pointer from current one-assistant data, adds non-unique assistant ownership indexes, and constrains the active pointer to an assistant in the same workspace.
+4. Added plan-owned `assistantPolicy.maxAssistants` under existing `billingProviderHints`, with default/B2C fallback `1` and B2B/operator support for values greater than `1`.
+5. Exposed the assistant policy through Admin/Public plan contracts and the Admin Plans operator UI.
+6. Updated default-plan seed/backfill behavior so fresh environments also get `assistantPolicy.maxAssistants = 1`.
+7. Patched Prisma uniqueness fallout so remaining pre-Slice-2 user-only assistant lookups compile and fail on ambiguous multi-assistant data instead of silently selecting a first/newest assistant.
+8. Remediated the Slice 1 admin delete-user blocker: `AdminDeleteUserService` now clears `workspace_members.active_assistant_id` references before deleting the owned assistant row, so migrated users with a populated active pointer can still be deleted.
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260526140000_adr101_multi_assistant_schema_unlock/migration.sql`
+- `apps/api/prisma/seed.ts`
+- `apps/api/src/modules/workspace-management/application/*`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant.repository.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/test/admin-delete-user.service.test.ts`
+- `apps/api/test/adr101-schema-unlock.test.ts`
+- `apps/api/test/manage-admin-plans.service.test.ts`
+- `apps/api/test/seed-tool-catalog.test.ts`
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/app/admin/plans/page.test.tsx`
+- `apps/web/app/_components/pricing-page-view.test.tsx`
+- `packages/contracts/openapi.yaml`
+- generated `packages/contracts/src/generated/*`
+- `docs/ADR/101-multi-assistant-workspace-model.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused checks passed:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/adr101-schema-unlock.test.ts`
+2. `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+3. `corepack pnpm --filter @persai/api exec tsx test/seed-tool-catalog.test.ts`
+4. `corepack pnpm --filter @persai/api exec tsx test/admin-delete-user.service.test.ts`
+5. `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx app/_components/pricing-page-view.test.tsx --config vitest.config.ts`
+6. `corepack pnpm --filter @persai/api run typecheck`
+7. `corepack pnpm --filter @persai/web run typecheck`
+
+Broad gates passed:
+
+1. `corepack pnpm -r --if-present run lint`
+2. `corepack pnpm run format:check`
+3. `corepack pnpm --filter @persai/api run typecheck`
+4. `corepack pnpm --filter @persai/web run typecheck`
+5. `corepack pnpm --filter @persai/runtime run typecheck`
+6. `corepack pnpm --filter @persai/contracts run typecheck`
+
+Additional acceptance searches:
+
+1. `rg "AppUser\\.assistant|WorkspaceMember\\.assistant" apps/api` — no matches.
+2. `rg "findByUserId" apps/api/src` — still has expected pre-Slice-2/cleanup residue; do not claim ADR-101 complete until Slice 8 removes production hot-path usage.
+
+### Risks / residuals
+
+- Slice 1 intentionally does not implement active assistant resolution, switch API, multi-assistant bootstrap, chat/runtime entrypoint migration, assistant-scoped settings migration, or web switcher/state namespacing.
+- `findByUserId` and user-only assistant routes still exist as temporary pre-Slice-2/cleanup residue; ADR-101 completion remains blocked until Slice 8 removes them from production hot paths.
+- `CreateAssistantService` still preserves current one-assistant product behavior until Slice 2 adds plan-limit enforcement and active assistant creation semantics.
+- The admin delete-user path is now compatible with Slice 1's migrated `WorkspaceMember.activeAssistantId` foreign key, but broader multi-assistant delete semantics remain intentionally unchanged until later ADR-101 slices.
+
+### Next recommended step
+
+Proceed to ADR-101 Slice 2: add `ResolveActiveAssistantService`, active assistant switch service, and assistant creation limit enforcement from `assistantPolicy.maxAssistants`.
+
+## 2026-05-26 — ADR-101 multi-assistant workspace model
+
+### What changed
+
+Created the architecture/execution ADR for the clean multi-assistant foundation:
+
+1. Accepted `1 user = 1 workspace = N assistants` as the next platform model.
+2. Kept AI employee roles, role templates, work queues, departments, and outstaffing UX explicitly out of scope.
+3. Defined plan-owned assistant count as the only availability gate: B2C plans set `maxAssistants = 1`, B2B plans may set `maxAssistants > 1`.
+4. Documented the hard blockers found in the audit: Prisma one-to-one assistant uniqueness, API `findByUserId` resolution, single-assistant bootstrap/web shell, and non-namespaced assistant-owned client state.
+5. Defined the target data/API/web/runtime shape: plural assistant relations, `WorkspaceMember.activeAssistantId`, central `ResolveActiveAssistantService`, multi-assistant bootstrap, assistant switcher, assistant-id state namespacing, assistant-scoped surface migration, runtime isolation proof, and mandatory final cleanup.
+6. Added a director-agent execution prompt inside the ADR for the next implementation session.
+
+### Files touched
+
+- `docs/ADR/101-multi-assistant-workspace-model.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Verification
+
+Docs-only architecture slice. No code checks were run.
+
+### Risks / residuals
+
+- ADR-101 is accepted for execution but not implemented yet.
+- The highest implementation risk is removing Prisma uniqueness while API hot paths still resolve assistant-owned state by `userId` alone.
+- The final implementation cleanup slice is mandatory: no temporary bridge, `findByUserId` hot path, one-to-one assistant relation, or non-namespaced assistant-owned web state may remain before ADR completion is claimed.
+
+### Next recommended step
+
+Start a new director-led implementation session from `docs/ADR/101-multi-assistant-workspace-model.md`. The first bounded slice should be Schema Unlock + plan-owned assistant limit only, with subagents auditing the exact Prisma/API breakpoints before code changes.
+
 ## 2026-05-26 — PDF document cleanup audit — remove dead recent-PDF hint plumbing
 
 ### What changed

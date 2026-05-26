@@ -1,5 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from "@nestjs/common";
-import { WorkspaceStatus } from "@prisma/client";
+import { Inject, Injectable } from "@nestjs/common";
 import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
@@ -14,7 +13,7 @@ import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AdminSystemNotificationProducerService } from "./admin-system-notification-producer.service";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
-import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
+import { EnforceAssistantCreationLimitService } from "./enforce-assistant-creation-limit.service";
 
 @Injectable()
 export class CreateAssistantService {
@@ -28,49 +27,20 @@ export class CreateAssistantService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly adminSystemNotificationProducerService: AdminSystemNotificationProducerService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
-    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
+    private readonly enforceAssistantCreationLimitService: EnforceAssistantCreationLimitService
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
-    const existingAssistant = await this.assistantRepository.findByUserId(userId);
-    if (existingAssistant !== null) {
-      throw new ConflictException("Assistant already exists for this user.");
-    }
+    const assistantCreationLimit = await this.enforceAssistantCreationLimitService.execute(userId);
 
-    const activeMembership = await this.prisma.workspaceMember.findFirst({
-      where: {
-        userId,
-        workspace: { status: WorkspaceStatus.active }
-      },
-      orderBy: { createdAt: "desc" }
+    const assistant = await this.assistantRepository.create(
+      userId,
+      assistantCreationLimit.workspaceId
+    );
+    await this.prisma.workspaceMember.update({
+      where: { id: assistantCreationLimit.workspaceMemberId },
+      data: { activeAssistantId: assistant.id }
     });
-
-    const membership =
-      activeMembership ??
-      (await this.prisma.workspaceMember.findFirst({
-        where: { userId },
-        orderBy: { createdAt: "desc" }
-      }));
-
-    if (membership === null) {
-      throw new BadRequestException(
-        "Cannot create assistant without workspace membership. Complete onboarding first."
-      );
-    }
-
-    const workspaceSubscription = await this.prisma.workspaceSubscription.findUnique({
-      where: { workspaceId: membership.workspaceId },
-      select: { id: true }
-    });
-    if (workspaceSubscription === null) {
-      await this.resolveEffectiveSubscriptionStateService.initializeLifecycleNow({
-        workspaceId: membership.workspaceId,
-        userId,
-        source: "system"
-      });
-    }
-
-    const assistant = await this.assistantRepository.create(userId, membership.workspaceId);
     const governance = await this.assistantGovernanceRepository.createBaseline(assistant.id);
     const materialization = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
       assistant.id

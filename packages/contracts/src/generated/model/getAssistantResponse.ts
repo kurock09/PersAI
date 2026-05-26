@@ -5,9 +5,15 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantLifecycleState } from "./assistantLifecycleState";
+import type { AssistantListItemState } from "./assistantListItemState";
+import type { AssistantLimitState } from "./assistantLimitState";
 
 export interface GetAssistantResponse {
   /** @nullable */
   requestId?: string | null;
   assistant: AssistantLifecycleState;
+  assistants: AssistantListItemState[];
+  /** @nullable */
+  activeAssistantId: string | null;
+  assistantLimit: AssistantLimitState;
 }

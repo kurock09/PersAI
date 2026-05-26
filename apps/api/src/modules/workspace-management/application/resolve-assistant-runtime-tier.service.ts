@@ -6,13 +6,15 @@ import {
   type RuntimeTier
 } from "./runtime-assignment";
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 @Injectable()
 export class ResolveAssistantRuntimeTierService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
-    private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService
+    private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async resolveByAssistantId(assistantId: string): Promise<RuntimeTier> {
@@ -26,10 +28,7 @@ export class ResolveAssistantRuntimeTierService {
   async resolveByUserId(
     userId: string
   ): Promise<{ assistantId: string; runtimeTier: RuntimeTier }> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
     return {
       assistantId: assistant.id,
       runtimeTier: await this.resolveEffectiveTier(assistant)

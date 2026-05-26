@@ -1,7 +1,7 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import { Injectable } from "@nestjs/common";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import type { InternalBackgroundTaskItemState } from "./list-internal-background-task-items.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 const BACKGROUND_TASK_LIST_LIMIT = 50;
 const BACKGROUND_TASK_RUN_HISTORY_LIMIT = 5;
@@ -9,16 +9,12 @@ const BACKGROUND_TASK_RUN_HISTORY_LIMIT = 5;
 @Injectable()
 export class ListAssistantBackgroundTaskItemsService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   async execute(userId: string): Promise<InternalBackgroundTaskItemState[]> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const rows = await this.prisma.assistantBackgroundTask.findMany({
       where: {

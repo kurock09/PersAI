@@ -9,13 +9,13 @@ import type {
   AssistantWebChatTurnState
 } from "./web-chat.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { readPersistedDocumentLinkMetadata } from "./read-attachment-document-link";
 import type { CompletedWebTurnReplayState } from "../domain/assistant-channel-surface-binding.repository";
 import type {
   AssistantChatSkillCadenceState,
   AssistantChatSkillDecisionState
 } from "../domain/assistant-chat.entity";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 export type WebChatTurnAttemptStatus =
   | "unknown"
@@ -204,7 +204,7 @@ export class WebChatTurnAttemptService {
 
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async claim(input: {
@@ -423,9 +423,15 @@ export class WebChatTurnAttemptService {
     return attempt ? readTerminalPayload(attempt.terminalPayload) : null;
   }
 
-  async getStatusForUser(userId: string, clientTurnId: string): Promise<WebChatTurnStatusState> {
-    const resolved =
-      await this.resolveAssistantInboundRuntimeContextService.resolveByUserId(userId);
+  async getStatusForUser(
+    userId: string,
+    clientTurnId: string,
+    assistantId?: string
+  ): Promise<WebChatTurnStatusState> {
+    const resolved = await this.resolveActiveAssistantService.execute({
+      userId,
+      ...(assistantId === undefined ? {} : { assistantId })
+    });
     const attempt = await this.prisma.assistantWebChatTurnAttempt.findFirst({
       where: {
         assistantId: resolved.assistantId,

@@ -1,29 +1,25 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import {
   ASSISTANT_TASK_REGISTRY_REPOSITORY,
   type AssistantTaskRegistryRepository
 } from "../domain/assistant-task-registry.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   type AssistantTaskRegistryItemState,
   sortTaskRegistryItemsForDisplay,
   TASK_LIST_LIMIT
 } from "./assistant-task.types";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 @Injectable()
 export class ListAssistantTaskItemsService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_TASK_REGISTRY_REPOSITORY)
-    private readonly taskRegistryRepository: AssistantTaskRegistryRepository
+    private readonly taskRegistryRepository: AssistantTaskRegistryRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async execute(userId: string): Promise<AssistantTaskRegistryItemState[]> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const raw = await this.taskRegistryRepository.listByAssistantId(assistant.id, TASK_LIST_LIMIT);
     const sorted = sortTaskRegistryItemsForDisplay(raw);

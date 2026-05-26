@@ -71,6 +71,27 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
+## ADR-101 multi-assistant workspace model focused checks
+
+When a change touches ADR-101 schema, plan assistant limits, active assistant resolution, bootstrap, chat entrypoints, assistant-scoped settings, web assistant switching, or runtime isolation, add focused checks before broad verification:
+
+```bash
+corepack pnpm contracts:generate
+corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma
+corepack pnpm --filter @persai/api exec tsx test/adr101-schema-unlock.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/seed-tool-catalog.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx app/_components/pricing-page-view.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Slice 1 must prove Prisma no longer encodes one-to-one assistant ownership and that existing workspace members receive an active assistant pointer.
+2. Plan truth owns assistant count through `assistantPolicy.maxAssistants`; B2C/default plans resolve to `1`, and B2B/operator plans may set values greater than `1`.
+3. Until later ADR-101 slices land, any remaining user-only assistant resolution is temporary fallout and must fail honestly on ambiguous multi-assistant users rather than silently picking a different assistant.
+
 ## ADR-098 country-aware site pages focused checks
 
 When a change touches `platform_site_pages`, `/api/v1/public/site-pages`, `/api/v1/admin/site-pages`, market-aware compliance baselines, or setup country capture, run these focused checks before broad verification:

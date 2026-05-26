@@ -227,7 +227,13 @@ async function main(): Promise<void> {
       typeof existingBillingHints.schema === "string"
         ? existingBillingHints.schema
         : "persai.billingHints.v1",
-    providerAgnostic: existingBillingHints.providerAgnostic !== false
+    providerAgnostic: existingBillingHints.providerAgnostic !== false,
+    assistantPolicy:
+      existingBillingHints.assistantPolicy &&
+      typeof existingBillingHints.assistantPolicy === "object" &&
+      !Array.isArray(existingBillingHints.assistantPolicy)
+        ? existingBillingHints.assistantPolicy
+        : { schema: "persai.assistantPolicy.v1", maxAssistants: 1 }
   };
 
   await prisma.planCatalogPlan.upsert({

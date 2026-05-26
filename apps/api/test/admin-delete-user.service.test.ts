@@ -14,10 +14,12 @@ async function run(): Promise<void> {
   const skillUpdateCalls: Array<unknown> = [];
   const skillDocumentUpdateCalls: Array<unknown> = [];
   const skillKnowledgeCardUpdateCalls: Array<unknown> = [];
+  const workspaceMemberUpdateCalls: Array<unknown> = [];
   const deleted: string[] = [];
   const releasedBytes: bigint[] = [];
   const releasedKnowledgeBytes: bigint[] = [];
   const deletedPrefixes: string[] = [];
+  let activeAssistantReferenceCleared = false;
   const recordDelete = (label: string) => async () => {
     deleted.push(label);
   };
@@ -136,10 +138,22 @@ async function run(): Promise<void> {
       }
     },
     assistant: {
-      delete: recordDelete("assistant")
+      delete: async () => {
+        assert.equal(
+          activeAssistantReferenceCleared,
+          true,
+          "active assistant pointer should be cleared before assistant deletion"
+        );
+        deleted.push("assistant");
+      }
     },
     workspaceMember: {
       deleteMany: recordDelete("workspaceMember"),
+      updateMany: async (args: unknown) => {
+        workspaceMemberUpdateCalls.push(args);
+        activeAssistantReferenceCleared = true;
+        deleted.push("workspaceMember.updateMany");
+      },
       count: async () => 1
     },
     appUserAdminRole: {
@@ -181,12 +195,14 @@ async function run(): Promise<void> {
         where.id === "user-1" ? { id: "user-1" } : null
     },
     assistant: {
-      findUnique: async ({ where }: { where: { userId: string } }) =>
-        where.userId === "user-1" ? assistant : null
+      findMany: async ({ where }: { where: { userId: string } }) =>
+        where.userId === "user-1" ? [assistant] : []
     },
     workspaceMember: {
       findFirst: async ({ where }: { where: { userId: string } }) =>
-        where.userId === "user-1" ? { workspaceId: "ws-1" } : null,
+        where.userId === "user-1"
+          ? { workspaceId: "ws-1", activeAssistantId: "assistant-1" }
+          : null,
       count: async () => 1
     },
     assistantChatMessageAttachment: {
@@ -254,6 +270,12 @@ async function run(): Promise<void> {
   assert.deepEqual(skillKnowledgeCardUpdateCalls, [
     { where: { createdByUserId: "user-1" }, data: { createdByUserId: "admin-1" } }
   ]);
+  assert.deepEqual(workspaceMemberUpdateCalls, [
+    {
+      where: { activeAssistantId: "assistant-1" },
+      data: { activeAssistantId: null }
+    }
+  ]);
   assert.deepEqual(auditUpdateCalls, [
     { where: { actorUserId: "user-1" }, data: { actorUserId: null } }
   ]);
@@ -289,6 +311,7 @@ async function run(): Promise<void> {
   assert.ok(deleted.includes("assistantKnowledgeSource"));
   assert.ok(deleted.includes("runtimeBundleState"));
   assert.ok(deleted.indexOf("runtimeBundleState") < deleted.indexOf("assistantMaterializedSpec"));
+  assert.ok(deleted.indexOf("workspaceMember.updateMany") < deleted.indexOf("assistant"));
   assert.ok(deleted.includes("assistant"));
   assert.ok(deleted.includes("appUser"));
   assert.deepEqual(releasedBytes, [BigInt(7)]);

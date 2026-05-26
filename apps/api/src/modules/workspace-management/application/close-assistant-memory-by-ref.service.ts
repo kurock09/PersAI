@@ -18,6 +18,7 @@ import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assist
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
 import { isGlobalMemoryReadAllowed } from "../domain/memory-source-policy";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 /**
  * ADR-074 Slice M3.1 — deterministic open-loop close by id.
@@ -76,7 +77,8 @@ export class CloseAssistantMemoryByRefService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MEMORY_REGISTRY_REPOSITORY)
     private readonly assistantMemoryRegistryRepository: AssistantMemoryRegistryRepository,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   parseRuntimeInput(payload: unknown): CloseAssistantMemoryByRefRuntimeInput {
@@ -119,10 +121,7 @@ export class CloseAssistantMemoryByRefService {
     itemId: string,
     requestId: string | null
   ): Promise<CloseAssistantMemoryByRefResult> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
     const governance = await this.assistantGovernanceRepository.findByAssistantId(assistant.id);
     const envelope = resolveEffectiveMemoryControlFromGovernance(governance);
     if (!isGlobalMemoryReadAllowed(envelope)) {

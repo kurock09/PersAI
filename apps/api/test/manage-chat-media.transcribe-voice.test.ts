@@ -49,8 +49,11 @@ async function run(): Promise<void> {
 
   const service = new ManageChatMediaService(
     {
-      async findByUserId(userId: string) {
-        return userId === "user-1" ? assistant : null;
+      async execute({ userId }: { userId: string }) {
+        if (userId !== "user-1") {
+          throw new Error("assistant not found");
+        }
+        return { assistantId: assistant.id, assistant };
       }
     } as never,
     {} as never,
@@ -113,8 +116,8 @@ async function run(): Promise<void> {
   const convertedCalls: Array<{ buffer: Buffer; mimeType: string; filename: string | null }> = [];
   const convertedService = new ManageChatMediaService(
     {
-      async findByUserId() {
-        return assistant;
+      async execute() {
+        return { assistantId: assistant.id, assistant };
       }
     } as never,
     {} as never,
@@ -162,8 +165,8 @@ async function run(): Promise<void> {
   const emptyMetrics = new PlatformHttpMetricsService();
   const emptyResultService = new ManageChatMediaService(
     {
-      async findByUserId() {
-        return assistant;
+      async execute() {
+        return { assistantId: assistant.id, assistant };
       }
     } as never,
     {} as never,

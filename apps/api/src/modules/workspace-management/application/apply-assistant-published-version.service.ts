@@ -30,8 +30,8 @@ export class ApplyAssistantPublishedVersionService {
     publishedVersion: AssistantPublishedVersion,
     reapply: boolean
   ): Promise<void> {
-    const assistantInProgress = await this.assistantRepository.markApplyInProgress(
-      userId,
+    const assistantInProgress = await this.assistantRepository.markApplyInProgressByAssistantId(
+      publishedVersion.assistantId,
       publishedVersion.id
     );
     if (assistantInProgress === null) {
@@ -65,8 +65,8 @@ export class ApplyAssistantPublishedVersionService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Materialized runtime spec refresh failed.";
-      await this.assistantRepository.markApplyFailed(
-        userId,
+      await this.assistantRepository.markApplyFailedByAssistantId(
+        publishedVersion.assistantId,
         publishedVersion.id,
         "materialization_failed",
         errorMessage
@@ -89,8 +89,8 @@ export class ApplyAssistantPublishedVersionService {
       return;
     }
     if (materializedSpec === null) {
-      await this.assistantRepository.markApplyFailed(
-        userId,
+      await this.assistantRepository.markApplyFailedByAssistantId(
+        publishedVersion.assistantId,
         publishedVersion.id,
         "invalid_response",
         "Materialized runtime spec is missing for published version."
@@ -126,7 +126,10 @@ export class ApplyAssistantPublishedVersionService {
         materializedSpec
       });
 
-      await this.assistantRepository.markApplySucceeded(userId, publishedVersion.id);
+      await this.assistantRepository.markApplySucceededByAssistantId(
+        publishedVersion.assistantId,
+        publishedVersion.id
+      );
       await this.appendAssistantAuditEventService.execute({
         workspaceId: assistantInProgress.workspaceId,
         assistantId: assistantInProgress.id,
@@ -145,8 +148,8 @@ export class ApplyAssistantPublishedVersionService {
     } catch (error) {
       if (error instanceof AssistantRuntimeError) {
         if (error.code === "runtime_degraded") {
-          await this.assistantRepository.markApplyDegraded(
-            userId,
+          await this.assistantRepository.markApplyDegradedByAssistantId(
+            publishedVersion.assistantId,
             publishedVersion.id,
             error.code,
             error.message
@@ -169,8 +172,8 @@ export class ApplyAssistantPublishedVersionService {
           return;
         }
 
-        await this.assistantRepository.markApplyFailed(
-          userId,
+        await this.assistantRepository.markApplyFailedByAssistantId(
+          publishedVersion.assistantId,
           publishedVersion.id,
           error.code,
           error.message

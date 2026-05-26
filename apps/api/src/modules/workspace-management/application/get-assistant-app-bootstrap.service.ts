@@ -1,16 +1,17 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException
 } from "@nestjs/common";
-import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
+import type { AssistantLifecycleViewState } from "./assistant-lifecycle.types";
 import type { AssistantNotificationPreferenceState } from "./assistant-notification-preference.types";
 import type { AdminPlanVisibilityState, UserPlanVisibilityState } from "./plan-visibility.types";
 import type { TelegramIntegrationState } from "./telegram-integration.types";
 import type { AssistantWebChatListItemState } from "./web-chat.types";
-import { GetAssistantByUserIdService } from "./get-assistant-by-user-id.service";
 import { ManageWebChatListService } from "./manage-web-chat-list.service";
+import { ResolveAssistantLifecycleViewService } from "./resolve-assistant-lifecycle-view.service";
 import { ResolveAssistantNotificationPreferenceService } from "./resolve-assistant-notification-preference.service";
 import { ResolvePlanVisibilityService } from "./resolve-plan-visibility.service";
 import { ResolveTelegramIntegrationStateService } from "./resolve-telegram-integration-state.service";
@@ -36,7 +37,7 @@ export interface BootstrapErrorState {
 export type BootstrapSection<T> = { ok: true; data: T } | { ok: false; error: BootstrapErrorState };
 
 export interface AppBootstrapSectionsState {
-  assistant: BootstrapSection<AssistantLifecycleState | null>;
+  assistant: BootstrapSection<AssistantLifecycleViewState>;
   chats: BootstrapSection<AssistantWebChatListItemState[]>;
   telegram: BootstrapSection<TelegramIntegrationState>;
   notificationPreference: BootstrapSection<AssistantNotificationPreferenceState>;
@@ -66,6 +67,13 @@ function classifyError(error: unknown): BootstrapErrorState {
       message: error.message
     };
   }
+  if (error instanceof ConflictException) {
+    return {
+      code: "conflict",
+      category: "validation",
+      message: error.message
+    };
+  }
   if (error instanceof Error) {
     return {
       code: "bootstrap_section_failed",
@@ -90,7 +98,7 @@ function toSection<T>(result: PromiseSettledResult<T>): BootstrapSection<T> {
 @Injectable()
 export class GetAssistantAppBootstrapService {
   constructor(
-    private readonly getAssistantByUserIdService: GetAssistantByUserIdService,
+    private readonly resolveAssistantLifecycleViewService: ResolveAssistantLifecycleViewService,
     private readonly manageWebChatListService: ManageWebChatListService,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
     private readonly resolveAssistantNotificationPreferenceService: ResolveAssistantNotificationPreferenceService,
@@ -106,7 +114,7 @@ export class GetAssistantAppBootstrapService {
       planResult,
       adminResult
     ] = await Promise.allSettled([
-      this.getAssistantByUserIdService.execute(userId),
+      this.resolveAssistantLifecycleViewService.execute(userId),
       this.manageWebChatListService.listChats(userId),
       this.resolveTelegramIntegrationStateService.execute(userId),
       this.resolveAssistantNotificationPreferenceService.execute(userId),

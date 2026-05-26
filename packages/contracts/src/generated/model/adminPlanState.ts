@@ -11,6 +11,7 @@ import type { AdminPlanPresentation } from "./adminPlanPresentation";
 import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
 import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
 import type { AdminPlanSkillPolicy } from "./adminPlanSkillPolicy";
+import type { AdminPlanAssistantPolicy } from "./adminPlanAssistantPolicy";
 import type { AdminPlanContextPolicy } from "./adminPlanContextPolicy";
 import type { AdminPlanRetrievalPolicy } from "./adminPlanRetrievalPolicy";
 import type { AdminPlanSandboxPolicy } from "./adminPlanSandboxPolicy";
@@ -34,6 +35,7 @@ export interface AdminPlanState {
   entitlements: AdminPlanEntitlements;
   quotaLimits?: AdminPlanQuotaLimits;
   skillPolicy?: AdminPlanSkillPolicy;
+  assistantPolicy: AdminPlanAssistantPolicy;
   contextPolicy: AdminPlanContextPolicy;
   retrievalPolicy: AdminPlanRetrievalPolicy;
   sandboxPolicy: AdminPlanSandboxPolicy;

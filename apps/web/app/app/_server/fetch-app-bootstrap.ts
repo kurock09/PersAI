@@ -1,7 +1,9 @@
 import "server-only";
 import { auth } from "@clerk/nextjs/server";
 import type {
+  AssistantLimitState,
   AssistantLifecycleState,
+  AssistantListItemState,
   AssistantWebChatListItemState,
   TelegramIntegrationState,
   UserPlanVisibilityState,
@@ -27,8 +29,15 @@ export interface BootstrapErrorState {
 
 export type BootstrapSection<T> = { ok: true; data: T } | { ok: false; error: BootstrapErrorState };
 
+export interface AppBootstrapAssistantState {
+  assistant: AssistantLifecycleState | null;
+  assistants: AssistantListItemState[];
+  activeAssistantId: string | null;
+  assistantLimit: AssistantLimitState;
+}
+
 export interface AppBootstrapInitialData {
-  assistant: BootstrapSection<AssistantLifecycleState | null>;
+  assistant: BootstrapSection<AppBootstrapAssistantState>;
   chats: BootstrapSection<AssistantWebChatListItemState[]>;
   telegram: BootstrapSection<TelegramIntegrationState>;
   notificationPreference: BootstrapSection<AssistantNotificationPreferenceState>;

@@ -49,6 +49,8 @@ import {
   type AssistantWebChatRenameRequest,
   type AssistantDraftUpdateRequest,
   type AssistantSetupPreviewState,
+  type AssistantLimitState,
+  type AssistantListItemState,
   type AssistantRollbackRequest,
   type AssistantMemoryDoNotRememberRequest,
   type AssistantMemoryRegistryItemState,
@@ -64,6 +66,7 @@ import {
   type UserPlanVisibilityState,
   deleteAssistantWebChat as deleteAssistantWebChatContract,
   getAssistant as getAssistantContract,
+  getAssistantList as getAssistantListContract,
   getAssistantPersonaArchetypes as getAssistantPersonaArchetypesContract,
   getAssistantMemoryItems as getAssistantMemoryItemsContract,
   getAssistantTaskItems as getAssistantTaskItemsContract,
@@ -79,6 +82,7 @@ import {
   postAssistantWebChatArchive as postAssistantWebChatArchiveContract,
   getAssistantWebChatCompaction as getAssistantWebChatCompactionContract,
   postAssistantCreate as postAssistantCreateContract,
+  postAssistantSwitch as postAssistantSwitchContract,
   postAssistantWebChatCompact as postAssistantWebChatCompactContract,
   postAdminPlanCreate as postAdminPlanCreateContract,
   postAdminStepUpChallenge as postAdminStepUpChallengeContract,
@@ -1495,27 +1499,74 @@ export async function stopAssistantWebChatTurn(token: string, clientTurnId: stri
   }
 }
 
-export async function getAssistant(token: string): Promise<AssistantLifecycleState | null> {
+export interface AssistantDirectoryState {
+  assistants: AssistantListItemState[];
+  activeAssistantId: string | null;
+  assistantLimit: AssistantLimitState;
+}
+
+export interface AssistantLifecycleViewState extends AssistantDirectoryState {
+  assistant: AssistantLifecycleState | null;
+}
+
+export async function getAssistantList(token: string): Promise<AssistantDirectoryState> {
+  try {
+    const response = await getAssistantListContract({
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /assistant/list.");
+    }
+
+    return {
+      assistants: response.data.assistants,
+      activeAssistantId: response.data.activeAssistantId,
+      assistantLimit: response.data.assistantLimit
+    };
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAssistantLifecycleView(
+  token: string
+): Promise<AssistantLifecycleViewState> {
   try {
     const response = await getAssistantContract({
       headers: getAuthHeaders(token)
     });
 
     if (response.status === 404) {
-      return null;
+      return {
+        assistant: null,
+        ...(await getAssistantList(token))
+      };
     }
 
     if (response.status !== 200) {
       throw new Error("Unexpected non-success response for GET /assistant.");
     }
 
-    return response.data.assistant;
+    return {
+      assistant: response.data.assistant,
+      assistants: response.data.assistants,
+      activeAssistantId: response.data.activeAssistantId,
+      assistantLimit: response.data.assistantLimit
+    };
   } catch (error) {
     if (error instanceof ContractsApiError && error.status === 404) {
-      return null;
+      return {
+        assistant: null,
+        ...(await getAssistantList(token))
+      };
     }
     throw new Error(toErrorMessage(error));
   }
+}
+
+export async function getAssistant(token: string): Promise<AssistantLifecycleState | null> {
+  return (await getAssistantLifecycleView(token)).assistant;
 }
 
 export type AssistantPersonaArchetypeState =
@@ -1540,6 +1591,16 @@ export async function getAssistantPersonaArchetypes(
 }
 
 export async function postAssistantCreate(token: string): Promise<AssistantLifecycleState> {
+  const view = await postAssistantCreateLifecycleView(token);
+  if (view.assistant === null) {
+    throw new Error("Assistant create response did not include an active assistant.");
+  }
+  return view.assistant;
+}
+
+export async function postAssistantCreateLifecycleView(
+  token: string
+): Promise<AssistantLifecycleViewState> {
   try {
     const response = await postAssistantCreateContract({
       headers: getAuthHeaders(token)
@@ -1554,7 +1615,44 @@ export async function postAssistantCreate(token: string): Promise<AssistantLifec
       throw new Error("Unexpected non-success response for POST /assistant.");
     }
 
-    return response.data.assistant;
+    return {
+      assistant: response.data.assistant,
+      assistants: response.data.assistants,
+      activeAssistantId: response.data.activeAssistantId,
+      assistantLimit: response.data.assistantLimit
+    };
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantSwitch(
+  token: string,
+  assistantId: string
+): Promise<AssistantLifecycleViewState> {
+  try {
+    const response = await postAssistantSwitchContract(
+      { assistantId },
+      {
+        headers: getAuthHeaders(token)
+      }
+    );
+
+    if (
+      response.status !== 200 ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("assistant" in response.data)
+    ) {
+      throw new Error("Unexpected non-success response for POST /assistant/switch.");
+    }
+
+    return {
+      assistant: response.data.assistant,
+      assistants: response.data.assistants,
+      activeAssistantId: response.data.activeAssistantId,
+      assistantLimit: response.data.assistantLimit
+    };
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

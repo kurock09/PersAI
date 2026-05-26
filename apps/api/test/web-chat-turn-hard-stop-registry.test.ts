@@ -15,19 +15,29 @@ describe("WebChatTurnHardStopRegistry", () => {
   test("signalHardStop aborts the registered controller and removes the entry", () => {
     const registry = new WebChatTurnHardStopRegistry();
     const controller = new AbortController();
-    registry.register({ clientTurnId: "turn-1", userId: "user-1", controller });
+    registry.register({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-1",
+      userId: "user-1",
+      controller
+    });
 
     assert.equal(controller.signal.aborted, false);
-    const dispatched = registry.signalHardStop({ clientTurnId: "turn-1", userId: "user-1" });
+    const dispatched = registry.signalHardStop({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-1",
+      userId: "user-1"
+    });
 
     assert.equal(dispatched, true);
     assert.equal(controller.signal.aborted, true);
-    assert.equal(registry.hasForTesting("turn-1"), false);
+    assert.equal(registry.hasForTesting("assistant-1", "turn-1"), false);
   });
 
   test("signalHardStop returns false when no turn is registered", () => {
     const registry = new WebChatTurnHardStopRegistry();
     const dispatched = registry.signalHardStop({
+      assistantId: "assistant-1",
       clientTurnId: "missing",
       userId: "user-1"
     });
@@ -37,9 +47,15 @@ describe("WebChatTurnHardStopRegistry", () => {
   test("signalHardStop refuses cross-user dispatch and leaves the controller intact", () => {
     const registry = new WebChatTurnHardStopRegistry();
     const controller = new AbortController();
-    registry.register({ clientTurnId: "turn-2", userId: "user-1", controller });
+    registry.register({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-2",
+      userId: "user-1",
+      controller
+    });
 
     const dispatched = registry.signalHardStop({
+      assistantId: "assistant-1",
       clientTurnId: "turn-2",
       userId: "user-2"
     });
@@ -47,8 +63,9 @@ describe("WebChatTurnHardStopRegistry", () => {
     assert.equal(dispatched, false);
     assert.equal(controller.signal.aborted, false);
     // The owning user must still be able to stop their own turn afterwards.
-    assert.equal(registry.hasForTesting("turn-2"), true);
+    assert.equal(registry.hasForTesting("assistant-1", "turn-2"), true);
     const ownerDispatch = registry.signalHardStop({
+      assistantId: "assistant-1",
       clientTurnId: "turn-2",
       userId: "user-1"
     });
@@ -60,8 +77,8 @@ describe("WebChatTurnHardStopRegistry", () => {
     const registry = new WebChatTurnHardStopRegistry();
     const controller = new AbortController();
     // Should not throw.
-    registry.release({ clientTurnId: "never-registered", controller });
-    assert.equal(registry.hasForTesting("never-registered"), false);
+    registry.release({ assistantId: "assistant-1", clientTurnId: "never-registered", controller });
+    assert.equal(registry.hasForTesting("assistant-1", "never-registered"), false);
   });
 
   test("release only deletes when the matching controller is still registered", () => {
@@ -72,17 +89,35 @@ describe("WebChatTurnHardStopRegistry", () => {
     // Rapid retry with the same clientTurnId — the second register replaces
     // the first entry (matches the production race where the SSE handler
     // for retry #1 has not yet hit its `finally` block when retry #2 runs).
-    registry.register({ clientTurnId: "turn-3", userId: "user-1", controller: firstController });
-    registry.register({ clientTurnId: "turn-3", userId: "user-1", controller: secondController });
+    registry.register({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-3",
+      userId: "user-1",
+      controller: firstController
+    });
+    registry.register({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-3",
+      userId: "user-1",
+      controller: secondController
+    });
 
     // The first SSE handler now hits `finally`. It must not delete the
     // newer registration, otherwise the user's Stop click on the
     // currently-running retry would land on an empty registry.
-    registry.release({ clientTurnId: "turn-3", controller: firstController });
-    assert.equal(registry.hasForTesting("turn-3"), true);
+    registry.release({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-3",
+      controller: firstController
+    });
+    assert.equal(registry.hasForTesting("assistant-1", "turn-3"), true);
 
-    registry.release({ clientTurnId: "turn-3", controller: secondController });
-    assert.equal(registry.hasForTesting("turn-3"), false);
+    registry.release({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-3",
+      controller: secondController
+    });
+    assert.equal(registry.hasForTesting("assistant-1", "turn-3"), false);
   });
 
   test("a soft-detached SSE close is decoupled from the registered controller", () => {
@@ -92,13 +127,49 @@ describe("WebChatTurnHardStopRegistry", () => {
     // nothing in the registry surface has hidden auto-abort semantics.
     const registry = new WebChatTurnHardStopRegistry();
     const controller = new AbortController();
-    registry.register({ clientTurnId: "turn-4", userId: "user-1", controller });
+    registry.register({
+      assistantId: "assistant-1",
+      clientTurnId: "turn-4",
+      userId: "user-1",
+      controller
+    });
 
     // Simulate the post-refactor SSE handler: socket dies, handler hits
     // `finally`, registry release is called — but there was no hard stop.
-    registry.release({ clientTurnId: "turn-4", controller });
+    registry.release({ assistantId: "assistant-1", clientTurnId: "turn-4", controller });
 
     assert.equal(controller.signal.aborted, false);
-    assert.equal(registry.hasForTesting("turn-4"), false);
+    assert.equal(registry.hasForTesting("assistant-1", "turn-4"), false);
+  });
+
+  test("same clientTurnId stays isolated across assistants", () => {
+    const registry = new WebChatTurnHardStopRegistry();
+    const controllerA = new AbortController();
+    const controllerB = new AbortController();
+
+    registry.register({
+      assistantId: "assistant-A",
+      clientTurnId: "turn-1",
+      userId: "user-1",
+      controller: controllerA
+    });
+    registry.register({
+      assistantId: "assistant-B",
+      clientTurnId: "turn-1",
+      userId: "user-1",
+      controller: controllerB
+    });
+
+    const stoppedB = registry.signalHardStop({
+      assistantId: "assistant-B",
+      clientTurnId: "turn-1",
+      userId: "user-1"
+    });
+
+    assert.equal(stoppedB, true);
+    assert.equal(controllerA.signal.aborted, false);
+    assert.equal(controllerB.signal.aborted, true);
+    assert.equal(registry.hasForTesting("assistant-A", "turn-1"), true);
+    assert.equal(registry.hasForTesting("assistant-B", "turn-1"), false);
   });
 });

@@ -16,7 +16,12 @@ async function run(): Promise<void> {
     {
       async execute(id: string) {
         assert.equal(id, userId);
-        return { sentinel: "assistant" } as never;
+        return {
+          assistant: { sentinel: "assistant" },
+          assistants: [{ id: "assistant-1" }],
+          activeAssistantId: "assistant-1",
+          assistantLimit: { usedAssistants: 1, maxAssistants: 3 }
+        } as never;
       }
     } as never,
     {
@@ -52,7 +57,12 @@ async function run(): Promise<void> {
   const happy = await happyService.execute(userId);
   assert.equal(happy.assistant.ok, true);
   if (happy.assistant.ok) {
-    assert.deepEqual(happy.assistant.data, { sentinel: "assistant" });
+    assert.deepEqual(happy.assistant.data, {
+      assistant: { sentinel: "assistant" },
+      assistants: [{ id: "assistant-1" }],
+      activeAssistantId: "assistant-1",
+      assistantLimit: { usedAssistants: 1, maxAssistants: 3 }
+    });
   }
   assert.equal(happy.chats.ok, true);
   assert.equal(happy.telegram.ok, true);

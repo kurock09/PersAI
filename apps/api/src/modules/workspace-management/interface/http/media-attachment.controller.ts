@@ -28,14 +28,14 @@ import {
   type AssistantFileRegistryRecord
 } from "../../application/assistant-file-registry.service";
 import { PrepareAssistantDocumentPptxService } from "../../application/prepare-assistant-document-pptx.service";
-import { GetAssistantByUserIdService } from "../../application/get-assistant-by-user-id.service";
+import { ResolveActiveAssistantService } from "../../application/resolve-active-assistant.service";
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
 
 @Controller("api/v1")
 export class MediaAttachmentController {
   constructor(
     private readonly manageChatMediaService: ManageChatMediaService,
-    private readonly getAssistantByUserIdService: GetAssistantByUserIdService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     private readonly assistantFileRegistryService: AssistantFileRegistryService,
     private readonly prepareAssistantDocumentPptxService: PrepareAssistantDocumentPptxService
   ) {}
@@ -437,11 +437,7 @@ export class MediaAttachmentController {
 
   private async resolveRequestAssistant(req: RequestWithPlatformContext) {
     const userId = this.resolveRequestUserId(req);
-    const assistant = await this.getAssistantByUserIdService.execute(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-    return assistant;
+    return (await this.resolveActiveAssistantService.execute({ userId })).assistant;
   }
 
   private parseLimit(value: string | undefined): number {

@@ -29,14 +29,8 @@ class FakePrismaService {
   }> = [];
 
   assistant = {
-    findUnique: async ({ where }: { where: { userId: string } }): Promise<AssistantRow | null> => {
-      for (const row of this.rows.values()) {
-        if (row.id === `assistant-${where.userId}`) {
-          return row;
-        }
-      }
-      return null;
-    },
+    findUnique: async ({ where }: { where: { id: string } }): Promise<AssistantRow | null> =>
+      this.rows.get(where.id) ?? null,
     update: async ({
       where,
       data
@@ -69,6 +63,12 @@ class FakeAuditService {
   }
 }
 
+class FakeResolveActiveAssistantService {
+  async execute(input: { userId: string }): Promise<{ assistantId: string }> {
+    return { assistantId: `assistant-${input.userId}` };
+  }
+}
+
 function makeService(
   prisma: FakePrismaService,
   audit: FakeAuditService
@@ -79,7 +79,10 @@ function makeService(
     >[0],
     audit as unknown as ConstructorParameters<
       typeof UpdateAssistantNotificationPreferenceService
-    >[1]
+    >[1],
+    new FakeResolveActiveAssistantService() as unknown as ConstructorParameters<
+      typeof UpdateAssistantNotificationPreferenceService
+    >[2]
   );
 }
 

@@ -50,15 +50,14 @@ describe("PublishAssistantDraftService", () => {
     const patchedMetadata: Record<string, unknown>[] = [];
     const botProfileNames: string[] = [];
     const botProfilePhotos: Array<{ botToken: string; filename: string; size: number }> = [];
-    let findByUserIdCalls = 0;
+    let resolveActiveAssistantCalls = 0;
 
     const service = new PublishAssistantDraftService(
       {
-        async findByUserId() {
-          findByUserIdCalls += 1;
+        async markApplyPendingByAssistantId() {
           return assistant;
         },
-        async markApplyPending() {
+        async findById() {
           return assistant;
         }
       } as never,
@@ -174,12 +173,18 @@ describe("PublishAssistantDraftService", () => {
         async findByKey() {
           return null;
         }
+      } as never,
+      {
+        async execute() {
+          resolveActiveAssistantCalls += 1;
+          return { assistantId: assistant.id, assistant };
+        }
       } as never
     );
 
     const result = await service.execute("user-1");
 
-    assert.equal(findByUserIdCalls, 2);
+    assert.equal(resolveActiveAssistantCalls, 1);
     assert.equal(result.latestPublishedVersion?.id, "pub-1");
     assert.deepEqual(patchedMetadata, [
       {
@@ -222,10 +227,10 @@ describe("PublishAssistantDraftService", () => {
 
     const service = new PublishAssistantDraftService(
       {
-        async findByUserId() {
+        async markApplyPendingByAssistantId() {
           return assistant;
         },
-        async markApplyPending() {
+        async findById() {
           return assistant;
         }
       } as never,
@@ -336,6 +341,11 @@ describe("PublishAssistantDraftService", () => {
       {
         async findByKey() {
           return null;
+        }
+      } as never,
+      {
+        async execute() {
+          return { assistantId: assistant.id, assistant };
         }
       } as never
     );

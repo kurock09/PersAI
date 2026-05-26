@@ -7,12 +7,14 @@ const clerkMocks = vi.hoisted(() => ({
 }));
 
 const apiMocks = vi.hoisted(() => ({
-  getAssistant: vi.fn(),
+  getAssistantLifecycleView: vi.fn(),
   getAssistantWebChats: vi.fn(),
   getAssistantTelegramIntegration: vi.fn(),
   getAssistantNotificationPreference: vi.fn(),
   getAssistantPlanVisibility: vi.fn(),
-  getAdminPlanVisibility: vi.fn()
+  getAdminPlanVisibility: vi.fn(),
+  postAssistantCreateLifecycleView: vi.fn(),
+  postAssistantSwitch: vi.fn()
 }));
 
 vi.mock("@clerk/nextjs", () => ({
@@ -22,27 +24,89 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("../assistant-api-client", () => ({
-  getAssistant: apiMocks.getAssistant,
+  getAssistantLifecycleView: apiMocks.getAssistantLifecycleView,
   getAssistantWebChats: apiMocks.getAssistantWebChats,
   getAssistantTelegramIntegration: apiMocks.getAssistantTelegramIntegration,
   getAssistantNotificationPreference: apiMocks.getAssistantNotificationPreference,
   getAssistantPlanVisibility: apiMocks.getAssistantPlanVisibility,
-  getAdminPlanVisibility: apiMocks.getAdminPlanVisibility
+  getAdminPlanVisibility: apiMocks.getAdminPlanVisibility,
+  postAssistantCreateLifecycleView: apiMocks.postAssistantCreateLifecycleView,
+  postAssistantSwitch: apiMocks.postAssistantSwitch
 }));
 
 describe("useAppData", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clerkMocks.getToken.mockResolvedValue("token-1");
+    apiMocks.getAssistantLifecycleView.mockResolvedValue({
+      assistant: null,
+      assistants: [],
+      activeAssistantId: null,
+      assistantLimit: { usedAssistants: 0, maxAssistants: 1 }
+    });
     apiMocks.getAssistantWebChats.mockResolvedValue([]);
     apiMocks.getAssistantTelegramIntegration.mockResolvedValue(null);
     apiMocks.getAssistantNotificationPreference.mockResolvedValue(null);
     apiMocks.getAssistantPlanVisibility.mockResolvedValue(null);
     apiMocks.getAdminPlanVisibility.mockRejectedValue(new Error("not admin"));
+    apiMocks.postAssistantCreateLifecycleView.mockResolvedValue({
+      assistant: {
+        id: "assistant-2",
+        latestPublishedVersion: null,
+        runtimeApply: { status: "not_requested" }
+      },
+      assistants: [
+        {
+          id: "assistant-1",
+          displayName: "Alpha",
+          avatarEmoji: null,
+          avatarUrl: null,
+          createdAt: "2026-05-26T14:00:00.000Z",
+          updatedAt: "2026-05-26T14:00:00.000Z"
+        },
+        {
+          id: "assistant-2",
+          displayName: "Beta",
+          avatarEmoji: null,
+          avatarUrl: null,
+          createdAt: "2026-05-26T15:00:00.000Z",
+          updatedAt: "2026-05-26T15:00:00.000Z"
+        }
+      ],
+      activeAssistantId: "assistant-2",
+      assistantLimit: { usedAssistants: 2, maxAssistants: 3 }
+    });
+    apiMocks.postAssistantSwitch.mockResolvedValue({
+      assistant: {
+        id: "assistant-2",
+        latestPublishedVersion: null,
+        runtimeApply: { status: "not_requested" }
+      },
+      assistants: [
+        {
+          id: "assistant-1",
+          displayName: "Alpha",
+          avatarEmoji: null,
+          avatarUrl: null,
+          createdAt: "2026-05-26T14:00:00.000Z",
+          updatedAt: "2026-05-26T14:00:00.000Z"
+        },
+        {
+          id: "assistant-2",
+          displayName: "Beta",
+          avatarEmoji: null,
+          avatarUrl: null,
+          createdAt: "2026-05-26T15:00:00.000Z",
+          updatedAt: "2026-05-26T15:00:00.000Z"
+        }
+      ],
+      activeAssistantId: "assistant-2",
+      assistantLimit: { usedAssistants: 2, maxAssistants: 3 }
+    });
   });
 
   it("does not resolve assistant as missing when the assistant request fails", async () => {
-    apiMocks.getAssistant.mockRejectedValue(new Error("Network unavailable"));
+    apiMocks.getAssistantLifecycleView.mockRejectedValue(new Error("Network unavailable"));
 
     const { result } = renderHook(() => useAppData(null));
 
@@ -56,7 +120,12 @@ describe("useAppData", () => {
   });
 
   it("optimistically bumps the matching chat row activity without reloading the page", async () => {
-    apiMocks.getAssistant.mockResolvedValue(null);
+    apiMocks.getAssistantLifecycleView.mockResolvedValue({
+      assistant: null,
+      assistants: [],
+      activeAssistantId: null,
+      assistantLimit: { usedAssistants: 0, maxAssistants: 1 }
+    });
     apiMocks.getAssistantWebChats.mockResolvedValue([
       {
         chat: {
@@ -84,5 +153,61 @@ describe("useAppData", () => {
 
     expect(result.current.chats[0]?.chat.lastMessageAt).not.toBe("2026-04-25T12:00:00.000Z");
     expect(result.current.chats[0]?.chat.surfaceThreadKey).toBe("thread-1");
+  });
+
+  it("switches assistants and refreshes assistant-scoped slices", async () => {
+    apiMocks.getAssistantWebChats.mockResolvedValue([
+      {
+        chat: {
+          id: "chat-1",
+          surfaceThreadKey: "thread-1",
+          title: "Alpha chat",
+          lastMessageAt: "2026-04-25T12:00:00.000Z",
+          createdAt: "2026-04-25T11:00:00.000Z",
+          archivedAt: null,
+          deepModeEnabled: false
+        },
+        lastMessagePreview: null
+      }
+    ]);
+    apiMocks.getAssistantTelegramIntegration.mockResolvedValue({
+      connectionStatus: "not_connected"
+    });
+    apiMocks.getAssistantNotificationPreference.mockResolvedValue({
+      selectedChannel: "web",
+      availableChannels: ["web"]
+    });
+
+    const { result } = renderHook(() => useAppData(null));
+
+    await waitFor(() => {
+      expect(result.current.chats[0]?.chat.surfaceThreadKey).toBe("thread-1");
+    });
+
+    apiMocks.getAssistantWebChats.mockResolvedValue([
+      {
+        chat: {
+          id: "chat-2",
+          surfaceThreadKey: "thread-2",
+          title: "Beta chat",
+          lastMessageAt: "2026-04-25T13:00:00.000Z",
+          createdAt: "2026-04-25T12:00:00.000Z",
+          archivedAt: null,
+          deepModeEnabled: false
+        },
+        lastMessagePreview: null
+      }
+    ]);
+
+    await act(async () => {
+      await result.current.switchAssistant("assistant-2");
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeAssistantId).toBe("assistant-2");
+    });
+    expect(apiMocks.postAssistantSwitch).toHaveBeenCalledWith("token-1", "assistant-2");
+    expect(result.current.assistant?.id).toBe("assistant-2");
+    expect(result.current.chats[0]?.chat.surfaceThreadKey).toBe("thread-2");
   });
 });

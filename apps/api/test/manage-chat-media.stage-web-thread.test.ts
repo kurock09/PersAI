@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { NotFoundException } from "@nestjs/common";
 import { PlatformHttpMetricsService } from "../src/modules/platform-core/application/platform-http-metrics.service";
 
 const noopRecordModelCostLedgerService = {
@@ -76,8 +77,11 @@ async function run(): Promise<void> {
   let directUploadCreateInput: Record<string, unknown> | null = null;
   const directUploadService = new ManageChatMediaService(
     {
-      async findByUserId(userId: string) {
-        return userId === "user-1" ? assistant : null;
+      async execute({ userId }: { userId: string }) {
+        if (userId !== "user-1") {
+          throw new Error("assistant not found");
+        }
+        return { assistantId: assistant.id, assistant };
       }
     } as never,
     {
@@ -242,8 +246,11 @@ async function run(): Promise<void> {
   let videoUploadCreateInput: Record<string, unknown> | null = null;
   const videoUploadService = new ManageChatMediaService(
     {
-      async findByUserId(userId: string) {
-        return userId === "user-1" ? assistant : null;
+      async execute({ userId }: { userId: string }) {
+        if (userId !== "user-1") {
+          throw new Error("assistant not found");
+        }
+        return { assistantId: assistant.id, assistant };
       }
     } as never,
     {
@@ -409,8 +416,11 @@ async function run(): Promise<void> {
   const releasedBytes: bigint[] = [];
   const service = new ManageChatMediaService(
     {
-      async findByUserId(userId: string) {
-        return userId === "user-1" ? assistant : null;
+      async execute({ userId }: { userId: string }) {
+        if (userId !== "user-1") {
+          throw new Error("assistant not found");
+        }
+        return { assistantId: assistant.id, assistant };
       }
     } as never,
     {
@@ -595,8 +605,8 @@ async function run(): Promise<void> {
   const stageEnqueueCalls: Array<Record<string, unknown>> = [];
   const existingProjectStageService = new ManageChatMediaService(
     {
-      async findByUserId() {
-        return assistant;
+      async execute() {
+        return { assistantId: assistant.id, assistant };
       }
     } as never,
     {
@@ -752,8 +762,8 @@ async function run(): Promise<void> {
   const cappedDeletedMessages: string[] = [];
   const failingService = new ManageChatMediaService(
     {
-      async findByUserId() {
-        return assistant;
+      async execute() {
+        return { assistantId: assistant.id, assistant };
       }
     } as never,
     {
@@ -920,8 +930,8 @@ async function run(): Promise<void> {
   const storageFailureDeletedMessages: string[] = [];
   const storageFailureService = new ManageChatMediaService(
     {
-      async findByUserId() {
-        return assistant;
+      async execute() {
+        return { assistantId: assistant.id, assistant };
       }
     } as never,
     {
@@ -1060,8 +1070,8 @@ async function run(): Promise<void> {
     () =>
       new ManageChatMediaService(
         {
-          async findByUserId() {
-            return assistant;
+          async execute() {
+            return { assistantId: assistant.id, assistant };
           }
         } as never,
         {
@@ -1103,6 +1113,56 @@ async function run(): Promise<void> {
       error.errorObject !== null &&
       "code" in error.errorObject &&
       error.errorObject.code === "active_chat_cap_reached"
+  );
+
+  await assert.rejects(
+    () =>
+      new ManageChatMediaService(
+        {
+          async execute() {
+            return { assistantId: assistant.id, assistant };
+          }
+        } as never,
+        {
+          async findChatById() {
+            return {
+              id: "chat-b",
+              assistantId: "assistant-b",
+              userId: assistant.userId,
+              workspaceId: assistant.workspaceId,
+              surface: "web",
+              surfaceThreadKey: "thread-b",
+              title: null,
+              archivedAt: null,
+              lastMessageAt: null,
+              createdAt: new Date("2026-04-06T00:00:00.000Z"),
+              updatedAt: new Date("2026-04-06T00:00:00.000Z")
+            };
+          }
+        } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        fakeAssistantFileRegistry as never,
+        noopUploadMicroDescriptionJobService,
+        new PlatformHttpMetricsService(),
+        noopRecordModelCostLedgerService,
+        noopPrisma
+      ).uploadAttachment({
+        userId: "user-1",
+        chatId: "chat-b",
+        messageId: "msg-b",
+        file: {
+          buffer: Buffer.from("cross-assistant"),
+          mimetype: "text/plain",
+          originalname: "cross.txt"
+        }
+      }),
+    (error) =>
+      error instanceof NotFoundException &&
+      error.message === "Chat does not exist for this assistant."
   );
 }
 

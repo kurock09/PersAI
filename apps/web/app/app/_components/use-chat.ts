@@ -35,7 +35,7 @@ import {
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
 import { dispatchProjectFilesChanged } from "./project-files-events";
-import { useStreamingThreadsRegistry } from "./streaming-threads";
+import { scopeThreadKey, useStreamingThreadsRegistry } from "./streaming-threads";
 /** * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server * does not return 2xx headers within this window, the request is aborted * and the user bubble flips to "send_failed". 10s is well above normal * server response time but short enough to feel responsive on flaky * mobile networks. (ADR-075 T� "Single-slot pending send".) */ const HEADERS_TIMEOUT_MS = 10_000;
 /** Avoid duplicate focus/visibility refresh bursts from the same browser resume. */ const RESUME_REFRESH_DEBOUNCE_MS = 1_500;
 const SOFT_DETACH_RECONCILE_INTERVAL_MS = 2_000;
@@ -166,6 +166,9 @@ export interface ChatSendOptions {
   deepModeEnabled?: boolean | undefined;
   clientTurnId?: string | undefined;
   clientAttachmentIds?: string[] | undefined;
+}
+interface UseChatOptions {
+  assistantId?: string | null;
 }
 type LiveActivitySource = "tool" | "compaction" | "runtime" | "retrieval" | "project";
 type LiveActivityEvent = ActivityEvent & {
@@ -932,9 +935,10 @@ function clearStoredActiveTurnClientTurnId(targetThreadKey: string, clientTurnId
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-export function useChat(threadKey: string): UseChatReturn {
+export function useChat(threadKey: string, options?: UseChatOptions): UseChatReturn {
   const { getToken } = useAuth();
   const t = useTranslations("chat");
+  const assistantScopedThreadKey = scopeThreadKey(threadKey, options?.assistantId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [liveActivitiesByMessageId, setLiveActivitiesByMessageId] = useState<
@@ -952,7 +956,7 @@ export function useChat(threadKey: string): UseChatReturn {
     markMediaActive,
     markStreaming
   } = useStreamingThreadsRegistry();
-  const isStreaming = activeThreads.has(threadKey);
+  const isStreaming = activeThreads.has(assistantScopedThreadKey);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
@@ -987,8 +991,8 @@ export function useChat(threadKey: string): UseChatReturn {
   const activeChatIdRef = useRef<string | null>(null);
   const activeMediaJobsRef = useRef<WebChatActiveMediaJobState[]>([]);
   const activeDocumentJobsRef = useRef<WebChatActiveDocumentJobState[]>([]);
-  const prevThreadKeyRef = useRef(threadKey);
-  const currentThreadKeyRef = useRef(threadKey);
+  const prevThreadKeyRef = useRef(assistantScopedThreadKey);
+  const currentThreadKeyRef = useRef(assistantScopedThreadKey);
   const lastResumeRefreshAtRef = useRef(0);
   /* Single-slot pending send (ADR-075). Holds enough info to either retry the */ /* exact same payload or cancel and restore the draft text. */ const pendingSendRef =
     useRef<PendingSendSlot | null>(null);
@@ -1026,7 +1030,7 @@ export function useChat(threadKey: string): UseChatReturn {
     pendingSendStatusRef.current = next;
     setPendingSendStatusState(next);
   }, []);
-  currentThreadKeyRef.current = threadKey;
+  currentThreadKeyRef.current = assistantScopedThreadKey;
   const setThreadPendingSend = useCallback(
     (targetThreadKey: string, next: PendingSendSlot | null) => {
       if (next === null) {
@@ -1202,9 +1206,9 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     [cacheThreadHistorySnapshot, clearSoftDetachReconcileTimer, markStreaming]
   );
-  if (prevThreadKeyRef.current !== threadKey) {
+  if (prevThreadKeyRef.current !== assistantScopedThreadKey) {
     const outgoingThreadKey = prevThreadKeyRef.current;
-    prevThreadKeyRef.current = threadKey;
+    prevThreadKeyRef.current = assistantScopedThreadKey;
     // Sync the OUTGOING thread's full visible state into the CACHE
     // (NOT into `activeTurnSnapshotsRef`). The snapshot is initialised
     // by `send()` with only `[liveUser, liveAssistant]` and is the
@@ -1223,7 +1227,7 @@ export function useChat(threadKey: string): UseChatReturn {
     // cache (which is the proper place for "what the user was
     // looking at last") preserves the swap-out window for the
     // swap-back restore below WITHOUT polluting the live snapshot.
-    if (outgoingThreadKey !== threadKey) {
+    if (outgoingThreadKey !== assistantScopedThreadKey) {
       const outgoingSnapshot = activeTurnSnapshotsRef.current.get(outgoingThreadKey);
       if (outgoingSnapshot !== undefined && messages.length > 0) {
         const sanitizedVisible = messages.filter(
@@ -1273,11 +1277,12 @@ export function useChat(threadKey: string): UseChatReturn {
         }
       }
     }
-    const pendingForThread = pendingSendsByThreadRef.current.get(threadKey) ?? null;
-    const cachedHistorySnapshot = cachedThreadHistorySnapshotsRef.current.get(threadKey);
+    const pendingForThread = pendingSendsByThreadRef.current.get(assistantScopedThreadKey) ?? null;
+    const cachedHistorySnapshot =
+      cachedThreadHistorySnapshotsRef.current.get(assistantScopedThreadKey);
     const liveSnapshot =
-      activeThreads.has(threadKey) || pendingForThread !== null
-        ? activeTurnSnapshotsRef.current.get(threadKey)
+      activeThreads.has(assistantScopedThreadKey) || pendingForThread !== null
+        ? activeTurnSnapshotsRef.current.get(assistantScopedThreadKey)
         : undefined;
     const restoredSnapshot = liveSnapshot ?? cachedHistorySnapshot;
     // RESTORE the FULL visible state by merging the cached window
@@ -1363,8 +1368,9 @@ export function useChat(threadKey: string): UseChatReturn {
   }
   const stop = useCallback(() => {
     /* Per-thread stop: abort only the stream attached to the thread the */ /* user is currently looking at. Streams in other threads keep going so */ /* switching away from a generating image doesn't kill it. */ /*  */ /* Slice 1.2 ��� `stop()` is the *user-visible* hard-stop affordance */ /* (the Stop button on the composer). The API can no longer infer */ /* hard-stop from a dead SSE socket, because that signal also fires */ /* for soft-detach cases like locking the screen mid-image-generate. */ /* So before tearing down the local controller we send an explicit */ /* `POST /assistant/chat/web/stop` with the in-flight `clientTurnId`, */ /* which is the only path that flips the server-side abort signal. */ /* The POST is best-effort and intentionally not awaited: a failure */ /* here just means the runtime keeps generating in the background */ /* (the same fate as a soft-detach), which is strictly safer than */ /* the pre-Slice-1.2 "always kill on any disconnect" default. */ const entry =
-      abortControllersByThreadRef.current.get(threadKey);
-    const snapshotClientTurnId = activeTurnSnapshotsRef.current.get(threadKey)?.clientTurnId;
+      abortControllersByThreadRef.current.get(assistantScopedThreadKey);
+    const snapshotClientTurnId =
+      activeTurnSnapshotsRef.current.get(assistantScopedThreadKey)?.clientTurnId;
     const clientTurnId = entry?.clientTurnId ?? snapshotClientTurnId;
     if (clientTurnId === undefined) {
       return;
@@ -1387,7 +1393,7 @@ export function useChat(threadKey: string): UseChatReturn {
         abortControllersByThreadRef.current.delete(threadKey);
       }
     })();
-  }, [threadKey, getToken]);
+  }, [assistantScopedThreadKey, getToken]);
   const clearIssue = useCallback(() => setIssue(null), []);
   const reportIssue = useCallback((error: unknown) => {
     setIssue(toWebChatUxIssue(error));
@@ -2362,12 +2368,12 @@ export function useChat(threadKey: string): UseChatReturn {
     };
   }, []);
   useEffect(() => {
-    const clientTurnId = readStoredActiveTurnClientTurnId(threadKey);
-    if (clientTurnId === null || activeTurnSnapshotsRef.current.has(threadKey)) {
+    const clientTurnId = readStoredActiveTurnClientTurnId(assistantScopedThreadKey);
+    if (clientTurnId === null || activeTurnSnapshotsRef.current.has(assistantScopedThreadKey)) {
       return;
     }
-    startStoredActiveTurnRestore(threadKey, clientTurnId);
-  }, [startStoredActiveTurnRestore, threadKey]);
+    startStoredActiveTurnRestore(assistantScopedThreadKey, clientTurnId);
+  }, [assistantScopedThreadKey, startStoredActiveTurnRestore]);
   const send = useCallback(
     async (text: string, files?: File[], options?: ChatSendOptions) => {
       const trimmed = text.trim();
@@ -2376,8 +2382,11 @@ export function useChat(threadKey: string): UseChatReturn {
         pendingSendStatusRef.current !== null
       )
         return;
-      /* Capture the thread key at send time so every subsequent */ /* markStreaming / abort-map mutation in this turn targets the *originating* */ /* thread, even if the user navigates away mid-stream. */ const sendThreadKey =
-        threadKey;
+      /* Capture the assistant-scoped thread key at send time so every
+       * subsequent local registry / cache mutation stays bound to the
+       * originating assistant+thread view, even if another assistant later
+       * reuses the same surface thread key. */
+      const sendThreadKey = assistantScopedThreadKey;
       /* Synchronous re-entrancy guard. It stays set until the optimistic      */
       /* `[user, assistant]` pair and pending slot are claimed, so another     */
       /* same-thread send cannot race through before React renders the new     */
@@ -3415,7 +3424,7 @@ export function useChat(threadKey: string): UseChatReturn {
   const sendWelcome = useCallback(
     async (locale: string) => {
       if (isStreaming) return;
-      const sendThreadKey = threadKey;
+      const sendThreadKey = assistantScopedThreadKey;
       /* See `sendInPreflightByThreadRef` doc above. The same microtask race  */
       /* exists here between the `isStreaming` check and the synchronous     */
       /* `markStreaming(true)` below. Without this guard, two near-                 */
@@ -3713,6 +3722,7 @@ export function useChat(threadKey: string): UseChatReturn {
       markStreaming,
       setThreadChatId,
       t,
+      assistantScopedThreadKey,
       threadKey
     ]
   );

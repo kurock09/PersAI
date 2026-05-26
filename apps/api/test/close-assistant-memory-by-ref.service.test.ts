@@ -76,7 +76,6 @@ interface HarnessOptions {
 
 function createHarness(options: HarnessOptions = {}) {
   const findByIdCalls: string[] = [];
-  const findByUserIdCalls: string[] = [];
   const findActiveCalls: Array<{ itemId: string; assistantId: string }> = [];
   const setResolvedCalls: Array<{ id: string; assistantId: string }> = [];
   const auditCalls: Array<Record<string, unknown>> = [];
@@ -87,16 +86,18 @@ function createHarness(options: HarnessOptions = {}) {
   const assistantByUserId =
     options.assistantByUserId === undefined ? buildAssistant() : options.assistantByUserId;
 
-  const assistantRepository: Pick<AssistantRepository, "findById" | "findByUserId"> = {
+  const assistantRepository: Pick<AssistantRepository, "findById"> = {
     async findById(id) {
       findByIdCalls.push(id);
       return assistantById !== null && assistantById.id === id ? assistantById : null;
-    },
-    async findByUserId(userId) {
-      findByUserIdCalls.push(userId);
-      return assistantByUserId !== null && assistantByUserId.userId === userId
-        ? assistantByUserId
-        : null;
+    }
+  };
+  const resolveActiveAssistantService = {
+    async execute({ userId }: { userId: string }) {
+      if (assistantByUserId !== null && assistantByUserId.userId === userId) {
+        return { assistantId: assistantByUserId.id, assistant: assistantByUserId };
+      }
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
   };
 
@@ -145,10 +146,10 @@ function createHarness(options: HarnessOptions = {}) {
       assistantRepository as AssistantRepository,
       assistantGovernanceRepository as AssistantGovernanceRepository,
       memoryRegistryRepository as AssistantMemoryRegistryRepository,
-      appendAuditService as AppendAssistantAuditEventService
+      appendAuditService as AppendAssistantAuditEventService,
+      resolveActiveAssistantService as never
     ),
     findByIdCalls,
-    findByUserIdCalls,
     findActiveCalls,
     setResolvedCalls,
     auditCalls,

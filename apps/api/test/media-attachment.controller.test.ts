@@ -19,11 +19,14 @@ async function run(): Promise<void> {
   const controller = new MediaAttachmentController(
     {} as never,
     {
-      async execute(userId: string) {
+      async execute({ userId }: { userId: string }) {
         assert.equal(userId, "user-1");
         return {
-          id: "assistant-1",
-          workspaceId: "workspace-1"
+          assistantId: "assistant-1",
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "workspace-1"
+          }
         };
       }
     } as never,

@@ -5,6 +5,7 @@ import type {
   AssistantPreferredNotificationChannel
 } from "./assistant-notification-preference.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 const CONNECTABLE_PROVIDER_KEYS = ["telegram"] as const;
 
@@ -19,11 +20,15 @@ function toPreferredNotificationChannel(
 
 @Injectable()
 export class ResolveAssistantNotificationPreferenceService {
-  constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
+  constructor(
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
+  ) {}
 
   async execute(userId: string): Promise<AssistantNotificationPreferenceState> {
+    const resolved = await this.resolveActiveAssistantService.execute({ userId });
     const assistant = await this.prisma.assistant.findUnique({
-      where: { userId },
+      where: { id: resolved.assistantId },
       select: {
         preferredNotificationChannel: true,
         channelSurfaceBindings: {
@@ -36,7 +41,7 @@ export class ResolveAssistantNotificationPreferenceService {
       }
     });
     if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
 
     const availableChannelSet = new Set<AssistantPreferredNotificationChannel>(["web"]);

@@ -93,6 +93,10 @@ export type AdminPlanRetrievalPolicy = {
 
 export type AdminPlanSandboxPolicy = RuntimeSandboxPolicy;
 
+export type AdminPlanAssistantPolicy = {
+  maxAssistants: number;
+};
+
 export type AdminPlanLocalizedText = {
   ru: string | null;
   en: string | null;
@@ -154,6 +158,7 @@ export type AdminPlanInput = {
   skillPolicy: {
     maxEnabledSkills: number | null;
   };
+  assistantPolicy: AdminPlanAssistantPolicy;
   contextPolicy: AdminPlanContextPolicy;
   retrievalPolicy: AdminPlanRetrievalPolicy;
   sandboxPolicy: AdminPlanSandboxPolicy;
@@ -216,6 +221,7 @@ export type AdminPlanState = {
   skillPolicy: {
     maxEnabledSkills: number | null;
   };
+  assistantPolicy: AdminPlanAssistantPolicy;
   contextPolicy: AdminPlanContextPolicy;
   retrievalPolicy: AdminPlanRetrievalPolicy;
   sandboxPolicy: AdminPlanSandboxPolicy;
@@ -250,5 +256,6 @@ export type PublicPricingPlanState = {
   entitlements: AdminPlanEntitlementControls;
   quotaLimits: AdminPlanState["quotaLimits"];
   skillPolicy: AdminPlanState["skillPolicy"];
+  assistantPolicy: AdminPlanState["assistantPolicy"];
   presentation: AdminPlanPresentation;
 };

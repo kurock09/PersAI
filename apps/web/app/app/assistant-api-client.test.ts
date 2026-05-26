@@ -6,11 +6,15 @@ import {
   getAssistantDocumentPptxPrepareUrl,
   getAssistantFileDownloadUrl,
   getAssistantFiles,
+  getAssistantLifecycleView,
+  getAssistantList,
   getAdminSupportAttachmentUrl,
   getChatCompactionState,
   getAdminPlatformRollouts,
   getAdminRuntimeProviderSettings,
   getSupportAttachmentUrl,
+  postAssistantCreateLifecycleView,
+  postAssistantSwitch,
   postAssistantBillingPaymentIntent,
   postAssistantSupportTicketRead,
   postAssistantMemoryItemCloseOpenLoop,
@@ -26,10 +30,14 @@ import {
 const contractMocks = vi.hoisted(() => {
   return {
     postAdminStepUpChallenge: vi.fn(),
+    getAssistant: vi.fn(),
+    getAssistantList: vi.fn(),
     getAdminPlatformRollouts: vi.fn(),
     getAdminRuntimeProviderSettings: vi.fn(),
     getAssistantWebChatCompaction: vi.fn(),
+    postAssistantCreate: vi.fn(),
     postAssistantBillingPaymentIntent: vi.fn(),
+    postAssistantSwitch: vi.fn(),
     postAssistantMemoryItemCloseOpenLoop: vi.fn(),
     postAssistantWebChatCompact: vi.fn(),
     putAdminRuntimeProviderSettings: vi.fn(),
@@ -41,11 +49,15 @@ vi.mock("@persai/contracts", async () => {
   const actual = await vi.importActual<typeof import("@persai/contracts")>("@persai/contracts");
   return {
     ...actual,
+    getAssistant: contractMocks.getAssistant,
+    getAssistantList: contractMocks.getAssistantList,
     postAdminStepUpChallenge: contractMocks.postAdminStepUpChallenge,
     getAdminPlatformRollouts: contractMocks.getAdminPlatformRollouts,
     getAdminRuntimeProviderSettings: contractMocks.getAdminRuntimeProviderSettings,
     getAssistantWebChatCompaction: contractMocks.getAssistantWebChatCompaction,
+    postAssistantCreate: contractMocks.postAssistantCreate,
     postAssistantBillingPaymentIntent: contractMocks.postAssistantBillingPaymentIntent,
+    postAssistantSwitch: contractMocks.postAssistantSwitch,
     postAssistantMemoryItemCloseOpenLoop: contractMocks.postAssistantMemoryItemCloseOpenLoop,
     postAssistantWebChatCompact: contractMocks.postAssistantWebChatCompact,
     putAdminRuntimeProviderSettings: contractMocks.putAdminRuntimeProviderSettings,
@@ -971,6 +983,218 @@ describe("reattachAssistantWebChatTurnStream", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("assistant lifecycle client", () => {
+  it("falls back to /assistant/list when GET /assistant returns 404", async () => {
+    contractMocks.getAssistant.mockResolvedValue({
+      status: 404,
+      data: { error: { code: "not_found", message: "Missing." } }
+    });
+    contractMocks.getAssistantList.mockResolvedValue({
+      status: 200,
+      data: {
+        assistants: [
+          {
+            id: "assistant-1",
+            displayName: "Alpha",
+            avatarEmoji: null,
+            avatarUrl: null,
+            createdAt: "2026-05-26T14:00:00.000Z",
+            updatedAt: "2026-05-26T14:00:00.000Z"
+          }
+        ],
+        activeAssistantId: null,
+        assistantLimit: { usedAssistants: 0, maxAssistants: 3 }
+      }
+    });
+
+    await expect(getAssistantLifecycleView("token-1")).resolves.toEqual({
+      assistant: null,
+      assistants: [
+        {
+          id: "assistant-1",
+          displayName: "Alpha",
+          avatarEmoji: null,
+          avatarUrl: null,
+          createdAt: "2026-05-26T14:00:00.000Z",
+          updatedAt: "2026-05-26T14:00:00.000Z"
+        }
+      ],
+      activeAssistantId: null,
+      assistantLimit: { usedAssistants: 0, maxAssistants: 3 }
+    });
+  });
+
+  it("lists assistants from the generated contract client", async () => {
+    contractMocks.getAssistantList.mockResolvedValue({
+      status: 200,
+      data: {
+        assistants: [],
+        activeAssistantId: "assistant-2",
+        assistantLimit: { usedAssistants: 2, maxAssistants: 3 }
+      }
+    });
+
+    await expect(getAssistantList("token-1")).resolves.toEqual({
+      assistants: [],
+      activeAssistantId: "assistant-2",
+      assistantLimit: { usedAssistants: 2, maxAssistants: 3 }
+    });
+  });
+
+  it("returns active/list metadata from the create assistant contract", async () => {
+    contractMocks.postAssistantCreate.mockResolvedValue({
+      status: 200,
+      data: {
+        assistant: {
+          id: "assistant-3",
+          userId: "user-1",
+          workspaceId: "ws-1",
+          draft: {
+            displayName: "Gamma",
+            instructions: null,
+            traits: null,
+            avatarEmoji: null,
+            avatarUrl: null,
+            assistantGender: null,
+            voiceProfile: {
+              schema: "persai.runtimeAssistantVoiceProfile.v1",
+              voiceId: null,
+              stylePrompt: null,
+              speakingRate: null
+            },
+            archetypeKey: null,
+            updatedAt: null
+          },
+          latestPublishedVersion: null,
+          runtimeApply: {
+            status: "not_requested",
+            targetPublishedVersionId: null,
+            appliedPublishedVersionId: null,
+            requestedAt: null,
+            startedAt: null,
+            finishedAt: null,
+            error: null
+          },
+          governance: {
+            capabilityEnvelope: null,
+            secretRefs: null,
+            policyEnvelope: null,
+            runtimeTierOverride: null,
+            memoryControl: null,
+            tasksControl: null,
+            assistantPlanOverrideCode: null,
+            quotaPlanCode: null,
+            quotaHook: null,
+            auditHook: null,
+            platformManagedUpdatedAt: null
+          },
+          materialization: {
+            latestSpecId: null,
+            publishedVersionId: null,
+            sourceAction: null,
+            algorithmVersion: null,
+            contentHash: null,
+            generatedAt: null,
+            runtimeAssignment: null,
+            assistantConfigDocument: null,
+            assistantWorkspaceDocument: null
+          },
+          createdAt: "2026-05-26T14:00:00.000Z",
+          updatedAt: "2026-05-26T14:00:00.000Z"
+        },
+        assistants: [],
+        activeAssistantId: "assistant-3",
+        assistantLimit: { usedAssistants: 3, maxAssistants: 3 }
+      }
+    });
+
+    await expect(postAssistantCreateLifecycleView("token-1")).resolves.toMatchObject({
+      assistant: { id: "assistant-3" },
+      activeAssistantId: "assistant-3",
+      assistantLimit: { usedAssistants: 3, maxAssistants: 3 }
+    });
+  });
+
+  it("switches active assistant through the generated contract client", async () => {
+    contractMocks.postAssistantSwitch.mockResolvedValue({
+      status: 200,
+      data: {
+        assistant: {
+          id: "assistant-2",
+          userId: "user-1",
+          workspaceId: "ws-1",
+          draft: {
+            displayName: "Beta",
+            instructions: null,
+            traits: null,
+            avatarEmoji: null,
+            avatarUrl: null,
+            assistantGender: null,
+            voiceProfile: {
+              schema: "persai.runtimeAssistantVoiceProfile.v1",
+              voiceId: null,
+              stylePrompt: null,
+              speakingRate: null
+            },
+            archetypeKey: null,
+            updatedAt: null
+          },
+          latestPublishedVersion: null,
+          runtimeApply: {
+            status: "not_requested",
+            targetPublishedVersionId: null,
+            appliedPublishedVersionId: null,
+            requestedAt: null,
+            startedAt: null,
+            finishedAt: null,
+            error: null
+          },
+          governance: {
+            capabilityEnvelope: null,
+            secretRefs: null,
+            policyEnvelope: null,
+            runtimeTierOverride: null,
+            memoryControl: null,
+            tasksControl: null,
+            assistantPlanOverrideCode: null,
+            quotaPlanCode: null,
+            quotaHook: null,
+            auditHook: null,
+            platformManagedUpdatedAt: null
+          },
+          materialization: {
+            latestSpecId: null,
+            publishedVersionId: null,
+            sourceAction: null,
+            algorithmVersion: null,
+            contentHash: null,
+            generatedAt: null,
+            runtimeAssignment: null,
+            assistantConfigDocument: null,
+            assistantWorkspaceDocument: null
+          },
+          createdAt: "2026-05-26T14:00:00.000Z",
+          updatedAt: "2026-05-26T14:00:00.000Z"
+        },
+        assistants: [],
+        activeAssistantId: "assistant-2",
+        assistantLimit: { usedAssistants: 2, maxAssistants: 3 }
+      }
+    });
+
+    await expect(postAssistantSwitch("token-1", "assistant-2")).resolves.toMatchObject({
+      assistant: { id: "assistant-2" },
+      activeAssistantId: "assistant-2"
+    });
+    expect(contractMocks.postAssistantSwitch).toHaveBeenCalledWith(
+      { assistantId: "assistant-2" },
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer token-1" })
+      })
+    );
   });
 });
 

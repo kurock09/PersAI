@@ -25,7 +25,8 @@ const chatHookMocks = vi.hoisted(() => ({
     | "send_failed"
     | "send_failed_unconfirmed"
     | "send_failed_confirmed",
-  threadKeys: [] as string[]
+  threadKeys: [] as string[],
+  assistantIds: [] as Array<string | null | undefined>
 }));
 
 const appDataMocks = vi.hoisted(() => ({
@@ -37,9 +38,12 @@ const appDataMocks = vi.hoisted(() => ({
     chat: { id: string; surfaceThreadKey: string; title: string | null; deepModeEnabled: boolean };
   }>,
   assistant: null,
+  activeAssistantId: "assistant-1",
   reload: vi.fn(),
   reloadChats: vi.fn(),
-  markChatListActivity: vi.fn()
+  markChatListActivity: vi.fn(),
+  createAssistant: vi.fn(),
+  switchAssistant: vi.fn()
 }));
 
 const shellActionMocks = vi.hoisted(() => ({
@@ -72,8 +76,9 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("../_components/use-chat", () => ({
-  useChat: (threadKey: string) => {
+  useChat: (threadKey: string, options?: { assistantId?: string | null }) => {
     chatHookMocks.threadKeys.push(threadKey);
+    chatHookMocks.assistantIds.push(options?.assistantId);
     return chatHookMocks;
   }
 }));
@@ -109,6 +114,7 @@ describe("ChatPage", () => {
     chatHookMocks.historyLoading = false;
     chatHookMocks.pendingSendStatus = null;
     chatHookMocks.threadKeys = [];
+    chatHookMocks.assistantIds = [];
     chatAreaMocks.lastProps = null;
     assistantApiClientMocks.getAssistantBillingPaymentIntent.mockReset();
     assistantApiClientMocks.getAssistantPlanVisibility.mockReset();
@@ -153,6 +159,7 @@ describe("ChatPage", () => {
       },
       updatedAt: "2026-05-05T12:00:00.000Z"
     });
+    appDataMocks.activeAssistantId = "assistant-1";
     appDataMocks.reload.mockReset();
     appDataMocks.markChatListActivity.mockReset();
     shellActionMocks.openSettings.mockReset();
@@ -334,7 +341,24 @@ describe("ChatPage", () => {
     await waitFor(() => {
       expect(navigationMocks.replace).toHaveBeenCalled();
     });
-    expect(window.sessionStorage.getItem("persai.draft-chat-thread.v1")).toBeNull();
+    expect(window.sessionStorage.getItem("persai.draft-chat-thread.v1.assistant-1")).toBeNull();
+  });
+
+  it("namespaces the draft thread storage by active assistant", async () => {
+    navigationMocks.searchParams = new URLSearchParams();
+    appDataMocks.activeAssistantId = "assistant-42";
+    appDataMocks.chats = [];
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(chatHookMocks.threadKeys).toHaveLength(1);
+    });
+
+    expect(window.sessionStorage.getItem("persai.draft-chat-thread.v1.assistant-42")).toBe(
+      chatHookMocks.threadKeys[0]
+    );
+    expect(chatHookMocks.assistantIds[0]).toBe("assistant-42");
   });
 
   it("passes billing return params through to the chat area banner props and strips one-shot billing params from the URL", async () => {

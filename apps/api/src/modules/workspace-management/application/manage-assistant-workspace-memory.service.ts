@@ -13,17 +13,18 @@ import {
   ASSISTANT_MEMORY_REGISTRY_REPOSITORY,
   type AssistantMemoryRegistryRepository
 } from "../domain/assistant-memory-registry.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
 import {
   WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT,
   evaluateGlobalMemoryWritePolicy,
   isGlobalMemoryReadAllowed
 } from "../domain/memory-source-policy";
+import type { Assistant } from "../domain/assistant.entity";
 import type {
   AssistantMemoryRegistryClassState,
   AssistantMemoryRegistryKindState
 } from "./assistant-memory.types";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 const WORKSPACE_MEMORY_LIST_LIMIT = 100;
 const WORKSPACE_MEMORY_SEARCH_LIMIT = 50;
@@ -42,8 +43,7 @@ export type WorkspaceMemoryItemState = {
 @Injectable()
 export class ManageAssistantWorkspaceMemoryService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MEMORY_REGISTRY_REPOSITORY)
@@ -121,14 +121,8 @@ export class ManageAssistantWorkspaceMemoryService {
     await this.assistantMemoryRegistryRepository.markForgottenById(itemId, assistant.id);
   }
 
-  private async resolveAssistant(
-    userId: string
-  ): Promise<NonNullable<Awaited<ReturnType<AssistantRepository["findByUserId"]>>>> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant not found.");
-    }
-    return assistant;
+  private async resolveAssistant(userId: string): Promise<Assistant> {
+    return (await this.resolveActiveAssistantService.execute({ userId })).assistant;
   }
 
   private async assertReadAllowed(assistantId: string): Promise<void> {

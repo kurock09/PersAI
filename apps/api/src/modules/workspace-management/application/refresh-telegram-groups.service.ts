@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-channel-runtime-config.service";
 import {
@@ -6,6 +6,7 @@ import {
   TelegramBotClientService,
   TelegramBotUnauthorizedError
 } from "./telegram-bot.client.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 @Injectable()
 export class RefreshTelegramGroupsService {
@@ -14,27 +15,24 @@ export class RefreshTelegramGroupsService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
-    private readonly telegramBotClientService: TelegramBotClientService
+    private readonly telegramBotClientService: TelegramBotClientService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async execute(userId: string): Promise<void> {
-    const assistant = await this.prisma.assistant.findUnique({
-      where: { userId },
-      select: { id: true }
-    });
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = await this.resolveActiveAssistantService.execute({ userId });
 
     const runtimeConfig =
-      await this.resolveTelegramChannelRuntimeConfigService.resolveByAssistantId(assistant.id);
+      await this.resolveTelegramChannelRuntimeConfigService.resolveByAssistantId(
+        assistant.assistantId
+      );
     if (runtimeConfig === null) {
       return;
     }
 
     const activeGroups = await this.prisma.assistantTelegramGroup.findMany({
       where: {
-        assistantId: assistant.id,
+        assistantId: assistant.assistantId,
         status: "active"
       },
       select: {
@@ -60,7 +58,7 @@ export class RefreshTelegramGroupsService {
       } catch (error) {
         if (error instanceof TelegramBotUnauthorizedError) {
           this.logger.warn(
-            `Telegram group refresh aborted for assistant ${assistant.id}: bot token unauthorized.`
+            `Telegram group refresh aborted for assistant ${assistant.assistantId}: bot token unauthorized.`
           );
           return;
         }
@@ -72,7 +70,7 @@ export class RefreshTelegramGroupsService {
             error.status === 403)
         ) {
           this.logger.debug(
-            `Telegram group ${group.telegramChatId} is no longer active for assistant ${assistant.id}: ${error.description}`
+            `Telegram group ${group.telegramChatId} is no longer active for assistant ${assistant.assistantId}: ${error.description}`
           );
         } else if (error instanceof Error) {
           this.logger.warn(

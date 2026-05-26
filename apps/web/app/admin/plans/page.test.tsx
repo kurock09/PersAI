@@ -88,6 +88,9 @@ function createPlanState(): AdminPlanState {
     skillPolicy: {
       maxEnabledSkills: 2
     },
+    assistantPolicy: {
+      maxAssistants: 3
+    },
     retrievalPolicy: {
       defaultMaxResults: 5,
       maxMaxResults: 8,
@@ -191,6 +194,7 @@ describe("admin plans page helpers", () => {
     expect(draft.imageGenerateMonthlyUnitsLimit).toBe("20");
     expect(draft.imageEditMonthlyUnitsLimit).toBe("10");
     expect(draft.videoGenerateMonthlyUnitsLimit).toBe("4");
+    expect(draft.maxAssistants).toBe("3");
     expect(draft.trialFallbackPlanCode).toBe("");
     expect(draft.paidFallbackPlanCode).toBe("starter");
     expect(draft.presentationShowOnPricingPage).toBe(true);
@@ -216,6 +220,9 @@ describe("admin plans page helpers", () => {
     expect(draftToPayload({ ...draft, maxEnabledSkills: "0" }).skillPolicy?.maxEnabledSkills).toBe(
       0
     );
+    expect(draftToPayload(draft).assistantPolicy?.maxAssistants).toBe(3);
+    expect(draftToPayload({ ...draft, maxAssistants: "1" }).assistantPolicy?.maxAssistants).toBe(1);
+    expect(() => draftToPayload({ ...draft, maxAssistants: "0" })).toThrow(/Max assistants/);
     expect(draftToPayload(draft).premiumModelKey).toBe("gpt-5.4");
     expect(draftToPayload(draft).reasoningModelKey).toBe("gpt-5.4-mini");
     expect(draftToPayload(draft).retrievalModelKey).toBe("gpt-5.4-nano");

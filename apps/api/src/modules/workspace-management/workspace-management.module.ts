@@ -157,6 +157,7 @@ import { ResolveUserLocaleService } from "./application/resolve-user-locale.serv
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
+import { EnforceAssistantCreationLimitService } from "./application/enforce-assistant-creation-limit.service";
 import { DoNotRememberAssistantMemoryService } from "./application/do-not-remember-assistant-memory.service";
 import { EnforceAssistantCapabilityAndQuotaService } from "./application/enforce-assistant-capability-and-quota.service";
 import { ForgetAssistantMemoryItemService } from "./application/forget-assistant-memory-item.service";
@@ -172,7 +173,6 @@ import { DisableAssistantTaskRegistryItemService } from "./application/disable-a
 import { EnableAssistantTaskRegistryItemService } from "./application/enable-assistant-task-registry-item.service";
 import { CancelAssistantTaskRegistryItemService } from "./application/cancel-assistant-task-registry-item.service";
 import { GetAssistantAppBootstrapService } from "./application/get-assistant-app-bootstrap.service";
-import { GetAssistantByUserIdService } from "./application/get-assistant-by-user-id.service";
 import { ManageAssistantKnowledgeSourcesService } from "./application/manage-assistant-knowledge-sources.service";
 import { ManageAssistantSkillsService } from "./application/manage-assistant-skills.service";
 import { ManageAssistantAvatarService } from "./application/manage-assistant-avatar.service";
@@ -198,6 +198,8 @@ import { RecordWebChatMemoryTurnService } from "./application/record-web-chat-me
 import { RecordModelCostLedgerService } from "./application/record-model-cost-ledger.service";
 import { RecordToolPathLedgerFromToolInvocationsService } from "./application/record-tool-path-ledger-from-tool-invocations.service";
 import { ReapplyAssistantService } from "./application/reapply-assistant.service";
+import { ResolveActiveAssistantService } from "./application/resolve-active-assistant.service";
+import { ResolveAssistantLifecycleViewService } from "./application/resolve-assistant-lifecycle-view.service";
 import { ResetAssistantService } from "./application/reset-assistant.service";
 import { RollbackAssistantService } from "./application/rollback-assistant.service";
 import { PreviewAssistantSetupService } from "./application/preview-assistant-setup.service";
@@ -208,6 +210,7 @@ import { WebRuntimeTurnClientService } from "./application/web-runtime-turn-clie
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { WebRuntimeStreamClientService } from "./application/web-runtime-stream-client.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
+import { SwitchActiveAssistantService } from "./application/switch-active-assistant.service";
 import { AssistantMediaJobCompletionTurnService } from "./application/assistant-media-job-completion-turn.service";
 import { AssistantMediaJobCompletionDeliveryService } from "./application/assistant-media-job-completion-delivery.service";
 import { AssistantDocumentJobCompletionTurnService } from "./application/assistant-document-job-completion-turn.service";
@@ -531,7 +534,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     EnsureAssistantMaterializedSpecCurrentService,
     RenderAssistantInboundSurfaceMessageService,
     GetAssistantAppBootstrapService,
-    GetAssistantByUserIdService,
     ManageAssistantAvatarService,
     ManageAssistantKnowledgeSourcesService,
     ManageAssistantSkillsService,
@@ -575,7 +577,10 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     WebRuntimeCompactionClientService,
     WebRuntimeSessionStateClientService,
     ManageWebChatListService,
+    ResolveActiveAssistantService,
+    ResolveAssistantLifecycleViewService,
     CreateAssistantService,
+    EnforceAssistantCreationLimitService,
     PublishAssistantDraftService,
     ReapplyAssistantService,
     RollbackAssistantService,
@@ -628,6 +633,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     WebChatTurnHardStopRegistry,
     WebChatTurnStreamRegistry,
     UpdateAssistantDraftService,
+    SwitchActiveAssistantService,
     ResolveTelegramChannelRuntimeConfigService,
     TelegramBotClientService,
     TelegramChannelAdapterService,
@@ -741,7 +747,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageMediaPackagePurchaseService
   ],
   exports: [
-    GetAssistantByUserIdService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,
     CreateAssistantService,

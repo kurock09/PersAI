@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import { Prisma } from "@prisma/client";
 import type {
@@ -32,6 +32,7 @@ import {
   readRuntimeAssignmentStateFromMaterializedLayers,
   type RuntimeTier
 } from "./runtime-assignment";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 export interface AssistantSetupPreviewState {
   message: string;
@@ -76,14 +77,12 @@ export class PreviewAssistantSetupService {
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async execute(userId: string): Promise<AssistantSetupPreviewState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const assistantGender = normalizeAssistantGender(assistant.draftAssistantGender);
     const draftVoiceProfile = applyAssistantGenderVoiceDefaults({

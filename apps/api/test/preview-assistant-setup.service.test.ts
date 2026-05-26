@@ -75,17 +75,9 @@ async function run(): Promise<void> {
   const previewVersionId = "preview-pub-8";
   const previewSpecId = "preview-spec-8";
 
-  const assistantRepository: AssistantRepository = {
-    findById: async () => assistant,
-    findByUserId: async () => assistant,
-    create: async () => assistant,
-    updateDraft: async () => assistant,
-    setApplyPending: async () => assistant,
-    setApplyInProgress: async () => assistant,
-    setApplyResult: async () => assistant,
-    deleteById: async () => undefined,
-    assignOwner: async () => assistant
-  };
+  const assistantRepository = {
+    findById: async () => assistant
+  } as AssistantRepository;
 
   const publishedVersionRepository: AssistantPublishedVersionRepository = {
     create: async () => ({
@@ -242,7 +234,13 @@ async function run(): Promise<void> {
       assistantRepository,
       publishedVersionRepository,
       materializeService,
-      prisma
+      prisma,
+      {
+        async execute({ userId }: { userId: string }) {
+          assert.equal(userId, "user-1");
+          return { assistantId: assistant.id, assistant };
+        }
+      } as never
     );
 
     const result = await service.execute("user-1");

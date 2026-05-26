@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Route } from "next";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
   Sparkles,
@@ -27,6 +28,8 @@ import {
   X
 } from "lucide-react";
 import type {
+  AssistantLimitState,
+  AssistantListItemState,
   AssistantMemoryRegistryItemState,
   AssistantTaskRegistryItemState,
   UserPlanVisibilityState
@@ -143,6 +146,194 @@ function normalizeInitialSection(value: string | undefined): SettingsSectionId {
     default:
       return "character";
   }
+}
+
+function formatAssistantListLabel(
+  assistant: AssistantListItemState,
+  index: number,
+  fallbackLabel: string
+): string {
+  const displayName = assistant.displayName?.trim();
+  if (displayName && displayName.length > 0) {
+    return displayName;
+  }
+  return `${fallbackLabel} ${index + 1}`;
+}
+
+function AssistantSwitcherModal({
+  open,
+  assistants,
+  activeAssistantId,
+  assistantLimit,
+  switchBusyId,
+  createBusy,
+  error,
+  onClose,
+  onSwitch,
+  onCreate
+}: {
+  open: boolean;
+  assistants: AssistantListItemState[];
+  activeAssistantId: string | null;
+  assistantLimit: AssistantLimitState | null;
+  switchBusyId: string | null;
+  createBusy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSwitch: (assistantId: string) => Promise<void>;
+  onCreate: (() => Promise<void>) | null;
+}) {
+  const t = useTranslations("settings");
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
+
+  const orderedAssistants = useMemo(
+    () =>
+      [...assistants].sort(
+        (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+      ),
+    [assistants]
+  );
+  const canAddAssistant =
+    onCreate !== null &&
+    assistantLimit !== null &&
+    assistantLimit.usedAssistants < assistantLimit.maxAssistants;
+
+  if (!open || typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="assistant-switcher-title"
+      className="fixed inset-0 z-[9000] flex items-center justify-center bg-bg/80 px-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-xl rounded-[28px] border border-border-strong/70 bg-surface-raised/95 p-5 text-text shadow-[0_24px_70px_rgba(0,0,0,0.42)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2
+              id="assistant-switcher-title"
+              className="text-base font-semibold tracking-tight text-text"
+            >
+              {t("switchAssistantTitle")}
+            </h2>
+            <p className="mt-1 text-sm text-text-muted">{t("switchAssistantSubtitle")}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="cursor-pointer rounded-full p-2 text-text-subtle transition-colors hover:bg-surface hover:text-text"
+            aria-label={t("closeAssistantSwitcher")}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          {orderedAssistants.map((assistant, index) => {
+            const isActive = assistant.id === activeAssistantId;
+            const label = formatAssistantListLabel(assistant, index, t("assistantItemFallback"));
+            return (
+              <div
+                key={assistant.id}
+                className={cn(
+                  "flex items-center gap-3 rounded-2xl border px-3 py-3 transition-colors",
+                  isActive
+                    ? "border-accent/45 bg-accent/8"
+                    : "border-border/70 bg-surface hover:border-border-strong"
+                )}
+              >
+                <AssistantAvatar
+                  avatarUrl={assistant.avatarUrl ?? undefined}
+                  avatarEmoji={assistant.avatarEmoji ?? undefined}
+                  size="md"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-text">{label}</p>
+                  <p className="mt-1 truncate text-[11px] text-text-subtle">
+                    {t("assistantSpecialtyPlaceholder")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void onSwitch(assistant.id)}
+                  disabled={switchBusyId !== null || createBusy || isActive}
+                  className={cn(
+                    "inline-flex h-9 min-w-[104px] items-center justify-center rounded-full border px-4 text-sm font-medium transition-colors",
+                    isActive
+                      ? "cursor-default border-border bg-surface text-text-subtle"
+                      : "cursor-pointer border-border-strong/80 bg-bg text-text hover:border-accent/45 hover:text-accent disabled:cursor-wait disabled:opacity-70"
+                  )}
+                >
+                  {switchBusyId === assistant.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isActive ? (
+                    t("selectedAssistant")
+                  ) : (
+                    t("chooseAssistant")
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {error ? (
+          <p className="mt-3 rounded-2xl border border-destructive/35 bg-destructive/8 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="mt-4 rounded-2xl border border-border/70 bg-surface px-4 py-3">
+          {canAddAssistant ? (
+            <button
+              type="button"
+              onClick={() => void onCreate?.()}
+              disabled={switchBusyId !== null || createBusy}
+              className="inline-flex h-10 cursor-pointer items-center justify-center rounded-full border border-border-strong/80 bg-bg px-4 text-sm font-medium text-text transition-colors hover:border-accent/45 hover:text-accent disabled:cursor-wait disabled:opacity-70"
+            >
+              {createBusy ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t("creatingAssistant")}
+                </>
+              ) : (
+                t("addAssistant")
+              )}
+            </button>
+          ) : (
+            <p className="text-sm text-text-muted">{t("assistantLimitReachedNote")}</p>
+          )}
+          {assistantLimit ? (
+            <p className="mt-2 text-[11px] text-text-subtle">
+              {t("assistantSlotsSummary", {
+                used: assistantLimit.usedAssistants,
+                max: assistantLimit.maxAssistants
+              })}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
 }
 
 function formatQuotaNumber(value: number): string {
@@ -599,6 +790,7 @@ export function AssistantSettings({
   onSupportUnreadCountChange
 }: AssistantSettingsProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { getToken, isLoaded } = useAuth();
   const t = useTranslations("settings");
   const locale = useLocale();
@@ -615,6 +807,11 @@ export function AssistantSettings({
   const [disableAutoRenewPending, setDisableAutoRenewPending] = useState(false);
   const [disableAutoRenewConfirmOpen, setDisableAutoRenewConfirmOpen] = useState(false);
   const assistant = data.assistant;
+  const hasAssistantSwitcher = (data.assistantLimit?.maxAssistants ?? 1) > 1;
+  const [assistantSwitcherOpen, setAssistantSwitcherOpen] = useState(false);
+  const [assistantSwitchBusyId, setAssistantSwitchBusyId] = useState<string | null>(null);
+  const [assistantCreateBusy, setAssistantCreateBusy] = useState(false);
+  const [assistantSwitcherError, setAssistantSwitcherError] = useState<string | null>(null);
   const statusLabel = t(
     (
       {
@@ -1619,6 +1816,51 @@ export function AssistantSettings({
     }
   }, [assistant, loadMemory, loadTasks, loadWsMemory]);
 
+  const resetAssistantThreadRoute = useCallback(() => {
+    if (pathname === "/app/chat") {
+      router.replace("/app/chat" as Route);
+    }
+  }, [pathname, router]);
+
+  const handleSwitchAssistant = useCallback(
+    async (assistantId: string) => {
+      if (assistantId === data.activeAssistantId) {
+        setAssistantSwitcherOpen(false);
+        return;
+      }
+      setAssistantSwitchBusyId(assistantId);
+      setAssistantSwitcherError(null);
+      try {
+        await data.switchAssistant(assistantId);
+        resetAssistantThreadRoute();
+        setAssistantSwitcherOpen(false);
+      } catch (error) {
+        setAssistantSwitcherError(
+          error instanceof Error ? error.message : t("switchAssistantFailed")
+        );
+      } finally {
+        setAssistantSwitchBusyId(null);
+      }
+    },
+    [data, resetAssistantThreadRoute, t]
+  );
+
+  const handleCreateAssistant = useCallback(async () => {
+    setAssistantCreateBusy(true);
+    setAssistantSwitcherError(null);
+    try {
+      await data.createAssistant();
+      resetAssistantThreadRoute();
+      setAssistantSwitcherOpen(false);
+    } catch (error) {
+      setAssistantSwitcherError(
+        error instanceof Error ? error.message : t("createAssistantFailed")
+      );
+    } finally {
+      setAssistantCreateBusy(false);
+    }
+  }, [data, resetAssistantThreadRoute, t]);
+
   const handleSaveAndApply = useCallback(async () => {
     const token = await getToken({ skipCache: true });
     if (!token) return;
@@ -1839,428 +2081,447 @@ export function AssistantSettings({
   }
 
   return (
-    <div className="flex h-full min-h-full flex-col">
-      {/* 1. Character — hero */}
-      <Section
-        icon={<Sparkles className="h-4 w-4" />}
-        title={t("character")}
-        open={openSection === "character"}
-        onToggle={() => setOpenSection((current) => (current === "character" ? null : "character"))}
-        className="order-1"
-      >
-        <div className="flex flex-col gap-3">
-          <div className="rounded-2xl border border-border/70 bg-surface p-4">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_14rem] lg:items-center">
-              <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setAvatarPickerOpen((o) => !o)}
-                  className="flex h-20 w-20 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl transition-colors hover:bg-accent/25"
-                  title={t("changeAvatar")}
-                >
-                  {avatarUploading ? (
-                    <Loader2 className="h-7 w-7 animate-spin text-accent" />
-                  ) : avatarPreviewBlobUrl ? (
-                    <img
-                      src={avatarPreviewBlobUrl}
-                      alt="Avatar"
-                      className="h-full w-full object-cover"
+    <>
+      <div className="flex h-full min-h-full flex-col">
+        {/* 1. Character — hero */}
+        <Section
+          icon={<Sparkles className="h-4 w-4" />}
+          title={t("character")}
+          open={openSection === "character"}
+          onToggle={() =>
+            setOpenSection((current) => (current === "character" ? null : "character"))
+          }
+          className="order-1"
+        >
+          <div className="flex flex-col gap-3">
+            <div className="rounded-2xl border border-border/70 bg-surface p-4">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_14rem] lg:items-center">
+                <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setAvatarPickerOpen((o) => !o)}
+                    className="flex h-20 w-20 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl transition-colors hover:bg-accent/25"
+                    title={t("changeAvatar")}
+                  >
+                    {avatarUploading ? (
+                      <Loader2 className="h-7 w-7 animate-spin text-accent" />
+                    ) : avatarPreviewBlobUrl ? (
+                      <img
+                        src={avatarPreviewBlobUrl}
+                        alt="Avatar"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : draftAvatarUrl ? (
+                      <AssistantAvatar
+                        avatarUrl={draftAvatarUrl}
+                        size="md"
+                        className="h-full w-full rounded-2xl"
+                      />
+                    ) : (
+                      <Sparkles className="h-8 w-8 text-accent" />
+                    )}
+                  </button>
+                  <div className="min-w-0">
+                    <input
+                      type="text"
+                      value={draftName}
+                      onChange={(e) => setDraftName(e.target.value)}
+                      placeholder={t("assistantNamePlaceholder")}
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
                     />
-                  ) : draftAvatarUrl ? (
-                    <AssistantAvatar
-                      avatarUrl={draftAvatarUrl}
-                      size="md"
-                      className="h-full w-full rounded-2xl"
-                    />
-                  ) : (
-                    <Sparkles className="h-8 w-8 text-accent" />
-                  )}
-                </button>
-                <div className="min-w-0">
-                  <input
-                    type="text"
-                    value={draftName}
-                    onChange={(e) => setDraftName(e.target.value)}
-                    placeholder={t("assistantNamePlaceholder")}
-                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
-                  />
-                  <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] text-text-muted">
-                    <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
-                    <span>{statusLabel}</span>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] text-text-muted">
+                        <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
+                        <span>{statusLabel}</span>
+                      </div>
+                      {hasAssistantSwitcher ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAssistantSwitcherError(null);
+                            setAssistantSwitcherOpen(true);
+                          }}
+                          className="inline-flex h-8 cursor-pointer items-center justify-center rounded-full border border-border/80 bg-surface-raised px-3 text-[11px] font-medium text-text-muted transition-colors hover:border-border-strong hover:text-text"
+                        >
+                          {t("switchAssistant")}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
+                <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-1">
+                  <ActionButton
+                    icon={<Rocket className="h-3.5 w-3.5" />}
+                    label={t("save")}
+                    onClick={() => void handleSaveAndApply()}
+                    busy={saving}
+                    variant="primary"
+                    className="h-9 min-w-0 justify-center"
+                  />
+                  <ActionButton
+                    icon={<Sparkles className="h-3.5 w-3.5" />}
+                    label={editingPersonality ? t("hidePersonality") : t("editPersonality")}
+                    onClick={() => setEditingPersonality(!editingPersonality)}
+                    busy={false}
+                    className="h-9 min-w-0 justify-center"
+                  />
+                </div>
               </div>
-              <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-1">
-                <ActionButton
-                  icon={<Rocket className="h-3.5 w-3.5" />}
-                  label={t("save")}
-                  onClick={() => void handleSaveAndApply()}
-                  busy={saving}
-                  variant="primary"
-                  className="h-9 min-w-0 justify-center"
-                />
-                <ActionButton
-                  icon={<Sparkles className="h-3.5 w-3.5" />}
-                  label={editingPersonality ? t("hidePersonality") : t("editPersonality")}
-                  onClick={() => setEditingPersonality(!editingPersonality)}
-                  busy={false}
-                  className="h-9 min-w-0 justify-center"
-                />
-              </div>
-            </div>
-            {avatarPickerOpen && (
-              <div className="mt-3 grid grid-cols-4 gap-1.5 rounded-[20px] border border-border/80 bg-surface/95 p-2 shadow-[0_14px_32px_rgba(0,0,0,0.16)] md:grid-cols-8 md:gap-2 md:p-2.5">
-                {ASSISTANT_AVATAR_PRESETS.map((preset) => (
+              {avatarPickerOpen && (
+                <div className="mt-3 grid grid-cols-4 gap-1.5 rounded-[20px] border border-border/80 bg-surface/95 p-2 shadow-[0_14px_32px_rgba(0,0,0,0.16)] md:grid-cols-8 md:gap-2 md:p-2.5">
+                  {ASSISTANT_AVATAR_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        setDraftAvatarUrl(preset.imagePath);
+                        setAvatarPickerOpen(false);
+                      }}
+                      className={cn(
+                        "flex aspect-square min-w-0 cursor-pointer items-center justify-center rounded-[15px] border bg-surface-raised/85 p-1 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
+                        findAssistantAvatarPresetByUrl(draftAvatarUrl)?.id === preset.id
+                          ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.16),rgba(191,148,84,0.07))] ring-1 ring-accent/45 shadow-[0_0_0_1px_rgba(191,148,84,0.18),0_12px_24px_rgba(0,0,0,0.18)]"
+                          : "border-border/70 hover:border-border-strong hover:bg-surface-hover hover:shadow-[0_10px_22px_rgba(0,0,0,0.16)]"
+                      )}
+                      aria-label={preset.label}
+                    >
+                      <img
+                        src={preset.imagePath}
+                        alt=""
+                        className="h-full w-full rounded-[11px] object-cover"
+                      />
+                    </button>
+                  ))}
                   <button
-                    key={preset.id}
                     type="button"
-                    onClick={() => {
-                      setDraftAvatarUrl(preset.imagePath);
-                      setAvatarPickerOpen(false);
-                    }}
+                    onClick={() => fileInputRef.current?.click()}
                     className={cn(
-                      "flex aspect-square min-w-0 cursor-pointer items-center justify-center rounded-[15px] border bg-surface-raised/85 p-1 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
-                      findAssistantAvatarPresetByUrl(draftAvatarUrl)?.id === preset.id
-                        ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.16),rgba(191,148,84,0.07))] ring-1 ring-accent/45 shadow-[0_0_0_1px_rgba(191,148,84,0.18),0_12px_24px_rgba(0,0,0,0.18)]"
-                        : "border-border/70 hover:border-border-strong hover:bg-surface-hover hover:shadow-[0_10px_22px_rgba(0,0,0,0.16)]"
+                      "flex aspect-square min-w-0 cursor-pointer items-center justify-center rounded-[15px] border border-dashed bg-surface-raised/70 p-1 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
+                      draftAvatarUrl && findAssistantAvatarPresetByUrl(draftAvatarUrl) === null
+                        ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.16),rgba(191,148,84,0.07))] shadow-[0_0_0_1px_rgba(191,148,84,0.18),0_12px_24px_rgba(0,0,0,0.18)]"
+                        : "border-border-strong text-text-subtle hover:bg-surface-hover hover:shadow-[0_10px_22px_rgba(0,0,0,0.16)]"
                     )}
-                    aria-label={preset.label}
+                    title={t("uploadImage")}
                   >
-                    <img
-                      src={preset.imagePath}
-                      alt=""
-                      className="h-full w-full rounded-[11px] object-cover"
-                    />
+                    <div className="flex h-8 w-8 items-center justify-center rounded-[12px] border border-border/70 bg-surface text-text-subtle md:h-7 md:w-7">
+                      <Upload className="h-4 w-4" />
+                    </div>
                   </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className={cn(
-                    "flex aspect-square min-w-0 cursor-pointer items-center justify-center rounded-[15px] border border-dashed bg-surface-raised/70 p-1 transition-all duration-200 shadow-[0_8px_18px_rgba(0,0,0,0.12)]",
-                    draftAvatarUrl && findAssistantAvatarPresetByUrl(draftAvatarUrl) === null
-                      ? "border-accent/70 bg-[linear-gradient(180deg,rgba(191,148,84,0.16),rgba(191,148,84,0.07))] shadow-[0_0_0_1px_rgba(191,148,84,0.18),0_12px_24px_rgba(0,0,0,0.18)]"
-                      : "border-border-strong text-text-subtle hover:bg-surface-hover hover:shadow-[0_10px_22px_rgba(0,0,0,0.16)]"
-                  )}
-                  title={t("uploadImage")}
-                >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-[12px] border border-border/70 bg-surface text-text-subtle md:h-7 md:w-7">
-                    <Upload className="h-4 w-4" />
-                  </div>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file || !file.type.startsWith("image/")) return;
-            const localBlob = URL.createObjectURL(file);
-            setAvatarPreviewBlobUrl(localBlob);
-            setAvatarPickerOpen(false);
-            setAvatarUploading(true);
-            void (async () => {
-              try {
-                const token = await getToken({ skipCache: true });
-                if (!token) return;
-                const result = await uploadAssistantAvatar(token, file);
-                setDraftAvatarUrl(result.avatarUrl);
-              } catch {
-                setSaveFb({ type: "err", text: t("avatarUploadFailed") });
-                setAvatarPreviewBlobUrl(null);
-              } finally {
-                setAvatarUploading(false);
-              }
-            })();
-          }}
-        />
-        <FeedbackLine fb={saveFb} />
-
-        {editingPersonality && (
-          <div className="mt-4 rounded-2xl border border-border/70 bg-surface px-5 py-5">
-            <div>
-              <p className="text-sm font-medium text-text">{t("behaviorTitle")}</p>
-              <p className="mt-1 text-xs leading-relaxed text-text-muted">{t("behaviorHelp")}</p>
-              <textarea
-                value={draftInstructions}
-                onChange={(e) => setDraftInstructions(e.target.value)}
-                placeholder={t("behaviorPlaceholder")}
-                rows={8}
-                className="mt-3 min-h-[240px] w-full resize-y rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-              />
-            </div>
-
-            <div className="mt-5 border-t border-border/70 pt-5">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
-                {t("assistantGenderLabel")}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {ASSISTANT_GENDER_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setDraftAssistantGender(opt.value)}
-                    className={cn(
-                      "min-h-[40px] min-w-[120px] rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
-                      draftAssistantGender === opt.value
-                        ? "border-accent bg-accent/10 text-accent"
-                        : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
-                    )}
-                  >
-                    {tp(opt.labelKey)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <label className="block">
-                <span className="mb-2 block text-sm font-medium text-text">{t("voice")}</span>
-                {primaryVoiceProviderId === "elevenlabs" && (
-                  <select
-                    value={draftVoiceProfile.elevenlabs.voiceId ?? ""}
-                    onChange={(e) =>
-                      setDraftVoiceProfile((prev) => ({
-                        ...prev,
-                        elevenlabs: {
-                          voiceId: e.target.value === "" ? null : e.target.value
-                        }
-                      }))
-                    }
-                    disabled={
-                      voiceSettingsLoading || voiceSettings?.elevenlabs?.loadState !== "ready"
-                    }
-                    className="persai-select w-full"
-                  >
-                    <option value="">
-                      {voiceSettingsLoading ? t("voiceLoading") : t("voiceChooseBaseVoice")}
-                    </option>
-                    {elevenLabsSelectOptions.map((voice) => (
-                      <option key={voice.value} value={voice.value}>
-                        {voice.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {primaryVoiceProviderId === "yandex" && (
-                  <select
-                    value={draftVoiceProfile.yandex.voice ?? ""}
-                    onChange={(e) =>
-                      setDraftVoiceProfile((prev) => ({
-                        ...prev,
-                        yandex: {
-                          ...prev.yandex,
-                          voice:
-                            e.target.value === ""
-                              ? null
-                              : (e.target.value as (typeof YANDEX_VOICE_OPTIONS)[number]["value"])
-                        }
-                      }))
-                    }
-                    className="persai-select w-full"
-                  >
-                    {yandexVoiceOptions.map((voice) => (
-                      <option key={voice.value} value={voice.value}>
-                        {voice.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {primaryVoiceProviderId === "openai" && (
-                  <select
-                    value={draftVoiceProfile.openai.voice ?? ""}
-                    onChange={(e) =>
-                      setDraftVoiceProfile((prev) => ({
-                        ...prev,
-                        openai: {
-                          voice:
-                            e.target.value === ""
-                              ? null
-                              : (e.target.value as (typeof OPENAI_VOICE_OPTIONS)[number]["value"])
-                        }
-                      }))
-                    }
-                    className="persai-select w-full"
-                  >
-                    {openAiVoiceOptions.map((voice) => (
-                      <option key={voice.value} value={voice.value}>
-                        {voice.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
-              {voiceSettingsError && (
-                <p className="mt-2 text-xs text-destructive">{voiceSettingsError}</p>
+                </div>
               )}
             </div>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file || !file.type.startsWith("image/")) return;
+              const localBlob = URL.createObjectURL(file);
+              setAvatarPreviewBlobUrl(localBlob);
+              setAvatarPickerOpen(false);
+              setAvatarUploading(true);
+              void (async () => {
+                try {
+                  const token = await getToken({ skipCache: true });
+                  if (!token) return;
+                  const result = await uploadAssistantAvatar(token, file);
+                  setDraftAvatarUrl(result.avatarUrl);
+                } catch {
+                  setSaveFb({ type: "err", text: t("avatarUploadFailed") });
+                  setAvatarPreviewBlobUrl(null);
+                } finally {
+                  setAvatarUploading(false);
+                }
+              })();
+            }}
+          />
+          <FeedbackLine fb={saveFb} />
 
-            <div className="mt-5 border-t border-border/70 pt-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-text">{t("traitControlsTitle")}</p>
-                  <p className="mt-1 text-xs text-text-muted">{t("traitControlsHelp")}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowTraitControls((open) => !open)}
-                  className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface-raised px-3 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                >
-                  <SlidersHorizontal className="h-3.5 w-3.5" />
-                  {showTraitControls ? t("hideTraitControls") : t("showTraitControls")}
-                </button>
+          {editingPersonality && (
+            <div className="mt-4 rounded-2xl border border-border/70 bg-surface px-5 py-5">
+              <div>
+                <p className="text-sm font-medium text-text">{t("behaviorTitle")}</p>
+                <p className="mt-1 text-xs leading-relaxed text-text-muted">{t("behaviorHelp")}</p>
+                <textarea
+                  value={draftInstructions}
+                  onChange={(e) => setDraftInstructions(e.target.value)}
+                  placeholder={t("behaviorPlaceholder")}
+                  rows={8}
+                  className="mt-3 min-h-[240px] w-full resize-y rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                />
               </div>
 
-              {showTraitControls && (
-                <div className="mt-4 divide-y divide-border/60 rounded-xl border border-border/70 bg-surface-raised px-4">
-                  {TRAIT_SLIDERS.map(({ key, labelLeftKey, labelRightKey }) => (
-                    <div key={key} className="py-3">
-                      <div className="mb-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-[11px]">
-                        <span className="truncate text-text-muted">{tp(labelLeftKey)}</span>
-                        <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] text-text-subtle">
-                          {draftTraits[key] ?? 50}
-                        </span>
-                        <span className="truncate text-right text-text-muted">
-                          {tp(labelRightKey)}
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={10}
-                        value={draftTraits[key] ?? 50}
-                        onChange={(e) =>
-                          setDraftTraits((prev) => ({ ...prev, [key]: Number(e.target.value) }))
-                        }
-                        className="w-full accent-accent"
-                      />
-                    </div>
+              <div className="mt-5 border-t border-border/70 pt-5">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
+                  {t("assistantGenderLabel")}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {ASSISTANT_GENDER_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setDraftAssistantGender(opt.value)}
+                      className={cn(
+                        "min-h-[40px] min-w-[120px] rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
+                        draftAssistantGender === opt.value
+                          ? "border-accent bg-accent/10 text-accent"
+                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
+                      )}
+                    >
+                      {tp(opt.labelKey)}
+                    </button>
                   ))}
                 </div>
-              )}
-            </div>
+              </div>
 
-            <div className="mt-5 border-t border-border/70 pt-5">
-              <div className="rounded-2xl border border-destructive/15 bg-destructive/5 px-4 py-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-text">{t("reset")}</p>
-                    <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                      {t("resetScopeWarning")}
-                    </p>
-                  </div>
-                  {!resetConfirm ? (
-                    <button
-                      type="button"
-                      onClick={() => setResetConfirm(true)}
-                      className="inline-flex min-h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl border border-destructive/20 bg-background/40 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+              <div className="mt-4">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-text">{t("voice")}</span>
+                  {primaryVoiceProviderId === "elevenlabs" && (
+                    <select
+                      value={draftVoiceProfile.elevenlabs.voiceId ?? ""}
+                      onChange={(e) =>
+                        setDraftVoiceProfile((prev) => ({
+                          ...prev,
+                          elevenlabs: {
+                            voiceId: e.target.value === "" ? null : e.target.value
+                          }
+                        }))
+                      }
+                      disabled={
+                        voiceSettingsLoading || voiceSettings?.elevenlabs?.loadState !== "ready"
+                      }
+                      className="persai-select w-full"
                     >
-                      <Trash2 className="h-4 w-4" />
-                      {t("reset")}
-                    </button>
-                  ) : (
-                    <div className="flex shrink-0 flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleReset()}
-                        disabled={resetting}
-                        className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:cursor-wait disabled:opacity-70"
-                      >
-                        {resetting ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <AlertTriangle className="h-4 w-4" />
-                        )}
-                        {t("confirmReset")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setResetConfirm(false)}
-                        className="inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-border bg-surface-raised px-4 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                      >
-                        {t("cancel")}
-                      </button>
-                    </div>
+                      <option value="">
+                        {voiceSettingsLoading ? t("voiceLoading") : t("voiceChooseBaseVoice")}
+                      </option>
+                      {elevenLabsSelectOptions.map((voice) => (
+                        <option key={voice.value} value={voice.value}>
+                          {voice.label}
+                        </option>
+                      ))}
+                    </select>
                   )}
+                  {primaryVoiceProviderId === "yandex" && (
+                    <select
+                      value={draftVoiceProfile.yandex.voice ?? ""}
+                      onChange={(e) =>
+                        setDraftVoiceProfile((prev) => ({
+                          ...prev,
+                          yandex: {
+                            ...prev.yandex,
+                            voice:
+                              e.target.value === ""
+                                ? null
+                                : (e.target.value as (typeof YANDEX_VOICE_OPTIONS)[number]["value"])
+                          }
+                        }))
+                      }
+                      className="persai-select w-full"
+                    >
+                      {yandexVoiceOptions.map((voice) => (
+                        <option key={voice.value} value={voice.value}>
+                          {voice.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {primaryVoiceProviderId === "openai" && (
+                    <select
+                      value={draftVoiceProfile.openai.voice ?? ""}
+                      onChange={(e) =>
+                        setDraftVoiceProfile((prev) => ({
+                          ...prev,
+                          openai: {
+                            voice:
+                              e.target.value === ""
+                                ? null
+                                : (e.target.value as (typeof OPENAI_VOICE_OPTIONS)[number]["value"])
+                          }
+                        }))
+                      }
+                      className="persai-select w-full"
+                    >
+                      {openAiVoiceOptions.map((voice) => (
+                        <option key={voice.value} value={voice.value}>
+                          {voice.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+                {voiceSettingsError && (
+                  <p className="mt-2 text-xs text-destructive">{voiceSettingsError}</p>
+                )}
+              </div>
+
+              <div className="mt-5 border-t border-border/70 pt-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-text">{t("traitControlsTitle")}</p>
+                    <p className="mt-1 text-xs text-text-muted">{t("traitControlsHelp")}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTraitControls((open) => !open)}
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface-raised px-3 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                    {showTraitControls ? t("hideTraitControls") : t("showTraitControls")}
+                  </button>
                 </div>
-                <FeedbackLine fb={resetFb} />
+
+                {showTraitControls && (
+                  <div className="mt-4 divide-y divide-border/60 rounded-xl border border-border/70 bg-surface-raised px-4">
+                    {TRAIT_SLIDERS.map(({ key, labelLeftKey, labelRightKey }) => (
+                      <div key={key} className="py-3">
+                        <div className="mb-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-[11px]">
+                          <span className="truncate text-text-muted">{tp(labelLeftKey)}</span>
+                          <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] text-text-subtle">
+                            {draftTraits[key] ?? 50}
+                          </span>
+                          <span className="truncate text-right text-text-muted">
+                            {tp(labelRightKey)}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={10}
+                          value={draftTraits[key] ?? 50}
+                          onChange={(e) =>
+                            setDraftTraits((prev) => ({ ...prev, [key]: Number(e.target.value) }))
+                          }
+                          className="w-full accent-accent"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5 border-t border-border/70 pt-5">
+                <div className="rounded-2xl border border-destructive/15 bg-destructive/5 px-4 py-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-text">{t("reset")}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                        {t("resetScopeWarning")}
+                      </p>
+                    </div>
+                    {!resetConfirm ? (
+                      <button
+                        type="button"
+                        onClick={() => setResetConfirm(true)}
+                        className="inline-flex min-h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl border border-destructive/20 bg-background/40 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        {t("reset")}
+                      </button>
+                    ) : (
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleReset()}
+                          disabled={resetting}
+                          className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:cursor-wait disabled:opacity-70"
+                        >
+                          {resetting ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <AlertTriangle className="h-4 w-4" />
+                          )}
+                          {t("confirmReset")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setResetConfirm(false)}
+                          className="inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-border bg-surface-raised px-4 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                        >
+                          {t("cancel")}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <FeedbackLine fb={resetFb} />
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </Section>
+          )}
+        </Section>
 
-      {/* 3. Knowledge */}
-      <Section
-        icon={<Upload className="h-4 w-4" />}
-        title={t("knowledge")}
-        open={openSection === "knowledge"}
-        onToggle={() => setOpenSection((current) => (current === "knowledge" ? null : "knowledge"))}
-        className="order-6"
-      >
-        <div className="rounded-2xl border border-border/70 bg-surface p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-text">{t("knowledgeTitle")}</p>
-              <p className="mt-1 text-xs text-text-muted">{t("knowledgeDescription")}</p>
+        {/* 3. Knowledge */}
+        <Section
+          icon={<Upload className="h-4 w-4" />}
+          title={t("knowledge")}
+          open={openSection === "knowledge"}
+          onToggle={() =>
+            setOpenSection((current) => (current === "knowledge" ? null : "knowledge"))
+          }
+          className="order-6"
+        >
+          <div className="rounded-2xl border border-border/70 bg-surface p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-text">{t("knowledgeTitle")}</p>
+                <p className="mt-1 text-xs text-text-muted">{t("knowledgeDescription")}</p>
+              </div>
+              <ActionButton
+                icon={<Upload className="h-3.5 w-3.5" />}
+                label={t("knowledgeManage")}
+                onClick={() => setKnowledgeManagerOpen(true)}
+                busy={false}
+              />
             </div>
-            <ActionButton
-              icon={<Upload className="h-3.5 w-3.5" />}
-              label={t("knowledgeManage")}
-              onClick={() => setKnowledgeManagerOpen(true)}
-              busy={false}
-            />
           </div>
-        </div>
-      </Section>
+        </Section>
 
-      {/* 4. Files */}
-      <Section
-        icon={<Files className="h-4 w-4" />}
-        title={t("files")}
-        open={openSection === "files"}
-        onToggle={() => setOpenSection((current) => (current === "files" ? null : "files"))}
-        className="order-7"
-      >
-        <AssistantFilesManager />
-      </Section>
+        {/* 4. Files */}
+        <Section
+          icon={<Files className="h-4 w-4" />}
+          title={t("files")}
+          open={openSection === "files"}
+          onToggle={() => setOpenSection((current) => (current === "files" ? null : "files"))}
+          className="order-7"
+        >
+          <AssistantFilesManager />
+        </Section>
 
-      {/* 5. Skills */}
-      <Section
-        icon={<GraduationCap className="h-4 w-4" />}
-        title={t("skills")}
-        open={openSection === "skills"}
-        onToggle={() => setOpenSection((current) => (current === "skills" ? null : "skills"))}
-        className="order-4"
-      >
-        <AssistantSkillsManager
-          state={skillsState}
-          selectedSkillIds={selectedSkillIds}
-          onChange={(nextSkillIds) => void handleSkillsChange(nextSkillIds)}
-          loading={skillsLoading}
-          saving={skillsSaving}
-          error={skillsFb?.type === "err" ? skillsFb.text : null}
-          collapsible
-          initialVisibleCount={4}
-        />
-        {skillsFb?.type === "ok" ? <FeedbackLine fb={skillsFb} /> : null}
-      </Section>
+        {/* 5. Skills */}
+        <Section
+          icon={<GraduationCap className="h-4 w-4" />}
+          title={t("skills")}
+          open={openSection === "skills"}
+          onToggle={() => setOpenSection((current) => (current === "skills" ? null : "skills"))}
+          className="order-4"
+        >
+          <AssistantSkillsManager
+            state={skillsState}
+            selectedSkillIds={selectedSkillIds}
+            onChange={(nextSkillIds) => void handleSkillsChange(nextSkillIds)}
+            loading={skillsLoading}
+            saving={skillsSaving}
+            error={skillsFb?.type === "err" ? skillsFb.text : null}
+            collapsible
+            initialVisibleCount={4}
+          />
+          {skillsFb?.type === "ok" ? <FeedbackLine fb={skillsFb} /> : null}
+        </Section>
 
-      {/* 6. Memory */}
-      <Section
-        icon={<Brain className="h-4 w-4" />}
-        title={t("memory")}
-        open={openSection === "memory"}
-        onToggle={() => setOpenSection((current) => (current === "memory" ? null : "memory"))}
-        className="order-5"
-      >
-        {/* ADR-074 Slice M3.3 — UX merge:
+        {/* 6. Memory */}
+        <Section
+          icon={<Brain className="h-4 w-4" />}
+          title={t("memory")}
+          open={openSection === "memory"}
+          onToggle={() => setOpenSection((current) => (current === "memory" ? null : "memory"))}
+          className="order-5"
+        >
+          {/* ADR-074 Slice M3.3 — UX merge:
               - "Workspace" tab = curated structured memory: every
                 workspace_memory_items row + every registry row whose
                 kind ∈ {fact, preference, open_loop}, deduplicated by
@@ -2269,984 +2530,1001 @@ export function AssistantSettings({
                 buttons; the workspace echo is dropped on collision).
               - "History" tab = turn-derived echoes: registry rows where
                 kind === null. No "Mark as closed" buttons here. */}
-        <div className="mb-3 flex gap-1 rounded-lg bg-surface p-0.5">
-          {(["workspace", "history"] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setMemoryTab(tab)}
-              className={cn(
-                "flex-1 cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                memoryTab === tab
-                  ? "bg-surface-raised text-text shadow-sm"
-                  : "text-text-muted hover:text-text"
-              )}
-            >
-              {tab === "workspace" ? t("workspace") : t("history")}
-            </button>
-          ))}
-        </div>
-
-        {memoryTab === "workspace" && (
-          <>
-            <div className="flex gap-2 mb-3">
-              <input
-                type="text"
-                value={wsMemorySearch}
-                onChange={(e) => setWsMemorySearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void loadWsMemory(wsMemorySearch || undefined);
-                }}
-                placeholder={t("searchMemories")}
-                className="min-w-0 flex-1 rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-xs text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-              />
+          <div className="mb-3 flex gap-1 rounded-lg bg-surface p-0.5">
+            {(["workspace", "history"] as const).map((tab) => (
               <button
+                key={tab}
                 type="button"
-                onClick={() => void loadWsMemory(wsMemorySearch || undefined)}
-                className="shrink-0 cursor-pointer rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
+                onClick={() => setMemoryTab(tab)}
+                className={cn(
+                  "flex-1 cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  memoryTab === tab
+                    ? "bg-surface-raised text-text shadow-sm"
+                    : "text-text-muted hover:text-text"
+                )}
               >
-                {t("search")}
+                {tab === "workspace" ? t("workspace") : t("history")}
               </button>
-            </div>
+            ))}
+          </div>
 
-            <div className="flex gap-2 mb-3">
-              <input
-                type="text"
-                value={wsNewMemory}
-                onChange={(e) => setWsNewMemory(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleAddWsMemory();
-                }}
-                placeholder={t("teachNew")}
-                className="min-w-0 flex-1 rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-xs text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-              />
-              <button
-                type="button"
-                disabled={wsMemoryAdding || !wsNewMemory.trim()}
-                onClick={() => void handleAddWsMemory()}
-                className="shrink-0 cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50 transition-colors"
-              >
-                {wsMemoryAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : t("add")}
-              </button>
-            </div>
-
-            <FeedbackLine fb={wsMemoryFb} />
-            <FeedbackLine fb={memoryFb} />
-
-            {wsMemoryLoading || memoryLoading ? (
-              <div className="flex justify-center py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
-              </div>
-            ) : mergedWorkspaceMemoryView.length === 0 ? (
-              <p className="text-xs text-text-subtle">{t("noWorkspaceMemories")}</p>
-            ) : (
-              <>
-                <ul
-                  className="space-y-2"
-                  data-testid="memory-center-workspace-list"
-                  aria-label={t("workspace")}
+          {memoryTab === "workspace" && (
+            <>
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  value={wsMemorySearch}
+                  onChange={(e) => setWsMemorySearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void loadWsMemory(wsMemorySearch || undefined);
+                  }}
+                  placeholder={t("searchMemories")}
+                  className="min-w-0 flex-1 rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-xs text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                />
+                <button
+                  type="button"
+                  onClick={() => void loadWsMemory(wsMemorySearch || undefined)}
+                  className="shrink-0 cursor-pointer rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
                 >
-                  {mergedWorkspaceMemoryView.slice(0, wsMemoryVisibleCount).map((row) => {
-                    const { memoryClass, kind } = row.item;
-                    const resolvedAt =
-                      row.source === "registry"
-                        ? row.item.resolvedAt
-                        : (row.item.resolvedAt ?? null);
-                    return (
-                      <li
-                        key={row.key}
-                        data-testid={`memory-row-${row.source}`}
-                        className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs leading-relaxed text-text-muted whitespace-pre-wrap">
-                            {row.source === "registry" ? row.item.summary : row.item.content}
-                          </p>
-                          {memoryClass !== undefined && (
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
-                              <span
-                                className={
-                                  memoryClass === "core"
-                                    ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
-                                    : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
-                                }
-                              >
-                                {memoryClass === "core"
-                                  ? t("memoryClassCore")
-                                  : t("memoryClassContextual")}
-                              </span>
-                              {/* ADR-074 Slice M3.3 — strict per-kind badges.
+                  {t("search")}
+                </button>
+              </div>
+
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  value={wsNewMemory}
+                  onChange={(e) => setWsNewMemory(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleAddWsMemory();
+                  }}
+                  placeholder={t("teachNew")}
+                  className="min-w-0 flex-1 rounded-lg border border-border bg-surface-raised px-3 py-1.5 text-xs text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                />
+                <button
+                  type="button"
+                  disabled={wsMemoryAdding || !wsNewMemory.trim()}
+                  onClick={() => void handleAddWsMemory()}
+                  className="shrink-0 cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50 transition-colors"
+                >
+                  {wsMemoryAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : t("add")}
+                </button>
+              </div>
+
+              <FeedbackLine fb={wsMemoryFb} />
+              <FeedbackLine fb={memoryFb} />
+
+              {wsMemoryLoading || memoryLoading ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+                </div>
+              ) : mergedWorkspaceMemoryView.length === 0 ? (
+                <p className="text-xs text-text-subtle">{t("noWorkspaceMemories")}</p>
+              ) : (
+                <>
+                  <ul
+                    className="space-y-2"
+                    data-testid="memory-center-workspace-list"
+                    aria-label={t("workspace")}
+                  >
+                    {mergedWorkspaceMemoryView.slice(0, wsMemoryVisibleCount).map((row) => {
+                      const { memoryClass, kind } = row.item;
+                      const resolvedAt =
+                        row.source === "registry"
+                          ? row.item.resolvedAt
+                          : (row.item.resolvedAt ?? null);
+                      return (
+                        <li
+                          key={row.key}
+                          data-testid={`memory-row-${row.source}`}
+                          className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs leading-relaxed text-text-muted whitespace-pre-wrap">
+                              {row.source === "registry" ? row.item.summary : row.item.content}
+                            </p>
+                            {memoryClass !== undefined && (
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
+                                <span
+                                  className={
+                                    memoryClass === "core"
+                                      ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
+                                      : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
+                                  }
+                                >
+                                  {memoryClass === "core"
+                                    ? t("memoryClassCore")
+                                    : t("memoryClassContextual")}
+                                </span>
+                                {/* ADR-074 Slice M3.3 — strict per-kind badges.
                                   Workspace rows can now arrive with the same
                                   metadata as registry rows, so render badges
                                   from either source while keeping actions
                                   source-specific. */}
-                              {kind === "fact" && (
-                                <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
-                                  {t("memoryKindFact")}
-                                </span>
-                              )}
-                              {kind === "preference" && (
-                                <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
-                                  {t("memoryKindPreference")}
-                                </span>
-                              )}
-                              {kind === "open_loop" && (
-                                <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
-                                  {t("memoryKindOpenLoop")}
-                                </span>
-                              )}
-                              {resolvedAt !== null && (
-                                <span className="rounded bg-success/15 px-1.5 py-0.5 font-medium text-success">
-                                  {t("memoryResolved")}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          {kind === "open_loop" && resolvedAt === null && (
-                            <button
-                              type="button"
-                              disabled={closingOpenLoopId === row.item.id}
-                              onClick={() => void handleCloseOpenLoop(row.item.id)}
-                              className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-default disabled:opacity-50"
-                              title={t("markAsClosed")}
-                              aria-label={t("markAsClosed")}
-                              data-testid={`close-open-loop-${row.item.id}`}
-                            >
-                              {closingOpenLoopId === row.item.id ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="h-3 w-3" />
-                              )}
-                            </button>
-                          )}
-                          {row.source === "registry" ? (
-                            <button
-                              type="button"
-                              disabled={forgettingId === row.item.id}
-                              onClick={() => void handleForget(row.item.id)}
-                              className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                              title={t("forget")}
-                              aria-label={t("forget")}
-                              data-testid={`forget-registry-${row.item.id}`}
-                            >
-                              {forgettingId === row.item.id ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-3 w-3" />
-                              )}
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={wsForgettingId === row.item.id}
-                              onClick={() => void handleForgetWsMemory(row.item.id)}
-                              className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                              title={t("forget")}
-                              aria-label={t("forget")}
-                              data-testid={`forget-workspace-${row.item.id}`}
-                            >
-                              {wsForgettingId === row.item.id ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-3 w-3" />
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-                {wsMemoryVisibleCount < mergedWorkspaceMemoryView.length && (
-                  <button
-                    type="button"
-                    onClick={() => setWsMemoryVisibleCount((count) => count + 5)}
-                    className="mt-3 w-full cursor-pointer rounded-lg border border-border py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
-                  >
-                    {t("loadMore")} ({mergedWorkspaceMemoryView.length - wsMemoryVisibleCount})
-                  </button>
-                )}
-              </>
-            )}
-          </>
-        )}
-
-        {memoryTab === "history" && (
-          <>
-            <FeedbackLine fb={memoryFb} />
-            {memoryLoading ? (
-              <div className="flex justify-center py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
-              </div>
-            ) : mergedHistoryMemoryView.length === 0 ? (
-              <p className="text-xs text-text-subtle">{t("noMemoriesStored")}</p>
-            ) : (
-              <>
-                <ul
-                  className="space-y-2"
-                  data-testid="memory-center-history-list"
-                  aria-label={t("history")}
-                >
-                  {mergedHistoryMemoryView.slice(0, memoryVisibleCount).map((row) => {
-                    if (row.source !== "registry") return null;
-                    const item = row.item;
-                    return (
-                      <li
-                        key={row.key}
-                        data-testid="memory-row-history"
-                        className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs leading-relaxed text-text-muted">{item.summary}</p>
-                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
-                            <span
-                              className={
-                                item.memoryClass === "core"
-                                  ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
-                                  : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
-                              }
-                            >
-                              {item.memoryClass === "core"
-                                ? t("memoryClassCore")
-                                : t("memoryClassContextual")}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <button
-                            type="button"
-                            disabled={forgettingId === item.id}
-                            onClick={() => void handleForget(item.id)}
-                            className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                            title={t("forget")}
-                            aria-label={t("forget")}
-                            data-testid={`forget-history-${item.id}`}
-                          >
-                            {forgettingId === item.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3 w-3" />
+                                {kind === "fact" && (
+                                  <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
+                                    {t("memoryKindFact")}
+                                  </span>
+                                )}
+                                {kind === "preference" && (
+                                  <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
+                                    {t("memoryKindPreference")}
+                                  </span>
+                                )}
+                                {kind === "open_loop" && (
+                                  <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
+                                    {t("memoryKindOpenLoop")}
+                                  </span>
+                                )}
+                                {resolvedAt !== null && (
+                                  <span className="rounded bg-success/15 px-1.5 py-0.5 font-medium text-success">
+                                    {t("memoryResolved")}
+                                  </span>
+                                )}
+                              </div>
                             )}
-                          </button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-                {memoryVisibleCount < mergedHistoryMemoryView.length && (
-                  <button
-                    type="button"
-                    onClick={() => setMemoryVisibleCount((count) => count + 5)}
-                    className="mt-3 w-full cursor-pointer rounded-lg border border-border py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
-                  >
-                    {t("loadMore")} ({mergedHistoryMemoryView.length - memoryVisibleCount})
-                  </button>
-                )}
-              </>
-            )}
-          </>
-        )}
-      </Section>
-
-      <AssistantKnowledgeManager
-        getToken={getToken}
-        open={knowledgeManagerOpen}
-        onClose={() => setKnowledgeManagerOpen(false)}
-      />
-
-      {/* 4. Tasks */}
-      <Section
-        icon={<ListTodo className="h-4 w-4" />}
-        title={t("tasks")}
-        open={openSection === "tasks"}
-        onToggle={() => setOpenSection((current) => (current === "tasks" ? null : "tasks"))}
-        className="order-3"
-      >
-        <FeedbackLine fb={tasksFb} />
-        {taskLoading ? (
-          <div className="flex justify-center py-4">
-            <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3.5">
-              <button
-                type="button"
-                onClick={() => setShowUserTasks((open) => !open)}
-                className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
-              >
-                <div>
-                  <p className="text-sm font-medium text-text">{t("userTasksTitle")}</p>
-                  <p className="mt-1 text-[11px] text-text-subtle">{t("userTasksHelp")}</p>
-                </div>
-                <span className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-background px-2.5 text-sm font-bold tabular-nums text-text">
-                  {userTaskItems.length}
-                </span>
-              </button>
-
-              {showUserTasks && (
-                <>
-                  {userTaskItems.length === 0 ? (
-                    <p className="mt-3 text-xs text-text-subtle">{t("noCurrentTasks")}</p>
-                  ) : (
-                    <ul className="mt-3 space-y-2.5">
-                      {userTaskItems.map((item) => (
-                        <li
-                          key={item.id}
-                          className="rounded-xl border border-border/70 bg-background/70 p-3 shadow-sm"
-                        >
-                          <div className="flex flex-wrap items-start gap-2">
-                            <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-text">
-                              {item.title}
-                            </span>
-                            <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
-                              {getTaskScheduleKindLabel(item.sourceLabel)}
-                            </span>
-                            <span className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
-                              {getTaskStatusLabel(item.controlStatus)}
-                            </span>
                           </div>
-                          <p className="mt-1.5 text-[11px] text-text-subtle">
-                            {getTaskTimingLabel(item)}
-                          </p>
-                          <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-3">
-                            <div className="flex gap-1.5">
-                              <ActionButton
-                                icon={<RotateCcw className="h-3 w-3" />}
-                                label={t("disable")}
-                                onClick={() => void handleTaskAction(item.id, "disable")}
-                                busy={taskActionId === item.id}
-                                className="px-2.5 py-1.5"
-                              />
-                              <ActionButton
-                                icon={<Trash2 className="h-3 w-3" />}
-                                label={t("cancel")}
-                                variant="danger"
-                                onClick={() => void handleTaskAction(item.id, "cancel")}
-                                busy={taskActionId === item.id}
-                                className="px-2.5 py-1.5"
-                              />
-                            </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            {kind === "open_loop" && resolvedAt === null && (
+                              <button
+                                type="button"
+                                disabled={closingOpenLoopId === row.item.id}
+                                onClick={() => void handleCloseOpenLoop(row.item.id)}
+                                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-default disabled:opacity-50"
+                                title={t("markAsClosed")}
+                                aria-label={t("markAsClosed")}
+                                data-testid={`close-open-loop-${row.item.id}`}
+                              >
+                                {closingOpenLoopId === row.item.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="h-3 w-3" />
+                                )}
+                              </button>
+                            )}
+                            {row.source === "registry" ? (
+                              <button
+                                type="button"
+                                disabled={forgettingId === row.item.id}
+                                onClick={() => void handleForget(row.item.id)}
+                                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                                title={t("forget")}
+                                aria-label={t("forget")}
+                                data-testid={`forget-registry-${row.item.id}`}
+                              >
+                                {forgettingId === row.item.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3 w-3" />
+                                )}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={wsForgettingId === row.item.id}
+                                onClick={() => void handleForgetWsMemory(row.item.id)}
+                                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                                title={t("forget")}
+                                aria-label={t("forget")}
+                                data-testid={`forget-workspace-${row.item.id}`}
+                              >
+                                {wsForgettingId === row.item.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3 w-3" />
+                                )}
+                              </button>
+                            )}
                           </div>
                         </li>
-                      ))}
-                    </ul>
+                      );
+                    })}
+                  </ul>
+                  {wsMemoryVisibleCount < mergedWorkspaceMemoryView.length && (
+                    <button
+                      type="button"
+                      onClick={() => setWsMemoryVisibleCount((count) => count + 5)}
+                      className="mt-3 w-full cursor-pointer rounded-lg border border-border py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
+                    >
+                      {t("loadMore")} ({mergedWorkspaceMemoryView.length - wsMemoryVisibleCount})
+                    </button>
                   )}
                 </>
               )}
-            </div>
+            </>
+          )}
 
-            <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3.5">
-              <button
-                type="button"
-                onClick={() => setShowAssistantActions((open) => !open)}
-                className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
-              >
-                <div>
-                  <p className="text-sm font-medium text-text">{t("assistantActions")}</p>
-                  <p className="mt-1 text-[11px] text-text-subtle">
-                    {t("assistantActionsDescription")}
-                  </p>
+          {memoryTab === "history" && (
+            <>
+              <FeedbackLine fb={memoryFb} />
+              {memoryLoading ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
                 </div>
-                <span className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-background px-2.5 text-sm font-bold tabular-nums text-text">
-                  {assistantTaskItems.length}
-                </span>
-              </button>
-
-              {showAssistantActions && (
-                <>
-                  {assistantTaskItems.length === 0 ? (
-                    <p className="mt-3 text-xs text-text-subtle">{t("noAssistantActions")}</p>
-                  ) : (
-                    <ul className="mt-3 space-y-2.5">
-                      {assistantTaskItems.map((item) => {
-                        const recentRuns = item.recentRuns.slice(0, 5);
-                        const completed = item.status === "completed";
-                        return (
-                          <li
-                            key={item.id}
-                            className={cn(
-                              completed
-                                ? "p-0"
-                                : "rounded-xl border border-border/70 bg-background/70 p-3 shadow-sm"
-                            )}
-                          >
-                            {!completed && (
-                              <>
-                                <div className="flex flex-wrap items-start gap-2">
-                                  <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-text">
-                                    {item.title}
-                                  </span>
-                                  <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
-                                    {t("assistantAction")}
-                                  </span>
-                                  <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
-                                    {getBackgroundTaskStatusLabel(item.status)}
-                                  </span>
-                                </div>
-                                <p className="mt-1.5 text-[11px] text-text-subtle">
-                                  {getBackgroundTaskTimingLabel(item)}
-                                </p>
-                                <p className="mt-2 text-xs leading-relaxed text-text-muted">
-                                  {item.brief}
-                                </p>
-                              </>
-                            )}
-                            {recentRuns.length > 0 && (
-                              <div
-                                className={cn(
-                                  "rounded-lg border border-border/60 bg-surface-raised/40 p-2.5",
-                                  completed ? "mt-0" : "mt-3"
-                                )}
-                              >
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
-                                  {t("runHistory")}
-                                </p>
-                                <ul className="mt-1.5 space-y-1">
-                                  {recentRuns.map((run) => (
-                                    <li key={run.id} className="text-[11px] text-text-subtle">
-                                      {formatBackgroundRunLine(run)}
-                                      {run.pushText && (
-                                        <span className="mt-0.5 block text-text-muted">
-                                          {run.pushText}
-                                        </span>
-                                      )}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                            {!completed && (
-                              <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-3">
-                                <div className="flex gap-1.5">
-                                  {item.status === "active" && (
-                                    <ActionButton
-                                      icon={<RotateCcw className="h-3 w-3" />}
-                                      label={t("disable")}
-                                      onClick={() =>
-                                        void handleBackgroundTaskAction(item.id, "disable")
-                                      }
-                                      busy={taskActionId === item.id}
-                                      className="px-2.5 py-1.5"
-                                    />
-                                  )}
-                                  {item.status === "disabled" && (
-                                    <ActionButton
-                                      icon={<RotateCcw className="h-3 w-3" />}
-                                      label={t("enable")}
-                                      onClick={() =>
-                                        void handleBackgroundTaskAction(item.id, "enable")
-                                      }
-                                      busy={taskActionId === item.id}
-                                      className="px-2.5 py-1.5"
-                                    />
-                                  )}
-                                  <ActionButton
-                                    icon={<Trash2 className="h-3 w-3" />}
-                                    label={t("cancel")}
-                                    variant="danger"
-                                    onClick={() =>
-                                      void handleBackgroundTaskAction(item.id, "cancel")
-                                    }
-                                    busy={taskActionId === item.id}
-                                    className="px-2.5 py-1.5"
-                                  />
-                                </div>
-                              </div>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </Section>
-
-      {/* 5. Channels */}
-      <Section
-        icon={<Send className="h-4 w-4" />}
-        title={t("channels")}
-        open={openSection === "channels"}
-        onToggle={() => setOpenSection((current) => (current === "channels" ? null : "channels"))}
-        className="order-8"
-      >
-        <div className="space-y-1.5">
-          <ChannelRow
-            name="Telegram"
-            connected={
-              data.telegram?.connectionStatus === "connected" ||
-              data.telegram?.connectionStatus === "claim_required"
-            }
-            onClick={onOpenTelegramSettings}
-          />
-          <ChannelRow name="WhatsApp" comingSoon />
-          <ChannelRow name="MAX" comingSoon />
-        </div>
-        <div className="mt-4 rounded-xl border border-border bg-surface-raised/60 p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium text-text">{t("reminderDelivery")}</p>
-              <p className="mt-1 text-[11px] text-text-subtle">{t("reminderDescription")}</p>
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {(data.notificationPreference?.availableChannels ?? ["web"]).map((channel) => {
-              const active = notificationChannel === channel;
-              return (
-                <button
-                  key={channel}
-                  type="button"
-                  disabled={notificationSaving}
-                  onClick={() => void handleNotificationPreferenceChange(channel)}
-                  className={cn(
-                    "rounded-full border px-3 py-1.5 text-xs transition-colors disabled:opacity-50",
-                    active
-                      ? "border-accent bg-accent/10 text-accent"
-                      : "border-border bg-background text-text-muted hover:bg-surface-hover"
-                  )}
-                >
-                  {t(
-                    (
-                      {
-                        telegram: "channelTelegram",
-                        web: "channelWeb"
-                      } as Record<string, string>
-                    )[channel] ?? "channelWeb"
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <FeedbackLine fb={notificationFb} />
-        </div>
-      </Section>
-
-      {assistant?.id ? (
-        <Section
-          icon={<MessageCircle className="h-4 w-4" />}
-          title={t("support")}
-          open={openSection === "support"}
-          onToggle={() => {
-            setOpenSection((current) => {
-              const next = current === "support" ? null : "support";
-              if (current === "support") {
-                void refreshSupportUnreadCount();
-              }
-              return next;
-            });
-          }}
-          className="order-9"
-          showActivityDot={supportUnreadCount > 0}
-        >
-          <AssistantSupportSection
-            assistantId={assistant.id}
-            onActivityChange={({ unreadCount }) => setSupportUnreadCount(unreadCount)}
-          />
-        </Section>
-      ) : null}
-
-      {/* 6. Limits & Plan */}
-      <Section
-        icon={<BarChart3 className="h-4 w-4" />}
-        title={t("limitsAndPlan")}
-        open={openSection === "limits"}
-        onToggle={() => setOpenSection((current) => (current === "limits" ? null : "limits"))}
-        className="order-2"
-      >
-        {data.plan ? (
-          <div className="space-y-3">
-            <div className="rounded-xl border border-border/80 bg-surface-raised/40 p-3.5">
-              <div className="flex items-start justify-between gap-3">
-                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-subtle">
-                  {t("currentPlan")}
-                </p>
-                <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                  {shouldShowBillingSettingsEntry ? (
-                    <button
-                      type="button"
-                      onClick={() => void openBillingSettings()}
-                      className="inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
-                    >
-                      {t("paymentSettings")}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => onOpenPricingPage?.()}
-                      className="inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
-                    >
-                      {t("changePlan")}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-3">
-                <p className="truncate text-xl font-semibold tracking-[-0.02em] text-text">
-                  {data.plan.effectivePlan.displayName ??
-                    data.plan.effectivePlan.code ??
-                    t("freePlan")}
-                </p>
-                {!tokenBucket && billingSummary.dateKey ? (
-                  <p className="mt-1 text-[11px] text-text-muted">
-                    {billingSummary.dateLabel
-                      ? t(billingSummary.dateKey, { date: billingSummary.dateLabel })
-                      : t(billingSummary.dateKey)}
-                  </p>
-                ) : null}
-              </div>
-
-              {tokenBucket && (
-                <div className="mt-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-medium text-text">
-                      {quotaBucketLabels[tokenBucket.bucketCode] ?? tokenBucket.displayName}
-                    </span>
-                    <span className="shrink-0 text-xs text-text-muted">
-                      {tokenBucket.percent !== null && tokenBucket.percent !== undefined
-                        ? t("tokenPercentCompact", { pct: tokenBucket.percent })
-                        : tokenBucket.usageAvailable
-                          ? "—"
-                          : t("usageUnavailable")}
-                    </span>
-                  </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-raised/80">
-                    <div
-                      className={cn(
-                        "h-full rounded-full",
-                        !tokenBucket.usageAvailable
-                          ? "bg-text-subtle/60"
-                          : (tokenBucket.percent ?? 0) >= 90
-                            ? "bg-destructive"
-                            : "bg-accent"
-                      )}
-                      style={{ width: `${Math.min(tokenBucket.percent ?? 0, 100)}%` }}
-                    />
-                  </div>
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <span className="truncate text-[11px] text-text-muted">
-                      {billingSummary.dateKey
-                        ? billingSummary.dateLabel
-                          ? t(billingSummary.dateKey, { date: billingSummary.dateLabel })
-                          : t(billingSummary.dateKey)
-                        : ""}
-                    </span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-text-subtle">
-                      {formatQuotaBucketValue(tokenBucket)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {orderedMonthlyMediaCards.length > 0 ? (
-                <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {orderedMonthlyMediaCards.map((card) => (
-                    <LimitMetricCard
-                      key={card.toolCode}
-                      label={card.label}
-                      value={card.value}
-                      secondary={card.secondary}
-                      hasBonus={card.hasBonus}
-                      unavailable={card.unavailable}
-                      {...(card.onBuyClick
-                        ? { buyChipLabel: card.buyChipLabel, onBuyClick: card.onBuyClick }
-                        : {})}
-                    />
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <div className="rounded-lg border border-border/80 bg-surface-raised/40">
-              <button
-                type="button"
-                onClick={() => setToolLimitsExpanded((value) => !value)}
-                className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left"
-                aria-expanded={toolLimitsExpanded}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium text-text">{t("toolLimits")}</p>
-                  <p className="mt-0.5 text-[11px] text-text-subtle">
-                    {t("toolLimitsCount", { count: activeToolCount })}
-                  </p>
-                </div>
-                <ChevronRight
-                  className={cn(
-                    "h-4 w-4 shrink-0 text-text-subtle transition-transform",
-                    toolLimitsExpanded && "rotate-90"
-                  )}
-                />
-              </button>
-              {toolLimitsExpanded && (
-                <div className="border-t border-border/80 px-3 py-3">
-                  {documentMonthlyCard !== null || compactQuotaBuckets.length > 0 ? (
-                    <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      {documentMonthlyCard !== null ? (
-                        <LimitMetricCard
-                          key={documentMonthlyCard.toolCode}
-                          label={documentMonthlyCard.label}
-                          value={documentMonthlyCard.value}
-                          secondary={documentMonthlyCard.secondary}
-                          hasBonus={documentMonthlyCard.hasBonus}
-                          unavailable={documentMonthlyCard.unavailable}
-                          {...(documentMonthlyCard.onBuyClick
-                            ? {
-                                buyChipLabel: documentMonthlyCard.buyChipLabel,
-                                onBuyClick: documentMonthlyCard.onBuyClick
-                              }
-                            : {})}
-                        />
-                      ) : null}
-                      {compactQuotaBuckets.map((bucket) => (
-                        <LimitMetricCard
-                          key={bucket.bucketCode}
-                          label={quotaBucketLabels[bucket.bucketCode] ?? bucket.displayName}
-                          value={formatQuotaBucketValue(bucket)}
-                          secondary={
-                            bucket.percent === null
-                              ? null
-                              : t("tokenPercentCompact", { pct: bucket.percent })
-                          }
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                  {allToolDailyLimits.length === 0 ? (
-                    <p className="text-[11px] text-text-subtle">{t("noToolLimits")}</p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {allToolDailyLimits.map((tool) => (
-                        <ToolLimitRow
-                          key={tool.toolCode}
-                          label={toolLimitLabels[tool.toolCode] ?? tool.displayName}
-                          tool={tool}
-                          t={t}
-                        />
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <p className="text-xs text-text-subtle">{t("planUnavailable")}</p>
-        )}
-      </Section>
-
-      <div className="order-9 mt-auto flex justify-center px-5 pt-8 pb-4">
-        <AndroidAppDownloadBanner
-          className="min-w-[11.5rem]"
-          copy={{
-            cta: nativeShell ? t("androidAppUpdateCta") : t("androidAppCta")
-          }}
-        />
-      </div>
-      {billingSettingsOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 backdrop-blur-sm sm:items-center sm:p-6"
-          onClick={() => {
-            setBillingSettingsOpen(false);
-            setDisableAutoRenewConfirmOpen(false);
-          }}
-        >
-          <div
-            className="w-full max-w-lg overflow-hidden rounded-[28px] border border-white/10 bg-[color:var(--surface)] shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="border-b border-border/70 px-5 py-4 sm:px-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-text-subtle">
-                    {t("paymentSettingsEyebrow")}
-                  </p>
-                  <h3 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text">
-                    {t("paymentSettings")}
-                  </h3>
-                  <p className="mt-1 text-sm text-text-muted">{billingSettingsDescription}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBillingSettingsOpen(false);
-                    setDisableAutoRenewConfirmOpen(false);
-                  }}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/80 bg-surface-raised/60 text-text-muted transition-colors hover:text-text"
-                  aria-label={t("closeBillingSettings")}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-            <div className="space-y-4 px-5 py-5 sm:px-6">
-              {billingSubscriptionLoading ? (
-                <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-surface-raised/40 px-4 py-4 text-sm text-text-muted">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>{t("billingSettingsLoading")}</span>
-                </div>
+              ) : mergedHistoryMemoryView.length === 0 ? (
+                <p className="text-xs text-text-subtle">{t("noMemoriesStored")}</p>
               ) : (
                 <>
-                  <div className="rounded-[24px] border border-border/70 bg-gradient-to-b from-surface-raised/70 to-surface-raised/30 p-4 sm:p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
-                          {t("currentPlan")}
-                        </p>
-                        <p className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text">
-                          {billingPlanLabel}
-                        </p>
-                      </div>
-                      <span className="rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-[11px] font-medium text-text shadow-sm">
-                        {billingStatusChipLabel}
-                      </span>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <div className="rounded-full border border-border/70 bg-background/50 px-3 py-1.5">
-                        <p className="text-[10px] uppercase tracking-[0.14em] text-text-subtle">
-                          {t("billingAutoRenew")}
-                        </p>
-                        <p className="mt-1 text-sm font-medium text-text">
-                          {billingAutoRenewLabel}
-                        </p>
-                      </div>
-                      <div className="rounded-full border border-border/70 bg-background/50 px-3 py-1.5">
-                        <p className="text-[10px] uppercase tracking-[0.14em] text-text-subtle">
-                          {billingDateHeadingLabel}
-                        </p>
-                        <p className="mt-1 text-sm font-medium text-text">
-                          {billingDateValueLabel}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-4 overflow-hidden rounded-2xl border border-border/70 bg-background/45">
-                      <div className="px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
-                          {t("billingLastPaymentMethod")}
-                        </p>
-                        <div className="mt-1 flex items-center gap-2 text-text">
-                          <CreditCard className="h-4 w-4 shrink-0 text-text-muted" />
-                          <span className="text-sm font-medium">
-                            {billingLastPaymentMethodValue}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="border-t border-border/70 px-4 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
-                          {t("billingAutoRenewPaymentMethod")}
-                        </p>
-                        <div className="mt-1 flex items-center gap-2 text-text">
-                          <CreditCard className="h-4 w-4 shrink-0 text-text-muted" />
-                          <span className="text-sm font-medium">
-                            {billingAutoRenewPaymentMethodValue}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="mt-3 rounded-2xl border border-border/60 bg-background/35 px-3 py-2 text-xs text-text-subtle">
-                      {billingPaymentMethodHint}
-                    </p>
-                  </div>
-                  <div className="grid gap-2">
+                  <ul
+                    className="space-y-2"
+                    data-testid="memory-center-history-list"
+                    aria-label={t("history")}
+                  >
+                    {mergedHistoryMemoryView.slice(0, memoryVisibleCount).map((row) => {
+                      if (row.source !== "registry") return null;
+                      const item = row.item;
+                      return (
+                        <li
+                          key={row.key}
+                          data-testid="memory-row-history"
+                          className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs leading-relaxed text-text-muted">
+                              {item.summary}
+                            </p>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
+                              <span
+                                className={
+                                  item.memoryClass === "core"
+                                    ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
+                                    : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
+                                }
+                              >
+                                {item.memoryClass === "core"
+                                  ? t("memoryClassCore")
+                                  : t("memoryClassContextual")}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={forgettingId === item.id}
+                              onClick={() => void handleForget(item.id)}
+                              className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                              title={t("forget")}
+                              aria-label={t("forget")}
+                              data-testid={`forget-history-${item.id}`}
+                            >
+                              {forgettingId === item.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3 w-3" />
+                              )}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {memoryVisibleCount < mergedHistoryMemoryView.length && (
                     <button
                       type="button"
-                      onClick={() => onOpenPricingPage?.()}
-                      className="inline-flex min-h-11 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-4 text-sm font-medium text-text transition-colors hover:bg-accent/15"
+                      onClick={() => setMemoryVisibleCount((count) => count + 5)}
+                      className="mt-3 w-full cursor-pointer rounded-lg border border-border py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
                     >
-                      {t("changePlan")}
+                      {t("loadMore")} ({mergedHistoryMemoryView.length - memoryVisibleCount})
                     </button>
-                    {billingSubscription?.managePaymentMethodUrl ? (
-                      <button
-                        type="button"
-                        onClick={handleManagePaymentMethod}
-                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border/80 bg-surface-raised/60 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
-                      >
-                        <span>{t("billingManagePaymentMethod")}</span>
-                        <ExternalLink className="h-4 w-4" />
-                      </button>
-                    ) : null}
-                    {billingSubscription?.canEnableAutoRenew ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleEnableAutoRenew()}
-                        disabled={enableAutoRenewPending}
-                        className="inline-flex min-h-11 items-center justify-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 text-sm font-medium text-text transition-colors hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {enableAutoRenewPending ? (
-                          <span className="inline-flex items-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            {t("billingEnabling")}
-                          </span>
-                        ) : scheduledFreeChangePending ? (
-                          t("billingRestoreSubscription")
-                        ) : (
-                          t("billingEnableAutoRenew")
-                        )}
-                      </button>
-                    ) : null}
-                    {billingSubscription?.canDisableAutoRenew ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDisableAutoRenewConfirmOpen(true);
-                          setBillingSubscriptionFb(null);
-                        }}
-                        disabled={disableAutoRenewPending || !billingSubscription.autoRenewEnabled}
-                        className="inline-flex min-h-8 items-center justify-center self-center px-2 text-sm font-medium text-text-subtle transition-colors hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {disableAutoRenewPending ? (
-                          <span className="inline-flex items-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            {t("billingDisabling")}
-                          </span>
-                        ) : (
-                          t("billingDisableAutoRenew")
-                        )}
-                      </button>
-                    ) : null}
-                  </div>
-                  {disableAutoRenewConfirmOpen ? (
-                    <div className="space-y-3 rounded-2xl border border-border/80 bg-surface-raised/40 p-4">
-                      <p className="text-sm font-medium text-text">
-                        {t("billingDisableAutoRenewConfirm")}
-                      </p>
-                      <p className="text-xs text-text-muted">
-                        {t("billingDisableAutoRenewConfirmHelp")}
-                      </p>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <button
-                          type="button"
-                          onClick={() => setDisableAutoRenewConfirmOpen(false)}
-                          className="inline-flex min-h-11 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-4 text-sm font-medium text-text transition-colors hover:bg-accent/15"
-                        >
-                          {t("billingConfirmCancel")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void confirmDisableAutoRenew()}
-                          disabled={disableAutoRenewPending}
-                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-subtle transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {disableAutoRenewPending ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : null}
-                          {t("billingConfirmDisableAutoRenew")}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                  <FeedbackLine fb={billingSubscriptionFb} />
+                  )}
                 </>
               )}
+            </>
+          )}
+        </Section>
+
+        <AssistantKnowledgeManager
+          getToken={getToken}
+          open={knowledgeManagerOpen}
+          onClose={() => setKnowledgeManagerOpen(false)}
+        />
+
+        {/* 4. Tasks */}
+        <Section
+          icon={<ListTodo className="h-4 w-4" />}
+          title={t("tasks")}
+          open={openSection === "tasks"}
+          onToggle={() => setOpenSection((current) => (current === "tasks" ? null : "tasks"))}
+          className="order-3"
+        >
+          <FeedbackLine fb={tasksFb} />
+          {taskLoading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3.5">
+                <button
+                  type="button"
+                  onClick={() => setShowUserTasks((open) => !open)}
+                  className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-text">{t("userTasksTitle")}</p>
+                    <p className="mt-1 text-[11px] text-text-subtle">{t("userTasksHelp")}</p>
+                  </div>
+                  <span className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-background px-2.5 text-sm font-bold tabular-nums text-text">
+                    {userTaskItems.length}
+                  </span>
+                </button>
+
+                {showUserTasks && (
+                  <>
+                    {userTaskItems.length === 0 ? (
+                      <p className="mt-3 text-xs text-text-subtle">{t("noCurrentTasks")}</p>
+                    ) : (
+                      <ul className="mt-3 space-y-2.5">
+                        {userTaskItems.map((item) => (
+                          <li
+                            key={item.id}
+                            className="rounded-xl border border-border/70 bg-background/70 p-3 shadow-sm"
+                          >
+                            <div className="flex flex-wrap items-start gap-2">
+                              <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-text">
+                                {item.title}
+                              </span>
+                              <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                                {getTaskScheduleKindLabel(item.sourceLabel)}
+                              </span>
+                              <span className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
+                                {getTaskStatusLabel(item.controlStatus)}
+                              </span>
+                            </div>
+                            <p className="mt-1.5 text-[11px] text-text-subtle">
+                              {getTaskTimingLabel(item)}
+                            </p>
+                            <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-3">
+                              <div className="flex gap-1.5">
+                                <ActionButton
+                                  icon={<RotateCcw className="h-3 w-3" />}
+                                  label={t("disable")}
+                                  onClick={() => void handleTaskAction(item.id, "disable")}
+                                  busy={taskActionId === item.id}
+                                  className="px-2.5 py-1.5"
+                                />
+                                <ActionButton
+                                  icon={<Trash2 className="h-3 w-3" />}
+                                  label={t("cancel")}
+                                  variant="danger"
+                                  onClick={() => void handleTaskAction(item.id, "cancel")}
+                                  busy={taskActionId === item.id}
+                                  className="px-2.5 py-1.5"
+                                />
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3.5">
+                <button
+                  type="button"
+                  onClick={() => setShowAssistantActions((open) => !open)}
+                  className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-text">{t("assistantActions")}</p>
+                    <p className="mt-1 text-[11px] text-text-subtle">
+                      {t("assistantActionsDescription")}
+                    </p>
+                  </div>
+                  <span className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-background px-2.5 text-sm font-bold tabular-nums text-text">
+                    {assistantTaskItems.length}
+                  </span>
+                </button>
+
+                {showAssistantActions && (
+                  <>
+                    {assistantTaskItems.length === 0 ? (
+                      <p className="mt-3 text-xs text-text-subtle">{t("noAssistantActions")}</p>
+                    ) : (
+                      <ul className="mt-3 space-y-2.5">
+                        {assistantTaskItems.map((item) => {
+                          const recentRuns = item.recentRuns.slice(0, 5);
+                          const completed = item.status === "completed";
+                          return (
+                            <li
+                              key={item.id}
+                              className={cn(
+                                completed
+                                  ? "p-0"
+                                  : "rounded-xl border border-border/70 bg-background/70 p-3 shadow-sm"
+                              )}
+                            >
+                              {!completed && (
+                                <>
+                                  <div className="flex flex-wrap items-start gap-2">
+                                    <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-text">
+                                      {item.title}
+                                    </span>
+                                    <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
+                                      {t("assistantAction")}
+                                    </span>
+                                    <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
+                                      {getBackgroundTaskStatusLabel(item.status)}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1.5 text-[11px] text-text-subtle">
+                                    {getBackgroundTaskTimingLabel(item)}
+                                  </p>
+                                  <p className="mt-2 text-xs leading-relaxed text-text-muted">
+                                    {item.brief}
+                                  </p>
+                                </>
+                              )}
+                              {recentRuns.length > 0 && (
+                                <div
+                                  className={cn(
+                                    "rounded-lg border border-border/60 bg-surface-raised/40 p-2.5",
+                                    completed ? "mt-0" : "mt-3"
+                                  )}
+                                >
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+                                    {t("runHistory")}
+                                  </p>
+                                  <ul className="mt-1.5 space-y-1">
+                                    {recentRuns.map((run) => (
+                                      <li key={run.id} className="text-[11px] text-text-subtle">
+                                        {formatBackgroundRunLine(run)}
+                                        {run.pushText && (
+                                          <span className="mt-0.5 block text-text-muted">
+                                            {run.pushText}
+                                          </span>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {!completed && (
+                                <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-3">
+                                  <div className="flex gap-1.5">
+                                    {item.status === "active" && (
+                                      <ActionButton
+                                        icon={<RotateCcw className="h-3 w-3" />}
+                                        label={t("disable")}
+                                        onClick={() =>
+                                          void handleBackgroundTaskAction(item.id, "disable")
+                                        }
+                                        busy={taskActionId === item.id}
+                                        className="px-2.5 py-1.5"
+                                      />
+                                    )}
+                                    {item.status === "disabled" && (
+                                      <ActionButton
+                                        icon={<RotateCcw className="h-3 w-3" />}
+                                        label={t("enable")}
+                                        onClick={() =>
+                                          void handleBackgroundTaskAction(item.id, "enable")
+                                        }
+                                        busy={taskActionId === item.id}
+                                        className="px-2.5 py-1.5"
+                                      />
+                                    )}
+                                    <ActionButton
+                                      icon={<Trash2 className="h-3 w-3" />}
+                                      label={t("cancel")}
+                                      variant="danger"
+                                      onClick={() =>
+                                        void handleBackgroundTaskAction(item.id, "cancel")
+                                      }
+                                      busy={taskActionId === item.id}
+                                      className="px-2.5 py-1.5"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </Section>
+
+        {/* 5. Channels */}
+        <Section
+          icon={<Send className="h-4 w-4" />}
+          title={t("channels")}
+          open={openSection === "channels"}
+          onToggle={() => setOpenSection((current) => (current === "channels" ? null : "channels"))}
+          className="order-8"
+        >
+          <div className="space-y-1.5">
+            <ChannelRow
+              name="Telegram"
+              connected={
+                data.telegram?.connectionStatus === "connected" ||
+                data.telegram?.connectionStatus === "claim_required"
+              }
+              onClick={onOpenTelegramSettings}
+            />
+            <ChannelRow name="WhatsApp" comingSoon />
+            <ChannelRow name="MAX" comingSoon />
+          </div>
+          <div className="mt-4 rounded-xl border border-border bg-surface-raised/60 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium text-text">{t("reminderDelivery")}</p>
+                <p className="mt-1 text-[11px] text-text-subtle">{t("reminderDescription")}</p>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(data.notificationPreference?.availableChannels ?? ["web"]).map((channel) => {
+                const active = notificationChannel === channel;
+                return (
+                  <button
+                    key={channel}
+                    type="button"
+                    disabled={notificationSaving}
+                    onClick={() => void handleNotificationPreferenceChange(channel)}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-xs transition-colors disabled:opacity-50",
+                      active
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-border bg-background text-text-muted hover:bg-surface-hover"
+                    )}
+                  >
+                    {t(
+                      (
+                        {
+                          telegram: "channelTelegram",
+                          web: "channelWeb"
+                        } as Record<string, string>
+                      )[channel] ?? "channelWeb"
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <FeedbackLine fb={notificationFb} />
+          </div>
+        </Section>
+
+        {assistant?.id ? (
+          <Section
+            icon={<MessageCircle className="h-4 w-4" />}
+            title={t("support")}
+            open={openSection === "support"}
+            onToggle={() => {
+              setOpenSection((current) => {
+                const next = current === "support" ? null : "support";
+                if (current === "support") {
+                  void refreshSupportUnreadCount();
+                }
+                return next;
+              });
+            }}
+            className="order-9"
+            showActivityDot={supportUnreadCount > 0}
+          >
+            <AssistantSupportSection
+              assistantId={assistant.id}
+              onActivityChange={({ unreadCount }) => setSupportUnreadCount(unreadCount)}
+            />
+          </Section>
+        ) : null}
+
+        {/* 6. Limits & Plan */}
+        <Section
+          icon={<BarChart3 className="h-4 w-4" />}
+          title={t("limitsAndPlan")}
+          open={openSection === "limits"}
+          onToggle={() => setOpenSection((current) => (current === "limits" ? null : "limits"))}
+          className="order-2"
+        >
+          {data.plan ? (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-border/80 bg-surface-raised/40 p-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-subtle">
+                    {t("currentPlan")}
+                  </p>
+                  <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                    {shouldShowBillingSettingsEntry ? (
+                      <button
+                        type="button"
+                        onClick={() => void openBillingSettings()}
+                        className="inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
+                      >
+                        {t("paymentSettings")}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onOpenPricingPage?.()}
+                        className="inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
+                      >
+                        {t("changePlan")}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <p className="truncate text-xl font-semibold tracking-[-0.02em] text-text">
+                    {data.plan.effectivePlan.displayName ??
+                      data.plan.effectivePlan.code ??
+                      t("freePlan")}
+                  </p>
+                  {!tokenBucket && billingSummary.dateKey ? (
+                    <p className="mt-1 text-[11px] text-text-muted">
+                      {billingSummary.dateLabel
+                        ? t(billingSummary.dateKey, { date: billingSummary.dateLabel })
+                        : t(billingSummary.dateKey)}
+                    </p>
+                  ) : null}
+                </div>
+
+                {tokenBucket && (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium text-text">
+                        {quotaBucketLabels[tokenBucket.bucketCode] ?? tokenBucket.displayName}
+                      </span>
+                      <span className="shrink-0 text-xs text-text-muted">
+                        {tokenBucket.percent !== null && tokenBucket.percent !== undefined
+                          ? t("tokenPercentCompact", { pct: tokenBucket.percent })
+                          : tokenBucket.usageAvailable
+                            ? "—"
+                            : t("usageUnavailable")}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-raised/80">
+                      <div
+                        className={cn(
+                          "h-full rounded-full",
+                          !tokenBucket.usageAvailable
+                            ? "bg-text-subtle/60"
+                            : (tokenBucket.percent ?? 0) >= 90
+                              ? "bg-destructive"
+                              : "bg-accent"
+                        )}
+                        style={{ width: `${Math.min(tokenBucket.percent ?? 0, 100)}%` }}
+                      />
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <span className="truncate text-[11px] text-text-muted">
+                        {billingSummary.dateKey
+                          ? billingSummary.dateLabel
+                            ? t(billingSummary.dateKey, { date: billingSummary.dateLabel })
+                            : t(billingSummary.dateKey)
+                          : ""}
+                      </span>
+                      <span className="shrink-0 text-[11px] tabular-nums text-text-subtle">
+                        {formatQuotaBucketValue(tokenBucket)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {orderedMonthlyMediaCards.length > 0 ? (
+                  <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {orderedMonthlyMediaCards.map((card) => (
+                      <LimitMetricCard
+                        key={card.toolCode}
+                        label={card.label}
+                        value={card.value}
+                        secondary={card.secondary}
+                        hasBonus={card.hasBonus}
+                        unavailable={card.unavailable}
+                        {...(card.onBuyClick
+                          ? { buyChipLabel: card.buyChipLabel, onBuyClick: card.onBuyClick }
+                          : {})}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="rounded-lg border border-border/80 bg-surface-raised/40">
+                <button
+                  type="button"
+                  onClick={() => setToolLimitsExpanded((value) => !value)}
+                  className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left"
+                  aria-expanded={toolLimitsExpanded}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-text">{t("toolLimits")}</p>
+                    <p className="mt-0.5 text-[11px] text-text-subtle">
+                      {t("toolLimitsCount", { count: activeToolCount })}
+                    </p>
+                  </div>
+                  <ChevronRight
+                    className={cn(
+                      "h-4 w-4 shrink-0 text-text-subtle transition-transform",
+                      toolLimitsExpanded && "rotate-90"
+                    )}
+                  />
+                </button>
+                {toolLimitsExpanded && (
+                  <div className="border-t border-border/80 px-3 py-3">
+                    {documentMonthlyCard !== null || compactQuotaBuckets.length > 0 ? (
+                      <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        {documentMonthlyCard !== null ? (
+                          <LimitMetricCard
+                            key={documentMonthlyCard.toolCode}
+                            label={documentMonthlyCard.label}
+                            value={documentMonthlyCard.value}
+                            secondary={documentMonthlyCard.secondary}
+                            hasBonus={documentMonthlyCard.hasBonus}
+                            unavailable={documentMonthlyCard.unavailable}
+                            {...(documentMonthlyCard.onBuyClick
+                              ? {
+                                  buyChipLabel: documentMonthlyCard.buyChipLabel,
+                                  onBuyClick: documentMonthlyCard.onBuyClick
+                                }
+                              : {})}
+                          />
+                        ) : null}
+                        {compactQuotaBuckets.map((bucket) => (
+                          <LimitMetricCard
+                            key={bucket.bucketCode}
+                            label={quotaBucketLabels[bucket.bucketCode] ?? bucket.displayName}
+                            value={formatQuotaBucketValue(bucket)}
+                            secondary={
+                              bucket.percent === null
+                                ? null
+                                : t("tokenPercentCompact", { pct: bucket.percent })
+                            }
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                    {allToolDailyLimits.length === 0 ? (
+                      <p className="text-[11px] text-text-subtle">{t("noToolLimits")}</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {allToolDailyLimits.map((tool) => (
+                          <ToolLimitRow
+                            key={tool.toolCode}
+                            label={toolLimitLabels[tool.toolCode] ?? tool.displayName}
+                            tool={tool}
+                            t={t}
+                          />
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-text-subtle">{t("planUnavailable")}</p>
+          )}
+        </Section>
+
+        <div className="order-9 mt-auto flex justify-center px-5 pt-8 pb-4">
+          <AndroidAppDownloadBanner
+            className="min-w-[11.5rem]"
+            copy={{
+              cta: nativeShell ? t("androidAppUpdateCta") : t("androidAppCta")
+            }}
+          />
+        </div>
+        {billingSettingsOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 backdrop-blur-sm sm:items-center sm:p-6"
+            onClick={() => {
+              setBillingSettingsOpen(false);
+              setDisableAutoRenewConfirmOpen(false);
+            }}
+          >
+            <div
+              className="w-full max-w-lg overflow-hidden rounded-[28px] border border-white/10 bg-[color:var(--surface)] shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="border-b border-border/70 px-5 py-4 sm:px-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-text-subtle">
+                      {t("paymentSettingsEyebrow")}
+                    </p>
+                    <h3 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text">
+                      {t("paymentSettings")}
+                    </h3>
+                    <p className="mt-1 text-sm text-text-muted">{billingSettingsDescription}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBillingSettingsOpen(false);
+                      setDisableAutoRenewConfirmOpen(false);
+                    }}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/80 bg-surface-raised/60 text-text-muted transition-colors hover:text-text"
+                    aria-label={t("closeBillingSettings")}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-4 px-5 py-5 sm:px-6">
+                {billingSubscriptionLoading ? (
+                  <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-surface-raised/40 px-4 py-4 text-sm text-text-muted">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>{t("billingSettingsLoading")}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="rounded-[24px] border border-border/70 bg-gradient-to-b from-surface-raised/70 to-surface-raised/30 p-4 sm:p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
+                            {t("currentPlan")}
+                          </p>
+                          <p className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text">
+                            {billingPlanLabel}
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-[11px] font-medium text-text shadow-sm">
+                          {billingStatusChipLabel}
+                        </span>
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <div className="rounded-full border border-border/70 bg-background/50 px-3 py-1.5">
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-text-subtle">
+                            {t("billingAutoRenew")}
+                          </p>
+                          <p className="mt-1 text-sm font-medium text-text">
+                            {billingAutoRenewLabel}
+                          </p>
+                        </div>
+                        <div className="rounded-full border border-border/70 bg-background/50 px-3 py-1.5">
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-text-subtle">
+                            {billingDateHeadingLabel}
+                          </p>
+                          <p className="mt-1 text-sm font-medium text-text">
+                            {billingDateValueLabel}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-4 overflow-hidden rounded-2xl border border-border/70 bg-background/45">
+                        <div className="px-4 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
+                            {t("billingLastPaymentMethod")}
+                          </p>
+                          <div className="mt-1 flex items-center gap-2 text-text">
+                            <CreditCard className="h-4 w-4 shrink-0 text-text-muted" />
+                            <span className="text-sm font-medium">
+                              {billingLastPaymentMethodValue}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="border-t border-border/70 px-4 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
+                            {t("billingAutoRenewPaymentMethod")}
+                          </p>
+                          <div className="mt-1 flex items-center gap-2 text-text">
+                            <CreditCard className="h-4 w-4 shrink-0 text-text-muted" />
+                            <span className="text-sm font-medium">
+                              {billingAutoRenewPaymentMethodValue}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="mt-3 rounded-2xl border border-border/60 bg-background/35 px-3 py-2 text-xs text-text-subtle">
+                        {billingPaymentMethodHint}
+                      </p>
+                    </div>
+                    <div className="grid gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onOpenPricingPage?.()}
+                        className="inline-flex min-h-11 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-4 text-sm font-medium text-text transition-colors hover:bg-accent/15"
+                      >
+                        {t("changePlan")}
+                      </button>
+                      {billingSubscription?.managePaymentMethodUrl ? (
+                        <button
+                          type="button"
+                          onClick={handleManagePaymentMethod}
+                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border/80 bg-surface-raised/60 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
+                        >
+                          <span>{t("billingManagePaymentMethod")}</span>
+                          <ExternalLink className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                      {billingSubscription?.canEnableAutoRenew ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleEnableAutoRenew()}
+                          disabled={enableAutoRenewPending}
+                          className="inline-flex min-h-11 items-center justify-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 text-sm font-medium text-text transition-colors hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {enableAutoRenewPending ? (
+                            <span className="inline-flex items-center gap-2">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              {t("billingEnabling")}
+                            </span>
+                          ) : scheduledFreeChangePending ? (
+                            t("billingRestoreSubscription")
+                          ) : (
+                            t("billingEnableAutoRenew")
+                          )}
+                        </button>
+                      ) : null}
+                      {billingSubscription?.canDisableAutoRenew ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDisableAutoRenewConfirmOpen(true);
+                            setBillingSubscriptionFb(null);
+                          }}
+                          disabled={
+                            disableAutoRenewPending || !billingSubscription.autoRenewEnabled
+                          }
+                          className="inline-flex min-h-8 items-center justify-center self-center px-2 text-sm font-medium text-text-subtle transition-colors hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {disableAutoRenewPending ? (
+                            <span className="inline-flex items-center gap-2">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              {t("billingDisabling")}
+                            </span>
+                          ) : (
+                            t("billingDisableAutoRenew")
+                          )}
+                        </button>
+                      ) : null}
+                    </div>
+                    {disableAutoRenewConfirmOpen ? (
+                      <div className="space-y-3 rounded-2xl border border-border/80 bg-surface-raised/40 p-4">
+                        <p className="text-sm font-medium text-text">
+                          {t("billingDisableAutoRenewConfirm")}
+                        </p>
+                        <p className="text-xs text-text-muted">
+                          {t("billingDisableAutoRenewConfirmHelp")}
+                        </p>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <button
+                            type="button"
+                            onClick={() => setDisableAutoRenewConfirmOpen(false)}
+                            className="inline-flex min-h-11 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-4 text-sm font-medium text-text transition-colors hover:bg-accent/15"
+                          >
+                            {t("billingConfirmCancel")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void confirmDisableAutoRenew()}
+                            disabled={disableAutoRenewPending}
+                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-subtle transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {disableAutoRenewPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : null}
+                            {t("billingConfirmDisableAutoRenew")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    <FeedbackLine fb={billingSubscriptionFb} />
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
-    </div>
+        ) : null}
+      </div>
+      <AssistantSwitcherModal
+        open={assistantSwitcherOpen}
+        assistants={data.assistants}
+        activeAssistantId={data.activeAssistantId}
+        assistantLimit={data.assistantLimit}
+        switchBusyId={assistantSwitchBusyId}
+        createBusy={assistantCreateBusy}
+        error={assistantSwitcherError}
+        onClose={() => setAssistantSwitcherOpen(false)}
+        onSwitch={handleSwitchAssistant}
+        onCreate={hasAssistantSwitcher ? handleCreateAssistant : null}
+      />
+    </>
   );
 }
 

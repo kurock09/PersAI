@@ -101,7 +101,11 @@ export class SeedToolCatalogService implements OnModuleInit {
         billingHints,
         "runtimeTierDefault"
       );
-      if (needsRuntimeTierBackfill) {
+      const needsAssistantPolicyBackfill = !Object.prototype.hasOwnProperty.call(
+        billingHints,
+        "assistantPolicy"
+      );
+      if (needsRuntimeTierBackfill || needsAssistantPolicyBackfill) {
         const nextBillingHints: Record<string, unknown> = {
           ...billingHints,
           schema:
@@ -112,7 +116,13 @@ export class SeedToolCatalogService implements OnModuleInit {
           runtimeTierDefault:
             typeof billingHints.runtimeTierDefault === "string"
               ? billingHints.runtimeTierDefault
-              : "free_shared_restricted"
+              : "free_shared_restricted",
+          assistantPolicy:
+            billingHints.assistantPolicy &&
+            typeof billingHints.assistantPolicy === "object" &&
+            !Array.isArray(billingHints.assistantPolicy)
+              ? billingHints.assistantPolicy
+              : { schema: "persai.assistantPolicy.v1", maxAssistants: 1 }
         };
         await this.prisma.planCatalogPlan.update({
           where: { id: existingDefaultPlan.id },
@@ -155,7 +165,8 @@ export class SeedToolCatalogService implements OnModuleInit {
         billingProviderHints: {
           schema: "persai.billingHints.v1",
           providerAgnostic: true,
-          runtimeTierDefault: "free_shared_restricted"
+          runtimeTierDefault: "free_shared_restricted",
+          assistantPolicy: { schema: "persai.assistantPolicy.v1", maxAssistants: 1 }
         }
       }
     });

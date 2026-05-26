@@ -1,11 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException
-} from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
@@ -14,7 +7,6 @@ import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { ResolveTelegramIntegrationStateService } from "./resolve-telegram-integration-state.service";
 import type {
   TelegramConfigUpdateInput,
@@ -23,6 +15,7 @@ import type {
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 function asObject(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -35,8 +28,6 @@ export class UpdateTelegramIntegrationConfigService {
   private readonly logger = new Logger(UpdateTelegramIntegrationConfigService.name);
 
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
@@ -44,7 +35,8 @@ export class UpdateTelegramIntegrationConfigService {
     private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
     private readonly resolveTelegramIntegrationStateService: ResolveTelegramIntegrationStateService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   parseInput(body: unknown): TelegramConfigUpdateInput {
@@ -110,10 +102,7 @@ export class UpdateTelegramIntegrationConfigService {
     userId: string,
     input: TelegramConfigUpdateInput
   ): Promise<TelegramIntegrationState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
     const binding =
       await this.assistantChannelSurfaceBindingRepository.findByAssistantProviderSurface(
         assistant.id,

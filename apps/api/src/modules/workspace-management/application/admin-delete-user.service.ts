@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
@@ -31,9 +31,17 @@ export class AdminDeleteUserService {
       throw new NotFoundException("User not found.");
     }
 
-    const assistant = await this.prisma.assistant.findUnique({
-      where: { userId: targetUserId }
+    const assistants = await this.prisma.assistant.findMany({
+      where: { userId: targetUserId },
+      orderBy: { createdAt: "asc" },
+      take: 2
     });
+    if (assistants.length > 1) {
+      throw new ConflictException(
+        "User has multiple assistants; delete flow requires ADR-101 cleanup."
+      );
+    }
+    const assistant = assistants[0] ?? null;
     const releasedBytes =
       assistant === null
         ? BigInt(0)
@@ -102,6 +110,10 @@ export class AdminDeleteUserService {
           await tx.assistantChannelSurfaceBinding.deleteMany({ where: { assistantId: aid } });
           await tx.assistantGovernance.deleteMany({ where: { assistantId: aid } });
           await tx.assistantTelegramGroup.deleteMany({ where: { assistantId: aid } });
+          await tx.workspaceMember.updateMany({
+            where: { activeAssistantId: aid },
+            data: { activeAssistantId: null }
+          });
 
           await this.withAuditEventNoUpdateTriggerDisabled(tx, async () => {
             await tx.assistant.delete({ where: { id: aid } });

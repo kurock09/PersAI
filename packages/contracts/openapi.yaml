@@ -8,12 +8,12 @@ paths:
   /assistant:
     get:
       operationId: getAssistant
-      summary: Get current authenticated user assistant lifecycle state
+      summary: Get current active assistant lifecycle state with workspace assistant metadata
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Current assistant state
+          description: Current active assistant state
           content:
             application/json:
               schema:
@@ -30,6 +30,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Active assistant selection required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           description: Internal error
           content:
@@ -38,12 +44,12 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
     post:
       operationId: postAssistantCreate
-      summary: Create assistant for current authenticated user
+      summary: Create assistant for current workspace member
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Created assistant state
+          description: Created assistant state with updated active assistant metadata
           content:
             application/json:
               schema:
@@ -55,7 +61,75 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "409":
-          description: Assistant already exists
+          description: Assistant limit reached or create conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/list:
+    get:
+      operationId: getAssistantList
+      summary: List assistants for the current workspace member
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Workspace assistant list and active selection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/switch:
+    post:
+      operationId: postAssistantSwitch
+      summary: Switch the active assistant for the current workspace member
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantSwitchRequest"
+      responses:
+        "200":
+          description: Switched active assistant state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found in current workspace
           content:
             application/json:
               schema:
@@ -10782,12 +10856,86 @@ components:
       type: object
       required:
         - assistant
+        - assistants
+        - activeAssistantId
+        - assistantLimit
       properties:
         requestId:
           type: string
           nullable: true
         assistant:
           $ref: "#/components/schemas/AssistantLifecycleState"
+        assistants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantListItemState"
+        activeAssistantId:
+          type: string
+          nullable: true
+        assistantLimit:
+          $ref: "#/components/schemas/AssistantLimitState"
+    AssistantListItemState:
+      type: object
+      required:
+        - id
+        - displayName
+        - avatarEmoji
+        - avatarUrl
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        avatarEmoji:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+    AssistantLimitState:
+      type: object
+      required:
+        - usedAssistants
+        - maxAssistants
+      properties:
+        usedAssistants:
+          type: integer
+        maxAssistants:
+          type: integer
+          minimum: 1
+    GetAssistantListResponse:
+      type: object
+      required:
+        - assistants
+        - activeAssistantId
+        - assistantLimit
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        assistants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantListItemState"
+        activeAssistantId:
+          type: string
+          nullable: true
+        assistantLimit:
+          $ref: "#/components/schemas/AssistantLimitState"
+    AssistantSwitchRequest:
+      type: object
+      required:
+        - assistantId
+      properties:
+        assistantId:
+          type: string
     AssistantNotificationPreferenceState:
       type: object
       required:
@@ -10834,10 +10982,29 @@ components:
         ok:
           type: boolean
         data:
-          nullable: true
-          $ref: "#/components/schemas/AssistantLifecycleState"
+          $ref: "#/components/schemas/AppBootstrapAssistantState"
         error:
           $ref: "#/components/schemas/BootstrapSectionError"
+    AppBootstrapAssistantState:
+      type: object
+      required:
+        - assistant
+        - assistants
+        - activeAssistantId
+        - assistantLimit
+      properties:
+        assistant:
+          nullable: true
+          $ref: "#/components/schemas/AssistantLifecycleState"
+        assistants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantListItemState"
+        activeAssistantId:
+          type: string
+          nullable: true
+        assistantLimit:
+          $ref: "#/components/schemas/AssistantLimitState"
     AppBootstrapChatsSection:
       type: object
       required:
@@ -11102,6 +11269,14 @@ components:
         maxEnabledSkills:
           type: integer
           nullable: true
+    AdminPlanAssistantPolicy:
+      type: object
+      required:
+        - maxAssistants
+      properties:
+        maxAssistants:
+          type: integer
+          minimum: 1
     AdminPlanEntitlementToolClasses:
       type: object
       required:
@@ -11458,6 +11633,7 @@ components:
         - metadata
         - presentation
         - entitlements
+        - assistantPolicy
         - contextPolicy
         - retrievalPolicy
         - sandboxPolicy
@@ -11495,6 +11671,8 @@ components:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
         skillPolicy:
           $ref: "#/components/schemas/AdminPlanSkillPolicy"
+        assistantPolicy:
+          $ref: "#/components/schemas/AdminPlanAssistantPolicy"
         contextPolicy:
           $ref: "#/components/schemas/AdminPlanContextPolicy"
         retrievalPolicy:
@@ -11566,6 +11744,7 @@ components:
         - entitlements
         - quotaLimits
         - skillPolicy
+        - assistantPolicy
         - presentation
       properties:
         code:
@@ -11592,6 +11771,8 @@ components:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
         skillPolicy:
           $ref: "#/components/schemas/AdminPlanSkillPolicy"
+        assistantPolicy:
+          $ref: "#/components/schemas/AdminPlanAssistantPolicy"
         presentation:
           $ref: "#/components/schemas/AdminPlanPresentation"
     AdminPlanToolActivation:
@@ -11712,6 +11893,7 @@ components:
         - metadata
         - presentation
         - entitlements
+        - assistantPolicy
         - contextPolicy
         - retrievalPolicy
         - sandboxPolicy
@@ -11745,6 +11927,8 @@ components:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
         skillPolicy:
           $ref: "#/components/schemas/AdminPlanSkillPolicy"
+        assistantPolicy:
+          $ref: "#/components/schemas/AdminPlanAssistantPolicy"
         contextPolicy:
           $ref: "#/components/schemas/AdminPlanContextPolicy"
         retrievalPolicy:

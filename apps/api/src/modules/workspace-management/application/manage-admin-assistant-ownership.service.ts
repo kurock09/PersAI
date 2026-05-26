@@ -190,8 +190,9 @@ export class ManageAdminAssistantOwnershipService {
     if (targetMembership === null) {
       throw new ConflictException("Target owner must be a member of assistant workspace.");
     }
-    const targetExistingAssistant = await this.prisma.assistant.findUnique({
-      where: { userId: params.targetOwnerUserId }
+    const targetExistingAssistant = await this.prisma.assistant.findFirst({
+      where: { userId: params.targetOwnerUserId },
+      orderBy: { createdAt: "asc" }
     });
     if (targetExistingAssistant !== null && targetExistingAssistant.id !== assistant.id) {
       throw new ConflictException(

@@ -12,7 +12,6 @@ import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import type { Assistant } from "../domain/assistant.entity";
 import { MediaPreprocessorService } from "./media/media-preprocessor.service";
 import { NativeMediaTranscriptionService } from "./media/native-media-transcription.service";
@@ -36,6 +35,7 @@ import {
   type ModelCostLedgerSurface
 } from "./record-model-cost-ledger.service";
 import type { RuntimeBillingFacts } from "@persai/runtime-contract";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/webm",
@@ -56,8 +56,7 @@ export class ManageChatMediaService {
   private readonly logger = new Logger(ManageChatMediaService.name);
 
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly chatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
@@ -118,10 +117,8 @@ export class ManageChatMediaService {
       surface: "chat_upload"
     });
 
-    const assistant = await this.assistantRepository.findByUserId(params.userId);
-    if (!assistant) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId: params.userId }))
+      .assistant;
 
     const chat = await this.chatRepository.findChatById(params.chatId);
     if (!chat || chat.assistantId !== assistant.id) {
@@ -240,10 +237,8 @@ export class ManageChatMediaService {
         surface: "chat_upload"
       });
 
-      assistant = await this.assistantRepository.findByUserId(params.userId);
-      if (!assistant) {
-        throw new NotFoundException("Assistant does not exist for this user.");
-      }
+      assistant = (await this.resolveActiveAssistantService.execute({ userId: params.userId }))
+        .assistant;
 
       const activeWebChatsLimit =
         await this.trackWorkspaceQuotaUsageService.resolveActiveWebChatsLimit(assistant);
@@ -426,10 +421,8 @@ export class ManageChatMediaService {
       surface: "voice_transcription"
     });
 
-    const assistant = await this.assistantRepository.findByUserId(params.userId);
-    if (!assistant) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId: params.userId }))
+      .assistant;
 
     let fileBuffer = params.file.buffer;
     let mimeType = validated.effectiveMimeType;

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { PersaiRuntimeTtsProviderId } from "@persai/runtime-contract";
-import { GetAssistantByUserIdService } from "./get-assistant-by-user-id.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 import {
   DEFAULT_TTS_PRIMARY_PROVIDER,
   TTS_PRIMARY_PROVIDER_STORAGE_KEY
@@ -35,14 +35,14 @@ export interface AssistantVoiceSettingsState {
 @Injectable()
 export class ResolveAssistantVoiceSettingsService {
   constructor(
-    private readonly getAssistantByUserIdService: GetAssistantByUserIdService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService
   ) {}
 
   async execute(userId: string): Promise<AssistantVoiceSettingsState> {
-    const assistant = await this.getAssistantByUserIdService.execute(userId);
+    const assistant = await this.resolveActiveAssistantService.executeOptional({ userId });
     if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
 
     const primaryProviderId = await this.loadTtsPrimaryProviderId();

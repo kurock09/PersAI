@@ -35,6 +35,7 @@ import {
   normalizeAssistantVoiceProfile
 } from "./assistant-voice-profile";
 import { normalizeAssistantGender } from "./assistant-gender";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 @Injectable()
 export class PublishAssistantDraftService {
@@ -55,14 +56,12 @@ export class PublishAssistantDraftService {
     private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
     private readonly telegramBotClientService: TelegramBotClientService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly managePersonaArchetypesService: ManagePersonaArchetypesService
+    private readonly managePersonaArchetypesService: ManagePersonaArchetypesService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const assistantGender = normalizeAssistantGender(assistant.draftAssistantGender);
     const draftVoiceProfile = applyAssistantGenderVoiceDefaults({
@@ -100,12 +99,12 @@ export class PublishAssistantDraftService {
       }
     });
 
-    const assistantWithPendingApply = await this.assistantRepository.markApplyPending(
-      userId,
+    const assistantWithPendingApply = await this.assistantRepository.markApplyPendingByAssistantId(
+      assistant.id,
       publishedVersion.id
     );
     if (assistantWithPendingApply === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
 
     await this.materializeAssistantPublishedVersionService.execute(
@@ -121,9 +120,9 @@ export class PublishAssistantDraftService {
       assistant.draftAvatarUrl
     );
 
-    const refreshedAssistant = await this.assistantRepository.findByUserId(userId);
+    const refreshedAssistant = await this.assistantRepository.findById(assistant.id);
     if (refreshedAssistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
 
     const governance = await this.assistantGovernanceRepository.findByAssistantId(

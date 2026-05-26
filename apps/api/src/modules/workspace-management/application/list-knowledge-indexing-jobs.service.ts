@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import type { KnowledgeIndexingJobSourceType, KnowledgeIndexingJobStatus } from "@prisma/client";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import {
@@ -6,6 +6,7 @@ import {
   type KnowledgeIndexingJobState
 } from "./skill-management.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 const KNOWLEDGE_INDEXING_JOB_LIST_LIMIT = 50;
 
@@ -13,7 +14,8 @@ const KNOWLEDGE_INDEXING_JOB_LIST_LIMIT = 50;
 export class ListKnowledgeIndexingJobsService {
   constructor(
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async listForAdmin(
@@ -36,23 +38,17 @@ export class ListKnowledgeIndexingJobsService {
   }
 
   async listForAssistant(userId: string): Promise<KnowledgeIndexingJobState[]> {
-    const assistant = await this.prisma.assistant.findUnique({
-      where: { userId },
-      select: { id: true, workspaceId: true }
-    });
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = await this.resolveActiveAssistantService.execute({ userId });
     const rows = await this.prisma.knowledgeIndexingJob.findMany({
       where: {
         OR: [
-          { assistantId: assistant.id, workspaceId: assistant.workspaceId },
+          { assistantId: assistant.assistantId, workspaceId: assistant.workspaceId },
           {
             sourceType: { in: ["skill_document", "skill_knowledge_card"] },
             skill: {
               assignments: {
                 some: {
-                  assistantId: assistant.id,
+                  assistantId: assistant.assistantId,
                   userId,
                   status: "active"
                 }

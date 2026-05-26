@@ -118,6 +118,9 @@ afterEach(() => {
 function makeAppData(overrides: Partial<AppData>): AppData {
   return {
     assistant: null,
+    assistants: [],
+    activeAssistantId: null,
+    assistantLimit: null,
     assistantStatus: "live",
     assistantResolved: true,
     chats: [],
@@ -131,6 +134,8 @@ function makeAppData(overrides: Partial<AppData>): AppData {
     error: null,
     reload: vi.fn(),
     reloadChats: vi.fn(),
+    createAssistant: vi.fn(),
+    switchAssistant: vi.fn(),
     markChatListActivity: vi.fn(),
     ...overrides
   };
@@ -191,6 +196,36 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     render(<Sidebar data={data} />);
     expect(screen.queryByTestId("chat-list-skeleton")).toBeNull();
     expect(screen.queryByText(/Chat c-1/)).not.toBeNull();
+  });
+
+  it("keeps the sidebar assistant card visually unchanged for single-assistant plans", () => {
+    render(
+      <Sidebar
+        data={makeAppData({
+          assistant: {
+            draft: { displayName: "Solo", avatarUrl: null, avatarEmoji: null }
+          } as AppData["assistant"],
+          assistantLimit: { usedAssistants: 1, maxAssistants: 1 }
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId("assistant-card-premium-strip")).toBeNull();
+  });
+
+  it("shows the quiet premium strip for multi-assistant plans", () => {
+    render(
+      <Sidebar
+        data={makeAppData({
+          assistant: {
+            draft: { displayName: "Alpha", avatarUrl: null, avatarEmoji: null }
+          } as AppData["assistant"],
+          assistantLimit: { usedAssistants: 2, maxAssistants: 3 }
+        })}
+      />
+    );
+
+    expect(screen.getByTestId("assistant-card-premium-strip")).toBeInTheDocument();
   });
 
   it("switches chats with local history so uploads do not wait for app-router navigation", async () => {

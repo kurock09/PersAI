@@ -13,6 +13,7 @@ import {
   type AssistantSkillsState
 } from "./skill-management.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 const DEFAULT_ENABLED_SKILL_LIMIT: number | null = null;
 
@@ -20,7 +21,8 @@ const DEFAULT_ENABLED_SKILL_LIMIT: number | null = null;
 export class ManageAssistantSkillsService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
+    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   parseAssignmentsInput(body: unknown): { skillIds: string[] } {
@@ -191,8 +193,8 @@ export class ManageAssistantSkillsService {
       quotaPlanCode: string | null;
     } | null;
   }> {
-    const assistant = await this.prisma.assistant.findFirst({
-      where: { userId },
+    const assistant = await this.prisma.assistant.findUnique({
+      where: { id: (await this.resolveActiveAssistantService.execute({ userId })).assistantId },
       select: {
         id: true,
         userId: true,
@@ -206,7 +208,7 @@ export class ManageAssistantSkillsService {
       }
     });
     if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
     return assistant;
   }

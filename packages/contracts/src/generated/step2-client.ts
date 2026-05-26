@@ -21,6 +21,7 @@ import type {
   AssistantDraftUpdateRequest,
   AssistantMemoryDoNotRememberRequest,
   AssistantRollbackRequest,
+  AssistantSwitchRequest,
   AssistantTelegramConfigUpdateRequest,
   AssistantTelegramConnectRequest,
   AssistantTelegramRotateRequest,
@@ -76,6 +77,7 @@ import type {
   GetAssistantBillingSubscriptionResponse,
   GetAssistantKnowledgeSourceResponse,
   GetAssistantKnowledgeSourcesResponse,
+  GetAssistantListResponse,
   GetAssistantMemoryItemsResponse,
   GetAssistantPersonaArchetypesResponse,
   GetAssistantPlanVisibilityResponse,
@@ -176,7 +178,7 @@ import type {
 import { customFetch } from "../mutator/custom-fetch";
 
 /**
- * @summary Get current authenticated user assistant lifecycle state
+ * @summary Get current active assistant lifecycle state with workspace assistant metadata
  */
 export type getAssistantResponse200 = {
   data: GetAssistantResponse;
@@ -193,6 +195,11 @@ export type getAssistantResponse404 = {
   status: 404;
 };
 
+export type getAssistantResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
 export type getAssistantResponse500 = {
   data: ErrorEnvelope;
   status: 500;
@@ -204,6 +211,7 @@ export type getAssistantResponseSuccess = getAssistantResponse200 & {
 export type getAssistantResponseError = (
   | getAssistantResponse401
   | getAssistantResponse404
+  | getAssistantResponse409
   | getAssistantResponse500
 ) & {
   headers: Headers;
@@ -223,7 +231,7 @@ export const getAssistant = async (options?: RequestInit): Promise<getAssistantR
 };
 
 /**
- * @summary Create assistant for current authenticated user
+ * @summary Create assistant for current workspace member
  */
 export type postAssistantCreateResponse200 = {
   data: GetAssistantResponse;
@@ -270,6 +278,111 @@ export const postAssistantCreate = async (
   return customFetch<postAssistantCreateResponse>(getPostAssistantCreateUrl(), {
     ...options,
     method: "POST"
+  });
+};
+
+/**
+ * @summary List assistants for the current workspace member
+ */
+export type getAssistantListResponse200 = {
+  data: GetAssistantListResponse;
+  status: 200;
+};
+
+export type getAssistantListResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantListResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantListResponseSuccess = getAssistantListResponse200 & {
+  headers: Headers;
+};
+export type getAssistantListResponseError = (
+  | getAssistantListResponse401
+  | getAssistantListResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantListResponse =
+  | getAssistantListResponseSuccess
+  | getAssistantListResponseError;
+
+export const getGetAssistantListUrl = () => {
+  return `/assistant/list`;
+};
+
+export const getAssistantList = async (
+  options?: RequestInit
+): Promise<getAssistantListResponse> => {
+  return customFetch<getAssistantListResponse>(getGetAssistantListUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Switch the active assistant for the current workspace member
+ */
+export type postAssistantSwitchResponse200 = {
+  data: GetAssistantResponse;
+  status: 200;
+};
+
+export type postAssistantSwitchResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAssistantSwitchResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantSwitchResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantSwitchResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantSwitchResponseSuccess = postAssistantSwitchResponse200 & {
+  headers: Headers;
+};
+export type postAssistantSwitchResponseError = (
+  | postAssistantSwitchResponse400
+  | postAssistantSwitchResponse401
+  | postAssistantSwitchResponse404
+  | postAssistantSwitchResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantSwitchResponse =
+  | postAssistantSwitchResponseSuccess
+  | postAssistantSwitchResponseError;
+
+export const getPostAssistantSwitchUrl = () => {
+  return `/assistant/switch`;
+};
+
+export const postAssistantSwitch = async (
+  assistantSwitchRequest: AssistantSwitchRequest,
+  options?: RequestInit
+): Promise<postAssistantSwitchResponse> => {
+  return customFetch<postAssistantSwitchResponse>(getPostAssistantSwitchUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assistantSwitchRequest)
   });
 };
 

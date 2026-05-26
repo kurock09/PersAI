@@ -112,6 +112,12 @@ async function run(): Promise<void> {
       async deletePrefix(prefix: string) {
         deletedPrefixes.push(prefix);
       }
+    } as never,
+    {
+      async execute({ userId }: { userId: string }) {
+        assert.equal(userId, "user-1");
+        return { assistantId: assistant.id, assistant };
+      }
     } as never
   );
 

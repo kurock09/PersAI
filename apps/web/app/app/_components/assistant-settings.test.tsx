@@ -70,7 +70,8 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => routerMocks
+  useRouter: () => routerMocks,
+  usePathname: () => "/app/chat"
 }));
 
 vi.mock("../assistant-api-client", async () => {
@@ -190,6 +191,9 @@ function makeAssistantState(): AssistantLifecycleState {
 function makeAppData(overrides: Partial<AppData> = {}): AppData {
   return {
     assistant: makeAssistantState(),
+    assistants: [],
+    activeAssistantId: null,
+    assistantLimit: null,
     assistantStatus: "live",
     assistantResolved: true,
     chats: [],
@@ -203,6 +207,8 @@ function makeAppData(overrides: Partial<AppData> = {}): AppData {
     error: null,
     reload: vi.fn(),
     reloadChats: vi.fn(),
+    createAssistant: vi.fn(),
+    switchAssistant: vi.fn(),
     ...overrides
   } as AppData;
 }
@@ -2295,6 +2301,138 @@ describe("AssistantSettings limits", () => {
 
     expect(screen.getByText("Access until May 12")).toBeInTheDocument();
     expect(screen.queryByText("Next billing May 12")).toBeNull();
+  });
+
+  it("does not show assistant switch controls for single-assistant plans", () => {
+    renderSettings(
+      makeAppData({
+        assistants: [
+          {
+            id: "assistant-1",
+            displayName: "Nova",
+            avatarEmoji: null,
+            avatarUrl: null,
+            createdAt: "2026-04-01T10:00:00.000Z",
+            updatedAt: "2026-04-01T10:00:00.000Z"
+          }
+        ],
+        activeAssistantId: "assistant-1",
+        assistantLimit: { usedAssistants: 1, maxAssistants: 1 }
+      }),
+      "character"
+    );
+
+    expect(screen.queryByRole("button", { name: "Switch assistant" })).toBeNull();
+  });
+
+  it("opens the assistant switcher modal and switches assistants", async () => {
+    const switchAssistant = vi.fn().mockResolvedValue(undefined);
+
+    renderSettings(
+      makeAppData({
+        assistants: [
+          {
+            id: "assistant-1",
+            displayName: "Nova",
+            avatarEmoji: null,
+            avatarUrl: null,
+            createdAt: "2026-04-01T10:00:00.000Z",
+            updatedAt: "2026-04-01T10:00:00.000Z"
+          },
+          {
+            id: "assistant-2",
+            displayName: "Luma",
+            avatarEmoji: null,
+            avatarUrl: null,
+            createdAt: "2026-04-02T10:00:00.000Z",
+            updatedAt: "2026-04-02T10:00:00.000Z"
+          }
+        ],
+        activeAssistantId: "assistant-1",
+        assistantLimit: { usedAssistants: 2, maxAssistants: 3 },
+        switchAssistant
+      }),
+      "character"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch assistant" }));
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Luma")).toBeInTheDocument();
+
+    const chooseButtons = screen.getAllByRole("button", { name: "Choose" });
+    fireEvent.click(chooseButtons[0]!);
+
+    await waitFor(() => {
+      expect(switchAssistant).toHaveBeenCalledWith("assistant-2");
+    });
+  });
+
+  it("shows add assistant only when free slots remain", async () => {
+    const createAssistant = vi.fn().mockResolvedValue(undefined);
+
+    renderSettings(
+      makeAppData({
+        assistants: [
+          {
+            id: "assistant-1",
+            displayName: "Nova",
+            avatarEmoji: null,
+            avatarUrl: null,
+            createdAt: "2026-04-01T10:00:00.000Z",
+            updatedAt: "2026-04-01T10:00:00.000Z"
+          }
+        ],
+        activeAssistantId: "assistant-1",
+        assistantLimit: { usedAssistants: 1, maxAssistants: 2 },
+        createAssistant
+      }),
+      "character"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add assistant" }));
+
+    await waitFor(() => {
+      expect(createAssistant).toHaveBeenCalled();
+    });
+  });
+
+  it("shows a calm limit note instead of add assistant when slots are full", () => {
+    renderSettings(
+      makeAppData({
+        assistants: [
+          {
+            id: "assistant-1",
+            displayName: "Nova",
+            avatarEmoji: null,
+            avatarUrl: null,
+            createdAt: "2026-04-01T10:00:00.000Z",
+            updatedAt: "2026-04-01T10:00:00.000Z"
+          },
+          {
+            id: "assistant-2",
+            displayName: "Luma",
+            avatarEmoji: null,
+            avatarUrl: null,
+            createdAt: "2026-04-02T10:00:00.000Z",
+            updatedAt: "2026-04-02T10:00:00.000Z"
+          }
+        ],
+        activeAssistantId: "assistant-1",
+        assistantLimit: { usedAssistants: 2, maxAssistants: 2 }
+      }),
+      "character"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch assistant" }));
+
+    expect(screen.queryByRole("button", { name: "Add assistant" })).toBeNull();
+    expect(
+      screen.getByText(
+        "Assistant limit reached for the current plan. Keep using one of your existing assistants for now."
+      )
+    ).toBeInTheDocument();
   });
 });
 

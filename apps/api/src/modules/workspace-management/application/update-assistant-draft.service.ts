@@ -30,6 +30,7 @@ import {
   type AssistantGender
 } from "./assistant-gender";
 import type { RuntimeAssistantVoiceProfile } from "@persai/runtime-contract";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 export interface UpdateAssistantDraftRequest {
   displayName?: string | null;
@@ -115,7 +116,8 @@ export class UpdateAssistantDraftService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   parseInput(payload: unknown): UpdateAssistantDraftRequest {
@@ -165,10 +167,8 @@ export class UpdateAssistantDraftService {
     userId: string,
     request: UpdateAssistantDraftRequest
   ): Promise<AssistantLifecycleState> {
-    const existingAssistant = await this.assistantRepository.findByUserId(userId);
-    if (existingAssistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const existingAssistant = (await this.resolveActiveAssistantService.execute({ userId }))
+      .assistant;
 
     const nextAssistantGender = normalizeAssistantGender(
       request.assistantGender === undefined
@@ -206,9 +206,12 @@ export class UpdateAssistantDraftService {
       ...(request.archetypeKey !== undefined ? { draftArchetypeKey: request.archetypeKey } : {})
     };
 
-    const updatedAssistant = await this.assistantRepository.updateDraft(userId, nextDraft);
+    const updatedAssistant = await this.assistantRepository.updateDraftByAssistantId(
+      existingAssistant.id,
+      nextDraft
+    );
     if (updatedAssistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
 
     const latestPublishedVersion =

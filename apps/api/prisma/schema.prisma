@@ -581,7 +581,7 @@ model AppUser {
   countryCode                            String?                             @map("country_code") @db.VarChar(2)
   createdAt                              DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                              DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant                              Assistant?
+  assistants                             Assistant[]
   workspaceLinks                         WorkspaceMember[]
   publishedAssistantVersion              AssistantPublishedVersion[]         @relation("AssistantVersionPublisher")
   assistantAuditEvents                   AssistantAuditEvent[]               @relation("AssistantAuditActor")
@@ -697,8 +697,10 @@ model WorkspaceMember {
   workspaceId                  String                        @map("workspace_id") @db.Uuid
   userId                       String                        @map("user_id") @db.Uuid
   role                         WorkspaceRole
+  activeAssistantId            String?                       @map("active_assistant_id") @db.Uuid
   createdAt                    DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
-  assistant                    Assistant?                    @relation("AssistantWorkspaceScope")
+  assistants                   Assistant[]                   @relation("AssistantWorkspaceScope")
+  activeAssistant              Assistant?                    @relation("WorkspaceMemberActiveAssistant", fields: [activeAssistantId, workspaceId], references: [id, workspaceId], onDelete: Restrict, onUpdate: Cascade)
   assistantChats               AssistantChat[]
   assistantMemoryRegistryItems AssistantMemoryRegistryItem[]
   assistantTaskRegistryItems   AssistantTaskRegistryItem[]
@@ -711,12 +713,13 @@ model WorkspaceMember {
   user                         AppUser                       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([workspaceId, userId])
+  @@index([activeAssistantId])
   @@map("workspace_members")
 }
 
 model Assistant {
   id                                   String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId                               String                                @unique @map("user_id") @db.Uuid
+  userId                               String                                @map("user_id") @db.Uuid
   workspaceId                          String                                @map("workspace_id") @db.Uuid
   preferredNotificationChannel         AssistantPreferredNotificationChannel @default(web) @map("preferred_notification_channel")
   /// ADR-074 Slice T2 D-marker. NULL = the user has never explicitly picked a
@@ -793,9 +796,13 @@ model Assistant {
   documentVersions                     AssistantDocumentVersion[]
   documentRenderJobs                   AssistantDocumentRenderJob[]
   notificationIntents                  NotificationIntent[]          @relation("NotificationIntentAssistant")
+  activeForWorkspaceMembers            WorkspaceMember[]             @relation("WorkspaceMemberActiveAssistant")
 
-  @@unique([workspaceId, userId])
   @@unique([id, userId])
+  @@unique([id, workspaceId])
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([workspaceId, userId])
   @@map("assistants")
 }
 

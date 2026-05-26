@@ -16,6 +16,7 @@ import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 @Injectable()
 export class ReapplyAssistantService {
@@ -29,14 +30,12 @@ export class ReapplyAssistantService {
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const latestPublishedVersion =
       await this.assistantPublishedVersionRepository.findLatestByAssistantId(assistant.id);
@@ -56,12 +55,15 @@ export class ReapplyAssistantService {
       }
     });
 
-    await this.assistantRepository.markApplyPending(userId, latestPublishedVersion.id);
+    await this.assistantRepository.markApplyPendingByAssistantId(
+      assistant.id,
+      latestPublishedVersion.id
+    );
     await this.applyAssistantPublishedVersionService.execute(userId, latestPublishedVersion, true);
 
-    const refreshedAssistant = await this.assistantRepository.findByUserId(userId);
+    const refreshedAssistant = await this.assistantRepository.findById(assistant.id);
     if (refreshedAssistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
+      throw new NotFoundException("Assistant does not exist for this workspace.");
     }
 
     const governance = await this.assistantGovernanceRepository.findByAssistantId(

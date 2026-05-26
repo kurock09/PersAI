@@ -4,12 +4,11 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantLifecycleState } from "./assistantLifecycleState";
+import type { AppBootstrapAssistantState } from "./appBootstrapAssistantState";
 import type { BootstrapSectionError } from "./bootstrapSectionError";
 
 export interface AppBootstrapAssistantSection {
   ok: boolean;
-  /** @nullable */
-  data?: AssistantLifecycleState;
+  data?: AppBootstrapAssistantState;
   error?: BootstrapSectionError;
 }

@@ -9,13 +9,12 @@ import {
 } from "../domain/assistant-memory-registry.repository";
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
 import { isGlobalMemoryReadAllowed } from "../domain/memory-source-policy";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 @Injectable()
 export class ForgetAssistantMemoryItemService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MEMORY_REGISTRY_REPOSITORY)
@@ -23,10 +22,7 @@ export class ForgetAssistantMemoryItemService {
   ) {}
 
   async execute(userId: string, itemId: string): Promise<{ forgotten: true }> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const governance = await this.assistantGovernanceRepository.findByAssistantId(assistant.id);
     const envelope = resolveEffectiveMemoryControlFromGovernance(governance);

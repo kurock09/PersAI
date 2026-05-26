@@ -3,17 +3,16 @@ import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { getTasksUserControlFlags } from "../domain/tasks-user-controls";
 import { resolveEffectiveTasksControlFromGovernance } from "../domain/tasks-control-resolve";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ControlInternalBackgroundTaskService } from "./control-internal-background-task.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 @Injectable()
 export class ControlAssistantBackgroundTaskService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     private readonly prisma: WorkspaceManagementPrismaService,
@@ -25,10 +24,7 @@ export class ControlAssistantBackgroundTaskService {
     itemId: string,
     action: "pause" | "resume" | "cancel"
   ): Promise<{ ok: true }> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const governance = await this.assistantGovernanceRepository.findByAssistantId(assistant.id);
     const flags = getTasksUserControlFlags(resolveEffectiveTasksControlFromGovernance(governance));

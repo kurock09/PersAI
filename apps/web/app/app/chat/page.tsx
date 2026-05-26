@@ -15,26 +15,34 @@ import {
   WELCOME_THREAD_KEY
 } from "../assistant-api-client";
 
-const DRAFT_THREAD_STORAGE_KEY = "persai.draft-chat-thread.v1";
+const DRAFT_THREAD_STORAGE_KEY_PREFIX = "persai.draft-chat-thread.v1";
 
-function readDraftThreadKey(): string {
+function draftThreadStorageKey(assistantId?: string | null): string {
+  return assistantId
+    ? `${DRAFT_THREAD_STORAGE_KEY_PREFIX}.${assistantId}`
+    : DRAFT_THREAD_STORAGE_KEY_PREFIX;
+}
+
+function readDraftThreadKey(assistantId?: string | null): string {
   if (typeof window === "undefined") return `web-${Date.now()}`;
   try {
-    const existing = window.sessionStorage.getItem(DRAFT_THREAD_STORAGE_KEY);
+    const storageKey = draftThreadStorageKey(assistantId);
+    const existing = window.sessionStorage.getItem(storageKey);
     if (existing) return existing;
     const next = `web-${Date.now()}`;
-    window.sessionStorage.setItem(DRAFT_THREAD_STORAGE_KEY, next);
+    window.sessionStorage.setItem(storageKey, next);
     return next;
   } catch {
     return `web-${Date.now()}`;
   }
 }
 
-function clearDraftThreadKey(threadKey: string): void {
+function clearDraftThreadKey(threadKey: string, assistantId?: string | null): void {
   if (typeof window === "undefined") return;
   try {
-    if (window.sessionStorage.getItem(DRAFT_THREAD_STORAGE_KEY) === threadKey) {
-      window.sessionStorage.removeItem(DRAFT_THREAD_STORAGE_KEY);
+    const storageKey = draftThreadStorageKey(assistantId);
+    if (window.sessionStorage.getItem(storageKey) === threadKey) {
+      window.sessionStorage.removeItem(storageKey);
     }
   } catch {
     /* ignore */
@@ -151,13 +159,15 @@ function ChatPageInner() {
     readBillingReturnBannerState(searchParams)
   );
 
-  const threadKey = useMemo(() => threadFromUrl ?? readDraftThreadKey(), [threadFromUrl]);
-
   const appData = useAppDataContext();
+  const threadKey = useMemo(
+    () => threadFromUrl ?? readDraftThreadKey(appData.activeAssistantId),
+    [appData.activeAssistantId, threadFromUrl]
+  );
   const canSeeShadowRoutingBadge =
     appData.isAdmin ||
     (typeof userId === "string" && userId.length > 0 && appData.assistant?.userId === userId);
-  const chat = useChat(threadKey);
+  const chat = useChat(threadKey, { assistantId: appData.activeAssistantId });
   const locale = useLocale();
 
   // Match by `threadKey` (not `threadFromUrl`) so that a chat row created by the
@@ -232,10 +242,10 @@ function ChatPageInner() {
     if (chat.chatId && chat.chatId !== prevChatIdRef.current && !threadFromUrl) {
       prevChatIdRef.current = chat.chatId;
       appData.reloadChats();
-      clearDraftThreadKey(threadKey);
+      clearDraftThreadKey(threadKey, appData.activeAssistantId);
       router.replace(`/app/chat?thread=${threadKey}` as Route);
     }
-  }, [chat.chatId, threadFromUrl, threadKey, router]); // eslint-disable-line
+  }, [appData.activeAssistantId, chat.chatId, threadFromUrl, threadKey, router]); // eslint-disable-line
 
   // Welcome chat: trigger only when setup/recreate explicitly requests it.
   const welcomeTriggeredRef = useRef(false);

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
@@ -10,6 +10,7 @@ import { AppendAssistantAuditEventService } from "./append-assistant-audit-event
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 @Injectable()
 export class ResetAssistantService {
@@ -24,14 +25,12 @@ export class ResetAssistantService {
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly knowledgeObjectStorage: PersaiKnowledgeObjectStorageService
+    private readonly knowledgeObjectStorage: PersaiKnowledgeObjectStorageService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
   ) {}
 
   async execute(userId: string): Promise<void> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
     const aid = assistant.id;
     const releasedBytes = await this.attachmentRepository.sumSizeBytesByAssistantId(aid);

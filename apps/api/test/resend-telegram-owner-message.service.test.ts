@@ -3,7 +3,6 @@ import { BadRequestException } from "@nestjs/common";
 import { ResendTelegramOwnerMessageService } from "../src/modules/workspace-management/application/resend-telegram-owner-message.service";
 import type { AssistantChannelSurfaceBindingRepository } from "../src/modules/workspace-management/domain/assistant-channel-surface-binding.repository";
 import type { AssistantGovernanceRepository } from "../src/modules/workspace-management/domain/assistant-governance.repository";
-import type { AssistantRepository } from "../src/modules/workspace-management/domain/assistant.repository";
 import type { ResolveTelegramIntegrationStateService } from "../src/modules/workspace-management/application/resolve-telegram-integration-state.service";
 import type { PlatformRuntimeProviderSecretStoreService } from "../src/modules/workspace-management/application/platform-runtime-provider-secret-store.service";
 import type { AppendAssistantAuditEventService } from "../src/modules/workspace-management/application/append-assistant-audit-event.service";
@@ -11,6 +10,14 @@ import type { AppendAssistantAuditEventService } from "../src/modules/workspace-
 async function run(): Promise<void> {
   const auditEvents: Array<Record<string, unknown>> = [];
   const fetchCalls: Array<{ url: string; body: unknown }> = [];
+  const activeAssistantResolver = {
+    execute: async ({ userId }: { userId: string }) => {
+      if (userId !== "user-1") {
+        throw new Error("assistant not found");
+      }
+      return { assistantId: assistant.id, assistant };
+    }
+  };
 
   const assistant = {
     id: "assistant-1",
@@ -111,9 +118,6 @@ async function run(): Promise<void> {
   try {
     const service = new ResendTelegramOwnerMessageService(
       {
-        findByUserId: async (userId: string) => (userId === "user-1" ? assistant : null)
-      } as Pick<AssistantRepository, "findByUserId"> as AssistantRepository,
-      {
         findByAssistantId: async () => null,
         createBaseline: async () => ({
           id: "gov-1",
@@ -181,7 +185,8 @@ async function run(): Promise<void> {
         workspace: {
           findUnique: async () => ({ locale: "ru" })
         }
-      } as never
+      } as never,
+      activeAssistantResolver as never
     );
 
     const result = await service.execute("user-1");
@@ -195,9 +200,6 @@ async function run(): Promise<void> {
     assert.equal(auditEvents.length, 1);
 
     const failingService = new ResendTelegramOwnerMessageService(
-      {
-        findByUserId: async () => assistant
-      } as Pick<AssistantRepository, "findByUserId"> as AssistantRepository,
       {
         findByAssistantId: async () => null,
         createBaseline: async () => ({
@@ -263,7 +265,8 @@ async function run(): Promise<void> {
         workspace: {
           findUnique: async () => ({ locale: "ru" })
         }
-      } as never
+      } as never,
+      activeAssistantResolver as never
     );
 
     await assert.rejects(
