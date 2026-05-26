@@ -2734,11 +2734,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(workingFilesCompleted.assistantText, "runtime reply");
   assert.match(
     providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
-    /## Working Files/
+    /## File history \(newest first\)/
   );
   assert.match(
     providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
-    /current image #1, current attachment #1: image "working-image\.png"/
+    /\| user \| current image #1 \| working-image\.png \|/
   );
   assert.doesNotMatch(
     providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
@@ -7204,7 +7204,7 @@ export async function runRecentPdfsHintTests(): Promise<void> {
     assert.ok(workingFiles, "working files section must still be present");
     assert.match(
       workingFiles!,
-      /Document-tool priority:/,
+      /Document-tool priority \(PDF only\):/,
       "working files must carry the document priority note"
     );
     assert.match(
