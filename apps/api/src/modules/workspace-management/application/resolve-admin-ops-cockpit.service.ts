@@ -101,13 +101,23 @@ export class ResolveAdminOpsCockpitService {
     const preflight = await this.assistantRuntimePreflightService.execute(runtimeTier ?? undefined);
 
     if (assistant === null) {
-      const incidentSignals: AdminOpsCockpitState["incidentSignals"] = [
-        {
-          code: "assistant_absent",
-          severity: "elevated",
-          message: "No assistant exists for this operator account."
-        }
-      ];
+      const incidentSignals: AdminOpsCockpitState["incidentSignals"] =
+        assistantOptions.length > 0
+          ? [
+              {
+                code: "assistant_selection_required",
+                severity: "elevated",
+                message:
+                  "Multiple assistants exist for this workspace. Select an explicit assistant or set an active assistant first."
+              }
+            ]
+          : [
+              {
+                code: "assistant_absent",
+                severity: "elevated",
+                message: "No assistant exists for this operator account."
+              }
+            ];
       if (!preflight.live || !preflight.ready) {
         incidentSignals.push({
           code: "runtime_preflight_unhealthy",
@@ -341,19 +351,30 @@ export class ResolveAdminOpsCockpitService {
     }
 
     const requestedAssistantId = selectedAssistantId?.trim() || null;
-    const selected =
-      (requestedAssistantId !== null
-        ? assistants.find((candidate) => candidate.id === requestedAssistantId)
-        : null) ??
-      (membership.activeAssistantId !== null
-        ? assistants.find((candidate) => candidate.id === membership.activeAssistantId)
-        : null) ??
-      assistants[0] ??
-      null;
-
-    if (requestedAssistantId !== null && selected?.id !== requestedAssistantId) {
-      throw new NotFoundException("Assistant does not exist for this target user's workspace.");
+    if (requestedAssistantId !== null) {
+      const explicitAssistant =
+        assistants.find((candidate) => candidate.id === requestedAssistantId) ?? null;
+      if (explicitAssistant === null) {
+        throw new NotFoundException("Assistant does not exist for this target user's workspace.");
+      }
+      return {
+        assistant: explicitAssistant,
+        assistantOptions: assistants.map((candidate) => ({
+          id: candidate.id,
+          draftDisplayName: candidate.draftDisplayName,
+          applyStatus: candidate.applyStatus,
+          latestPublishedVersion: candidate.publishedVersions[0]?.version ?? null,
+          lastPublishedAt: candidate.publishedVersions[0]?.createdAt.toISOString() ?? null,
+          isActive: candidate.id === explicitAssistant.id
+        }))
+      };
     }
+
+    const activeAssistant =
+      membership.activeAssistantId !== null
+        ? (assistants.find((candidate) => candidate.id === membership.activeAssistantId) ?? null)
+        : null;
+    const selected = activeAssistant ?? (assistants.length === 1 ? (assistants[0] ?? null) : null);
 
     const selectedId = selected?.id ?? null;
     return {

@@ -2,6 +2,106 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-27 — Auth incident hotfix — Clerk profile lookup fallback for existing users
+
+### Scope
+
+Bounded live-incident auth fix after ADR-101 Slice 8:
+
+- keep Clerk JWT verification strict
+- stop intermittent `users.getUser(sub)` failures from turning already-known users into 401s
+- allow fallback only for existing PersAI `AppUser` rows keyed by `clerkUserId`
+- do not create new users or relax unknown-subject rejection
+
+### What changed
+
+`ClerkAuthService` now owns one narrow fallback path after successful `verifyToken`: if the token contains a valid `sub` but Clerk profile lookup fails, the service checks `app_users.clerk_user_id = sub`. When a matching `AppUser` already exists, auth resolution returns that persisted email/displayName and logs an explicit warning that Clerk profile lookup failed and DB fallback was used.
+
+If no matching `AppUser` exists, auth remains strict and still throws `UnauthorizedException`. The fallback therefore protects existing users from intermittent Clerk profile outages without creating accounts from partial identity data or silently accepting unknown Clerk subjects.
+
+### Files / modules
+
+- `apps/api/src/modules/identity-access/infrastructure/identity/clerk-auth.service.ts`
+- `apps/api/test/clerk-auth.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused checks passed:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/clerk-auth.service.test.ts`
+2. `corepack pnpm --filter @persai/api exec tsx test/step2-auth-foundation.e2e.test.ts`
+3. `corepack pnpm --filter @persai/api run typecheck`
+4. `corepack pnpm --filter @persai/web run typecheck`
+5. `corepack pnpm -r --if-present run lint`
+6. `corepack pnpm run format:check`
+7. `git diff --check`
+
+### Risks / residuals
+
+- Existing users continue through auth during Clerk profile-read outages, but brand-new Clerk subjects without a persisted `AppUser` still fail until Clerk profile lookup works again; that is intentional to avoid creating users without a trusted email.
+- The fallback reuses the persisted PersAI email/displayName, so profile changes made in Clerk during the outage window are not reflected until `users.getUser(sub)` succeeds again.
+
+### Next recommended step
+
+Deploy this API hotfix to the affected environment and verify the live bootstrap/chat fan-out no longer splits into `assistant = null` plus loaded chats during intermittent Clerk `users.getUser` failures.
+
+## 2026-05-27 — ADR-101 legacy cleanup follow-through — remove user-only repository mutations
+
+### Scope
+
+Bounded ADR-101 cleanup after Slice 8:
+
+- delete the remaining user-only `AssistantRepository` mutation signatures and Prisma bridges
+- expand the ADR-101 source guard so those method names cannot return in active source
+- remove two risky multi-assistant tails that still silently chose the first assistant
+- keep API contracts unchanged and preserve unrelated workspace changes
+
+### What changed
+
+`AssistantRepository` and `PrismaAssistantRepository` no longer expose the old user-only methods at all: `findByUserId`, `updateDraft(userId)`, and `markApply*(userId)` are deleted. Active lifecycle flows were already on assistant-id writes, so the cleanup was limited to the repository surface plus test doubles. `apps/api/test/adr101-find-by-userid-guard.test.ts` now fails if active source reintroduces any of those user-only method names.
+
+`BillingLifecycleProducerService` no longer invents assistant notification context with `assistant.findFirst({ workspaceId, userId })`. It now prefers the member's active assistant, falls back only when the workspace/user pair has exactly one assistant, and otherwise sends the workspace-level billing email without ambiguous assistant-scoped push delivery.
+
+`ResolveAdminOpsCockpitService` no longer falls back to the first assistant for multi-assistant users when there is no explicit `assistantId` and no active assistant pointer. In that ambiguous state the cockpit now returns the assistant selector options honestly, leaves assistant-owned blocks empty, and reports that assistant selection is required; single-assistant fallback still works when the workspace truly has exactly one assistant.
+
+### Files / modules
+
+- `apps/api/src/modules/workspace-management/domain/assistant.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant.repository.ts`
+- `apps/api/src/modules/workspace-management/application/billing-lifecycle-producer.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-admin-ops-cockpit.service.ts`
+- `apps/api/test/adr101-find-by-userid-guard.test.ts`
+- `apps/api/test/billing-lifecycle-producer.service.test.ts`
+- `apps/api/test/resolve-admin-ops-cockpit.service.test.ts`
+- `apps/api/test/reset-assistant.service.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/101-multi-assistant-workspace-model.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused checks required for this slice:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-producer.service.test.ts`
+2. `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts`
+3. `corepack pnpm --filter @persai/api exec tsx test/adr101-find-by-userid-guard.test.ts`
+4. `corepack pnpm --filter @persai/api run typecheck`
+5. `corepack pnpm -r --if-present run lint`
+6. `corepack pnpm run format:check`
+7. `git diff --check`
+
+### Risks / residuals
+
+- Billing lifecycle email delivery remains workspace-level even when assistant-scoped push is skipped for ambiguous multi-assistant users; that is intentional to avoid arbitrary assistant attribution.
+- Admin Ops cockpit now reports an honest selection-required state for ambiguous multi-assistant users; any UI follow-up beyond the existing selector remains outside this bounded cleanup.
+
+### Next recommended step
+
+Run the remaining broad ADR-101 acceptance search/verification set when ready, then audit any non-repository historical references/docs/tests that still mention the removed `findByUserId` bridge.
+
 ## 2026-05-26 — ADR-101 Slice 8 — active assistant plan/billing cleanup
 
 ### Scope

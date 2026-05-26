@@ -210,6 +210,26 @@ async function runSingleAssistantFallbackSetsActivePointer(): Promise<void> {
   ]);
 }
 
+async function runInvalidActivePointerSelfHealsForSingleAssistant(): Promise<void> {
+  const { service, workspaceMemberUpdates } = makeService({
+    membership: {
+      id: "member-1",
+      workspaceId: "ws-1",
+      activeAssistantId: "deleted-assistant"
+    },
+    assistants: [{ id: "assistant-1", userId: "user-1", workspaceId: "ws-1" }]
+  });
+
+  const result = await service.execute({ userId: "user-1" });
+  assert.equal(result.assistantId, "assistant-1");
+  assert.deepEqual(workspaceMemberUpdates, [
+    {
+      where: { id: "member-1" },
+      data: { activeAssistantId: "assistant-1" }
+    }
+  ]);
+}
+
 async function runMultipleAssistantsWithoutPointerFailsHonestly(): Promise<void> {
   const { service } = makeService({
     membership: {
@@ -259,6 +279,10 @@ async function main(): Promise<void> {
     [
       "single-assistant fallback sets and uses the active pointer",
       runSingleAssistantFallbackSetsActivePointer
+    ],
+    [
+      "invalid active pointer self-heals for a single-assistant workspace",
+      runInvalidActivePointerSelfHealsForSingleAssistant
     ],
     [
       "multiple assistants without active pointer fails honestly",

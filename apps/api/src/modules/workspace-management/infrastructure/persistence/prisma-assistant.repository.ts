@@ -20,20 +20,6 @@ export class PrismaAssistantRepository implements AssistantRepository {
     return assistant ? this.mapToDomain(assistant) : null;
   }
 
-  async findByUserId(userId: string): Promise<Assistant | null> {
-    const assistants = await this.prisma.assistant.findMany({
-      where: { userId },
-      orderBy: { createdAt: "asc" },
-      take: 2
-    });
-
-    if (assistants.length > 1) {
-      throw new Error("Assistant lookup by userId is ambiguous for multi-assistant users.");
-    }
-    const assistant = assistants[0] ?? null;
-    return assistant ? this.mapToDomain(assistant) : null;
-  }
-
   async create(userId: string, workspaceId: string): Promise<Assistant> {
     const assistant = await this.prisma.assistant.create({
       data: {
@@ -43,14 +29,6 @@ export class PrismaAssistantRepository implements AssistantRepository {
     });
 
     return this.mapToDomain(assistant);
-  }
-
-  async updateDraft(userId: string, input: UpdateAssistantDraftInput): Promise<Assistant | null> {
-    const assistantId = await this.findSingleAssistantIdByUserId(userId);
-    if (assistantId === null) {
-      return null;
-    }
-    return this.updateDraftByAssistantId(assistantId, input);
   }
 
   async updateDraftByAssistantId(
@@ -86,14 +64,6 @@ export class PrismaAssistantRepository implements AssistantRepository {
     return this.mapToDomain(assistant);
   }
 
-  async markApplyPending(userId: string, targetVersionId: string): Promise<Assistant | null> {
-    const assistantId = await this.findSingleAssistantIdByUserId(userId);
-    if (assistantId === null) {
-      return null;
-    }
-    return this.markApplyPendingByAssistantId(assistantId, targetVersionId);
-  }
-
   async markApplyPendingByAssistantId(
     assistantId: string,
     targetVersionId: string
@@ -113,14 +83,6 @@ export class PrismaAssistantRepository implements AssistantRepository {
     });
 
     return this.mapToDomain(assistant);
-  }
-
-  async markApplyInProgress(userId: string, targetVersionId: string): Promise<Assistant | null> {
-    const assistantId = await this.findSingleAssistantIdByUserId(userId);
-    if (assistantId === null) {
-      return null;
-    }
-    return this.markApplyInProgressByAssistantId(assistantId, targetVersionId);
   }
 
   async markApplyInProgressByAssistantId(
@@ -143,14 +105,6 @@ export class PrismaAssistantRepository implements AssistantRepository {
     return this.mapToDomain(assistant);
   }
 
-  async markApplySucceeded(userId: string, appliedVersionId: string): Promise<Assistant | null> {
-    const assistantId = await this.findSingleAssistantIdByUserId(userId);
-    if (assistantId === null) {
-      return null;
-    }
-    return this.markApplySucceededByAssistantId(assistantId, appliedVersionId);
-  }
-
   async markApplySucceededByAssistantId(
     assistantId: string,
     appliedVersionId: string
@@ -167,19 +121,6 @@ export class PrismaAssistantRepository implements AssistantRepository {
     });
 
     return this.mapToDomain(assistant);
-  }
-
-  async markApplyFailed(
-    userId: string,
-    targetVersionId: string,
-    errorCode: string,
-    errorMessage: string
-  ): Promise<Assistant | null> {
-    const assistantId = await this.findSingleAssistantIdByUserId(userId);
-    if (assistantId === null) {
-      return null;
-    }
-    return this.markApplyFailedByAssistantId(assistantId, targetVersionId, errorCode, errorMessage);
   }
 
   async markApplyFailedByAssistantId(
@@ -202,24 +143,6 @@ export class PrismaAssistantRepository implements AssistantRepository {
     return this.mapToDomain(assistant);
   }
 
-  async markApplyDegraded(
-    userId: string,
-    targetVersionId: string,
-    errorCode: string,
-    errorMessage: string
-  ): Promise<Assistant | null> {
-    const assistantId = await this.findSingleAssistantIdByUserId(userId);
-    if (assistantId === null) {
-      return null;
-    }
-    return this.markApplyDegradedByAssistantId(
-      assistantId,
-      targetVersionId,
-      errorCode,
-      errorMessage
-    );
-  }
-
   async markApplyDegradedByAssistantId(
     assistantId: string,
     targetVersionId: string,
@@ -238,19 +161,6 @@ export class PrismaAssistantRepository implements AssistantRepository {
     });
 
     return this.mapToDomain(assistant);
-  }
-
-  private async findSingleAssistantIdByUserId(userId: string): Promise<string | null> {
-    const assistants = await this.prisma.assistant.findMany({
-      where: { userId },
-      orderBy: { createdAt: "asc" },
-      select: { id: true },
-      take: 2
-    });
-    if (assistants.length > 1) {
-      throw new Error("Assistant mutation by userId is ambiguous for multi-assistant users.");
-    }
-    return assistants[0]?.id ?? null;
   }
 
   private mapToDomain(assistant: PrismaAssistant): Assistant {

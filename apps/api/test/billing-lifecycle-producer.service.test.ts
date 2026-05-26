@@ -56,11 +56,16 @@ function makeService(opts: {
   policyEnabled?: boolean;
   assistantPushEnabled?: boolean;
   rulesOverride?: Record<string, { enabled: boolean; offsetDays: number | null }>;
+  activeAssistantId?: string | null;
+  assistants?: Array<{ id: string }>;
   createdIntents: IntentInput[];
   createdAdminSystemEvents?: AdminSystemEventInput[];
   existingDedupeKeys?: Set<string>;
 }) {
   const { event, policyEnabled = true, assistantPushEnabled = false, createdIntents } = opts;
+  const assistants = opts.assistants ?? [{ id: "assistant-1" }];
+  const activeAssistantId =
+    opts.activeAssistantId === undefined ? (assistants[0]?.id ?? null) : opts.activeAssistantId;
 
   const prisma = {
     workspaceSubscriptionLifecycleEvent: {
@@ -106,9 +111,33 @@ function makeService(opts: {
         return { displayName: "Pro" };
       }
     },
-    assistant: {
+    workspaceMember: {
       async findFirst() {
-        return { id: "assistant-1" };
+        return event === null ? null : { activeAssistantId };
+      }
+    },
+    assistant: {
+      async findFirst(args: { where: { id: string; workspaceId: string; userId: string } }) {
+        return (
+          assistants.find(
+            (assistant) =>
+              assistant.id === args.where.id &&
+              args.where.workspaceId === event?.workspaceId &&
+              args.where.userId === event?.userId
+          ) ?? null
+        );
+      },
+      async findMany(args: {
+        where: { workspaceId: string; userId: string };
+        orderBy: { createdAt: "asc" };
+        select: { id: true };
+        take: number;
+      }) {
+        assert.equal(args.where.workspaceId, event?.workspaceId);
+        assert.equal(args.where.userId, event?.userId);
+        assert.deepEqual(args.orderBy, { createdAt: "asc" });
+        assert.equal(args.take, 2);
+        return assistants.slice(0, args.take);
       }
     }
   };
@@ -340,6 +369,50 @@ async function run(): Promise<void> {
     assert.equal(push["dedupeKey"], "payment_recovered:ws-push:ev-push-1:push");
     assert.equal(push["respectQuietHours"], false);
     console.log("✓ assistantPushEnabled=true → email + push intents with matching traceId");
+  }
+
+  // 7.5 multi-assistant without active assistant skips ambiguous push context
+  {
+    const intents: IntentInput[] = [];
+    const svc = makeService({
+      event: makeEvent({
+        eventCode: "payment_recovered",
+        id: "ev-multi-1",
+        workspaceId: "ws-multi"
+      }),
+      assistantPushEnabled: true,
+      activeAssistantId: null,
+      assistants: [{ id: "assistant-1" }, { id: "assistant-2" }],
+      createdIntents: intents
+    });
+    await svc.emitForLifecycleEventId("ev-multi-1");
+
+    assert.equal(intents.length, 1, "email still sends but ambiguous push is skipped");
+    assert.equal(intents[0]!["class"], "transactional");
+    assert.equal(intents[0]!["assistantId"], null);
+    console.log("✓ multi-assistant ambiguity skips assistant-scoped billing push");
+  }
+
+  // 7.6 active assistant wins for multi-assistant push context
+  {
+    const intents: IntentInput[] = [];
+    const svc = makeService({
+      event: makeEvent({
+        eventCode: "payment_recovered",
+        id: "ev-multi-active-1",
+        workspaceId: "ws-multi-active"
+      }),
+      assistantPushEnabled: true,
+      activeAssistantId: "assistant-2",
+      assistants: [{ id: "assistant-1" }, { id: "assistant-2" }],
+      createdIntents: intents
+    });
+    await svc.emitForLifecycleEventId("ev-multi-active-1");
+
+    assert.equal(intents.length, 2);
+    assert.equal(intents[0]!["assistantId"], "assistant-2");
+    assert.equal(intents[1]!["assistantId"], "assistant-2");
+    console.log("✓ active assistant is used for multi-assistant billing push context");
   }
 
   // 8. policy disabled → no intents

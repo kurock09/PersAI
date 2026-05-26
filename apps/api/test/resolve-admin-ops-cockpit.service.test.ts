@@ -755,6 +755,99 @@ async function run(): Promise<void> {
     assert.equal(fallbackResult.modelCostLedger?.periodSource, "subscription_period");
     assert.equal(fallbackResult.modelCostLedger?.startedAt, "2026-05-01T00:00:00.000Z");
     assert.equal(fallbackResult.modelCostLedger?.endedAt, "2026-06-01T00:00:00.000Z");
+
+    const ambiguousPrisma = {
+      workspaceMember: {
+        async findFirst(args?: { where?: { userId?: string } }) {
+          assert.equal(args?.where?.userId, "user-1");
+          return {
+            workspaceId: "ws-1",
+            activeAssistantId: null
+          };
+        }
+      },
+      assistant: {
+        async findMany(args?: {
+          where?: { workspaceId?: string; userId?: string };
+          orderBy?: { createdAt: "asc" };
+        }) {
+          assert.equal(args?.where?.workspaceId, "ws-1");
+          assert.equal(args?.where?.userId, "user-1");
+          assert.deepEqual(args?.orderBy, { createdAt: "asc" });
+          return [
+            {
+              id: "assistant-1",
+              userId: "user-1",
+              workspaceId: "ws-1",
+              draftDisplayName: "Ops Helper",
+              draftInstructions: null,
+              draftTraits: null,
+              draftAvatarEmoji: null,
+              draftAvatarUrl: null,
+              draftAssistantGender: null,
+              draftVoiceProfile: null,
+              draftArchetypeKey: null,
+              draftUpdatedAt: null,
+              applyStatus: "succeeded",
+              applyTargetVersionId: null,
+              applyAppliedVersionId: null,
+              applyRequestedAt: null,
+              applyStartedAt: null,
+              applyFinishedAt: null,
+              applyErrorCode: null,
+              applyErrorMessage: null,
+              configDirtyAt: null,
+              createdAt: new Date("2026-04-19T07:00:00.000Z"),
+              updatedAt: new Date("2026-04-19T07:00:00.000Z"),
+              publishedVersions: []
+            },
+            {
+              id: "assistant-2",
+              userId: "user-1",
+              workspaceId: "ws-1",
+              draftDisplayName: "Second Ops Helper",
+              draftInstructions: null,
+              draftTraits: null,
+              draftAvatarEmoji: null,
+              draftAvatarUrl: null,
+              draftAssistantGender: null,
+              draftVoiceProfile: null,
+              draftArchetypeKey: null,
+              draftUpdatedAt: null,
+              applyStatus: "not_requested",
+              applyTargetVersionId: null,
+              applyAppliedVersionId: null,
+              applyRequestedAt: null,
+              applyStartedAt: null,
+              applyFinishedAt: null,
+              applyErrorCode: null,
+              applyErrorMessage: null,
+              configDirtyAt: null,
+              createdAt: new Date("2026-04-20T07:00:00.000Z"),
+              updatedAt: new Date("2026-04-20T07:00:00.000Z"),
+              publishedVersions: []
+            }
+          ];
+        }
+      }
+    } as unknown as WorkspaceManagementPrismaService;
+
+    const ambiguousService = createService(ambiguousPrisma);
+    const ambiguousResult = await ambiguousService.execute("admin-1", "user-1");
+
+    assert.equal(ambiguousResult.assistant.exists, false);
+    assert.equal(ambiguousResult.assistant.assistantId, null);
+    assert.equal(ambiguousResult.assistant.assistants.length, 2);
+    assert.equal(ambiguousResult.assistant.assistants[0]?.id, "assistant-1");
+    assert.equal(ambiguousResult.assistant.assistants[1]?.id, "assistant-2");
+    assert.equal(ambiguousResult.billingSupport, null);
+    assert.equal(ambiguousResult.chatStats, null);
+    assert.equal(ambiguousResult.sandbox, null);
+    assert.equal(ambiguousResult.incidentSignals[0]?.code, "assistant_selection_required");
+    assert.match(
+      ambiguousResult.incidentSignals[0]?.message ?? "",
+      /select an explicit assistant|active assistant/i
+    );
   } finally {
     process.env.APP_ENV = prevEnv.APP_ENV;
     process.env.DATABASE_URL = prevEnv.DATABASE_URL;

@@ -25,10 +25,19 @@ async function run(): Promise<void> {
                   publishedVersions: [
                     { version: 2, createdAt: new Date("2026-05-03T01:00:00.000Z") }
                   ]
+                },
+                {
+                  id: "assistant-2",
+                  draftDisplayName: "Lyra",
+                  draftAssistantGender: "female",
+                  applyStatus: "succeeded",
+                  publishedVersions: [
+                    { version: 3, createdAt: new Date("2026-05-04T01:00:00.000Z") }
+                  ]
                 }
               ],
               _count: {
-                assistants: 1
+                assistants: 2
               },
               workspaceLinks: [
                 {
@@ -102,7 +111,8 @@ async function run(): Promise<void> {
 
   assert.deepEqual(authCalls, ["admin-1"]);
   assert.equal(result.total, 1);
-  assert.equal(result.users[0]?.assistantCount, 1);
+  assert.equal(result.users[0]?.assistant, null);
+  assert.equal(result.users[0]?.assistantCount, 2);
   assert.equal(result.users[0]?.billing.planCode, "pro");
   assert.equal(result.users[0]?.billing.usageRisk, "elevated");
   assert.equal(result.users[0]?.periodEconomics?.paidTotalMinor, 99000);

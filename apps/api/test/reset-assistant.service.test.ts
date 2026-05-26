@@ -76,9 +76,7 @@ async function run(): Promise<void> {
   };
 
   const service = new ResetAssistantService(
-    {
-      findByUserId: async (userId: string) => (userId === "user-1" ? assistant : null)
-    } as never,
+    {} as never,
     {
       sumSizeBytesByAssistantId: async (assistantId: string) =>
         assistantId === "assistant-1" ? BigInt(5) : BigInt(0)

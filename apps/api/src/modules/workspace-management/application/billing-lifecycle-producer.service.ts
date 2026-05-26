@@ -336,10 +336,47 @@ export class BillingLifecycleProducerService {
     workspaceId: string,
     userId: string | null
   ): Promise<{ id: string } | null> {
-    return this.prisma.assistant.findFirst({
-      where: { workspaceId, ...(userId !== null ? { userId } : {}) },
-      select: { id: true }
+    if (userId === null) {
+      return null;
+    }
+
+    const membership = await this.prisma.workspaceMember.findFirst({
+      where: {
+        workspaceId,
+        userId
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        activeAssistantId: true
+      }
     });
+
+    if (membership?.activeAssistantId) {
+      const activeAssistant = await this.prisma.assistant.findFirst({
+        where: {
+          id: membership.activeAssistantId,
+          workspaceId,
+          userId
+        },
+        select: { id: true }
+      });
+      if (activeAssistant !== null) {
+        return activeAssistant;
+      }
+    }
+
+    const assistants = await this.prisma.assistant.findMany({
+      where: { workspaceId, userId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+      take: 2
+    });
+
+    if (assistants.length !== 1) {
+      return null;
+    }
+
+    return assistants[0] ?? null;
   }
 
   private async resolvePlanDisplayName(planCode: string | null): Promise<string> {

@@ -160,7 +160,6 @@ export class ResolveActiveAssistantService {
       if (activeAssistant !== null) {
         return activeAssistant.id;
       }
-      throw new ConflictException("Stored active assistant is invalid for this workspace.");
     }
 
     const workspaceAssistants = await this.prisma.assistant.findMany({

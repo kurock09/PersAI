@@ -943,7 +943,7 @@ function UsersDirectory({
                         <span
                           className={cn(
                             "h-1.5 w-1.5 shrink-0 rounded-full",
-                            u.assistant ? "bg-success" : "bg-text-subtle/40"
+                            u.assistantCount > 0 ? "bg-success" : "bg-text-subtle/40"
                           )}
                           aria-hidden
                         />
@@ -1570,14 +1570,14 @@ export default function AdminOpsPage() {
                   }
                 />
               </div>
-              <div className="flex min-w-0 items-center gap-2 rounded border border-border/45 bg-surface-raised px-2 py-1 text-[10px]">
-                <span className="uppercase tracking-wide text-text-subtle">Assistant</span>
+              <div className="flex min-w-0 items-center gap-2 text-[10px]">
+                <span className="shrink-0 uppercase tracking-wide text-text-subtle">Assistant</span>
                 {cockpit.assistant.assistants.length > 1 ? (
                   <select
                     value={cockpit.assistant.assistantId ?? ""}
                     onChange={(event) => onSelectAssistant(event.target.value)}
                     disabled={refreshing}
-                    className="h-7 max-w-[220px] rounded border border-border bg-bg px-2 text-[10px] text-text outline-none transition-colors focus:border-accent/40 disabled:opacity-50"
+                    className="h-7 w-[420px] max-w-[55vw] rounded border border-border bg-bg px-2 text-[10px] text-text outline-none transition-colors focus:border-accent/40 disabled:opacity-50"
                   >
                     {cockpit.assistant.assistants.map((assistant) => (
                       <option key={assistant.id} value={assistant.id}>

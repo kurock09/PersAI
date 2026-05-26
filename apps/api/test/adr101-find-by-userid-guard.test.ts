@@ -4,10 +4,15 @@ import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const sourceRoot = fileURLToPath(new URL("../src", import.meta.url));
-const allowed = new Set([
-  "modules/workspace-management/domain/assistant.repository.ts",
-  "modules/workspace-management/infrastructure/persistence/prisma-assistant.repository.ts"
-]);
+const forbiddenPatterns: Array<{ label: string; pattern: RegExp }> = [
+  { label: "findByUserId", pattern: /\bfindByUserId\b/ },
+  { label: "updateDraft(userId)", pattern: /\bupdateDraft\s*\(\s*userId\b/ },
+  { label: "markApplyPending(userId)", pattern: /\bmarkApplyPending\s*\(\s*userId\b/ },
+  { label: "markApplyInProgress(userId)", pattern: /\bmarkApplyInProgress\s*\(\s*userId\b/ },
+  { label: "markApplySucceeded(userId)", pattern: /\bmarkApplySucceeded\s*\(\s*userId\b/ },
+  { label: "markApplyFailed(userId)", pattern: /\bmarkApplyFailed\s*\(\s*userId\b/ },
+  { label: "markApplyDegraded(userId)", pattern: /\bmarkApplyDegraded\s*\(\s*userId\b/ }
+];
 
 function listTypeScriptFiles(directory: string): string[] {
   const entries = readdirSync(directory);
@@ -21,13 +26,16 @@ function listTypeScriptFiles(directory: string): string[] {
   });
 }
 
-const offenders = listTypeScriptFiles(sourceRoot)
-  .filter((path) => readFileSync(path, "utf8").includes("findByUserId"))
-  .map((path) => relative(sourceRoot, path).split(sep).join("/"))
-  .filter((path) => !allowed.has(path));
+const offenders = listTypeScriptFiles(sourceRoot).flatMap((path) => {
+  const content = readFileSync(path, "utf8");
+  const relativePath = relative(sourceRoot, path).split(sep).join("/");
+  return forbiddenPatterns
+    .filter(({ pattern }) => pattern.test(content))
+    .map(({ label }) => `${relativePath} :: ${label}`);
+});
 
 assert.deepEqual(
   offenders,
   [],
-  "ADR-101 Slice 8 forbids active source callers of AssistantRepository.findByUserId"
+  "ADR-101 cleanup forbids returning user-only assistant repository methods or callers in active source."
 );

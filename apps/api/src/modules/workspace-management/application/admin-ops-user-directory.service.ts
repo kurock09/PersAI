@@ -180,7 +180,7 @@ export class AdminOpsUserDirectoryService {
     await Promise.all(
       users.map(async (user) => {
         const workspaceId = user.workspaceLinks[0]?.workspaceId ?? null;
-        if (workspaceId === null || user.assistants.length !== 1) {
+        if (workspaceId === null || user.assistants.length === 0) {
           return;
         }
         const assistantRow = user.assistants[0];
