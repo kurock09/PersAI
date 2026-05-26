@@ -593,7 +593,8 @@ async function run(): Promise<void> {
                 displayName: "report.txt",
                 mimeType: "text/plain",
                 sizeBytes: BigInt(64),
-                logicalSizeBytes: BigInt(64)
+                logicalSizeBytes: BigInt(64),
+                createdAt: new Date("2026-05-26T13:00:00.000Z")
               }
             ],
             fileRefs: []
@@ -612,6 +613,7 @@ async function run(): Promise<void> {
     completedJob.files[0]?.fileRef.objectKey,
     "assistant-media/assistant-files/assistant-file-1/report.txt"
   );
+  assert.equal(completedJob.files[0]?.fileRef.createdAt, "2026-05-26T13:00:00.000Z");
 
   const durablePolicy = {
     ...DEFAULT_RUNTIME_SANDBOX_POLICY,
