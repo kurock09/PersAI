@@ -149,24 +149,27 @@ async function runSuccessCase(): Promise<void> {
   const auditEvents: unknown[] = [];
 
   const assistantRepository = {
-    markApplyInProgress: async () => assistant,
-    markApplySucceeded: async (userId: string, appliedVersionId: string) => {
-      markApplySucceededArgs = [userId, appliedVersionId];
+    markApplyInProgressByAssistantId: async () => assistant,
+    markApplySucceededByAssistantId: async (assistantId: string, appliedVersionId: string) => {
+      markApplySucceededArgs = [assistantId, appliedVersionId];
       return assistant;
     },
-    markApplyDegraded: async (
-      userId: string,
+    markApplyDegradedByAssistantId: async (
+      assistantId: string,
       targetVersionId: string,
       errorCode: string,
       errorMessage: string
     ) => {
-      markApplyDegradedArgs = [userId, targetVersionId, errorCode, errorMessage];
+      markApplyDegradedArgs = [assistantId, targetVersionId, errorCode, errorMessage];
       return assistant;
     },
-    markApplyFailed: async () => assistant
+    markApplyFailedByAssistantId: async () => assistant
   } as Pick<
     AssistantRepository,
-    "markApplyInProgress" | "markApplySucceeded" | "markApplyDegraded" | "markApplyFailed"
+    | "markApplyInProgressByAssistantId"
+    | "markApplySucceededByAssistantId"
+    | "markApplyDegradedByAssistantId"
+    | "markApplyFailedByAssistantId"
   > as AssistantRepository;
 
   const materializedSpecRepository = {
@@ -224,7 +227,7 @@ async function runSuccessCase(): Promise<void> {
   assert.deepEqual(warmedProviderGatewayInput, {
     materializedSpec
   });
-  assert.deepEqual(markApplySucceededArgs, ["user-1", "version-1"]);
+  assert.deepEqual(markApplySucceededArgs, ["assistant-1", "version-1"]);
   assert.equal(markApplyDegradedArgs, null);
   assert.equal(auditEvents.length, 2);
   assert.deepEqual((auditEvents[1] as { details: unknown }).details, {
@@ -242,24 +245,27 @@ async function runDegradedWarmCase(): Promise<void> {
   const auditEvents: unknown[] = [];
 
   const assistantRepository = {
-    markApplyInProgress: async () => assistant,
-    markApplySucceeded: async () => {
+    markApplyInProgressByAssistantId: async () => assistant,
+    markApplySucceededByAssistantId: async () => {
       markApplySucceededCalled = true;
       return assistant;
     },
-    markApplyDegraded: async (
-      userId: string,
+    markApplyDegradedByAssistantId: async (
+      assistantId: string,
       targetVersionId: string,
       errorCode: string,
       errorMessage: string
     ) => {
-      markApplyDegradedArgs = [userId, targetVersionId, errorCode, errorMessage];
+      markApplyDegradedArgs = [assistantId, targetVersionId, errorCode, errorMessage];
       return assistant;
     },
-    markApplyFailed: async () => assistant
+    markApplyFailedByAssistantId: async () => assistant
   } as Pick<
     AssistantRepository,
-    "markApplyInProgress" | "markApplySucceeded" | "markApplyDegraded" | "markApplyFailed"
+    | "markApplyInProgressByAssistantId"
+    | "markApplySucceededByAssistantId"
+    | "markApplyDegradedByAssistantId"
+    | "markApplyFailedByAssistantId"
   > as AssistantRepository;
 
   const materializedSpecRepository = {
@@ -308,7 +314,7 @@ async function runDegradedWarmCase(): Promise<void> {
 
   assert.equal(markApplySucceededCalled, false);
   assert.deepEqual(markApplyDegradedArgs, [
-    "user-1",
+    "assistant-1",
     "version-1",
     "runtime_degraded",
     "Native runtime bundle sync failed with HTTP 503."
@@ -326,24 +332,27 @@ async function runProviderGatewayDegradedCase(): Promise<void> {
   const auditEvents: unknown[] = [];
 
   const assistantRepository = {
-    markApplyInProgress: async () => assistant,
-    markApplySucceeded: async () => {
+    markApplyInProgressByAssistantId: async () => assistant,
+    markApplySucceededByAssistantId: async () => {
       markApplySucceededCalled = true;
       return assistant;
     },
-    markApplyDegraded: async (
-      userId: string,
+    markApplyDegradedByAssistantId: async (
+      assistantId: string,
       targetVersionId: string,
       errorCode: string,
       errorMessage: string
     ) => {
-      markApplyDegradedArgs = [userId, targetVersionId, errorCode, errorMessage];
+      markApplyDegradedArgs = [assistantId, targetVersionId, errorCode, errorMessage];
       return assistant;
     },
-    markApplyFailed: async () => assistant
+    markApplyFailedByAssistantId: async () => assistant
   } as Pick<
     AssistantRepository,
-    "markApplyInProgress" | "markApplySucceeded" | "markApplyDegraded" | "markApplyFailed"
+    | "markApplyInProgressByAssistantId"
+    | "markApplySucceededByAssistantId"
+    | "markApplyDegradedByAssistantId"
+    | "markApplyFailedByAssistantId"
   > as AssistantRepository;
 
   const materializedSpecRepository = {
@@ -392,7 +401,7 @@ async function runProviderGatewayDegradedCase(): Promise<void> {
 
   assert.equal(markApplySucceededCalled, false);
   assert.deepEqual(markApplyDegradedArgs, [
-    "user-1",
+    "assistant-1",
     "version-1",
     "runtime_degraded",
     "Provider gateway warmup failed with HTTP 503."
