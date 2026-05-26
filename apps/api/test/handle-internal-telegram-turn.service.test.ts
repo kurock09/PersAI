@@ -14,13 +14,6 @@ const noopRecordToolPathLedgerFromToolInvocationsService = {
   }
 } as never;
 
-// ADR-097 Slice 5: AssistantDocumentJobReadService mock for the telegram turn handler
-const noopAssistantDocumentJobReadService = {
-  async listRecentAssistantPdfsForTurn() {
-    return [];
-  }
-} as never;
-
 type ClaimState = {
   telegramLastHandledUpdateId?: number;
   telegramLastHandledUpdateAt?: string;
@@ -273,8 +266,7 @@ async function run(): Promise<void> {
       }
     } as never,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService,
-    noopAssistantDocumentJobReadService
+    noopRecordToolPathLedgerFromToolInvocationsService
   );
   const first = concurrentService.execute({
     assistantId: "assistant-1",
@@ -371,8 +363,7 @@ async function run(): Promise<void> {
       }
     } as never,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService,
-    noopAssistantDocumentJobReadService
+    noopRecordToolPathLedgerFromToolInvocationsService
   );
 
   await assert.rejects(() =>
@@ -471,8 +462,7 @@ async function run(): Promise<void> {
       }
     } as never,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService,
-    noopAssistantDocumentJobReadService
+    noopRecordToolPathLedgerFromToolInvocationsService
   );
 
   const rewrittenMedia = await mediaRewriteService.execute({
@@ -551,7 +541,6 @@ async function run(): Promise<void> {
     } as never,
     noopRecordModelCostLedgerService,
     noopRecordToolPathLedgerFromToolInvocationsService,
-    noopAssistantDocumentJobReadService,
     { maybeCreateFollowUp: async () => null } as never
   );
 
@@ -678,7 +667,6 @@ async function run(): Promise<void> {
     } as never,
     noopRecordModelCostLedgerService,
     noopRecordToolPathLedgerFromToolInvocationsService,
-    noopAssistantDocumentJobReadService,
     undefined,
     undefined,
     undefined,
@@ -792,8 +780,7 @@ async function run(): Promise<void> {
       }
     } as never,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService,
-    noopAssistantDocumentJobReadService
+    noopRecordToolPathLedgerFromToolInvocationsService
   );
 
   const recoveredAfterAssistantSaveFailure = await persistenceFailureService.execute({
@@ -912,7 +899,6 @@ async function run(): Promise<void> {
       }
     } as never,
     noopRecordToolPathLedgerFromToolInvocationsService,
-    noopAssistantDocumentJobReadService,
     undefined,
     undefined,
     undefined
@@ -1006,8 +992,7 @@ async function run(): Promise<void> {
       }
     } as never,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService,
-    noopAssistantDocumentJobReadService
+    noopRecordToolPathLedgerFromToolInvocationsService
   );
 
   const recoveredAfterCompletionFailure = await completionFailureService.execute({
@@ -1095,7 +1080,6 @@ async function run(): Promise<void> {
     } as never,
     noopRecordModelCostLedgerService,
     noopRecordToolPathLedgerFromToolInvocationsService,
-    noopAssistantDocumentJobReadService,
     undefined,
     undefined,
     {

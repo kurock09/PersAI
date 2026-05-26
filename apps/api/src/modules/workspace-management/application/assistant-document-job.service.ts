@@ -38,6 +38,7 @@ export type AssistantDocumentSourcePayload = {
   outline?: unknown;
   metadata?: Record<string, unknown> | null;
   transferMode?: "verbatim" | "transform" | null;
+  contentIntent?: "preserve_content" | "rewrite_content" | null;
   editOperation?: "style_only" | "content_patch" | "section_rewrite" | null;
   targetSectionIds?: string[] | null;
 };
@@ -775,6 +776,10 @@ export class AssistantDocumentJobService {
         row.transferMode === "verbatim" || row.transferMode === "transform"
           ? row.transferMode
           : null,
+      contentIntent:
+        row.contentIntent === "preserve_content" || row.contentIntent === "rewrite_content"
+          ? row.contentIntent
+          : null,
       editOperation:
         row.editOperation === "style_only" ||
         row.editOperation === "content_patch" ||
@@ -851,6 +856,7 @@ export class AssistantDocumentJobService {
       targetSlideCount: revision.targetSlideCount ?? current.targetSlideCount ?? null,
       outline: revision.outline ?? current.outline,
       transferMode: revision.transferMode ?? current.transferMode ?? null,
+      contentIntent: revision.contentIntent ?? null,
       editOperation: revision.editOperation ?? current.editOperation ?? null,
       targetSectionIds: revision.targetSectionIds ?? current.targetSectionIds ?? null,
       metadata: {

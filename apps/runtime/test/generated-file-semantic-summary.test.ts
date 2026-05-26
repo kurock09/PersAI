@@ -41,4 +41,14 @@ describe("buildGeneratedFileSemanticSummary", () => {
       "make it better"
     );
   });
+
+  test("allows short edit prompts when weak fallback is enabled", () => {
+    assert.equal(
+      buildGeneratedFileSemanticSummary({
+        requestText: "поправь макияж",
+        allowWeakRequestFallback: true
+      }),
+      "поправь макияж"
+    );
+  });
 });

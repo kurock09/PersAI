@@ -49,6 +49,7 @@ type DocumentJobRequestPayload = {
     outline?: unknown;
     metadata?: Record<string, unknown> | null;
     transferMode?: "verbatim" | "transform" | null;
+    contentIntent?: "preserve_content" | "rewrite_content" | null;
     editOperation?: "style_only" | "content_patch" | "section_rewrite" | null;
     targetSectionIds?: string[] | null;
   };
@@ -786,6 +787,11 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         transferMode:
           sourceJson.transferMode === "verbatim" || sourceJson.transferMode === "transform"
             ? sourceJson.transferMode
+            : null,
+        contentIntent:
+          sourceJson.contentIntent === "preserve_content" ||
+          sourceJson.contentIntent === "rewrite_content"
+            ? sourceJson.contentIntent
             : null,
         editOperation:
           sourceJson.editOperation === "style_only" ||

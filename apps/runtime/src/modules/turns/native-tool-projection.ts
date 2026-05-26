@@ -866,7 +866,8 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
         "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to modify an existing PDF (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. Follow the Working Files document-role guidance: prefer CURRENT_SOURCE for a newly attached source file the user wants turned into a PDF, and use LAST_DELIVERED_RESULT only when the user explicitly wants to modify an already generated PDF. revise_document with no docId or fileRef auto-resolves to the latest matching PDF in the current chat. Use fileRef when the PDF you want to revise was produced by the assistant in this or any earlier chat (its AssistantFile id is visible via files.search, the Working Files developer block, or files.read results). Use doc_id for the current chat's most recent PDF when you have the exact id. Do not pass both fileRef and doc_id.",
         "Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
-        "When the user has attached a source file (txt, md, csv, json, html, xml, pdf, docx) and asks to rebuild, convert, restyle, translate, or summarize it, the backend worker will AUTOMATICALLY inline that file's text content into document generation; you do not need to pre-read it. Call create_pdf_document with transferMode=verbatim when the user wants the source text copied without rewriting, and transferMode=transform when the worker should rewrite/summarize/restructure the source.",
+        "When the user has attached a source file (txt, md, csv, json, html, xml, pdf, docx) and asks to rebuild, convert, restyle, translate, or summarize it, the backend worker will AUTOMATICALLY inline that file's text content into document generation; you do not need to pre-read it. Call create_pdf_document with transferMode=verbatim when the user wants the source text copied without rewriting. Call transferMode=transform when the user wants restyling or layout/color changes — the worker keeps the full extracted source text and applies presentation styling; it does NOT summarize or drop sections.",
+        "You SHOULD also set contentIntent explicitly. Use contentIntent=preserve_content when the user wants the original document content preserved and only the formatting, visual style, layout, or output format should change. Use contentIntent=rewrite_content only when the user explicitly wants the document text/content rewritten. If contentIntent is omitted, the runtime defaults to preserving content.",
         "When the user attaches PDF or DOCX source material without referencing an existing PersAI document, treat it as source input for create_pdf_document, not revise_document.",
         "Never invent placeholder, generic-template, or test/demo content when the user has attached a source file. The worker auto-inlines supported text/PDF/DOCX content; unsupported binaries surface a structured note instead.",
         "For school, educational, explainer, and ordinary client decks, do not choose imagePolicy=text_only or visualDensity=text_heavy unless the user explicitly asks for text-only slides or unusually dense slide copy. Prefer balanced density and ordinary visual policies; do not force pictographic/business icon decks unless the user asked for that exact style.",
@@ -909,7 +910,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         docId: {
           type: "string",
           description:
-            "Existing document id for revise_document (current chat) and export_or_redeliver. Use file_ref instead of doc_id when the PDF was produced in a different chat."
+            "Existing document id for revise_document (current chat) and export_or_redeliver. Use fileRef instead of docId when the PDF was produced in a different chat."
         },
         fileRef: {
           type: "string",
@@ -958,13 +959,19 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           type: "string",
           enum: ["verbatim", "transform"],
           description:
-            "Create-only transfer mode. Use verbatim for word-for-word source transfer; use transform when the worker should rewrite or restructure attached source text."
+            "Create-only transfer mode. Use verbatim for word-for-word source transfer; use transform for restyling or presentation changes while keeping the full source content."
+        },
+        contentIntent: {
+          type: "string",
+          enum: ["preserve_content", "rewrite_content"],
+          description:
+            "Explicit content intent. Use preserve_content when the original document wording/content must stay intact and only styling/format/output should change. Use rewrite_content only when the document text may be rewritten. If omitted, runtime defaults to preserve_content."
         },
         editOperation: {
           type: "string",
           enum: ["style_only", "content_patch", "section_rewrite"],
           description:
-            "Revise-only explicit edit mode. You MUST set style_only when the user asks to restyle, reformat, or beautify the document without changing the wording (including requests in any language). Use content_patch for targeted section edits; use section_rewrite when one or more sections need a fuller rewrite. Omitting this on a large structured PDF defaults to content_patch and may rewrite text."
+            "Revise-only explicit edit mode. You MUST set style_only when the user asks to restyle, reformat, or beautify the document without changing the wording (including requests in any language). Use content_patch for targeted section edits; use section_rewrite when one or more sections need a fuller rewrite. Omitting this on a large structured PDF defaults to style_only unless contentIntent explicitly allows rewrite."
         },
         targetSectionIds: {
           type: "array",

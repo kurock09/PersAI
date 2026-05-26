@@ -24,6 +24,7 @@ import {
   buildStructureFromExtractedText,
   buildStructureFromRenderedHtml,
   createDefaultStyleProfile,
+  createTransformStyleProfile,
   extractStructurePlainText,
   LARGE_DOCUMENT_STRUCTURE_THRESHOLD_BYTES,
   mergeStyleProfile,
@@ -52,6 +53,8 @@ type ChunkedOutlineSection = {
 type ChunkedOutline = {
   sections: ChunkedOutlineSection[];
 };
+
+type DocumentContentIntent = "preserve_content" | "rewrite_content";
 
 class DocumentPdfOutlineInvalidError extends Error {
   constructor(message: string) {
@@ -280,10 +283,10 @@ export class RuntimeDocumentProviderAdapterService {
     }
     const filename = this.resolveRequestedFilename(input.request, input.request.job.outputFormat);
 
-    // ADR-097 Slice 2 — patch-revise path: when descriptorMode is "revise_document"
-    // and previousVersionRenderedHtml is present, run the SEARCH/REPLACE patch loop
-    // instead of full HTML re-generation. This is its own third path, separate from
-    // single-shot and chunked. One LLM call. One PDFMonkey render. No retry loop.
+    // Revise path: when descriptorMode is "revise_document" and previousVersionRenderedHtml
+    // is present, branch into either structured revise (large/structured versions) or
+    // patch-revise (fast_small / compact HTML) instead of full create-time regeneration.
+    // Both are bounded worker paths with one PDFMonkey render and no create-path retry loop.
     const descriptorMode = input.request.directToolExecution.descriptorMode;
     const previousVersionRenderedHtml =
       typeof input.request.previousVersionRenderedHtml === "string" &&
@@ -316,26 +319,54 @@ export class RuntimeDocumentProviderAdapterService {
       (sum, entry) => sum + (entry.text === null ? 0 : Buffer.byteLength(entry.text, "utf8")),
       0
     );
-    const hasSourceAttachments = sourceFiles.length > 0 && sourceFiles.some((f) => f.text !== null);
+    const totalSourceRoutingBytes = sourceFiles.reduce(
+      (sum, entry) =>
+        sum +
+        (entry.text === null
+          ? Math.max(0, entry.sizeBytes)
+          : Buffer.byteLength(entry.text, "utf8")),
+      0
+    );
+    const hasSourceAttachments = sourceFiles.length > 0;
+    const hasExtractableSourceText = sourceFiles.some(
+      (file) => typeof file.text === "string" && file.text.trim().length > 0
+    );
+    const contentIntent = this.resolveDocumentContentIntent(input.request);
     const useDirectSourceTransfer =
       descriptorMode === "create_pdf_document" &&
-      hasSourceAttachments &&
+      hasExtractableSourceText &&
       this.shouldUseDirectSourceTransfer(input.request);
-    // ONE deterministic routing decision before any LLM call. Route to chunked
-    // only when: (a) there are source attachments AND (b) total inlined source
-    // text exceeds the threshold. No keyword routing. No prompt-text heuristics.
+    const createEditStrategy = resolveEditStrategyForCreate({
+      totalInlinedSourceBytes
+    });
+    const useStructuredSourcePreservingCreate =
+      descriptorMode === "create_pdf_document" &&
+      hasExtractableSourceText &&
+      createEditStrategy === "structured_large" &&
+      contentIntent !== "rewrite_content" &&
+      !useDirectSourceTransfer;
+    // Chunked LLM section generation rewrites content and must NOT run when we
+    // already extracted the full source text from attachments. Use chunked only
+    // for large attachment metadata without usable extracted text (rare).
     let useChunked =
       !useDirectSourceTransfer &&
+      !useStructuredSourcePreservingCreate &&
       hasSourceAttachments &&
-      totalInlinedSourceBytes > LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES;
+      totalSourceRoutingBytes > LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES &&
+      (!hasExtractableSourceText || contentIntent === "rewrite_content");
     if (useDirectSourceTransfer) {
       this.logger.log(
         `[document-pdf-route-direct-source-transfer] jobId=${input.request.job.id} totalInlinedSourceBytes=${String(totalInlinedSourceBytes)} explicitVerbatimRequest=true`
       );
     }
+    if (useStructuredSourcePreservingCreate) {
+      this.logger.log(
+        `[document-pdf-route-structured-source-create] jobId=${input.request.job.id} totalInlinedSourceBytes=${String(totalInlinedSourceBytes)} transferMode=${String(input.request.directToolExecution.request.transferMode ?? "unset")} contentIntent=${String(contentIntent ?? "unset")}`
+      );
+    }
     if (useChunked) {
       this.logger.log(
-        `[document-pdf-route-chunked] jobId=${input.request.job.id} totalInlinedSourceBytes=${String(totalInlinedSourceBytes)} threshold=${String(LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES)}`
+        `[document-pdf-route-chunked] jobId=${input.request.job.id} totalSourceRoutingBytes=${String(totalSourceRoutingBytes)} threshold=${String(LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES)} contentIntent=${String(contentIntent ?? "unset")}`
       );
     }
     const timeoutMs = useChunked
@@ -364,12 +395,8 @@ export class RuntimeDocumentProviderAdapterService {
     let capturedStyleProfileJson: PersaiDocumentStyleProfile | null = null;
     let capturedEditStrategy: PersaiDocumentEditStrategy | null = null;
 
-    const createEditStrategy = resolveEditStrategyForCreate({
-      totalInlinedSourceBytes
-    });
-
     this.logger.log(
-      `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} templateId=${templateId} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)} useChunked=${String(useChunked)} useDirectSourceTransfer=${String(useDirectSourceTransfer)} editStrategy=${createEditStrategy}`
+      `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} templateId=${templateId} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)} useChunked=${String(useChunked)} useDirectSourceTransfer=${String(useDirectSourceTransfer)} useStructuredSourcePreservingCreate=${String(useStructuredSourcePreservingCreate)} contentIntent=${String(contentIntent ?? "unset")} editStrategy=${createEditStrategy}`
     );
     for (let attempt = 1; attempt <= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS; attempt += 1) {
       let htmlContent: string;
@@ -387,6 +414,19 @@ export class RuntimeDocumentProviderAdapterService {
         }
         this.logger.log(
           `[document-pdf-direct-source-transfer-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(directTransferResult.bodyTextLength)} structured=${String(directTransferResult.structure !== null)}`
+        );
+      } else if (useStructuredSourcePreservingCreate) {
+        const structuredCreateResult = this.buildStructuredSourcePreservingCreateHtml({
+          sourceFiles,
+          request: input.request
+        });
+        htmlContent = structuredCreateResult.htmlContent;
+        capturedRenderedHtml = htmlContent;
+        capturedStructureJson = structuredCreateResult.structure;
+        capturedStyleProfileJson = structuredCreateResult.style;
+        capturedEditStrategy = createEditStrategy;
+        this.logger.log(
+          `[document-pdf-structured-source-create-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(structuredCreateResult.bodyTextLength)} sourceTextChars=${String(structuredCreateResult.sourceTextChars)}`
         );
       } else if (useChunked) {
         // Chunked path: outline → style anchor → sequential section generation → assembly.
@@ -757,7 +797,7 @@ export class RuntimeDocumentProviderAdapterService {
       this.logger.warn(
         `[document-pdf-patch-revise-llm-failed] jobId=${input.request.job.id} message=${message}`
       );
-      return this.buildPatchReviseFailResult(input, {
+      return this.buildDocumentReviseFailResult(input, {
         errorCode: "document_pdf_patch_revise_invalid_envelope",
         retryable: true,
         message: `Patch-revise LLM call failed: ${message}`
@@ -777,7 +817,7 @@ export class RuntimeDocumentProviderAdapterService {
       this.logger.warn(
         `[document-pdf-patch-revise-envelope-invalid] jobId=${input.request.job.id} message=${message}`
       );
-      return this.buildPatchReviseFailResult(input, {
+      return this.buildDocumentReviseFailResult(input, {
         errorCode: "document_pdf_patch_revise_invalid_envelope",
         retryable: false,
         message: `Patch envelope invalid: ${message}`
@@ -796,7 +836,7 @@ export class RuntimeDocumentProviderAdapterService {
       const replaceBlock = patch.replace;
 
       if (searchBlock.length === 0) {
-        return this.buildPatchReviseFailResult(input, {
+        return this.buildDocumentReviseFailResult(input, {
           errorCode: "document_pdf_patch_revise_invalid_envelope",
           retryable: false,
           message: `Patch #${String(i)}: search block is empty.`
@@ -809,7 +849,7 @@ export class RuntimeDocumentProviderAdapterService {
         this.logger.warn(
           `[document-pdf-patch-revise-not-found] jobId=${input.request.job.id} patchIndex=${String(i)} excerpt=${JSON.stringify(excerpt)}`
         );
-        return this.buildPatchReviseFailResult(input, {
+        return this.buildDocumentReviseFailResult(input, {
           errorCode: "document_pdf_patch_revise_search_not_found",
           retryable: false,
           message: new DocumentPdfPatchReviseSearchNotFoundError(i, excerpt).message
@@ -821,7 +861,7 @@ export class RuntimeDocumentProviderAdapterService {
         this.logger.warn(
           `[document-pdf-patch-revise-ambiguous] jobId=${input.request.job.id} patchIndex=${String(i)} excerpt=${JSON.stringify(excerpt)}`
         );
-        return this.buildPatchReviseFailResult(input, {
+        return this.buildDocumentReviseFailResult(input, {
           errorCode: "document_pdf_patch_revise_search_ambiguous",
           retryable: false,
           message: new DocumentPdfPatchReviseSearchAmbiguousError(i, excerpt).message
@@ -843,7 +883,7 @@ export class RuntimeDocumentProviderAdapterService {
       this.logger.warn(
         `[document-pdf-patch-revise-repair-failed] jobId=${input.request.job.id} message=${message}`
       );
-      return this.buildPatchReviseFailResult(input, {
+      return this.buildDocumentReviseFailResult(input, {
         errorCode: "document_pdf_patch_revise_repair_failed",
         retryable: false,
         message: `HTML repair failed after patch application: ${message}`
@@ -912,7 +952,7 @@ export class RuntimeDocumentProviderAdapterService {
       this.logger.warn(
         `[document-pdf-patch-revise-validation-failed] jobId=${input.request.job.id} code=${validationFailure.code} message=${validationFailure.message}`
       );
-      return this.buildPatchReviseFailResult(input, {
+      return this.buildDocumentReviseFailResult(input, {
         errorCode: validationFailure.code,
         retryable: false,
         message: validationFailure.message
@@ -977,7 +1017,11 @@ export class RuntimeDocumentProviderAdapterService {
   private resolveDocumentEditOperation(
     request: RuntimeDocumentJobRunRequest
   ): PersaiDocumentInternalOperation {
+    const contentIntent = this.resolveDocumentContentIntent(request);
     const explicit = request.directToolExecution.request.editOperation;
+    if (contentIntent === "preserve_content") {
+      return "style_only";
+    }
     if (
       explicit === "style_only" ||
       explicit === "content_patch" ||
@@ -997,7 +1041,25 @@ export class RuntimeDocumentProviderAdapterService {
     if (metadata?.preserveText === true || metadata?.styleOnly === true) {
       return "style_only";
     }
-    return "content_patch";
+    if (contentIntent === "rewrite_content") {
+      return "content_patch";
+    }
+    return "style_only";
+  }
+
+  private resolveDocumentContentIntent(
+    request: RuntimeDocumentJobRunRequest
+  ): DocumentContentIntent | null {
+    const explicit = request.directToolExecution.request.contentIntent;
+    if (explicit === "preserve_content" || explicit === "rewrite_content") {
+      return explicit;
+    }
+    const metadata = request.directToolExecution.request.metadata;
+    const metadataIntent = metadata?.contentIntent;
+    if (metadataIntent === "preserve_content" || metadataIntent === "rewrite_content") {
+      return metadataIntent;
+    }
+    return null;
   }
 
   private resolveStructuredReviseState(input: {
@@ -1085,7 +1147,7 @@ export class RuntimeDocumentProviderAdapterService {
       this.logger.warn(
         `[document-pdf-structured-revise-llm-failed] jobId=${input.request.job.id} operation=${operation} message=${message}`
       );
-      return this.buildPatchReviseFailResult(input, {
+      return this.buildDocumentReviseFailResult(input, {
         errorCode: "document_structured_revise_invalid_envelope",
         retryable: true,
         message: `Structured revise LLM call failed: ${message}`
@@ -1095,7 +1157,7 @@ export class RuntimeDocumentProviderAdapterService {
     if (operation === "style_only") {
       const afterTextFingerprint = extractStructurePlainText(nextStructure);
       if (afterTextFingerprint !== beforeTextFingerprint) {
-        return this.buildPatchReviseFailResult(input, {
+        return this.buildDocumentReviseFailResult(input, {
           errorCode: "document_structured_style_only_text_changed",
           retryable: false,
           message: "Style-only revise changed document text content."
@@ -1109,7 +1171,7 @@ export class RuntimeDocumentProviderAdapterService {
       repaired = this.repairHtmlDocument(rendered);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return this.buildPatchReviseFailResult(input, {
+      return this.buildDocumentReviseFailResult(input, {
         errorCode: "document_structured_revise_repair_failed",
         retryable: false,
         message: `Structured revise HTML repair failed: ${message}`
@@ -1134,7 +1196,7 @@ export class RuntimeDocumentProviderAdapterService {
     );
 
     if (!providerOutcome.ok) {
-      return this.buildPatchReviseFailResult(input, {
+      return this.buildDocumentReviseFailResult(input, {
         errorCode: providerOutcome.code ?? "provider_document_generation_failed",
         retryable: providerOutcome.retryable,
         message: providerOutcome.message
@@ -1148,7 +1210,7 @@ export class RuntimeDocumentProviderAdapterService {
       attempt: 1
     });
     if (validationFailure !== null) {
-      return this.buildPatchReviseFailResult(input, {
+      return this.buildDocumentReviseFailResult(input, {
         errorCode: validationFailure.code,
         retryable: false,
         message: validationFailure.message
@@ -1393,7 +1455,7 @@ export class RuntimeDocumentProviderAdapterService {
     };
   }
 
-  private buildPatchReviseFailResult(
+  private buildDocumentReviseFailResult(
     input: {
       request: RuntimeDocumentJobRunRequest;
       filename: string;
@@ -3140,6 +3202,49 @@ export class RuntimeDocumentProviderAdapterService {
 
   private shouldUseDirectSourceTransfer(request: RuntimeDocumentJobRunRequest): boolean {
     return request.directToolExecution.request.transferMode === "verbatim";
+  }
+
+  private buildStructuredSourcePreservingCreateHtml(input: {
+    sourceFiles: DocumentSourceFilePayload[];
+    request: RuntimeDocumentJobRunRequest;
+  }): {
+    htmlContent: string;
+    bodyTextLength: number;
+    sourceTextChars: number;
+    structure: PersaiDocumentStructureSnapshot;
+    style: PersaiDocumentStyleProfile;
+  } {
+    const extractedText = input.sourceFiles
+      .map((sourceFile) => sourceFile.text ?? "")
+      .filter((text) => text.trim().length > 0)
+      .join("\n\n")
+      .trim();
+    if (extractedText.length === 0) {
+      throw new Error(
+        "Structured source-preserving create requested but no extracted source text is available."
+      );
+    }
+    const structure = buildStructureFromExtractedText(extractedText);
+    const style =
+      input.request.directToolExecution.request.transferMode === "transform"
+        ? createTransformStyleProfile()
+        : createDefaultStyleProfile();
+    const rawHtml = renderStructureToHtml(structure, style);
+    const repaired = this.repairHtmlDocument(rawHtml);
+    if (repaired.bodyTextLength < DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH) {
+      throw new Error(
+        `Structured source-preserving create produced too little body text (length=${String(
+          repaired.bodyTextLength
+        )}, minimum=${String(DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH)}).`
+      );
+    }
+    return {
+      htmlContent: repaired.html,
+      bodyTextLength: repaired.bodyTextLength,
+      sourceTextChars: extractedText.length,
+      structure,
+      style
+    };
   }
 
   private buildDirectSourceTransferHtml(input: {

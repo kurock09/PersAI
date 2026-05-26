@@ -613,7 +613,8 @@ export class RuntimeImageGenerateToolService {
     const filename = this.resolveFilename(input.filenameHint, input.index, extension);
     const semanticSummary = buildGeneratedFileSemanticSummary({
       preferredText: input.image.revisedPrompt,
-      requestText: input.requestPrompt
+      requestText: input.requestPrompt,
+      allowWeakRequestFallback: true
     });
     const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
       assistantId: input.assistantId,

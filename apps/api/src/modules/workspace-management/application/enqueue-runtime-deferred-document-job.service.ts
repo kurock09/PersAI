@@ -234,7 +234,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       const requestedFileRef = input.directToolExecution.fileRef ?? null;
       const requestedDocId = input.directToolExecution.request.docId ?? null;
 
-      // ADR-097 Slice 4: ambiguous source — model passed both file_ref and doc_id.
+      // ADR-097 Slice 4: ambiguous source — model passed both fileRef and docId.
       if (
         requestedFileRef !== null &&
         requestedDocId !== null &&
@@ -244,7 +244,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           accepted: false,
           code: "revise_document_ambiguous_source",
           message:
-            "revise_document received both file_ref and doc_id — pass exactly one. Use file_ref for a PDF from any chat (identified by AssistantFile.id), or doc_id for a PDF created in the current chat.",
+            "revise_document received both fileRef and docId — pass exactly one. Use fileRef for a PDF from any chat (identified by AssistantFile.id), or docId for a PDF created in the current chat.",
           guidance: null
         };
       }
@@ -547,10 +547,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       };
     }
 
-    // ADR-097 Slice 2: for PDF documents, the patch-revise loop requires
-    // renderedHtml from the previous version. Legacy versions (created before
-    // Slice 1) have renderedHtml === null and are rejected with an explicit
-    // error. NO silent full-regeneration fallback.
+    // For PDF documents, revise paths require renderedHtml from the previous
+    // version. Legacy versions (created before renderedHtml persistence) have
+    // renderedHtml === null and are rejected with an explicit error. No silent
+    // full-regeneration fallback.
     if (
       revisionContext.documentType === "pdf_document" &&
       revisionContext.currentVersionRenderedHtml === null
@@ -583,8 +583,8 @@ export class EnqueueRuntimeDeferredDocumentJobService {
             input.request.sourceUserMessageText
           )
         : requestSourceJson;
-    // ADR-097 Slice 2: pass previousVersionRenderedHtml for PDF revise jobs.
-    // For presentations the Gamma path is untouched, so we pass null.
+    // Pass previousVersionRenderedHtml for PDF revise jobs. For presentations
+    // the Gamma path is untouched, so we pass null.
     const previousVersionRenderedHtml =
       revisionContext.documentType === "pdf_document"
         ? revisionContext.currentVersionRenderedHtml
@@ -640,14 +640,14 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           ok: false,
           code: "revise_document_file_ref_not_a_pdf_document",
           message:
-            "The file identified by file_ref is not a PDF document — revise_document only supports PDF documents via file_ref. Presentations and other document types must be revised using doc_id within the chat where they were created."
+            "The file identified by fileRef is not a PDF document — revise_document only supports PDF documents via fileRef. Presentations and other document types must be revised using docId within the chat where they were created."
         };
       }
       return {
         ok: false,
         code: "revise_document_file_ref_not_found",
         message:
-          "The file_ref does not resolve to a PDF document accessible to this assistant. Verify the file_ref is a valid AssistantFile.id for a document produced by this assistant."
+          "The fileRef does not resolve to a PDF document accessible to this assistant. Verify the fileRef is a valid AssistantFile.id for a document produced by this assistant."
       };
     }
     return { ok: true, context: result.context };
@@ -696,12 +696,12 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         accepted: false,
         code: "revise_document_file_ref_not_a_pdf_document",
         message:
-          "The file identified by file_ref is not a PDF document — revise_document only supports PDF documents via file_ref.",
+          "The file identified by fileRef is not a PDF document — revise_document only supports PDF documents via fileRef.",
         guidance: null
       };
     }
 
-    // Guard: latest version must have renderedHtml for the patch-revise loop.
+    // Guard: latest version must have renderedHtml for the revise path.
     if (revisionContext.currentVersionRenderedHtml === null) {
       return {
         accepted: false,

@@ -2,6 +2,151 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-26 — PDF document cleanup audit — remove dead recent-PDF hint plumbing
+
+### What changed
+
+Audited the active PDF document path for stale tails and removed the lowest-risk dead plumbing that no longer affects runtime behavior.
+
+1. Deleted the unused turn-time `recentChatPdfs` hint path from the active runtime contract and API web/Telegram turn entrypoints; the runtime had already stopped consuming this after the Working Files migration.
+2. Removed `AssistantDocumentJobReadService` helper methods that existed only to build that hint and deleted the orphaned focused API test file that covered those methods.
+3. Dropped the dead internal document operation enum member `verbatim_transfer`.
+4. Updated active tool/runtime/API comments so they describe the real revise split (`structured` vs `patch`) instead of the older patch-only wording, and aligned active user/model-facing wording to camelCase `fileRef` / `docId`.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-document-job-read.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/web-runtime-turn-client.service.ts`
+- `apps/api/src/modules/workspace-management/application/web-runtime-stream-client.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts`
+- `apps/runtime/src/modules/turns/persai-document-structure.ts`
+- `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/api/test/send-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/api/test/handle-internal-telegram-turn.service.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Verification
+
+1. `corepack pnpm --filter @persai/api run typecheck` — PASS
+2. `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts` — PASS
+3. `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts` — PASS
+4. `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts` — PASS
+
+### Risks / residuals
+
+- This slice intentionally removes only dead hint/plumbing residue and comment drift; it does not change active PDF create/revise routing logic.
+- Historical ADR/changelog sections still mention the old recent-PDF hint because they record what shipped at the time; current repo truth is now the Working Files path, not `recentChatPdfs`.
+- The cross-chat `fileRef` version-resolution behavior still points at the latest document version; that product behavior was audited but left unchanged in this cleanup slice.
+
+### Next recommended step
+
+If you want the next cleanup pass, do the higher-risk refactor seam next: collapse the triplicated document-job payload parsing/types across `assistant-document-job.service.ts`, `assistant-document-job-scheduler.service.ts`, and the PPTX prepare service so `contentIntent` / `editOperation` / `targetSectionIds` cannot drift again.
+
+## 2026-05-26 — Structured document prod path follow-up — explicit content intent + preserve-first routing
+
+### What changed
+
+Hardened the document worker so large attached-source jobs no longer infer rewrite intent from wording or silently default to content rewrite on extracted-source documents.
+
+1. Added additive document-tool/runtime field `contentIntent: preserve_content | rewrite_content` and updated model-facing tool guidance so omitted intent defaults to preserving content.
+2. `RuntimeDocumentProviderAdapterService` now treats `contentIntent` as the execution guardrail: large extracted-source `create_pdf_document` jobs stay on the structured source-preserving path unless the tool explicitly passes `rewrite_content`.
+3. Structured large `revise_document` now defaults to `style_only` when neither `editOperation` nor explicit rewrite intent is present; no keyword parsing was added.
+4. Chunked create remains available only when rewrite is explicitly allowed or when attachment text extraction is unavailable; the fallback routing threshold now uses attachment `sizeBytes` when no extracted text exists.
+5. Focused runtime regressions now cover explicit preserve intent on large transform create, preserve-safe default when `contentIntent` is omitted, and preserve-safe default on structured revise without `editOperation`.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-document-job.service.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-document-job-scheduler.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts`
+- `apps/runtime/test/runtime-document-provider-adapter.service.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Verification
+
+1. `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-provider-adapter.service.test.ts` — PASS
+2. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+3. `corepack pnpm -r --if-present run lint` — PASS
+4. `corepack pnpm run format:check` — PASS
+5. `corepack pnpm --filter @persai/api run typecheck` — PASS
+6. `corepack pnpm --filter @persai/web run typecheck` — PASS
+
+### Risks / residuals
+
+- This slice intentionally does not change the parallel local Working Files refactor already present in the working tree; `turn-execution.service.ts` and related files remain outside scope.
+- Large extracted-source create now preserves content by default. If the model truly wants semantic rewriting, it must pass `contentIntent=rewrite_content` explicitly.
+- Existing create callers that still rely only on `transferMode=transform` remain safe for preserve-first behavior, but explicit `contentIntent` should be adopted as the primary signal.
+
+### Next recommended step
+
+Deploy this bounded runtime/API slice to `persai-dev`, then rerun the failed large-DOCX contract scenario and confirm the runtime logs show `document-pdf-route-structured-source-create` instead of `document-pdf-route-chunked`.
+
+## 2026-05-26 — Working Files honest chronological history
+
+### What changed
+
+Replaced the model-visible `Working Files` role buckets with one chronological file journal so the runtime now exposes one honest, newest-first view of reusable files instead of splitting truth across legacy sections.
+
+1. `TurnExecutionService` now renders `## File history (newest first)` with one line per file in the format `createdAt | author | alias | filename | microdescription`.
+2. The same rendering removes `HISTORY` / `OTHER_FILES`-style primary grouping, keeps only a short PDF priority note, sorts by canonical `AssistantFile.createdAt`, formats timestamps deterministically in UTC, and appends an 8-char `fileRef` suffix when duplicate filenames need disambiguation.
+3. `RuntimeFileRef` now carries optional `createdAt` and strict `authorLabel` (`user | model | sandbox`), populated from the assistant-file registry and sandbox-produced file refs.
+4. Attachment-backed file upserts now preserve existing `AssistantFile.metadata` truth on update, so upload/generated `semanticSummary` values do not get erased during later hydration or alias resolution.
+5. Recent discovered file refs now reuse the registry truth directly instead of applying a second semantic-summary truncation path in hydration.
+6. The model-visible 20-file cap now keeps `CURRENT_SOURCE` / `LAST_DELIVERED_RESULT` document anchors visible even when an older delivered PDF would otherwise fall out of the newest-first window.
+7. `image_edit` and `image_generate` now opt into `allowWeakRequestFallback: true`, so short edit/generate requests can still produce a durable semantic summary that the history block will show when metadata exists.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/src/modules/turns/runtime-image-edit-tool.service.ts`
+- `apps/runtime/src/modules/turns/runtime-image-generate-tool.service.ts`
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/runtime/test/working-files-developer-section.test.ts`
+- `apps/runtime/test/runtime-assistant-file-registry.service.test.ts`
+- `apps/runtime/test/generated-file-semantic-summary.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Verification
+
+Focused:
+
+1. `corepack pnpm --filter @persai/runtime exec tsx --test test/working-files-developer-section.test.ts test/runtime-image-edit-tool.service.test.ts test/runtime-assistant-file-registry.service.test.ts test/generated-file-semantic-summary.test.ts` — PASS
+
+Repo gates:
+
+1. `corepack pnpm -r --if-present run lint` — PASS
+2. `corepack pnpm --filter @persai/api run typecheck` — PASS
+3. `corepack pnpm --filter @persai/web run typecheck` — PASS
+4. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+5. `corepack pnpm --filter @persai/sandbox run typecheck` — PASS
+6. `corepack pnpm run format:check` — FAIL only because pre-existing unrelated `apps/runtime/test/runtime-document-provider-adapter.service.test.ts` is not formatted in the current working tree; touched slice files were formatted and rechecked.
+
+### Risks / residuals
+
+- `format:check` is not globally green yet because of the unrelated pre-existing formatting issue in `apps/runtime/test/runtime-document-provider-adapter.service.test.ts`, which was intentionally left untouched in this bounded slice.
+- The developer block now trusts `AssistantFile.createdAt`; any older file refs without that truth will render `unknown`, though current registry/sandbox paths now populate it and timestamps now render in deterministic UTC rather than host-local time.
+- This slice intentionally does not change document structured-prod behavior, web UI rendering, or any tool contract beyond additive `RuntimeFileRef` metadata.
+
+### Next recommended step
+
+Run one live file-heavy turn in `persai-dev` with duplicate image filenames and one short `image_edit` prompt to confirm the model now picks the intended alias/fileRef from the single chronological history without falling back to old role assumptions.
+
 ## 2026-05-26 — Structured document prod path (migration `20260524120000_adr098_structured_document_versions`)
 
 ### What changed

@@ -84,18 +84,6 @@ const WEB_TURN_CLAIM_STALE_MS = 120_000;
 const WEB_TURN_REPLAY_WAIT_MS = 12_000;
 const WEB_TURN_REPLAY_POLL_MS = 250;
 
-/** ADR-097 Slice 5 — short human-readable age from a past Date. */
-function computeRelativeAge(date: Date): string {
-  const diffMs = Date.now() - date.getTime();
-  const diffMin = Math.round(diffMs / 60_000);
-  if (diffMin < 60) return `${String(diffMin)} min ago`;
-  const diffH = Math.round(diffMin / 60);
-  if (diffH < 24) return `${String(diffH)}h ago`;
-  const diffD = Math.round(diffH / 24);
-  if (diffD === 1) return "yesterday";
-  return `${String(diffD)} days ago`;
-}
-
 function normalizeOptionalTitle(value: unknown): string | null | undefined {
   if (value === undefined) {
     return undefined;
@@ -332,13 +320,6 @@ export class SendWebChatTurnService {
         userId: prepared.userId,
         chatId: prepared.chat.id
       });
-      // ADR-097 Slice 5: resolve recent PDFs across all assistant chats for the hint.
-      const recentAssistantPdfs =
-        await this.assistantDocumentJobReadService.listRecentAssistantPdfsForTurn({
-          assistantId: prepared.assistantId,
-          workspaceId: prepared.workspaceId,
-          currentChatId: prepared.chat.id
-        });
       const webRuntimeTurnInput = this.buildWebRuntimeTurnInput({
         assistantId: prepared.assistantId,
         publishedVersionId: prepared.publishedVersionId,
@@ -360,23 +341,7 @@ export class SendWebChatTurnService {
               providerOverride: prepared.quotaDegradeModelOverride.provider,
               modelOverride: prepared.quotaDegradeModelOverride.model
             }
-          : {}),
-        ...(recentAssistantPdfs.length === 0
-          ? {}
-          : {
-              recentChatPdfs: recentAssistantPdfs.map((p) => ({
-                docId: p.docId,
-                fileRef: p.fileRef,
-                filename: p.filename,
-                currentVersionId: p.currentVersionId,
-                updatedAt: p.deliveredAt.toISOString(),
-                chatRef:
-                  p.chatId === prepared.chat.id
-                    ? ("current_chat" as const)
-                    : ("other_chat" as const),
-                relativeAge: computeRelativeAge(p.deliveredAt)
-              }))
-            })
+          : {})
       });
       this.logWebRuntimeRoute({
         route: "sync",
@@ -794,7 +759,6 @@ export class SendWebChatTurnService {
     modelRoleOverride?: WebRuntimeTurnClientInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic";
     modelOverride?: string;
-    recentChatPdfs?: WebRuntimeTurnClientInput["recentChatPdfs"];
   }): WebRuntimeTurnClientInput {
     return {
       assistantId: input.assistantId,
@@ -818,8 +782,7 @@ export class SendWebChatTurnService {
         ? {}
         : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
-      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
-      ...(input.recentChatPdfs == null ? {} : { recentChatPdfs: input.recentChatPdfs })
+      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };
   }
 

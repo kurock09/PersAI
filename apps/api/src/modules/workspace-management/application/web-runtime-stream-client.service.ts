@@ -7,7 +7,6 @@ import type {
   RuntimeFailedEvent,
   RuntimeInterruptedEvent,
   RuntimeOutputArtifact,
-  RuntimeRecentChatPdf,
   RuntimeSkillStateContext,
   RuntimeTurnRequest,
   RuntimeTurnResult,
@@ -52,8 +51,6 @@ export interface WebRuntimeStreamClientInput {
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
   skillStateContext?: RuntimeSkillStateContext;
-  /** ADR-097 Slice 3: recent patch-reviseable PDFs in this chat, resolved by API before turn dispatch. */
-  recentChatPdfs?: RuntimeRecentChatPdf[] | null;
 }
 
 interface JsonResponse {
@@ -144,9 +141,7 @@ export class WebRuntimeStreamClientService {
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
       ...(input.skillStateContext === undefined
         ? {}
-        : { skillStateContext: input.skillStateContext }),
-      // ADR-097 Slice 3: inject server-resolved recent PDFs for developer-block hint.
-      ...(input.recentChatPdfs == null ? {} : { recentChatPdfs: input.recentChatPdfs })
+        : { skillStateContext: input.skillStateContext })
     };
     const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
       materializedSpec.runtimeBundle,

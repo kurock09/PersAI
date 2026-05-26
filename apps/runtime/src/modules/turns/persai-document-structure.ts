@@ -5,11 +5,7 @@ export const PERSAI_DOCUMENT_STYLE_VERSION = 1;
 export const LARGE_DOCUMENT_STRUCTURE_THRESHOLD_BYTES = 20_000;
 
 export type PersaiDocumentEditStrategy = "fast_small" | "structured_large";
-export type PersaiDocumentInternalOperation =
-  | "verbatim_transfer"
-  | "style_only"
-  | "content_patch"
-  | "section_rewrite";
+export type PersaiDocumentInternalOperation = "style_only" | "content_patch" | "section_rewrite";
 
 export type PersaiDocumentStructureBlock = {
   id: string;
@@ -69,6 +65,30 @@ export function createDefaultStyleProfile(): PersaiDocumentStyleProfile {
       heading: "#111111",
       body: "#222222",
       accent: "#444444"
+    }
+  };
+}
+
+/** Richer presentation defaults for transferMode=transform (full source text, styled layout). */
+export function createTransformStyleProfile(): PersaiDocumentStyleProfile {
+  return {
+    version: PERSAI_DOCUMENT_STYLE_VERSION,
+    renderModel: "persai_document_style_v1",
+    typography: {
+      bodyFontFamily: "'Segoe UI', Calibri, Arial, sans-serif",
+      bodyFontSizePt: 11,
+      headingFontFamily: "'Segoe UI', Calibri, Arial, sans-serif",
+      lineHeight: 1.5
+    },
+    layout: {
+      pageMarginMm: 18,
+      paragraphSpacingEm: 0.65,
+      sectionSpacingEm: 1.25
+    },
+    colors: {
+      heading: "#1a365d",
+      body: "#1f2937",
+      accent: "#2563eb"
     }
   };
 }

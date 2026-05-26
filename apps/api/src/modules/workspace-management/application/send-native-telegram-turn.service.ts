@@ -7,7 +7,6 @@ import type {
   RuntimeInterruptedEvent,
   RuntimeOpenMediaJobContext,
   RuntimeOutputArtifact,
-  RuntimeRecentChatPdf,
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent
@@ -50,8 +49,6 @@ export interface SendNativeTelegramTurnInput {
   deepMode?: RuntimeTurnRequest["deepMode"];
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
-  /** ADR-097 Slice 5 — assistant-scoped recent PDFs for the developer-block hint. */
-  recentChatPdfs?: RuntimeRecentChatPdf[] | null;
 }
 
 export interface SendNativeTelegramTurnCallbacks {
@@ -148,8 +145,7 @@ export class SendNativeTelegramTurnService {
       ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
-      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
-      ...(input.recentChatPdfs == null ? {} : { recentChatPdfs: input.recentChatPdfs })
+      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };
     const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
       materializedSpec.runtimeBundle,

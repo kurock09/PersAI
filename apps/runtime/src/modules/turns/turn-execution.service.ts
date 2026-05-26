@@ -134,9 +134,8 @@ const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 const APPROX_CHARS_PER_TOKEN = 4;
 const MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS = 4;
 const MAX_MODEL_VISIBLE_WORKING_FILES = 20;
-const MAX_WORKING_FILES_SEMANTIC_HINTS = 5;
-const MAX_WORKING_FILE_SEMANTIC_HINT_CHARS = 80;
-const MAX_WORKING_FILES_SEMANTIC_HINTS_TOTAL_CHARS = 280;
+const MAX_WORKING_FILE_MICRO_DESCRIPTION_CHARS = 120;
+const WORKING_FILE_REF_SUFFIX_HEX_LENGTH = 8;
 
 type PreparedTurnExecution = {
   bundle: AssistantRuntimeBundle;
@@ -1814,125 +1813,24 @@ export class TurnExecutionService {
       return null;
     }
 
-    const currentSourceFiles = modelVisibleWorkingFiles.filter((file) =>
-      this.isCurrentSourceWorkingFile(file)
-    );
-    const lastDeliveredResultFiles = modelVisibleWorkingFiles.filter((file) =>
-      this.isLastDeliveredDocumentResultWorkingFile(file)
-    );
-    const recentDiscoveredFiles = modelVisibleWorkingFiles.filter((file) =>
-      this.isRecentDiscoveredFile(file)
-    );
-    const historyFiles = modelVisibleWorkingFiles.filter(
-      (file) =>
-        this.isHistoryDocumentWorkingFile(file) &&
-        !currentSourceFiles.some((candidate) => candidate.fileRef === file.fileRef) &&
-        !lastDeliveredResultFiles.some((candidate) => candidate.fileRef === file.fileRef) &&
-        !recentDiscoveredFiles.some((candidate) => candidate.fileRef === file.fileRef)
-    );
-    const otherFiles = modelVisibleWorkingFiles.filter(
-      (file) =>
-        !currentSourceFiles.some((candidate) => candidate.fileRef === file.fileRef) &&
-        !lastDeliveredResultFiles.some((candidate) => candidate.fileRef === file.fileRef) &&
-        !recentDiscoveredFiles.some((candidate) => candidate.fileRef === file.fileRef) &&
-        !historyFiles.some((candidate) => candidate.fileRef === file.fileRef)
-    );
-
     const lines = [
-      "## Working Files",
-      "These are the reusable file handles the system has already prepared for this turn. They are not the complete set of files available to you.",
-      "Prefer these aliases when referring to current attachments, previously reusable files, or the latest generated outputs.",
-      "Ignore low-level storage identifiers or delivery/debug text if they appear anywhere."
+      "## File history (newest first)",
+      "Format: `AssistantFile.createdAt | author | alias | filename | microdescription`."
     ];
-
-    const hasDocumentRoleContext =
-      currentSourceFiles.length > 0 ||
-      lastDeliveredResultFiles.length > 0 ||
-      historyFiles.length > 0 ||
-      recentDiscoveredFiles.some((file) => this.isDocumentRelatedWorkingFile(file));
-    if (hasDocumentRoleContext) {
-      lines.push("");
-      lines.push("Document-tool priority:");
-      lines.push(
-        "- For `document`, prefer `CURRENT_SOURCE` when the user wants a new PDF from a file attached in this turn."
-      );
-      lines.push(
-        "- Use `LAST_DELIVERED_RESULT` only when the user explicitly wants to modify an already generated PDF."
-      );
-      lines.push(
-        "- Do not let `HISTORY` or `RECENT_DISCOVERED` override a current source attachment unless the user explicitly points to the older PDF."
-      );
+    const documentPriorityNote =
+      this.buildWorkingFileDocumentPriorityNote(availableWorkingFileRefs);
+    if (documentPriorityNote !== null) {
+      lines.push("", ...documentPriorityNote);
     }
 
-    const semanticHintEligibleFileRefs =
-      this.selectWorkingFilesForSemanticHints(modelVisibleWorkingFiles);
-    let semanticHintsCharsUsed = 0;
-    this.appendWorkingFileRoleSection({
-      lines,
-      title: "### CURRENT_SOURCE",
-      description:
-        "Files attached in this turn that are authoritative source material for new document creation.",
-      role: "current_source",
-      files: currentSourceFiles,
-      semanticHintEligibleFileRefs,
-      getSemanticHintsCharsUsed: () => semanticHintsCharsUsed,
-      onHintCharsAdded: (charsAdded) => {
-        semanticHintsCharsUsed += charsAdded;
-      }
-    });
-    this.appendWorkingFileRoleSection({
-      lines,
-      title: "### LAST_DELIVERED_RESULT",
-      description:
-        "The most recent assistant-generated PDF result. Use it only when the user explicitly wants to modify that delivered PDF.",
-      role: "last_delivered_result",
-      files: lastDeliveredResultFiles,
-      semanticHintEligibleFileRefs,
-      getSemanticHintsCharsUsed: () => semanticHintsCharsUsed,
-      onHintCharsAdded: (charsAdded) => {
-        semanticHintsCharsUsed += charsAdded;
-      }
-    });
-    this.appendWorkingFileRoleSection({
-      lines,
-      title: "### HISTORY",
-      description:
-        "Older document-related files from chat history. They provide background context but do not outrank a current source attachment.",
-      role: "history",
-      files: historyFiles,
-      semanticHintEligibleFileRefs,
-      getSemanticHintsCharsUsed: () => semanticHintsCharsUsed,
-      onHintCharsAdded: (charsAdded) => {
-        semanticHintsCharsUsed += charsAdded;
-      }
-    });
-    this.appendWorkingFileRoleSection({
-      lines,
-      title: "### RECENT_DISCOVERED",
-      description:
-        "Recent files surfaced by earlier files-tool discovery in this chat. Treat them as optional context, not stronger than CURRENT_SOURCE.",
-      role: "recent_discovered",
-      files: recentDiscoveredFiles,
-      semanticHintEligibleFileRefs,
-      getSemanticHintsCharsUsed: () => semanticHintsCharsUsed,
-      onHintCharsAdded: (charsAdded) => {
-        semanticHintsCharsUsed += charsAdded;
-      }
-    });
-    this.appendWorkingFileRoleSection({
-      lines,
-      title: "### OTHER_FILES",
-      description: "Other reusable files available this turn.",
-      role: "other_files",
-      files: otherFiles,
-      semanticHintEligibleFileRefs,
-      getSemanticHintsCharsUsed: () => semanticHintsCharsUsed,
-      onHintCharsAdded: (charsAdded) => {
-        semanticHintsCharsUsed += charsAdded;
-      }
-    });
+    const duplicateDisplayNames = this.collectDuplicateWorkingFileNames(modelVisibleWorkingFiles);
+    lines.push("");
+    for (const file of modelVisibleWorkingFiles) {
+      lines.push(this.formatWorkingFileHistoryLine(file, duplicateDisplayNames));
+    }
 
     lines.push(
+      "",
       "For `files`, prefer alias first, then `path` or `query` when a reusable alias is unavailable."
     );
     lines.push(
@@ -1967,15 +1865,6 @@ export class TurnExecutionService {
       this.hasWorkingFileAlias(file, /^last generated file$/i) &&
       this.isAssistantGeneratedWorkingFile(file) &&
       (this.isPdfWorkingFileMime(file.mimeType) || file.sourceToolCode === DOCUMENT_TOOL_CODE)
-    );
-  }
-
-  private isHistoryDocumentWorkingFile(file: RuntimeFileRef): boolean {
-    return (
-      this.isDocumentRelatedWorkingFile(file) &&
-      !this.isCurrentSourceWorkingFile(file) &&
-      !this.isLastDeliveredDocumentResultWorkingFile(file) &&
-      !this.isRecentDiscoveredFile(file)
     );
   }
 
@@ -3594,198 +3483,210 @@ export class TurnExecutionService {
     return match?.content ?? null;
   }
 
-  private formatWorkingFileDeveloperLine(
+  private formatWorkingFileHistoryLine(
     file: RuntimeFileRef,
-    role:
-      | "current_source"
-      | "last_delivered_result"
-      | "history"
-      | "recent_discovered"
-      | "other_files",
-    semanticHintEligibleFileRefs: Set<string>,
-    semanticHintsCharsUsed: number,
-    onHintCharsAdded: (charsAdded: number) => void
+    duplicateDisplayNames: Set<string>
   ): string {
-    const aliases = this.resolveWorkingFileDisplayAliases(file, role);
-    const displayName = file.displayName ?? file.relativePath.split("/").pop() ?? "file";
-    const kind = this.describeWorkingFileKind(file.mimeType);
-    const hint = this.formatWorkingFileSemanticHint(
-      file,
-      semanticHintEligibleFileRefs,
-      semanticHintsCharsUsed,
-      onHintCharsAdded
-    );
-    return hint === null
-      ? `- ${aliases}: ${kind} "${displayName}"`
-      : `- ${aliases}: ${kind} "${displayName}" — ${hint}`;
+    const createdAt = this.formatWorkingFileCreatedAt(file.createdAt);
+    const author = file.authorLabel ?? this.resolveWorkingFileAuthorLabel(file.origin);
+    const alias = this.resolvePrimaryWorkingFileAlias(file);
+    const filename = this.formatWorkingFileDisplayName(file, duplicateDisplayNames);
+    const microDescription = this.formatWorkingFileMicroDescription(file.semanticSummaryHint);
+    return `- ${createdAt} | ${author} | ${alias} | ${filename} | ${microDescription}`;
   }
 
-  private resolveWorkingFileDisplayAliases(
-    file: RuntimeFileRef,
-    role:
-      | "current_source"
-      | "last_delivered_result"
-      | "history"
-      | "recent_discovered"
-      | "other_files"
-  ): string {
-    const roleScopedAliases =
-      role === "current_source"
-        ? this.filterWorkingFileAliases(file, [
-            /^current attachment #\d+$/i,
-            /^current file #\d+$/i
-          ])
-        : role === "last_delivered_result"
-          ? this.filterWorkingFileAliases(file, [
-              /^last generated file$/i,
-              /^generated file #\d+$/i
-            ])
-          : role === "history"
-            ? this.filterWorkingFileAliases(file, [/^previous attachment #\d+$/i])
-            : role === "recent_discovered"
-              ? this.filterWorkingFileAliases(file, [/^recent file #\d+$/i])
-              : [];
-    if (roleScopedAliases.length > 0) {
-      return roleScopedAliases.join(", ");
+  private buildWorkingFileDocumentPriorityNote(files: RuntimeFileRef[]): string[] | null {
+    const { currentSource, lastDelivered } = this.selectWorkingFileDocumentPriorityAnchors(files);
+    const hasDocumentContext =
+      currentSource !== null ||
+      lastDelivered !== null ||
+      files.some((file) => this.isDocumentRelatedWorkingFile(file));
+    if (!hasDocumentContext) {
+      return null;
     }
+    return [
+      "Document-tool priority (PDF only):",
+      `- CURRENT_SOURCE = ${this.describeWorkingFilePriorityAnchor(currentSource)}`,
+      `- LAST_DELIVERED_RESULT = ${this.describeWorkingFilePriorityAnchor(lastDelivered)}`,
+      "- Use CURRENT_SOURCE for new document creation; use LAST_DELIVERED_RESULT only for an explicit revise/redeliver request.",
+      "- Older history or discovery entries do not outrank those anchors unless the user explicitly points to them."
+    ];
+  }
+
+  private describeWorkingFilePriorityAnchor(file: RuntimeFileRef | null): string {
+    if (file === null) {
+      return "none";
+    }
+    return `${this.resolvePrimaryWorkingFileAlias(file)} | ${this.formatWorkingFileDisplayName(
+      file,
+      new Set<string>()
+    )}`;
+  }
+
+  private collectDuplicateWorkingFileNames(files: RuntimeFileRef[]): Set<string> {
+    const counts = new Map<string, number>();
+    for (const file of files) {
+      const displayName = this.resolveWorkingFileDisplayName(file).toLowerCase();
+      counts.set(displayName, (counts.get(displayName) ?? 0) + 1);
+    }
+    return new Set(
+      [...counts.entries()].filter(([, count]) => count > 1).map(([displayName]) => displayName)
+    );
+  }
+
+  private resolvePrimaryWorkingFileAlias(file: RuntimeFileRef): string {
     const aliases = (file.aliases ?? [])
       .map((alias) => alias.trim())
       .filter((alias) => alias.length > 0);
-    return aliases.length > 0 ? aliases.join(", ") : "unaliased file";
-  }
-
-  private filterWorkingFileAliases(file: RuntimeFileRef, patterns: readonly RegExp[]): string[] {
-    const aliases = file.aliases ?? [];
-    return aliases.filter((alias) => patterns.some((pattern) => pattern.test(alias.trim())));
-  }
-
-  private formatWorkingFileSemanticHint(
-    file: RuntimeFileRef,
-    semanticHintEligibleFileRefs: Set<string>,
-    semanticHintsCharsUsed: number,
-    onHintCharsAdded: (charsAdded: number) => void
-  ): string | null {
-    if (!semanticHintEligibleFileRefs.has(file.fileRef)) {
-      return null;
+    if (aliases.length === 0) {
+      return "unaliased file";
     }
-    const rawHint = file.semanticSummaryHint?.replace(/\s+/g, " ").trim() ?? "";
-    if (rawHint.length === 0) {
-      return null;
-    }
-    const remainingBudget = MAX_WORKING_FILES_SEMANTIC_HINTS_TOTAL_CHARS - semanticHintsCharsUsed;
-    if (remainingBudget <= 0) {
-      return null;
-    }
-    const hint = rawHint.slice(0, Math.min(MAX_WORKING_FILE_SEMANTIC_HINT_CHARS, remainingBudget));
-    if (hint.length === 0) {
-      return null;
-    }
-    onHintCharsAdded(hint.length);
-    return hint;
-  }
-
-  private selectWorkingFilesForSemanticHints(
-    availableWorkingFileRefs: RuntimeFileRef[]
-  ): Set<string> {
-    const forced = availableWorkingFileRefs
-      .filter(
-        (file) =>
-          this.isCurrentSourceWorkingFile(file) ||
-          this.isLastDeliveredDocumentResultWorkingFile(file) ||
-          this.isRecentDiscoveredFile(file)
-      )
-      .filter(
-        (file) =>
-          typeof file.semanticSummaryHint === "string" &&
-          file.semanticSummaryHint.replace(/\s+/g, " ").trim().length > 0
-      )
-      .map((file) => file.fileRef);
-    const candidates = availableWorkingFileRefs
-      .map((file, index) => ({
-        fileRef: file.fileRef,
-        index,
-        weak: this.isWeakWorkingFileDisplayName(
-          file.displayName ?? file.relativePath.split("/").pop() ?? "file"
-        ),
-        hasHint:
-          typeof file.semanticSummaryHint === "string" &&
-          file.semanticSummaryHint.replace(/\s+/g, " ").trim().length > 0
-      }))
-      .filter((candidate) => candidate.hasHint && candidate.weak);
-    candidates.sort((left, right) => {
-      if (left.weak !== right.weak) {
-        return left.weak ? -1 : 1;
+    const priorityPatterns: RegExp[] = [
+      /^current image #\d+$/i,
+      /^current attachment #\d+$/i,
+      /^current file #\d+$/i,
+      /^last generated image$/i,
+      /^last generated file$/i,
+      /^generated image #\d+$/i,
+      /^generated file #\d+$/i,
+      /^previous image #\d+$/i,
+      /^previous attachment #\d+$/i,
+      /^recent file #\d+$/i,
+      /^found image #\d+$/i,
+      /^found file #\d+$/i,
+      /^listed image #\d+$/i,
+      /^listed file #\d+$/i,
+      /^fetched image$/i,
+      /^fetched file$/i,
+      /^read image$/i,
+      /^read file$/i
+    ];
+    for (const pattern of priorityPatterns) {
+      const match = aliases.find((alias) => pattern.test(alias));
+      if (match !== undefined) {
+        return match;
       }
-      return left.index - right.index;
-    });
-    return new Set([
-      ...forced,
-      ...candidates.slice(0, MAX_WORKING_FILES_SEMANTIC_HINTS).map((candidate) => candidate.fileRef)
-    ]);
+    }
+    return aliases[0] ?? "unaliased file";
   }
 
-  private appendWorkingFileRoleSection(input: {
-    lines: string[];
-    title: string;
-    description: string;
-    role:
-      | "current_source"
-      | "last_delivered_result"
-      | "history"
-      | "recent_discovered"
-      | "other_files";
-    files: RuntimeFileRef[];
-    semanticHintEligibleFileRefs: Set<string>;
-    getSemanticHintsCharsUsed: () => number;
-    onHintCharsAdded: (charsAdded: number) => void;
-  }): void {
-    if (input.files.length === 0) {
-      return;
-    }
-    input.lines.push("");
-    input.lines.push(input.title);
-    input.lines.push(input.description);
-    for (const file of input.files) {
-      input.lines.push(
-        this.formatWorkingFileDeveloperLine(
-          file,
-          input.role,
-          input.semanticHintEligibleFileRefs,
-          input.getSemanticHintsCharsUsed(),
-          input.onHintCharsAdded
-        )
-      );
-    }
+  private resolveWorkingFileDisplayName(file: RuntimeFileRef): string {
+    return file.displayName ?? file.relativePath.split("/").pop() ?? "file";
   }
 
-  private isWeakWorkingFileDisplayName(displayName: string): boolean {
-    const normalized = displayName.trim().toLowerCase();
+  private formatWorkingFileDisplayName(
+    file: RuntimeFileRef,
+    duplicateDisplayNames: Set<string>
+  ): string {
+    const displayName = this.resolveWorkingFileDisplayName(file);
+    if (!duplicateDisplayNames.has(displayName.toLowerCase())) {
+      return displayName;
+    }
+    return `${displayName} [${file.fileRef.slice(-WORKING_FILE_REF_SUFFIX_HEX_LENGTH)}]`;
+  }
+
+  private formatWorkingFileMicroDescription(summary: string | null | undefined): string {
+    const normalized = summary?.replace(/\s+/g, " ").trim() ?? "";
     if (normalized.length === 0) {
-      return true;
+      return "-";
     }
-    if (
-      /^(file|document|image|photo|audio|video|recording|voice[-_]?note|upload|attachment|clip|untitled)(\.[a-z0-9]+)?$/.test(
-        normalized
-      )
-    ) {
-      return true;
+    return normalized.slice(0, MAX_WORKING_FILE_MICRO_DESCRIPTION_CHARS);
+  }
+
+  private resolveWorkingFileAuthorLabel(
+    origin: RuntimeFileRef["origin"]
+  ): NonNullable<RuntimeFileRef["authorLabel"]> {
+    switch (origin) {
+      case "uploaded_attachment":
+        return "user";
+      case "sandbox_output":
+        return "sandbox";
+      default:
+        return "model";
     }
-    if (/^[0-9a-f-]{8,}\.[a-z0-9]+$/.test(normalized)) {
-      return true;
+  }
+
+  private formatWorkingFileCreatedAt(createdAt: string | undefined): string {
+    if (typeof createdAt !== "string" || createdAt.trim().length === 0) {
+      return "unknown";
     }
-    if (/^img[_-]?\d+/.test(normalized) || /^dsc[_-]?\d+/.test(normalized)) {
-      return true;
+    const parsed = new Date(createdAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return "unknown";
     }
-    return false;
+    const year = String(parsed.getUTCFullYear());
+    const month = String(parsed.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getUTCDate()).padStart(2, "0");
+    const hours = String(parsed.getUTCHours()).padStart(2, "0");
+    const minutes = String(parsed.getUTCMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
   }
 
   private limitModelVisibleWorkingFiles(
     availableWorkingFileRefs: RuntimeFileRef[]
   ): RuntimeFileRef[] {
-    if (availableWorkingFileRefs.length <= MAX_MODEL_VISIBLE_WORKING_FILES) {
-      return availableWorkingFileRefs;
+    const sorted = this.sortWorkingFilesByCreatedAt(availableWorkingFileRefs);
+    if (sorted.length <= MAX_MODEL_VISIBLE_WORKING_FILES) {
+      return sorted;
     }
-    return availableWorkingFileRefs.slice(0, MAX_MODEL_VISIBLE_WORKING_FILES);
+    const { currentSource, lastDelivered } = this.selectWorkingFileDocumentPriorityAnchors(sorted);
+    const requiredFileRefs = new Set(
+      [currentSource, lastDelivered]
+        .filter((file): file is RuntimeFileRef => file !== null)
+        .map((file) => file.fileRef)
+    );
+    const visible = [...sorted.slice(0, MAX_MODEL_VISIBLE_WORKING_FILES)];
+    const visibleFileRefs = new Set(visible.map((file) => file.fileRef));
+    for (const file of [currentSource, lastDelivered]) {
+      if (file !== null && !visibleFileRefs.has(file.fileRef)) {
+        visible.push(file);
+        visibleFileRefs.add(file.fileRef);
+      }
+    }
+    const ordered = this.sortWorkingFilesByCreatedAt(visible);
+    while (ordered.length > MAX_MODEL_VISIBLE_WORKING_FILES) {
+      const removableIndex = [...ordered]
+        .reverse()
+        .findIndex((file) => !requiredFileRefs.has(file.fileRef));
+      if (removableIndex === -1) {
+        break;
+      }
+      const actualIndex = ordered.length - 1 - removableIndex;
+      ordered.splice(actualIndex, 1);
+    }
+    return ordered;
+  }
+
+  private parseWorkingFileCreatedAtMs(createdAt: string | undefined): number {
+    if (typeof createdAt !== "string" || createdAt.trim().length === 0) {
+      return 0;
+    }
+    const parsed = Date.parse(createdAt);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  private sortWorkingFilesByCreatedAt(files: RuntimeFileRef[]): RuntimeFileRef[] {
+    return [...files].sort((left, right) => {
+      const createdAtDiff =
+        this.parseWorkingFileCreatedAtMs(right.createdAt) -
+        this.parseWorkingFileCreatedAtMs(left.createdAt);
+      if (createdAtDiff !== 0) {
+        return createdAtDiff;
+      }
+      return right.fileRef.localeCompare(left.fileRef);
+    });
+  }
+
+  private selectWorkingFileDocumentPriorityAnchors(files: RuntimeFileRef[]): {
+    currentSource: RuntimeFileRef | null;
+    lastDelivered: RuntimeFileRef | null;
+  } {
+    const sorted = this.sortWorkingFilesByCreatedAt(files);
+    return {
+      currentSource: sorted.find((file) => this.isCurrentSourceWorkingFile(file)) ?? null,
+      lastDelivered:
+        sorted.find((file) => this.isLastDeliveredDocumentResultWorkingFile(file)) ?? null
+    };
   }
 
   private sanitizeLegacyTechnicalAttachmentSummary(assistantText: string | null): string | null {
@@ -3833,22 +3734,6 @@ export class TurnExecutionService {
     return needsInlineSeparator
       ? `${existingText} ${sanitizedNextText}`
       : `${existingText}${sanitizedNextText}`;
-  }
-
-  private describeWorkingFileKind(mimeType: string): string {
-    if (mimeType.startsWith("image/")) {
-      return "image";
-    }
-    if (mimeType.startsWith("video/")) {
-      return "video";
-    }
-    if (mimeType.startsWith("audio/")) {
-      return "audio";
-    }
-    if (mimeType === "application/pdf") {
-      return "document";
-    }
-    return "file";
   }
 
   private withAssistantText(

@@ -973,7 +973,8 @@ export class RuntimeImageEditToolService {
     );
     const semanticSummary = buildGeneratedFileSemanticSummary({
       preferredText: input.image.revisedPrompt,
-      requestText: input.requestPrompt
+      requestText: input.requestPrompt,
+      allowWeakRequestFallback: true
     });
     const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
       assistantId: input.assistantId,

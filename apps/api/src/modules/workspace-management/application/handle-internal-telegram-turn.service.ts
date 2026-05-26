@@ -34,20 +34,7 @@ import { BackgroundCompactionQueueService } from "./background-compaction-queue.
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
 import { AssistantUploadMicroDescriptionJobService } from "./assistant-upload-micro-description-job.service";
-import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
-
-/** ADR-097 Slice 5 — short human-readable age from a past Date. */
-function computeTelegramRelativeAge(date: Date): string {
-  const diffMs = Date.now() - date.getTime();
-  const diffMin = Math.round(diffMs / 60_000);
-  if (diffMin < 60) return `${String(diffMin)} min ago`;
-  const diffH = Math.round(diffMin / 60);
-  if (diffH < 24) return `${String(diffH)}h ago`;
-  const diffD = Math.round(diffH / 24);
-  if (diffD === 1) return "yesterday";
-  return `${String(diffD)} days ago`;
-}
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
@@ -105,7 +92,6 @@ export class HandleInternalTelegramTurnService {
     private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly recordToolPathLedgerFromToolInvocationsService: RecordToolPathLedgerFromToolInvocationsService,
-    private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
     @Optional()
     private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
     @Optional()
@@ -271,13 +257,6 @@ export class HandleInternalTelegramTurnService {
         userId: chat.userId,
         chatId: chat.id
       });
-      // ADR-097 Slice 5: resolve recent PDFs across all assistant chats for the hint.
-      const recentAssistantPdfs =
-        await this.assistantDocumentJobReadService.listRecentAssistantPdfsForTurn({
-          assistantId: resolved.assistantId,
-          workspaceId: resolved.workspaceId,
-          currentChatId: chat.id
-        });
       const nativeTurnInput: SendNativeTelegramTurnInput = {
         assistantId: resolved.assistantId,
         publishedVersionId: resolved.publishedVersionId,
@@ -298,20 +277,7 @@ export class HandleInternalTelegramTurnService {
         ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
         userTimezone: workspace.timezone,
         currentTimeIso,
-        deepMode: defaultDeepModeEnabled,
-        ...(recentAssistantPdfs.length === 0
-          ? {}
-          : {
-              recentChatPdfs: recentAssistantPdfs.map((p) => ({
-                docId: p.docId,
-                fileRef: p.fileRef,
-                filename: p.filename,
-                currentVersionId: p.currentVersionId,
-                updatedAt: p.deliveredAt.toISOString(),
-                chatRef: p.chatId === chat.id ? ("current_chat" as const) : ("other_chat" as const),
-                relativeAge: computeTelegramRelativeAge(p.deliveredAt)
-              }))
-            })
+        deepMode: defaultDeepModeEnabled
       };
       let queueWaitResult =
         (await this.backgroundCompactionQueueService?.waitForActiveThreadCompaction({

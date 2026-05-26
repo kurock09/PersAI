@@ -1908,7 +1908,7 @@ export class SandboxService {
                 logicalSizeBytes:
                   file.logicalSizeBytes === null ? null : BigInt(file.logicalSizeBytes),
                 sha256: file.sha256,
-                metadata: {}
+                metadata: existing.metadata ?? {}
               }
             });
       if (existing !== null) {
@@ -1933,7 +1933,9 @@ export class SandboxService {
         mimeType: assistantFile.mimeType,
         sizeBytes: Number(assistantFile.sizeBytes),
         logicalSizeBytes:
-          assistantFile.logicalSizeBytes === null ? null : Number(assistantFile.logicalSizeBytes)
+          assistantFile.logicalSizeBytes === null ? null : Number(assistantFile.logicalSizeBytes),
+        createdAt: assistantFile.createdAt.toISOString(),
+        authorLabel: "sandbox"
       };
       produced.push({
         relativePath: assistantFile.relativePath,
@@ -1981,6 +1983,7 @@ export class SandboxService {
     mimeType: string;
     sizeBytes: bigint;
     logicalSizeBytes: bigint | null;
+    createdAt: Date;
   }): RuntimeSandboxProducedFile {
     return {
       relativePath: row.relativePath,
@@ -1997,7 +2000,9 @@ export class SandboxService {
         displayName: row.displayName,
         mimeType: row.mimeType,
         sizeBytes: Number(row.sizeBytes),
-        logicalSizeBytes: row.logicalSizeBytes === null ? null : Number(row.logicalSizeBytes)
+        logicalSizeBytes: row.logicalSizeBytes === null ? null : Number(row.logicalSizeBytes),
+        createdAt: row.createdAt.toISOString(),
+        authorLabel: "sandbox"
       }
     };
   }

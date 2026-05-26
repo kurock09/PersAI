@@ -145,6 +145,10 @@ export interface RuntimeFileRef {
   sizeBytes: number;
   logicalSizeBytes: number | null;
   aliases?: string[] | null;
+  /** Canonical file creation timestamp from AssistantFile.createdAt. */
+  createdAt?: IsoTimestamp;
+  /** Stable author label derived from origin; never inferred from user text. */
+  authorLabel?: "user" | "model" | "sandbox";
   /** Token-safe hint derived from durable file metadata; never a full content preview. */
   semanticSummaryHint?: string | null;
 }
@@ -2127,13 +2131,14 @@ export interface RuntimeDocumentJobRunRequest {
   // are not persisted into Knowledge unless the user explicitly saves them.
   sourceFiles?: RuntimeDocumentSourceFile[];
   /**
-   * ADR-097 Slice 2 — patch-revise loop. For revise_document PDF jobs, the
-   * scheduler passes the exact post-repairHtmlDocument HTML that was persisted
-   * on the previous AssistantDocumentVersion so the worker can apply
-   * SEARCH/REPLACE patches instead of re-generating the full document. Null for
+   * For revise_document PDF jobs, the scheduler passes the exact
+   * post-repairHtmlDocument HTML persisted on the previous
+   * AssistantDocumentVersion so the worker can either apply patch-revise
+   * updates or lazily upgrade into the structured revise path. Null for
    * create_pdf_document, create_presentation, export_or_redeliver, presentation
-   * revise jobs, or any PDF version created before Slice 1 (those are rejected
-   * at enqueue time with document_revise_unsupported_legacy_version).
+   * revise jobs, or any PDF version created before renderedHtml persistence
+   * (those are rejected at enqueue time with
+   * document_revise_unsupported_legacy_version).
    */
   previousVersionRenderedHtml?: string | null;
   /**
@@ -2163,8 +2168,8 @@ export interface RuntimeDocumentJobRunRequest {
        * Working Files aliases) and identifies a PDF document the assistant has
        * produced before, possibly in another chat. Mutually exclusive with docId.
        * When present, the API resolves it to the canonical AssistantDocument and
-       * feeds its latest renderedHtml into the patch-revise loop. The new revision
-       * is written to the current chat with parentVersionId pointing to the
+       * feeds its latest version into the active revise path. The new revision is
+       * written to the current chat with parentVersionId pointing to the
        * cross-chat ancestor version.
        */
       fileRef?: string | null;
@@ -2181,8 +2186,13 @@ export interface RuntimeDocumentJobRunRequest {
       /** Explicit create transfer mode — no lexical routing. */
       transferMode?: "verbatim" | "transform" | null;
       /**
+       * Explicit content intent. Safe default is preserve_content when omitted.
+       * Runtime uses this to decide whether content may be rewritten.
+       */
+      contentIntent?: "preserve_content" | "rewrite_content" | null;
+      /**
        * Explicit revise operation. When omitted on structured_large documents,
-       * the worker defaults to content_patch.
+       * the worker defaults to style_only unless contentIntent explicitly allows rewrite.
        */
       editOperation?: "style_only" | "content_patch" | "section_rewrite" | null;
       /** Optional stable section ids for targeted structured edits. */
@@ -2200,8 +2210,8 @@ export interface RuntimeDocumentJobRunResult {
   providerStatus?: Record<string, unknown> | null;
   billingFacts?: RuntimeBillingFacts | null;
   /** Exact post-repairHtmlDocument HTML sent to PDFMonkey. Null for Gamma/pptx
-   *  or when generation failed. Persisted on AssistantDocumentVersion so the
-   *  upcoming patch-revise loop (Slice 2) can read it without re-generating. */
+   *  or when generation failed. Persisted on AssistantDocumentVersion so later
+   *  revise paths can reuse stable document truth without re-generating. */
   renderedHtml?: string | null;
   structureJson?: Record<string, unknown> | null;
   styleProfileJson?: Record<string, unknown> | null;
@@ -2324,36 +2334,6 @@ export interface RuntimeMediaJobCompletionResult {
   rawText: string | null;
 }
 
-/**
- * ADR-097 Slice 3/5 — server-resolved recent-PDF context passed from API to runtime.
- * Populated by listRecentAssistantPdfsForTurn when the document tool is available for the
- * turn. The runtime injects this into the developer block so the model knows about
- * revisable PDFs across this assistant's chats without relying on keyword routing.
- */
-export interface RuntimeRecentChatPdf {
-  docId: string;
-  filename: string | null;
-  currentVersionId: string;
-  /** ISO timestamp of last document update. */
-  updatedAt: string;
-  /**
-   * ADR-097 Slice 5 — UUID of the AssistantFile that holds this PDF.
-   * The model MUST pass this value as `fileRef` when calling revise_document
-   * for cross-chat documents. Populated by listRecentAssistantPdfsForTurn.
-   */
-  fileRef?: string;
-  /**
-   * ADR-097 Slice 5 — indicates whether the PDF originated in the current
-   * chat or a different chat of the same assistant.
-   */
-  chatRef?: "current_chat" | "other_chat";
-  /**
-   * ADR-097 Slice 5 — short human-readable age string, e.g. "5 min ago",
-   * "3h ago", "yesterday", "5 days ago".
-   */
-  relativeAge?: string;
-}
-
 export interface RuntimeTurnRequest {
   requestId: string;
   idempotencyKey: string;
@@ -2362,12 +2342,6 @@ export interface RuntimeTurnRequest {
   conversation: RuntimeConversationAddress;
   message: RuntimeInboundMessage;
   openMediaJobs?: RuntimeOpenMediaJobContext[];
-  /**
-   * ADR-097 Slice 3 — server-resolved recent PDFs for this chat.
-   * Populated by the API when the document tool is in scope. Empty array or absent
-   * means no hint is injected in the developer block.
-   */
-  recentChatPdfs?: RuntimeRecentChatPdf[] | null;
   chatMode?: "normal" | "smart" | "project";
   deepMode?: boolean;
   modelRoleOverride?: PersaiRuntimeModelRole;

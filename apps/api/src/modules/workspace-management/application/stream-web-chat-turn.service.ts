@@ -109,17 +109,6 @@ const WEB_TURN_CLAIM_STALE_MS = 120_000;
 const WEB_TURN_REPLAY_WAIT_MS = 12_000;
 const WEB_TURN_REPLAY_POLL_MS = 250;
 
-/** ADR-097 Slice 5 — compute a short human-readable age string from a past timestamp. */
-function computeRelativeAge(date: Date): string {
-  const diffMs = Date.now() - date.getTime();
-  const diffMin = Math.round(diffMs / 60_000);
-  if (diffMin < 60) return `${String(diffMin)} min ago`;
-  const diffH = Math.round(diffMin / 60);
-  if (diffH < 24) return `${String(diffH)}h ago`;
-  const diffD = Math.round(diffH / 24);
-  if (diffD === 1) return "yesterday";
-  return `${String(diffD)} days ago`;
-}
 /**
  * Maximum number of times we will (re)open the runtime stream for a single web
  * chat turn. The first attempt always counts; on stall we may attempt once more.
@@ -393,15 +382,6 @@ export class StreamWebChatTurnService {
       decisionState: prepared.chat.skillDecisionState,
       cadenceState: prepared.chat.skillCadenceState
     });
-    // ADR-097 Slice 5: resolve recent PDFs across ALL chats of this assistant for
-    // the developer-block hint. Replaces the Slice 3 per-chat query so the model
-    // can see (and revise) PDFs from earlier chats with a server-resolved UUID anchor.
-    const recentAssistantPdfs =
-      await this.assistantDocumentJobReadService.listRecentAssistantPdfsForTurn({
-        assistantId: prepared.assistantId,
-        workspaceId: prepared.workspaceId,
-        currentChatId: prepared.chat.id
-      });
     const webRuntimeTurnInput = this.buildWebRuntimeStreamInput({
       requestId: trace.getTraceId(),
       assistantId: prepared.assistantId,
@@ -424,21 +404,7 @@ export class StreamWebChatTurnService {
             providerOverride: prepared.quotaDegradeModelOverride.provider,
             modelOverride: prepared.quotaDegradeModelOverride.model
           }
-        : {}),
-      ...(recentAssistantPdfs.length === 0
-        ? {}
-        : {
-            recentChatPdfs: recentAssistantPdfs.map((p) => ({
-              docId: p.docId,
-              fileRef: p.fileRef,
-              filename: p.filename,
-              currentVersionId: p.currentVersionId,
-              updatedAt: p.deliveredAt.toISOString(),
-              chatRef:
-                p.chatId === prepared.chat.id ? ("current_chat" as const) : ("other_chat" as const),
-              relativeAge: computeRelativeAge(p.deliveredAt)
-            }))
-          })
+        : {})
     });
     trace.stage("native_turn_input_built");
     this.logWebRuntimeRoute({
@@ -908,7 +874,6 @@ export class StreamWebChatTurnService {
     modelRoleOverride?: WebRuntimeStreamClientInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic";
     modelOverride?: string;
-    recentChatPdfs?: WebRuntimeStreamClientInput["recentChatPdfs"];
   }): WebRuntimeStreamClientInput {
     return {
       ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
@@ -933,9 +898,7 @@ export class StreamWebChatTurnService {
         ? {}
         : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
-      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
-      // ADR-097 Slice 3: recent PDFs for developer-block hint.
-      ...(input.recentChatPdfs == null ? {} : { recentChatPdfs: input.recentChatPdfs })
+      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };
   }
 

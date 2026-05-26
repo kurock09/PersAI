@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Injectable } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import type {
   PersaiSandboxFileOrigin,
   RuntimeFileRef,
@@ -33,7 +34,7 @@ export type RuntimeAssistantDirectoryListing = {
   truncated: boolean;
 };
 
-const RUNTIME_FILE_SEMANTIC_SUMMARY_HINT_MAX_CHARS = 80;
+const RUNTIME_FILE_SEMANTIC_SUMMARY_HINT_MAX_CHARS = 120;
 
 type AttachmentBackedOrigin = Extract<
   PersaiSandboxFileOrigin,
@@ -287,18 +288,15 @@ export class RuntimeAssistantFileRegistryService {
       input.mimeType
     );
     const sha256 = await this.computeObjectSha256(input.objectKey);
-    const metadata = {
-      attachmentId: input.referenceId,
-      ...(typeof input.semanticSummary === "string" &&
-      input.semanticSummary.trim().length > 0 &&
-      typeof input.semanticSummarySource === "string" &&
-      input.semanticSummarySource.trim().length > 0
-        ? {
-            semanticSummary: input.semanticSummary,
-            semanticSummarySource: input.semanticSummarySource
-          }
-        : {})
-    };
+    const existing = await this.prisma.assistantFile.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        origin: input.origin,
+        objectKey: input.objectKey
+      }
+    });
+    const metadata = this.mergeAttachmentBackedMetadata(existing?.metadata ?? null, input);
     const row = await this.prisma.assistantFile.upsert({
       where: {
         assistantId_workspaceId_origin_objectKey: {
@@ -336,6 +334,41 @@ export class RuntimeAssistantFileRegistryService {
     return this.mapRow(row);
   }
 
+  private mergeAttachmentBackedMetadata(
+    existingMetadata: unknown,
+    input: {
+      referenceId: string;
+      semanticSummary?: string | null;
+      semanticSummarySource?: RuntimeFileSemanticSummarySource | null;
+    }
+  ): Prisma.InputJsonObject {
+    const base =
+      existingMetadata !== null &&
+      typeof existingMetadata === "object" &&
+      !Array.isArray(existingMetadata)
+        ? { ...(existingMetadata as Record<string, unknown>) }
+        : {};
+    const semanticSummary =
+      typeof input.semanticSummary === "string" && input.semanticSummary.trim().length > 0
+        ? input.semanticSummary
+        : null;
+    const semanticSummarySource =
+      typeof input.semanticSummarySource === "string" &&
+      input.semanticSummarySource.trim().length > 0
+        ? input.semanticSummarySource
+        : null;
+    return {
+      ...base,
+      attachmentId: input.referenceId,
+      ...(semanticSummary !== null && semanticSummarySource !== null
+        ? {
+            semanticSummary,
+            semanticSummarySource
+          }
+        : {})
+    };
+  }
+
   private async computeObjectSha256(objectKey: string): Promise<string | null> {
     const buffer = await this.mediaObjectStorage.downloadObject(objectKey);
     return buffer === null ? null : createHash("sha256").update(buffer).digest("hex");
@@ -352,8 +385,23 @@ export class RuntimeAssistantFileRegistryService {
       mimeType: record.mimeType,
       sizeBytes: record.sizeBytes,
       logicalSizeBytes: record.logicalSizeBytes,
+      createdAt: record.createdAt.toISOString(),
+      authorLabel: this.resolveAuthorLabel(record.origin),
       semanticSummaryHint: this.readSemanticSummaryHint(record.metadata)
     };
+  }
+
+  private resolveAuthorLabel(
+    origin: PersaiSandboxFileOrigin
+  ): NonNullable<RuntimeFileRef["authorLabel"]> {
+    switch (origin) {
+      case "uploaded_attachment":
+        return "user";
+      case "sandbox_output":
+        return "sandbox";
+      default:
+        return "model";
+    }
   }
 
   private readSemanticSummaryHint(metadata: Record<string, unknown> | null): string | null {

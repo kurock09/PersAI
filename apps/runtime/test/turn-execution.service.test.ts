@@ -7159,18 +7159,7 @@ export async function runRecentPdfsHintTests(): Promise<void> {
         locale: "en",
         timezone: "UTC",
         receivedAt: "2026-05-24T10:00:00.000Z"
-      },
-      recentChatPdfs: [
-        {
-          docId: "doc-abc",
-          fileRef: "abc12345-0000-4000-8000-deadbeef1234",
-          filename: "Older Delivery.pdf",
-          currentVersionId: "ver-1",
-          updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-          chatRef: "current_chat",
-          relativeAge: "5 min ago"
-        }
-      ]
+      }
     };
     const sections = accessor.buildBaseDeveloperInstructionSections({
       request,

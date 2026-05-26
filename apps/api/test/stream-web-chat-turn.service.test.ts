@@ -87,9 +87,7 @@ function createSkillStatePersistenceServiceMock() {
 
 function createAssistantDocumentJobReadServiceMock() {
   return {
-    listOpenJobsForWebChat: async () => [],
-    // ADR-097 Slice 5: switched from listRecentChatPdfsForTurn to listRecentAssistantPdfsForTurn
-    listRecentAssistantPdfsForTurn: async () => []
+    listOpenJobsForWebChat: async () => []
   };
 }
 
@@ -1942,42 +1940,3 @@ function buildToolStreamingPreparedFixture(options: { traceEnabled: boolean }) {
     traceHandle: createOverviewLatencyTraceServiceMock({ enabled: options.traceEnabled }).start()
   };
 }
-
-// ADR-097 Slice 5 — verify the mock interface and new RuntimeRecentChatPdf fields
-describe("AssistantDocumentJobReadServiceMock — listRecentAssistantPdfsForTurn", () => {
-  test("mock uses listRecentAssistantPdfsForTurn (not listRecentChatPdfsForTurn)", async () => {
-    const mock = createAssistantDocumentJobReadServiceMock();
-    assert.ok(
-      typeof (mock as Record<string, unknown>)["listRecentAssistantPdfsForTurn"] === "function",
-      "mock must expose listRecentAssistantPdfsForTurn"
-    );
-    assert.ok(
-      !("listRecentChatPdfsForTurn" in mock),
-      "mock must NOT expose the old listRecentChatPdfsForTurn method"
-    );
-  });
-
-  test("mock returns empty array — no recentChatPdfs injected into RuntimeTurnRequest", async () => {
-    const mock = createAssistantDocumentJobReadServiceMock();
-    const result = await (
-      mock as { listRecentAssistantPdfsForTurn: () => Promise<unknown[]> }
-    ).listRecentAssistantPdfsForTurn();
-    assert.deepEqual(result, [], "default mock must return empty array");
-  });
-
-  test("RuntimeRecentChatPdf contract includes fileRef, chatRef, relativeAge fields (optional)", () => {
-    // Compile-time verification via typed object construction
-    const pdf: import("@persai/runtime-contract").RuntimeRecentChatPdf = {
-      docId: "doc-1",
-      filename: "Report.pdf",
-      currentVersionId: "ver-1",
-      updatedAt: "2026-05-24T10:00:00.000Z",
-      fileRef: "abc12345-0000-4000-8000-deadbeef1234",
-      chatRef: "other_chat",
-      relativeAge: "3h ago"
-    };
-    assert.equal(pdf.fileRef, "abc12345-0000-4000-8000-deadbeef1234");
-    assert.equal(pdf.chatRef, "other_chat");
-    assert.equal(pdf.relativeAge, "3h ago");
-  });
-});

@@ -115,18 +115,84 @@ function buildPrismaMock(rows: RegistryRow[]) {
       },
 
       async findFirst() {
-        return null;
+        return rows[0] ?? null;
+      },
+
+      async upsert(input: {
+        where: {
+          assistantId_workspaceId_origin_objectKey: {
+            assistantId: string;
+            workspaceId: string;
+            origin: RegistryRow["origin"];
+            objectKey: string;
+          };
+        };
+        update: Record<string, unknown>;
+        create: Record<string, unknown>;
+      }) {
+        const key = input.where.assistantId_workspaceId_origin_objectKey;
+        const existingIndex = rows.findIndex(
+          (row) =>
+            row.assistantId === key.assistantId &&
+            row.workspaceId === key.workspaceId &&
+            row.origin === key.origin &&
+            row.objectKey === key.objectKey
+        );
+        if (existingIndex >= 0) {
+          const existing = rows[existingIndex]!;
+          const updated: RegistryRow = {
+            ...existing,
+            relativePath: String(input.update.relativePath),
+            displayName:
+              typeof input.update.displayName === "string" ? input.update.displayName : null,
+            mimeType: String(input.update.mimeType),
+            sizeBytes: input.update.sizeBytes as bigint,
+            logicalSizeBytes: (input.update.logicalSizeBytes as bigint | null) ?? null,
+            sha256: typeof input.update.sha256 === "string" ? input.update.sha256 : existing.sha256,
+            metadata:
+              input.update.metadata !== null && typeof input.update.metadata === "object"
+                ? input.update.metadata
+                : null
+          };
+          rows[existingIndex] = updated;
+          return updated;
+        }
+        const created = makeRow({
+          id: `created-${String(rows.length + 1)}`,
+          assistantId: String(input.create.assistantId),
+          workspaceId: String(input.create.workspaceId),
+          origin: input.create.origin as RegistryRow["origin"],
+          sourceToolCode:
+            typeof input.create.sourceToolCode === "string" ? input.create.sourceToolCode : null,
+          objectKey: String(input.create.objectKey),
+          relativePath: String(input.create.relativePath),
+          displayName:
+            typeof input.create.displayName === "string" ? input.create.displayName : null,
+          mimeType: String(input.create.mimeType),
+          sizeBytes: input.create.sizeBytes as bigint,
+          logicalSizeBytes: (input.create.logicalSizeBytes as bigint | null) ?? null,
+          sha256: typeof input.create.sha256 === "string" ? input.create.sha256 : null,
+          metadata:
+            input.create.metadata !== null && typeof input.create.metadata === "object"
+              ? input.create.metadata
+              : null
+        });
+        rows.push(created);
+        return created;
       }
     }
   };
 }
 
-function buildService(rows: RegistryRow[]): RuntimeAssistantFileRegistryService {
+function buildService(
+  rows: RegistryRow[],
+  options?: { downloadedObject?: Buffer | null }
+): RuntimeAssistantFileRegistryService {
   return new RuntimeAssistantFileRegistryService(
     buildPrismaMock(rows) as never,
     {
       async downloadObject() {
-        return null;
+        return options?.downloadedObject ?? null;
       }
     } as never
   );
@@ -312,5 +378,64 @@ describe("RuntimeAssistantFileRegistryService.search – multi-token ranking", (
     });
 
     assert.equal(results.length, 3, "limit=3 must be respected");
+  });
+});
+
+describe("RuntimeAssistantFileRegistryService.toRuntimeFileRef", () => {
+  test("includes createdAt, strict authorLabel, and the longer semantic summary hint", () => {
+    const service = buildService([]);
+    const summary = "x".repeat(140);
+    const runtimeFileRef = service.toRuntimeFileRef(
+      makeRow({
+        id: "file-1",
+        origin: "sandbox_output",
+        metadata: { semanticSummary: summary },
+        createdAt: new Date("2026-05-26T14:32:00.000Z")
+      }) as never
+    );
+
+    assert.equal(runtimeFileRef.createdAt, "2026-05-26T14:32:00.000Z");
+    assert.equal(runtimeFileRef.authorLabel, "sandbox");
+    assert.equal(runtimeFileRef.semanticSummaryHint?.length, 120);
+  });
+});
+
+describe("RuntimeAssistantFileRegistryService.ensureAttachmentBackedFile", () => {
+  test("preserves existing semantic metadata on update when no new summary is provided", async () => {
+    const rows = [
+      makeRow({
+        id: "existing-file",
+        origin: "uploaded_attachment",
+        objectKey: "assistant-media/uploads/source.jpg",
+        metadata: {
+          attachmentId: "attachment-old",
+          semanticSummary: "Existing upload summary.",
+          semanticSummarySource: "upload_micro_description",
+          customField: "keep-me"
+        }
+      })
+    ];
+    const service = buildService(rows, {
+      downloadedObject: Buffer.from("updated-object")
+    });
+
+    const record = await service.ensureAttachmentBackedFile({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      origin: "uploaded_attachment",
+      referenceId: "attachment-new",
+      objectKey: "assistant-media/uploads/source.jpg",
+      filename: "source.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: 123
+    });
+
+    assert.equal(record.fileRef, "existing-file");
+    assert.deepEqual(record.metadata, {
+      attachmentId: "attachment-new",
+      semanticSummary: "Existing upload summary.",
+      semanticSummarySource: "upload_micro_description",
+      customField: "keep-me"
+    });
   });
 });

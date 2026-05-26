@@ -52,8 +52,6 @@ const MAX_RECENT_DOCUMENT_SOURCE_ATTACHMENTS = 4;
 const RECENT_FILE_DISCOVERY_MESSAGE_WINDOW = 5;
 /** ADR-100 Piece 2 — hard cap on Working Files entries injected from discovery history. */
 const MAX_RECENT_DISCOVERED_FILES = 6;
-/** ADR-100 Piece 2 — max chars for semanticSummaryHint on a recent file entry. */
-const RECENT_FILE_SEMANTIC_HINT_MAX_CHARS = 240;
 const MAX_OPEN_LOOP_REFS_DEVELOPER_ITEMS = 5;
 const MAX_OPEN_LOOP_REF_SUMMARY_CHARS = 72;
 const MAX_OPEN_LOOP_REF_SELECTION_TOKENS = 12;
@@ -666,8 +664,7 @@ export class TurnContextHydrationService {
    * rows silently, dedupes against already-present Working Files entries,
    * and upserts survivors as `recent file #N` (most-recent-first, 1-based,
    * cap MAX_RECENT_DISCOVERED_FILES). The `semanticSummaryHint` is populated
-   * from `AssistantFile.metadata.semanticSummary` (trimmed, capped at
-   * RECENT_FILE_SEMANTIC_HINT_MAX_CHARS).
+   * from `AssistantFile.metadata.semanticSummary` via the registry mapper.
    */
   private async injectRecentDiscoveredFileRefs(
     conversation: RuntimeConversationAddress,
@@ -727,7 +724,7 @@ export class TurnContextHydrationService {
     });
 
     // Upsert surviving records, most-recent-first, capped at
-    // MAX_RECENT_DISCOVERED_FILES.
+    // MAX_RECENT_DISCOVERED_FILES. Semantic hints come directly from the registry.
     let recentFileOrdinal = 0;
     for (const record of records) {
       if (recentFileOrdinal >= MAX_RECENT_DISCOVERED_FILES) {
@@ -735,22 +732,7 @@ export class TurnContextHydrationService {
       }
       recentFileOrdinal += 1;
       const baseFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record);
-      const rawSummary =
-        typeof record.metadata?.semanticSummary === "string"
-          ? record.metadata.semanticSummary.trim()
-          : null;
-      const semanticSummaryHint =
-        rawSummary !== null && rawSummary.length > 0
-          ? rawSummary.slice(0, RECENT_FILE_SEMANTIC_HINT_MAX_CHARS)
-          : null;
-      this.upsertWorkingFileRef(
-        refs,
-        {
-          ...baseFileRef,
-          ...(semanticSummaryHint !== null ? { semanticSummaryHint } : {})
-        },
-        [`recent file #${String(recentFileOrdinal)}`]
-      );
+      this.upsertWorkingFileRef(refs, baseFileRef, [`recent file #${String(recentFileOrdinal)}`]);
     }
   }
 
