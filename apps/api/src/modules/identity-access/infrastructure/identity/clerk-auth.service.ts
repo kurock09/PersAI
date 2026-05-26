@@ -1,10 +1,23 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { AppUser } from "@prisma/client";
 import { ApiConfig, loadApiConfig } from "@persai/config";
 import { ResolvedAuthUser } from "../../application/resolved-auth-user.types";
+import { PrismaService } from "../persistence/prisma.service";
 
 interface ClerkTokenPayload {
   sub: string;
+}
+
+interface ClerkUserProfile {
+  id: string;
+  primaryEmailAddressId: string | null;
+  emailAddresses: Array<{
+    id: string;
+    emailAddress: string;
+  }>;
+  firstName: string | null;
+  lastName: string | null;
 }
 
 function toClerkTokenPayload(value: unknown): ClerkTokenPayload | null {
@@ -64,23 +77,31 @@ export function classifyClerkVerifyFailure(error: unknown): ClerkVerifyFailureRe
   return "unknown";
 }
 
+function toResolvedAuthUserFromAppUser(appUser: AppUser): ResolvedAuthUser {
+  return {
+    clerkUserId: appUser.clerkUserId ?? "",
+    email: appUser.email.toLowerCase(),
+    displayName: appUser.displayName
+  };
+}
+
 @Injectable()
 export class ClerkAuthService {
   private readonly logger = new Logger(ClerkAuthService.name);
   private readonly apiConfig: ApiConfig;
-  private readonly clerkClient;
+  private readonly clerkClient: {
+    users: {
+      getUser(clerkUserId: string): Promise<ClerkUserProfile>;
+    };
+  };
 
-  constructor() {
+  constructor(private readonly prismaService: PrismaService) {
     this.apiConfig = loadApiConfig(process.env);
     this.clerkClient = createClerkClient({ secretKey: this.apiConfig.CLERK_SECRET_KEY });
   }
 
-  async resolveAuthenticatedUser(token: string): Promise<ResolvedAuthUser> {
-    if (token.length === 0) {
-      throw new UnauthorizedException("Missing bearer token.");
-    }
-
-    const verified = await verifyToken(token, {
+  protected async verifyClerkToken(token: string): Promise<unknown> {
+    return verifyToken(token, {
       secretKey: this.apiConfig.CLERK_SECRET_KEY
     }).catch((error: unknown) => {
       const reason = classifyClerkVerifyFailure(error);
@@ -91,6 +112,18 @@ export class ClerkAuthService {
       this.logger.warn(`Clerk verifyToken failed: reason=${reason} upstream="${upstreamMessage}"`);
       throw new UnauthorizedException(`Invalid Clerk token (${reason}).`);
     });
+  }
+
+  protected async getClerkUserProfile(clerkUserId: string): Promise<ClerkUserProfile> {
+    return this.clerkClient.users.getUser(clerkUserId);
+  }
+
+  async resolveAuthenticatedUser(token: string): Promise<ResolvedAuthUser> {
+    if (token.length === 0) {
+      throw new UnauthorizedException("Missing bearer token.");
+    }
+
+    const verified = await this.verifyClerkToken(token);
 
     const tokenPayload = toClerkTokenPayload(verified);
     if (tokenPayload === null) {
@@ -98,13 +131,27 @@ export class ClerkAuthService {
       throw new UnauthorizedException("Token does not contain a valid subject.");
     }
 
-    const clerkUser = await this.clerkClient.users
-      .getUser(tokenPayload.sub)
-      .catch((error: unknown) => {
-        const upstreamMessage = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Clerk users.getUser(${tokenPayload.sub}) failed: ${upstreamMessage}`);
-        throw new UnauthorizedException("Unable to resolve Clerk user profile.");
+    let clerkUser;
+    try {
+      clerkUser = await this.getClerkUserProfile(tokenPayload.sub);
+    } catch (error: unknown) {
+      const upstreamMessage = error instanceof Error ? error.message : String(error);
+      const existingAppUser = await this.prismaService.appUser.findUnique({
+        where: { clerkUserId: tokenPayload.sub }
       });
+
+      if (existingAppUser !== null) {
+        this.logger.warn(
+          `Clerk users.getUser(${tokenPayload.sub}) failed: ${upstreamMessage}; using existing AppUser DB fallback.`
+        );
+        return toResolvedAuthUserFromAppUser(existingAppUser);
+      }
+
+      this.logger.warn(
+        `Clerk users.getUser(${tokenPayload.sub}) failed: ${upstreamMessage}; no existing AppUser DB fallback found.`
+      );
+      throw new UnauthorizedException("Unable to resolve Clerk user profile.");
+    }
 
     const primaryEmailId = clerkUser.primaryEmailAddressId;
     const primaryEmail = clerkUser.emailAddresses.find((email) => email.id === primaryEmailId);

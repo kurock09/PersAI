@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { UnauthorizedException } from "@nestjs/common";
 
-import { classifyClerkVerifyFailure } from "../src/modules/identity-access/infrastructure/identity/clerk-auth.service";
+import {
+  ClerkAuthService,
+  classifyClerkVerifyFailure
+} from "../src/modules/identity-access/infrastructure/identity/clerk-auth.service";
 
 // ADR-074 Memory Center "Session expired" follow-up — lock the
 // classification surface for the WARN log we now emit on every failed
@@ -64,4 +68,120 @@ void test("classifyClerkVerifyFailure: unknown shape → unknown", () => {
     classifyClerkVerifyFailure(new Error("totally unrelated database error")),
     "unknown"
   );
+});
+
+function createTestService(options: {
+  verifiedPayload: unknown;
+  clerkUserResult?: {
+    id: string;
+    primaryEmailAddressId: string;
+    emailAddresses: Array<{ id: string; emailAddress: string }>;
+    firstName: string | null;
+    lastName: string | null;
+  };
+  clerkUserError?: unknown;
+  fallbackAppUser?: { clerkUserId: string; email: string; displayName: string | null } | null;
+}) {
+  const warnings: string[] = [];
+  const service = Object.create(ClerkAuthService.prototype) as ClerkAuthService & {
+    logger: { warn(message: string): void };
+    prismaService: {
+      appUser: {
+        findUnique(args: { where: { clerkUserId: string } }): Promise<{
+          clerkUserId: string;
+          email: string;
+          displayName: string | null;
+        } | null>;
+      };
+    };
+    verifyClerkToken(token: string): Promise<unknown>;
+    getClerkUserProfile(clerkUserId: string): Promise<unknown>;
+  };
+
+  service.logger = {
+    warn(message: string) {
+      warnings.push(message);
+    }
+  };
+  service.prismaService = {
+    appUser: {
+      async findUnique() {
+        return options.fallbackAppUser ?? null;
+      }
+    }
+  };
+  service.verifyClerkToken = async () => options.verifiedPayload;
+  service.getClerkUserProfile = async () => {
+    if (options.clerkUserError !== undefined) {
+      throw options.clerkUserError;
+    }
+    return options.clerkUserResult as never;
+  };
+
+  return { service, warnings };
+}
+
+void test("resolveAuthenticatedUser: uses existing AppUser fallback when Clerk profile lookup fails", async () => {
+  const { service, warnings } = createTestService({
+    verifiedPayload: { sub: "clerk_existing_user" },
+    clerkUserError: new Error("Internal Server Error"),
+    fallbackAppUser: {
+      clerkUserId: "clerk_existing_user",
+      email: "Known.User@Example.com",
+      displayName: "Known User"
+    }
+  });
+
+  const resolvedUser = await service.resolveAuthenticatedUser("bearer-token");
+
+  assert.deepEqual(resolvedUser, {
+    clerkUserId: "clerk_existing_user",
+    email: "known.user@example.com",
+    displayName: "Known User"
+  });
+  assert.equal(
+    warnings.some((message) => message.includes("using existing AppUser DB fallback.")),
+    true
+  );
+});
+
+void test("resolveAuthenticatedUser: rejects unknown Clerk subject when profile lookup fails and DB fallback is missing", async () => {
+  const { service, warnings } = createTestService({
+    verifiedPayload: { sub: "clerk_unknown_user" },
+    clerkUserError: new Error("Internal Server Error"),
+    fallbackAppUser: null
+  });
+
+  await assert.rejects(
+    () => service.resolveAuthenticatedUser("bearer-token"),
+    (error: unknown) =>
+      error instanceof UnauthorizedException &&
+      error.message === "Unable to resolve Clerk user profile."
+  );
+  assert.equal(
+    warnings.some((message) => message.includes("no existing AppUser DB fallback found.")),
+    true
+  );
+});
+
+void test("resolveAuthenticatedUser: still prefers live Clerk profile when it succeeds", async () => {
+  const { service, warnings } = createTestService({
+    verifiedPayload: { sub: "clerk_live_user" },
+    clerkUserResult: {
+      id: "clerk_live_user",
+      primaryEmailAddressId: "email_primary",
+      emailAddresses: [{ id: "email_primary", emailAddress: "Live.User@Example.com" }],
+      firstName: "Live",
+      lastName: "User"
+    }
+  });
+
+  const resolvedUser = await service.resolveAuthenticatedUser("bearer-token");
+
+  assert.deepEqual(resolvedUser, {
+    clerkUserId: "clerk_live_user",
+    email: "live.user@example.com",
+    displayName: "Live User"
+  });
+  assert.deepEqual(warnings, []);
 });
