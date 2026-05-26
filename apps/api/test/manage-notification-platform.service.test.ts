@@ -107,6 +107,9 @@ async function run(): Promise<void> {
           }
         },
         assistant: {
+          async findMany() {
+            return [{ id: "assistant-1" }];
+          },
           async findUnique() {
             return { id: "assistant-1", preferredNotificationChannel: "web" };
           }
@@ -206,6 +209,9 @@ async function run(): Promise<void> {
           }
         },
         assistant: {
+          async findMany() {
+            return [];
+          },
           async findUnique(args: { where: { id?: string; userId?: string } }) {
             if (args.where.id === "assistant-target") {
               return {
