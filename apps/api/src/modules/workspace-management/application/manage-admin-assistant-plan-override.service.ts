@@ -28,7 +28,8 @@ export class ManageAdminAssistantPlanOverrideService {
     callerUserId: string,
     targetUserId: string,
     planCode: string,
-    stepUpToken: string | null
+    stepUpToken: string | null,
+    assistantId?: string | null
   ): Promise<{ ok: true }> {
     await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
       callerUserId,
@@ -44,7 +45,7 @@ export class ManageAdminAssistantPlanOverrideService {
       throw new BadRequestException("planCode is required.");
     }
 
-    const assistant = await this.assistantRepository.findByUserId(trimmedUserId);
+    const assistant = await this.resolveTargetAssistant(trimmedUserId, assistantId);
     if (assistant === null) {
       throw new NotFoundException("Assistant not found for target user.");
     }
@@ -65,7 +66,8 @@ export class ManageAdminAssistantPlanOverrideService {
   async resetOverride(
     callerUserId: string,
     targetUserId: string,
-    stepUpToken: string | null
+    stepUpToken: string | null,
+    assistantId?: string | null
   ): Promise<{ ok: true }> {
     await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
       callerUserId,
@@ -77,7 +79,7 @@ export class ManageAdminAssistantPlanOverrideService {
       throw new BadRequestException("userId is required.");
     }
 
-    const assistant = await this.assistantRepository.findByUserId(trimmedUserId);
+    const assistant = await this.resolveTargetAssistant(trimmedUserId, assistantId);
     if (assistant === null) {
       throw new NotFoundException("Assistant not found for target user.");
     }
@@ -85,6 +87,34 @@ export class ManageAdminAssistantPlanOverrideService {
     await this.assistantGovernanceRepository.setAssistantPlanOverride(assistant.id, null);
     await this.markAssistantConfigDirty(assistant.id);
     return { ok: true };
+  }
+
+  private async resolveTargetAssistant(
+    userId: string,
+    assistantId?: string | null
+  ): Promise<{ id: string } | null> {
+    const trimmedAssistantId = assistantId?.trim() || null;
+    if (trimmedAssistantId === null) {
+      return await this.assistantRepository.findByUserId(userId);
+    }
+
+    const membership = await this.prisma.workspaceMember.findFirst({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      select: { workspaceId: true }
+    });
+    if (membership === null) {
+      return null;
+    }
+
+    return await this.prisma.assistant.findFirst({
+      where: {
+        id: trimmedAssistantId,
+        userId,
+        workspaceId: membership.workspaceId
+      },
+      select: { id: true }
+    });
   }
 
   private async markAssistantConfigDirty(assistantId: string): Promise<void> {

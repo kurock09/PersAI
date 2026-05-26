@@ -2,6 +2,67 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-26 — ADR-101 Ops admin display — multi-assistant support
+
+### Scope
+
+Bounded Ops UI/API slice for ADR-101:
+
+- keep the User Directory table quiet by showing assistant count only for multi-assistant rows
+- add one assistant selector in the selected-user cockpit summary row
+- scope assistant-owned Ops cockpit blocks to the selected assistant
+- verify Plan Control ownership before labeling it assistant-scoped
+- do not touch setup preview or Prisma assistant repository hotfix files
+
+### What changed
+
+`GET /api/v1/admin/ops/cockpit` now accepts optional `assistantId` and returns a compact `assistant.assistants[]` selector list. The service defaults to the workspace member's active assistant when available and otherwise falls back to the first assistant for display; assistant-scoped reads such as runtime apply, chat stats, channel bindings, sandbox state, effective plan, and assistant override state use the selected assistant.
+
+`GET /api/v1/admin/ops/users` now includes `assistantCount`, letting the Admin Ops directory show `No assistant`, the existing single-assistant status, or `N assistants` without rendering a long assistant list in the table.
+
+The web cockpit top summary row now owns the single assistant selector/dropdown for multi-assistant users. The Assistant card remains compact, and Plan Control is labeled against the selected assistant because the code path writes `AssistantGovernance.assistantPlanOverrideCode` for a concrete assistant id; billing/subscription support stays workspace-level and visually separate.
+
+### Files / modules
+
+- `apps/api/src/modules/workspace-management/application/admin-ops-user-directory.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-admin-ops-cockpit.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-assistant-plan-override.service.ts`
+- `apps/api/src/modules/workspace-management/application/ops-cockpit.types.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-ops.controller.ts`
+- `apps/api/test/admin-ops-user-directory.service.test.ts`
+- `apps/api/test/resolve-admin-ops-cockpit.service.test.ts`
+- `apps/web/app/admin/ops/page.tsx`
+- `apps/web/app/admin/ops/page.test.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `packages/contracts/openapi.yaml`
+- generated `packages/contracts/src/generated/*`
+- `docs/API-BOUNDARY.md`
+- `docs/ADR/101-multi-assistant-workspace-model.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused checks passed:
+
+1. `corepack pnpm --filter @persai/contracts run generate`
+2. `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts`
+3. `corepack pnpm --filter @persai/api exec tsx test/admin-ops-user-directory.service.test.ts`
+4. `corepack pnpm --filter @persai/web exec vitest run --config vitest.config.ts app/admin/ops/page.test.tsx`
+5. `corepack pnpm --filter @persai/api run typecheck`
+6. `corepack pnpm --filter @persai/web run typecheck`
+7. `corepack pnpm -r --if-present run lint`
+8. `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Reapply remains the existing user-level Ops action; this slice did not redesign it into a per-assistant directory action.
+- Slice 8 still needs final cleanup of remaining legacy `findByUserId` residue outside this bounded Ops display work.
+
+### Next recommended step
+
+Run the remaining verification gate for touched API/web surfaces, then continue ADR-101 Slice 8 cleanup of temporary user-only assistant lookup bridges.
+
 ## 2026-05-26 — ADR-101 Slice 7 — live setup-preview stale image remediation
 
 ### Scope
@@ -17,11 +78,13 @@ Bounded live-remediation slice for the still-visible setup preview error:
 
 Cluster inspection showed API pods were running image `87325cb6`, and the TypeScript source inside that image already used `ResolveActiveAssistantService` for setup preview. The compiled runtime file at `apps/api/dist/apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.js` was stale and still called `assistantRepository.findByUserId(userId)`, so live setup preview kept throwing the multi-assistant ambiguity error.
 
-`apps/api/Dockerfile` now deletes `apps/api/dist` immediately before the API build and fails the image build if the compiled preview setup service is missing `ResolveActiveAssistantService` or still contains `findByUserId`.
+The initial Dockerfile guard was not enough because the API image path still used GitHub Actions Docker layer cache. The hotfix now keeps `findByUserId` behavior unchanged, disables Docker build cache for API image publishes, deletes and rebuilds `apps/api/dist` in one Docker layer, and runs the same compiled-preview assertion both during image build and at container startup. A stale compiled preview can no longer serve traffic: if the built JS lacks `ResolveActiveAssistantService` or still contains `findByUserId`, the image build or API process fails hard instead of returning a live 500.
 
 ### Files / modules
 
 - `apps/api/Dockerfile`
+- `apps/api/scripts/assert-compiled-preview-fresh.cjs`
+- `.github/workflows/dev-image-publish.yml`
 - `docs/CHANGELOG.md`
 - `docs/SESSION-HANDOFF.md`
 - `docs/ADR/101-multi-assistant-workspace-model.md`
@@ -33,7 +96,7 @@ Unrelated local web Slice 7 UX changes remain unpushed and should stay separate 
 Local checks passed:
 
 1. `Remove-Item -Recurse -Force apps/api/dist -ErrorAction SilentlyContinue; corepack pnpm --filter @persai/api run build`
-2. compiled preview sanity check: target JS exists, contains `ResolveActiveAssistantService`, and does not contain `findByUserId`
+2. `node apps/api/scripts/assert-compiled-preview-fresh.cjs`
 
 Live checks before the fix confirmed the failure source:
 
@@ -42,13 +105,13 @@ Live checks before the fix confirmed the failure source:
 
 ### Risks / residuals
 
-- The Dockerfile guard is not deployed until committed and pushed; live will keep failing setup preview until a new API image rolls out.
+- The Dockerfile/workflow/startup guard is not deployed until committed and pushed; live will keep failing setup preview until a new API image rolls out.
 - Slice 8 still needs final target-state cleanup of remaining legacy `findByUserId` call sites in non-hot-path/admin/billing support services.
-- After rollout, re-check the compiled preview file in the live pod and run the setup preview flow again.
+- After rollout, verify the API pod starts cleanly, re-check the compiled preview file in the live pod, and run the setup preview flow again.
 
 ### Next recommended step
 
-With founder approval, commit and push this API Dockerfile remediation separately from the pending web UX changes, wait for Dev Image Publish rollout, then verify the live compiled file and setup preview flow.
+With founder approval, commit and push this API build/startup remediation separately from the pending web UX changes, wait for Dev Image Publish rollout, then verify the live compiled file and setup preview flow.
 
 ## 2026-05-26 — ADR-101 Slice 6 — web shell switcher and assistant-scoped client state
 

@@ -33,6 +33,7 @@ import type {
   CloudpaymentsWebhookAck,
   CloudpaymentsWebhookNotificationType,
   DeleteAdminKnowledgeSourceResponse,
+  DeleteAdminOpsUserPlanOverrideParams,
   DeleteAdminSkillDocumentResponse,
   DeleteAdminSkillKnowledgeCardResponse,
   DeleteAdminSkillResponse,
@@ -6088,16 +6089,32 @@ export type deleteAdminOpsUserPlanOverrideResponse =
   | deleteAdminOpsUserPlanOverrideResponseSuccess
   | deleteAdminOpsUserPlanOverrideResponseError;
 
-export const getDeleteAdminOpsUserPlanOverrideUrl = (userId: string) => {
-  return `/admin/ops/users/${userId}/plan-override`;
+export const getDeleteAdminOpsUserPlanOverrideUrl = (
+  userId: string,
+  params?: DeleteAdminOpsUserPlanOverrideParams
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/ops/users/${userId}/plan-override?${stringifiedParams}`
+    : `/admin/ops/users/${userId}/plan-override`;
 };
 
 export const deleteAdminOpsUserPlanOverride = async (
   userId: string,
+  params?: DeleteAdminOpsUserPlanOverrideParams,
   options?: RequestInit
 ): Promise<deleteAdminOpsUserPlanOverrideResponse> => {
   return customFetch<deleteAdminOpsUserPlanOverrideResponse>(
-    getDeleteAdminOpsUserPlanOverrideUrl(userId),
+    getDeleteAdminOpsUserPlanOverrideUrl(userId, params),
     {
       ...options,
       method: "DELETE"

@@ -3915,6 +3915,11 @@ paths:
           required: false
           schema:
             type: string
+        - in: query
+          name: assistantId
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: Ops cockpit snapshot
@@ -4007,6 +4012,11 @@ paths:
           required: true
           schema:
             type: string
+        - in: query
+          name: assistantId
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: Override applied
@@ -4053,6 +4063,11 @@ paths:
         - in: path
           name: userId
           required: true
+          schema:
+            type: string
+        - in: query
+          name: assistantId
+          required: false
           schema:
             type: string
       responses:
@@ -12167,6 +12182,7 @@ components:
             - exists
             - assistantId
             - workspaceId
+            - assistants
             - effectivePlan
             - latestPublishedVersion
             - runtimeApply
@@ -12179,6 +12195,41 @@ components:
             workspaceId:
               type: string
               nullable: true
+            assistants:
+              type: array
+              items:
+                type: object
+                required:
+                  - id
+                  - draftDisplayName
+                  - applyStatus
+                  - latestPublishedVersion
+                  - lastPublishedAt
+                  - isActive
+                properties:
+                  id:
+                    type: string
+                  draftDisplayName:
+                    type: string
+                    nullable: true
+                  applyStatus:
+                    type: string
+                    enum:
+                      - not_requested
+                      - pending
+                      - in_progress
+                      - succeeded
+                      - failed
+                      - degraded
+                  latestPublishedVersion:
+                    type: integer
+                    nullable: true
+                  lastPublishedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  isActive:
+                    type: boolean
             effectivePlan:
               type: object
               required:
@@ -12705,6 +12756,7 @@ components:
         - displayName
         - createdAt
         - assistant
+        - assistantCount
         - billing
         - periodEconomics
       properties:
@@ -12747,6 +12799,9 @@ components:
                   type: string
                   format: date-time
                   nullable: true
+        assistantCount:
+          type: integer
+          minimum: 0
         periodEconomics:
           nullable: true
           allOf:

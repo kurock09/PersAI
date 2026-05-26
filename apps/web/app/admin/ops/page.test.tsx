@@ -119,6 +119,16 @@ function createOpsCockpitState(): AdminOpsCockpitState {
       exists: true,
       assistantId: "assistant-1",
       workspaceId: "ws-1",
+      assistants: [
+        {
+          id: "assistant-1",
+          draftDisplayName: "Ops Helper",
+          applyStatus: "succeeded",
+          latestPublishedVersion: 7,
+          lastPublishedAt: "2026-05-20T19:00:00.000Z",
+          isActive: true
+        }
+      ],
       effectivePlan: {
         code: "pro",
         source: "workspace_subscription",
@@ -316,13 +326,45 @@ describe("admin ops billing support actions", () => {
   it("renders the shared ledger coverage note and mixed-currency top rows", async () => {
     render(<AdminOpsPage />);
 
-    await waitFor(() =>
-      expect(apiMocks.getAdminOpsCockpit).toHaveBeenCalledWith("token-1", undefined)
-    );
+    await waitFor(() => expect(apiMocks.getAdminOpsCockpit).toHaveBeenCalledWith("token-1", {}));
 
     expect(screen.getByText("Period economics")).toBeInTheDocument();
     expect(screen.getByText("Ledger-backed Model Cost")).toBeInTheDocument();
     expect(screen.getByText("Coverage note from shared ledger payload.")).toBeInTheDocument();
     expect(screen.getAllByText("openai / gpt-4.1")).toHaveLength(2);
+  });
+
+  it("renders one assistant selector for multi-assistant cockpit rows", async () => {
+    apiMocks.getAdminOpsCockpit.mockResolvedValue({
+      ...createOpsCockpitState(),
+      assistant: {
+        ...createOpsCockpitState().assistant,
+        assistantId: "assistant-2",
+        assistants: [
+          {
+            id: "assistant-1",
+            draftDisplayName: "Ops Helper",
+            applyStatus: "succeeded",
+            latestPublishedVersion: 7,
+            lastPublishedAt: "2026-05-20T19:00:00.000Z",
+            isActive: false
+          },
+          {
+            id: "assistant-2",
+            draftDisplayName: "Sales Helper",
+            applyStatus: "in_progress",
+            latestPublishedVersion: 2,
+            lastPublishedAt: "2026-05-21T19:00:00.000Z",
+            isActive: true
+          }
+        ]
+      }
+    });
+
+    render(<AdminOpsPage />);
+
+    expect(await screen.findByDisplayValue("Sales Helper · v2")).toBeInTheDocument();
+    expect(screen.getByText("Assistant: Sales Helper")).toBeInTheDocument();
+    expect(screen.getByText("Plan Control: Sales Helper")).toBeInTheDocument();
   });
 });

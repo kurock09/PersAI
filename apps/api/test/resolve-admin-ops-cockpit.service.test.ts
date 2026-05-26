@@ -8,7 +8,6 @@ import type { ResolveEffectiveSubscriptionStateService } from "../src/modules/wo
 import type { TrackWorkspaceQuotaUsageService } from "../src/modules/workspace-management/application/track-workspace-quota-usage.service";
 import type { AssistantGovernanceRepository } from "../src/modules/workspace-management/domain/assistant-governance.repository";
 import type { AssistantPublishedVersionRepository } from "../src/modules/workspace-management/domain/assistant-published-version.repository";
-import type { AssistantRepository } from "../src/modules/workspace-management/domain/assistant.repository";
 import type { WorkspaceQuotaAccountingRepository } from "../src/modules/workspace-management/domain/workspace-quota-accounting.repository";
 import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 
@@ -19,24 +18,6 @@ function createService(
   }
 ): ResolveAdminOpsCockpitService {
   return new ResolveAdminOpsCockpitService(
-    {
-      async findByUserId(userId: string) {
-        assert.equal(userId, "user-1");
-        return {
-          id: "assistant-1",
-          userId,
-          workspaceId: "ws-1",
-          applyStatus: "succeeded",
-          applyTargetVersionId: "pub-target-1",
-          applyAppliedVersionId: "pub-applied-1",
-          applyRequestedAt: new Date("2026-04-19T09:10:00.000Z"),
-          applyStartedAt: new Date("2026-04-19T09:10:05.000Z"),
-          applyFinishedAt: new Date("2026-04-19T09:10:15.000Z"),
-          applyErrorCode: null,
-          applyErrorMessage: null
-        };
-      }
-    } as Pick<AssistantRepository, "findByUserId"> as AssistantRepository,
     {
       async findLatestByAssistantId(assistantId: string) {
         assert.equal(assistantId, "assistant-1");
@@ -239,6 +220,58 @@ async function run(): Promise<void> {
     startOfTodayUtc.setUTCHours(0, 0, 0, 0);
 
     const prisma = {
+      workspaceMember: {
+        async findFirst(args?: { where?: { userId?: string } }) {
+          assert.equal(args?.where?.userId, "user-1");
+          return {
+            workspaceId: "ws-1",
+            activeAssistantId: "assistant-1"
+          };
+        }
+      },
+      assistant: {
+        async findMany(args?: {
+          where?: { workspaceId?: string; userId?: string };
+          orderBy?: { createdAt: "asc" };
+        }) {
+          assert.equal(args?.where?.workspaceId, "ws-1");
+          assert.equal(args?.where?.userId, "user-1");
+          assert.deepEqual(args?.orderBy, { createdAt: "asc" });
+          return [
+            {
+              id: "assistant-1",
+              userId: "user-1",
+              workspaceId: "ws-1",
+              draftDisplayName: "Ops Helper",
+              draftInstructions: null,
+              draftTraits: null,
+              draftAvatarEmoji: null,
+              draftAvatarUrl: null,
+              draftAssistantGender: null,
+              draftVoiceProfile: null,
+              draftArchetypeKey: null,
+              draftUpdatedAt: null,
+              applyStatus: "succeeded",
+              applyTargetVersionId: "pub-target-1",
+              applyAppliedVersionId: "pub-applied-1",
+              applyRequestedAt: new Date("2026-04-19T09:10:00.000Z"),
+              applyStartedAt: new Date("2026-04-19T09:10:05.000Z"),
+              applyFinishedAt: new Date("2026-04-19T09:10:15.000Z"),
+              applyErrorCode: null,
+              applyErrorMessage: null,
+              configDirtyAt: null,
+              createdAt: new Date("2026-04-19T07:00:00.000Z"),
+              updatedAt: new Date("2026-04-19T07:00:00.000Z"),
+              publishedVersions: [
+                {
+                  version: 7,
+                  createdAt: new Date("2026-04-19T08:00:00.000Z")
+                }
+              ]
+            }
+          ];
+        }
+      },
       assistantChat: {
         async count(args?: {
           where?: {
@@ -560,6 +593,16 @@ async function run(): Promise<void> {
     const result = await service.execute("admin-1", "user-1");
 
     assert.equal(result.assistant.exists, true);
+    assert.deepEqual(result.assistant.assistants, [
+      {
+        id: "assistant-1",
+        draftDisplayName: "Ops Helper",
+        applyStatus: "succeeded",
+        latestPublishedVersion: 7,
+        lastPublishedAt: "2026-04-19T08:00:00.000Z",
+        isActive: true
+      }
+    ]);
     assert.equal(result.quotaUsage?.tokenBudgetUsed, 3200);
     assert.equal(result.quotaUsage?.tokenBudgetPeriodSource, "subscription_period");
     assert.deepEqual(result.quotaUsage?.monthlyMediaTools, [

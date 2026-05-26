@@ -3355,15 +3355,23 @@ export async function postAdminOpsUserPlanOverride(
   }
 }
 
-export async function deleteAdminOpsUserPlanOverride(token: string, userId: string): Promise<void> {
+export async function deleteAdminOpsUserPlanOverride(
+  token: string,
+  userId: string,
+  assistantId?: string | null
+): Promise<void> {
   try {
     const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.update");
-    const response = await deleteAdminOpsUserPlanOverrideContract(userId, {
-      headers: {
-        ...getAuthHeaders(token),
-        "x-persai-step-up-token": stepUpToken
+    const response = await deleteAdminOpsUserPlanOverrideContract(
+      userId,
+      assistantId ? { assistantId } : undefined,
+      {
+        headers: {
+          ...getAuthHeaders(token),
+          "x-persai-step-up-token": stepUpToken
+        }
       }
-    });
+    );
     if (!isSuccessStatus(response.status)) {
       throw new Error(
         "Unexpected non-success response for DELETE /admin/ops/users/{userId}/plan-override."

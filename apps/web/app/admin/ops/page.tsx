@@ -64,6 +64,7 @@ interface OpsUserRow {
     latestPublishedVersion: number | null;
     lastPublishedAt: string | null;
   } | null;
+  assistantCount: number;
   billing: {
     workspaceId: string | null;
     planCode: string | null;
@@ -221,6 +222,13 @@ function truncateId(value: string | null | undefined): string {
   if (value == null || value === "") return "—";
   if (value.length <= 12) return value;
   return `${value.slice(0, 8)}…${value.slice(-4)}`;
+}
+
+function formatAssistantLabel(
+  assistant: AdminOpsCockpitState["assistant"]["assistants"][number] | null | undefined
+): string {
+  if (!assistant) return "No assistant";
+  return assistant.draftDisplayName?.trim() || truncateId(assistant.id);
 }
 
 function applyStatusBorderTone(status: ApplyStatus): string {
@@ -980,7 +988,11 @@ function UsersDirectory({
                         : "—"}
                     </td>
                     <td className="py-1.5 pr-2">
-                      {u.assistant ? (
+                      {u.assistantCount > 1 ? (
+                        <span className="text-[10px] font-semibold text-text-muted">
+                          {u.assistantCount} assistants
+                        </span>
+                      ) : u.assistant ? (
                         <div className="flex items-center gap-1.5">
                           <span
                             className={cn(
@@ -1104,8 +1116,15 @@ function UsersDirectory({
 /*  Main Page                                                          */
 /* ------------------------------------------------------------------ */
 
-async function fetchCockpit(token: string, userId?: string): Promise<AdminOpsCockpitState> {
-  return await getAdminOpsCockpit(token, userId ? { userId } : undefined);
+async function fetchCockpit(
+  token: string,
+  userId?: string,
+  assistantId?: string
+): Promise<AdminOpsCockpitState> {
+  return await getAdminOpsCockpit(token, {
+    ...(userId ? { userId } : {}),
+    ...(assistantId ? { assistantId } : {})
+  });
 }
 
 export default function AdminOpsPage() {
@@ -1130,9 +1149,20 @@ export default function AdminOpsPage() {
     useState<ManualPaidBillingPeriod>("month");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUserLabel, setSelectedUserLabel] = useState<string | null>(null);
+  const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
   const [usersReloadNonce, setUsersReloadNonce] = useState(0);
   const selectedUserIdRef = useRef<string | null>(null);
   selectedUserIdRef.current = selectedUserId;
+  const selectedAssistantIdRef = useRef<string | null>(null);
+  selectedAssistantIdRef.current = selectedAssistantId;
+  const selectedAssistant = useMemo(
+    () =>
+      cockpit?.assistant.assistants.find(
+        (assistant) => assistant.id === cockpit.assistant.assistantId
+      ) ?? null,
+    [cockpit?.assistant.assistantId, cockpit?.assistant.assistants]
+  );
+  const selectedAssistantLabel = formatAssistantLabel(selectedAssistant);
   const planControlOptions = useMemo(
     () =>
       resolvePlanControlOptions(
@@ -1169,7 +1199,7 @@ export default function AdminOpsPage() {
     ).length ?? 0;
 
   const load = useCallback(
-    async (targetUserId?: string) => {
+    async (targetUserId?: string, targetAssistantId?: string | null) => {
       const token = await getToken();
       if (!token) {
         setLoadError("Not signed in.");
@@ -1184,11 +1214,13 @@ export default function AdminOpsPage() {
       else setLoading(true);
       try {
         const activeTarget = targetUserId ?? selectedUserIdRef.current ?? undefined;
+        const activeAssistant = targetAssistantId ?? selectedAssistantIdRef.current ?? undefined;
         const [nextCockpit, nextPlans] = await Promise.all([
-          fetchCockpit(token, activeTarget),
+          fetchCockpit(token, activeTarget, activeAssistant ?? undefined),
           getAdminPlans(token)
         ]);
         setCockpit(nextCockpit);
+        setSelectedAssistantId(nextCockpit.assistant.assistantId);
         setPlans(nextPlans);
       } catch (e) {
         setCockpit(null);
@@ -1230,9 +1262,21 @@ export default function AdminOpsPage() {
       setPlanSelectionDirty(false);
       setManualPaymentPlanCode("");
       setManualPaymentBillingPeriod("month");
+      setSelectedAssistantId(null);
       void load(userId);
     },
     [load]
+  );
+
+  const onSelectAssistant = useCallback(
+    (assistantId: string) => {
+      setSelectedAssistantId(assistantId);
+      setActionMessage(null);
+      setPendingBillingSupportAction(null);
+      setPlanSelectionDirty(false);
+      void load(selectedUserId ?? undefined, assistantId);
+    },
+    [load, selectedUserId]
   );
 
   const onReapply = useCallback(async () => {
@@ -1286,7 +1330,10 @@ export default function AdminOpsPage() {
     setPlanOverrideBusy(true);
     setActionMessage(null);
     try {
-      await postAdminOpsUserPlanOverride(token, selectedUserId, { planCode: selectedPlanCode });
+      await postAdminOpsUserPlanOverride(token, selectedUserId, {
+        planCode: selectedPlanCode,
+        ...(cockpit.assistant.assistantId ? { assistantId: cockpit.assistant.assistantId } : {})
+      });
       setActionMessage("Assistant test override applied.");
       await load(selectedUserId);
     } catch (e) {
@@ -1296,6 +1343,7 @@ export default function AdminOpsPage() {
     }
   }, [
     cockpit?.controls.assistantPlanOverrideSupported,
+    cockpit?.assistant.assistantId,
     getToken,
     load,
     selectedPlanCode,
@@ -1315,7 +1363,7 @@ export default function AdminOpsPage() {
     setPlanOverrideBusy(true);
     setActionMessage(null);
     try {
-      await deleteAdminOpsUserPlanOverride(token, selectedUserId);
+      await deleteAdminOpsUserPlanOverride(token, selectedUserId, cockpit.assistant.assistantId);
       setActionMessage("Assistant returned to normal billing plan resolution.");
       await load(selectedUserId);
     } catch (e) {
@@ -1323,7 +1371,13 @@ export default function AdminOpsPage() {
     } finally {
       setPlanOverrideBusy(false);
     }
-  }, [cockpit?.controls.assistantPlanResetSupported, getToken, load, selectedUserId]);
+  }, [
+    cockpit?.assistant.assistantId,
+    cockpit?.controls.assistantPlanResetSupported,
+    getToken,
+    load,
+    selectedUserId
+  ]);
 
   const onRunBillingSupportAction = useCallback(async () => {
     if (!selectedUserId) {
@@ -1517,12 +1571,30 @@ export default function AdminOpsPage() {
                 />
               </div>
               <div className="flex min-w-0 items-center gap-2 rounded border border-border/45 bg-surface-raised px-2 py-1 text-[10px]">
-                <span className="uppercase tracking-wide text-text-subtle">Assistant ID</span>
-                <CopyableInlineValue
-                  label="Assistant ID"
-                  value={truncateId(cockpit.assistant.assistantId)}
-                  copyValue={cockpit.assistant.assistantId}
-                />
+                <span className="uppercase tracking-wide text-text-subtle">Assistant</span>
+                {cockpit.assistant.assistants.length > 1 ? (
+                  <select
+                    value={cockpit.assistant.assistantId ?? ""}
+                    onChange={(event) => onSelectAssistant(event.target.value)}
+                    disabled={refreshing}
+                    className="h-7 max-w-[220px] rounded border border-border bg-bg px-2 text-[10px] text-text outline-none transition-colors focus:border-accent/40 disabled:opacity-50"
+                  >
+                    {cockpit.assistant.assistants.map((assistant) => (
+                      <option key={assistant.id} value={assistant.id}>
+                        {formatAssistantLabel(assistant)}
+                        {assistant.latestPublishedVersion !== null
+                          ? ` · v${assistant.latestPublishedVersion}`
+                          : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <CopyableInlineValue
+                    label="Assistant ID"
+                    value={selectedAssistantLabel}
+                    copyValue={cockpit.assistant.assistantId}
+                  />
+                )}
               </div>
             </div>
           </section>
@@ -2097,7 +2169,12 @@ export default function AdminOpsPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1fr)]">
-            <CardShell title="Plan Control" icon={Users} tone="muted" compact>
+            <CardShell
+              title={`Plan Control: ${selectedAssistantLabel}`}
+              icon={Users}
+              tone="muted"
+              compact
+            >
               <p className="text-[11px] leading-relaxed text-text-muted">
                 Use assistant-level override only for tester and support routing. `Reset to normal`
                 returns resolution to the regular subscription chain.
@@ -2175,7 +2252,12 @@ export default function AdminOpsPage() {
               </div>
             </CardShell>
 
-            <CardShell title="Assistant" icon={Bot} tone="muted" compact>
+            <CardShell
+              title={`Assistant: ${selectedAssistantLabel}`}
+              icon={Bot}
+              tone="muted"
+              compact
+            >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-text-muted">Exists</span>
                 <span

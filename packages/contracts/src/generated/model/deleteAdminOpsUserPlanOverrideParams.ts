@@ -5,7 +5,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PostAdminOpsUserPlanOverrideParams = {
-  planCode: string;
+export type DeleteAdminOpsUserPlanOverrideParams = {
   assistantId?: string;
 };

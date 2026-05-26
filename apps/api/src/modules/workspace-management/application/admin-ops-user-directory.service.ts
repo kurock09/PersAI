@@ -21,6 +21,7 @@ export interface AdminOpsUserRow {
     latestPublishedVersion: number | null;
     lastPublishedAt: string | null;
   } | null;
+  assistantCount: number;
   billing: {
     workspaceId: string | null;
     planCode: string | null;
@@ -89,6 +90,11 @@ export class AdminOpsUserDirectoryService {
               }
             }
           },
+          _count: {
+            select: {
+              assistants: true
+            }
+          },
           workspaceLinks: {
             orderBy: { createdAt: "asc" as const },
             take: 1,
@@ -147,6 +153,7 @@ export class AdminOpsUserDirectoryService {
                 lastPublishedAt: a.publishedVersions[0]?.createdAt?.toISOString() ?? null
               }
             : null,
+          assistantCount: u._count.assistants,
           billing: {
             workspaceId: workspaceLink?.workspaceId ?? null,
             planCode: subscription?.planCode ?? null,

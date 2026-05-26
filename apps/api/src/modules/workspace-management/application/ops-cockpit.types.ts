@@ -128,6 +128,15 @@ export type AdminOpsCockpitSandbox = {
   recentJobs: AdminOpsCockpitSandboxJob[];
 };
 
+export type AdminOpsCockpitAssistantOption = {
+  id: string;
+  draftDisplayName: string | null;
+  applyStatus: "not_requested" | "pending" | "in_progress" | "succeeded" | "failed" | "degraded";
+  latestPublishedVersion: number | null;
+  lastPublishedAt: string | null;
+  isActive: boolean;
+};
+
 export type AdminOpsCockpitState = {
   quotaUsage: AdminOpsCockpitQuotaUsage | null;
   billingSupport: AdminOpsCockpitBillingSupport | null;
@@ -140,6 +149,7 @@ export type AdminOpsCockpitState = {
     exists: boolean;
     assistantId: string | null;
     workspaceId: string | null;
+    assistants: AdminOpsCockpitAssistantOption[];
     effectivePlan: {
       code: string | null;
       source:

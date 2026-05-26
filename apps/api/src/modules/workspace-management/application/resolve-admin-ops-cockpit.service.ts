@@ -1,10 +1,9 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.service";
 import type {
@@ -14,7 +13,8 @@ import type {
   AdminOpsCockpitChannelBinding,
   AdminOpsCockpitChatStats,
   AdminOpsCockpitSandbox,
-  AdminOpsCockpitSandboxJobResourceUsage
+  AdminOpsCockpitSandboxJobResourceUsage,
+  AdminOpsCockpitAssistantOption
 } from "./ops-cockpit.types";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import {
@@ -31,6 +31,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { resolveStoredPlanSandboxPolicy } from "./sandbox-policy";
 import { readWorkspacePeriodEconomics } from "./admin-ops-period-economics";
 import { readAdminModelCostLedgerWindow } from "./model-cost-ledger-read-model";
+import type { Assistant } from "../domain/assistant.entity";
 
 function asIso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
@@ -42,11 +43,13 @@ function asObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+type AdminOpsAssistantRow = Assistant & {
+  publishedVersions: Array<{ version: number; createdAt: Date }>;
+};
+
 @Injectable()
 export class ResolveAdminOpsCockpitService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
@@ -61,11 +64,20 @@ export class ResolveAdminOpsCockpitService {
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
-  async execute(callerUserId: string, targetUserId?: string): Promise<AdminOpsCockpitState> {
+  async execute(
+    callerUserId: string,
+    targetUserId?: string,
+    selectedAssistantId?: string
+  ): Promise<AdminOpsCockpitState> {
     await this.adminAuthorizationService.assertCanReadAdminSurface(callerUserId);
     const lookupUserId = targetUserId ?? callerUserId;
     const config = loadApiConfig(process.env);
-    const assistant = await this.assistantRepository.findByUserId(lookupUserId);
+    const assistantContext = await this.resolveTargetAssistantContext(
+      lookupUserId,
+      selectedAssistantId
+    );
+    const assistant = assistantContext.assistant;
+    const assistantOptions = assistantContext.assistantOptions;
     const governance =
       assistant === null
         ? null
@@ -115,6 +127,7 @@ export class ResolveAdminOpsCockpitService {
           exists: false,
           assistantId: null,
           workspaceId: null,
+          assistants: assistantOptions,
           effectivePlan: {
             code: null,
             source: "none",
@@ -212,6 +225,7 @@ export class ResolveAdminOpsCockpitService {
         exists: true,
         assistantId: assistant.id,
         workspaceId: assistant.workspaceId,
+        assistants: assistantOptions,
         effectivePlan: {
           code: effectiveSubscription?.planCode ?? null,
           source: effectiveSubscription?.source ?? "none",
@@ -253,6 +267,105 @@ export class ResolveAdminOpsCockpitService {
       },
       incidentSignals,
       updatedAt: new Date().toISOString()
+    };
+  }
+
+  private async resolveTargetAssistantContext(
+    userId: string,
+    selectedAssistantId?: string
+  ): Promise<{
+    assistant: AdminOpsAssistantRow | null;
+    assistantOptions: AdminOpsCockpitAssistantOption[];
+  }> {
+    const membership = await this.prisma.workspaceMember.findFirst({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        workspaceId: true,
+        activeAssistantId: true
+      }
+    });
+    if (membership === null) {
+      return {
+        assistant: null,
+        assistantOptions: []
+      };
+    }
+
+    const assistants = (await this.prisma.assistant.findMany({
+      where: {
+        workspaceId: membership.workspaceId,
+        userId
+      },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        userId: true,
+        workspaceId: true,
+        draftDisplayName: true,
+        draftInstructions: true,
+        draftTraits: true,
+        draftAvatarEmoji: true,
+        draftAvatarUrl: true,
+        draftAssistantGender: true,
+        draftVoiceProfile: true,
+        draftArchetypeKey: true,
+        draftUpdatedAt: true,
+        applyStatus: true,
+        applyTargetVersionId: true,
+        applyAppliedVersionId: true,
+        applyRequestedAt: true,
+        applyStartedAt: true,
+        applyFinishedAt: true,
+        applyErrorCode: true,
+        applyErrorMessage: true,
+        configDirtyAt: true,
+        createdAt: true,
+        updatedAt: true,
+        publishedVersions: {
+          orderBy: { version: "desc" },
+          take: 1,
+          select: {
+            version: true,
+            createdAt: true
+          }
+        }
+      }
+    })) as AdminOpsAssistantRow[];
+
+    if (assistants.length === 0) {
+      return {
+        assistant: null,
+        assistantOptions: []
+      };
+    }
+
+    const requestedAssistantId = selectedAssistantId?.trim() || null;
+    const selected =
+      (requestedAssistantId !== null
+        ? assistants.find((candidate) => candidate.id === requestedAssistantId)
+        : null) ??
+      (membership.activeAssistantId !== null
+        ? assistants.find((candidate) => candidate.id === membership.activeAssistantId)
+        : null) ??
+      assistants[0] ??
+      null;
+
+    if (requestedAssistantId !== null && selected?.id !== requestedAssistantId) {
+      throw new NotFoundException("Assistant does not exist for this target user's workspace.");
+    }
+
+    const selectedId = selected?.id ?? null;
+    return {
+      assistant: selected,
+      assistantOptions: assistants.map((candidate) => ({
+        id: candidate.id,
+        draftDisplayName: candidate.draftDisplayName,
+        applyStatus: candidate.applyStatus,
+        latestPublishedVersion: candidate.publishedVersions[0]?.version ?? null,
+        lastPublishedAt: candidate.publishedVersions[0]?.createdAt.toISOString() ?? null,
+        isActive: candidate.id === selectedId
+      }))
     };
   }
 

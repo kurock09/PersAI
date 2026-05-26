@@ -16,6 +16,8 @@ export interface AdminOpsUserRow {
   createdAt: string;
   /** @nullable */
   assistant: AdminOpsUserRowAssistant;
+  /** @minimum 0 */
+  assistantCount: number;
   /** @nullable */
   periodEconomics: AdminOpsUserRowPeriodEconomics;
   billing: AdminOpsUserRowBilling;

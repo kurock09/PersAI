@@ -12,7 +12,8 @@ Implementation progress:
 - Slice 4 (`Chat and runtime entry points`) implemented on 2026-05-26.
 - Slice 5 (`Assistant-scoped surfaces`) implemented on 2026-05-26.
 - Slice 6 (`Web shell and switcher`) implemented on 2026-05-26.
-- Slice 7 (`Live validation and rollout checkpoint`) is in progress on 2026-05-26; the first live remediation added an API image guard after `persai-dev` proved the setup-preview source was fixed but stale compiled `dist` still called `findByUserId`.
+- Slice 7 (`Live validation and rollout checkpoint`) is in progress on 2026-05-26; live remediation keeps `findByUserId` unchanged and hardens the API image/start path after `persai-dev` proved the setup-preview source was fixed but stale compiled `dist` still called `findByUserId`. API image publishes now bypass Docker cache, rebuild `apps/api/dist` in one layer, and assert the compiled preview service at build and startup.
+- Ops admin display support implemented on 2026-05-26: Admin Ops directory now shows compact assistant count for multi-assistant rows, cockpit accepts optional `assistantId`, returns a compact assistant selector list, and scopes assistant-owned cockpit blocks/Plan Control to the selected assistant while keeping billing/subscription support workspace-level.
 - Slice 8 remains open; ADR-101 must not be called complete until the final cleanup removes temporary single-assistant assumptions such as `findByUserId` hot-path resolution.
 
 ## Date
@@ -597,6 +598,7 @@ Minimum focused proof:
 - memory A is absent from memory B
 - fileRef A cannot be used by B
 - Telegram UI bind targets selected assistant
+- Admin Ops cockpit can switch selected assistant without showing a long assistant list in the directory or Assistant card
 - billing/subscription remains workspace-scoped through assistant switching
 - notification dedupe does not cross-suppress assistant-specific events
 

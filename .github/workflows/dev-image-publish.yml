@@ -147,6 +147,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           build-args: ${{ steps.build-args.outputs.build_args }}
+          no-cache: ${{ matrix.service == 'api' }}
           tags: |
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.service }}:${{ github.sha }}
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.service }}:${{ env.MAIN_TAG }}

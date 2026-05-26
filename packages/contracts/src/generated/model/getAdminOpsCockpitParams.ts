@@ -7,4 +7,5 @@
 
 export type GetAdminOpsCockpitParams = {
   userId?: string;
+  assistantId?: string;
 };

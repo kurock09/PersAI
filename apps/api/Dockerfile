@@ -17,13 +17,13 @@ RUN pnpm --filter @persai/types run build
 RUN pnpm --filter @persai/logger run build
 RUN pnpm --filter @persai/config run build
 RUN pnpm --filter @persai/api run prisma:generate
-RUN rm -rf apps/api/dist
-RUN pnpm --filter @persai/api run build
-RUN test -f /workspace/apps/api/dist/apps/api/src/main.js \
-  && node -e 'const fs = require("node:fs"); const file = "/workspace/apps/api/dist/apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.js"; if (!fs.existsSync(file)) { throw new Error(`Missing compiled preview setup service: ${file}`); } const text = fs.readFileSync(file, "utf8"); if (!text.includes("ResolveActiveAssistantService")) { throw new Error("Compiled preview setup service is missing ResolveActiveAssistantService."); } if (text.includes("findByUserId")) { throw new Error("Compiled preview setup service still references findByUserId."); }'
+RUN rm -rf apps/api/dist \
+  && pnpm --filter @persai/api run build \
+  && test -f /workspace/apps/api/dist/apps/api/src/main.js \
+  && node /workspace/apps/api/scripts/assert-compiled-preview-fresh.cjs
 
 WORKDIR /workspace/apps/api
 
 EXPOSE 3001
 
-CMD ["node", "dist/apps/api/src/main.js"]
+CMD ["sh", "-c", "node scripts/assert-compiled-preview-fresh.cjs && exec node dist/apps/api/src/main.js"]

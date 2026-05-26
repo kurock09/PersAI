@@ -47,14 +47,20 @@ export class AdminOpsController {
   @Get("cockpit")
   async getOpsCockpit(
     @Req() req: RequestWithPlatformContext,
-    @Query("userId") targetUserId?: string
+    @Query("userId") targetUserId?: string,
+    @Query("assistantId") assistantId?: string
   ): Promise<{
     requestId: string | null;
     cockpit: AdminOpsCockpitState;
   }> {
     const callerId = this.resolveRequestUserId(req);
     const trimmedTarget = targetUserId?.trim() || undefined;
-    const cockpit = await this.resolveAdminOpsCockpitService.execute(callerId, trimmedTarget);
+    const trimmedAssistantId = assistantId?.trim() || undefined;
+    const cockpit = await this.resolveAdminOpsCockpitService.execute(
+      callerId,
+      trimmedTarget,
+      trimmedAssistantId
+    );
     return {
       requestId: req.requestId ?? null,
       cockpit
@@ -104,7 +110,8 @@ export class AdminOpsController {
   async setPlanOverride(
     @Req() req: RequestWithPlatformContext,
     @Param("userId") targetUserId: string,
-    @Query("planCode") planCode?: string
+    @Query("planCode") planCode?: string,
+    @Query("assistantId") assistantId?: string
   ): Promise<{ requestId: string | null; ok: boolean }> {
     const callerId = this.resolveRequestUserId(req);
     if (!targetUserId || targetUserId.trim().length === 0) {
@@ -118,7 +125,8 @@ export class AdminOpsController {
       callerId,
       targetUserId.trim(),
       trimmedPlanCode,
-      this.resolveStepUpToken(req)
+      this.resolveStepUpToken(req),
+      assistantId?.trim() || undefined
     );
     return { requestId: req.requestId ?? null, ok: true };
   }
@@ -127,7 +135,8 @@ export class AdminOpsController {
   @HttpCode(200)
   async resetPlanOverride(
     @Req() req: RequestWithPlatformContext,
-    @Param("userId") targetUserId: string
+    @Param("userId") targetUserId: string,
+    @Query("assistantId") assistantId?: string
   ): Promise<{ requestId: string | null; ok: boolean }> {
     const callerId = this.resolveRequestUserId(req);
     if (!targetUserId || targetUserId.trim().length === 0) {
@@ -136,7 +145,8 @@ export class AdminOpsController {
     await this.manageAdminAssistantPlanOverrideService.resetOverride(
       callerId,
       targetUserId.trim(),
-      this.resolveStepUpToken(req)
+      this.resolveStepUpToken(req),
+      assistantId?.trim() || undefined
     );
     return { requestId: req.requestId ?? null, ok: true };
   }
