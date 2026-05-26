@@ -31,6 +31,17 @@ async function run(): Promise<void> {
           }
           return null;
         },
+        findFirst: async ({
+          where
+        }: {
+          where: { userId?: string };
+          orderBy: { createdAt: "asc" | "desc" };
+        }) => {
+          if (where.userId === "user-new") {
+            return null;
+          }
+          return null;
+        },
         update: async () => ({
           id: "assistant-1",
           userId: "user-new",
