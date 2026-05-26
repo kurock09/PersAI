@@ -11,7 +11,6 @@ import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import {
   MaterializeAssistantPublishedVersionService,
@@ -72,8 +71,6 @@ const PREVIEW_MATERIALIZATION_ALGORITHM_VERSION = 1;
 @Injectable()
 export class PreviewAssistantSetupService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,

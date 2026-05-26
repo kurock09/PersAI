@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { afterEach } from "node:test";
 import { PreviewAssistantSetupService } from "../src/modules/workspace-management/application/preview-assistant-setup.service";
 import type { AssistantPublishedVersionRepository } from "../src/modules/workspace-management/domain/assistant-published-version.repository";
-import type { AssistantRepository } from "../src/modules/workspace-management/domain/assistant.repository";
 import type { Assistant } from "../src/modules/workspace-management/domain/assistant.entity";
 import type { AssistantPublishedVersion } from "../src/modules/workspace-management/domain/assistant-published-version.entity";
 import type { MaterializeAssistantPublishedVersionService } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
@@ -74,10 +73,6 @@ async function run(): Promise<void> {
   const deletedPublishedVersions: string[] = [];
   const previewVersionId = "preview-pub-8";
   const previewSpecId = "preview-spec-8";
-
-  const assistantRepository = {
-    findById: async () => assistant
-  } as AssistantRepository;
 
   const publishedVersionRepository: AssistantPublishedVersionRepository = {
     create: async () => ({
@@ -231,7 +226,6 @@ async function run(): Promise<void> {
 
   try {
     const service = new PreviewAssistantSetupService(
-      assistantRepository,
       publishedVersionRepository,
       materializeService,
       prisma,

@@ -40,11 +40,6 @@ async function run(): Promise<void> {
 
   const service = new ManageAssistantBillingSubscriptionService(
     {
-      async findByUserId() {
-        return { id: "assistant-1", workspaceId: "ws-1" };
-      }
-    } as never,
-    {
       async findByCode(code: string) {
         return code === "pro"
           ? { code, displayName: "Pro" }
@@ -152,6 +147,17 @@ async function run(): Promise<void> {
           };
         }
         return { status: "applied", billingEventId: "billing-event-1" };
+      }
+    } as never,
+    {
+      async execute({ userId }: { userId: string }) {
+        assert.equal(userId, "user-1");
+        return {
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "ws-1"
+          }
+        };
       }
     } as never,
     {

@@ -2,14 +2,13 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from "@nes
 import type { Prisma } from "@prisma/client";
 import { ASSISTANT_PLAN_CATALOG_REPOSITORY } from "../domain/assistant-plan-catalog.repository";
 import type { AssistantPlanCatalogRepository } from "../domain/assistant-plan-catalog.repository";
-import { ASSISTANT_REPOSITORY } from "../domain/assistant.repository";
-import type { AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ApplyWorkspaceSubscriptionBillingEventService } from "./apply-workspace-subscription-billing-event.service";
 import { BILLING_PROVIDER_PORT, type BillingProviderPort } from "./billing-provider.port";
 import { ManageAdminPlansService } from "./manage-admin-plans.service";
 import { ManageAssistantPaymentIntentsService } from "./manage-assistant-payment-intents.service";
 import { ManageWorkspaceSubscriptionLifecycleService } from "./manage-workspace-subscription-lifecycle.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 type PublicPricingPlanState = Awaited<
   ReturnType<ManageAdminPlansService["listPublicPricingPlans"]>
@@ -284,8 +283,6 @@ function canSchedulePaidDowngrade(
 @Injectable()
 export class ManageAssistantBillingSubscriptionService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
     private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository,
     private readonly manageAdminPlansService: ManageAdminPlansService,
@@ -293,6 +290,7 @@ export class ManageAssistantBillingSubscriptionService {
     private readonly manageAssistantPaymentIntentsService: ManageAssistantPaymentIntentsService,
     private readonly manageWorkspaceSubscriptionLifecycleService: ManageWorkspaceSubscriptionLifecycleService,
     private readonly applyWorkspaceSubscriptionBillingEventService: ApplyWorkspaceSubscriptionBillingEventService,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(BILLING_PROVIDER_PORT)
     private readonly billingProviderPort: BillingProviderPort
   ) {}
@@ -780,10 +778,7 @@ export class ManageAssistantBillingSubscriptionService {
     } | null;
     planDisplayName: string | null;
   }> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
     const subscription = await this.prisma.workspaceSubscription.findUnique({
       where: { workspaceId: assistant.workspaceId },
       select: {
