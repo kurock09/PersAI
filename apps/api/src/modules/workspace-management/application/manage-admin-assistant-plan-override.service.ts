@@ -1,22 +1,21 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
   type AssistantPlanCatalogRepository
 } from "../domain/assistant-plan-catalog.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 @Injectable()
 export class ManageAdminAssistantPlanOverrideService {
   constructor(
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
@@ -46,9 +45,6 @@ export class ManageAdminAssistantPlanOverrideService {
     }
 
     const assistant = await this.resolveTargetAssistant(trimmedUserId, assistantId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant not found for target user.");
-    }
 
     const plan = await this.assistantPlanCatalogRepository.findByCode(trimmedPlanCode);
     if (plan === null || plan.status !== "active") {
@@ -80,9 +76,6 @@ export class ManageAdminAssistantPlanOverrideService {
     }
 
     const assistant = await this.resolveTargetAssistant(trimmedUserId, assistantId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant not found for target user.");
-    }
 
     await this.assistantGovernanceRepository.setAssistantPlanOverride(assistant.id, null);
     await this.markAssistantConfigDirty(assistant.id);
@@ -92,29 +85,14 @@ export class ManageAdminAssistantPlanOverrideService {
   private async resolveTargetAssistant(
     userId: string,
     assistantId?: string | null
-  ): Promise<{ id: string } | null> {
+  ): Promise<{ id: string }> {
     const trimmedAssistantId = assistantId?.trim() || null;
-    if (trimmedAssistantId === null) {
-      return await this.assistantRepository.findByUserId(userId);
-    }
-
-    const membership = await this.prisma.workspaceMember.findFirst({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-      select: { workspaceId: true }
-    });
-    if (membership === null) {
-      return null;
-    }
-
-    return await this.prisma.assistant.findFirst({
-      where: {
-        id: trimmedAssistantId,
+    return (
+      await this.resolveActiveAssistantService.execute({
         userId,
-        workspaceId: membership.workspaceId
-      },
-      select: { id: true }
-    });
+        assistantId: trimmedAssistantId
+      })
+    ).assistant;
   }
 
   private async markAssistantConfigDirty(assistantId: string): Promise<void> {

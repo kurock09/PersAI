@@ -14,7 +14,7 @@ Implementation progress:
 - Slice 6 (`Web shell and switcher`) implemented on 2026-05-26.
 - Slice 7 (`Live validation and rollout checkpoint`) is in progress on 2026-05-26; live remediation keeps `findByUserId` unchanged and hardens the API image/start path after `persai-dev` proved the setup-preview source was fixed but stale compiled `dist` still called `findByUserId`. API image publishes now bypass Docker cache, rebuild `apps/api/dist` in one layer, and assert the compiled preview service at build and startup.
 - Ops admin display support implemented on 2026-05-26: Admin Ops directory now shows compact assistant count for multi-assistant rows, cockpit accepts optional `assistantId`, returns a compact assistant selector list, and scopes assistant-owned cockpit blocks/Plan Control to the selected assistant while keeping billing/subscription support workspace-level.
-- Slice 8 remains open; ADR-101 must not be called complete until the final cleanup removes temporary single-assistant assumptions such as `findByUserId` hot-path resolution.
+- Slice 8 active product/admin hot-path cleanup implemented on 2026-05-26: plan visibility, payment intents, media package checkout, Admin Plan Control, Admin workspace subscription, and Ops billing support now resolve active assistant/workspace context instead of `findByUserId`; a source guard prevents new active-source callers. `findByUserId` remains only as an honest legacy repository/interface method for now.
 
 ## Date
 
@@ -563,6 +563,13 @@ Goal:
 - remove all temporary bridges and legacy single-assistant assumptions
 - delete dead tests/helpers/types introduced only for migration
 - update docs to target-state truth
+
+2026-05-26 implementation checkpoint:
+
+- Active product/admin source files no longer call `AssistantRepository.findByUserId`; only the repository contract and Prisma implementation keep the method as an honest legacy bridge.
+- Plan visibility uses `ResolveActiveAssistantService`, so `/api/v1/assistant/plan-visibility` reads the selected active assistant/workspace plan, quota, media, package-offer, and entitlement truth for multi-assistant users.
+- Payment intent creation/read, media package checkout, Admin Plan Control, Admin workspace subscription edits, and Ops billing-support actions now resolve workspace context through the active assistant resolver instead of a user-only assistant lookup.
+- `apps/api/test/adr101-find-by-userid-guard.test.ts` is the guard against reintroducing active source callers.
 
 Required cleanup commands/checks:
 

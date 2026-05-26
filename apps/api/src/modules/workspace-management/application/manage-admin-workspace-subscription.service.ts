@@ -1,7 +1,6 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import type { BillingProviderSubscriptionSnapshot } from "./billing-provider.port";
 import { AdminAuthorizationService } from "./admin-authorization.service";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   WORKSPACE_SUBSCRIPTION_REPOSITORY,
   type WorkspaceSubscriptionRepository
@@ -19,6 +18,7 @@ import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
 import { ApplyWorkspaceSubscriptionBillingEventService } from "./apply-workspace-subscription-billing-event.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import { MaterializationRolloutService } from "./materialization-rollout.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 const WORKSPACE_SUBSCRIPTION_STATUSES: readonly WorkspaceSubscriptionStatus[] = [
   "trialing",
@@ -51,8 +51,7 @@ export type AdminWorkspaceSubscriptionInput = {
 export class ManageAdminWorkspaceSubscriptionService {
   constructor(
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(WORKSPACE_SUBSCRIPTION_REPOSITORY)
     private readonly workspaceSubscriptionRepository: WorkspaceSubscriptionRepository,
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
@@ -127,7 +126,7 @@ export class ManageAdminWorkspaceSubscriptionService {
       "admin.plan.update",
       stepUpToken
     );
-    const assistant = await this.requireAssistantByUserId(targetUserId);
+    const assistant = await this.requireActiveAssistantForUser(targetUserId);
     const snapshot = await this.toSnapshotWithTrialDefaults(assistant.workspaceId, input);
     const current = await this.workspaceSubscriptionRepository.findByWorkspaceId(
       assistant.workspaceId
@@ -189,7 +188,7 @@ export class ManageAdminWorkspaceSubscriptionService {
       "admin.plan.update",
       stepUpToken
     );
-    const assistant = await this.requireAssistantByUserId(targetUserId);
+    const assistant = await this.requireActiveAssistantForUser(targetUserId);
     const current = await this.workspaceSubscriptionRepository.findByWorkspaceId(
       assistant.workspaceId
     );
@@ -211,16 +210,12 @@ export class ManageAdminWorkspaceSubscriptionService {
     return { ok: true, changed: true, workspaceId: assistant.workspaceId };
   }
 
-  private async requireAssistantByUserId(targetUserId: string) {
+  private async requireActiveAssistantForUser(targetUserId: string) {
     const trimmedUserId = targetUserId.trim();
     if (trimmedUserId.length === 0) {
       throw new BadRequestException("userId is required.");
     }
-    const assistant = await this.assistantRepository.findByUserId(trimmedUserId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant not found for target user.");
-    }
-    return assistant;
+    return (await this.resolveActiveAssistantService.execute({ userId: trimmedUserId })).assistant;
   }
 
   private async toSnapshotWithTrialDefaults(

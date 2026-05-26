@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { ManageAdminAssistantPlanOverrideService } from "../src/modules/workspace-management/application/manage-admin-assistant-plan-override.service";
 import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
-import type { AssistantRepository } from "../src/modules/workspace-management/domain/assistant.repository";
 import type { AssistantGovernanceRepository } from "../src/modules/workspace-management/domain/assistant-governance.repository";
 import type { AdminAuthorizationService } from "../src/modules/workspace-management/application/admin-authorization.service";
 import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
@@ -34,34 +33,35 @@ async function run(): Promise<void> {
       "assertCanPerformDangerousAdminAction"
     > as AdminAuthorizationService,
     {
-      async findByUserId(userId: string) {
-        if (userId === "missing-user") {
-          return null;
-        }
+      async execute(input: { userId: string; assistantId?: string | null }) {
+        const userId = input.userId;
+        assert.equal(input.assistantId ?? null, null);
         return {
-          id: "assistant-1",
-          userId,
-          workspaceId: "ws-1",
-          draftDisplayName: null,
-          draftInstructions: null,
-          draftTraits: null,
-          draftAvatarEmoji: null,
-          draftAvatarUrl: null,
-          draftAssistantGender: null,
-          draftUpdatedAt: null,
-          applyStatus: "succeeded",
-          applyTargetVersionId: null,
-          applyAppliedVersionId: null,
-          applyRequestedAt: null,
-          applyStartedAt: null,
-          applyFinishedAt: null,
-          applyErrorCode: null,
-          applyErrorMessage: null,
-          createdAt: new Date(),
-          updatedAt: new Date()
+          assistant: {
+            id: "assistant-1",
+            userId,
+            workspaceId: "ws-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftTraits: null,
+            draftAvatarEmoji: null,
+            draftAvatarUrl: null,
+            draftAssistantGender: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
         };
       }
-    } as Pick<AssistantRepository, "findByUserId"> as AssistantRepository,
+    } as never,
     {
       async setAssistantPlanOverride(assistantId: string, planCode: string | null) {
         overrideWrites.push({ assistantId, planCode });

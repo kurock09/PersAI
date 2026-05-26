@@ -12,25 +12,28 @@ async function run(): Promise<void> {
 
   const service = new ResolvePlanVisibilityService(
     {
-      async findByUserId(userId: string) {
+      async execute(input: { userId: string }) {
+        const userId = input.userId;
         assert.equal(userId, "user-1");
         return {
-          id: "assistant-1",
-          userId,
-          workspaceId: "ws-1",
-          draftDisplayName: null,
-          draftInstructions: null,
-          draftUpdatedAt: null,
-          applyStatus: "succeeded",
-          applyTargetVersionId: null,
-          applyAppliedVersionId: null,
-          applyRequestedAt: null,
-          applyStartedAt: null,
-          applyFinishedAt: null,
-          applyErrorCode: null,
-          applyErrorMessage: null,
-          createdAt: new Date(),
-          updatedAt: new Date()
+          assistant: {
+            id: "assistant-1",
+            userId,
+            workspaceId: "ws-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
         };
       }
     } as never,

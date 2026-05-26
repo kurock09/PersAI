@@ -4,9 +4,7 @@ import { ManageAssistantPaymentIntentsService } from "../src/modules/workspace-m
 import type { BillingProviderPort } from "../src/modules/workspace-management/application/billing-provider.port";
 import type { ManageAdminPlansService } from "../src/modules/workspace-management/application/manage-admin-plans.service";
 import type { ResolveEffectiveSubscriptionStateService } from "../src/modules/workspace-management/application/resolve-effective-subscription-state.service";
-import type { AssistantGovernanceRepository } from "../src/modules/workspace-management/domain/assistant-governance.repository";
 import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
-import type { AssistantRepository } from "../src/modules/workspace-management/domain/assistant.repository";
 import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 
 type StoredIntent = {
@@ -57,51 +55,37 @@ async function run(): Promise<void> {
 
   const service = new ManageAssistantPaymentIntentsService(
     {
-      async findByUserId(userId: string) {
-        if (userId === "missing-user") {
-          return null;
-        }
+      async execute(input: { userId: string }) {
+        const userId = input.userId;
         return {
-          id: "assistant-1",
-          userId,
-          workspaceId: "ws-1",
-          draftDisplayName: null,
-          draftInstructions: null,
-          draftTraits: null,
-          draftAvatarEmoji: null,
-          draftAvatarUrl: null,
-          draftAssistantGender: null,
-          draftVoiceProfile: null,
-          draftArchetypeKey: null,
-          draftUpdatedAt: null,
-          applyStatus: "succeeded",
-          applyTargetVersionId: null,
-          applyAppliedVersionId: null,
-          applyRequestedAt: null,
-          applyStartedAt: null,
-          applyFinishedAt: null,
-          applyErrorCode: null,
-          applyErrorMessage: null,
-          configDirtyAt: null,
-          createdAt: now,
-          updatedAt: now
+          assistant: {
+            id: "assistant-1",
+            userId,
+            workspaceId: "ws-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftTraits: null,
+            draftAvatarEmoji: null,
+            draftAvatarUrl: null,
+            draftAssistantGender: null,
+            draftVoiceProfile: null,
+            draftArchetypeKey: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            configDirtyAt: null,
+            createdAt: now,
+            updatedAt: now
+          }
         };
       }
-    } as Pick<AssistantRepository, "findByUserId"> as AssistantRepository,
-    {
-      async findByAssistantId() {
-        return {
-          id: "gov-1",
-          assistantId: "assistant-1",
-          assistantPlanOverrideCode: "tester_override_plan",
-          quotaPlanCode: "quota_fallback_plan",
-          channelCredentialRefs: null,
-          memoryControl: null,
-          createdAt: now,
-          updatedAt: now
-        };
-      }
-    } as Pick<AssistantGovernanceRepository, "findByAssistantId"> as AssistantGovernanceRepository,
+    } as never,
     {
       async findByCode(code: string) {
         if (code === "pro_plus") {
@@ -456,48 +440,36 @@ async function run(): Promise<void> {
 
   const managedRecurringUpgradeService = new ManageAssistantPaymentIntentsService(
     {
-      async findByUserId() {
+      async execute() {
         return {
-          id: "assistant-1",
-          userId: "user-1",
-          workspaceId: "ws-1",
-          draftDisplayName: null,
-          draftInstructions: null,
-          draftTraits: null,
-          draftAvatarEmoji: null,
-          draftAvatarUrl: null,
-          draftAssistantGender: null,
-          draftVoiceProfile: null,
-          draftArchetypeKey: null,
-          draftUpdatedAt: null,
-          applyStatus: "succeeded",
-          applyTargetVersionId: null,
-          applyAppliedVersionId: null,
-          applyRequestedAt: null,
-          applyStartedAt: null,
-          applyFinishedAt: null,
-          applyErrorCode: null,
-          applyErrorMessage: null,
-          configDirtyAt: null,
-          createdAt: now,
-          updatedAt: now
+          assistant: {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "ws-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftTraits: null,
+            draftAvatarEmoji: null,
+            draftAvatarUrl: null,
+            draftAssistantGender: null,
+            draftVoiceProfile: null,
+            draftArchetypeKey: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            configDirtyAt: null,
+            createdAt: now,
+            updatedAt: now
+          }
         };
       }
-    } as Pick<AssistantRepository, "findByUserId"> as AssistantRepository,
-    {
-      async findByAssistantId() {
-        return {
-          id: "gov-1",
-          assistantId: "assistant-1",
-          assistantPlanOverrideCode: null,
-          quotaPlanCode: null,
-          channelCredentialRefs: null,
-          memoryControl: null,
-          createdAt: now,
-          updatedAt: now
-        };
-      }
-    } as Pick<AssistantGovernanceRepository, "findByAssistantId"> as AssistantGovernanceRepository,
+    } as never,
     {
       async findByCode(code: string) {
         if (code === "starter") {
@@ -660,48 +632,37 @@ async function run(): Promise<void> {
 
   const directManagedRecurringUpgradeService = new ManageAssistantPaymentIntentsService(
     {
-      async findByUserId(userId: string) {
+      async execute(input: { userId: string }) {
+        const userId = input.userId;
         return {
-          id: "assistant-1",
-          userId,
-          workspaceId: "ws-1",
-          draftDisplayName: null,
-          draftInstructions: null,
-          draftTraits: null,
-          draftAvatarEmoji: null,
-          draftAvatarUrl: null,
-          draftAssistantGender: null,
-          draftVoiceProfile: null,
-          draftArchetypeKey: null,
-          draftUpdatedAt: null,
-          applyStatus: "succeeded",
-          applyTargetVersionId: null,
-          applyAppliedVersionId: null,
-          applyRequestedAt: null,
-          applyStartedAt: null,
-          applyFinishedAt: null,
-          applyErrorCode: null,
-          applyErrorMessage: null,
-          configDirtyAt: null,
-          createdAt: now,
-          updatedAt: now
+          assistant: {
+            id: "assistant-1",
+            userId,
+            workspaceId: "ws-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftTraits: null,
+            draftAvatarEmoji: null,
+            draftAvatarUrl: null,
+            draftAssistantGender: null,
+            draftVoiceProfile: null,
+            draftArchetypeKey: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            configDirtyAt: null,
+            createdAt: now,
+            updatedAt: now
+          }
         };
       }
-    } as Pick<AssistantRepository, "findByUserId"> as AssistantRepository,
-    {
-      async findByAssistantId() {
-        return {
-          id: "gov-1",
-          assistantId: "assistant-1",
-          assistantPlanOverrideCode: null,
-          quotaPlanCode: null,
-          channelCredentialRefs: null,
-          memoryControl: null,
-          createdAt: now,
-          updatedAt: now
-        };
-      }
-    } as Pick<AssistantGovernanceRepository, "findByAssistantId"> as AssistantGovernanceRepository,
+    } as never,
     {
       async findByCode(code: string) {
         if (code === "starter") {
@@ -884,48 +845,36 @@ async function run(): Promise<void> {
 
   const downgradeService = new ManageAssistantPaymentIntentsService(
     {
-      async findByUserId() {
+      async execute() {
         return {
-          id: "assistant-1",
-          userId: "user-1",
-          workspaceId: "ws-1",
-          draftDisplayName: null,
-          draftInstructions: null,
-          draftTraits: null,
-          draftAvatarEmoji: null,
-          draftAvatarUrl: null,
-          draftAssistantGender: null,
-          draftVoiceProfile: null,
-          draftArchetypeKey: null,
-          draftUpdatedAt: null,
-          applyStatus: "succeeded",
-          applyTargetVersionId: null,
-          applyAppliedVersionId: null,
-          applyRequestedAt: null,
-          applyStartedAt: null,
-          applyFinishedAt: null,
-          applyErrorCode: null,
-          applyErrorMessage: null,
-          configDirtyAt: null,
-          createdAt: now,
-          updatedAt: now
+          assistant: {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "ws-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftTraits: null,
+            draftAvatarEmoji: null,
+            draftAvatarUrl: null,
+            draftAssistantGender: null,
+            draftVoiceProfile: null,
+            draftArchetypeKey: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            configDirtyAt: null,
+            createdAt: now,
+            updatedAt: now
+          }
         };
       }
-    } as Pick<AssistantRepository, "findByUserId"> as AssistantRepository,
-    {
-      async findByAssistantId() {
-        return {
-          id: "gov-1",
-          assistantId: "assistant-1",
-          assistantPlanOverrideCode: null,
-          quotaPlanCode: null,
-          channelCredentialRefs: null,
-          memoryControl: null,
-          createdAt: now,
-          updatedAt: now
-        };
-      }
-    } as Pick<AssistantGovernanceRepository, "findByAssistantId"> as AssistantGovernanceRepository,
+    } as never,
     {
       async findByCode(code: string) {
         if (code === "pro_plus") {

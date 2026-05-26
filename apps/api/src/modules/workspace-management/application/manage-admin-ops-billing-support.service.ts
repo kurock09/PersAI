@@ -1,9 +1,9 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { ManageWorkspaceSubscriptionLifecycleService } from "./manage-workspace-subscription-lifecycle.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 export type AdminOpsBillingSupportAction =
   | "initialize_lifecycle_now"
@@ -59,8 +59,7 @@ function addBillingPeriod(startAt: Date, billingPeriod: "month" | "year"): Date 
 export class ManageAdminOpsBillingSupportService {
   constructor(
     private readonly adminAuthorizationService: AdminAuthorizationService,
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly manageWorkspaceSubscriptionLifecycleService: ManageWorkspaceSubscriptionLifecycleService,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
@@ -100,7 +99,7 @@ export class ManageAdminOpsBillingSupportService {
       "admin.plan.update",
       stepUpToken
     );
-    const assistant = await this.requireAssistantByUserId(targetUserId);
+    const assistant = await this.requireActiveAssistantForUser(targetUserId);
     const current = await this.prisma.workspaceSubscription.findUnique({
       where: { workspaceId: assistant.workspaceId }
     });
@@ -315,16 +314,12 @@ export class ManageAdminOpsBillingSupportService {
     };
   }
 
-  private async requireAssistantByUserId(targetUserId: string) {
+  private async requireActiveAssistantForUser(targetUserId: string) {
     const trimmedUserId = targetUserId.trim();
     if (trimmedUserId.length === 0) {
       throw new BadRequestException("userId is required.");
     }
-    const assistant = await this.assistantRepository.findByUserId(trimmedUserId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant not found for target user.");
-    }
-    return assistant;
+    return (await this.resolveActiveAssistantService.execute({ userId: trimmedUserId })).assistant;
   }
 
   private async requireWorkspaceSubscription(workspaceId: string): Promise<SubscriptionState> {

@@ -12,8 +12,7 @@ import { ManageMediaPackageCatalogService } from "./manage-media-package-catalog
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { resolveRecurringQuotaPeriod } from "./recurring-quota-period";
 import type { AssistantPaymentIntentState } from "./manage-assistant-payment-intents.service";
-import { ASSISTANT_REPOSITORY } from "../domain/assistant.repository";
-import type { AssistantRepository } from "../domain/assistant.repository";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 const PACKAGE_INTENT_PLAN_SENTINEL = "__media_package__";
 
@@ -23,8 +22,7 @@ export class ManageMediaPackagePurchaseService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly catalogService: ManageMediaPackageCatalogService,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(BILLING_PROVIDER_PORT)
     private readonly billingProviderPort: BillingProviderPort
   ) {}
@@ -95,10 +93,7 @@ export class ManageMediaPackagePurchaseService {
     userId: string,
     input: CreatePackagePaymentIntentInput
   ): Promise<AssistantPaymentIntentState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const { assistant } = await this.resolveActiveAssistantService.execute({ userId });
     const workspaceId = assistant.workspaceId;
 
     if (!input.packageItemIds || input.packageItemIds.length === 0) {

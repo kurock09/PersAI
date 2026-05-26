@@ -2,6 +2,70 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-26 — ADR-101 Slice 8 — active assistant plan/billing cleanup
+
+### Scope
+
+Bounded Slice 8 cleanup for remaining active `findByUserId` assumptions:
+
+- first fix live tariff/free UI by moving plan visibility to active assistant/workspace truth
+- migrate bounded adjacent payment/media/admin billing support callers
+- leave `PrismaAssistantRepository.findByUserId` honest as a legacy repository method
+- do not change live cluster state, push, or commit
+
+### What changed
+
+`ResolvePlanVisibilityService` now resolves the caller's active assistant through `ResolveActiveAssistantService` before reading governance, effective subscription, plan catalog, quota, monthly media quota, package offers, and capability visibility. Multi-assistant users therefore read the selected active assistant/workspace instead of hitting the ambiguous `findByUserId` path that caused live `/api/v1/assistant/plan-visibility` 500s and the free/gray UI fallback.
+
+The remaining bounded active billing/admin callers were migrated off user-only assistant lookup: payment-intent creation/read context, media package checkout, Admin Plan Control, Admin workspace subscription set/reset, and Ops billing-support actions now resolve active assistant/workspace context. `AssistantRepository.findByUserId` remains only in the repository contract/Prisma implementation and legacy tests; a new ADR-101 guard test fails if active source files add new callers.
+
+Deploy truth was checked for persistent command/args overrides or stale-preview workarounds. The repo already relies on image CMD/startup assertion for the API; Helm command/args entries are only Cloud SQL proxy/migration plumbing, so no infra override was removed.
+
+### Files / modules
+
+- `apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-assistant-payment-intents.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-media-package-purchase.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-assistant-plan-override.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-workspace-subscription.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-ops-billing-support.service.ts`
+- `apps/api/test/plan-visibility.service.test.ts`
+- `apps/api/test/manage-assistant-payment-intents.service.test.ts`
+- `apps/api/test/manage-media-package-purchase.service.test.ts`
+- `apps/api/test/manage-admin-assistant-plan-override.service.test.ts`
+- `apps/api/test/manage-admin-workspace-subscription.service.test.ts`
+- `apps/api/test/manage-admin-ops-billing-support.service.test.ts`
+- `apps/api/test/adr101-find-by-userid-guard.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/ADR/101-multi-assistant-workspace-model.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused checks passed:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts`
+2. `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts`
+3. `corepack pnpm --filter @persai/api exec tsx test/manage-media-package-purchase.service.test.ts`
+4. `corepack pnpm --filter @persai/api exec tsx test/manage-admin-assistant-plan-override.service.test.ts`
+5. `corepack pnpm --filter @persai/api exec tsx test/manage-admin-workspace-subscription.service.test.ts`
+6. `corepack pnpm --filter @persai/api exec tsx test/manage-admin-ops-billing-support.service.test.ts`
+7. `corepack pnpm --filter @persai/api exec tsx test/adr101-find-by-userid-guard.test.ts`
+8. `corepack pnpm --filter @persai/api run typecheck`
+9. `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Full recursive lint and web typecheck were not run in this bounded pass.
+- `findByUserId` remains available as an honest legacy repository/interface method and in legacy tests; target-state deletion can happen later if no remaining legacy tests need it.
+- Live `persai-dev` still needs deployment of these source changes before `/assistant/plan-visibility` is fixed in cluster.
+
+### Next recommended step
+
+Run the remaining broad repo gates if desired, then deploy/verify `persai-dev` plan visibility after the normal no-push/no-commit approval path.
+
 ## 2026-05-26 — ADR-101 Ops admin display — multi-assistant support
 
 ### Scope

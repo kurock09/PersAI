@@ -6,16 +6,13 @@ import {
   NotFoundException
 } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import { ASSISTANT_GOVERNANCE_REPOSITORY } from "../domain/assistant-governance.repository";
-import type { AssistantGovernanceRepository } from "../domain/assistant-governance.repository";
 import { ASSISTANT_PLAN_CATALOG_REPOSITORY } from "../domain/assistant-plan-catalog.repository";
 import type { AssistantPlanCatalogRepository } from "../domain/assistant-plan-catalog.repository";
-import { ASSISTANT_REPOSITORY } from "../domain/assistant.repository";
-import type { AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { BILLING_PROVIDER_PORT, type BillingProviderPort } from "./billing-provider.port";
 import { ManageAdminPlansService } from "./manage-admin-plans.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 export type AssistantPaymentMethodClass = "card" | "sbp_qr";
 export type AssistantPaymentIntentAction = "new_purchase" | "upgrade" | "renewal" | "manual_admin";
@@ -269,10 +266,7 @@ function asPaymentIntentPurpose(value: unknown): AssistantPaymentIntentPurpose {
 @Injectable()
 export class ManageAssistantPaymentIntentsService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
-    @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
-    private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
     private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
@@ -492,10 +486,7 @@ export class ManageAssistantPaymentIntentsService {
     if (!isUuid(paymentIntentId)) {
       throw new BadRequestException("paymentIntentId must be a valid UUID.");
     }
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const { assistant } = await this.resolveActiveAssistantService.execute({ userId });
     const paymentIntent = (await this.prisma.workspacePaymentIntent.findFirst({
       where: {
         id: paymentIntentId,
@@ -679,14 +670,7 @@ export class ManageAssistantPaymentIntentsService {
     currentPlanPrice: StoredPlanPrice | null;
     providerCustomerRef: string | null;
   }> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-    const governance = await this.assistantGovernanceRepository.findByAssistantId(assistant.id);
-    if (governance === null) {
-      throw new NotFoundException("Assistant governance does not exist for this assistant.");
-    }
+    const { assistant } = await this.resolveActiveAssistantService.execute({ userId });
     const subscription = await this.resolveEffectiveSubscriptionStateService.executeReadOnly({
       userId,
       workspaceId: assistant.workspaceId,

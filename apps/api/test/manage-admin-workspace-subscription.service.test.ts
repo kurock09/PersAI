@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { ManageAdminWorkspaceSubscriptionService } from "../src/modules/workspace-management/application/manage-admin-workspace-subscription.service";
 import type { AdminAuthorizationService } from "../src/modules/workspace-management/application/admin-authorization.service";
-import type { AssistantRepository } from "../src/modules/workspace-management/domain/assistant.repository";
 import type { WorkspaceSubscriptionRepository } from "../src/modules/workspace-management/domain/workspace-subscription.repository";
 import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
 import type { AssistantPlanCatalog } from "../src/modules/workspace-management/domain/assistant-plan-catalog.entity";
@@ -101,35 +100,35 @@ async function run(): Promise<void> {
       "assertCanPerformDangerousAdminAction"
     > as AdminAuthorizationService,
     {
-      async findByUserId(userId: string) {
-        if (userId === "missing-user") {
-          return null;
-        }
+      async execute(input: { userId: string }) {
+        const userId = input.userId;
         return {
-          id: "assistant-1",
-          userId,
-          workspaceId: "ws-1",
-          draftDisplayName: null,
-          draftInstructions: null,
-          draftTraits: null,
-          draftAvatarEmoji: null,
-          draftAvatarUrl: null,
-          draftAssistantGender: null,
-          draftUpdatedAt: null,
-          applyStatus: "succeeded",
-          applyTargetVersionId: null,
-          applyAppliedVersionId: null,
-          applyRequestedAt: null,
-          applyStartedAt: null,
-          applyFinishedAt: null,
-          applyErrorCode: null,
-          applyErrorMessage: null,
-          configDirtyAt: null,
-          createdAt: new Date(),
-          updatedAt: new Date()
+          assistant: {
+            id: "assistant-1",
+            userId,
+            workspaceId: "ws-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftTraits: null,
+            draftAvatarEmoji: null,
+            draftAvatarUrl: null,
+            draftAssistantGender: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            configDirtyAt: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
         };
       }
-    } as Pick<AssistantRepository, "findByUserId"> as AssistantRepository,
+    } as never,
     {
       async findByWorkspaceId() {
         return currentSubscription;

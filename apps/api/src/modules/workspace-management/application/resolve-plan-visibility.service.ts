@@ -7,7 +7,6 @@ import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
   type AssistantPlanCatalogRepository
 } from "../domain/assistant-plan-catalog.repository";
-import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import {
@@ -24,6 +23,7 @@ import { ManageAdminPlansService } from "./manage-admin-plans.service";
 import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
 import { buildQuotaOfferState } from "./quota-offers";
 import { ManageMediaPackageCatalogService } from "./manage-media-package-catalog.service";
+import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 function indexQuotaBuckets(
   buckets: QuotaVisibilityBucketState[]
@@ -155,8 +155,7 @@ function buildPlanQuotaAdvisories(input: {
 @Injectable()
 export class ResolvePlanVisibilityService {
   constructor(
-    @Inject(ASSISTANT_REPOSITORY)
-    private readonly assistantRepository: AssistantRepository,
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
@@ -170,10 +169,7 @@ export class ResolvePlanVisibilityService {
   ) {}
 
   async getUserVisibility(userId: string): Promise<UserPlanVisibilityState> {
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const { assistant } = await this.resolveActiveAssistantService.execute({ userId });
     const governance = await this.assistantGovernanceRepository.findByAssistantId(assistant.id);
     if (governance === null) {
       throw new NotFoundException("Assistant governance does not exist for this assistant.");
@@ -277,10 +273,7 @@ export class ResolvePlanVisibilityService {
   async getAdminVisibility(userId: string): Promise<AdminPlanVisibilityState> {
     await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
 
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
+    const { assistant } = await this.resolveActiveAssistantService.execute({ userId });
     const governance = await this.assistantGovernanceRepository.findByAssistantId(assistant.id);
     if (governance === null) {
       throw new NotFoundException("Assistant governance does not exist for this assistant.");
