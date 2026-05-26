@@ -37,6 +37,9 @@ export type AssistantDocumentSourcePayload = {
   targetSlideCount?: number | null;
   outline?: unknown;
   metadata?: Record<string, unknown> | null;
+  transferMode?: "verbatim" | "transform" | null;
+  editOperation?: "style_only" | "content_patch" | "section_rewrite" | null;
+  targetSectionIds?: string[] | null;
 };
 
 export type AssistantDocumentRequestPayload = {
@@ -63,6 +66,9 @@ export type AssistantDocumentRevisionContext = {
   currentSourceJson: AssistantDocumentSourcePayload;
   /** ADR-097 Slice 2 — null when the version pre-dates Slice 1 (legacy). */
   currentVersionRenderedHtml: string | null;
+  currentVersionStructureJson: Record<string, unknown> | null;
+  currentVersionStyleProfileJson: Record<string, unknown> | null;
+  currentVersionEditStrategy: "fast_small" | "structured_large" | null;
 };
 
 export type AssistantDocumentExportOrRedeliverContext = AssistantDocumentRevisionContext & {
@@ -214,7 +220,10 @@ export class AssistantDocumentJobService {
             id: true,
             versionNumber: true,
             sourceJson: true,
-            renderedHtml: true
+            renderedHtml: true,
+            structureJson: true,
+            styleProfileJson: true,
+            editStrategy: true
           }
         }
       }
@@ -236,7 +245,7 @@ export class AssistantDocumentJobService {
       currentVersionId: document.currentVersion.id,
       currentVersionNumber: document.currentVersion.versionNumber,
       currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
-      currentVersionRenderedHtml: document.currentVersion.renderedHtml ?? null
+      ...this.mapStructuredVersionFields(document.currentVersion)
     };
   }
 
@@ -279,7 +288,10 @@ export class AssistantDocumentJobService {
                 id: true,
                 versionNumber: true,
                 sourceJson: true,
-                renderedHtml: true
+                renderedHtml: true,
+                structureJson: true,
+                styleProfileJson: true,
+                editStrategy: true
               }
             }
           }
@@ -311,7 +323,7 @@ export class AssistantDocumentJobService {
         currentVersionId: doc.currentVersion.id,
         currentVersionNumber: doc.currentVersion.versionNumber,
         currentSourceJson: this.normalizeSourcePayload(doc.currentVersion.sourceJson),
-        currentVersionRenderedHtml: doc.currentVersion.renderedHtml ?? null
+        ...this.mapStructuredVersionFields(doc.currentVersion)
       }
     };
   }
@@ -334,6 +346,9 @@ export class AssistantDocumentJobService {
      * (caller must pre-validate before calling enqueueRevision).
      */
     previousVersionRenderedHtml: string | null;
+    previousVersionStructureJson?: Record<string, unknown> | null;
+    previousVersionStyleProfileJson?: Record<string, unknown> | null;
+    previousVersionEditStrategy?: "fast_small" | "structured_large" | null;
   }): Promise<{ docId: string; versionId: string; renderJobId: string; status: "queued" }> {
     const mergedSourceJson = this.buildRevisionSourcePayload(
       input.revisionContext.currentSourceJson,
@@ -399,6 +414,18 @@ export class AssistantDocumentJobService {
                 sourceJson: mergedSourceJson,
                 ...(input.previousVersionRenderedHtml !== null
                   ? { previousVersionRenderedHtml: input.previousVersionRenderedHtml }
+                  : {}),
+                ...(input.previousVersionStructureJson !== null &&
+                input.previousVersionStructureJson !== undefined
+                  ? { previousVersionStructureJson: input.previousVersionStructureJson }
+                  : {}),
+                ...(input.previousVersionStyleProfileJson !== null &&
+                input.previousVersionStyleProfileJson !== undefined
+                  ? { previousVersionStyleProfileJson: input.previousVersionStyleProfileJson }
+                  : {}),
+                ...(input.previousVersionEditStrategy !== null &&
+                input.previousVersionEditStrategy !== undefined
+                  ? { previousVersionEditStrategy: input.previousVersionEditStrategy }
                   : {})
               } as never
             },
@@ -475,7 +502,10 @@ export class AssistantDocumentJobService {
             versionNumber: true,
             sourceJson: true,
             status: true,
-            renderedHtml: true
+            renderedHtml: true,
+            structureJson: true,
+            styleProfileJson: true,
+            editStrategy: true
           }
         },
         deliveredFiles: {
@@ -519,7 +549,7 @@ export class AssistantDocumentJobService {
       documentType: document.documentType,
       currentVersionId: document.currentVersion.id,
       currentVersionNumber: document.currentVersion.versionNumber,
-      currentVersionRenderedHtml: document.currentVersion.renderedHtml,
+      ...this.mapStructuredVersionFields(document.currentVersion),
       currentVersionStatus: document.currentVersion.status,
       currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
       currentOutputFormat: this.resolveCurrentOutputFormat({
@@ -572,7 +602,10 @@ export class AssistantDocumentJobService {
             id: true,
             versionNumber: true,
             sourceJson: true,
-            renderedHtml: true
+            renderedHtml: true,
+            structureJson: true,
+            styleProfileJson: true,
+            editStrategy: true
           }
         }
       }
@@ -594,7 +627,7 @@ export class AssistantDocumentJobService {
       currentVersionId: document.currentVersion.id,
       currentVersionNumber: document.currentVersion.versionNumber,
       currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
-      currentVersionRenderedHtml: document.currentVersion.renderedHtml ?? null
+      ...this.mapStructuredVersionFields(document.currentVersion)
     };
   }
 
@@ -737,8 +770,54 @@ export class AssistantDocumentJobService {
       metadata:
         row.metadata !== null && typeof row.metadata === "object" && !Array.isArray(row.metadata)
           ? (row.metadata as Record<string, unknown>)
-          : null
+          : null,
+      transferMode:
+        row.transferMode === "verbatim" || row.transferMode === "transform"
+          ? row.transferMode
+          : null,
+      editOperation:
+        row.editOperation === "style_only" ||
+        row.editOperation === "content_patch" ||
+        row.editOperation === "section_rewrite"
+          ? row.editOperation
+          : null,
+      targetSectionIds: Array.isArray(row.targetSectionIds)
+        ? row.targetSectionIds.filter((entry): entry is string => typeof entry === "string")
+        : null
     };
+  }
+
+  private mapStructuredVersionFields(version: {
+    renderedHtml: string | null;
+    structureJson: unknown;
+    styleProfileJson: unknown;
+    editStrategy: string | null;
+  }): Pick<
+    AssistantDocumentRevisionContext,
+    | "currentVersionRenderedHtml"
+    | "currentVersionStructureJson"
+    | "currentVersionStyleProfileJson"
+    | "currentVersionEditStrategy"
+  > {
+    return {
+      currentVersionRenderedHtml: version.renderedHtml ?? null,
+      currentVersionStructureJson: this.normalizeJsonObject(version.structureJson),
+      currentVersionStyleProfileJson: this.normalizeJsonObject(version.styleProfileJson),
+      currentVersionEditStrategy: this.normalizeEditStrategy(version.editStrategy)
+    };
+  }
+
+  private normalizeJsonObject(value: unknown): Record<string, unknown> | null {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    return value as Record<string, unknown>;
+  }
+
+  private normalizeEditStrategy(
+    value: string | null | undefined
+  ): "fast_small" | "structured_large" | null {
+    return value === "fast_small" || value === "structured_large" ? value : null;
   }
 
   private buildRevisionSourcePayload(
@@ -771,6 +850,9 @@ export class AssistantDocumentJobService {
       gammaThemeId: revision.gammaThemeId ?? current.gammaThemeId ?? null,
       targetSlideCount: revision.targetSlideCount ?? current.targetSlideCount ?? null,
       outline: revision.outline ?? current.outline,
+      transferMode: revision.transferMode ?? current.transferMode ?? null,
+      editOperation: revision.editOperation ?? current.editOperation ?? null,
+      targetSectionIds: revision.targetSectionIds ?? current.targetSectionIds ?? null,
       metadata: {
         ...(current.metadata ?? {}),
         ...(revision.metadata ?? {}),

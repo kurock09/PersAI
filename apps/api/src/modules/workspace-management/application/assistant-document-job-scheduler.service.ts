@@ -48,6 +48,9 @@ type DocumentJobRequestPayload = {
     targetSlideCount?: number | null;
     outline?: unknown;
     metadata?: Record<string, unknown> | null;
+    transferMode?: "verbatim" | "transform" | null;
+    editOperation?: "style_only" | "content_patch" | "section_rewrite" | null;
+    targetSectionIds?: string[] | null;
   };
   // Attachments persisted on the job at enqueue time. Optional / nullable
   // so jobs queued before this field existed still parse cleanly.
@@ -60,6 +63,9 @@ type DocumentJobRequestPayload = {
    * enqueue time).
    */
   previousVersionRenderedHtml?: string | null;
+  previousVersionStructureJson?: Record<string, unknown> | null;
+  previousVersionStyleProfileJson?: Record<string, unknown> | null;
+  previousVersionEditStrategy?: "fast_small" | "structured_large" | null;
 };
 
 type ClaimedDocumentJob = {
@@ -448,6 +454,18 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         ...(typeof requestPayload.previousVersionRenderedHtml === "string"
           ? { previousVersionRenderedHtml: requestPayload.previousVersionRenderedHtml }
           : {}),
+        ...(requestPayload.previousVersionStructureJson !== null &&
+        requestPayload.previousVersionStructureJson !== undefined
+          ? { previousVersionStructureJson: requestPayload.previousVersionStructureJson }
+          : {}),
+        ...(requestPayload.previousVersionStyleProfileJson !== null &&
+        requestPayload.previousVersionStyleProfileJson !== undefined
+          ? { previousVersionStyleProfileJson: requestPayload.previousVersionStyleProfileJson }
+          : {}),
+        ...(requestPayload.previousVersionEditStrategy !== null &&
+        requestPayload.previousVersionEditStrategy !== undefined
+          ? { previousVersionEditStrategy: requestPayload.previousVersionEditStrategy }
+          : {}),
         directToolExecution: {
           toolCode: "document",
           descriptorMode:
@@ -549,11 +567,32 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         }
         const renderedHtml =
           typeof outcome.result.renderedHtml === "string" ? outcome.result.renderedHtml : null;
+        const structureJson =
+          outcome.result.structureJson !== null && outcome.result.structureJson !== undefined
+            ? (outcome.result.structureJson as Prisma.InputJsonValue)
+            : undefined;
+        const styleProfileJson =
+          outcome.result.styleProfileJson !== null && outcome.result.styleProfileJson !== undefined
+            ? (outcome.result.styleProfileJson as Prisma.InputJsonValue)
+            : undefined;
+        const editStrategy =
+          outcome.result.editStrategy === "fast_small" ||
+          outcome.result.editStrategy === "structured_large"
+            ? outcome.result.editStrategy
+            : undefined;
+        const structureVersion =
+          typeof outcome.result.structureVersion === "number"
+            ? outcome.result.structureVersion
+            : undefined;
         await tx.assistantDocumentVersion.update({
           where: { id: job.versionId },
           data: {
             status: "rendering",
-            ...(renderedHtml !== null ? { renderedHtml } : {})
+            ...(renderedHtml !== null ? { renderedHtml } : {}),
+            ...(structureJson !== undefined ? { structureJson } : {}),
+            ...(styleProfileJson !== undefined ? { styleProfileJson } : {}),
+            ...(editStrategy !== undefined ? { editStrategy } : {}),
+            ...(structureVersion !== undefined ? { structureVersion } : {})
           }
         });
         await this.upsertProviderMapping(tx, job, {
@@ -743,7 +782,22 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           typeof sourceJson.metadata === "object" &&
           !Array.isArray(sourceJson.metadata)
             ? (sourceJson.metadata as Record<string, unknown>)
-            : null
+            : null,
+        transferMode:
+          sourceJson.transferMode === "verbatim" || sourceJson.transferMode === "transform"
+            ? sourceJson.transferMode
+            : null,
+        editOperation:
+          sourceJson.editOperation === "style_only" ||
+          sourceJson.editOperation === "content_patch" ||
+          sourceJson.editOperation === "section_rewrite"
+            ? sourceJson.editOperation
+            : null,
+        targetSectionIds: Array.isArray(sourceJson.targetSectionIds)
+          ? sourceJson.targetSectionIds.filter(
+              (entry): entry is string => typeof entry === "string"
+            )
+          : null
       },
       sourceUserMessageAttachments: this.parseAttachmentsFromPersistedJson(
         row.sourceUserMessageAttachments
@@ -752,6 +806,23 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         typeof row.previousVersionRenderedHtml === "string" &&
         row.previousVersionRenderedHtml.length > 0
           ? row.previousVersionRenderedHtml
+          : null,
+      previousVersionStructureJson:
+        row.previousVersionStructureJson !== null &&
+        typeof row.previousVersionStructureJson === "object" &&
+        !Array.isArray(row.previousVersionStructureJson)
+          ? (row.previousVersionStructureJson as Record<string, unknown>)
+          : null,
+      previousVersionStyleProfileJson:
+        row.previousVersionStyleProfileJson !== null &&
+        typeof row.previousVersionStyleProfileJson === "object" &&
+        !Array.isArray(row.previousVersionStyleProfileJson)
+          ? (row.previousVersionStyleProfileJson as Record<string, unknown>)
+          : null,
+      previousVersionEditStrategy:
+        row.previousVersionEditStrategy === "fast_small" ||
+        row.previousVersionEditStrategy === "structured_large"
+          ? row.previousVersionEditStrategy
           : null
     };
   }

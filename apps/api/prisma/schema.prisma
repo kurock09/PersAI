@@ -2032,6 +2032,10 @@ model AssistantDocumentVersion {
   sourceSummaryText String?                         @map("source_summary_text") @db.Text
   sourceOutlineJson Json?                           @map("source_outline_json") @db.JsonB
   renderedHtml      String?                         @map("rendered_html") @db.Text
+  structureJson     Json?                           @map("structure_json") @db.JsonB
+  styleProfileJson  Json?                           @map("style_profile_json") @db.JsonB
+  editStrategy      String?                         @map("edit_strategy")
+  structureVersion  Int?                            @map("structure_version")
   status            AssistantDocumentVersionStatus
   createdAt         DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)

@@ -2769,8 +2769,7 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           provider: "pdfmonkey",
           outputFormat: "pdf",
           sourceUserMessageId: "msg-1",
-          sourceUserMessageText:
-            "заново собери новый PDF перенести все слово в слово из моего docs",
+          sourceUserMessageText: "Create a new PDF from the attached DOCX source file.",
           sourceUserMessageCreatedAt: "2026-05-26T01:00:00.000Z"
         },
         attachments: [],
@@ -2796,8 +2795,8 @@ describe("RuntimeDocumentProviderAdapterService", () => {
           toolCode: "document",
           descriptorMode: "create_pdf_document",
           request: {
-            prompt:
-              "Create a new PDF from the attached DOCX source file, preserving every word exactly as in the document. Do not summarize, rewrite, shorten, reorder, or omit any text.",
+            prompt: "Create a new PDF from the attached DOCX source file.",
+            transferMode: "verbatim",
             requestedName: "contract-copy"
           }
         }
@@ -2816,6 +2815,183 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       "rendered HTML must contain the extracted source text"
     );
     assert.equal(result.artifacts.length, 1);
+    assert.equal(result.editStrategy, "structured_large");
+    assert.ok(result.structureJson !== null && result.structureJson !== undefined);
+  });
+
+  test("large verbatim create persists structured snapshot and structured_large editStrategy", async () => {
+    const textGenerateCalls: unknown[] = [];
+    const pdfCalls: ProviderGatewayDocumentGenerateRequest[] = [];
+    const largeSourceText = `${"Paragraph body text for structured snapshot. ".repeat(900)}\n\nFINAL SECTION`;
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText() {
+          textGenerateCalls.push(true);
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: "",
+            respondedAt: "2026-05-26T02:00:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          pdfCalls.push(input);
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-large-1",
+              templateId: "template-123",
+              filename: input.filename,
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.alloc(1400, "P"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-26T02:01:00.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "success",
+                documentId: "doc-large-1",
+                documentTemplateId: "template-123",
+                downloadUrl: "https://example.com/large.pdf",
+                previewUrl: null,
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf",
+                status: "success",
+                updatedAt: "2026-05-26T02:01:00.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes
+          };
+        }
+      } as never
+    );
+    mockExtractedPdfText(service, largeSourceText);
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: JSON.stringify(createBundle()),
+        job: {
+          id: "job-large-verbatim-1",
+          docId: "doc-large-1",
+          versionId: "version-large-1",
+          surface: "web",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "msg-large-1",
+          sourceUserMessageText: "Create PDF from attachment",
+          sourceUserMessageCreatedAt: "2026-05-26T02:00:00.000Z"
+        },
+        attachments: [],
+        sourceFiles: [
+          {
+            attachmentId: "att-large-1",
+            filename: "thesis.docx",
+            mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            sizeBytes: Buffer.byteLength(largeSourceText, "utf8"),
+            text: largeSourceText,
+            markdown: null,
+            note: null,
+            provider: null,
+            quality: {
+              status: "ok" as const,
+              score: null,
+              reasonCodes: [],
+              textChars: largeSourceText.length
+            }
+          }
+        ],
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt: "Create PDF from attachment",
+            transferMode: "verbatim",
+            requestedName: "thesis"
+          }
+        }
+      }
+    });
+
+    assert.equal(textGenerateCalls.length, 0);
+    assert.equal(result.editStrategy, "structured_large");
+    assert.ok(result.structureJson !== null && result.structureJson !== undefined);
+    assert.ok(result.styleProfileJson !== null && result.styleProfileJson !== undefined);
+    assert.match(pdfCalls[0]!.htmlContent, /FINAL SECTION/);
   });
 
   test("document generation prefers systemTool slot and does not forward ordinary chat prompt or heartbeat", async () => {
@@ -4624,5 +4800,184 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       "outline was called exactly once (no retry after chunked timeout)"
     );
     assert.ok(htmlCalls.length <= 1, "single-shot was attempted at most once before re-route");
+  });
+
+  test("large revise with style_only uses structured path and preserves text", async () => {
+    const sectionText = "Alpha paragraph that must remain unchanged.";
+    const filler = "Lorem ipsum dolor sit amet. ".repeat(1_500);
+    const previousHtml = `<!DOCTYPE html><html><head></head><body><p>${filler}</p><p>${sectionText}</p></body></html>`;
+    const styleEnvelope = JSON.stringify({
+      mode: "document_style_patch",
+      stylePatch: {
+        typography: { bodyFontSizePt: 14 },
+        colors: { accent: "#990000" }
+      }
+    });
+
+    const { service, gatewayCalls } = createPatchReviseService({ llmResponse: styleEnvelope });
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        ...makePatchReviseRequest(previousHtml, "Improve visual styling only"),
+        previousVersionEditStrategy: "structured_large",
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "revise_document",
+          request: {
+            prompt: "Improve visual styling only",
+            editOperation: "style_only",
+            requestedName: "Report"
+          }
+        }
+      }
+    });
+
+    assert.equal(result.artifacts.length, 1);
+    assert.match(gatewayCalls[0]!.htmlContent, /font-size: 14pt/);
+    assert.match(gatewayCalls[0]!.htmlContent, new RegExp(sectionText));
+    assert.equal(result.editStrategy, "structured_large");
+    assert.ok(result.structureJson !== null && result.structureJson !== undefined);
+  });
+
+  test("structured revise maps metadata.preserveText to style_only", async () => {
+    const filler = "Immutable thesis paragraph. ".repeat(1_500);
+    const previousHtml = `<!DOCTYPE html><html><head></head><body><p>${filler}</p></body></html>`;
+    let classification = "";
+    const styleEnvelope = JSON.stringify({
+      mode: "document_style_patch",
+      stylePatch: { typography: { bodyFontSizePt: 12 } }
+    });
+    const { service } = createPatchReviseService({ llmResponse: styleEnvelope });
+    const gateway = (
+      service as unknown as {
+        providerGatewayClientService: {
+          generateText: (input: {
+            requestMetadata?: { classification?: string };
+          }) => Promise<unknown>;
+        };
+      }
+    ).providerGatewayClientService;
+    const originalGenerate = gateway.generateText.bind(gateway);
+    gateway.generateText = async (input) => {
+      classification = input.requestMetadata?.classification ?? "";
+      return originalGenerate(input);
+    };
+
+    await service.run({
+      bundle: createBundle(),
+      request: {
+        ...makePatchReviseRequest(previousHtml, "Restyle only"),
+        previousVersionEditStrategy: "structured_large",
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "revise_document",
+          request: {
+            prompt: "Restyle only",
+            requestedName: "Thesis",
+            metadata: { preserveText: true }
+          }
+        }
+      }
+    });
+    assert.equal(classification, "document_style_patch");
+  });
+
+  test("small revise keeps patch-revise path when below structured threshold", async () => {
+    const previousHtml =
+      "<!DOCTYPE html><html><head></head><body><h1>Intro</h1><p>Old intro text here.</p></body></html>";
+    const envelope = makePatchReviseEnvelope([
+      { search: "<p>Old intro text here.</p>", replace: "<p>New improved intro text.</p>" }
+    ]);
+    let patchClassification = "";
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText(input: { requestMetadata?: { classification?: string } }) {
+          patchClassification = input.requestMetadata?.classification ?? "";
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: envelope,
+            respondedAt: "2026-05-24T16:00:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: null
+          };
+        },
+        async generateDocumentOutcome(
+          input: ProviderGatewayDocumentGenerateRequest
+        ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+          return {
+            ok: true,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-patch-small",
+              templateId: "template-123",
+              filename: input.filename,
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.alloc(1400, "P"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-24T16:01:00.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "success",
+                documentId: "doc-patch-small",
+                documentTemplateId: "template-123",
+                downloadUrl: "https://example.com/patched-small.pdf",
+                previewUrl: null,
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf",
+                status: "success",
+                updatedAt: "2026-05-24T16:01:00.000Z"
+              }
+            }
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject() {
+          return { objectKey: "k", sizeBytes: 1, mimeType: "application/pdf" };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile() {
+          return {
+            fileRef: "file-1",
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: "k",
+            relativePath: "a.pdf",
+            displayName: "a.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 1,
+            logicalSizeBytes: 1,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: { fileRef: string }) {
+          return { fileRef: record.fileRef };
+        }
+      } as never
+    );
+    service["extractPdfText"] = async () => ({ text: "x".repeat(120), error: null });
+
+    await service.run({
+      bundle: createBundle(),
+      request: makePatchReviseRequest(previousHtml)
+    });
+    assert.equal(patchClassification, "document_pdf_patch_revise");
   });
 });

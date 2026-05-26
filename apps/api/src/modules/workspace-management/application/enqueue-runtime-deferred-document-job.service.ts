@@ -603,7 +603,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         ...input.request,
         sourceJson
       },
-      previousVersionRenderedHtml
+      previousVersionRenderedHtml,
+      previousVersionStructureJson: revisionContext.currentVersionStructureJson,
+      previousVersionStyleProfileJson: revisionContext.currentVersionStyleProfileJson,
+      previousVersionEditStrategy: revisionContext.currentVersionEditStrategy
     });
     return {
       accepted: true,
@@ -729,7 +732,10 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         ...input.request,
         sourceJson: requestSourceJson
       },
-      previousVersionRenderedHtml: revisionContext.currentVersionRenderedHtml
+      previousVersionRenderedHtml: revisionContext.currentVersionRenderedHtml,
+      previousVersionStructureJson: revisionContext.currentVersionStructureJson,
+      previousVersionStyleProfileJson: revisionContext.currentVersionStyleProfileJson,
+      previousVersionEditStrategy: revisionContext.currentVersionEditStrategy
     });
     return {
       accepted: true,

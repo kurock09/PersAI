@@ -2,6 +2,58 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-26 — Structured document prod path (migration `20260524120000_adr098_structured_document_versions`)
+
+### What changed
+
+Implemented the structured document production path so large PDF documents edit against versioned `structureJson` + `styleProfileJson` instead of whole-HTML SEARCH/REPLACE patches.
+
+1. Added additive `AssistantDocumentVersion` fields: `structureJson`, `styleProfileJson`, `editStrategy`, `structureVersion` (+ migration `20260524120000_adr098_structured_document_versions`).
+2. Large create/revise routes build or lazy-upgrade structured snapshots, render derived `renderedHtml`, and persist structure fields through the document job scheduler.
+3. Revise routing is language-agnostic: `transferMode`, `editOperation`, `targetSectionIds` on the document tool contract + persisted version state + internal worker modes (`style_only`, `content_patch`, `section_rewrite`).
+4. Small documents and explicit `fast_small` versions keep the existing patch-revise fast path.
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20260524120000_adr098_structured_document_versions/`
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/persai-document-structure.ts`
+- `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-document-job.service.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-document-job-scheduler.service.ts`
+- `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts`
+- `apps/runtime/test/persai-document-structure.test.ts`
+- `apps/runtime/test/runtime-document-provider-adapter.service.test.ts`
+- API document job tests updated for expanded revision context
+- `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`
+
+### Verification
+
+1. `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+2. `corepack pnpm --filter @persai/api run typecheck` — PASS
+3. `corepack pnpm --filter @persai/runtime exec node --import tsx --test test/persai-document-structure.test.ts` — PASS
+4. Focused runtime document adapter tests (structured revise + patch-revise) — PASS
+5. `corepack pnpm --filter @persai/api exec node --import tsx --test test/assistant-document-job.service.test.ts test/assistant-document-job-scheduler.service.test.ts` — PASS
+
+### Polish follow-up (same day)
+
+- Persist `editStrategy: fast_small` on small create and patch-revise outcomes.
+- Structured revise honors `metadata.preserveText` / `metadata.styleOnly` as explicit model flags for `style_only` (not user-language keywords).
+- `transferMode` no longer affects revise operation resolution.
+- Lazy upgrade reuses `previousVersionStyleProfileJson` when present.
+- Added scheduler persistence test for `structureJson` / `styleProfileJson` / `editStrategy` and runtime test for large verbatim structured create.
+
+### Risks / residuals
+
+- Models should pass `transferMode=verbatim` and `editOperation=style_only` (or `metadata.preserveText`) for style-only revises; default remains `content_patch`.
+- Legacy large HTML-only versions lazy-upgrade on first structured revise; monitor cluster revise jobs after deploy.
+- `docs/ADR/098-country-aware-site-pages-and-legal-market.md` is unrelated legal content — do not confuse with this document-structure migration label.
+
+### Next recommended step
+
+Deploy to dev, then validate on cluster: large verbatim create → structured snapshot persisted; large style-only revise on prior PDF; one targeted section content_patch. Confirm patch-revise is no longer the default for large revise jobs.
+
 ## 2026-05-26 — Runtime background-turn economics follow-up
 
 ### What changed

@@ -610,6 +610,9 @@ async function runRevisionFallsBackToLatestChatDocumentWhenDocIdIsNotUuid(): Pro
           currentVersionNumber: 1,
           currentVersionRenderedHtml:
             "<!DOCTYPE html><html><head></head><body><h1>PersAI Overview</h1></body></html>",
+          currentVersionStructureJson: null,
+          currentVersionStyleProfileJson: null,
+          currentVersionEditStrategy: null,
           currentSourceJson: {
             prompt: "Original document",
             outputFormat: "pdf",
@@ -1490,6 +1493,9 @@ async function runFindLatestRevisionContextSurfacesRenderedHtmlPresence(): Promi
         currentVersionId: "version-3",
         currentVersionNumber: 3,
         currentVersionRenderedHtml: previousHtml,
+        currentVersionStructureJson: null,
+        currentVersionStyleProfileJson: null,
+        currentVersionEditStrategy: null,
         currentSourceJson: {
           prompt: "Latest version",
           outputFormat: "pdf",
@@ -1554,6 +1560,9 @@ async function runEnqueueRevisionRejectsLegacyVersionWithNullRenderedHtml(): Pro
         currentVersionId: "version-legacy-1",
         currentVersionNumber: 1,
         currentVersionRenderedHtml: null, // legacy version — no rendered HTML
+        currentVersionStructureJson: null,
+        currentVersionStyleProfileJson: null,
+        currentVersionEditStrategy: null,
         currentSourceJson: { prompt: "Original PDF", outputFormat: "pdf", requestedName: "Report" }
       };
     }
@@ -1608,6 +1617,9 @@ async function runEnqueueRevisionAttachesPreviousRenderedHtmlToRuntimeRequest():
         currentVersionId: "version-1",
         currentVersionNumber: 1,
         currentVersionRenderedHtml: previousHtml,
+        currentVersionStructureJson: null,
+        currentVersionStyleProfileJson: null,
+        currentVersionEditStrategy: null,
         currentSourceJson: { prompt: "Original PDF", outputFormat: "pdf", requestedName: "Report" }
       };
     },

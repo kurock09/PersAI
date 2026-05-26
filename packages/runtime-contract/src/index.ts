@@ -2136,6 +2136,14 @@ export interface RuntimeDocumentJobRunRequest {
    * at enqueue time with document_revise_unsupported_legacy_version).
    */
   previousVersionRenderedHtml?: string | null;
+  /**
+   * Structured document snapshot from the previous version. When present with
+   * editStrategy=structured_large, the worker edits structure/style instead of
+   * whole-HTML SEARCH/REPLACE patches.
+   */
+  previousVersionStructureJson?: Record<string, unknown> | null;
+  previousVersionStyleProfileJson?: Record<string, unknown> | null;
+  previousVersionEditStrategy?: "fast_small" | "structured_large" | null;
   directToolExecution: {
     toolCode: "document";
     descriptorMode:
@@ -2170,6 +2178,15 @@ export interface RuntimeDocumentJobRunRequest {
       targetSlideCount?: number | null;
       outline?: unknown;
       metadata?: Record<string, unknown> | null;
+      /** Explicit create transfer mode — no lexical routing. */
+      transferMode?: "verbatim" | "transform" | null;
+      /**
+       * Explicit revise operation. When omitted on structured_large documents,
+       * the worker defaults to content_patch.
+       */
+      editOperation?: "style_only" | "content_patch" | "section_rewrite" | null;
+      /** Optional stable section ids for targeted structured edits. */
+      targetSectionIds?: string[] | null;
     };
   };
 }
@@ -2186,6 +2203,10 @@ export interface RuntimeDocumentJobRunResult {
    *  or when generation failed. Persisted on AssistantDocumentVersion so the
    *  upcoming patch-revise loop (Slice 2) can read it without re-generating. */
   renderedHtml?: string | null;
+  structureJson?: Record<string, unknown> | null;
+  styleProfileJson?: Record<string, unknown> | null;
+  editStrategy?: "fast_small" | "structured_large" | null;
+  structureVersion?: number | null;
 }
 
 export type RuntimeDocumentGammaCompanionOriginal =
@@ -2511,6 +2532,8 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   "document_pdf_outline",
   "document_pdf_section_generation",
   "document_pdf_patch_revise",
+  "document_style_patch",
+  "document_section_patch_revise",
   "document_presentation_theme_picker",
   "document_job_completion",
   "media_job_completion",

@@ -19,6 +19,25 @@ import {
   ProviderGatewayTimeoutError
 } from "./provider-gateway.client.service";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
+import {
+  applySectionPatches,
+  buildStructureFromExtractedText,
+  buildStructureFromRenderedHtml,
+  createDefaultStyleProfile,
+  extractStructurePlainText,
+  LARGE_DOCUMENT_STRUCTURE_THRESHOLD_BYTES,
+  mergeStyleProfile,
+  parsePersaiDocumentStructureSnapshot,
+  parsePersaiDocumentStyleProfile,
+  renderStructureToHtml,
+  resolveEditStrategyForCreate,
+  shouldUseStructuredDocumentPath,
+  type PersaiDocumentEditStrategy,
+  type PersaiDocumentInternalOperation,
+  type PersaiDocumentStructureSnapshot,
+  type PersaiDocumentStyleProfile,
+  PERSAI_DOCUMENT_STRUCTURE_VERSION
+} from "./persai-document-structure";
 
 type SupportedDocumentProvider = "pdfmonkey" | "gamma";
 type NativeManagedProvider = "openai" | "anthropic";
@@ -101,7 +120,7 @@ const DEFENSIVE_OUTPUT_TOKEN_CAP = 64_000;
 // Route to the chunked pipeline when the job has source attachments AND the
 // total inlined source text exceeds this threshold. Simple v1 rule: purely
 // based on objective attachment bytes, no keyword/prompt-text heuristics.
-const LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES = 20_000;
+const LARGE_DOCUMENT_SOURCE_THRESHOLD_BYTES = LARGE_DOCUMENT_STRUCTURE_THRESHOLD_BYTES;
 const DOCUMENT_PDF_MAX_RENDER_ATTEMPTS = 3;
 const PDF_VALIDATION_MIN_BYTES = 1_024;
 const PDF_VALIDATION_MIN_TEXT_LENGTH = 80;
@@ -272,6 +291,16 @@ export class RuntimeDocumentProviderAdapterService {
         ? input.request.previousVersionRenderedHtml
         : null;
     if (descriptorMode === "revise_document" && previousVersionRenderedHtml !== null) {
+      if (this.shouldUseStructuredRevisePath(input.request, previousVersionRenderedHtml)) {
+        return this.runStructuredPdfRevise({
+          bundle: input.bundle,
+          request: input.request,
+          credential,
+          templateId,
+          filename,
+          previousVersionRenderedHtml
+        });
+      }
       return this.runPdfPatchRevise({
         bundle: input.bundle,
         request: input.request,
@@ -331,20 +360,33 @@ export class RuntimeDocumentProviderAdapterService {
       billingFacts?: RuntimeOutputArtifact["billingFacts"];
     } | null = null;
     let capturedRenderedHtml: string | null = null;
+    let capturedStructureJson: PersaiDocumentStructureSnapshot | null = null;
+    let capturedStyleProfileJson: PersaiDocumentStyleProfile | null = null;
+    let capturedEditStrategy: PersaiDocumentEditStrategy | null = null;
+
+    const createEditStrategy = resolveEditStrategyForCreate({
+      totalInlinedSourceBytes
+    });
 
     this.logger.log(
-      `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} templateId=${templateId} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)} useChunked=${String(useChunked)} useDirectSourceTransfer=${String(useDirectSourceTransfer)}`
+      `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} templateId=${templateId} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)} useChunked=${String(useChunked)} useDirectSourceTransfer=${String(useDirectSourceTransfer)} editStrategy=${createEditStrategy}`
     );
     for (let attempt = 1; attempt <= DOCUMENT_PDF_MAX_RENDER_ATTEMPTS; attempt += 1) {
       let htmlContent: string;
       if (useDirectSourceTransfer) {
         const directTransferResult = this.buildDirectSourceTransferHtml({
-          sourceFiles
+          sourceFiles,
+          structuredSnapshot: createEditStrategy === "structured_large"
         });
         htmlContent = directTransferResult.htmlContent;
         capturedRenderedHtml = htmlContent;
+        if (directTransferResult.structure !== null && directTransferResult.style !== null) {
+          capturedStructureJson = directTransferResult.structure;
+          capturedStyleProfileJson = directTransferResult.style;
+          capturedEditStrategy = createEditStrategy;
+        }
         this.logger.log(
-          `[document-pdf-direct-source-transfer-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(directTransferResult.bodyTextLength)}`
+          `[document-pdf-direct-source-transfer-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(directTransferResult.bodyTextLength)} structured=${String(directTransferResult.structure !== null)}`
         );
       } else if (useChunked) {
         // Chunked path: outline → style anchor → sequential section generation → assembly.
@@ -486,6 +528,16 @@ export class RuntimeDocumentProviderAdapterService {
           }
           continue;
         }
+      }
+      if (
+        createEditStrategy === "structured_large" &&
+        capturedStructureJson === null &&
+        capturedStyleProfileJson === null
+      ) {
+        const snapshot = this.captureStructuredSnapshotFromHtml(htmlContent);
+        capturedStructureJson = snapshot.structure;
+        capturedStyleProfileJson = snapshot.style;
+        capturedEditStrategy = createEditStrategy;
       }
       const providerOutcome = await this.providerGatewayClientService.generateDocumentOutcome(
         {
@@ -652,6 +704,14 @@ export class RuntimeDocumentProviderAdapterService {
       ],
       rawText: null,
       renderedHtml: capturedRenderedHtml,
+      editStrategy: capturedEditStrategy ?? "fast_small",
+      ...(capturedStructureJson !== null
+        ? {
+            structureJson: capturedStructureJson as unknown as Record<string, unknown>,
+            styleProfileJson: capturedStyleProfileJson as unknown as Record<string, unknown> | null,
+            structureVersion: PERSAI_DOCUMENT_STRUCTURE_VERSION
+          }
+        : {}),
       providerStatus: {
         ...successfulProviderResult.providerStatus,
         outputFormat: input.request.job.outputFormat,
@@ -884,6 +944,7 @@ export class RuntimeDocumentProviderAdapterService {
       toolInvocations: [{ name: "document", iteration: 1, ok: true, executionMode: "worker" }],
       rawText: null,
       renderedHtml: repairedHtml,
+      editStrategy: "fast_small",
       providerStatus: {
         ...providerResult.providerStatus,
         outputFormat: input.request.job.outputFormat,
@@ -892,6 +953,443 @@ export class RuntimeDocumentProviderAdapterService {
         assistantFileRegistryAvailable:
           typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
       }
+    };
+  }
+
+  private shouldUseStructuredRevisePath(
+    request: RuntimeDocumentJobRunRequest,
+    previousVersionRenderedHtml: string
+  ): boolean {
+    if (request.previousVersionEditStrategy === "fast_small") {
+      return false;
+    }
+    if (
+      shouldUseStructuredDocumentPath({
+        editStrategy: request.previousVersionEditStrategy ?? null,
+        structureJson: request.previousVersionStructureJson ?? null
+      })
+    ) {
+      return true;
+    }
+    return previousVersionRenderedHtml.length > LARGE_DOCUMENT_STRUCTURE_THRESHOLD_BYTES;
+  }
+
+  private resolveDocumentEditOperation(
+    request: RuntimeDocumentJobRunRequest
+  ): PersaiDocumentInternalOperation {
+    const explicit = request.directToolExecution.request.editOperation;
+    if (
+      explicit === "style_only" ||
+      explicit === "content_patch" ||
+      explicit === "section_rewrite"
+    ) {
+      return explicit;
+    }
+    const metadata = request.directToolExecution.request.metadata;
+    const metadataOperation = metadata?.editOperation;
+    if (
+      metadataOperation === "style_only" ||
+      metadataOperation === "content_patch" ||
+      metadataOperation === "section_rewrite"
+    ) {
+      return metadataOperation;
+    }
+    if (metadata?.preserveText === true || metadata?.styleOnly === true) {
+      return "style_only";
+    }
+    return "content_patch";
+  }
+
+  private resolveStructuredReviseState(input: {
+    request: RuntimeDocumentJobRunRequest;
+    previousVersionRenderedHtml: string;
+  }): {
+    structure: PersaiDocumentStructureSnapshot;
+    style: PersaiDocumentStyleProfile;
+    editStrategy: PersaiDocumentEditStrategy;
+    lazyUpgraded: boolean;
+  } {
+    const persistedStructure = parsePersaiDocumentStructureSnapshot(
+      input.request.previousVersionStructureJson ?? null
+    );
+    const persistedStyle =
+      parsePersaiDocumentStyleProfile(input.request.previousVersionStyleProfileJson ?? null) ??
+      createDefaultStyleProfile();
+    if (persistedStructure !== null) {
+      return {
+        structure: persistedStructure,
+        style: persistedStyle,
+        editStrategy: input.request.previousVersionEditStrategy ?? "structured_large",
+        lazyUpgraded: false
+      };
+    }
+    const upgraded = this.captureStructuredSnapshotFromHtml(input.previousVersionRenderedHtml);
+    const upgradedStyle =
+      parsePersaiDocumentStyleProfile(input.request.previousVersionStyleProfileJson ?? null) ??
+      upgraded.style;
+    return {
+      structure: upgraded.structure,
+      style: upgradedStyle,
+      editStrategy: "structured_large",
+      lazyUpgraded: true
+    };
+  }
+
+  private async runStructuredPdfRevise(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeDocumentJobRunRequest;
+    credential: AssistantRuntimeBundleToolCredentialRef;
+    templateId: string;
+    filename: string;
+    previousVersionRenderedHtml: string;
+  }): Promise<RuntimeDocumentJobRunResult> {
+    const timeoutMs = this.resolveWorkerTimeoutMs(input.bundle);
+    const providerSelection = this.resolveDocumentGenerationProviderSelection(input.bundle);
+    const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
+    const operation = this.resolveDocumentEditOperation(input.request);
+    const reviseState = this.resolveStructuredReviseState(input);
+    const beforeTextFingerprint = extractStructurePlainText(reviseState.structure);
+
+    this.logger.log(
+      `[document-pdf-structured-revise-start] jobId=${input.request.job.id} operation=${operation} lazyUpgraded=${String(reviseState.lazyUpgraded)} sectionCount=${String(reviseState.structure.sections.length)}`
+    );
+
+    let nextStructure = reviseState.structure;
+    let nextStyle = reviseState.style;
+
+    try {
+      if (operation === "style_only") {
+        const stylePatch = await this.generateStructuredStylePatch({
+          bundle: input.bundle,
+          request: input.request,
+          providerSelection,
+          maxOutputTokens,
+          style: reviseState.style,
+          structure: reviseState.structure
+        });
+        nextStyle = mergeStyleProfile(reviseState.style, stylePatch);
+      } else {
+        const sectionPatches = await this.generateStructuredSectionPatches({
+          bundle: input.bundle,
+          request: input.request,
+          providerSelection,
+          maxOutputTokens,
+          operation,
+          structure: reviseState.structure,
+          style: reviseState.style
+        });
+        nextStructure = applySectionPatches(reviseState.structure, sectionPatches);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `[document-pdf-structured-revise-llm-failed] jobId=${input.request.job.id} operation=${operation} message=${message}`
+      );
+      return this.buildPatchReviseFailResult(input, {
+        errorCode: "document_structured_revise_invalid_envelope",
+        retryable: true,
+        message: `Structured revise LLM call failed: ${message}`
+      });
+    }
+
+    if (operation === "style_only") {
+      const afterTextFingerprint = extractStructurePlainText(nextStructure);
+      if (afterTextFingerprint !== beforeTextFingerprint) {
+        return this.buildPatchReviseFailResult(input, {
+          errorCode: "document_structured_style_only_text_changed",
+          retryable: false,
+          message: "Style-only revise changed document text content."
+        });
+      }
+    }
+
+    const rendered = renderStructureToHtml(nextStructure, nextStyle);
+    let repaired: { html: string; bodyTextLength: number };
+    try {
+      repaired = this.repairHtmlDocument(rendered);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.buildPatchReviseFailResult(input, {
+        errorCode: "document_structured_revise_repair_failed",
+        retryable: false,
+        message: `Structured revise HTML repair failed: ${message}`
+      });
+    }
+
+    const providerOutcome = await this.providerGatewayClientService.generateDocumentOutcome(
+      {
+        htmlContent: repaired.html,
+        filename: input.filename,
+        credential: {
+          toolCode: "document",
+          secretId: input.credential.secretRef.id,
+          providerId: "pdfmonkey"
+        },
+        providerOptions: {
+          pdfmonkeyTemplateId: input.templateId,
+          outputFormat: "pdf"
+        }
+      },
+      { timeoutMs }
+    );
+
+    if (!providerOutcome.ok) {
+      return this.buildPatchReviseFailResult(input, {
+        errorCode: providerOutcome.code ?? "provider_document_generation_failed",
+        retryable: providerOutcome.retryable,
+        message: providerOutcome.message
+      });
+    }
+
+    const providerResult = providerOutcome.result;
+    const pdfBuffer = Buffer.from(providerResult.bytesBase64, "base64");
+    const validationFailure = await this.validateGeneratedPdfArtifact(pdfBuffer, {
+      jobId: input.request.job.id,
+      attempt: 1
+    });
+    if (validationFailure !== null) {
+      return this.buildPatchReviseFailResult(input, {
+        errorCode: validationFailure.code,
+        retryable: false,
+        message: validationFailure.message
+      });
+    }
+
+    const artifact = await this.persistGeneratedArtifact({
+      assistantId: input.bundle.metadata.assistantId,
+      workspaceId: input.bundle.metadata.workspaceId,
+      sessionId: input.request.job.chatId,
+      requestId: input.request.job.id,
+      filename: input.filename,
+      requestPrompt: input.request.directToolExecution.request.prompt,
+      requestedName: input.request.directToolExecution.request.requestedName ?? null,
+      buffer: pdfBuffer,
+      mimeType: providerResult.mimeType,
+      billingFacts: providerResult.billingFacts ?? null
+    });
+
+    this.logger.log(
+      `[document-pdf-structured-revise-success] jobId=${input.request.job.id} operation=${operation} pdfBytes=${String(pdfBuffer.length)}`
+    );
+
+    return {
+      assistantText: null,
+      artifacts: [artifact],
+      usage: null,
+      billingFacts: artifact.billingFacts ?? null,
+      toolInvocations: [{ name: "document", iteration: 1, ok: true, executionMode: "worker" }],
+      rawText: null,
+      renderedHtml: repaired.html,
+      structureJson: nextStructure as unknown as Record<string, unknown>,
+      styleProfileJson: nextStyle as unknown as Record<string, unknown>,
+      editStrategy: "structured_large",
+      structureVersion: PERSAI_DOCUMENT_STRUCTURE_VERSION,
+      providerStatus: {
+        ...providerResult.providerStatus,
+        outputFormat: input.request.job.outputFormat,
+        requestedName: input.filename,
+        sourcePromptHash: this.hashPrompt(input.request.directToolExecution.request.prompt),
+        structuredReviseOperation: operation,
+        structuredReviseLazyUpgraded: reviseState.lazyUpgraded,
+        assistantFileRegistryAvailable:
+          typeof this.runtimeAssistantFileRegistryService.toRuntimeFileRef === "function"
+      }
+    };
+  }
+
+  private async generateStructuredStylePatch(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeDocumentJobRunRequest;
+    providerSelection: ProviderSelection;
+    maxOutputTokens: number;
+    style: PersaiDocumentStyleProfile;
+    structure: PersaiDocumentStructureSnapshot;
+  }): Promise<Record<string, unknown>> {
+    const response = await this.providerGatewayClientService.generateText({
+      provider: input.providerSelection.provider,
+      model: input.providerSelection.model,
+      systemPrompt: this.buildDocumentWorkerSystemPrompt(),
+      developerInstructions: [
+        'Return ONLY JSON: { "mode": "document_style_patch", "stylePatch": { ...partial style fields... } }',
+        "Change typography/layout/colors only. Do not change section text.",
+        "Do not add commentary or markdown fences."
+      ].join("\n"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  mode: "document_style_patch_request",
+                  revisionPrompt: input.request.directToolExecution.request.prompt,
+                  revisionInstructions:
+                    input.request.directToolExecution.request.instructions ?? null,
+                  currentStyle: input.style,
+                  sectionHeadings: input.structure.sections.map((section) => ({
+                    id: section.id,
+                    heading: section.heading
+                  }))
+                },
+                null,
+                2
+              )
+            }
+          ]
+        }
+      ],
+      maxOutputTokens: Math.min(input.maxOutputTokens, 4_000),
+      requestMetadata: {
+        runtimeSessionId: `document-job:${input.request.job.id}`,
+        runtimeRequestId: `document-style-patch:${input.request.job.id}`,
+        toolLoopIteration: null,
+        compactionToolCode: null,
+        classification: "document_style_patch"
+      },
+      timeoutMsHint: DOCUMENT_CLASSIFICATION_TIMEOUT_MS
+    });
+    const rawText = (response.text ?? "").trim();
+    const envelope = this.parseStructuredJsonEnvelope(rawText, "document_style_patch");
+    const stylePatch = envelope.stylePatch;
+    if (stylePatch === null || typeof stylePatch !== "object" || Array.isArray(stylePatch)) {
+      throw new Error('Structured style patch envelope must include object "stylePatch".');
+    }
+    return stylePatch as Record<string, unknown>;
+  }
+
+  private async generateStructuredSectionPatches(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeDocumentJobRunRequest;
+    providerSelection: ProviderSelection;
+    maxOutputTokens: number;
+    operation: PersaiDocumentInternalOperation;
+    structure: PersaiDocumentStructureSnapshot;
+    style: PersaiDocumentStyleProfile;
+  }): Promise<
+    Array<{
+      sectionId: string;
+      blocks?: PersaiDocumentStructureSnapshot["sections"][number]["blocks"];
+      heading?: string | null;
+    }>
+  > {
+    const targetSectionIds = input.request.directToolExecution.request.targetSectionIds ?? [];
+    const sections =
+      targetSectionIds.length > 0
+        ? input.structure.sections.filter((section) => targetSectionIds.includes(section.id))
+        : input.structure.sections;
+    const response = await this.providerGatewayClientService.generateText({
+      provider: input.providerSelection.provider,
+      model: input.providerSelection.model,
+      systemPrompt: this.buildDocumentWorkerSystemPrompt(),
+      developerInstructions: [
+        'Return ONLY JSON: { "mode": "document_section_patch_revise", "sections": [ { "sectionId": "...", "heading": "...", "blocks": [ { "id": "...", "type": "paragraph"|"heading", "html": "..." } ] } ] }',
+        "Patch only the sections included in the request payload.",
+        "Preserve untouched sections exactly.",
+        "Do not add commentary or markdown fences."
+      ].join("\n"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  mode: "document_section_patch_request",
+                  operation: input.operation,
+                  revisionPrompt: input.request.directToolExecution.request.prompt,
+                  revisionInstructions:
+                    input.request.directToolExecution.request.instructions ?? null,
+                  targetSectionIds,
+                  documentStructure: {
+                    sections: sections.map((section) => ({
+                      id: section.id,
+                      heading: section.heading,
+                      blocks: section.blocks
+                    }))
+                  },
+                  styleProfile: input.style
+                },
+                null,
+                2
+              )
+            }
+          ]
+        }
+      ],
+      maxOutputTokens: Math.min(input.maxOutputTokens, 16_000),
+      requestMetadata: {
+        runtimeSessionId: `document-job:${input.request.job.id}`,
+        runtimeRequestId: `document-section-patch:${input.request.job.id}`,
+        toolLoopIteration: null,
+        compactionToolCode: null,
+        classification: "document_section_patch_revise"
+      },
+      timeoutMsHint: DOCUMENT_CLASSIFICATION_TIMEOUT_MS
+    });
+    const rawText = (response.text ?? "").trim();
+    const envelope = this.parseStructuredJsonEnvelope(rawText, "document_section_patch_revise");
+    if (!Array.isArray(envelope.sections)) {
+      throw new Error('Structured section patch envelope must include array "sections".');
+    }
+    const patches: Array<{
+      sectionId: string;
+      blocks?: PersaiDocumentStructureSnapshot["sections"][number]["blocks"];
+      heading?: string | null;
+    }> = [];
+    for (const entry of envelope.sections) {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        continue;
+      }
+      const row = entry as Record<string, unknown>;
+      if (typeof row.sectionId !== "string") {
+        continue;
+      }
+      patches.push({
+        sectionId: row.sectionId,
+        ...(row.heading === null || typeof row.heading === "string"
+          ? { heading: row.heading }
+          : {}),
+        ...(Array.isArray(row.blocks) ? { blocks: row.blocks as never } : {})
+      });
+    }
+    if (patches.length === 0) {
+      throw new Error("Structured section patch envelope returned no valid section patches.");
+    }
+    return patches;
+  }
+
+  private parseStructuredJsonEnvelope(
+    rawText: string,
+    expectedMode: string
+  ): Record<string, unknown> {
+    const unfenced = this.stripMarkdownFences(rawText.trim());
+    const objectStart = unfenced.indexOf("{");
+    const objectEnd = unfenced.lastIndexOf("}");
+    if (objectStart === -1 || objectEnd <= objectStart) {
+      throw new Error("No JSON object found in structured document model output.");
+    }
+    const parsed = JSON.parse(unfenced.slice(objectStart, objectEnd + 1)) as unknown;
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Structured document envelope is not a JSON object.");
+    }
+    const envelope = parsed as Record<string, unknown>;
+    if (envelope.mode !== expectedMode) {
+      throw new Error(
+        `Structured document envelope mode must be "${expectedMode}", got: ${JSON.stringify(envelope.mode)}`
+      );
+    }
+    return envelope;
+  }
+
+  private captureStructuredSnapshotFromHtml(html: string): {
+    structure: PersaiDocumentStructureSnapshot;
+    style: PersaiDocumentStyleProfile;
+  } {
+    return {
+      structure: buildStructureFromRenderedHtml(html),
+      style: createDefaultStyleProfile()
     };
   }
 
@@ -2641,22 +3139,17 @@ export class RuntimeDocumentProviderAdapterService {
   }
 
   private shouldUseDirectSourceTransfer(request: RuntimeDocumentJobRunRequest): boolean {
-    const prompt = request.directToolExecution.request.prompt ?? "";
-    const sourceMessage = request.job.sourceUserMessageText ?? "";
-    const combined = `${prompt}\n${sourceMessage}`.toLowerCase();
-    return (
-      /word[\s-]?for[\s-]?word|every word exactly|exact copy|full text|without omissions|do not summarize|do not rewrite|do not shorten|do not reorder|do not omit/.test(
-        combined
-      ) ||
-      /слово в слово|дословно|весь текст|полный текст|без сокращ|без изменений|не сокращ|не переписы|не меняя текст|не пропускай|не опускай/.test(
-        combined
-      )
-    );
+    return request.directToolExecution.request.transferMode === "verbatim";
   }
 
-  private buildDirectSourceTransferHtml(input: { sourceFiles: DocumentSourceFilePayload[] }): {
+  private buildDirectSourceTransferHtml(input: {
+    sourceFiles: DocumentSourceFilePayload[];
+    structuredSnapshot: boolean;
+  }): {
     htmlContent: string;
     bodyTextLength: number;
+    structure: PersaiDocumentStructureSnapshot | null;
+    style: PersaiDocumentStyleProfile | null;
   } {
     const extractedText = input.sourceFiles
       .map((sourceFile) => sourceFile.text ?? "")
@@ -2667,6 +3160,25 @@ export class RuntimeDocumentProviderAdapterService {
       throw new Error(
         "Direct source transfer requested but no extracted source text is available."
       );
+    }
+    if (input.structuredSnapshot) {
+      const structure = buildStructureFromExtractedText(extractedText);
+      const style = createDefaultStyleProfile();
+      const rawHtml = renderStructureToHtml(structure, style);
+      const repaired = this.repairHtmlDocument(rawHtml);
+      if (repaired.bodyTextLength < DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH) {
+        throw new Error(
+          `Direct source transfer produced too little body text (length=${String(
+            repaired.bodyTextLength
+          )}, minimum=${String(DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH)}).`
+        );
+      }
+      return {
+        htmlContent: repaired.html,
+        bodyTextLength: repaired.bodyTextLength,
+        structure,
+        style
+      };
     }
     const rawHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><article>${this.renderVerbatimSourceText(extractedText)}</article></body></html>`;
     const repaired = this.repairHtmlDocument(rawHtml);
@@ -2679,7 +3191,9 @@ export class RuntimeDocumentProviderAdapterService {
     }
     return {
       htmlContent: repaired.html,
-      bodyTextLength: repaired.bodyTextLength
+      bodyTextLength: repaired.bodyTextLength,
+      structure: null,
+      style: null
     };
   }
 

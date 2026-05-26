@@ -901,6 +901,207 @@ describe("AssistantDocumentJobSchedulerService", () => {
     );
   });
 
+  test("successful document job persists structured snapshot fields on AssistantDocumentVersion", async () => {
+    const versionUpdates: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> =
+      [];
+    const structureSnapshot = {
+      version: 1,
+      renderModel: "persai_document_structure_v1",
+      sections: [
+        {
+          id: "sec-1",
+          heading: "Title",
+          blocks: [{ id: "blk-1", type: "paragraph", html: "Body" }]
+        }
+      ]
+    };
+    const styleProfile = {
+      version: 1,
+      renderModel: "persai_document_style_v1",
+      typography: {
+        bodyFontFamily: "Georgia, serif",
+        bodyFontSizePt: 11,
+        headingFontFamily: "Georgia, serif",
+        lineHeight: 1.45
+      },
+      layout: { pageMarginMm: 20, paragraphSpacingEm: 0.55, sectionSpacingEm: 1.1 },
+      colors: { heading: "#111", body: "#222", accent: "#444" }
+    };
+    const service = new AssistantDocumentJobSchedulerService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantDocumentVersion: {
+              update: async (input: {
+                where: Record<string, unknown>;
+                data: Record<string, unknown>;
+              }) => {
+                versionUpdates.push(input);
+                return undefined;
+              }
+            },
+            assistantDocumentProviderMapping: {
+              findFirst: async () => null,
+              create: async () => undefined,
+              update: async () => undefined
+            }
+          }),
+        assistantDocumentRenderJob: {
+          updateMany: async () => ({ count: 0 })
+        }
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        async resolveCurrent() {
+          return {
+            runtimeBundleDocument: JSON.stringify({
+              metadata: {
+                assistantId: "assistant-1",
+                workspaceId: "workspace-1",
+                publishedVersionId: "version-struct-1"
+              },
+              runtime: {},
+              promptConstructor: {}
+            })
+          };
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          return { runtimeTier: "paid_shared_restricted" };
+        }
+      } as never,
+      {
+        async run() {
+          return {
+            ok: true,
+            result: {
+              assistantText: null,
+              artifacts: [
+                {
+                  artifactId: "artifact-struct-1",
+                  fileRef: "file-struct-1",
+                  file: {
+                    fileRef: "file-struct-1",
+                    origin: "runtime_output",
+                    sourceToolCode: "document",
+                    objectKey: "key/large-doc.pdf",
+                    relativePath: "large-doc.pdf",
+                    displayName: "large-doc.pdf",
+                    mimeType: "application/pdf",
+                    sizeBytes: 1500
+                  },
+                  kind: "file",
+                  sourceToolCode: "document",
+                  objectKey: "key/large-doc.pdf",
+                  mimeType: "application/pdf",
+                  filename: "large-doc.pdf",
+                  sizeBytes: 1500,
+                  voiceNote: false
+                }
+              ],
+              usage: null,
+              toolInvocations: [
+                { name: "document", iteration: 1, ok: true, executionMode: "worker" }
+              ],
+              rawText: null,
+              renderedHtml:
+                '<!DOCTYPE html><html><body><section id="sec-1"><p>Body</p></section></body></html>',
+              structureJson: structureSnapshot,
+              styleProfileJson: styleProfile,
+              editStrategy: "structured_large",
+              structureVersion: 1,
+              providerStatus: { provider: "pdfmonkey", state: "success" }
+            }
+          };
+        }
+      } as never,
+      {
+        async extractSourceFiles() {
+          return [];
+        }
+      } as never,
+      {
+        async deliverReadyJob() {
+          throw new Error("delivery must not run in this test");
+        }
+      } as never,
+      {
+        async getLeaseState() {
+          return null;
+        },
+        async acquire() {
+          return null;
+        },
+        async heartbeat() {
+          return true;
+        },
+        async release() {}
+      } as never,
+      {
+        recordTickSkipped() {},
+        recordTickAcquired() {},
+        recordLeaseLost() {},
+        recordLeaseExpiredRecovered() {}
+      } as never
+    );
+
+    await (
+      service as unknown as { processQueuedJob: (job: Record<string, unknown>) => Promise<void> }
+    ).processQueuedJob({
+      id: "job-struct-persist-1",
+      docId: "doc-struct-1",
+      versionId: "version-struct-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      provider: "pdfmonkey",
+      outputFormat: "pdf",
+      sourceUserMessageId: "message-struct-1",
+      requestJson: {
+        sourceUserMessageText: "Create a large document",
+        sourceUserMessageCreatedAt: "2026-05-26T10:00:00.000Z",
+        descriptorMode: "create_pdf_document",
+        sourceJson: { prompt: "Create a large document", transferMode: "verbatim" }
+      },
+      attemptCount: 1,
+      maxAttempts: 5,
+      claimToken: "claim-struct-1"
+    });
+
+    const versionUpdate = versionUpdates.find((u) => u.where.id === "version-struct-1");
+    assert.ok(versionUpdate !== undefined, "must update AssistantDocumentVersion");
+    assert.equal(versionUpdate.data.editStrategy, "structured_large");
+    assert.equal(versionUpdate.data.structureVersion, 1);
+    assert.deepEqual(versionUpdate.data.structureJson, structureSnapshot);
+    assert.deepEqual(versionUpdate.data.styleProfileJson, styleProfile);
+  });
+
   test("scheduler forwards previousVersionRenderedHtml from persisted requestJson to runtime worker request", async () => {
     let capturedRuntimeRequest: Record<string, unknown> | null = null;
     const previousHtml = "<html><body><h1>Previous version HTML</h1></body></html>";

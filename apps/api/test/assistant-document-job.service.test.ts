@@ -78,6 +78,9 @@ function buildRevisionContext(currentVersionNumber = 3): AssistantDocumentRevisi
     currentVersionId: "version-current",
     currentVersionNumber,
     currentVersionRenderedHtml: "<html><body><h1>Current</h1></body></html>",
+    currentVersionStructureJson: null,
+    currentVersionStyleProfileJson: null,
+    currentVersionEditStrategy: null,
     currentSourceJson: {
       prompt: "Original report",
       outputFormat: "pdf",

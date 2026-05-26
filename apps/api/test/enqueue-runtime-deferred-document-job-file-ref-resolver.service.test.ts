@@ -31,6 +31,9 @@ function buildCrossChatRevisionContext(overrides?: {
     currentVersionNumber: 3,
     currentVersionRenderedHtml:
       overrides?.renderedHtml !== undefined ? overrides.renderedHtml : CROSS_CHAT_HTML,
+    currentVersionStructureJson: null,
+    currentVersionStyleProfileJson: null,
+    currentVersionEditStrategy: null,
     currentSourceJson: {
       prompt: "Original cross-chat PDF",
       outputFormat: "pdf" as const,
