@@ -76,8 +76,8 @@ export interface AppData {
   error: string | null;
   reload: () => Promise<void>;
   reloadChats: () => Promise<void>;
-  createAssistant: () => Promise<void>;
-  switchAssistant: (assistantId: string) => Promise<void>;
+  createAssistant: () => Promise<AssistantLifecycleViewState>;
+  switchAssistant: (assistantId: string) => Promise<AssistantLifecycleViewState>;
   markChatListActivity: (surfaceThreadKey: string) => void;
 }
 
@@ -210,7 +210,9 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
   const runAssistantDirectoryMutation = useCallback(
     async (action: (token: string) => Promise<AssistantLifecycleViewState>) => {
       const token = await getToken({ skipCache: true });
-      if (token === null) return;
+      if (token === null) {
+        throw new Error("Session expired.");
+      }
 
       setIsReloading(true);
       setError(null);
@@ -222,6 +224,7 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
         setTelegram(null);
         setNotificationPreference(null);
         await refreshAssistantScopedSlices(token);
+        return view;
       } catch (mutationError) {
         setError(
           mutationError instanceof Error ? mutationError.message : "Failed to update assistant."

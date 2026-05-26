@@ -2,6 +2,54 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-26 — ADR-101 Slice 7 — live setup-preview stale image remediation
+
+### Scope
+
+Bounded live-remediation slice for the still-visible setup preview error:
+
+- diagnose why `persai-dev` still returned `Assistant lookup by userId is ambiguous for multi-assistant users` after the source-level preview hotfix
+- prevent API images from carrying stale compiled preview code
+- do not broaden into the remaining Slice 8 `findByUserId` cleanup
+- do not push without explicit founder confirmation
+
+### What changed
+
+Cluster inspection showed API pods were running image `87325cb6`, and the TypeScript source inside that image already used `ResolveActiveAssistantService` for setup preview. The compiled runtime file at `apps/api/dist/apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.js` was stale and still called `assistantRepository.findByUserId(userId)`, so live setup preview kept throwing the multi-assistant ambiguity error.
+
+`apps/api/Dockerfile` now deletes `apps/api/dist` immediately before the API build and fails the image build if the compiled preview setup service is missing `ResolveActiveAssistantService` or still contains `findByUserId`.
+
+### Files / modules
+
+- `apps/api/Dockerfile`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/ADR/101-multi-assistant-workspace-model.md`
+
+Unrelated local web Slice 7 UX changes remain unpushed and should stay separate unless the founder explicitly approves bundling them.
+
+### Verification
+
+Local checks passed:
+
+1. `Remove-Item -Recurse -Force apps/api/dist -ErrorAction SilentlyContinue; corepack pnpm --filter @persai/api run build`
+2. compiled preview sanity check: target JS exists, contains `ResolveActiveAssistantService`, and does not contain `findByUserId`
+
+Live checks before the fix confirmed the failure source:
+
+1. `kubectl -n persai-dev get deploy api web -o wide` showed API on `87325cb6`.
+2. Runtime source in the API pod was correct, but compiled `dist` for setup preview was stale.
+
+### Risks / residuals
+
+- The Dockerfile guard is not deployed until committed and pushed; live will keep failing setup preview until a new API image rolls out.
+- Slice 8 still needs final target-state cleanup of remaining legacy `findByUserId` call sites in non-hot-path/admin/billing support services.
+- After rollout, re-check the compiled preview file in the live pod and run the setup preview flow again.
+
+### Next recommended step
+
+With founder approval, commit and push this API Dockerfile remediation separately from the pending web UX changes, wait for Dev Image Publish rollout, then verify the live compiled file and setup preview flow.
+
 ## 2026-05-26 — ADR-101 Slice 6 — web shell switcher and assistant-scoped client state
 
 ### Scope

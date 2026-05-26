@@ -15,6 +15,10 @@ const routerMocks = vi.hoisted(() => ({
   replace: vi.fn()
 }));
 
+const navigationMocks = vi.hoisted(() => ({
+  searchParams: new URLSearchParams()
+}));
+
 const appDataMocks = vi.hoisted(() => ({
   reload: vi.fn(),
   reloadChats: vi.fn()
@@ -45,7 +49,8 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => routerMocks
+  useRouter: () => routerMocks,
+  useSearchParams: () => navigationMocks.searchParams
 }));
 
 vi.mock("../_components/app-shell", () => ({
@@ -387,6 +392,7 @@ function makeAssistantSkillsResponse() {
 describe("SetupWizardPage", () => {
   beforeEach(() => {
     vi.useRealTimers();
+    navigationMocks.searchParams = new URLSearchParams();
     vi.stubGlobal("URL", {
       ...URL,
       createObjectURL: vi.fn(() => "blob:avatar-preview"),
@@ -700,6 +706,49 @@ describe("SetupWizardPage", () => {
       }
     );
     expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
+    expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
+  });
+
+  it("skips the profile step and keeps fresh-create copy for add-assistant setup", async () => {
+    navigationMocks.searchParams = new URLSearchParams("entry=assistant-only&intent=create");
+    clerkMocks.getToken
+      .mockResolvedValueOnce("token-prefill")
+      .mockResolvedValueOnce("token-load-skills")
+      .mockResolvedValueOnce("token-patch-preview")
+      .mockResolvedValueOnce("token-runtime-preview")
+      .mockResolvedValueOnce("token-skills")
+      .mockResolvedValueOnce("token-publish");
+    assistantApiMocks.getAssistant.mockResolvedValue(makeResetAssistantState());
+
+    renderWithIntl(<SetupWizardPage />);
+
+    expect(screen.queryByText(enMessages.setup.step0Title)).toBeNull();
+    expect(await screen.findByText(enMessages.setup.step1Title)).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("PERSAI")).toBeInTheDocument();
+    expect(screen.queryByText(enMessages.setup.recreateModeTitle)).toBeNull();
+
+    fireEvent.change(screen.getByPlaceholderText(/name — e\.g\./i), {
+      target: { value: "Luma" }
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Female" }).at(-1)!);
+    fireEvent.click(screen.getByRole("button", { name: "Luma" }));
+
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+
+    expect(
+      await screen.findByText("Hi Alex, I'm Nova. I'll keep things clear, warm, and proactive.")
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
+    });
+
+    expect(meApiMocks.postOnboarding).not.toHaveBeenCalled();
+    expect(assistantApiMocks.postAssistantCreate).not.toHaveBeenCalled();
+    expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
   });
 

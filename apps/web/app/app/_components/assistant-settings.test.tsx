@@ -2322,7 +2322,39 @@ describe("AssistantSettings limits", () => {
       "character"
     );
 
-    expect(screen.queryByRole("button", { name: "Switch assistant" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Switch assistant →" })).toBeNull();
+  });
+
+  it("renders the assistant switch action as quiet desktop/mobile link copy", () => {
+    renderSettings(
+      makeAppData({
+        assistants: [
+          {
+            id: "assistant-1",
+            displayName: "Nova",
+            avatarEmoji: null,
+            avatarUrl: null,
+            createdAt: "2026-04-01T10:00:00.000Z",
+            updatedAt: "2026-04-01T10:00:00.000Z"
+          },
+          {
+            id: "assistant-2",
+            displayName: "Luma",
+            avatarEmoji: null,
+            avatarUrl: null,
+            createdAt: "2026-04-02T10:00:00.000Z",
+            updatedAt: "2026-04-02T10:00:00.000Z"
+          }
+        ],
+        activeAssistantId: "assistant-1",
+        assistantLimit: { usedAssistants: 2, maxAssistants: 3 }
+      }),
+      "character"
+    );
+
+    expect(screen.getByRole("button", { name: "Switch assistant →" })).toBeInTheDocument();
+    expect(screen.getByText("Switch assistant →")).toBeInTheDocument();
+    expect(screen.getByText("Switch →")).toBeInTheDocument();
   });
 
   it("opens the assistant switcher modal and switches assistants", async () => {
@@ -2355,7 +2387,7 @@ describe("AssistantSettings limits", () => {
       "character"
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Switch assistant →" }));
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Luma")).toBeInTheDocument();
@@ -2369,7 +2401,32 @@ describe("AssistantSettings limits", () => {
   });
 
   it("shows add assistant only when free slots remain", async () => {
-    const createAssistant = vi.fn().mockResolvedValue(undefined);
+    const createAssistant = vi.fn().mockResolvedValue({
+      assistant: {
+        ...makeAssistantState(),
+        id: "assistant-2"
+      },
+      assistants: [
+        {
+          id: "assistant-1",
+          displayName: "Nova",
+          avatarEmoji: null,
+          avatarUrl: null,
+          createdAt: "2026-04-01T10:00:00.000Z",
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        },
+        {
+          id: "assistant-2",
+          displayName: "Luma",
+          avatarEmoji: null,
+          avatarUrl: null,
+          createdAt: "2026-04-02T10:00:00.000Z",
+          updatedAt: "2026-04-02T10:00:00.000Z"
+        }
+      ],
+      activeAssistantId: "assistant-2",
+      assistantLimit: { usedAssistants: 2, maxAssistants: 2 }
+    });
 
     renderSettings(
       makeAppData({
@@ -2390,12 +2447,15 @@ describe("AssistantSettings limits", () => {
       "character"
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Switch assistant →" }));
     fireEvent.click(screen.getByRole("button", { name: "Add assistant" }));
 
     await waitFor(() => {
       expect(createAssistant).toHaveBeenCalled();
     });
+    expect(routerMocks.replace).toHaveBeenCalledWith(
+      "/app/setup?entry=assistant-only&intent=create"
+    );
   });
 
   it("shows a calm limit note instead of add assistant when slots are full", () => {
@@ -2425,7 +2485,7 @@ describe("AssistantSettings limits", () => {
       "character"
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Switch assistant →" }));
 
     expect(screen.queryByRole("button", { name: "Add assistant" })).toBeNull();
     expect(

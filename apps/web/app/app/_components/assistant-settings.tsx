@@ -1850,8 +1850,8 @@ export function AssistantSettings({
     setAssistantSwitcherError(null);
     try {
       await data.createAssistant();
-      resetAssistantThreadRoute();
       setAssistantSwitcherOpen(false);
+      router.replace("/app/setup?entry=assistant-only&intent=create" as Route);
     } catch (error) {
       setAssistantSwitcherError(
         error instanceof Error ? error.message : t("createAssistantFailed")
@@ -1859,7 +1859,7 @@ export function AssistantSettings({
     } finally {
       setAssistantCreateBusy(false);
     }
-  }, [data, resetAssistantThreadRoute, t]);
+  }, [data, router, t]);
 
   const handleSaveAndApply = useCallback(async () => {
     const token = await getToken({ skipCache: true });
@@ -2141,9 +2141,15 @@ export function AssistantSettings({
                             setAssistantSwitcherError(null);
                             setAssistantSwitcherOpen(true);
                           }}
-                          className="inline-flex h-8 cursor-pointer items-center justify-center rounded-full border border-border/80 bg-surface-raised px-3 text-[11px] font-medium text-text-muted transition-colors hover:border-border-strong hover:text-text"
+                          aria-label={t("switchAssistantDesktop")}
+                          className="inline-flex cursor-pointer items-center justify-center bg-transparent px-0 py-0 text-[11px] font-medium text-text-muted/90 transition-colors hover:text-accent hover:underline hover:underline-offset-4"
                         >
-                          {t("switchAssistant")}
+                          <span aria-hidden="true" className="hidden sm:inline">
+                            {t("switchAssistantDesktop")}
+                          </span>
+                          <span aria-hidden="true" className="sm:hidden">
+                            {t("switchAssistantMobile")}
+                          </span>
                         </button>
                       ) : null}
                     </div>

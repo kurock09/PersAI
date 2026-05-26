@@ -657,6 +657,8 @@
     "saved": "Сохранено.",
     "saveFailed": "Не удалось сохранить.",
     "switchAssistant": "Сменить ассистента",
+    "switchAssistantDesktop": "Сменить ассистента →",
+    "switchAssistantMobile": "Сменить →",
     "switchAssistantTitle": "Сменить ассистента",
     "switchAssistantSubtitle": "Выбери, какой ассистент сейчас активен в этом workspace.",
     "chooseAssistant": "Выбрать",

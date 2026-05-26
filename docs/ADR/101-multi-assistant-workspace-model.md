@@ -12,7 +12,8 @@ Implementation progress:
 - Slice 4 (`Chat and runtime entry points`) implemented on 2026-05-26.
 - Slice 5 (`Assistant-scoped surfaces`) implemented on 2026-05-26.
 - Slice 6 (`Web shell and switcher`) implemented on 2026-05-26.
-- Slices 7-8 remain open; ADR-101 must not be called complete until the runtime/integration audit and final cleanup remove temporary single-assistant assumptions such as `findByUserId` hot-path resolution.
+- Slice 7 (`Live validation and rollout checkpoint`) is in progress on 2026-05-26; the first live remediation added an API image guard after `persai-dev` proved the setup-preview source was fixed but stale compiled `dist` still called `findByUserId`.
+- Slice 8 remains open; ADR-101 must not be called complete until the final cleanup removes temporary single-assistant assumptions such as `findByUserId` hot-path resolution.
 
 ## Date
 

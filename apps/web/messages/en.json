@@ -657,6 +657,8 @@
     "saved": "Saved.",
     "saveFailed": "Save failed.",
     "switchAssistant": "Switch assistant",
+    "switchAssistantDesktop": "Switch assistant →",
+    "switchAssistantMobile": "Switch →",
     "switchAssistantTitle": "Switch assistant",
     "switchAssistantSubtitle": "Choose which assistant is active in this workspace.",
     "chooseAssistant": "Choose",

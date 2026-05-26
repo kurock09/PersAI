@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocale, useTranslations } from "next-intl";
@@ -66,6 +66,8 @@ import { getCountryOptions } from "./country-options";
 
 type Gender = "male" | "female" | "other" | null;
 type SetupMode = "create" | "recover" | "recreate";
+type SetupEntryMode = "default" | "assistant-only";
+type SetupIntent = "default" | "create";
 
 const GENDER_OPTIONS: { value: Gender; label: string }[] = [
   { value: "male", label: "Male" },
@@ -155,17 +157,36 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-function resolveSetupMode(assistant: AssistantLifecycleState | null): SetupMode {
-  if (assistant === null) return "create";
+function hasAssistantDraftContent(assistant: AssistantLifecycleState): boolean {
   const draft = assistant.draft;
-  const hasDraftContent =
+  return (
     (draft.displayName?.trim().length ?? 0) > 0 ||
     (draft.instructions?.trim().length ?? 0) > 0 ||
     draft.avatarEmoji !== null ||
     draft.avatarUrl !== null ||
     draft.assistantGender !== null ||
-    (draft.traits !== null && draft.traits !== undefined && Object.keys(draft.traits).length > 0);
+    (draft.traits !== null && draft.traits !== undefined && Object.keys(draft.traits).length > 0)
+  );
+}
+
+function resolveSetupMode(
+  assistant: AssistantLifecycleState | null,
+  options?: { preferCreateForBlankDraft?: boolean }
+): SetupMode {
+  if (assistant === null) return "create";
+  const hasDraftContent = hasAssistantDraftContent(assistant);
+  if (!hasDraftContent && options?.preferCreateForBlankDraft) {
+    return "create";
+  }
   return hasDraftContent ? "recover" : "recreate";
+}
+
+function parseSetupEntryMode(value: string | null): SetupEntryMode {
+  return value === "assistant-only" ? "assistant-only" : "default";
+}
+
+function parseSetupIntent(value: string | null): SetupIntent {
+  return value === "create" ? "create" : "default";
 }
 
 function resolveSetupVoiceProfile(input: {
@@ -224,13 +245,18 @@ function resolveSetupVoiceProfile(input: {
 
 export default function SetupWizardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { getToken } = useAuth();
   const appData = useAppDataContext();
   const t = useTranslations("setup");
   const tp = useTranslations("persona");
   const locale = useLocale();
+  const setupEntryMode = parseSetupEntryMode(searchParams.get("entry"));
+  const setupIntent = parseSetupIntent(searchParams.get("intent"));
+  const startsInAssistantOnlyMode = setupEntryMode === "assistant-only";
+  const preferCreateForBlankDraft = startsInAssistantOnlyMode && setupIntent === "create";
 
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => (startsInAssistantOnlyMode ? 1 : 0));
 
   // Step 0 — about user
   const [userName, setUserName] = useState("");
@@ -274,6 +300,9 @@ export default function SetupWizardPage() {
   const [existingAssistant, setExistingAssistant] = useState<AssistantLifecycleState | null>(null);
   const [voiceSettings, setVoiceSettings] = useState<AssistantVoiceSettingsState | null>(null);
   const [setupMode, setSetupMode] = useState<SetupMode>("create");
+  const [hasCompletedOnboardingProfile, setHasCompletedOnboardingProfile] = useState<
+    boolean | null
+  >(null);
   const [showSetupModeNotice, setShowSetupModeNotice] = useState(false);
   const [completionScreen, setCompletionScreen] = useState<{
     title: string;
@@ -296,6 +325,10 @@ export default function SetupWizardPage() {
       }),
     [assistantGender, existingAssistant?.draft.voiceProfile, voiceSettings]
   );
+  const shouldSkipProfileStep = startsInAssistantOnlyMode && hasCompletedOnboardingProfile === true;
+  const firstAccessibleStep = shouldSkipProfileStep ? 1 : 0;
+  const visibleStepCount = shouldSkipProfileStep ? STEP_COUNT - 1 : STEP_COUNT;
+  const visibleStepIndex = shouldSkipProfileStep ? Math.max(0, step - 1) : step;
 
   useEffect(() => {
     reloadAppDataRef.current = appData.reload;
@@ -316,7 +349,10 @@ export default function SetupWizardPage() {
           return;
         }
         setExistingAssistant(existing);
-        setSetupMode(resolveSetupMode(existing));
+        const nextSetupMode = resolveSetupMode(existing, {
+          preferCreateForBlankDraft
+        });
+        setSetupMode(nextSetupMode);
         try {
           const runtimeArchetypes = await getAssistantPersonaArchetypes(token);
           setArchetypes(runtimeArchetypes);
@@ -344,7 +380,7 @@ export default function SetupWizardPage() {
           setSelectedAvatarPresetId(
             findAssistantAvatarPresetByUrl(existing.draft.avatarUrl)?.id ?? null
           );
-        } else if (!existing?.draft.displayName && setupMode !== "recover") {
+        } else if (!existing?.draft.displayName && nextSetupMode !== "recover") {
           setSelectedAvatarPresetId(ASSISTANT_AVATAR_PRESETS[0]?.id ?? null);
           setAssistantName(ASSISTANT_AVATAR_PRESETS[0]?.defaultName ?? "");
         }
@@ -357,6 +393,11 @@ export default function SetupWizardPage() {
 
         const me = await getMe(token);
         const u = me.me.appUser;
+        const onboardingComplete = me.me.onboarding.isComplete;
+        setHasCompletedOnboardingProfile(onboardingComplete);
+        if (startsInAssistantOnlyMode) {
+          setStep(onboardingComplete ? 1 : 0);
+        }
         if (u.displayName) setUserName(u.displayName);
         if (u.birthday) setBirthday(normalizeBirthdayForDateInput(u.birthday));
         if (u.gender) setGender(u.gender as Gender);
@@ -373,7 +414,7 @@ export default function SetupWizardPage() {
         // Pre-fill is best-effort; ignore errors.
       }
     })();
-  }, [getToken, router, setupMode]);
+  }, [getToken, preferCreateForBlankDraft, router, startsInAssistantOnlyMode]);
 
   useEffect(() => {
     if (!countryCode) {
@@ -556,7 +597,9 @@ export default function SetupWizardPage() {
   );
 
   const persistDraftForPreview = useCallback(async () => {
-    await postOnboarding(await resolveSetupToken(true), buildOnboardingPayload());
+    if (!shouldSkipProfileStep) {
+      await postOnboarding(await resolveSetupToken(true), buildOnboardingPayload());
+    }
 
     if (existingAssistant === null) {
       const createdAssistant = await postAssistantCreate(await resolveSetupToken(true));
@@ -589,6 +632,7 @@ export default function SetupWizardPage() {
     persistedAvatarUrl,
     resolveSetupToken,
     selectedArchetypeKey,
+    shouldSkipProfileStep,
     setupVoiceProfile,
     traits
   ]);
@@ -707,9 +751,12 @@ export default function SetupWizardPage() {
         ? t("recreateAssistant")
         : t("createAssistant");
   const handleBackStep = useCallback(() => {
-    setStep((current) => Math.max(0, current - 1));
-  }, []);
-  useHistoryBackToClose(step > 0 && completionScreen === null && !creating, handleBackStep);
+    setStep((current) => Math.max(firstAccessibleStep, current - 1));
+  }, [firstAccessibleStep]);
+  useHistoryBackToClose(
+    step > firstAccessibleStep && completionScreen === null && !creating,
+    handleBackStep
+  );
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden bg-bg">
@@ -755,14 +802,14 @@ export default function SetupWizardPage() {
         <div className="flex items-center gap-4">
           <LandingLocaleSwitcher />
           <div className="flex items-center gap-1.5">
-            {Array.from({ length: STEP_COUNT }).map((_, i) => (
+            {Array.from({ length: visibleStepCount }).map((_, i) => (
               <div
                 key={i}
                 className={cn(
                   "h-1.5 rounded-full transition-all duration-300",
-                  i === step
+                  i === visibleStepIndex
                     ? "w-6 bg-accent"
-                    : i < step
+                    : i < visibleStepIndex
                       ? "w-3 bg-accent/50"
                       : "w-3 bg-surface-raised"
                 )}
@@ -777,7 +824,7 @@ export default function SetupWizardPage() {
         <div className="flex min-h-full w-full max-w-5xl flex-col">
           <AnimatePresence mode="wait">
             {/* ===== Step 0: About you ===== */}
-            {step === 0 && (
+            {step === 0 && !shouldSkipProfileStep && (
               <StepContainer key="step-0">
                 <h1 className="text-3xl font-bold text-text sm:text-4xl">{t("step0Title")}</h1>
                 <p className="mt-3 text-base text-text-muted">{t("step0Subtitle")}</p>
@@ -1260,10 +1307,10 @@ export default function SetupWizardPage() {
       {/* Footer */}
       <footer className="flex shrink-0 items-center justify-between border-t border-border px-6 py-4">
         <div>
-          {step > 0 && (
+          {step > firstAccessibleStep && (
             <button
               type="button"
-              onClick={() => setStep((s) => s - 1)}
+              onClick={() => setStep((s) => Math.max(firstAccessibleStep, s - 1))}
               disabled={creating}
               className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-surface-raised px-5 py-2.5 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:opacity-50"
             >
