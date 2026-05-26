@@ -16,13 +16,17 @@ async function run(): Promise<void> {
               email: "admin@example.test",
               displayName: "Admin",
               createdAt: new Date("2026-05-03T00:00:00.000Z"),
-              assistant: {
-                id: "assistant-1",
-                draftDisplayName: "Ava",
-                draftAssistantGender: "female",
-                applyStatus: "succeeded",
-                publishedVersions: [{ version: 2, createdAt: new Date("2026-05-03T01:00:00.000Z") }]
-              },
+              assistants: [
+                {
+                  id: "assistant-1",
+                  draftDisplayName: "Ava",
+                  draftAssistantGender: "female",
+                  applyStatus: "succeeded",
+                  publishedVersions: [
+                    { version: 2, createdAt: new Date("2026-05-03T01:00:00.000Z") }
+                  ]
+                }
+              ],
               workspaceLinks: [
                 {
                   workspaceId: "workspace-1",
