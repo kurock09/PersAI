@@ -71,6 +71,27 @@ export interface RuntimeConversationAddress extends AssistantScope {
   mode: PersaiRuntimeConversationMode;
 }
 
+export interface RuntimeTelegramChannelContext {
+  schema: "persai.runtime.telegramContext.v1";
+  chat: {
+    id: string;
+    type: "private" | "group" | "supergroup" | "channel";
+    title: string | null;
+  };
+  sender: {
+    telegramUserId: string | null;
+    username: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    displayName: string | null;
+  };
+  accessMode: "owner_only" | "group_members";
+}
+
+export interface RuntimeChannelContext {
+  telegram?: RuntimeTelegramChannelContext;
+}
+
 export interface RuntimeBundleRef extends AssistantScope {
   bundleId: string;
   publishedVersionId: string;
@@ -2340,6 +2361,7 @@ export interface RuntimeTurnRequest {
   runtimeTier: PersaiRuntimeTier;
   bundle: RuntimeBundleRef;
   conversation: RuntimeConversationAddress;
+  channelContext?: RuntimeChannelContext;
   message: RuntimeInboundMessage;
   openMediaJobs?: RuntimeOpenMediaJobContext[];
   chatMode?: "normal" | "smart" | "project";

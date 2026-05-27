@@ -290,6 +290,24 @@ describe("SendNativeTelegramTurnService", () => {
         threadId: "-10012345",
         externalUserKey: null,
         mode: "group",
+        channelContext: {
+          telegram: {
+            schema: "persai.runtime.telegramContext.v1",
+            chat: {
+              id: "-10012345",
+              type: "supergroup",
+              title: "Team"
+            },
+            sender: {
+              telegramUserId: "888",
+              username: "sam",
+              firstName: "Sam",
+              lastName: "Lee",
+              displayName: "Sam Lee"
+            },
+            accessMode: "group_members"
+          }
+        },
         userMessageId: "message-2",
         userMessage: "@bot hi",
         attachments: []
@@ -302,6 +320,24 @@ describe("SendNativeTelegramTurnService", () => {
         externalThreadKey: "-10012345",
         externalUserKey: null,
         mode: "group"
+      });
+      assert.deepEqual(capturedBody?.channelContext, {
+        telegram: {
+          schema: "persai.runtime.telegramContext.v1",
+          chat: {
+            id: "-10012345",
+            type: "supergroup",
+            title: "Team"
+          },
+          sender: {
+            telegramUserId: "888",
+            username: "sam",
+            firstName: "Sam",
+            lastName: "Lee",
+            displayName: "Sam Lee"
+          },
+          accessMode: "group_members"
+        }
       });
     } finally {
       globalThis.fetch = originalFetch;

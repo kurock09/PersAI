@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { TelegramIntegrationConfigSettingsDefaultParseMode } from "./telegramIntegrationConfigSettingsDefaultParseMode";
+import type { TelegramIntegrationConfigSettingsTelegramAccessMode } from "./telegramIntegrationConfigSettingsTelegramAccessMode";
 import type { TelegramIntegrationConfigSettingsGroupReplyMode } from "./telegramIntegrationConfigSettingsGroupReplyMode";
 
 export interface TelegramIntegrationConfigSettings {
@@ -13,6 +14,7 @@ export interface TelegramIntegrationConfigSettings {
   defaultDeepModeEnabled: boolean;
   inboundUserMessagesEnabled: boolean;
   outboundAssistantMessagesEnabled: boolean;
+  telegramAccessMode: TelegramIntegrationConfigSettingsTelegramAccessMode;
   groupReplyMode: TelegramIntegrationConfigSettingsGroupReplyMode;
   /** @nullable */
   notes: string | null;

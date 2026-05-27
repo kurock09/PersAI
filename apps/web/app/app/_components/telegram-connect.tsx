@@ -309,6 +309,9 @@ function ConnectedView({
   );
   const [inbound, setInbound] = useState(config.inboundUserMessagesEnabled);
   const [outbound, setOutbound] = useState(config.outboundAssistantMessagesEnabled);
+  const [telegramAccessMode, setTelegramAccessMode] = useState<"owner_only" | "group_members">(
+    config.telegramAccessMode
+  );
   const [groupReplyMode, setGroupReplyMode] = useState<"mention_reply" | "all_messages">(
     config.groupReplyMode
   );
@@ -350,6 +353,7 @@ function ConnectedView({
     setDefaultDeepModeEnabled(config.defaultDeepModeEnabled);
     setInbound(config.inboundUserMessagesEnabled);
     setOutbound(config.outboundAssistantMessagesEnabled);
+    setTelegramAccessMode(config.telegramAccessMode);
     setGroupReplyMode(config.groupReplyMode);
     setNotes(config.notes ?? "");
   }, [
@@ -359,7 +363,8 @@ function ConnectedView({
     config.groupReplyMode,
     config.inboundUserMessagesEnabled,
     config.notes,
-    config.outboundAssistantMessagesEnabled
+    config.outboundAssistantMessagesEnabled,
+    config.telegramAccessMode
   ]);
 
   useEffect(() => {
@@ -419,6 +424,7 @@ function ConnectedView({
         inboundUserMessagesEnabled: inbound,
         outboundAssistantMessagesEnabled: outbound,
         notes: notes.trim() || null,
+        telegramAccessMode,
         groupReplyMode
       };
       await patchAssistantTelegramConfig(token, payload);
@@ -441,7 +447,8 @@ function ConnectedView({
     notes,
     onUpdated,
     outbound,
-    parseMode
+    parseMode,
+    telegramAccessMode
   ]);
 
   const handleDisconnect = useCallback(async () => {
@@ -720,6 +727,40 @@ function ConnectedView({
               />
               <Toggle label={t("inboundMessages")} checked={inbound} onChange={setInbound} />
               <Toggle label={t("outboundMessages")} checked={outbound} onChange={setOutbound} />
+
+              {/* Group access mode */}
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-text-muted">
+                  {t("groupAccessMode")}
+                </label>
+                <div className="flex gap-2">
+                  {(
+                    [
+                      { value: "owner_only", labelKey: "groupAccessOwnerOnly" },
+                      { value: "group_members", labelKey: "groupAccessMembers" }
+                    ] as const
+                  ).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setTelegramAccessMode(option.value)}
+                      className={cn(
+                        "flex-1 cursor-pointer rounded-lg border py-2 text-xs font-medium transition-all",
+                        telegramAccessMode === option.value
+                          ? "border-accent bg-accent/10 text-accent"
+                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong"
+                      )}
+                    >
+                      {t(option.labelKey)}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-[10px] text-text-subtle">
+                  {telegramAccessMode === "owner_only"
+                    ? t("groupAccessOwnerOnlyDesc")
+                    : t("groupAccessMembersDesc")}
+                </p>
+              </div>
 
               {/* Group reply mode */}
               <div>

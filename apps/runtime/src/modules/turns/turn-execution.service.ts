@@ -320,6 +320,7 @@ const LEGACY_TECHNICAL_ATTACHMENT_SUMMARY_PATTERNS = [
 
 type DeveloperInstructionSectionKey =
   | "project_execution_contract"
+  | "channel_context"
   | "routing_hints"
   | "source_progression"
   | "open_loop_refs"
@@ -1788,8 +1789,10 @@ export class TurnExecutionService {
       input.request !== undefined && isProjectChatMode(input.request)
         ? PROJECT_EXECUTION_DEVELOPER_CONTRACT
         : null;
+    const channelContextSection = this.buildChannelContextDeveloperSection(input.request);
     return this.createDeveloperInstructionSections([
       { key: "project_execution_contract", content: projectExecutionSection },
+      { key: "channel_context", content: channelContextSection },
       { key: "routing_hints", content: routingGuidance },
       { key: "open_loop_refs", content: openLoopRefsSection },
       { key: "working_files", content: workingFilesSection },
@@ -1797,6 +1800,38 @@ export class TurnExecutionService {
       { key: "open_media_jobs", content: openMediaJobsSection },
       { key: "presence", content: presenceSection }
     ]);
+  }
+
+  private buildChannelContextDeveloperSection(
+    request: RuntimeTurnRequest | undefined
+  ): string | null {
+    const telegram = request?.channelContext?.telegram;
+    if (telegram === undefined || request?.conversation.channel !== "telegram") {
+      return null;
+    }
+    if (request.conversation.mode !== "group") {
+      return null;
+    }
+
+    const chatTitle =
+      this.normalizeOptionalText(telegram.chat.title) ?? `Telegram chat ${telegram.chat.id}`;
+    const senderName =
+      this.normalizeOptionalText(telegram.sender.displayName) ??
+      this.normalizeOptionalText(telegram.sender.username) ??
+      (telegram.sender.telegramUserId === null
+        ? "Unknown Telegram user"
+        : `Telegram user ${telegram.sender.telegramUserId}`);
+    const username = this.normalizeOptionalText(telegram.sender.username);
+    const sender = username === null ? senderName : `${senderName} (@${username})`;
+
+    return [
+      "## Telegram group context",
+      `Chat: ${chatTitle}`,
+      `Sender: ${sender}`,
+      "This is a group conversation, not a private DM.",
+      "Reply with awareness that multiple people may read the answer.",
+      "Do not reveal private owner context to other group participants."
+    ].join("\n");
   }
 
   private buildRetrievedKnowledgeContextDeveloperSection(

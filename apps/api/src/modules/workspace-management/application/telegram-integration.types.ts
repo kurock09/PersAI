@@ -52,6 +52,7 @@ export type TelegramIntegrationState = {
       defaultDeepModeEnabled: boolean;
       inboundUserMessagesEnabled: boolean;
       outboundAssistantMessagesEnabled: boolean;
+      telegramAccessMode: "owner_only" | "group_members";
       groupReplyMode: "mention_reply" | "all_messages";
       notes: string | null;
     };
@@ -74,6 +75,7 @@ export type TelegramConfigUpdateInput = {
   defaultDeepModeEnabled?: boolean;
   inboundUserMessagesEnabled?: boolean;
   outboundAssistantMessagesEnabled?: boolean;
+  telegramAccessMode?: "owner_only" | "group_members";
   groupReplyMode?: "mention_reply" | "all_messages";
   notes?: string | null;
 };

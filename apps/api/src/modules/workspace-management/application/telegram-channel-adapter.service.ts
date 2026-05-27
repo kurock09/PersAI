@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { RuntimeChannelContext } from "@persai/runtime-contract";
 import type { RawInboundAttachment } from "./media/media.types";
 import { HandleInternalTelegramTurnService } from "./handle-internal-telegram-turn.service";
 import {
@@ -58,11 +59,15 @@ type ParsedTelegramWebhookEvent =
   | {
       kind: "message";
       updateId: number | null;
+      telegramMessageId: number | null;
       chatId: string;
       chatType: TelegramChatType;
       chatTitle: string | null;
       telegramUserId: number | null;
       telegramUsername: string | null;
+      telegramFirstName?: string | null;
+      telegramLastName?: string | null;
+      fromBot?: boolean;
       mediaGroupId: string | null;
       incomingText: string;
       replyToUserId: number | null;
@@ -97,6 +102,10 @@ function toStringOrNull(value: unknown): string | null {
 
 function toNumberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function toBoolean(value: unknown): boolean {
+  return value === true;
 }
 
 function claimCodeFromText(text: string | null | undefined): string | null {
@@ -147,6 +156,66 @@ function buildTelegramUnauthorizedUserReply(locale: "ru" | "en"): string {
   return locale === "ru"
     ? "Этот бот доступен только хозяину ассистента."
     : "This bot is available only to the assistant owner.";
+}
+
+function resolveTelegramSenderDisplayName(
+  event: Extract<ParsedTelegramWebhookEvent, { kind: "message" }>
+): string | null {
+  const displayName = [event.telegramFirstName, event.telegramLastName]
+    .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    .join(" ")
+    .trim();
+  if (displayName.length > 0) {
+    return displayName;
+  }
+  return event.telegramUsername;
+}
+
+function buildTelegramTurnChannelContext(params: {
+  event: Extract<ParsedTelegramWebhookEvent, { kind: "message" }>;
+  accessMode: ResolvedTelegramChannelRuntimeConfig["accessMode"];
+}): RuntimeChannelContext {
+  return {
+    telegram: {
+      schema: "persai.runtime.telegramContext.v1",
+      chat: {
+        id: params.event.chatId,
+        type: params.event.chatType,
+        title: params.event.chatTitle
+      },
+      sender: {
+        telegramUserId:
+          params.event.telegramUserId === null ? null : String(params.event.telegramUserId),
+        username: params.event.telegramUsername,
+        firstName: params.event.telegramFirstName ?? null,
+        lastName: params.event.telegramLastName ?? null,
+        displayName: resolveTelegramSenderDisplayName(params.event)
+      },
+      accessMode: params.accessMode
+    }
+  };
+}
+
+function buildTelegramMessageMetadata(params: {
+  event: Extract<ParsedTelegramWebhookEvent, { kind: "message" }>;
+  accessMode: ResolvedTelegramChannelRuntimeConfig["accessMode"];
+}): Record<string, unknown> {
+  return {
+    schema: "persai.chatMessage.telegramMetadata.v1",
+    telegram: {
+      chatId: params.event.chatId,
+      chatType: params.event.chatType,
+      chatTitle: params.event.chatTitle,
+      messageId: params.event.telegramMessageId,
+      updateId: params.event.updateId,
+      fromUserId: params.event.telegramUserId === null ? null : String(params.event.telegramUserId),
+      fromUsername: params.event.telegramUsername,
+      fromFirstName: params.event.telegramFirstName ?? null,
+      fromLastName: params.event.telegramLastName ?? null,
+      fromDisplayName: resolveTelegramSenderDisplayName(params.event),
+      accessMode: params.accessMode
+    }
+  };
 }
 
 function buildTelegramAutoCompactionNotice(locale: "ru" | "en"): string {
@@ -210,7 +279,7 @@ export function buildTelegramRuntimeThreadKey(chatId: string, sessionThreadKey: 
   return `telegram:${chatId}:session:${sessionThreadKey}`;
 }
 
-function evaluateTelegramOwnerGate(params: {
+function evaluateTelegramPrivateOwnerGate(params: {
   currentConfig: ResolvedTelegramChannelRuntimeConfig;
   incomingText: string;
   telegramUserId: number | null;
@@ -220,10 +289,6 @@ function evaluateTelegramOwnerGate(params: {
   replyText: string | null;
 } {
   const { currentConfig, incomingText, telegramUserId } = params;
-  if (currentConfig.accessMode !== "owner_only") {
-    return { allowed: true, claimNow: false, replyText: null };
-  }
-
   if (currentConfig.ownerClaimStatus !== "claimed") {
     if (isExpiredIsoTimestamp(currentConfig.ownerClaimCodeExpiresAt)) {
       return {
@@ -335,11 +400,15 @@ export function extractTelegramWebhookEvent(
   const base = {
     kind: "message" as const,
     updateId,
+    telegramMessageId: toNumberOrNull(message.message_id),
     chatId,
     chatType: normalizedChatType,
     chatTitle: toStringOrNull(chat.title),
     telegramUserId: toNumberOrNull(from?.id),
     telegramUsername: toStringOrNull(from?.username),
+    telegramFirstName: toStringOrNull(from?.first_name),
+    telegramLastName: toStringOrNull(from?.last_name),
+    fromBot: toBoolean(from?.is_bot),
     mediaGroupId,
     replyToUserId: toNumberOrNull(replyToFrom?.id)
   };
@@ -502,6 +571,7 @@ export class TelegramChannelAdapterService {
     const event: Extract<ParsedTelegramWebhookEvent, { kind: "message" }> = {
       kind: "message",
       updateId: null,
+      telegramMessageId: null,
       chatId: claimed.telegramChatId,
       chatType: claimed.telegramChatType,
       chatTitle: null,
@@ -509,6 +579,9 @@ export class TelegramChannelAdapterService {
         ? Number(claimed.telegramUserId)
         : null,
       telegramUsername: null,
+      telegramFirstName: null,
+      telegramLastName: null,
+      fromBot: false,
       mediaGroupId: claimed.mediaGroupId,
       incomingText: caption,
       replyToUserId: null,
@@ -574,17 +647,17 @@ export class TelegramChannelAdapterService {
       return { statusCode: 200, body: { ok: true } };
     }
 
+    if (event.fromBot === true) {
+      return { statusCode: 200, body: { ok: true } };
+    }
+
     if (event.turnKind === "text" && shouldIgnoreGroupText({ event, config })) {
       return { statusCode: 200, body: { ok: true } };
     }
 
-    const ownerGate = evaluateTelegramOwnerGate({
-      currentConfig: config,
-      incomingText: event.incomingText,
-      telegramUserId: event.telegramUserId
-    });
+    const accessGate = await this.evaluateTelegramAccessGate({ config, event });
 
-    if (ownerGate.claimNow) {
+    if (accessGate.claimNow) {
       await this.syncTelegramChatTargetService.execute({
         assistantId: config.assistantId,
         telegramChatId: event.chatId,
@@ -624,12 +697,12 @@ export class TelegramChannelAdapterService {
       return { statusCode: 200, body: { ok: true } };
     }
 
-    if (!ownerGate.allowed) {
-      if (ownerGate.replyText) {
+    if (!accessGate.allowed) {
+      if (accessGate.replyText) {
         const unauthorized = await this.safeSendPlainText(
           config,
           event.chatId,
-          ownerGate.replyText
+          accessGate.replyText
         );
         if (unauthorized) {
           return { statusCode: 200, body: { ok: false, error: "invalid_bot_token" } };
@@ -770,6 +843,54 @@ export class TelegramChannelAdapterService {
     return turnOutcome.result;
   }
 
+  private async evaluateTelegramAccessGate(params: {
+    config: ResolvedTelegramChannelRuntimeConfig;
+    event: Extract<ParsedTelegramWebhookEvent, { kind: "message" }>;
+  }): Promise<{
+    allowed: boolean;
+    claimNow: boolean;
+    replyText: string | null;
+  }> {
+    const { config, event } = params;
+    if (event.chatType === "private") {
+      return evaluateTelegramPrivateOwnerGate({
+        currentConfig: config,
+        incomingText: event.incomingText,
+        telegramUserId: event.telegramUserId
+      });
+    }
+
+    if (config.accessMode === "group_members") {
+      const activeGroup = await this.syncTelegramGroupMembershipService.hasActiveGroup({
+        assistantId: config.assistantId,
+        telegramChatId: event.chatId
+      });
+      return {
+        allowed: activeGroup,
+        claimNow: false,
+        replyText: null
+      };
+    }
+
+    if (
+      config.ownerClaimStatus === "claimed" &&
+      config.ownerTelegramUserId !== null &&
+      event.telegramUserId !== null &&
+      config.ownerTelegramUserId === event.telegramUserId
+    ) {
+      return { allowed: true, claimNow: false, replyText: null };
+    }
+
+    return {
+      allowed: false,
+      claimNow: false,
+      replyText:
+        config.ownerClaimStatus === "claimed"
+          ? buildTelegramUnauthorizedUserReply(config.locale)
+          : null
+    };
+  }
+
   private async executeInboundMessageTurn(params: {
     config: ResolvedTelegramChannelRuntimeConfig;
     event: Extract<ParsedTelegramWebhookEvent, { kind: "message" }>;
@@ -789,6 +910,14 @@ export class TelegramChannelAdapterService {
         conversationMode: conversationIdentity.mode,
         externalUserKey: conversationIdentity.externalUserKey,
         message: event.userMessage,
+        channelContext: buildTelegramTurnChannelContext({
+          event,
+          accessMode: config.accessMode
+        }),
+        messageMetadata: buildTelegramMessageMetadata({
+          event,
+          accessMode: config.accessMode
+        }),
         updateId: event.updateId,
         hasAttachments: event.attachment !== null || event.mediaGroupId !== null,
         loadRawAttachments: params.loadRawAttachments,

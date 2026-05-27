@@ -1,6 +1,9 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import type { RuntimeTurnAutoCompactionState } from "@persai/runtime-contract";
+import type {
+  RuntimeChannelContext,
+  RuntimeTurnAutoCompactionState
+} from "@persai/runtime-contract";
 import {
   type AssistantRuntimeWebChatTurnResult,
   type RuntimeMediaArtifact
@@ -63,6 +66,8 @@ export interface TelegramAdapterTurnRequest {
   conversationMode: "direct" | "group";
   externalUserKey: string | null;
   message: string;
+  channelContext?: RuntimeChannelContext;
+  messageMetadata?: Record<string, unknown>;
   hasAttachments?: boolean;
   loadRawAttachments?: (assistantId: string) => Promise<RawInboundAttachment[]>;
   updateId?: number | null;
@@ -103,7 +108,7 @@ export class HandleInternalTelegramTurnService {
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
-    return this.executeCore({
+    const coreInput = {
       assistantId: input.assistantId,
       threadId: input.threadId,
       conversationMode: input.conversationMode,
@@ -111,11 +116,23 @@ export class HandleInternalTelegramTurnService {
       message: input.message,
       updateId: input.updateId ?? null,
       hasAttachments: input.hasAttachments === true,
-      loadRawAttachments: async (assistantId) =>
+      loadRawAttachments: async (assistantId: string) =>
         input.loadRawAttachments ? input.loadRawAttachments(assistantId) : [],
       onProcessingStarted: input.onProcessingStarted,
       onRuntimeTool: input.onRuntimeTool
-    });
+    };
+
+    return this.executeCore(
+      input.channelContext === undefined && input.messageMetadata === undefined
+        ? coreInput
+        : {
+            ...coreInput,
+            ...(input.channelContext === undefined ? {} : { channelContext: input.channelContext }),
+            ...(input.messageMetadata === undefined
+              ? {}
+              : { messageMetadata: input.messageMetadata })
+          }
+    );
   }
 
   private async executeCore(input: {
@@ -124,6 +141,8 @@ export class HandleInternalTelegramTurnService {
     conversationMode: "direct" | "group";
     externalUserKey: string | null;
     message: string;
+    channelContext?: RuntimeChannelContext;
+    messageMetadata?: Record<string, unknown>;
     updateId: number | null;
     hasAttachments: boolean;
     loadRawAttachments: (assistantId: string) => Promise<RawInboundAttachment[]>;
@@ -211,7 +230,8 @@ export class HandleInternalTelegramTurnService {
         chatId: chat.id,
         assistantId: resolved.assistantId,
         author: "user",
-        content: input.message
+        content: input.message,
+        ...(input.messageMetadata === undefined ? {} : { metadata: input.messageMetadata })
       });
       trace.stage("user_message_saved");
 
@@ -271,6 +291,7 @@ export class HandleInternalTelegramTurnService {
         threadId: input.threadId,
         externalUserKey: input.externalUserKey,
         mode: input.conversationMode,
+        ...(input.channelContext === undefined ? {} : { channelContext: input.channelContext }),
         userMessageId: userMessage.id,
         userMessage: enrichedMessage,
         attachments: runtimeAttachments,

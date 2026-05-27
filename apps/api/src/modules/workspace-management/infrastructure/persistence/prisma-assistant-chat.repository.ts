@@ -596,6 +596,12 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       assistantId: message.assistantId,
       author: message.author,
       content: message.content,
+      metadata:
+        message.metadata !== null &&
+        typeof message.metadata === "object" &&
+        !Array.isArray(message.metadata)
+          ? (message.metadata as Record<string, unknown>)
+          : null,
       createdAt: message.createdAt
     };
   }

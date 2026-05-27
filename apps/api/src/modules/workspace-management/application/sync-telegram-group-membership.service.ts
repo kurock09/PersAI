@@ -13,6 +13,19 @@ export interface SyncTelegramGroupMembershipInput {
 export class SyncTelegramGroupMembershipService {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
+  async hasActiveGroup(input: { assistantId: string; telegramChatId: string }): Promise<boolean> {
+    const group = await this.prisma.assistantTelegramGroup.findUnique({
+      where: {
+        assistantId_telegramChatId: {
+          assistantId: input.assistantId,
+          telegramChatId: input.telegramChatId
+        }
+      },
+      select: { status: true }
+    });
+    return group?.status === "active";
+  }
+
   async execute(input: SyncTelegramGroupMembershipInput): Promise<void> {
     if (input.event === "joined") {
       const existingGroup = await this.prisma.assistantTelegramGroup.findUnique({

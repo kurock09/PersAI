@@ -219,6 +219,10 @@ function normalizeOpenLoopRefSummary(summary: string): string | null {
   return `${trimmed.slice(0, MAX_OPEN_LOOP_REF_SUMMARY_CHARS - 1).trimEnd()}...`;
 }
 
+function normalizeOptionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
 type CanonicalChatMessageRow = {
   id: string;
   author: "user" | "assistant" | "system";
@@ -1248,7 +1252,10 @@ export class TurnContextHydrationService {
 
       hydrated.push({
         role: this.toProviderRole(message.author),
-        content
+        content:
+          isCurrentInboundMessage || message.author !== "user"
+            ? content
+            : this.withTelegramGroupSenderContext(content, message, input)
       });
     }
 
@@ -1257,6 +1264,56 @@ export class TurnContextHydrationService {
     }
 
     return this.limitHydratedMessages(hydrated, contextHydration);
+  }
+
+  private withTelegramGroupSenderContext(
+    content: ProviderGatewayTextMessage["content"],
+    message: CanonicalChatMessageRow,
+    input: RuntimeTurnRequest
+  ): ProviderGatewayTextMessage["content"] {
+    if (typeof content !== "string") {
+      return content;
+    }
+    if (input.conversation.channel !== "telegram" || input.conversation.mode !== "group") {
+      return content;
+    }
+    const sender = this.resolveTelegramMessageSenderLabel(message.metadata);
+    if (sender === null) {
+      return content;
+    }
+    return [`Telegram sender: ${sender}`, content].join("\n");
+  }
+
+  private resolveTelegramMessageSenderLabel(
+    metadata: Record<string, unknown> | null | undefined
+  ): string | null {
+    const telegram =
+      metadata !== null &&
+      metadata !== undefined &&
+      typeof metadata.telegram === "object" &&
+      metadata.telegram !== null &&
+      !Array.isArray(metadata.telegram)
+        ? (metadata.telegram as Record<string, unknown>)
+        : null;
+    if (telegram === null) {
+      return null;
+    }
+    const displayName = normalizeOptionalString(telegram.fromDisplayName);
+    const username = normalizeOptionalString(telegram.fromUsername);
+    const userId = normalizeOptionalString(telegram.fromUserId);
+    if (displayName !== null && username !== null) {
+      return `${displayName} (@${username})`;
+    }
+    if (displayName !== null) {
+      return displayName;
+    }
+    if (username !== null) {
+      return `@${username}`;
+    }
+    if (userId !== null) {
+      return `Telegram user ${userId}`;
+    }
+    return null;
   }
 
   private async loadCanonicalChatMessages(

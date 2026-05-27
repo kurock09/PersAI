@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantTelegramConfigUpdateRequestDefaultParseMode } from "./assistantTelegramConfigUpdateRequestDefaultParseMode";
+import type { AssistantTelegramConfigUpdateRequestTelegramAccessMode } from "./assistantTelegramConfigUpdateRequestTelegramAccessMode";
 import type { AssistantTelegramConfigUpdateRequestGroupReplyMode } from "./assistantTelegramConfigUpdateRequestGroupReplyMode";
 
 export interface AssistantTelegramConfigUpdateRequest {
@@ -13,6 +14,7 @@ export interface AssistantTelegramConfigUpdateRequest {
   defaultDeepModeEnabled?: boolean;
   inboundUserMessagesEnabled?: boolean;
   outboundAssistantMessagesEnabled?: boolean;
+  telegramAccessMode?: AssistantTelegramConfigUpdateRequestTelegramAccessMode;
   groupReplyMode?: AssistantTelegramConfigUpdateRequestGroupReplyMode;
   /** @nullable */
   notes?: string | null;

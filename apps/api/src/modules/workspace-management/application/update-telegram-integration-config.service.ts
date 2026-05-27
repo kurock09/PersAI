@@ -16,6 +16,7 @@ import { AppendAssistantAuditEventService } from "./append-assistant-audit-event
 import { ApplyAssistantPublishedVersionService } from "./apply-assistant-published-version.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
+import { resolveTelegramBindingMetadataState } from "./telegram-integration.metadata";
 
 function asObject(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -82,6 +83,15 @@ export class UpdateTelegramIntegrationConfigService {
       }
       output.groupReplyMode = source.groupReplyMode;
     }
+    if ("telegramAccessMode" in source) {
+      if (
+        source.telegramAccessMode !== "owner_only" &&
+        source.telegramAccessMode !== "group_members"
+      ) {
+        throw new BadRequestException("telegramAccessMode must be owner_only or group_members.");
+      }
+      output.telegramAccessMode = source.telegramAccessMode;
+    }
     if ("notes" in source) {
       if (source.notes !== null && typeof source.notes !== "string") {
         throw new BadRequestException("notes must be string or null.");
@@ -120,6 +130,7 @@ export class UpdateTelegramIntegrationConfigService {
 
     const nextPolicy = asObject(binding.policy);
     const nextConfig = asObject(binding.config);
+    const nextMetadata = resolveTelegramBindingMetadataState(binding.metadata);
     if (input.autoCompactionEnabled !== undefined) {
       nextConfig.autoCompactionEnabled = input.autoCompactionEnabled;
     }
@@ -138,6 +149,9 @@ export class UpdateTelegramIntegrationConfigService {
     if (input.groupReplyMode !== undefined) {
       nextConfig.groupReplyMode = input.groupReplyMode;
     }
+    if (input.telegramAccessMode !== undefined) {
+      nextMetadata.telegramAccessMode = input.telegramAccessMode;
+    }
     if (input.notes !== undefined) {
       nextConfig.notes = input.notes;
     }
@@ -151,7 +165,7 @@ export class UpdateTelegramIntegrationConfigService {
       tokenLastFour: binding.tokenLastFour,
       policy: nextPolicy,
       config: nextConfig,
-      metadata: asObject(binding.metadata),
+      metadata: nextMetadata,
       connectedAt: binding.connectedAt,
       disconnectedAt: null
     });
@@ -171,6 +185,7 @@ export class UpdateTelegramIntegrationConfigService {
           defaultDeepModeEnabled: input.defaultDeepModeEnabled !== undefined,
           inboundUserMessagesEnabled: input.inboundUserMessagesEnabled !== undefined,
           outboundAssistantMessagesEnabled: input.outboundAssistantMessagesEnabled !== undefined,
+          telegramAccessMode: input.telegramAccessMode !== undefined,
           groupReplyMode: input.groupReplyMode !== undefined,
           notes: input.notes !== undefined
         }

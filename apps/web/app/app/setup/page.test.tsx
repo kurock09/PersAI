@@ -760,6 +760,34 @@ describe("SetupWizardPage", () => {
     expect(await screen.findByDisplayValue("PERSAI")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "PersAI" })).toBeInTheDocument();
   });
+
+  it("persists the default avatar preset even when it was not clicked explicitly", async () => {
+    renderWithIntl(<SetupWizardPage />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
+    expect(await screen.findByDisplayValue("PERSAI")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+
+    expect(
+      await screen.findByText("Hi Alex, I'm Nova. I'll keep things clear, warm, and proactive.")
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
+    });
+    expect(assistantApiMocks.uploadAssistantAvatar).not.toHaveBeenCalled();
+    expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        avatarEmoji: null,
+        avatarUrl: "/avatar-presets/persai.png"
+      })
+    );
+  });
 });
 
 function cleanupLocation() {

@@ -796,6 +796,14 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       id: "telegram-message-1",
       author: "user",
       content: "earlier telegram user",
+      metadata: {
+        schema: "persai.chatMessage.telegramMetadata.v1",
+        telegram: {
+          fromUserId: "888",
+          fromUsername: "sam",
+          fromDisplayName: "Sam Lee"
+        }
+      },
       attachments: []
     },
     {
@@ -826,7 +834,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     },
     {
       role: "user",
-      content: "earlier telegram user"
+      content: "Telegram sender: Sam Lee (@sam)\nearlier telegram user"
     },
     {
       role: "assistant",

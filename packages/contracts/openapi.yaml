@@ -9153,6 +9153,7 @@ components:
         - defaultDeepModeEnabled
         - inboundUserMessagesEnabled
         - outboundAssistantMessagesEnabled
+        - telegramAccessMode
         - groupReplyMode
         - notes
       properties:
@@ -9169,6 +9170,11 @@ components:
           type: boolean
         outboundAssistantMessagesEnabled:
           type: boolean
+        telegramAccessMode:
+          type: string
+          enum:
+            - owner_only
+            - group_members
         groupReplyMode:
           type: string
           enum:
@@ -9342,6 +9348,11 @@ components:
           type: boolean
         outboundAssistantMessagesEnabled:
           type: boolean
+        telegramAccessMode:
+          type: string
+          enum:
+            - owner_only
+            - group_members
         groupReplyMode:
           type: string
           enum:

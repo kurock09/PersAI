@@ -6,5 +6,6 @@ export type AssistantChatMessage = {
   assistantId: string;
   author: AssistantChatMessageAuthor;
   content: string;
+  metadata: Record<string, unknown> | null;
   createdAt: Date;
 };

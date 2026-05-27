@@ -7,6 +7,7 @@ export type TelegramConnectionStatus =
   | "claim_required"
   | "invalid_token";
 export type TelegramRuntimeHealth = "ok" | "invalid_token";
+export type TelegramAccessMode = "owner_only" | "group_members";
 
 export const TELEGRAM_OWNER_CLAIM_CODE_LENGTH = 6;
 export const TELEGRAM_OWNER_CLAIM_TTL_MS = 15 * 60_000;
@@ -16,7 +17,7 @@ export type TelegramBindingMetadataState = {
   username: string | null;
   displayName: string | null;
   avatarUrl: string | null;
-  telegramAccessMode: "owner_only";
+  telegramAccessMode: TelegramAccessMode;
   telegramOwnerClaimStatus: TelegramClaimStatus;
   telegramOwnerClaimCode: string | null;
   telegramOwnerClaimIssuedAt: string | null;
@@ -54,6 +55,10 @@ function toClaimStatus(value: unknown): TelegramClaimStatus {
 
 function toRuntimeHealth(value: unknown): TelegramRuntimeHealth {
   return value === "invalid_token" ? "invalid_token" : "ok";
+}
+
+function toTelegramAccessMode(value: unknown): TelegramAccessMode {
+  return value === "group_members" ? "group_members" : "owner_only";
 }
 
 export function createTelegramOwnerClaimCode(): string {
@@ -110,7 +115,7 @@ export function resolveTelegramBindingMetadataState(
     username: toStringOrNull(row?.username) ?? fallbackBot.username ?? null,
     displayName: toStringOrNull(row?.displayName) ?? fallbackBot.displayName ?? null,
     avatarUrl: toStringOrNull(row?.avatarUrl) ?? fallbackBot.avatarUrl ?? null,
-    telegramAccessMode: "owner_only",
+    telegramAccessMode: toTelegramAccessMode(row?.telegramAccessMode),
     telegramOwnerClaimStatus: toClaimStatus(row?.telegramOwnerClaimStatus),
     telegramOwnerClaimCode: toStringOrNull(row?.telegramOwnerClaimCode),
     telegramOwnerClaimIssuedAt: toStringOrNull(row?.telegramOwnerClaimIssuedAt),

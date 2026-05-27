@@ -2,6 +2,84 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-27 — Telegram group access mode
+
+### Scope
+
+Bounded Telegram integration feature:
+
+- add `telegramAccessMode` with `owner_only` and `group_members`
+- keep `groupReplyMode` as the existing group trigger control
+- keep private DMs and owner claim flow owner-only
+- allow non-owner group access only from active linked Telegram groups
+- avoid OpenClaw legacy and broad refactors
+
+### What changed
+
+Telegram binding metadata now parses and persists `telegramAccessMode`, defaulting to `owner_only`. Telegram integration state and config PATCH contracts expose that setting, with generated contracts refreshed from OpenAPI.
+
+The Telegram webhook access gate now ignores bot-originated messages, applies `groupReplyMode` before access checks, keeps private chats owner-only, preserves the owner claim flow, and in `group_members` mode accepts non-owner group messages only when `(assistantId, telegramChatId)` is an active `assistant_telegram_groups` row. Unknown/inactive groups are ignored without noisy replies. Accepted Telegram turns keep the persisted user message content clean, store Telegram chat/sender facts in message metadata, and send structured `channelContext.telegram` to runtime. Runtime renders current group/sender facts as a developer context section, and canonical Telegram group history labels prior user messages with their stored sender name.
+
+The Telegram settings panel now adds "Who can message the assistant in a group" access-mode buttons and saves the selected mode through the existing config PATCH endpoint.
+
+### Files / modules
+
+- `apps/api/src/modules/workspace-management/application/telegram-integration.metadata.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-integration.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-telegram-integration-state.service.ts`
+- `apps/api/src/modules/workspace-management/application/update-telegram-integration-config.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-telegram-channel-runtime-config.service.ts`
+- `apps/api/src/modules/workspace-management/application/sync-telegram-group-membership.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-channel-adapter.service.ts`
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-chat-message.entity.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository.ts`
+- `apps/api/test/telegram-channel-adapter.service.test.ts`
+- `apps/api/test/telegram-integration.test.ts`
+- `apps/api/test/send-native-telegram-turn.service.test.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/web/app/app/_components/telegram-connect.tsx`
+- `apps/web/app/app/_components/telegram-connect.test.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `packages/runtime-contract/src/index.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/**`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Checks passed:
+
+1. `corepack pnpm --filter @persai/api exec tsx test/telegram-channel-adapter.service.test.ts`
+2. `corepack pnpm --filter @persai/api exec tsx test/send-native-telegram-turn.service.test.ts`
+3. `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+4. `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+5. `corepack pnpm --filter @persai/api exec tsx test/telegram-integration.test.ts`
+6. `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+7. `corepack pnpm --filter @persai/web exec vitest run app/app/_components/telegram-connect.test.tsx`
+8. `corepack pnpm --filter @persai/api run typecheck`
+9. `corepack pnpm --filter @persai/runtime run typecheck`
+10. `corepack pnpm --filter @persai/web run typecheck`
+11. `corepack pnpm -r --if-present run lint`
+12. `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Telegram group context is now structured runtime/API metadata rather than a mutation of the persisted user text. The model still sees sender labels in runtime-only prompt context for prior group messages.
+- `group_members` intentionally authorizes by active linked group row, not by Telegram member roster expansion; leaving a group or unlinking it must keep that row status accurate.
+
+### Next recommended step
+
+Review the Telegram group access UX/API diff, then commit or deploy when ready.
+
 ## 2026-05-27 — Auth incident hotfix — Clerk profile lookup fallback for existing users
 
 ### Scope

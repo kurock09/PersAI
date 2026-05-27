@@ -723,3 +723,5 @@ export * from "./userPlanVisibilityState";
 export * from "./workspaceSummary";
 export * from "./workspaceSummaryRole";
 export * from "./workspaceSummaryStatus";
+export * from "./assistantTelegramConfigUpdateRequestTelegramAccessMode";
+export * from "./telegramIntegrationConfigSettingsTelegramAccessMode";

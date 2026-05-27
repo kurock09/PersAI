@@ -316,6 +316,7 @@ export default function SetupWizardPage() {
   const currentAvatarPreviewUrl =
     customAvatarPreviewUrl ?? persistedAvatarUrl ?? selectedAvatarPreset?.imagePath ?? null;
   const isUsingCustomAvatar = selectedAvatarPresetId === null && currentAvatarPreviewUrl !== null;
+  const draftAvatarUrl = persistedAvatarUrl ?? selectedAvatarPreset?.imagePath ?? null;
   const setupVoiceProfile = useMemo(
     () =>
       resolveSetupVoiceProfile({
@@ -616,7 +617,7 @@ export default function SetupWizardPage() {
       instructions: trimToNull(assistantNotes),
       traits,
       avatarEmoji: null,
-      avatarUrl: customAvatarFile ? null : persistedAvatarUrl,
+      avatarUrl: customAvatarFile ? null : draftAvatarUrl,
       assistantGender,
       voiceProfile: setupVoiceProfile,
       archetypeKey: archetypeKeyForDraft
@@ -628,8 +629,8 @@ export default function SetupWizardPage() {
     assistantNotes,
     buildOnboardingPayload,
     customAvatarFile,
+    draftAvatarUrl,
     existingAssistant,
-    persistedAvatarUrl,
     resolveSetupToken,
     selectedArchetypeKey,
     shouldSkipProfileStep,

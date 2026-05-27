@@ -2697,6 +2697,53 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[openMediaJobsOffset]?.developerInstructions ?? "",
     /1\. image_generate job is running; created 2026-04-11T11:55:00.000Z, started 2026-04-11T11:56:00.000Z\./
   );
+  const telegramGroupRequest = createRuntimeTurnRequest();
+  telegramGroupRequest.conversation = {
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    channel: "telegram",
+    externalThreadKey: "telegram:-1001:default",
+    externalUserKey: "telegram-user:888",
+    mode: "group"
+  };
+  telegramGroupRequest.channelContext = {
+    telegram: {
+      schema: "persai.runtime.telegramContext.v1",
+      chat: {
+        id: "-1001",
+        type: "supergroup",
+        title: "Team"
+      },
+      sender: {
+        telegramUserId: "888",
+        username: "sam",
+        firstName: "Sam",
+        lastName: "Lee",
+        displayName: "Sam Lee"
+      },
+      accessMode: "group_members"
+    }
+  };
+  telegramGroupRequest.message.text = "ordinary group task";
+  const telegramGroupOffset = providerGatewayClient.calls.length;
+  const telegramGroupCompleted = await service.createTurn(telegramGroupRequest);
+  assert.equal(telegramGroupCompleted.assistantText, "runtime reply");
+  assert.doesNotMatch(
+    JSON.stringify(providerGatewayClient.calls[telegramGroupOffset]?.messages ?? []),
+    /\[Telegram group context\]/
+  );
+  assert.match(
+    providerGatewayClient.calls[telegramGroupOffset]?.developerInstructions ?? "",
+    /## Telegram group context/
+  );
+  assert.match(
+    providerGatewayClient.calls[telegramGroupOffset]?.developerInstructions ?? "",
+    /Sender: Sam Lee \(@sam\)/
+  );
+  assert.match(
+    providerGatewayClient.calls[telegramGroupOffset]?.developerInstructions ?? "",
+    /Do not reveal private owner context/
+  );
   turnContextHydrationService.openLoopRefsDeveloperBlock = [
     "## Open Loop Refs",
     "Server-owned refs for unresolved open loops.",

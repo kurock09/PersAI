@@ -269,6 +269,7 @@ async function run(): Promise<void> {
     assert.equal(connected.configPanel.available, true);
     assert.equal(connected.configPanel.settings.autoCompactionEnabled, true);
     assert.equal(connected.configPanel.settings.defaultParseMode, "markdown");
+    assert.equal(connected.configPanel.settings.telegramAccessMode, "owner_only");
     assert.equal(connected.ownerClaim.required, true);
     assert.equal(connected.ownerClaim.status, "pending");
     assert.match(connected.ownerClaim.code ?? "", /^\d{6}$/);
@@ -287,14 +288,17 @@ async function run(): Promise<void> {
       defaultParseMode: "markdown",
       inboundUserMessagesEnabled: true,
       outboundAssistantMessagesEnabled: false,
+      telegramAccessMode: "group_members",
       groupReplyMode: "mention_reply",
       notes: "Only outbound notifications for now"
     });
     assert.equal(updated.configPanel.settings.autoCompactionEnabled, false);
     assert.equal(updated.configPanel.settings.defaultParseMode, "markdown");
     assert.equal(updated.configPanel.settings.outboundAssistantMessagesEnabled, false);
+    assert.equal(updated.configPanel.settings.telegramAccessMode, "group_members");
     assert.equal(updated.configPanel.settings.groupReplyMode, "mention_reply");
     assert.equal(updated.configPanel.settings.notes, "Only outbound notifications for now");
+    assert.equal(binding?.metadata?.telegramAccessMode, "group_members");
     assert.equal(updated.connectionStatus, "claim_required");
     assert.equal(applyCallCount, 1);
 

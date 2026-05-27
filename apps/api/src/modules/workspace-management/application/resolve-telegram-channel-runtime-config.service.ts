@@ -6,7 +6,10 @@ import {
   type AssistantChannelSurfaceBindingRepository
 } from "../domain/assistant-channel-surface-binding.repository";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
-import { resolveTelegramBindingMetadataState } from "./telegram-integration.metadata";
+import {
+  resolveTelegramBindingMetadataState,
+  type TelegramAccessMode
+} from "./telegram-integration.metadata";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 export interface ResolvedTelegramChannelRuntimeConfig {
@@ -21,7 +24,7 @@ export interface ResolvedTelegramChannelRuntimeConfig {
   groupReplyMode: "mention_reply" | "all_messages";
   parseMode: string;
   defaultDeepModeEnabled: boolean;
-  accessMode: string;
+  accessMode: TelegramAccessMode;
   ownerClaimStatus: string;
   ownerClaimCode: string | null;
   ownerClaimCodeExpiresAt: string | null;

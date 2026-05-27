@@ -1016,3 +1016,340 @@ test("single photo with caption still starts a runtime turn when media_group_id 
   assert.equal(appendCalls, 0);
   assert.equal(executeTurnCalls, 1);
 });
+
+function createTelegramAdapterHarness(options: {
+  accessMode?: "owner_only" | "group_members";
+  groupReplyMode?: "mention_reply" | "all_messages";
+  activeGroup?: boolean;
+  ownerTelegramUserId?: number | null;
+}) {
+  let executeTurnCalls = 0;
+  let sendPlainTextCalls = 0;
+  let groupSyncCalls = 0;
+  let capturedMessage: string | null = null;
+  let capturedChannelContext: Record<string, unknown> | null = null;
+  let capturedMessageMetadata: Record<string, unknown> | null = null;
+
+  const service = new TelegramChannelAdapterService(
+    {
+      async resolveByAssistantId() {
+        return {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          locale: "en",
+          botToken: "bot-token",
+          botUserId: 555,
+          botUsername: "test_bot",
+          inbound: true,
+          outbound: true,
+          groupReplyMode: options.groupReplyMode ?? "mention_reply",
+          parseMode: "plain_text",
+          defaultDeepModeEnabled: false,
+          accessMode: options.accessMode ?? "owner_only",
+          ownerClaimStatus: "claimed",
+          ownerClaimCode: null,
+          ownerClaimCodeExpiresAt: null,
+          ownerTelegramUserId: options.ownerTelegramUserId ?? 777,
+          ownerTelegramUsername: "alex",
+          ownerTelegramChatId: "12345",
+          sessionThreadKey: "default_session",
+          runtimeHealth: "ok",
+          webhookSecret: "secret-1"
+        };
+      }
+    } as never,
+    {
+      async sendPlainText() {
+        sendPlainTextCalls += 1;
+      },
+      async sendAssistantTurnReply() {
+        return undefined;
+      }
+    } as never,
+    {
+      async execute(input: {
+        message: string;
+        channelContext?: Record<string, unknown>;
+        messageMetadata?: Record<string, unknown>;
+      }) {
+        executeTurnCalls += 1;
+        capturedMessage = input.message;
+        capturedChannelContext = input.channelContext ?? null;
+        capturedMessageMetadata = input.messageMetadata ?? null;
+        return {
+          assistantMessage: "reply",
+          respondedAt: "2026-05-11T10:00:00.000Z",
+          media: [],
+          assistantMessageId: "assistant-msg-1",
+          chatId: "chat-1",
+          workspaceId: "workspace-1",
+          quotaAdvisoryFollowUpIntentId: null,
+          compactionAdvisoryFollowUpIntentId: null
+        };
+      }
+    } as never,
+    {
+      async markUndeliveredArtifactsReconciliationRequired() {
+        return undefined;
+      },
+      async deliver() {
+        return { attachments: [] };
+      }
+    } as never,
+    {
+      async execute() {
+        return undefined;
+      }
+    } as never,
+    {
+      async hasActiveGroup() {
+        return options.activeGroup === true;
+      },
+      async execute() {
+        groupSyncCalls += 1;
+      }
+    } as never,
+    {
+      renderError() {
+        return { text: "error" };
+      }
+    } as never,
+    {
+      async deliverIntentNow() {
+        return undefined;
+      }
+    } as never,
+    defaultAlbumCollectorStub as never,
+    defaultInboundContextStub as never,
+    {
+      async updateMessageContent() {
+        return null;
+      }
+    } as never,
+    {
+      async claimTelegramUpdateProcessing() {
+        return "claimed" as const;
+      },
+      async completeTelegramUpdateProcessing() {
+        return undefined;
+      },
+      async releaseTelegramUpdateProcessing() {
+        return undefined;
+      },
+      async patchMetadata() {
+        return undefined;
+      },
+      async hasActiveBindingForProvider() {
+        return true;
+      }
+    } as never
+  );
+
+  return {
+    service,
+    stats: {
+      get executeTurnCalls() {
+        return executeTurnCalls;
+      },
+      get sendPlainTextCalls() {
+        return sendPlainTextCalls;
+      },
+      get groupSyncCalls() {
+        return groupSyncCalls;
+      },
+      get capturedMessage() {
+        return capturedMessage;
+      },
+      get capturedChannelContext() {
+        return capturedChannelContext;
+      },
+      get capturedMessageMetadata() {
+        return capturedMessageMetadata;
+      }
+    }
+  };
+}
+
+test("mention_reply still ignores ordinary group text before access gate", async () => {
+  const { service, stats } = createTelegramAdapterHarness({
+    accessMode: "group_members",
+    groupReplyMode: "mention_reply",
+    activeGroup: true
+  });
+
+  const result = await service.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "secret-1",
+    payload: {
+      update_id: 601,
+      message: {
+        text: "ordinary group text",
+        chat: { id: -1001, type: "supergroup", title: "Team" },
+        from: { id: 888, first_name: "Sam", username: "sam" }
+      }
+    }
+  });
+
+  assert.equal(result.statusCode, 200);
+  assert.equal(stats.executeTurnCalls, 0);
+  assert.equal(stats.groupSyncCalls, 0);
+});
+
+test("all_messages allows ordinary group text for members of the active linked group", async () => {
+  const { service, stats } = createTelegramAdapterHarness({
+    accessMode: "group_members",
+    groupReplyMode: "all_messages",
+    activeGroup: true
+  });
+
+  await service.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "secret-1",
+    payload: {
+      update_id: 602,
+      message: {
+        text: "ordinary group task",
+        chat: { id: -1001, type: "supergroup", title: "Team" },
+        from: { id: 888, first_name: "Sam", last_name: "Lee", username: "sam" }
+      }
+    }
+  });
+
+  assert.equal(stats.executeTurnCalls, 1);
+  assert.equal(stats.groupSyncCalls, 1);
+  assert.equal(stats.capturedMessage, "ordinary group task");
+  assert.deepEqual(stats.capturedChannelContext, {
+    telegram: {
+      schema: "persai.runtime.telegramContext.v1",
+      chat: {
+        id: "-1001",
+        type: "supergroup",
+        title: "Team"
+      },
+      sender: {
+        telegramUserId: "888",
+        username: "sam",
+        firstName: "Sam",
+        lastName: "Lee",
+        displayName: "Sam Lee"
+      },
+      accessMode: "group_members"
+    }
+  });
+  assert.deepEqual(stats.capturedMessageMetadata, {
+    schema: "persai.chatMessage.telegramMetadata.v1",
+    telegram: {
+      chatId: "-1001",
+      chatType: "supergroup",
+      chatTitle: "Team",
+      messageId: null,
+      updateId: 602,
+      fromUserId: "888",
+      fromUsername: "sam",
+      fromFirstName: "Sam",
+      fromLastName: "Lee",
+      fromDisplayName: "Sam Lee",
+      accessMode: "group_members"
+    }
+  });
+});
+
+test("owner_only blocks non-owner group sender", async () => {
+  const { service, stats } = createTelegramAdapterHarness({
+    accessMode: "owner_only",
+    groupReplyMode: "all_messages",
+    activeGroup: true,
+    ownerTelegramUserId: 777
+  });
+
+  await service.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "secret-1",
+    payload: {
+      update_id: 603,
+      message: {
+        text: "please answer",
+        chat: { id: -1001, type: "group", title: "Team" },
+        from: { id: 888, first_name: "Sam" }
+      }
+    }
+  });
+
+  assert.equal(stats.executeTurnCalls, 0);
+  assert.equal(stats.sendPlainTextCalls, 1);
+});
+
+test("group_members does not allow non-owner private DM", async () => {
+  const { service, stats } = createTelegramAdapterHarness({
+    accessMode: "group_members",
+    groupReplyMode: "all_messages",
+    activeGroup: true,
+    ownerTelegramUserId: 777
+  });
+
+  await service.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "secret-1",
+    payload: {
+      update_id: 604,
+      message: {
+        text: "private non-owner",
+        chat: { id: 888, type: "private" },
+        from: { id: 888, first_name: "Sam" }
+      }
+    }
+  });
+
+  assert.equal(stats.executeTurnCalls, 0);
+  assert.equal(stats.sendPlainTextCalls, 1);
+});
+
+test("group_members ignores inactive or unseen groups without replying", async () => {
+  const { service, stats } = createTelegramAdapterHarness({
+    accessMode: "group_members",
+    groupReplyMode: "all_messages",
+    activeGroup: false
+  });
+
+  await service.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "secret-1",
+    payload: {
+      update_id: 605,
+      message: {
+        text: "unknown group",
+        chat: { id: -1002, type: "supergroup", title: "Other Team" },
+        from: { id: 888, first_name: "Sam" }
+      }
+    }
+  });
+
+  assert.equal(stats.executeTurnCalls, 0);
+  assert.equal(stats.sendPlainTextCalls, 0);
+  assert.equal(stats.groupSyncCalls, 0);
+});
+
+test("bot-originated telegram messages are ignored", async () => {
+  const { service, stats } = createTelegramAdapterHarness({
+    accessMode: "group_members",
+    groupReplyMode: "all_messages",
+    activeGroup: true
+  });
+
+  await service.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "secret-1",
+    payload: {
+      update_id: 606,
+      message: {
+        text: "bot loop",
+        chat: { id: -1001, type: "supergroup", title: "Team" },
+        from: { id: 999, is_bot: true, username: "another_bot" }
+      }
+    }
+  });
+
+  assert.equal(stats.executeTurnCalls, 0);
+  assert.equal(stats.sendPlainTextCalls, 0);
+  assert.equal(stats.groupSyncCalls, 0);
+});

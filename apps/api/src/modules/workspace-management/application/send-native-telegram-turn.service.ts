@@ -5,6 +5,7 @@ import type {
   RuntimeFailedEvent,
   RuntimeAttachmentRef,
   RuntimeInterruptedEvent,
+  RuntimeChannelContext,
   RuntimeOpenMediaJobContext,
   RuntimeOutputArtifact,
   RuntimeTurnRequest,
@@ -40,6 +41,7 @@ export interface SendNativeTelegramTurnInput {
   threadId: string;
   externalUserKey: string | null;
   mode: "direct" | "group";
+  channelContext?: RuntimeChannelContext;
   userMessageId: string;
   userMessage: string;
   attachments: RuntimeAttachmentRef[];
@@ -135,6 +137,7 @@ export class SendNativeTelegramTurnService {
         externalUserKey: input.externalUserKey,
         mode: input.mode
       },
+      ...(input.channelContext === undefined ? {} : { channelContext: input.channelContext }),
       message: {
         text: input.userMessage,
         attachments: input.attachments,
