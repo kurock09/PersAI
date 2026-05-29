@@ -27,6 +27,10 @@ import type { NotificationIntentRecord } from "./notification-platform.types";
 import { normalizeLocaleInput } from "@persai/types";
 import { ResolveUserLocaleService } from "../resolve-user-locale.service";
 import {
+  readTelegramBindingMetadata,
+  resolveTelegramPrivateDeliveryChatId
+} from "../telegram-private-delivery-chat";
+import {
   NOTIFICATION_CHANNEL_REGISTRY_DEFAULTS,
   NOTIFICATION_POLICY_DEFAULTS,
   NOTIFICATION_QUIET_HOURS_DEFAULT,
@@ -443,21 +447,11 @@ export class ManageNotificationPlatformService {
           },
           select: { metadata: true }
         });
-        const metadata =
-          tgBinding?.metadata &&
-          typeof tgBinding.metadata === "object" &&
-          !Array.isArray(tgBinding.metadata)
-            ? (tgBinding.metadata as Record<string, unknown>)
-            : null;
-        const telegramDmChatId =
-          typeof metadata?.["telegramDmChatId"] === "string"
-            ? metadata["telegramDmChatId"].trim()
-            : typeof metadata?.["reminderDeliveryChatId"] === "string"
-              ? metadata["reminderDeliveryChatId"].trim()
-              : "";
-        if (telegramDmChatId.length > 0) {
+        const metadata = readTelegramBindingMetadata(tgBinding?.metadata);
+        const telegramPrivateChatId = resolveTelegramPrivateDeliveryChatId(metadata);
+        if (telegramPrivateChatId) {
           surface = "telegram";
-          surfaceThreadKey = telegramDmChatId;
+          surfaceThreadKey = telegramPrivateChatId;
         }
       } else if (
         channelType === NotificationChannelType.web_thread ||

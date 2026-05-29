@@ -7,6 +7,10 @@ import type {
 } from "../../../application/notifications/notification-platform.types";
 import { NotificationChannelType } from "../../../application/notifications/notification-platform.types";
 import type { NotificationChannelAdapter } from "./channel-adapter.interface";
+import {
+  readTelegramBindingMetadata,
+  resolveTelegramPrivateDeliveryChatId
+} from "../../../application/telegram-private-delivery-chat";
 import { PlatformRuntimeProviderSecretStoreService } from "../../../application/platform-runtime-provider-secret-store.service";
 import { WorkspaceManagementPrismaService } from "../../persistence/workspace-management-prisma.service";
 
@@ -24,18 +28,9 @@ function parseTelegramMessageId(value: unknown): string | undefined {
     : undefined;
 }
 
-function parseTelegramChatIdFromSurfaceThreadKey(value: string): string {
-  const trimmed = value.trim();
-  const match = trimmed.match(/^telegram:(.+):session:[^:]+$/);
-  return match?.[1]?.trim() || trimmed;
-}
-
 /**
- * Delivers a notification to the user's active Telegram thread.
- * ChatId resolution order:
- *   1. intent.surfaceThreadKey (set by active-turn producers knowing the thread)
- *   2. channelConfig.config.chatId (workspace-level default)
- *   3. Assistant's Telegram DM chatId from channel surface binding metadata
+ * Delivers notifications and reminders to the assistant owner's private Telegram DM.
+ * Group threads are never used as a delivery target.
  * ADR-088 §Core principles #4 – dumb adapter, no policy/dedupe logic.
  */
 @Injectable()
@@ -112,8 +107,8 @@ export class TelegramThreadChannelAdapter implements NotificationChannelAdapter 
     intent: NotificationIntentRecord,
     channelConfig: ChannelRegistryRow
   ): Promise<string | null> {
-    if (typeof intent.surfaceThreadKey === "string" && intent.surfaceThreadKey.trim().length > 0) {
-      return parseTelegramChatIdFromSurfaceThreadKey(intent.surfaceThreadKey);
+    if (intent.assistantId) {
+      return this.resolveAssistantPrivateTelegramChatId(intent.assistantId);
     }
 
     const configChatId = channelConfig.config["chatId"];
@@ -121,36 +116,15 @@ export class TelegramThreadChannelAdapter implements NotificationChannelAdapter 
       return configChatId.trim();
     }
 
-    if (intent.assistantId) {
-      return this.resolveAssistantTelegramDmChatId(intent.assistantId);
-    }
-
     return null;
   }
 
-  private async resolveAssistantTelegramDmChatId(assistantId: string): Promise<string | null> {
+  private async resolveAssistantPrivateTelegramChatId(assistantId: string): Promise<string | null> {
     const binding = await this.prisma.assistantChannelSurfaceBinding.findFirst({
       where: { assistantId, providerKey: "telegram", bindingState: "active" },
       select: { metadata: true }
     });
-    if (!binding || !isRecord(binding.metadata)) {
-      return null;
-    }
-    const meta = binding.metadata;
-    const dmChatId =
-      typeof meta["telegramDmChatId"] === "string" ? meta["telegramDmChatId"].trim() : "";
-    if (dmChatId) {
-      return dmChatId;
-    }
-    const legacyChatId =
-      typeof meta["reminderDeliveryChatId"] === "string"
-        ? meta["reminderDeliveryChatId"].trim()
-        : "";
-    const legacyChatType =
-      typeof meta["reminderDeliveryChatType"] === "string"
-        ? meta["reminderDeliveryChatType"].trim()
-        : "";
-    return legacyChatId && legacyChatType === "private" ? legacyChatId : null;
+    return resolveTelegramPrivateDeliveryChatId(readTelegramBindingMetadata(binding?.metadata));
   }
 
   private async resolveBotToken(intent: NotificationIntentRecord): Promise<string | null> {

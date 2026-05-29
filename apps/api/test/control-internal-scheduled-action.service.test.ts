@@ -218,10 +218,10 @@ async function runNativeCreateTest(): Promise<void> {
     Record<string, unknown>
   >;
   const createdTarget = Object.values(reminderTaskTargets)[0];
-  assert.equal(createdTarget?.chatId, "group-1");
-  assert.equal(createdTarget?.chatType, "supergroup");
-  assert.equal(createdTarget?.title, "Team Group");
-  assert.equal(createdTarget?.source, "telegram_group");
+  assert.equal(createdTarget?.chatId, "dm-1");
+  assert.equal(createdTarget?.chatType, "private");
+  assert.equal(createdTarget?.title, null);
+  assert.equal(createdTarget?.source, "telegram_dm");
 }
 
 async function runAssistantActionCreateRejectedTest(): Promise<void> {

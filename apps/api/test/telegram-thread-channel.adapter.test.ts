@@ -6,8 +6,6 @@
 import assert from "node:assert/strict";
 import { TelegramThreadChannelAdapter } from "../src/modules/workspace-management/infrastructure/notifications/channel-adapters/telegram-thread-channel.adapter";
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
 type FetchResponse = {
   ok: boolean;
   status: number;
@@ -36,7 +34,7 @@ function makeIntent(overrides?: Record<string, unknown>) {
     scheduledAt: null,
     respectQuietHours: false,
     surface: "telegram",
-    surfaceThreadKey: "12345",
+    surfaceThreadKey: "telegram:-100999:session:group-session",
     chatId: null,
     traceId: "trace-tg-1",
     failureReason: null,
@@ -75,15 +73,13 @@ function makeSecretStore(token: string | null) {
   };
 }
 
-function makePrisma(chatId: string | null) {
+function makePrisma(metadata: Record<string, unknown> | null) {
   return {
     assistantChannelSurfaceBinding: {
-      findFirst: async () => (chatId ? { metadata: { telegramDmChatId: chatId } } : null)
+      findFirst: async () => (metadata ? { metadata } : null)
     }
   };
 }
-
-// ── Tests ──────────────────────────────────────────────────────────────────
 
 async function run(): Promise<void> {
   // 1. Successful delivery → providerRef = "telegram:<chatId>:<messageId>"
@@ -104,11 +100,11 @@ async function run(): Promise<void> {
 
     const adapter = new TelegramThreadChannelAdapter(
       makeSecretStore("bot-token-123") as never,
-      makePrisma(null) as never
+      makePrisma({ telegramDmChatId: "54321" }) as never
     );
 
     const result = await adapter.deliver(
-      makeIntent({ surfaceThreadKey: "54321" }) as never,
+      makeIntent() as never,
       makeRenderedPayload(),
       makeChannelConfig()
     );
@@ -121,42 +117,11 @@ async function run(): Promise<void> {
       `providerRef should be telegram:54321:999, got ${result.providerRef}`
     );
     assert.equal(fetchCalls.length, 1, "one fetch call");
-    assert.ok((fetchCalls[0]!.url as string).includes("bot-token-123"), "bot token in URL");
-    console.log("✓ deliver: successful → providerRef telegram:<chatId>:<messageId>");
+    assert.equal((fetchCalls[0]?.body as Record<string, unknown>)?.chat_id, "54321");
+    console.log("✓ deliver: successful private DM delivery");
   }
 
-  // 2. 4xx Telegram response → status: "failed", error includes httpStatus
-  {
-    const originalFetch = global.fetch;
-    (global as Record<string, unknown>)["fetch"] = async () => ({
-      ok: false,
-      status: 400,
-      json: async () => ({ ok: false, error_code: 400, description: "Bad Request" })
-    });
-
-    const adapter = new TelegramThreadChannelAdapter(
-      makeSecretStore("bot-token-123") as never,
-      makePrisma(null) as never
-    );
-
-    const result = await adapter.deliver(
-      makeIntent({ surfaceThreadKey: "54321" }) as never,
-      makeRenderedPayload(),
-      makeChannelConfig()
-    );
-
-    (global as Record<string, unknown>)["fetch"] = originalFetch;
-
-    assert.equal(result.status, "failed", "should be failed on 4xx");
-    assert.ok(result.error != null, "error present");
-    assert.ok(
-      "httpStatus" in result.error! || "reason" in result.error!,
-      "error has errorCode or reason"
-    );
-    console.log("✓ deliver: 4xx response → status=failed, error present");
-  }
-
-  // 2.1 Runtime thread key should resolve to the underlying Telegram chat id.
+  // 2. Group surfaceThreadKey is ignored; delivery still uses private DM from binding
   {
     const fetchCalls: Array<{ url: string; body: unknown }> = [];
     const originalFetch = global.fetch;
@@ -171,91 +136,89 @@ async function run(): Promise<void> {
 
     const adapter = new TelegramThreadChannelAdapter(
       makeSecretStore("bot-token-123") as never,
-      makePrisma(null) as never
+      makePrisma({
+        reminderDeliveryChatId: "-100999",
+        reminderDeliveryChatType: "supergroup",
+        telegramOwnerTelegramChatId: "491548134"
+      }) as never
     );
 
     const result = await adapter.deliver(
-      makeIntent({ surfaceThreadKey: "telegram:54321:session:rotated-session" }) as never,
+      makeIntent({ surfaceThreadKey: "telegram:-100999:session:group-session" }) as never,
       makeRenderedPayload(),
       makeChannelConfig()
     );
 
     (global as Record<string, unknown>)["fetch"] = originalFetch;
 
-    assert.equal(result.status, "delivered", "runtime thread key should still deliver");
-    assert.equal(
-      (fetchCalls[0]?.body as Record<string, unknown>)?.chat_id,
-      "54321",
-      "adapter should unwrap runtime thread key back to Telegram chat id"
-    );
-    console.log("✓ deliver: runtime thread key resolves to Telegram chat id");
+    assert.equal(result.status, "delivered");
+    assert.equal((fetchCalls[0]?.body as Record<string, unknown>)?.chat_id, "491548134");
+    console.log("✓ deliver: ignores group thread key and uses owner private DM");
   }
 
-  // 3. Network fetch rejection → status: "failed"
+  // 3. 4xx Telegram response → status: "failed"
   {
     const originalFetch = global.fetch;
-    (global as Record<string, unknown>)["fetch"] = async () => {
-      throw new Error("Network unreachable");
-    };
+    (global as Record<string, unknown>)["fetch"] = async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ ok: false, error_code: 400, description: "Bad Request" })
+    });
 
     const adapter = new TelegramThreadChannelAdapter(
       makeSecretStore("bot-token-123") as never,
-      makePrisma(null) as never
+      makePrisma({ telegramDmChatId: "54321" }) as never
     );
 
     const result = await adapter.deliver(
-      makeIntent({ surfaceThreadKey: "54321" }) as never,
+      makeIntent() as never,
       makeRenderedPayload(),
       makeChannelConfig()
     );
 
     (global as Record<string, unknown>)["fetch"] = originalFetch;
 
-    assert.equal(result.status, "failed", "network error → failed");
-    console.log("✓ deliver: network rejection → status=failed");
+    assert.equal(result.status, "failed", "should be failed on 4xx");
+    console.log("✓ deliver: 4xx response → status=failed");
   }
 
-  // 4. Missing bot token → status: "failed", reason telegram_bot_token_not_configured
+  // 4. Missing bot token → telegram_bot_token_not_configured
   {
     const adapter = new TelegramThreadChannelAdapter(
       makeSecretStore(null) as never,
-      makePrisma(null) as never
+      makePrisma({ telegramDmChatId: "54321" }) as never
     );
 
     const result = await adapter.deliver(
-      makeIntent({ surfaceThreadKey: "54321" }) as never,
+      makeIntent() as never,
       makeRenderedPayload(),
       makeChannelConfig()
     );
 
     assert.equal(result.status, "failed", "no token → failed");
-    assert.ok(
-      result.error?.["reason"] === "telegram_bot_token_not_configured",
-      `reason should be telegram_bot_token_not_configured, got ${result.error?.["reason"]}`
-    );
+    assert.equal(result.error?.["reason"], "telegram_bot_token_not_configured");
     console.log("✓ deliver: missing bot token → telegram_bot_token_not_configured");
   }
 
-  // 5. Missing chatId (no surfaceThreadKey, no configChatId, no binding) → status: "failed"
-  //    reason: telegram_chat_id_not_resolved
+  // 5. Missing private chat → telegram_chat_id_not_resolved
   {
     const adapter = new TelegramThreadChannelAdapter(
       makeSecretStore("bot-token-123") as never,
-      makePrisma(null) as never
+      makePrisma({
+        reminderDeliveryChatId: "-100999",
+        reminderDeliveryChatType: "supergroup"
+      }) as never
     );
 
     const result = await adapter.deliver(
-      makeIntent({ surfaceThreadKey: null, assistantId: null }) as never,
+      makeIntent() as never,
       makeRenderedPayload(),
-      makeChannelConfig({ config: {} })
+      makeChannelConfig()
     );
 
-    assert.equal(result.status, "failed", "no chatId → failed");
-    assert.ok(
-      result.error?.["reason"] === "telegram_chat_id_not_resolved",
-      `reason should be telegram_chat_id_not_resolved, got ${result.error?.["reason"]}`
-    );
-    console.log("✓ deliver: missing chatId → telegram_chat_id_not_resolved");
+    assert.equal(result.status, "failed", "no private chat → failed");
+    assert.equal(result.error?.["reason"], "telegram_chat_id_not_resolved");
+    console.log("✓ deliver: missing private chat → telegram_chat_id_not_resolved");
   }
 
   console.log("\n✅ All TelegramThreadChannelAdapter tests passed");

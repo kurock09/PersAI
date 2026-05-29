@@ -16,6 +16,10 @@ import {
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { BuildReminderContextSnapshotService } from "./build-reminder-context-snapshot.service";
 import {
+  resolveTelegramPrivateDeliveryChatId,
+  resolveTelegramPrivateDeliveryUsername
+} from "./telegram-private-delivery-chat";
+import {
   computeReminderNextRunAtMs,
   parseReminderSchedule,
   type ReminderSchedule
@@ -133,19 +137,6 @@ function normalizeTelegramReminderTarget(value: unknown): StoredTelegramReminder
   };
 }
 
-function parseTelegramChatIdFromSessionKey(sessionKey: string | undefined): string | undefined {
-  if (!sessionKey) {
-    return undefined;
-  }
-  const marker = ":telegram:";
-  const index = sessionKey.indexOf(marker);
-  if (index === -1) {
-    return undefined;
-  }
-  const chatId = sessionKey.slice(index + marker.length).trim();
-  return chatId.length > 0 ? chatId : undefined;
-}
-
 function normalizeBindingMetadata(value: unknown): Record<string, unknown> {
   return isRecord(value) ? { ...value } : {};
 }
@@ -168,90 +159,20 @@ function resolveTelegramReminderTargetForCreate(params: {
   contextSessionKey?: string;
   conversationContext?: ScheduledActionConversationContext;
 }): StoredTelegramReminderTarget | null {
-  const { metadata, contextSessionKey, conversationContext } = params;
-  const contextChatId =
-    conversationContext?.channel.toLowerCase() === "telegram"
-      ? conversationContext.externalThreadKey
-      : parseTelegramChatIdFromSessionKey(contextSessionKey);
-  const dmChatId =
-    typeof metadata.telegramDmChatId === "string" ? metadata.telegramDmChatId.trim() : "";
-  const dmUsername =
-    typeof metadata.telegramDmUsername === "string" ? metadata.telegramDmUsername.trim() : "";
-  const groupChatId =
-    typeof metadata.telegramLastGroupChatId === "string"
-      ? metadata.telegramLastGroupChatId.trim()
-      : "";
-  const groupChatType =
-    typeof metadata.telegramLastGroupChatType === "string"
-      ? metadata.telegramLastGroupChatType.trim()
-      : "";
-  const groupTitle =
-    typeof metadata.telegramLastGroupChatTitle === "string"
-      ? metadata.telegramLastGroupChatTitle.trim()
-      : "";
-  const genericChatId =
-    typeof metadata.reminderDeliveryChatId === "string"
-      ? metadata.reminderDeliveryChatId.trim()
-      : "";
-  const genericChatType =
-    typeof metadata.reminderDeliveryChatType === "string"
-      ? metadata.reminderDeliveryChatType.trim()
-      : "";
-  const genericTitle =
-    typeof metadata.reminderDeliveryChatTitle === "string"
-      ? metadata.reminderDeliveryChatTitle.trim()
-      : "";
-  const genericUsername =
-    typeof metadata.reminderDeliveryUsername === "string"
-      ? metadata.reminderDeliveryUsername.trim()
-      : "";
+  void params.contextSessionKey;
+  void params.conversationContext;
 
-  if (contextChatId) {
-    if (contextChatId === dmChatId) {
-      return {
-        chatId: dmChatId,
-        chatType: "private",
-        title: null,
-        username: dmUsername || null,
-        source: "telegram_dm",
-        updatedAt: new Date().toISOString()
-      };
-    }
-    if (
-      contextChatId === groupChatId &&
-      (groupChatType === "group" || groupChatType === "supergroup")
-    ) {
-      return {
-        chatId: groupChatId,
-        chatType: groupChatType,
-        title: groupTitle || null,
-        username: null,
-        source: "telegram_group",
-        updatedAt: new Date().toISOString()
-      };
-    }
-    if (contextChatId === genericChatId && genericChatType) {
-      return {
-        chatId: genericChatId,
-        chatType: genericChatType,
-        title: genericTitle || null,
-        username: genericChatType === "private" ? genericUsername || null : null,
-        source: genericChatType === "private" ? "telegram_dm" : "telegram_group",
-        updatedAt: new Date().toISOString()
-      };
-    }
+  const privateChatId = resolveTelegramPrivateDeliveryChatId(params.metadata);
+  if (!privateChatId) {
     return null;
   }
 
-  if (!dmChatId) {
-    return null;
-  }
   return {
-    chatId: dmChatId,
+    chatId: privateChatId,
     chatType: "private",
     title: null,
-    username: dmUsername || null,
-    source: "web_telegram_dm",
+    username: resolveTelegramPrivateDeliveryUsername(params.metadata),
+    source: "telegram_dm",
     updatedAt: new Date().toISOString()
   };
 }
