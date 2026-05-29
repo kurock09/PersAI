@@ -58,32 +58,30 @@
 :root.light {
   color-scheme: light;
   /*
-   * Light tonal palette — "Sage off-white" (2026-05, ADR-078).
-   * Cool achromatic green-grey gamma; chrome is the page-edge tone (also the
-   * landing background), bg/surface step lighter for inner content, raised
-   * stays pure white so cards still read as elevated. Replaces the previous
-   * warm beige gamma which was reading as "stale" against the sage accent.
+   * Light tonal palette — soft cream + sage (2026-05).
+   * Warm milk/peach chrome and quiet sage accents, matching the tactile
+   * reference without changing component shapes.
    */
-  --chrome: #f3f4ed;
-  --bg: #f7f8f1;
-  --surface: #ebede3;
-  --surface-raised: #ffffff;
-  --surface-hover: #e2e5d8;
-  --border: rgba(31, 26, 18, 0.08);
-  --border-strong: rgba(31, 26, 18, 0.16);
-  --ring: rgba(90, 120, 100, 0.25);
-  --text: #1f1a12;
-  --text-muted: #5e574c;
-  --text-subtle: #8c8579;
-  --accent: #5a7864;
-  --accent-hover: #496452;
-  --accent-glow: rgba(90, 120, 100, 0.12);
-  --accent-premium: #a8842b;
-  --chat-active-tint: #c8d4cc;
-  --destructive: #c9523f;
-  --destructive-hover: #b1432f;
-  --success: #4d8a6b;
-  --warning: #b08416;
+  --chrome: #f6eadc;
+  --bg: #fbf2e6;
+  --surface: #f0e4d4;
+  --surface-raised: #fff8ed;
+  --surface-hover: #f4e8d8;
+  --border: rgba(74, 58, 38, 0.1);
+  --border-strong: rgba(74, 58, 38, 0.18);
+  --ring: rgba(122, 156, 140, 0.24);
+  --text: #28231b;
+  --text-muted: #6d6356;
+  --text-subtle: #9a8e7c;
+  --accent: #7d9f91;
+  --accent-hover: #6c8d80;
+  --accent-glow: rgba(125, 159, 145, 0.14);
+  --accent-premium: #bd8f4f;
+  --chat-active-tint: #dce4da;
+  --destructive: #c85c4c;
+  --destructive-hover: #b64c3d;
+  --success: #5d987a;
+  --warning: #bd8e38;
 }
 
 /* @theme inline keeps Tailwind classes referencing runtime CSS vars */

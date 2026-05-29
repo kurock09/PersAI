@@ -1156,14 +1156,14 @@ function AttachmentStrip({
             ) : isDeleted ? (
               <FileText className="h-3.5 w-3.5 text-text-subtle" />
             ) : (
-              <span className="inline-flex h-5 min-w-8 shrink-0 items-center justify-center rounded-md border border-border-strong/70 bg-bg/80 px-1.5 text-[9px] font-semibold tracking-[0.08em] text-text">
+              <span className="inline-flex h-6 min-w-10 shrink-0 items-center justify-center rounded-full border border-[rgba(92,72,48,0.12)] bg-bg/70 px-2 text-[10px] font-semibold tracking-[0.08em] text-text/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.68)] dark:border-white/14 dark:bg-bg/72 dark:text-text dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
                 {attachmentTypeBadge(att)}
               </span>
             )}
-            <span className="max-w-[150px] truncate font-medium text-text-muted">
+            <span className="max-w-[150px] truncate text-[13px] font-medium text-text-muted dark:text-text-muted">
               {att.originalFilename ?? "File"}
             </span>
-            <span className="text-text-subtle">
+            <span className="text-[12px] text-text-subtle">
               {isDeleted ? t("fileDeleted") : (progressLabel ?? formatBytes(att.sizeBytes))}
             </span>
             {documentLabel ? (
@@ -1188,7 +1188,7 @@ function AttachmentStrip({
             <div
               key={att.id}
               aria-disabled="true"
-              className="flex items-center gap-2 rounded-2xl border border-border-strong/70 bg-surface-raised/95 px-3.5 py-2.5 text-xs opacity-55 shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_22px_rgba(0,0,0,0.12)]"
+              className="flex items-center gap-3 rounded-full border border-[rgba(92,72,48,0.12)] bg-surface-raised/70 px-4 py-2 text-xs opacity-55 shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.07),0_16px_30px_-24px_rgba(92,72,48,0.42)] dark:border-white/14 dark:bg-surface-raised/72 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_-1px_0_rgba(0,0,0,0.24),0_14px_26px_-22px_rgba(0,0,0,0.8)]"
             >
               {fileContent}
             </div>
@@ -1204,7 +1204,7 @@ function AttachmentStrip({
               <a
                 href={downloadUrl}
                 download={att.originalFilename ?? undefined}
-                className="flex items-center gap-2 rounded-2xl border border-border-strong/70 bg-surface-raised/95 px-3.5 py-2.5 text-xs shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_22px_rgba(0,0,0,0.12)] transition-colors hover:border-accent/35 hover:bg-surface-hover"
+                className="flex items-center gap-3 rounded-full border border-[rgba(92,72,48,0.12)] bg-surface-raised/70 px-4 py-2 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.07),0_16px_30px_-24px_rgba(92,72,48,0.42)] transition-colors hover:border-[rgba(92,72,48,0.18)] hover:bg-surface-raised/84 dark:border-white/14 dark:bg-surface-raised/72 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_-1px_0_rgba(0,0,0,0.24),0_14px_26px_-22px_rgba(0,0,0,0.8)] dark:hover:border-white/20 dark:hover:bg-surface-hover/70"
               >
                 {fileContent}
               </a>
@@ -1222,7 +1222,7 @@ function AttachmentStrip({
             key={att.id}
             href={downloadUrl}
             download={att.originalFilename ?? undefined}
-            className="flex items-center gap-2 rounded-2xl border border-border-strong/70 bg-surface-raised/95 px-3.5 py-2.5 text-xs shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_22px_rgba(0,0,0,0.12)] transition-colors hover:border-accent/35 hover:bg-surface-hover"
+            className="flex items-center gap-3 rounded-full border border-[rgba(92,72,48,0.12)] bg-surface-raised/70 px-4 py-2 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.07),0_16px_30px_-24px_rgba(92,72,48,0.42)] transition-colors hover:border-[rgba(92,72,48,0.18)] hover:bg-surface-raised/84 dark:border-white/14 dark:bg-surface-raised/72 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_-1px_0_rgba(0,0,0,0.24),0_14px_26px_-22px_rgba(0,0,0,0.8)] dark:hover:border-white/20 dark:hover:bg-surface-hover/70"
           >
             {fileContent}
           </a>

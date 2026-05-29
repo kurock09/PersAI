@@ -39,17 +39,13 @@ export async function LandingHeroSection() {
         <div className="animate-fade-in-up-delay mt-10 flex w-full max-w-[18rem] flex-col items-stretch gap-2.5">
           <Link
             href={"/sign-up" as Route}
-            className="group relative flex min-h-12 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent px-6 text-sm font-semibold text-white shadow-[0_0_48px_var(--accent-glow)] transition-all duration-300 hover:bg-accent-hover hover:shadow-[0_0_72px_var(--accent-glow)]"
+            className="flex min-h-12 cursor-pointer items-center justify-center rounded-[1.35rem] border border-[rgba(72,91,79,0.28)] bg-accent px-6 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),inset_0_-1px_0_rgba(52,68,58,0.18),0_16px_28px_-20px_rgba(72,91,79,0.78)] transition-colors hover:bg-accent-hover dark:border-[#a8baa0]/35 dark:bg-[#8faa9a] dark:text-[#f6f0e8] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-1px_0_rgba(0,0,0,0.22),0_18px_32px_-24px_rgba(143,170,154,0.56)] dark:hover:bg-[#9ab5a4]"
           >
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 transition-all duration-700 ease-out group-hover:left-[120%] group-hover:opacity-100"
-            />
-            <span className="relative">{t("cta")}</span>
+            {t("cta")}
           </Link>
           <Link
             href={"/sign-in" as Route}
-            className="flex min-h-12 cursor-pointer items-center justify-center rounded-2xl border border-border/60 bg-surface-raised/20 px-6 text-sm font-medium text-text-muted backdrop-blur-sm transition-colors hover:border-accent/25 hover:bg-surface-raised/35 hover:text-text"
+            className="flex min-h-12 cursor-pointer items-center justify-center rounded-[1.35rem] border border-[rgba(92,72,48,0.12)] bg-surface-raised/62 px-6 text-sm font-medium text-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.08),0_14px_26px_-22px_rgba(92,72,48,0.46)] transition-colors hover:border-[rgba(92,72,48,0.18)] hover:bg-surface-raised/82 hover:text-text dark:border-white/16 dark:bg-surface-raised/48 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(0,0,0,0.24),0_16px_30px_-24px_rgba(0,0,0,0.8)] dark:hover:border-white/22 dark:hover:bg-surface-hover/64"
           >
             {t("ctaSecondary")} →
           </Link>

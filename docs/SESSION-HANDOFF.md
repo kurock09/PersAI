@@ -2,6 +2,51 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-29 — Light palette + landing background reset
+
+### Scope
+
+Bounded visual reset after the broader UI polish was reverted:
+
+- change only light color tokens toward the provided cream/peach/sage reference
+- remove public landing aurora/noise background layers
+- adjust only public landing CTA button styling after visual approval
+- apply the same compact material treatment to chat file attachment pills
+- do not change cards, chat/settings/sidebar structure, or dark mode
+
+### What changed
+
+`apps/web/app/globals.css` light tokens now use a warmer milk/peach base (`chrome`, `bg`, `surface`, `surface-raised`) with quiet sage accents. `apps/web/app/page.tsx` no longer renders the fixed aurora glow blobs or SVG grain overlay, leaving the landing on a clean warm `bg-chrome` foundation with the existing top hairline only. Landing hero/finale primary CTAs now use calm sage filled pills without glow/shimmer, and secondary CTAs use warm raised cream pills. Both CTA styles include a subtle outer edge, top inset highlight, bottom inset shade, and soft drop shadow so they read slightly convex like the reference. Dark-theme CTA overrides preserve the same raised edge on a graphite landing: lighter sage primary, darker raised secondary, and lower-contrast dark bevel shadows. Chat file attachment pills are now compact full pills with smaller type/badge and matching raised edge/highlight treatment in both themes.
+
+### Files / modules
+
+- `apps/web/app/globals.css`
+- `apps/web/app/page.tsx`
+- `apps/web/app/_components/landing/hero-section.tsx`
+- `apps/web/app/_components/landing/finale-section.tsx`
+- `apps/web/app/app/_components/chat-message.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Checks passed:
+
+1. `corepack pnpm -r --if-present run lint`
+2. `corepack pnpm run format:check`
+3. `corepack pnpm --filter @persai/api run typecheck`
+4. `corepack pnpm --filter @persai/web run typecheck`
+5. `corepack pnpm --filter @persai/web run test`
+6. `git diff --check`
+
+### Risks / residuals
+
+- This intentionally does not tune component-level colors, cards, buttons, or settings rows yet. Further UI changes should be done screen-by-screen after visual approval.
+
+### Next recommended step
+
+Review the landing and authenticated app in light mode with the new baseline colors, then choose one screen for the next tightly scoped pass.
+
 ## 2026-05-29 — Document pending-delivery honesty guard
 
 ### Scope
