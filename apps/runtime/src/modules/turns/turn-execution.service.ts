@@ -1197,7 +1197,8 @@ export class TurnExecutionService {
                         toolCall,
                         input.idempotencyKey,
                         turnState.artifacts,
-                        turnState.fileRefs
+                        turnState.fileRefs,
+                        turnState.deferredDocumentJobs
                       );
                     } catch (error) {
                       yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
@@ -2523,7 +2524,8 @@ export class TurnExecutionService {
                 entry.toolCall,
                 input.idempotencyKey,
                 turnState.artifacts,
-                turnState.fileRefs
+                turnState.fileRefs,
+                turnState.deferredDocumentJobs
               );
           toolHistory.push(outcome.exchange);
           this.applyToolExecutionOutcome(turnState, outcome, iteration);
@@ -2612,7 +2614,8 @@ export class TurnExecutionService {
               entry.toolCall,
               params.input.idempotencyKey,
               currentArtifacts,
-              currentFileRefs
+              currentFileRefs,
+              params.turnState.deferredDocumentJobs
             )
           } satisfies ExecutedToolCallResult;
         } catch (error) {
@@ -2632,7 +2635,8 @@ export class TurnExecutionService {
     toolCall: ProviderGatewayToolCall,
     currentUserMessageId: string | null,
     currentArtifacts: RuntimeOutputArtifact[],
-    currentFileRefs: RuntimeFileRef[]
+    currentFileRefs: RuntimeFileRef[],
+    currentDeferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"] = []
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
@@ -2729,6 +2733,26 @@ export class TurnExecutionService {
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
       case FILES_TOOL_CODE: {
+        if (
+          currentDeferredDocumentJobs.length > 0 &&
+          this.readFilesRequestedAction(toolCall.arguments) === "send"
+        ) {
+          return this.createToolExecutionOutcome(toolCall, {
+            toolCode: "files",
+            executionMode: "inline",
+            requestedAction: "send",
+            action: "skipped",
+            reason: "document_pending_delivery",
+            warning:
+              "A document job from this turn is still pending delivery. Do not send an older file as the new document result.",
+            item: null,
+            items: [],
+            content: null,
+            job: null,
+            fileRefs: [],
+            queuedArtifacts: 0
+          });
+        }
         const availableWorkingFileRefs =
           await this.turnContextHydrationService.listAvailableWorkingFileRefs({
             conversation: acceptedTurn.session.conversation,
@@ -3851,9 +3875,7 @@ export class TurnExecutionService {
     if (deferredDocumentJobs.length === 0 || artifacts.length > 0) {
       return normalizedText;
     }
-    return normalizedText.length > 0
-      ? normalizedText
-      : this.buildDeferredDocumentAcknowledgement(locale, deferredDocumentJobs);
+    return this.buildDeferredDocumentAcknowledgement(locale, deferredDocumentJobs);
   }
 
   private claimsAttachmentDelivery(assistantText: string): boolean {
@@ -3973,7 +3995,9 @@ export class TurnExecutionService {
         : "The document requests";
     return [
       `${subject} from this same turn was accepted for async background processing.`,
+      "The document tool result is pending_delivery with canSendFileNow=false until backend delivery completes.",
       "Do not describe the final document as already generated, ready, visible in chat, attached, uploaded, or sent.",
+      "Do not call files.send for this document or any older document file in this turn.",
       "Write only a brief acknowledgement that the request is in progress and the final document will arrive separately when ready.",
       "Do not print raw tool JSON, job ids, filenames, or imagined result details."
     ].join(" ");
@@ -4520,12 +4544,14 @@ export class TurnExecutionService {
     const row = payload as {
       action?: unknown;
       jobId?: unknown;
+      docId?: unknown;
+      versionId?: unknown;
       toolCode?: unknown;
       descriptorMode?: unknown;
       documentType?: unknown;
     };
     if (
-      row.action !== "deferred" ||
+      (row.action !== "deferred" && row.action !== "pending_delivery") ||
       typeof row.jobId !== "string" ||
       row.toolCode !== DOCUMENT_TOOL_CODE
     ) {
@@ -4545,9 +4571,31 @@ export class TurnExecutionService {
     return {
       jobId: row.jobId,
       toolCode: "document",
+      ...(typeof row.docId === "string" && row.docId.length > 0 ? { docId: row.docId } : {}),
+      ...(typeof row.versionId === "string" && row.versionId.length > 0
+        ? { versionId: row.versionId }
+        : {}),
       descriptorMode: row.descriptorMode,
       documentType: row.documentType
     };
+  }
+
+  private readFilesRequestedAction(value: unknown): RuntimeFilesToolResult["requestedAction"] {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const action = (value as { action?: unknown }).action;
+    return action === "list" ||
+      action === "search" ||
+      action === "get" ||
+      action === "read" ||
+      action === "write" ||
+      action === "write_and_send" ||
+      action === "edit" ||
+      action === "delete" ||
+      action === "send"
+      ? action
+      : null;
   }
 
   /**

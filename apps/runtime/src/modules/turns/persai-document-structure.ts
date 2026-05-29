@@ -339,7 +339,16 @@ export function renderStructureToHtml(
         section.heading !== null && section.heading.length > 0
           ? `<h2>${escapeHtml(section.heading)}</h2>`
           : "";
+      const normalizedSectionHeading = normalizeHeadingText(section.heading);
       const blocksHtml = section.blocks
+        .filter((block, index) => {
+          if (index !== 0 || block.type !== "heading" || normalizedSectionHeading === null) {
+            return true;
+          }
+          return (
+            normalizeHeadingText(stripHtmlToPlainText(block.html)) !== normalizedSectionHeading
+          );
+        })
         .map((block) => {
           if (block.type === "heading") {
             return `<h3 data-block-id="${escapeAttribute(block.id)}">${block.html}</h3>`;
@@ -410,6 +419,11 @@ function stripHtmlToPlainText(html: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
+}
+
+function normalizeHeadingText(value: string | null): string | null {
+  const normalized = value?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+  return normalized.length === 0 ? null : normalized;
 }
 
 function escapeHtml(value: string): string {

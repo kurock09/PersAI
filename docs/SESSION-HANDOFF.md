@@ -2,6 +2,61 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-29 — Document pending-delivery honesty guard
+
+### Scope
+
+Bounded document-generation reliability fix:
+
+- make accepted async document jobs model-visible as pending delivery, not ready/sent
+- prevent same-turn `files.send` from sending an older document while the new job is pending
+- keep backend `AssistantDocumentJobDeliveryService` as the owner of final file delivery
+- remove structured-render duplicate headings
+- avoid broader document-worker or provider rewrites
+
+### What changed
+
+Runtime document-tool accepted results now use `action: "pending_delivery"` with `canSendFileNow=false`, durable `jobId`, `docId`, `versionId`, and pending user copy. The follow-up developer instruction explicitly tells the model that backend delivery has not happened yet and forbids `files.send` for the pending document or older document files in the same turn.
+
+Same-turn assistant text for pending document jobs is normalized to the standard "request accepted / will send separately when ready" acknowledgement instead of preserving model-authored ready/sent claims. Runtime also guards `files.send` after a pending document job by returning `document_pending_delivery` without queuing artifacts, so an older delivered PDF cannot masquerade as the new output.
+
+Structured document rendering now drops a first heading block when it duplicates the section heading, preventing repeated edits from producing visible heading duplication through the `h2` + `h3` render path.
+
+### Files / modules
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-document-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/persai-document-structure.ts`
+- `apps/runtime/test/deferred-document-acknowledgement.test.ts`
+- `apps/runtime/test/deferred-media-acknowledgement.test.ts`
+- `apps/runtime/test/runtime-document-tool.service.test.ts`
+- `apps/runtime/test/persai-document-structure.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused checks passed:
+
+1. `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts`
+2. `corepack pnpm --filter @persai/runtime exec tsx test/deferred-document-acknowledgement.test.ts`
+3. `corepack pnpm --filter @persai/runtime exec tsx test/persai-document-structure.test.ts`
+4. `corepack pnpm --filter @persai/runtime exec tsx test/deferred-media-acknowledgement.test.ts`
+5. `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / residuals
+
+- This fixes same-turn honesty and old-file send prevention in runtime. Existing already-open document jobs still depend on the API document-job delivery worker to create final attachments and ready messages.
+- Full repo verification gate remains to run before calling the whole repo clean.
+
+### Next recommended step
+
+Run the required repo verification gate, then deploy and live-smoke a PDF create/revise flow with styling and repeated edits.
+
 ## 2026-05-27 — Telegram group access mode
 
 ### Scope

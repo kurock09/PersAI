@@ -38,6 +38,14 @@ describe("persai-document-structure", () => {
     assert.match(html, /<style>/);
   });
 
+  test("renderStructureToHtml does not duplicate section heading blocks", () => {
+    const structure = buildStructureFromExtractedText("INTRO\n\nFirst paragraph.");
+    const html = renderStructureToHtml(structure, createDefaultStyleProfile());
+    const introMatches = html.match(/INTRO/g) ?? [];
+    assert.equal(introMatches.length, 1);
+    assert.match(html, /<h2>INTRO<\/h2>/);
+  });
+
   test("lazy upgrade from rendered HTML produces sections", () => {
     const html =
       '<!DOCTYPE html><html><body><section id="sec-1"><h2>Title</h2><p>Alpha</p></section><section id="sec-2"><p>Beta</p></section></body></html>';

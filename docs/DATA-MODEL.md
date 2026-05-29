@@ -55,6 +55,7 @@ ADR-097 adds a document-domain async execution model separate from `assistant_me
 - `assistant_document_provider_mappings` stores provider reconciliation identifiers plus the latest provider operational metadata for a version/provider pair
 - `assistant_document_delivered_files` links the canonical delivered `AssistantFile` row back to document/version/render-job truth
 - `assistant_document_revision_logs` is the append-only revision/audit trail for future existing-document flows
+- request-time document-tool acceptance is not delivery truth: accepted async jobs are surfaced to runtime/model as `pending_delivery` with `canSendFileNow=false`, while final user-visible files become true only through `assistant_document_delivered_files` plus the backend delivery message
 
 Current active truth for the narrow PDFMonkey-first rollout:
 

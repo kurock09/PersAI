@@ -605,6 +605,8 @@ export class PersaiInternalApiClientService {
     | {
         accepted: true;
         jobId: string;
+        docId: string;
+        versionId: string;
         documentType: "pdf_document" | "presentation";
       }
     | {
@@ -631,11 +633,15 @@ export class PersaiInternalApiClientService {
         payload?.ok === true &&
         payload.accepted === true &&
         typeof payload.renderJobId === "string" &&
+        typeof payload.docId === "string" &&
+        typeof payload.versionId === "string" &&
         (payload.documentType === "pdf_document" || payload.documentType === "presentation")
       ) {
         return {
           accepted: true,
           jobId: payload.renderJobId,
+          docId: payload.docId,
+          versionId: payload.versionId,
           documentType: payload.documentType
         };
       }

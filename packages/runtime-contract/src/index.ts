@@ -1606,11 +1606,14 @@ export interface RuntimeDocumentToolResult {
   requestedName: string | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
-  action: "generated" | "skipped" | "deferred";
+  action: "generated" | "skipped" | "deferred" | "pending_delivery";
   reason: string | null;
   warning: string | null;
   guidance?: string | null;
   jobId?: string | null;
+  versionId?: string | null;
+  canSendFileNow?: boolean;
+  messageToUser?: string | null;
 }
 
 export const PERSAI_RUNTIME_TTS_PROVIDER_IDS = ["elevenlabs", "yandex", "openai"] as const;
@@ -2408,6 +2411,8 @@ export interface RuntimeDeferredMediaJobSummary {
 export interface RuntimeDeferredDocumentJobSummary {
   jobId: string;
   toolCode: "document";
+  docId?: string | null;
+  versionId?: string | null;
   descriptorMode:
     | "create_pdf_document"
     | "create_presentation"

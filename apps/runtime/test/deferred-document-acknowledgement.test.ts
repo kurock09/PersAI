@@ -26,6 +26,8 @@ describe("deferred document acknowledgement", () => {
         availableWorkingFileRefs: unknown[],
         closedOpenLoopRefs: string[],
         hasToolHistory: boolean,
+        toolHistory: unknown[],
+        availableToolNames: string[],
         forceFinalTextOnly: boolean,
         deferredMediaJobs: [],
         deferredDocumentJobs: Array<{
@@ -41,6 +43,8 @@ describe("deferred document acknowledgement", () => {
       [],
       [],
       true,
+      [],
+      [],
       false,
       [],
       [
@@ -53,6 +57,8 @@ describe("deferred document acknowledgement", () => {
       ]
     );
     assert.ok(instructions?.includes("accepted for async background processing"));
+    assert.ok(instructions?.includes("pending_delivery with canSendFileNow=false"));
+    assert.ok(instructions?.includes("Do not call files.send"));
     assert.ok(instructions?.includes("final document will arrive separately when ready"));
   });
 
@@ -89,5 +95,60 @@ describe("deferred document acknowledgement", () => {
       corrected,
       "Запрос принят. Готовлю презентацию и пришлю её отдельно, когда она будет готова."
     );
+  });
+
+  test("blocks files.send while a document from the same turn is pending delivery", async () => {
+    const service = createBareTurnExecutionService() as unknown as {
+      executeProjectedToolCall: (
+        execution: unknown,
+        acceptedTurn: unknown,
+        input: unknown,
+        toolCall: { id: string; name: string; arguments: Record<string, unknown> },
+        currentUserMessageId: string | null,
+        currentArtifacts: unknown[],
+        currentFileRefs: unknown[],
+        currentDeferredDocumentJobs: Array<{
+          jobId: string;
+          toolCode: "document";
+          descriptorMode: "revise_document";
+          documentType: "pdf_document";
+        }>
+      ) => Promise<{ payload: { action?: string; reason?: string | null } }>;
+    };
+
+    const outcome = await service.executeProjectedToolCall(
+      {
+        projectedTools: { tools: [{ name: "files" }] },
+        bundle: {
+          runtime: {
+            sharedCompaction: {
+              summarizeToolCode: "summarize_context",
+              compactToolCode: "compact_context"
+            }
+          }
+        }
+      },
+      {},
+      {},
+      {
+        id: "tool-files-send-1",
+        name: "files",
+        arguments: { action: "send", alias: "previous attachment #1" }
+      },
+      "user-message-1",
+      [],
+      [],
+      [
+        {
+          jobId: "doc-job-1",
+          toolCode: "document",
+          descriptorMode: "revise_document",
+          documentType: "pdf_document"
+        }
+      ]
+    );
+
+    assert.equal(outcome.payload.action, "skipped");
+    assert.equal(outcome.payload.reason, "document_pending_delivery");
   });
 });

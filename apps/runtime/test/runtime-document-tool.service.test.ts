@@ -12,12 +12,14 @@ function createBundle(): AssistantRuntimeBundle {
 }
 
 describe("RuntimeDocumentToolService", () => {
-  test("returns deferred payload when document enqueue is accepted", async () => {
+  test("returns pending_delivery payload when document enqueue is accepted", async () => {
     const service = new RuntimeDocumentToolService({
       async enqueueDeferredDocumentJob() {
         return {
           accepted: true as const,
           jobId: "doc-job-1",
+          docId: "doc-1",
+          versionId: "version-1",
           documentType: "pdf_document" as const
         };
       }
@@ -40,8 +42,11 @@ describe("RuntimeDocumentToolService", () => {
       }
     });
     assert.equal(result.isError, false);
-    assert.equal(result.payload.action, "deferred");
+    assert.equal(result.payload.action, "pending_delivery");
     assert.equal(result.payload.jobId, "doc-job-1");
+    assert.equal(result.payload.docId, "doc-1");
+    assert.equal(result.payload.versionId, "version-1");
+    assert.equal(result.payload.canSendFileNow, false);
     assert.equal(result.payload.toolCode, "document");
   });
 
@@ -348,7 +353,7 @@ describe("RuntimeDocumentToolService", () => {
       }
     });
 
-    assert.equal(result.payload.action, "deferred");
+    assert.equal(result.payload.action, "pending_delivery");
     assert.equal(result.payload.outputFormat, "pdf");
     const input = capturedInputs[0]!;
     assert.equal(input.directToolExecution.request.outputFormat, "pdf");
@@ -395,7 +400,7 @@ describe("RuntimeDocumentToolService", () => {
       }
     });
 
-    assert.equal(result.payload.action, "deferred");
+    assert.equal(result.payload.action, "pending_delivery");
     assert.equal(result.payload.outputFormat, "pdf");
     const input = capturedInputs[0]!;
     assert.equal(input.directToolExecution.request.outputFormat, "pdf");

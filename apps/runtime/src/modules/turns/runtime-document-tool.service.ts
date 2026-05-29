@@ -148,14 +148,19 @@ export class RuntimeDocumentToolService {
           provider,
           prompt: normalizedRequest.prompt,
           outputFormat: normalizedRequest.outputFormat ?? null,
-          docId: normalizedRequest.docId ?? null,
+          docId: enqueueOutcome.docId,
           requestedName: normalizedRequest.requestedName ?? null,
           artifacts: [],
           usage: null,
-          action: "deferred",
+          action: "pending_delivery",
           reason: null,
           warning: null,
-          jobId: enqueueOutcome.jobId
+          guidance:
+            "The document render job is accepted but not delivered yet. Do not send or claim the final file until backend delivery completes.",
+          jobId: enqueueOutcome.jobId,
+          versionId: enqueueOutcome.versionId,
+          canSendFileNow: false,
+          messageToUser: this.buildPendingDeliveryMessage(effectiveDescriptorMode)
         },
         artifacts: [],
         isError: false
@@ -185,6 +190,25 @@ export class RuntimeDocumentToolService {
         artifacts: [],
         isError: false
       };
+    }
+  }
+
+  private buildPendingDeliveryMessage(
+    descriptorMode:
+      | "create_pdf_document"
+      | "create_presentation"
+      | "revise_document"
+      | "export_or_redeliver"
+  ): string {
+    switch (descriptorMode) {
+      case "create_presentation":
+        return "Request accepted. I am preparing the presentation and will send it separately when it is ready.";
+      case "revise_document":
+        return "Request accepted. I am revising the document and will send the updated version separately when it is ready.";
+      case "export_or_redeliver":
+      case "create_pdf_document":
+      default:
+        return "Request accepted. I am preparing the document and will send it separately when it is ready.";
     }
   }
 
