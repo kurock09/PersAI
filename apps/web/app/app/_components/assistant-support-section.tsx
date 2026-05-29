@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Loader2, MessageCircle, Paperclip, X } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
@@ -22,6 +23,19 @@ const POLL_MS = 20_000;
 
 type ActionFeedback = { kind: "error" | "success"; message: string } | null;
 
+function isActiveTicket(ticket: SupportTicketSummary): boolean {
+  return ticket.status !== "closed";
+}
+
+function sortTickets(tickets: SupportTicketSummary[]): SupportTicketSummary[] {
+  return [...tickets].sort((left, right) => {
+    if (left.hasUnread !== right.hasUnread) {
+      return left.hasUnread ? -1 : 1;
+    }
+    return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+  });
+}
+
 function mergeTicketList(
   previous: SupportTicketSummary[],
   incoming: SupportTicketSummary[]
@@ -35,6 +49,43 @@ function mergeTicketList(
     }
     return ticket;
   });
+}
+
+function SupportTicketMessageList({
+  messages,
+  formatMessageBody,
+  formatAuthorLabel
+}: {
+  messages: SupportTicketMessage[];
+  formatMessageBody: (message: SupportTicketMessage) => string;
+  formatAuthorLabel: (message: SupportTicketMessage) => string;
+}) {
+  return (
+    <ul className="space-y-2">
+      {messages.map((message) => {
+        const text = formatMessageBody(message);
+        return (
+          <li
+            key={message.id}
+            className={cn(
+              "rounded-lg border px-3 py-2 text-[11px]",
+              message.author === "admin"
+                ? "border-accent/25 bg-accent/5"
+                : message.author === "system"
+                  ? "border-border/60 bg-surface-raised/40 italic text-text-subtle"
+                  : "border-border bg-background/60"
+            )}
+          >
+            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-text-subtle">
+              {formatAuthorLabel(message)}
+            </p>
+            {text.length > 0 && <p className="whitespace-pre-wrap text-text">{text}</p>}
+            <SupportAttachmentLinks attachments={message.attachments} />
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 export function AssistantSupportSection({
@@ -51,7 +102,8 @@ export function AssistantSupportSection({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [tickets, setTickets] = useState<SupportTicketSummary[]>([]);
-  const [expandedTicketId, setExpandedTicketId] = useState<string | null>(null);
+  const [modalTicketId, setModalTicketId] = useState<string | null>(null);
+  const [showClosedTickets, setShowClosedTickets] = useState(false);
   const [ticketDetails, setTicketDetails] = useState<Record<string, SupportTicketDetail>>({});
   const [ticketLoadErrors, setTicketLoadErrors] = useState<Record<string, string>>({});
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
@@ -64,6 +116,24 @@ export function AssistantSupportSection({
   const [fb, setFb] = useState<ActionFeedback>(null);
 
   const unreadCount = useMemo(() => tickets.filter((ticket) => ticket.hasUnread).length, [tickets]);
+
+  const activeTickets = useMemo(() => sortTickets(tickets.filter(isActiveTicket)), [tickets]);
+  const closedTickets = useMemo(
+    () => sortTickets(tickets.filter((ticket) => ticket.status === "closed")),
+    [tickets]
+  );
+  const visibleTickets = useMemo(
+    () => (showClosedTickets ? [...activeTickets, ...closedTickets] : activeTickets),
+    [activeTickets, closedTickets, showClosedTickets]
+  );
+
+  const modalTicket = useMemo(
+    () => (modalTicketId ? tickets.find((ticket) => ticket.id === modalTicketId) : undefined),
+    [modalTicketId, tickets]
+  );
+  const modalDetail = modalTicketId ? ticketDetails[modalTicketId] : undefined;
+  const modalLoading = modalTicketId !== null && detailLoadingId === modalTicketId;
+  const modalError = modalTicketId ? ticketLoadErrors[modalTicketId] : undefined;
 
   useEffect(() => {
     onActivityChange?.({ unreadCount });
@@ -184,6 +254,14 @@ export function AssistantSupportSection({
     [applyTicketDetail, getToken, t]
   );
 
+  const closeTicketModal = useCallback(() => {
+    setModalTicketId(null);
+  }, []);
+
+  const openTicketModal = useCallback((ticketId: string) => {
+    setModalTicketId(ticketId);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -204,12 +282,21 @@ export function AssistantSupportSection({
     return () => {
       cancelled = true;
     };
-  }, [reloadList, t]);
+  }, [reloadList]);
 
   useEffect(() => {
-    if (!expandedTicketId) return;
-    void loadTicketDetail(expandedTicketId, { markRead: true });
-  }, [expandedTicketId, loadTicketDetail]);
+    if (!modalTicketId) return;
+    void loadTicketDetail(modalTicketId, { markRead: true });
+  }, [loadTicketDetail, modalTicketId]);
+
+  useEffect(() => {
+    if (!modalTicketId) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeTicketModal();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [closeTicketModal, modalTicketId]);
 
   useEffect(() => {
     const tick = () => {
@@ -217,10 +304,10 @@ export function AssistantSupportSection({
       void (async () => {
         try {
           const rows = await reloadList({ silent: true });
-          if (!rows || !expandedTicketId) return;
-          const expanded = rows.find((row) => row.id === expandedTicketId);
-          await loadTicketDetail(expandedTicketId, {
-            markRead: Boolean(expanded?.hasUnread),
+          if (!rows || !modalTicketId) return;
+          const openTicket = rows.find((row) => row.id === modalTicketId);
+          await loadTicketDetail(modalTicketId, {
+            markRead: Boolean(openTicket?.hasUnread),
             silent: true
           });
         } catch {
@@ -231,17 +318,13 @@ export function AssistantSupportSection({
 
     const intervalId = window.setInterval(tick, POLL_MS);
     return () => window.clearInterval(intervalId);
-  }, [expandedTicketId, loadTicketDetail, reloadList, ticketDetails]);
+  }, [loadTicketDetail, modalTicketId, reloadList]);
 
   function clearAttachment() {
     setAttachmentFile(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-  }
-
-  function toggleTicket(ticketId: string) {
-    setExpandedTicketId((current) => (current === ticketId ? null : ticketId));
   }
 
   async function handleSubmit() {
@@ -266,7 +349,7 @@ export function AssistantSupportSection({
       clearAttachment();
       setNewFormExpanded(false);
       await reloadList();
-      setExpandedTicketId(ticket.id);
+      setModalTicketId(ticket.id);
       setTicketDetails((current) => ({ ...current, [ticket.id]: ticket }));
       setFb({ kind: "success", message: t("supportSubmitSuccess") });
     } catch {
@@ -290,43 +373,38 @@ export function AssistantSupportSection({
           </div>
         ) : tickets.length === 0 ? (
           <p className="mt-2 text-[11px] text-text-subtle">{t("supportNoTickets")}</p>
+        ) : visibleTickets.length === 0 ? (
+          <p className="mt-2 text-[11px] text-text-subtle">{t("supportNoActiveTickets")}</p>
         ) : (
           <ul
             className={cn(
               "mt-2 space-y-1.5",
-              tickets.length > 3 && "max-h-[10.75rem] overflow-y-auto overscroll-contain pr-0.5"
+              visibleTickets.length > 3 &&
+                "max-h-[10.75rem] overflow-y-auto overscroll-contain pr-0.5"
             )}
           >
-            {tickets.map((ticket) => {
-              const expanded = expandedTicketId === ticket.id;
-              const detail = ticketDetails[ticket.id];
-              const loadingDetail = detailLoadingId === ticket.id;
+            {visibleTickets.map((ticket) => {
+              const isClosed = ticket.status === "closed";
               return (
-                <li
-                  key={ticket.id}
-                  className={cn(
-                    "overflow-hidden rounded-lg border transition-colors",
-                    expanded ? "border-accent/35 bg-accent/5" : "border-border"
-                  )}
-                >
+                <li key={ticket.id}>
                   <button
                     type="button"
-                    onClick={() => toggleTicket(ticket.id)}
-                    className="flex w-full items-start gap-2 px-3 py-2.5 text-left"
+                    onClick={() => openTicketModal(ticket.id)}
+                    className={cn(
+                      "flex w-full cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                      ticket.hasUnread
+                        ? "border-accent/30 bg-accent/[0.05] hover:border-accent/45 hover:bg-accent/[0.08]"
+                        : "border-border hover:border-border-strong hover:bg-surface-hover/40",
+                      isClosed && "opacity-80"
+                    )}
                   >
-                    <ChevronDown
-                      className={cn(
-                        "mt-0.5 h-3.5 w-3.5 shrink-0 text-text-subtle transition-transform",
-                        expanded && "rotate-180"
-                      )}
-                    />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="flex items-center gap-1.5 text-[11px] font-medium text-text">
-                          #{ticket.shortId}
+                        <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-text">
+                          <span className="truncate">#{ticket.shortId}</span>
                           {ticket.hasUnread && (
                             <span
-                              className="inline-flex h-2 w-2 rounded-full bg-success shadow-[0_0_0_2px_var(--color-surface-raised)]"
+                              className="inline-flex h-2 w-2 shrink-0 rounded-full bg-success shadow-[0_0_0_2px_var(--color-surface-raised)]"
                               title={t("supportUnreadReply")}
                             />
                           )}
@@ -338,72 +416,30 @@ export function AssistantSupportSection({
                       <p className="mt-1 truncate text-[11px] text-text-muted">{ticket.preview}</p>
                     </div>
                   </button>
-
-                  {expanded && (
-                    <div className="border-t border-border/70 px-3 pb-3 pt-2">
-                      {ticketLoadErrors[ticket.id] && !detail ? (
-                        <div className="space-y-2 py-1">
-                          <p className="text-[11px] text-danger">{ticketLoadErrors[ticket.id]}</p>
-                          <button
-                            type="button"
-                            onClick={() => void loadTicketDetail(ticket.id, { markRead: true })}
-                            className="text-[11px] font-medium text-accent hover:underline"
-                          >
-                            {t("supportRetryOpen")}
-                          </button>
-                        </div>
-                      ) : loadingDetail && !detail ? (
-                        <div className="flex items-center gap-2 py-2 text-[11px] text-text-subtle">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          {t("supportOpeningTicket")}
-                        </div>
-                      ) : detail ? (
-                        <div className="space-y-2">
-                          {detail.subject && (
-                            <p className="text-[10px] text-text-subtle">{detail.subject}</p>
-                          )}
-                          <ul className="space-y-2">
-                            {detail.messages.map((message) => {
-                              const text = formatMessageBody(message);
-                              return (
-                                <li
-                                  key={message.id}
-                                  className={cn(
-                                    "rounded-lg border px-3 py-2 text-[11px]",
-                                    message.author === "admin"
-                                      ? "border-accent/25 bg-accent/5"
-                                      : message.author === "system"
-                                        ? "border-border/60 bg-surface-raised/40 italic text-text-subtle"
-                                        : "border-border bg-background/60"
-                                  )}
-                                >
-                                  <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-text-subtle">
-                                    {formatAuthorLabel(message)}
-                                  </p>
-                                  {text.length > 0 && (
-                                    <p className="whitespace-pre-wrap text-text">{text}</p>
-                                  )}
-                                  <SupportAttachmentLinks attachments={message.attachments} />
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
                 </li>
               );
             })}
           </ul>
         )}
+
+        {!loading && closedTickets.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowClosedTickets((value) => !value)}
+            className="mt-2 cursor-pointer text-[11px] font-medium text-text-subtle transition-colors hover:text-text"
+          >
+            {showClosedTickets
+              ? t("supportHideClosed")
+              : t("supportShowClosed", { count: closedTickets.length })}
+          </button>
+        ) : null}
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-surface-raised/60">
         <button
           type="button"
           onClick={() => setNewFormExpanded((value) => !value)}
-          className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-hover/60"
+          className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-hover/60"
         >
           <span className="text-xs font-medium text-text">{t("supportNewRequest")}</span>
           <ChevronDown
@@ -438,7 +474,7 @@ export function AssistantSupportSection({
                 <button
                   type="button"
                   onClick={clearAttachment}
-                  className="rounded-full p-0.5 text-text-subtle hover:bg-surface-hover hover:text-text"
+                  className="cursor-pointer rounded-full p-0.5 text-text-subtle hover:bg-surface-hover hover:text-text"
                   aria-label={t("supportRemoveAttachment")}
                 >
                   <X className="h-3.5 w-3.5" />
@@ -460,7 +496,7 @@ export function AssistantSupportSection({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={submitting}
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-text-muted transition hover:border-accent/40 hover:text-accent disabled:opacity-50"
+                className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-text-muted transition hover:border-accent/40 hover:text-accent disabled:opacity-50"
                 aria-label={t("supportAttachImage")}
               >
                 <Paperclip className="h-4 w-4" />
@@ -469,7 +505,7 @@ export function AssistantSupportSection({
                 type="button"
                 disabled={submitting}
                 onClick={() => void handleSubmit()}
-                className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-4 py-2 text-xs font-medium text-accent disabled:opacity-50"
+                className="inline-flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-4 py-2 text-xs font-medium text-accent disabled:opacity-50"
               >
                 {submitting ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -487,6 +523,86 @@ export function AssistantSupportSection({
           </div>
         )}
       </div>
+
+      {modalTicketId &&
+        modalTicket &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="support-ticket-dialog-title"
+            className="fixed inset-0 z-[9000] flex items-end justify-center bg-bg/80 px-3 pb-3 backdrop-blur-sm sm:items-center sm:p-4"
+            onClick={closeTicketModal}
+          >
+            <div
+              className="flex max-h-[min(85vh,640px)] w-full max-w-lg flex-col overflow-hidden rounded-[24px] border border-border-strong/70 bg-surface-raised/95 text-text shadow-[0_24px_70px_rgba(0,0,0,0.32)]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="flex items-start justify-between gap-3 border-b border-border/70 px-4 py-3.5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2
+                      id="support-ticket-dialog-title"
+                      className="truncate text-sm font-semibold tracking-tight text-text"
+                    >
+                      #{modalTicket.shortId}
+                    </h2>
+                    {modalTicket.hasUnread && (
+                      <span
+                        className="inline-flex h-2 w-2 shrink-0 rounded-full bg-success shadow-[0_0_0_2px_var(--color-surface-raised)]"
+                        title={t("supportUnreadReply")}
+                      />
+                    )}
+                  </div>
+                  <p className="mt-1 text-[11px] text-text-subtle">
+                    {statusLabel(modalTicket.status)}
+                  </p>
+                  {modalDetail?.subject ? (
+                    <p className="mt-1 truncate text-[11px] text-text-muted">
+                      {modalDetail.subject}
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={closeTicketModal}
+                  className="cursor-pointer rounded-full p-2 text-text-subtle transition-colors hover:bg-surface hover:text-text"
+                  aria-label={t("supportCloseTicketDialog")}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </header>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+                {modalError && !modalDetail ? (
+                  <div className="space-y-2 py-1">
+                    <p className="text-[11px] text-danger">{modalError}</p>
+                    <button
+                      type="button"
+                      onClick={() => void loadTicketDetail(modalTicketId, { markRead: true })}
+                      className="cursor-pointer text-[11px] font-medium text-accent hover:underline"
+                    >
+                      {t("supportRetryOpen")}
+                    </button>
+                  </div>
+                ) : modalLoading && !modalDetail ? (
+                  <div className="flex items-center gap-2 py-6 text-[11px] text-text-subtle">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {t("supportOpeningTicket")}
+                  </div>
+                ) : modalDetail ? (
+                  <SupportTicketMessageList
+                    messages={modalDetail.messages}
+                    formatMessageBody={formatMessageBody}
+                    formatAuthorLabel={formatAuthorLabel}
+                  />
+                ) : null}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

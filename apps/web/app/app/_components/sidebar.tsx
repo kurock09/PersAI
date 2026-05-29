@@ -397,7 +397,8 @@ export function Sidebar({
         {mounted && onClose && showAndroidSidebarDownload ? (
           <div className="px-1 pb-2">
             <AndroidAppDownloadBanner
-              className="flex w-full justify-center"
+              tone="utility"
+              className="w-full"
               copy={{ cta: ts("androidAppCta") }}
             />
           </div>

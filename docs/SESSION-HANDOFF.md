@@ -2,6 +2,85 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-30 — Settings APK footer — pinned bottom + quiet utility tone
+
+### Scope
+
+- pin Android APK download/update to the bottom of the Assistant Settings slide-over
+- reduce visual noise for utility APK actions in settings and mobile sidebar
+- preserve Capacitor `Update app` copy
+
+### What changed
+
+`SlideOver` now accepts an optional `footer` slot rendered outside the scroll/pull-to-refresh body. `AssistantSettingsApkFooter` owns the settings APK action and switches between download/update copy based on native shell detection. `AndroidAppDownloadBanner` gained a quieter `utility` tone; settings footer and mobile sidebar use it, while landing keeps the existing prominent pill.
+
+### Files / modules
+
+- `apps/web/app/app/_components/slide-over.tsx`
+- `apps/web/app/app/_components/app-shell.tsx`
+- `apps/web/app/app/_components/assistant-settings-apk-footer.tsx`
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/sidebar.tsx`
+- `apps/web/app/_components/android-app-download-banner.tsx`
+- `apps/web/app/app/_components/slide-over.test.tsx`
+- `apps/web/app/app/_components/assistant-settings.test.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+1. `corepack pnpm -r --if-present run lint`
+2. `corepack pnpm run format:check`
+3. `corepack pnpm --filter @persai/web run typecheck`
+4. focused `slide-over.test.tsx` PASS
+5. focused `AssistantSettingsApkFooter` tests PASS
+
+### Next recommended step
+
+Continue bounded UI polish only when explicitly requested, or return to the active ADR-078 backlog item from `docs/SESSION-HANDOFF.md`.
+
+## 2026-05-30 — Support tickets UX — active list + modal dialogue
+
+### Scope
+
+Bounded Assistant Settings support UX polish:
+
+- show only active support tickets in the default list
+- keep unread reply dot and prioritize unread rows
+- move ticket dialogue from inline accordion expansion to a modal on row click
+- hide closed tickets behind a quiet toggle link
+
+### What changed
+
+`AssistantSupportSection` now filters closed tickets out of the default list, sorts unread-first, and renders compact clickable rows without chevrons. Ticket threads open in a portal modal styled like existing app dialogs (backdrop blur, rounded raised surface, scrollable message list). Closed tickets can be revealed via `Показать закрытые (N)` / `Show closed (N)`. Initial ticket load no longer re-runs on unrelated re-renders.
+
+### Files / modules
+
+- `apps/web/app/app/_components/assistant-support-section.tsx`
+- `apps/web/app/app/_components/assistant-support-section.test.tsx`
+- `apps/web/messages/ru.json`
+- `apps/web/messages/en.json`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Checks passed:
+
+1. `corepack pnpm -r --if-present run lint`
+2. `corepack pnpm run format:check`
+3. `corepack pnpm --filter @persai/web run typecheck`
+4. focused `assistant-support-section.test.tsx` PASS
+
+### Risks / residuals
+
+- Closed-ticket history requires an explicit toggle; users with only closed tickets see the empty-active copy plus the closed link.
+- Modal uses the same z-index tier as other app dialogs; no new routing/back-stack integration was added.
+
+### Next recommended step
+
+Continue bounded UI polish only when explicitly requested, or return to the active ADR-078 backlog item from `docs/SESSION-HANDOFF.md`.
+
 ## 2026-05-29 — Light palette + landing background reset
 
 ### Scope

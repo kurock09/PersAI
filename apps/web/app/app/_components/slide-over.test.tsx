@@ -80,4 +80,23 @@ describe("SlideOver", () => {
     const ptrContainer = document.querySelector("[data-pull-state]") as HTMLElement;
     expect(ptrContainer.contains(header)).toBe(false);
   });
+
+  it("renders an optional footer outside the pull-to-refresh scroll container", () => {
+    render(
+      <SlideOver
+        open
+        onClose={() => undefined}
+        title="Header"
+        onPullToRefresh={vi.fn()}
+        footer={<div data-testid="footer">footer</div>}
+      >
+        <div data-testid="body">body</div>
+      </SlideOver>
+    );
+
+    const ptrContainer = document.querySelector("[data-pull-state]") as HTMLElement;
+    const footer = screen.getByTestId("footer");
+    expect(ptrContainer.contains(footer)).toBe(false);
+    expect(screen.getByTestId("body")).toBeInTheDocument();
+  });
 });

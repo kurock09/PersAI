@@ -18,6 +18,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useAuth } from "@clerk/nextjs";
 import { Sidebar } from "./sidebar";
 import { SlideOver } from "./slide-over";
+import { AssistantSettingsApkFooter } from "./assistant-settings-apk-footer";
 import { useAppData, type AppData } from "./use-app-data";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
 import { BackButtonBridge } from "./back-button-bridge";
@@ -344,6 +345,7 @@ export function AppShell({
             }}
             title={ts("title")}
             size="narrow"
+            footer={<AssistantSettingsApkFooter />}
             onPullToRefresh={appData.reload}
           >
             {hasOpenedSettings && (

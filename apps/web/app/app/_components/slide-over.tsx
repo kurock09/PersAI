@@ -12,6 +12,7 @@ interface SlideOverProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  footer?: ReactNode;
   size?: "default" | "narrow";
   /**
    * Optional pull-to-refresh handler. When provided, the scrollable body of
@@ -29,6 +30,7 @@ export function SlideOver({
   onClose,
   title,
   children,
+  footer,
   size = "default",
   onPullToRefresh
 }: SlideOverProps) {
@@ -79,13 +81,18 @@ export function SlideOver({
                 <X className="h-5 w-5" />
               </button>
             </header>
-            {onPullToRefresh ? (
-              <PullToRefresh onRefresh={onPullToRefresh} className="flex-1">
-                {children}
-              </PullToRefresh>
-            ) : (
-              <div className="flex-1 overflow-y-auto">{children}</div>
-            )}
+            <div className="flex min-h-0 flex-1 flex-col">
+              {onPullToRefresh ? (
+                <PullToRefresh onRefresh={onPullToRefresh} className="min-h-0 flex-1">
+                  {children}
+                </PullToRefresh>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+              )}
+              {footer ? (
+                <div className="shrink-0 border-t border-border px-5 py-3">{footer}</div>
+              ) : null}
+            </div>
           </motion.aside>
         </>
       )}

@@ -99,7 +99,6 @@ import {
 import { AssistantKnowledgeManager } from "./assistant-knowledge-manager";
 import { AssistantFilesManager } from "./assistant-files-manager";
 import { AssistantSkillsManager } from "./assistant-skills-manager";
-import { AndroidAppDownloadBanner } from "../../_components/android-app-download-banner";
 
 interface AssistantSettingsProps {
   data: AppData;
@@ -413,19 +412,6 @@ function Section({
 // not get them anywhere.
 function isSessionExpiredText(text: string): boolean {
   return text.includes("Session expired") || text.includes("Сессия истекла");
-}
-
-function isNativeShell(): boolean {
-  if (typeof window === "undefined") return false;
-  const maybeNative = window as unknown as {
-    PersaiNative?: unknown;
-    Capacitor?: { isNativePlatform?: () => boolean };
-  };
-  return Boolean(
-    maybeNative.PersaiNative ||
-    (typeof maybeNative.Capacitor?.isNativePlatform === "function" &&
-      maybeNative.Capacitor.isNativePlatform())
-  );
 }
 
 function isPaidRecurringSubscription(
@@ -795,7 +781,6 @@ export function AssistantSettings({
   const t = useTranslations("settings");
   const locale = useLocale();
   const tp = useTranslations("persona");
-  const [nativeShell, setNativeShell] = useState(false);
   const [toolLimitsExpanded, setToolLimitsExpanded] = useState(false);
   const [billingSettingsOpen, setBillingSettingsOpen] = useState(false);
   const [billingSubscription, setBillingSubscription] =
@@ -1341,10 +1326,6 @@ export function AssistantSettings({
   const billingSettingsDescription = shouldShowRecurringBillingControls
     ? t("paymentSettingsDescription")
     : t("paymentSettingsNonRecurringDescription");
-
-  useEffect(() => {
-    setNativeShell(isNativeShell());
-  }, []);
 
   useEffect(() => {
     setOpenSection(normalizeInitialSection(initialSection));
@@ -3308,14 +3289,6 @@ export function AssistantSettings({
           )}
         </Section>
 
-        <div className="order-9 mt-auto flex justify-center px-5 pt-8 pb-4">
-          <AndroidAppDownloadBanner
-            className="min-w-[11.5rem]"
-            copy={{
-              cta: nativeShell ? t("androidAppUpdateCta") : t("androidAppCta")
-            }}
-          />
-        </div>
         {billingSettingsOpen ? (
           <div
             className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 backdrop-blur-sm sm:items-center sm:p-6"

@@ -6,6 +6,7 @@ import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../messages/en.json";
 
 import { AssistantSettings, mergeMemoryViews } from "./assistant-settings";
+import { AssistantSettingsApkFooter } from "./assistant-settings-apk-footer";
 import type { AppData } from "./use-app-data";
 import type { WorkspaceMemoryItem } from "../assistant-api-client";
 
@@ -445,9 +446,11 @@ describe("AssistantSettings character CTA", () => {
     expect(screen.queryByText("Luma")).toBeNull();
     expect(screen.queryByText("Theo")).toBeNull();
   });
+});
 
+describe("AssistantSettingsApkFooter", () => {
   it("shows the Android release download banner in settings", () => {
-    renderSettings(makeAppData(), "character");
+    render(withIntl(<AssistantSettingsApkFooter />));
 
     expect(screen.getByRole("link", { name: /Download Android APK/i })).toHaveAttribute(
       "href",
@@ -458,7 +461,7 @@ describe("AssistantSettings character CTA", () => {
   it("uses update copy for the Android release action in the native shell", async () => {
     (window as unknown as { PersaiNative?: unknown }).PersaiNative = {};
 
-    renderSettings(makeAppData(), "character");
+    render(withIntl(<AssistantSettingsApkFooter />));
 
     expect(await screen.findByRole("link", { name: "Update app" })).toHaveAttribute(
       "href",
