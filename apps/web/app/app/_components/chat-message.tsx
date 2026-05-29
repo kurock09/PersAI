@@ -45,6 +45,7 @@ import Link from "next/link";
 import { AssistantAvatar } from "./assistant-avatar";
 import {
   buildStreamingMarkdownTailPreview,
+  normalizeAssistantVisibleProgress,
   splitStreamingMarkdownContent
 } from "./chat-message-streaming";
 import { VoiceMessagePlayer } from "./voice-message-player";
@@ -695,13 +696,15 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 function MarkdownFragment({ content }: { content: string }) {
+  const normalizedContent = useMemo(() => normalizeAssistantVisibleProgress(content), [content]);
+
   return (
     <ReactMarkdown
       remarkPlugins={MARKDOWN_REMARK_PLUGINS}
       rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
       components={markdownComponents}
     >
-      {content}
+      {normalizedContent}
     </ReactMarkdown>
   );
 }

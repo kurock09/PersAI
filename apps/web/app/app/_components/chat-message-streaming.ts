@@ -3,6 +3,32 @@ export interface StreamingMarkdownSegments {
   liveTail: string;
 }
 
+const INLINE_PROGRESS_STATUS =
+  /(?<=\S)\s+·\s+(?=(?:Провер|Свер|Собир|Ищу|Чита|Смотр|Уточн|Gather|Check|Read|Look|Scan|Review))/giu;
+
+const PROGRESS_LINE_WITH_ANSWER =
+  /^(·[^\n]+?\.\s+)(?!(?:Провер|Свер|Собир|Ищу|Чита|Смотр|Уточн|Gather|Check|Read|Look|Scan|Review))([А-ЯA-ZЁ][^\n]*)$/u;
+
+/**
+ * Models are instructed to emit each visible progress line on its own line with a
+ * leading "· ", but often concatenate them inline as "… · Проверяю …". Markdown
+ * paragraphs only preserve breaks when "\n" is present, so normalize before render.
+ */
+export function normalizeAssistantVisibleProgress(content: string): string {
+  const normalized = content.replace(/\r\n/g, "\n").replace(INLINE_PROGRESS_STATUS, "\n· ");
+
+  return normalized
+    .split("\n")
+    .map((line) => {
+      const match = line.match(PROGRESS_LINE_WITH_ANSWER);
+      if (!match) {
+        return line;
+      }
+      return `${match[1]!.trimEnd()}\n\n${match[2]!.trimStart()}`;
+    })
+    .join("\n");
+}
+
 interface StreamingMarkdownScanState {
   lastStableOffset: number;
   activeFence: { marker: "`" | "~"; length: number } | null;

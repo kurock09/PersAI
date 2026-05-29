@@ -152,6 +152,21 @@ describe("assistant response blocks", () => {
     expect(paragraph?.textContent).toContain("· Проверяю локальные файлы\n· Сверяю внешний реф");
   });
 
+  it("normalizes inline progress markers into separate lines during render", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        message={assistantMessage(
+          "· Проверю список файлов. · Проверяю вложения точнее. · Проверяю вложения ещё раз."
+        )}
+      />
+    );
+
+    const paragraph = container.querySelector("p.whitespace-pre-wrap");
+    expect(paragraph?.textContent).toContain(
+      "· Проверю список файлов.\n· Проверяю вложения точнее."
+    );
+  });
+
   it("keeps fenced code inside a body block instead of treating markdown markers as UI sections", () => {
     const blocks = parseAssistantResponseBlocks(`Готово
 
