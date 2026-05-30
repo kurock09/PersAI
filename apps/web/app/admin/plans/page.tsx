@@ -19,10 +19,9 @@ import type {
   AdminPlanQuotaLimits,
   AdminPlanState,
   AdminPlanToolActivation,
-  AdminPlanUpdateRequest,
-  TokenMeteredWeights
+  AdminPlanUpdateRequest
 } from "@persai/contracts";
-import { applyDerivedTokenMeteredWeights } from "@persai/contracts";
+import { applyDerivedTokenMeteredWeights, type TokenMeteredWeights } from "@persai/types";
 import {
   deleteAdminPlan,
   getAdminPlans,

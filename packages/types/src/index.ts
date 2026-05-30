@@ -13,3 +13,14 @@ export {
   type LegalDocumentKind,
   type LegalMarket
 } from "./legal-market";
+export {
+  TOKEN_METERED_REFERENCE_MIX,
+  applyDerivedTokenMeteredWeights,
+  computeTokenMeteredModeCreditMultiplier,
+  computeTokenMeteredReferenceIndex,
+  deriveTokenMeteredWeightsFromPricing,
+  formatTokenMeteredCreditMultiplier,
+  formatTokenMeteredWeight,
+  type TokenMeteredPricing,
+  type TokenMeteredWeights
+} from "./token-metered-credits";

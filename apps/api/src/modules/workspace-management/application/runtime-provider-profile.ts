@@ -1,6 +1,6 @@
 export const RUNTIME_PROVIDER_PROFILE_SCHEMA = "persai.runtimeProviderProfile.v1";
 export const RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA = "persai.runtimeProviderCredentialRefs.v1";
-import { applyDerivedTokenMeteredWeights } from "@persai/contracts";
+import { applyDerivedTokenMeteredWeights } from "@persai/types";
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 export type ManagedRuntimeProvider = "openai" | "anthropic";

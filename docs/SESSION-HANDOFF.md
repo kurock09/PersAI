@@ -2,6 +2,28 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-30 — Hotfix: API CrashLoop (`@persai/contracts` → `@persai/types`)
+
+### What changed
+
+Token-metered credit helpers moved from `@persai/contracts` to `@persai/types` so API production images resolve compiled JS instead of the Orval TS barrel (`step2-client`). Unblocks `persai-dev` API rollout after commit `c1b851d3`.
+
+### Files / modules
+
+- `packages/types/src/token-metered-credits.ts`, `packages/types/src/index.ts`
+- `packages/contracts/src/index.ts` (removed re-export)
+- `apps/api` — runtime-provider-settings, runtime-provider-profile, test
+- `apps/web` — admin runtime/plans, plan-model-credit-multipliers, `package.json`, `next.config.ts`
+- `pnpm-lock.yaml`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+lint PASS; format:check PASS; api/web typecheck PASS; token-metered + platform-runtime-settings + web tests PASS.
+
+### Next recommended step
+
+Confirm `persai-dev` API pods go `2/2 Running` on the new image; then continue ADR-102 Slice 0.
+
 ## 2026-05-30 — ADR-102 pre-PROD cleanup program (docs-only)
 
 ### Scope

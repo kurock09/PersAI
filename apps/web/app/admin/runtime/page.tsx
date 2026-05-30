@@ -10,7 +10,7 @@ import type {
   RuntimeProviderModelCatalogByProviderState,
   RuntimeProviderModelProfileState
 } from "@persai/contracts";
-import { applyDerivedTokenMeteredWeights, formatTokenMeteredWeight } from "@persai/contracts";
+import { applyDerivedTokenMeteredWeights, formatTokenMeteredWeight } from "@persai/types";
 import {
   getAdminRuntimeProviderSettings,
   putAdminRuntimeProviderSettings

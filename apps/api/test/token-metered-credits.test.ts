@@ -3,7 +3,7 @@ import {
   applyDerivedTokenMeteredWeights,
   computeTokenMeteredModeCreditMultiplier,
   deriveTokenMeteredWeightsFromPricing
-} from "@persai/contracts";
+} from "@persai/types";
 
 async function run(): Promise<void> {
   assert.deepEqual(

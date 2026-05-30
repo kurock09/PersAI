@@ -21,6 +21,7 @@
     "@clerk/themes": "^2.4.57",
     "@clerk/ui": "^1.3.0",
     "@persai/contracts": "workspace:*",
+    "@persai/types": "workspace:*",
     "@tailwindcss/postcss": "^4.2.2",
     "@tailwindcss/typography": "^0.5.19",
     "class-variance-authority": "^0.7.1",

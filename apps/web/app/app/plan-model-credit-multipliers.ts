@@ -2,7 +2,7 @@ import {
   computeTokenMeteredModeCreditMultiplier,
   formatTokenMeteredCreditMultiplier,
   type TokenMeteredWeights
-} from "@persai/contracts";
+} from "@persai/types";
 
 export type PlanModelSlot = "normal" | "premium" | "reasoning";
 

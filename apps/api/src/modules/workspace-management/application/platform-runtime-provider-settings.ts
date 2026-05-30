@@ -22,7 +22,7 @@ import {
   type RuntimeProviderCredentialRefState,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
-import { applyDerivedTokenMeteredWeights } from "@persai/contracts";
+import { applyDerivedTokenMeteredWeights } from "@persai/types";
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID = "global";

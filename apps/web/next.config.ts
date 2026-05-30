@@ -10,7 +10,7 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
  */
 const nextConfig: NextConfig = {
   typedRoutes: true,
-  transpilePackages: ["@persai/contracts"],
+  transpilePackages: ["@persai/contracts", "@persai/types"],
   /**
    * ADR-076 Slice 1 — opt every response in to the `Sec-CH-Prefers-Color-Scheme`
    * client hint. `Accept-CH` advertises that we want it on subsequent requests;
