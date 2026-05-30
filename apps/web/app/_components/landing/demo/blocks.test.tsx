@@ -93,6 +93,7 @@ const BLOCK_MESSAGES: Record<string, string> = {
   "landing.blocks.project.file1Meta": "2.4 MB",
   "landing.blocks.project.file2": "Roadmap-Q3.pptx",
   "landing.blocks.project.file2Meta": "8 slides",
+  "landing.blocks.project.composerPlaceholder": "Ask Luma about this project…",
   "landing.blocks.project.userPrompt": "Summarize the brief into an executive update",
   "landing.blocks.project.assistantReply": "Done — here's the one-page summary, ready for sharing.",
   "landing.blocks.project.artifactName": "Executive-Update.pdf",
@@ -106,6 +107,9 @@ const BLOCK_MESSAGES: Record<string, string> = {
   "landing.demo.cta.primary": "Start free",
   "landing.demo.stub.genericAckPrefix": "Create your own assistant",
   "landing.demo.stub.genericAckLink": "right now →",
+  "landing.demo.sidebar.statusLabel": "Active",
+  "landing.demo.sidebar.userName": "Alex",
+  "landing.demo.sidebar.userPlan": "Pro plan",
   // Knowledge block
   "landing.blocks.knowledge.tag": "Knowledge base",
   "landing.blocks.knowledge.windowLabel": "Knowledge base demo",
@@ -117,6 +121,7 @@ const BLOCK_MESSAGES: Record<string, string> = {
   "landing.blocks.knowledge.source2": "market-research.docx",
   "landing.blocks.knowledge.citedSource": "strategy-2025.pdf",
   "landing.blocks.knowledge.citedLabel": "Source used",
+  "landing.blocks.knowledge.composerPlaceholder": "Ask across your sources…",
   "landing.blocks.knowledge.userPrompt": "What are the key differentiators?",
   "landing.blocks.knowledge.assistantReply":
     "Per your strategy doc, three main points: speed, context depth, and privacy-first design.",
@@ -133,6 +138,8 @@ const BLOCK_MESSAGES: Record<string, string> = {
   "landing.blocks.media.progressLabel": "Editing image 0:12",
   "landing.blocks.media.assistantReply": "Ready. The cartoon version is here.",
   "landing.blocks.media.secondaryChat": "Launch cover visual",
+  "landing.blocks.media.composerPlaceholder": "Ask Luma to adjust media…",
+  "landing.blocks.media.lightboxClose": "Close",
   "landing.blocks.media.originalAlt": "Original photo",
   "landing.blocks.media.resultAlt": "Edited cartoon photo"
 };

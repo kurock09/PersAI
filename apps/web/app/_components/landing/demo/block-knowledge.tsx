@@ -83,7 +83,9 @@ function KnowledgeFilesSidebar({ active }: { active: boolean }) {
             <p className="truncate text-sm font-semibold text-text">Luma</p>
             <span className="flex items-center gap-1.5">
               <span className="inline-block h-2 w-2 rounded-full bg-success" aria-hidden="true" />
-              <span className="text-xs text-text-muted">Active</span>
+              <span className="text-xs text-text-muted">
+                {t("landing.demo.sidebar.statusLabel")}
+              </span>
             </span>
           </div>
         </div>
@@ -114,9 +116,11 @@ function KnowledgeFilesSidebar({ active }: { active: boolean }) {
             A
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium text-text">Alex</span>
+            <span className="block truncate text-sm font-medium text-text">
+              {t("landing.demo.sidebar.userName")}
+            </span>
             <span className="block truncate text-[11px] tracking-wide text-text-muted">
-              B2B Pro · 1%
+              {t("landing.demo.sidebar.userPlan")}
             </span>
           </span>
         </div>
@@ -149,7 +153,7 @@ function KnowledgeWindow({ animate, reduced }: { animate: boolean; reduced: bool
     projectCaption: t("landing.demo.modes.projectCaption")
   };
   const interactiveChat = useInteractiveBlockChat({
-    placeholder: "Ask across your sources...",
+    placeholder: t("landing.blocks.knowledge.composerPlaceholder"),
     children: (
       <motion.div
         variants={containerVariants}
@@ -183,13 +187,13 @@ function KnowledgeWindow({ animate, reduced }: { animate: boolean; reduced: bool
     <div aria-label={t("landing.blocks.knowledge.windowLabel")}>
       <DemoWindow
         assistantName="Luma"
-        assistantStatusLabel="Active"
+        assistantStatusLabel={t("landing.demo.sidebar.statusLabel")}
         headerTitle={t("landing.blocks.knowledge.title")}
         chatMode={mode}
         onModeChange={setMode}
         modeLabels={modeLabels}
-        userName="Alex"
-        userPlanLabel="B2B Pro · 1%"
+        userName={t("landing.demo.sidebar.userName")}
+        userPlanLabel={t("landing.demo.sidebar.userPlan")}
         windowHeightClassName="h-[29rem] md:h-[32rem]"
         frameClassName="p-0 sm:p-4"
         composer={interactiveChat.composer}

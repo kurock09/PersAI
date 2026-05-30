@@ -64,11 +64,13 @@ function MediaJobPill({ label }: { label: string }) {
 function DemoImageLightbox({
   src,
   alt,
+  closeLabel,
   open,
   onClose
 }: {
   src: string;
   alt: string;
+  closeLabel: string;
   open: boolean;
   onClose: () => void;
 }) {
@@ -88,7 +90,7 @@ function DemoImageLightbox({
         >
           <button
             type="button"
-            aria-label="Close"
+            aria-label={closeLabel}
             onClick={onClose}
             className="absolute top-4 right-4 rounded-full border border-border bg-surface-raised/90 p-2 text-text-muted shadow-sm backdrop-blur-sm transition-colors hover:text-text"
           >
@@ -136,7 +138,7 @@ function MediaWindow({ animate, reduced }: { animate: boolean; reduced: boolean 
   };
 
   const interactiveChat = useInteractiveBlockChat({
-    placeholder: "Ask Luma to adjust media...",
+    placeholder: t("landing.blocks.media.composerPlaceholder"),
     children: (
       <motion.div
         variants={containerVariants}
@@ -193,13 +195,13 @@ function MediaWindow({ animate, reduced }: { animate: boolean; reduced: boolean 
     <div aria-label={t("landing.blocks.media.windowLabel")}>
       <DemoWindow
         assistantName="Luma"
-        assistantStatusLabel="Active"
+        assistantStatusLabel={t("landing.demo.sidebar.statusLabel")}
         headerTitle={t("landing.blocks.media.title")}
         chatMode={mode}
         onModeChange={setMode}
         modeLabels={modeLabels}
-        userName="Alex"
-        userPlanLabel="B2B Pro · 1%"
+        userName={t("landing.demo.sidebar.userName")}
+        userPlanLabel={t("landing.demo.sidebar.userPlan")}
         windowHeightClassName="h-[29rem] md:h-[32rem]"
         frameClassName="p-0 sm:p-4"
         composer={interactiveChat.composer}
@@ -212,6 +214,7 @@ function MediaWindow({ animate, reduced }: { animate: boolean; reduced: boolean 
           <DemoImageLightbox
             src={lightboxSrc ?? MEDIA_RESULT_SRC}
             alt={t("landing.blocks.media.resultAlt")}
+            closeLabel={t("landing.blocks.media.lightboxClose")}
             open={lightboxSrc !== null}
             onClose={() => setLightboxSrc(null)}
           />

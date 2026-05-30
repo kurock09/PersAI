@@ -185,6 +185,7 @@
         "file1Meta": "2.4 MB",
         "file2": "Roadmap-Q3.pptx",
         "file2Meta": "8 slides",
+        "composerPlaceholder": "Ask Luma about this project…",
         "userPrompt": "Prepare an executive brief from this project pack for 5 PM",
         "assistantReply": "Done. I removed the internal noise and kept the decision, risks, and next step. The summary is short enough to send as-is.",
         "artifactName": "Executive-Update.pdf",
@@ -201,6 +202,7 @@
         "source2": "market-research.docx",
         "citedSource": "strategy-2025.pdf",
         "citedLabel": "Source used",
+        "composerPlaceholder": "Ask across your sources…",
         "userPrompt": "What are the key differentiators?",
         "assistantReply": "Per your strategy doc, three main points: speed, context depth, and privacy-first design."
       },
@@ -216,6 +218,8 @@
         "progressLabel": "Editing image 0:12",
         "assistantReply": "Ready. The cartoon version is here.",
         "secondaryChat": "Launch cover visual",
+        "composerPlaceholder": "Ask Luma to adjust media…",
+        "lightboxClose": "Close",
         "originalAlt": "Original photo",
         "resultAlt": "Edited cartoon photo"
       }

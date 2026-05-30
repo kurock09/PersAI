@@ -74,7 +74,7 @@ function ProjectWindow({ animate, reduced }: { animate: boolean; reduced: boolea
   }, [reduced]);
 
   const interactiveChat = useInteractiveBlockChat({
-    placeholder: "Ask Luma anything...",
+    placeholder: t("landing.blocks.project.composerPlaceholder"),
     children: (
       <motion.div
         variants={containerVariants}
@@ -111,7 +111,7 @@ function ProjectWindow({ animate, reduced }: { animate: boolean; reduced: boolea
     <div aria-label={t("landing.blocks.project.windowLabel")}>
       <DemoWindow
         assistantName="Luma"
-        assistantStatusLabel="Active"
+        assistantStatusLabel={t("landing.demo.sidebar.statusLabel")}
         headerTitle={t("landing.blocks.project.title")}
         chatMode={mode}
         onModeChange={setMode}
@@ -129,8 +129,8 @@ function ProjectWindow({ animate, reduced }: { animate: boolean; reduced: boolea
               : null
         }
         hideSidebar
-        userName="Alex"
-        userPlanLabel="B2B Pro · 1%"
+        userName={t("landing.demo.sidebar.userName")}
+        userPlanLabel={t("landing.demo.sidebar.userPlan")}
         windowHeightClassName="h-[29rem] md:h-[32rem]"
         frameClassName="p-0 sm:p-4"
         composer={interactiveChat.composer}
