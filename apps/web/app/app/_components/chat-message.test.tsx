@@ -617,5 +617,9 @@ describe("ChatMessageBubble — file attachment pill layout", () => {
     );
 
     expect(screen.getByText("21.7 KB")).toHaveClass("whitespace-nowrap");
+
+    const pill = screen.getByRole("link", { name: /Новый документ \(3\)\.docx/i });
+    expect(pill).toHaveClass("max-w-[min(100%,320px)]");
+    expect(pill).toHaveClass("w-fit");
   });
 });

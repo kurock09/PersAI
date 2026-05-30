@@ -532,7 +532,10 @@ const CHAT_FILE_PILL_BADGE_CLASS =
   "inline-flex h-6 min-w-10 shrink-0 items-center justify-center rounded-full border border-[rgba(92,72,48,0.12)] bg-bg/70 px-2 text-[10px] font-semibold tracking-[0.08em] text-text/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.68)] dark:border-white/14 dark:bg-bg/72 dark:text-text dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]";
 
 const CHAT_FILE_PILL_SURFACE_CLASS =
-  "flex max-w-full flex-nowrap items-center gap-2 rounded-full border border-[rgba(92,72,48,0.12)] bg-surface-raised/70 px-3 py-2 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.07),0_16px_30px_-24px_rgba(92,72,48,0.42)] dark:border-white/14 dark:bg-surface-raised/72 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_-1px_0_rgba(0,0,0,0.24),0_14px_26px_-22px_rgba(0,0,0,0.8)]";
+  "inline-flex w-fit max-w-[min(100%,320px)] min-w-0 flex-nowrap items-center gap-2 overflow-hidden rounded-full border border-[rgba(92,72,48,0.12)] bg-surface-raised/70 px-3 py-2 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.07),0_16px_30px_-24px_rgba(92,72,48,0.42)] dark:border-white/14 dark:bg-surface-raised/72 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_-1px_0_rgba(0,0,0,0.24),0_14px_26px_-22px_rgba(0,0,0,0.8)]";
+
+const CHAT_FILE_PILL_FILENAME_CLASS =
+  "min-w-0 flex-1 truncate text-[13px] font-medium text-text-muted";
 
 const CHAT_FILE_PILL_SURFACE_HOVER_CLASS =
   "transition-colors hover:border-[rgba(92,72,48,0.18)] hover:bg-surface-raised/84 dark:hover:border-white/20 dark:hover:bg-surface-hover/70";
@@ -598,16 +601,10 @@ function InternalChatCtaLink({ meta }: { meta: InternalChatCtaMeta }) {
   return (
     <Link
       href={meta.href as Parameters<typeof Link>[0]["href"]}
-      className={cn(
-        "my-2 inline-flex max-w-full",
-        CHAT_FILE_PILL_SURFACE_CLASS,
-        CHAT_FILE_PILL_SURFACE_HOVER_CLASS
-      )}
+      className={cn("my-2", CHAT_FILE_PILL_SURFACE_CLASS, CHAT_FILE_PILL_SURFACE_HOVER_CLASS)}
     >
       <span className={CHAT_FILE_PILL_BADGE_CLASS}>{internalCtaBadge(meta.kind)}</span>
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text-muted">
-        {label}
-      </span>
+      <span className="truncate text-[13px] font-medium text-text-muted">{label}</span>
       <span className={CHAT_FILE_PILL_META_CLASS} aria-hidden>
         ›
       </span>
@@ -1186,9 +1183,7 @@ function AttachmentStrip({
             ) : (
               <span className={CHAT_FILE_PILL_BADGE_CLASS}>{attachmentTypeBadge(att)}</span>
             )}
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text-muted">
-              {att.originalFilename ?? "File"}
-            </span>
+            <span className={CHAT_FILE_PILL_FILENAME_CLASS}>{att.originalFilename ?? "File"}</span>
             <span className={CHAT_FILE_PILL_META_CLASS}>
               {isDeleted ? t("fileDeleted") : (progressLabel ?? formatBytes(att.sizeBytes))}
             </span>
