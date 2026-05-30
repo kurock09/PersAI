@@ -420,13 +420,16 @@ function buildProjectLiveActivity(params: {
     source: "project"
   };
 }
-function buildRetrievalLiveActivity(params: {
-  assistantMessageId: string;
-  source: "skill" | "user" | "product" | "web";
-  resultCount: number;
-  skillName?: string | null;
-  skillIconEmoji?: string | null;
-}): LiveActivityEvent {
+function buildRetrievalLiveActivity(
+  params: {
+    assistantMessageId: string;
+    source: "skill" | "user" | "product" | "web";
+    resultCount: number;
+    skillName?: string | null;
+    skillIconEmoji?: string | null;
+  },
+  skillBadgePrefix: string
+): LiveActivityEvent {
   const labelBySource = {
     skill: "retrieval_skill_started",
     user: "retrieval_user_started",
@@ -437,7 +440,7 @@ function buildRetrievalLiveActivity(params: {
     params.source === "skill" && params.skillIconEmoji ? params.skillIconEmoji.trim() : "";
   const detail =
     params.source === "skill" && (params.skillName || skillIconEmoji.length > 0)
-      ? `Навык${skillIconEmoji.length > 0 ? ` - ${skillIconEmoji}` : ""}`
+      ? `${skillBadgePrefix}${skillIconEmoji.length > 0 ? ` - ${skillIconEmoji}` : ""}`
       : null;
   return {
     id: `activity-live-retrieval-${Date.now()}-${params.source}`,
@@ -2037,13 +2040,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   return;
                 }
                 applyThreadLiveActivities(targetThreadKey, (prev) => {
-                  const nextActivity = buildRetrievalLiveActivity({
-                    assistantMessageId,
-                    source,
-                    resultCount,
-                    ...(skillName === undefined ? {} : { skillName }),
-                    ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
-                  });
+                  const nextActivity = buildRetrievalLiveActivity(
+                    {
+                      assistantMessageId,
+                      source,
+                      resultCount,
+                      ...(skillName === undefined ? {} : { skillName }),
+                      ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
+                    },
+                    t("skillBadgePrefix")
+                  );
                   return {
                     ...prev,
                     [assistantMessageId]: mergeLiveActivity(prev[assistantMessageId], nextActivity)
@@ -2893,13 +2899,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         }) => {
           flushBufferedAssistantState(true);
           applyThreadLiveActivities(sendThreadKey, (prev) => {
-            const nextActivity = buildRetrievalLiveActivity({
-              assistantMessageId: assistantMsgId,
-              source,
-              resultCount,
-              ...(skillName === undefined ? {} : { skillName }),
-              ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
-            });
+            const nextActivity = buildRetrievalLiveActivity(
+              {
+                assistantMessageId: assistantMsgId,
+                source,
+                resultCount,
+                ...(skillName === undefined ? {} : { skillName }),
+                ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
+              },
+              t("skillBadgePrefix")
+            );
             return {
               ...prev,
               [assistantMsgId]: mergeLiveActivity(prev[assistantMsgId], nextActivity)

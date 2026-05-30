@@ -1606,7 +1606,7 @@ export interface RuntimeDocumentToolResult {
   requestedName: string | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
-  action: "generated" | "skipped" | "deferred" | "pending_delivery";
+  action: "generated" | "skipped" | "pending_delivery";
   reason: string | null;
   warning: string | null;
   guidance?: string | null;

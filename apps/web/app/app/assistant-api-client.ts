@@ -4396,34 +4396,6 @@ export async function getAssistantWebChatTurnStatus(
   return payload.turn;
 }
 
-export async function uploadChatAttachment(
-  token: string,
-  chatId: string,
-  messageId: string,
-  file: File
-): Promise<UploadedAttachment> {
-  const base = getApiBaseUrl();
-  const formData = new FormData();
-  formData.append("file", file);
-  const res = await fetch(
-    `${base}/assistant/chat/${encodeURIComponent(chatId)}/message/${encodeURIComponent(messageId)}/attachment`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData
-    }
-  );
-  if (!res.ok) {
-    const envelope = await readApiErrorEnvelope(res);
-    if (envelope) {
-      throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
-    }
-    throw new Error("Failed to upload attachment.");
-  }
-  const data = (await res.json()) as { attachment: UploadedAttachment };
-  return data.attachment;
-}
-
 export async function getAssistantFiles(
   token: string,
   options?: { query?: string | null; limit?: number }

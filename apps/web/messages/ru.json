@@ -358,6 +358,7 @@
     "activityVoiceFailed": "Не удалось подготовить голос",
     "activityContextStart": "Собираю контекст",
     "activityContextDone": "Контекст готов",
+    "skillBadgePrefix": "Навык",
     "activityRetrievalSkillStart": "Проверяю знания навыка",
     "activityRetrievalUserStart": "Смотрю твои документы",
     "activityRetrievalProductStart": "Проверяю знания PersAI",

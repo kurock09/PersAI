@@ -1199,7 +1199,7 @@ describe("useChat", () => {
     expect(activityEntries).toHaveLength(1);
     expect(activityEntries[0]?.event.label).toBe("Response generated");
     expect(activityEntries[0]?.event.emphasis).toBe("strong");
-    expect(activityEntries[0]?.event.detail).toContain("Навык - ✈️");
+    expect(activityEntries[0]?.event.detail).toContain("skillBadgePrefix - ✈️");
     expect(activityEntries[0]?.event.detail).not.toContain("Диетолог");
     expect(activityEntries[0]?.event.afterMessageId).toBe("assistant-msg-1");
   });

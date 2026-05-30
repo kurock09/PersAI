@@ -70,7 +70,7 @@ ADR-072 remains the historical migration ADR through the native-path closeout. A
 5. when a turn uses file/process tools, `apps/runtime` also calls `apps/sandbox`
 6. result returns through `apps/api`
 7. `apps/api` finalizes canonical message/media/quota state
-8. ADR-099 media/STT/TTS billing-facts foundation now keeps provider-priced media truth additive to quota: runtime/provider-gateway may return normalized `billingFacts`, and API persists those facts on the owning durable media/attachment rows without appending ledger events yet
+8. media/STT/TTS billing-facts are persisted on the owning durable media/attachment rows; the unified model-cost ledger (ADR-099) now records provider-priced usage so all billable media and model costs are durably tracked
 
 ### Telegram
 

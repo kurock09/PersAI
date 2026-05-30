@@ -5,7 +5,6 @@ import { resolveAdminOverviewDataSource } from "./admin-overview-data-source";
 import { ResolveExecutionWorkloadOverviewService } from "./resolve-execution-workload-overview.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
-import { WebRuntimeShadowComparisonService } from "./web-runtime-shadow-comparison.service";
 import type {
   AdminOverviewDashboardState,
   LatencyPercentiles,
@@ -55,8 +54,7 @@ export class ResolveAdminOverviewDashboardService {
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly resolveExecutionWorkloadOverviewService: ResolveExecutionWorkloadOverviewService,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
-    private readonly webRuntimeShadowComparisonService: WebRuntimeShadowComparisonService
+    private readonly overviewLatencyTraceService: OverviewLatencyTraceService
   ) {}
 
   async execute(callerUserId: string): Promise<AdminOverviewDashboardState> {
@@ -122,7 +120,6 @@ export class ResolveAdminOverviewDashboardService {
         latency: latency.rollups
       },
       latencyTrace: this.overviewLatencyTraceService.getState(),
-      webRuntimeShadowComparisons: this.webRuntimeShadowComparisonService.getState(),
       activeUsers: activeUsersResult.length,
       activeWebChats,
       runtime,

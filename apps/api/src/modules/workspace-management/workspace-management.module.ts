@@ -234,7 +234,6 @@ import { InternalRuntimeMediaJobClientService } from "./application/internal-run
 import { WebChatTurnAttemptService } from "./application/web-chat-turn-attempt.service";
 import { WebChatTurnHardStopRegistry } from "./application/web-chat-turn-hard-stop-registry.service";
 import { WebChatTurnStreamRegistry } from "./application/web-chat-turn-stream-registry.service";
-import { WebRuntimeShadowComparisonService } from "./application/web-runtime-shadow-comparison.service";
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
 import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
@@ -590,7 +589,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     SendNativeTelegramTurnService,
     WebRuntimeTurnClientService,
     WebRuntimeStreamClientService,
-    WebRuntimeShadowComparisonService,
     ListAssistantMemoryItemsService,
     ForgetAssistantMemoryItemService,
     DoNotRememberAssistantMemoryService,

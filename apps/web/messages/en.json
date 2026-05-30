@@ -358,6 +358,7 @@
     "activityVoiceFailed": "Voice generation failed",
     "activityContextStart": "Gathering context",
     "activityContextDone": "Context ready",
+    "skillBadgePrefix": "Skill",
     "activityRetrievalSkillStart": "Checking skill knowledge",
     "activityRetrievalUserStart": "Reviewing your documents",
     "activityRetrievalProductStart": "Checking PersAI knowledge",
