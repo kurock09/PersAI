@@ -41,6 +41,7 @@
     "@nestjs/core": "^11.1.17",
     "@nestjs/platform-express": "^11.1.17",
     "@persai/config": "workspace:*",
+    "@persai/contracts": "workspace:*",
     "@persai/logger": "workspace:*",
     "@persai/runtime-bundle": "workspace:*",
     "@persai/runtime-contract": "workspace:*",

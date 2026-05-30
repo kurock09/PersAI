@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { FileText, Loader2, Plus, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { cn } from "@/app/lib/utils";
 import {
   deleteAssistantFile,
   getAssistantFileDownloadUrl,
@@ -12,7 +13,14 @@ import {
   type ChatHistoryAttachment,
   type ChatHistoryMessage
 } from "../assistant-api-client";
-import { dispatchProjectFilesChanged, PROJECT_FILES_CHANGED_EVENT } from "./project-files-events";
+import {
+  consumePendingProjectFilesHighlight,
+  dispatchProjectFilesChanged,
+  PROJECT_FILES_CHANGED_EVENT,
+  PROJECT_MODE_ACTIVATED_EVENT
+} from "./project-files-events";
+
+const PROJECT_FILES_HINT_MS = 2000;
 
 export type ProjectFileEntry = {
   fileRef: string;
@@ -87,6 +95,13 @@ export function ProjectFilesPanel({ chatId, threadKey }: { chatId: string; threa
   const [busyDeleteRef, setBusyDeleteRef] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [hintActive, setHintActive] = useState(false);
+
+  const runProjectFilesHint = useCallback(() => {
+    panelRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    setHintActive(true);
+  }, []);
 
   const loadFiles = useCallback(async () => {
     setLoading(true);
@@ -123,6 +138,32 @@ export function ProjectFilesPanel({ chatId, threadKey }: { chatId: string; threa
       window.removeEventListener(PROJECT_FILES_CHANGED_EVENT, handleChanged as EventListener);
     };
   }, [chatId, loadFiles]);
+
+  useEffect(() => {
+    if (!hintActive) {
+      return;
+    }
+    const timer = window.setTimeout(() => setHintActive(false), PROJECT_FILES_HINT_MS);
+    return () => window.clearTimeout(timer);
+  }, [hintActive]);
+
+  useEffect(() => {
+    const handleActivated = (event: Event) => {
+      const detail = (event as CustomEvent<{ chatId?: string }>).detail;
+      if (detail?.chatId === chatId) {
+        runProjectFilesHint();
+      }
+    };
+    window.addEventListener(PROJECT_MODE_ACTIVATED_EVENT, handleActivated as EventListener);
+    if (consumePendingProjectFilesHighlight(chatId)) {
+      window.requestAnimationFrame(() => {
+        runProjectFilesHint();
+      });
+    }
+    return () => {
+      window.removeEventListener(PROJECT_MODE_ACTIVATED_EVENT, handleActivated as EventListener);
+    };
+  }, [chatId, runProjectFilesHint]);
 
   const handleUploadFiles = useCallback(
     async (selected: FileList | null) => {
@@ -190,7 +231,14 @@ export function ProjectFilesPanel({ chatId, threadKey }: { chatId: string; threa
   );
 
   return (
-    <div className="shrink-0 border-t border-border px-3 py-2.5" data-testid="project-files-panel">
+    <div
+      ref={panelRef}
+      className={cn(
+        "shrink-0 border-t border-border px-3 py-2.5",
+        hintActive && "project-files-hint"
+      )}
+      data-testid="project-files-panel"
+    >
       <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
         <p className="text-[11px] font-medium text-text-subtle">{t("projectFilesTitle")}</p>
         <button

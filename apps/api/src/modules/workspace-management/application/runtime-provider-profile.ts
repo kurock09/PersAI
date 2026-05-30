@@ -1,5 +1,6 @@
 export const RUNTIME_PROVIDER_PROFILE_SCHEMA = "persai.runtimeProviderProfile.v1";
 export const RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA = "persai.runtimeProviderCredentialRefs.v1";
+import { applyDerivedTokenMeteredWeights } from "@persai/contracts";
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 export type ManagedRuntimeProvider = "openai" | "anthropic";
@@ -781,7 +782,7 @@ function parseRuntimeProviderModelProfiles(value: unknown[]): RuntimeProviderMod
         break;
     }
   }
-  return result;
+  return result.map((profile) => applyDerivedTokenMeteredWeights(profile));
 }
 
 function parseLegacyCapabilityCatalog(

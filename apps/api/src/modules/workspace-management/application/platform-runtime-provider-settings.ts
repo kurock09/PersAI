@@ -22,6 +22,7 @@ import {
   type RuntimeProviderCredentialRefState,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
+import { applyDerivedTokenMeteredWeights } from "@persai/contracts";
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID = "global";
@@ -804,7 +805,7 @@ function normalizeModelProfiles(value: unknown[], path: string): RuntimeProvider
       throw new Error(`${path} must contain at most ${String(MAX_MODELS_PER_PROVIDER)} models.`);
     }
   }
-  return result;
+  return result.map((profile) => applyDerivedTokenMeteredWeights(profile));
 }
 
 function defaultBillingModeForCapabilities(

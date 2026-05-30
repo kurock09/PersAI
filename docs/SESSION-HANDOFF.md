@@ -2,6 +2,110 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-30 — ADR-102 pre-PROD cleanup program (docs-only)
+
+### Scope
+
+- codify the full post-audit cleanup as a single agent-executable ADR
+- replace stale “return to ADR-078 backlog” guidance with ADR-102 slice ledger
+
+### What changed
+
+Added `docs/ADR/102-pre-prod-architectural-cleanup-and-truth-hardening.md` as the active pre-PROD program. It captures audit findings, canonical workspace vs assistant billing truth, economics truth (`document_render` vs unwired `document_generation`), eleven slices with in/out scope, tests, deploy policy, optional cleanup inventory, and agent handoff contract. Updated `docs/ARCHITECTURE.md` to point agents at ADR-102.
+
+### Files / modules
+
+- `docs/ADR/102-pre-prod-architectural-cleanup-and-truth-hardening.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Docs-only slice — no code gate required.
+
+### Next recommended step
+
+**Founder:** commit and push unrelated WIP so agents start from a clean tree.
+
+**Agents:** execute **ADR-102 Slice 0** (baseline gate), then **Slice 1** (runtime document honesty). Minimum PROD path: `0 → 1 → 2 → 5 → 9 → 10`. One session = one slice; use the copy-paste prompt template in ADR-102.
+
+## 2026-05-30 — Token-metered quota weights derived from provider prices
+
+### Scope
+
+- derive runtime token quota weights from token-metered provider prices (input = 1, cached/output from price ratios)
+- show read-only derived weights in Admin Runtime and auto-recalculate on read/save (no one-off migration script)
+- show plan model-slot credit multipliers (normal = 1×, premium/reasoning vs normal via reference mix)
+
+### What changed
+
+Added shared `@persai/contracts` helpers for token-metered weight derivation and mode credit multipliers. Platform runtime provider settings and assistant runtime provider profiles now apply derived weights whenever token-metered catalog rows are normalized or loaded, so existing `1/1/1` rows with real prices recalculate on read without a DB backfill script. Admin Runtime shows derived weights as read-only for token-metered models; Admin Plans shows `1× baseline` / `N× vs normal` hints under normal, premium, and reasoning slots from the runtime catalog.
+
+### Files / modules
+
+- `packages/contracts/src/token-metered-credits.ts`
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts`
+- `apps/api/package.json`
+- `apps/web/app/admin/runtime/page.tsx`
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/app/app/plan-model-credit-multipliers.ts`
+- `apps/api/test/token-metered-credits.test.ts`
+- `apps/api/test/platform-runtime-provider-settings.test.ts`
+- `apps/web/app/app/plan-model-credit-multipliers.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+1. `corepack pnpm -r --if-present run lint`
+2. `corepack pnpm run format:check`
+3. `corepack pnpm --filter @persai/contracts run typecheck`
+4. `corepack pnpm --filter @persai/api run typecheck`
+5. `corepack pnpm --filter @persai/web run typecheck`
+6. focused token-metered + plan multiplier tests PASS
+
+### Next recommended step
+
+Continue bounded UI polish only when explicitly requested, or return to the active ADR-078 backlog item from `docs/SESSION-HANDOFF.md`.
+
+## 2026-05-30 — Project mode files panel onboarding hint
+
+### Scope
+
+- guide users to the sidebar project files block when project mode is activated
+- mobile opens the left sidebar; desktop only pulses the files panel
+- once per chat per browser session; theme-aware accent pulse with reduced-motion fallback
+
+### What changed
+
+Switching a chat to project mode now dispatches a lightweight `PROJECT_MODE_ACTIVATED` browser event after a successful mode patch. On mobile (`max-width: 767px`) the shell opens the sidebar overlay first. `ProjectFilesPanel` listens for the event (or consumes a pending queue if it mounts later), scrolls into view when possible, and applies a short accent pulse via `.project-files-hint` in `globals.css`. Session gating uses `sessionStorage` so repeat activations in the same chat do not nag.
+
+### Files / modules
+
+- `apps/web/app/app/_components/project-files-events.ts`
+- `apps/web/app/app/_components/project-files-panel.tsx`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/globals.css`
+- `apps/web/app/app/_components/project-files-events.test.ts`
+- `apps/web/app/app/_components/project-files-panel.test.tsx`
+- `apps/web/app/app/_components/chat-area.test.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+1. `corepack pnpm -r --if-present run lint`
+2. `corepack pnpm run format:check`
+3. `corepack pnpm --filter @persai/api run typecheck`
+4. `corepack pnpm --filter @persai/web run typecheck`
+5. focused project-files hint + `chat-area.test.tsx` PASS (`21` tests)
+
+### Next recommended step
+
+Continue bounded UI polish only when explicitly requested, or return to the active ADR-078 backlog item from `docs/SESSION-HANDOFF.md`.
+
 ## 2026-05-30 — Settings APK footer — pinned bottom + quiet utility tone
 
 ### Scope

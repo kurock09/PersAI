@@ -32,6 +32,9 @@ importers:
       '@persai/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@persai/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@persai/logger':
         specifier: workspace:*
         version: link:../../packages/logger

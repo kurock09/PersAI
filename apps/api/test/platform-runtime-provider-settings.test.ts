@@ -92,6 +92,14 @@ async function run(): Promise<void> {
             model: "gpt‑5.4",
             capabilities: ["chat"],
             ...tokenMeteredDefaults(),
+            providerPriceMetadata: {
+              currency: "USD",
+              tokenPricing: {
+                inputPer1M: 4,
+                cachedInputPer1M: 1,
+                outputPer1M: 16
+              }
+            },
             inputTokenWeight: 1,
             cachedInputTokenWeight: 0.25,
             outputTokenWeight: 4,
@@ -102,6 +110,14 @@ async function run(): Promise<void> {
             model: "gpt‑5.4-mini",
             capabilities: ["chat"],
             ...tokenMeteredDefaults(),
+            providerPriceMetadata: {
+              currency: "USD",
+              tokenPricing: {
+                inputPer1M: 2,
+                cachedInputPer1M: 0.4,
+                outputPer1M: 4
+              }
+            },
             inputTokenWeight: 0.5,
             cachedInputTokenWeight: 0.1,
             outputTokenWeight: 2,
@@ -241,6 +257,11 @@ async function run(): Promise<void> {
     0.25
   );
   assert.equal(parsed.availableModelCatalogByProvider.openai.models[0]?.outputTokenWeight, 4);
+  assert.equal(
+    parsed.availableModelCatalogByProvider.openai.models[1]?.cachedInputTokenWeight,
+    0.2
+  );
+  assert.equal(parsed.availableModelCatalogByProvider.openai.models[1]?.outputTokenWeight, 2);
   assert.equal(parsed.providerKeys.openai, "sk-openai-new");
 
   assert.throws(

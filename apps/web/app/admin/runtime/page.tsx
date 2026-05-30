@@ -10,6 +10,7 @@ import type {
   RuntimeProviderModelCatalogByProviderState,
   RuntimeProviderModelProfileState
 } from "@persai/contracts";
+import { applyDerivedTokenMeteredWeights, formatTokenMeteredWeight } from "@persai/contracts";
 import {
   getAdminRuntimeProviderSettings,
   putAdminRuntimeProviderSettings
@@ -560,6 +561,19 @@ function rebuildProfileForBillingMode(
   }
 }
 
+function withDerivedCatalogWeights(
+  catalog: RuntimeProviderModelCatalogByProviderState
+): RuntimeProviderModelCatalogByProviderState {
+  return {
+    openai: {
+      models: catalog.openai.models.map((profile) => applyDerivedTokenMeteredWeights(profile))
+    },
+    anthropic: {
+      models: catalog.anthropic.models.map((profile) => applyDerivedTokenMeteredWeights(profile))
+    }
+  };
+}
+
 function buildCatalogFallback(
   availableModelsByProvider: AdminRuntimeProviderSettingsState["availableModelsByProvider"]
 ): RuntimeProviderModelCatalogByProviderState {
@@ -755,7 +769,9 @@ export default function AdminRuntimePage() {
         String(res.skillRoutingPolicy.backgroundRecheckIntervalMessages)
       );
       setModelCatalogByProvider(
-        res.availableModelCatalogByProvider ?? buildCatalogFallback(res.availableModelsByProvider)
+        withDerivedCatalogWeights(
+          res.availableModelCatalogByProvider ?? buildCatalogFallback(res.availableModelsByProvider)
+        )
       );
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to load runtime settings.");
@@ -903,7 +919,7 @@ export default function AdminRuntimePage() {
         ...current,
         [provider]: {
           models: current[provider].models.map((profile, profileIndex) =>
-            profileIndex === index ? updater(profile) : profile
+            profileIndex === index ? applyDerivedTokenMeteredWeights(updater(profile)) : profile
           )
         }
       }));
@@ -1688,21 +1704,38 @@ function ModelProfileEditor({
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <NumberField
-          label="Input weight"
-          value={profile.inputTokenWeight}
-          onChange={(value) => onChange({ ...profile, inputTokenWeight: value })}
-        />
-        <NumberField
-          label="Cached input weight"
-          value={profile.cachedInputTokenWeight}
-          onChange={(value) => onChange({ ...profile, cachedInputTokenWeight: value })}
-        />
-        <NumberField
-          label="Output weight"
-          value={profile.outputTokenWeight}
-          onChange={(value) => onChange({ ...profile, outputTokenWeight: value })}
-        />
+        {profile.billingMode === "token_metered" ? (
+          <>
+            <DerivedWeightField label="Input weight" value={profile.inputTokenWeight} />
+            <DerivedWeightField
+              label="Cached input weight"
+              value={profile.cachedInputTokenWeight}
+            />
+            <DerivedWeightField label="Output weight" value={profile.outputTokenWeight} />
+            <p className="text-[10px] text-text-subtle sm:col-span-3">
+              Quota weights are derived from token prices below. Input is always 1; cached and
+              output update automatically when prices change.
+            </p>
+          </>
+        ) : (
+          <>
+            <NumberField
+              label="Input weight"
+              value={profile.inputTokenWeight}
+              onChange={(value) => onChange({ ...profile, inputTokenWeight: value })}
+            />
+            <NumberField
+              label="Cached input weight"
+              value={profile.cachedInputTokenWeight}
+              onChange={(value) => onChange({ ...profile, cachedInputTokenWeight: value })}
+            />
+            <NumberField
+              label="Output weight"
+              value={profile.outputTokenWeight}
+              onChange={(value) => onChange({ ...profile, outputTokenWeight: value })}
+            />
+          </>
+        )}
       </div>
 
       <PriceMetadataEditor profile={profile} onChange={onProviderPriceMetadataChange} />
@@ -2094,6 +2127,24 @@ function Field({
         autoCapitalize="off"
         spellCheck={false}
         className="persai-field-control w-full"
+      />
+    </div>
+  );
+}
+
+function DerivedWeightField({ label, value }: { label: string; value: number }) {
+  const inputId = useId();
+  return (
+    <div>
+      <label htmlFor={inputId} className="mb-1 block text-[10px] font-medium text-text-muted">
+        {label}
+      </label>
+      <input
+        id={inputId}
+        type="text"
+        readOnly
+        value={formatTokenMeteredWeight(value)}
+        className="persai-field-control w-full cursor-default bg-surface-raised/80 text-text-muted"
       />
     </div>
   );

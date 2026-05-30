@@ -446,6 +446,39 @@ textarea::-webkit-resizer {
   }
 }
 
+/* Project-mode onboarding — gentle accent pulse on the sidebar files panel.
+   Uses --accent so light/dark themes stay in sync without separate palettes. */
+@keyframes project-files-hint-pulse {
+  0%,
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+  20%,
+  60% {
+    background-color: color-mix(in srgb, var(--accent) 14%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  40%,
+  80% {
+    background-color: color-mix(in srgb, var(--accent) 20%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 38%, transparent);
+  }
+}
+
+.project-files-hint {
+  animation: project-files-hint-pulse 1.8s ease-in-out 1;
+  border-radius: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-files-hint {
+    animation: none;
+    background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+}
+
 /* Landing magnet — a "weak magnet" on the first viewport, mobile-only.
    On phones, tiny scrolls inside the hero get pulled back to the start of
    the page so the eye stays anchored on the headline; once the user makes

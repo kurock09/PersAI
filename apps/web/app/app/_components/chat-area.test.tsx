@@ -3,9 +3,11 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatArea } from "./chat-area";
 import type { ChatMessage, UseChatReturn } from "./use-chat";
 import { patchAssistantWebChat } from "../assistant-api-client";
+import * as projectFilesEvents from "./project-files-events";
 
 const chatMessageBubbleMock = vi.hoisted(() => vi.fn());
 const getTokenMock = vi.hoisted(() => vi.fn(async (): Promise<string | null> => null));
+const openSidebarMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -19,7 +21,7 @@ vi.mock("next-intl", () => ({
 
 vi.mock("./app-shell", () => ({
   useShellActions: () => ({
-    openSidebar: vi.fn()
+    openSidebar: openSidebarMock
   })
 }));
 
@@ -84,6 +86,9 @@ afterEach(() => {
   intersectionObserverCallback = null;
   chatMessageBubbleMock.mockClear();
   getTokenMock.mockClear();
+  openSidebarMock.mockClear();
+  sessionStorage.clear();
+  projectFilesEvents.resetProjectFilesHintStateForTests();
   vi.restoreAllMocks();
 });
 
@@ -170,6 +175,75 @@ describe("ChatArea", () => {
     await waitFor(() => {
       expect(patchMock).toHaveBeenCalledWith("token-1", "chat-1", { chatMode: "project" });
     });
+  });
+
+  it("opens the sidebar and signals project files hint on mobile project activation", async () => {
+    getTokenMock.mockResolvedValueOnce("token-1");
+    const dispatchSpy = vi.spyOn(projectFilesEvents, "dispatchProjectModeActivated");
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === "(max-width: 767px)",
+          media: query,
+          onchange: null,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn()
+        }) as unknown as MediaQueryList
+    );
+
+    render(<ChatArea chat={createChat("Hello", { isStreaming: false })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "modeMenuAria" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /modeProjectLabel/ }));
+
+    await waitFor(() => {
+      expect(openSidebarMock).toHaveBeenCalledTimes(1);
+      expect(dispatchSpy).toHaveBeenCalledWith("chat-1");
+    });
+  });
+
+  it("signals project files hint on desktop without opening the sidebar", async () => {
+    getTokenMock.mockResolvedValueOnce("token-1");
+    const dispatchSpy = vi.spyOn(projectFilesEvents, "dispatchProjectModeActivated");
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: false,
+          media: query,
+          onchange: null,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn()
+        }) as unknown as MediaQueryList
+    );
+
+    render(<ChatArea chat={createChat("Hello", { isStreaming: false })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "modeMenuAria" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /modeProjectLabel/ }));
+
+    await waitFor(() => {
+      expect(openSidebarMock).not.toHaveBeenCalled();
+      expect(dispatchSpy).toHaveBeenCalledWith("chat-1");
+    });
+  });
+
+  it("does not repeat the project files hint in the same browser session", async () => {
+    projectFilesEvents.markProjectFilesHintShown("chat-1");
+    getTokenMock.mockResolvedValueOnce("token-1");
+    const dispatchSpy = vi.spyOn(projectFilesEvents, "dispatchProjectModeActivated");
+
+    render(<ChatArea chat={createChat("Hello", { isStreaming: false })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "modeMenuAria" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /modeProjectLabel/ }));
+
+    await waitFor(() => {
+      expect(patchAssistantWebChat).toHaveBeenCalled();
+    });
+    expect(dispatchSpy).not.toHaveBeenCalled();
+    expect(openSidebarMock).not.toHaveBeenCalled();
   });
 
   it("keeps auto-scrolling while the last assistant message streams new content", () => {

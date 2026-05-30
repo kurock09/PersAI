@@ -32,6 +32,11 @@ import {
   transcribeVoice
 } from "../assistant-api-client";
 import { useShellActions } from "./app-shell";
+import {
+  dispatchProjectModeActivated,
+  markProjectFilesHintShown,
+  shouldShowProjectFilesHint
+} from "./project-files-events";
 import type { UseChatReturn } from "./use-chat";
 
 interface ChatAreaProps {
@@ -414,11 +419,22 @@ export function ChatArea({
       try {
         await patchAssistantWebChat(token, chat.chatId, { chatMode: nextMode });
         onTitleChanged?.();
+        if (
+          nextMode === "project" &&
+          previousMode !== "project" &&
+          shouldShowProjectFilesHint(chat.chatId)
+        ) {
+          markProjectFilesHintShown(chat.chatId);
+          if (window.matchMedia("(max-width: 767px)").matches) {
+            openSidebar();
+          }
+          dispatchProjectModeActivated(chat.chatId);
+        }
       } catch {
         setChatMode(previousMode);
       }
     },
-    [chat.chatId, chatMode, getToken, onTitleChanged]
+    [chat.chatId, chatMode, getToken, onTitleChanged, openSidebar]
   );
 
   return (

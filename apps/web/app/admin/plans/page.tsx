@@ -19,8 +19,10 @@ import type {
   AdminPlanQuotaLimits,
   AdminPlanState,
   AdminPlanToolActivation,
-  AdminPlanUpdateRequest
+  AdminPlanUpdateRequest,
+  TokenMeteredWeights
 } from "@persai/contracts";
+import { applyDerivedTokenMeteredWeights } from "@persai/contracts";
 import {
   deleteAdminPlan,
   getAdminPlans,
@@ -30,6 +32,7 @@ import {
   getAdminMediaPackages,
   type MediaPackageCatalogItem
 } from "@/app/app/assistant-api-client";
+import { formatPlanModelSlotCreditHint } from "@/app/app/plan-model-credit-multipliers";
 import { cn } from "@/app/lib/utils";
 import { MediaPackagesSection } from "./_components/MediaPackagesSection";
 
@@ -2064,7 +2067,9 @@ function PlanForm({
   fallbackPlanOptions = [],
   availableModelKeys = [],
   availableImageModelKeys = [],
-  availableVideoModelKeys = []
+  availableVideoModelKeys = [],
+  runtimePrimaryModelKey = null,
+  tokenMeteredWeightsByModel = {}
 }: {
   draft: PlanDraft;
   onPatch: (p: Partial<PlanDraft>) => void;
@@ -2076,6 +2081,8 @@ function PlanForm({
   availableModelKeys?: { provider: string; model: string }[];
   availableImageModelKeys?: { provider: string; model: string }[];
   availableVideoModelKeys?: { provider: string; model: string }[];
+  runtimePrimaryModelKey?: string | null;
+  tokenMeteredWeightsByModel?: Record<string, TokenMeteredWeights>;
 }) {
   const editableActivations = draft.toolActivations.filter(
     (ta) => ta.policyClass === "plan_managed"
@@ -2469,44 +2476,52 @@ function PlanForm({
               hint="Pick the model used in each routing role. Empty = inherit the next-coarser default."
             >
               <div className="grid gap-2 sm:grid-cols-2">
-                {[
-                  {
-                    label: "Normal reply",
-                    value: draft.primaryModelKey,
-                    patch: (value: string) => onPatch({ primaryModelKey: value }),
-                    placeholder: "platform default"
-                  },
-                  {
-                    label: "Premium reply",
-                    value: draft.premiumModelKey,
-                    patch: (value: string) => onPatch({ premiumModelKey: value }),
-                    placeholder: "normal reply"
-                  },
-                  {
-                    label: "Reasoning",
-                    value: draft.reasoningModelKey,
-                    patch: (value: string) => onPatch({ reasoningModelKey: value }),
-                    placeholder: "premium reply"
-                  },
-                  {
-                    label: "System tool",
-                    value: draft.systemToolModelKey,
-                    patch: (value: string) => onPatch({ systemToolModelKey: value }),
-                    placeholder: "normal reply"
-                  },
-                  {
-                    label: "Retrieval helper",
-                    value: draft.retrievalModelKey,
-                    patch: (value: string) => onPatch({ retrievalModelKey: value }),
-                    placeholder: "system/runtime default"
-                  },
-                  {
-                    label: "Embedding index",
-                    value: draft.embeddingModelKey,
-                    patch: (value: string) => onPatch({ embeddingModelKey: value }),
-                    placeholder: "retrieval helper / runtime default"
-                  }
-                ].map((slot) => (
+                {(
+                  [
+                    {
+                      label: "Normal reply",
+                      slot: "normal" as const,
+                      value: draft.primaryModelKey,
+                      patch: (value: string) => onPatch({ primaryModelKey: value }),
+                      placeholder: "platform default"
+                    },
+                    {
+                      label: "Premium reply",
+                      slot: "premium" as const,
+                      value: draft.premiumModelKey,
+                      patch: (value: string) => onPatch({ premiumModelKey: value }),
+                      placeholder: "normal reply"
+                    },
+                    {
+                      label: "Reasoning",
+                      slot: "reasoning" as const,
+                      value: draft.reasoningModelKey,
+                      patch: (value: string) => onPatch({ reasoningModelKey: value }),
+                      placeholder: "premium reply"
+                    },
+                    {
+                      label: "System tool",
+                      slot: null,
+                      value: draft.systemToolModelKey,
+                      patch: (value: string) => onPatch({ systemToolModelKey: value }),
+                      placeholder: "normal reply"
+                    },
+                    {
+                      label: "Retrieval helper",
+                      slot: null,
+                      value: draft.retrievalModelKey,
+                      patch: (value: string) => onPatch({ retrievalModelKey: value }),
+                      placeholder: "system/runtime default"
+                    },
+                    {
+                      label: "Embedding index",
+                      slot: null,
+                      value: draft.embeddingModelKey,
+                      patch: (value: string) => onPatch({ embeddingModelKey: value }),
+                      placeholder: "retrieval helper / runtime default"
+                    }
+                  ] as const
+                ).map((slot) => (
                   <label key={slot.label} className="grid gap-1">
                     <span className="text-[11px] font-medium text-text">{slot.label}</span>
                     <select
@@ -2535,6 +2550,19 @@ function PlanForm({
                           ))
                         : null}
                     </select>
+                    {slot.slot !== null
+                      ? (() => {
+                          const creditHint = formatPlanModelSlotCreditHint(
+                            slot.slot,
+                            draft,
+                            runtimePrimaryModelKey,
+                            tokenMeteredWeightsByModel
+                          );
+                          return creditHint ? (
+                            <span className="text-[10px] text-text-subtle">{creditHint}</span>
+                          ) : null;
+                        })()
+                      : null}
                   </label>
                 ))}
               </div>
@@ -3847,6 +3875,10 @@ export default function AdminPlansPage() {
   const [availableVideoModelKeys, setAvailableVideoModelKeys] = useState<
     { provider: string; model: string }[]
   >([]);
+  const [runtimePrimaryModelKey, setRuntimePrimaryModelKey] = useState<string | null>(null);
+  const [tokenMeteredWeightsByModel, setTokenMeteredWeightsByModel] = useState<
+    Record<string, TokenMeteredWeights>
+  >({});
   const [packages, setPackages] = useState<MediaPackageCatalogItem[]>([]);
   const [packagesLoading, setPackagesLoading] = useState(false);
 
@@ -3879,7 +3911,9 @@ export default function AdminPlansPage() {
         }
         setAvailableModelKeys(keys);
       }
+      setRuntimePrimaryModelKey(runtimeData?.primary?.model ?? null);
       if (runtimeData?.availableModelCatalogByProvider) {
+        const weightsByModel: Record<string, TokenMeteredWeights> = {};
         const imageKeys: { provider: string; model: string }[] = [];
         const videoKeys: { provider: string; model: string }[] = [];
         for (const [provider, catalog] of Object.entries(
@@ -3890,11 +3924,37 @@ export default function AdminPlansPage() {
                 model: string;
                 active: boolean;
                 capabilities: string[];
+                billingMode?: string;
+                inputTokenWeight?: number;
+                cachedInputTokenWeight?: number;
+                outputTokenWeight?: number;
+                providerPriceMetadata?: unknown;
               }>;
             }
           >
         )) {
           for (const profile of catalog.models ?? []) {
+            if (
+              profile.active &&
+              profile.billingMode === "token_metered" &&
+              profile.capabilities.includes("chat")
+            ) {
+              const derived = applyDerivedTokenMeteredWeights({
+                billingMode: "token_metered",
+                inputTokenWeight: profile.inputTokenWeight ?? 1,
+                cachedInputTokenWeight: profile.cachedInputTokenWeight ?? 1,
+                outputTokenWeight: profile.outputTokenWeight ?? 1,
+                providerPriceMetadata: profile.providerPriceMetadata ?? {
+                  currency: "USD",
+                  tokenPricing: { inputPer1M: 0, cachedInputPer1M: 0, outputPer1M: 0 }
+                }
+              });
+              weightsByModel[profile.model] = {
+                inputTokenWeight: derived.inputTokenWeight,
+                cachedInputTokenWeight: derived.cachedInputTokenWeight,
+                outputTokenWeight: derived.outputTokenWeight
+              };
+            }
             if (profile.active && profile.capabilities.includes("image")) {
               imageKeys.push({ provider, model: profile.model });
             }
@@ -3903,8 +3963,11 @@ export default function AdminPlansPage() {
             }
           }
         }
+        setTokenMeteredWeightsByModel(weightsByModel);
         setAvailableImageModelKeys(imageKeys);
         setAvailableVideoModelKeys(videoKeys);
+      } else {
+        setTokenMeteredWeightsByModel({});
       }
     } catch (err) {
       setFeedback({
@@ -4238,6 +4301,8 @@ export default function AdminPlansPage() {
             availableModelKeys={availableModelKeys}
             availableImageModelKeys={availableImageModelKeys}
             availableVideoModelKeys={availableVideoModelKeys}
+            runtimePrimaryModelKey={runtimePrimaryModelKey}
+            tokenMeteredWeightsByModel={tokenMeteredWeightsByModel}
           />
           <PlanEditorStickyActions
             saving={saving}
@@ -4303,6 +4368,8 @@ export default function AdminPlansPage() {
                     availableModelKeys={availableModelKeys}
                     availableImageModelKeys={availableImageModelKeys}
                     availableVideoModelKeys={availableVideoModelKeys}
+                    runtimePrimaryModelKey={runtimePrimaryModelKey}
+                    tokenMeteredWeightsByModel={tokenMeteredWeightsByModel}
                   />
                   <PlanEditorStickyActions
                     saving={saving}
