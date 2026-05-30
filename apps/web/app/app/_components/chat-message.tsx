@@ -34,10 +34,7 @@ import {
   ThumbsUp,
   ThumbsDown,
   FileText,
-  Loader2,
-  CreditCard,
-  Package2,
-  ReceiptText
+  Loader2
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
@@ -531,6 +528,29 @@ export type InternalChatCtaMeta = {
 const USER_MEDIA_BUBBLE_RADIUS_CLASS = "rounded-[18px] rounded-br-md";
 const USER_MEDIA_CARD_RADIUS_CLASS = "rounded-[14px] rounded-br-[10px]";
 
+const CHAT_FILE_PILL_BADGE_CLASS =
+  "inline-flex h-6 min-w-10 shrink-0 items-center justify-center rounded-full border border-[rgba(92,72,48,0.12)] bg-bg/70 px-2 text-[10px] font-semibold tracking-[0.08em] text-text/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.68)] dark:border-white/14 dark:bg-bg/72 dark:text-text dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]";
+
+const CHAT_FILE_PILL_SURFACE_CLASS =
+  "flex max-w-full flex-nowrap items-center gap-2 rounded-full border border-[rgba(92,72,48,0.12)] bg-surface-raised/70 px-3 py-2 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.07),0_16px_30px_-24px_rgba(92,72,48,0.42)] dark:border-white/14 dark:bg-surface-raised/72 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_-1px_0_rgba(0,0,0,0.24),0_14px_26px_-22px_rgba(0,0,0,0.8)]";
+
+const CHAT_FILE_PILL_SURFACE_HOVER_CLASS =
+  "transition-colors hover:border-[rgba(92,72,48,0.18)] hover:bg-surface-raised/84 dark:hover:border-white/20 dark:hover:bg-surface-hover/70";
+
+const CHAT_FILE_PILL_META_CLASS =
+  "shrink-0 whitespace-nowrap text-[12px] tabular-nums text-text-subtle";
+
+function internalCtaBadge(kind: InternalChatCtaMeta["kind"]): string {
+  switch (kind) {
+    case "pricing":
+      return "PLAN";
+    case "packages":
+      return "PKG";
+    case "payment":
+      return "PAY";
+  }
+}
+
 export function resolveInternalChatCta(href: string): InternalChatCtaMeta | null {
   const normalizedHref = href.trim();
   if (!normalizedHref) return null;
@@ -568,23 +588,28 @@ export function resolveInternalChatCta(href: string): InternalChatCtaMeta | null
 
 function InternalChatCtaLink({ meta }: { meta: InternalChatCtaMeta }) {
   const t = useTranslations("chat");
-  const icon =
-    meta.kind === "pricing" ? CreditCard : meta.kind === "packages" ? Package2 : ReceiptText;
-  const Icon = icon;
+  const label =
+    meta.kind === "pricing"
+      ? t("internalCtaPricing")
+      : meta.kind === "packages"
+        ? t("internalCtaPackages")
+        : t("internalCtaCheckout");
+
   return (
     <Link
       href={meta.href as Parameters<typeof Link>[0]["href"]}
-      className="my-2 inline-flex min-h-10 items-center gap-2 rounded-xl border border-border/70 bg-surface-raised px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-hover hover:border-border-strong"
+      className={cn(
+        "my-2 inline-flex max-w-full",
+        CHAT_FILE_PILL_SURFACE_CLASS,
+        CHAT_FILE_PILL_SURFACE_HOVER_CLASS
+      )}
     >
-      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-bg text-text-muted">
-        <Icon className="h-4 w-4" />
+      <span className={CHAT_FILE_PILL_BADGE_CLASS}>{internalCtaBadge(meta.kind)}</span>
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text-muted">
+        {label}
       </span>
-      <span>
-        {meta.kind === "pricing"
-          ? t("internalCtaPricing")
-          : meta.kind === "packages"
-            ? t("internalCtaPackages")
-            : t("internalCtaCheckout")}
+      <span className={CHAT_FILE_PILL_META_CLASS} aria-hidden>
+        ›
       </span>
     </Link>
   );
@@ -1159,18 +1184,16 @@ function AttachmentStrip({
             ) : isDeleted ? (
               <FileText className="h-3.5 w-3.5 text-text-subtle" />
             ) : (
-              <span className="inline-flex h-6 min-w-10 shrink-0 items-center justify-center rounded-full border border-[rgba(92,72,48,0.12)] bg-bg/70 px-2 text-[10px] font-semibold tracking-[0.08em] text-text/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.68)] dark:border-white/14 dark:bg-bg/72 dark:text-text dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-                {attachmentTypeBadge(att)}
-              </span>
+              <span className={CHAT_FILE_PILL_BADGE_CLASS}>{attachmentTypeBadge(att)}</span>
             )}
-            <span className="max-w-[150px] truncate text-[13px] font-medium text-text-muted dark:text-text-muted">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text-muted">
               {att.originalFilename ?? "File"}
             </span>
-            <span className="text-[12px] text-text-subtle">
+            <span className={CHAT_FILE_PILL_META_CLASS}>
               {isDeleted ? t("fileDeleted") : (progressLabel ?? formatBytes(att.sizeBytes))}
             </span>
             {documentLabel ? (
-              <span className="rounded-full border border-border/70 bg-bg/70 px-1.5 py-0.5 text-[10px] font-medium text-text-subtle">
+              <span className="shrink-0 whitespace-nowrap rounded-full border border-border/70 bg-bg/70 px-1.5 py-0.5 text-[10px] font-medium text-text-subtle">
                 {documentLabel}
               </span>
             ) : null}
@@ -1191,7 +1214,7 @@ function AttachmentStrip({
             <div
               key={att.id}
               aria-disabled="true"
-              className="flex items-center gap-3 rounded-full border border-[rgba(92,72,48,0.12)] bg-surface-raised/70 px-4 py-2 text-xs opacity-55 shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.07),0_16px_30px_-24px_rgba(92,72,48,0.42)] dark:border-white/14 dark:bg-surface-raised/72 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_-1px_0_rgba(0,0,0,0.24),0_14px_26px_-22px_rgba(0,0,0,0.8)]"
+              className={cn(CHAT_FILE_PILL_SURFACE_CLASS, "opacity-55")}
             >
               {fileContent}
             </div>
@@ -1207,7 +1230,7 @@ function AttachmentStrip({
               <a
                 href={downloadUrl}
                 download={att.originalFilename ?? undefined}
-                className="flex items-center gap-3 rounded-full border border-[rgba(92,72,48,0.12)] bg-surface-raised/70 px-4 py-2 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.07),0_16px_30px_-24px_rgba(92,72,48,0.42)] transition-colors hover:border-[rgba(92,72,48,0.18)] hover:bg-surface-raised/84 dark:border-white/14 dark:bg-surface-raised/72 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_-1px_0_rgba(0,0,0,0.24),0_14px_26px_-22px_rgba(0,0,0,0.8)] dark:hover:border-white/20 dark:hover:bg-surface-hover/70"
+                className={cn(CHAT_FILE_PILL_SURFACE_CLASS, CHAT_FILE_PILL_SURFACE_HOVER_CLASS)}
               >
                 {fileContent}
               </a>
@@ -1225,7 +1248,7 @@ function AttachmentStrip({
             key={att.id}
             href={downloadUrl}
             download={att.originalFilename ?? undefined}
-            className="flex items-center gap-3 rounded-full border border-[rgba(92,72,48,0.12)] bg-surface-raised/70 px-4 py-2 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.07),0_16px_30px_-24px_rgba(92,72,48,0.42)] transition-colors hover:border-[rgba(92,72,48,0.18)] hover:bg-surface-raised/84 dark:border-white/14 dark:bg-surface-raised/72 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_0_-1px_0_rgba(0,0,0,0.24),0_14px_26px_-22px_rgba(0,0,0,0.8)] dark:hover:border-white/20 dark:hover:bg-surface-hover/70"
+            className={cn(CHAT_FILE_PILL_SURFACE_CLASS, CHAT_FILE_PILL_SURFACE_HOVER_CLASS)}
           >
             {fileContent}
           </a>

@@ -594,3 +594,28 @@ describe("resolveInternalChatCta", () => {
     expect(resolveInternalChatCta("https://example.com/app/pricing")).toBeNull();
   });
 });
+
+describe("ChatMessageBubble — file attachment pill layout", () => {
+  it("keeps file size on one line inside the pill", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          attachments: [
+            {
+              id: "att-word-1",
+              fileRef: "file-ref-word",
+              attachmentType: "document",
+              originalFilename: "Новый документ (3).docx",
+              mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              sizeBytes: 22221,
+              processingStatus: "ready",
+              createdAt: "2026-05-02T10:00:00.000Z"
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByText("21.7 KB")).toHaveClass("whitespace-nowrap");
+  });
+});
