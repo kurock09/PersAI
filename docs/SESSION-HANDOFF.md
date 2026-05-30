@@ -2,6 +2,27 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-30 — Fix: token-metered weights use absolute provider prices
+
+### What changed
+
+`deriveTokenMeteredWeightsFromPricing` no longer normalizes each model's input weight to `1`. Weights are now `price / TOKEN_METERED_WEIGHT_REFERENCE_INPUT_PER_1M` (ref `$1/1M input`), so a premium model that costs 5× more per token deducts ~5× more quota credits than normal and Admin Plans shows `5× vs normal` instead of `1×`.
+
+### Files / modules
+
+- `packages/types/src/token-metered-credits.ts`, `packages/types/src/index.ts`
+- `apps/api/test/token-metered-credits.test.ts`, `platform-runtime-provider-settings.test.ts`
+- `apps/web/app/app/plan-model-credit-multipliers.test.ts`
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+`@persai/types` build PASS; token-metered + platform-runtime-settings + plan multiplier tests PASS.
+
+### Next recommended step
+
+Commit + deploy `api`/`web` so dev cluster picks up economics fix; continue ADR-102 Slice 0.
+
 ## 2026-05-30 — Hotfix: API CrashLoop (`@persai/contracts` → `@persai/types`)
 
 ### What changed

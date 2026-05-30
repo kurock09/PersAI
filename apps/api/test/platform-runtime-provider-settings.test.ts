@@ -251,17 +251,15 @@ async function run(): Promise<void> {
       pricePer1MChars: 18
     }
   });
-  assert.equal(parsed.availableModelCatalogByProvider.openai.models[0]?.inputTokenWeight, 1);
-  assert.equal(
-    parsed.availableModelCatalogByProvider.openai.models[0]?.cachedInputTokenWeight,
-    0.25
-  );
-  assert.equal(parsed.availableModelCatalogByProvider.openai.models[0]?.outputTokenWeight, 4);
+  assert.equal(parsed.availableModelCatalogByProvider.openai.models[0]?.inputTokenWeight, 4);
+  assert.equal(parsed.availableModelCatalogByProvider.openai.models[0]?.cachedInputTokenWeight, 1);
+  assert.equal(parsed.availableModelCatalogByProvider.openai.models[0]?.outputTokenWeight, 16);
+  assert.equal(parsed.availableModelCatalogByProvider.openai.models[1]?.inputTokenWeight, 2);
   assert.equal(
     parsed.availableModelCatalogByProvider.openai.models[1]?.cachedInputTokenWeight,
-    0.2
+    0.4
   );
-  assert.equal(parsed.availableModelCatalogByProvider.openai.models[1]?.outputTokenWeight, 2);
+  assert.equal(parsed.availableModelCatalogByProvider.openai.models[1]?.outputTokenWeight, 4);
   assert.equal(parsed.providerKeys.openai, "sk-openai-new");
 
   assert.throws(

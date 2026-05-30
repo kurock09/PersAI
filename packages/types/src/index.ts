@@ -15,6 +15,7 @@ export {
 } from "./legal-market";
 export {
   TOKEN_METERED_REFERENCE_MIX,
+  TOKEN_METERED_WEIGHT_REFERENCE_INPUT_PER_1M,
   applyDerivedTokenMeteredWeights,
   computeTokenMeteredModeCreditMultiplier,
   computeTokenMeteredReferenceIndex,

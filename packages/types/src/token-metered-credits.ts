@@ -17,9 +17,20 @@ export const TOKEN_METERED_REFERENCE_MIX = {
   output: 0.25
 } as const;
 
+/** 1 quota credit ≈ cost of one input token at this USD/1M input reference price. */
+export const TOKEN_METERED_WEIGHT_REFERENCE_INPUT_PER_1M = 1;
+
 export function deriveTokenMeteredWeightsFromPricing(
   tokenPricing: TokenMeteredPricing
 ): TokenMeteredWeights {
+  const referenceInputPer1M = TOKEN_METERED_WEIGHT_REFERENCE_INPUT_PER_1M;
+  if (!(referenceInputPer1M > 0)) {
+    return {
+      inputTokenWeight: 1,
+      cachedInputTokenWeight: 1,
+      outputTokenWeight: 1
+    };
+  }
   const inputPer1M = tokenPricing.inputPer1M;
   if (!(inputPer1M > 0)) {
     return {
@@ -29,9 +40,9 @@ export function deriveTokenMeteredWeightsFromPricing(
     };
   }
   return {
-    inputTokenWeight: 1,
-    cachedInputTokenWeight: tokenPricing.cachedInputPer1M / inputPer1M,
-    outputTokenWeight: tokenPricing.outputPer1M / inputPer1M
+    inputTokenWeight: inputPer1M / referenceInputPer1M,
+    cachedInputTokenWeight: tokenPricing.cachedInputPer1M / referenceInputPer1M,
+    outputTokenWeight: tokenPricing.outputPer1M / referenceInputPer1M
   };
 }
 

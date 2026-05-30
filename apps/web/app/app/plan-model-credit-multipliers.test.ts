@@ -7,14 +7,14 @@ import {
 describe("plan-model-credit-multipliers", () => {
   const weightsByModel = {
     "gpt-5.4-mini": {
-      inputTokenWeight: 1,
-      cachedInputTokenWeight: 0.1,
-      outputTokenWeight: 6
+      inputTokenWeight: 0.4,
+      cachedInputTokenWeight: 0.04,
+      outputTokenWeight: 2.4
     },
     "gpt-5.4-pro": {
-      inputTokenWeight: 1,
-      cachedInputTokenWeight: 0.25,
-      outputTokenWeight: 12
+      inputTokenWeight: 10,
+      cachedInputTokenWeight: 2.5,
+      outputTokenWeight: 120
     }
   };
 
