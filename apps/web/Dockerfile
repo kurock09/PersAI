@@ -26,6 +26,7 @@ ENV NEXT_PUBLIC_CLERK_SIGN_IN_URL=${NEXT_PUBLIC_CLERK_SIGN_IN_URL}
 ARG NEXT_PUBLIC_CLERK_SIGN_UP_URL="/sign-up"
 ENV NEXT_PUBLIC_CLERK_SIGN_UP_URL=${NEXT_PUBLIC_CLERK_SIGN_UP_URL}
 
+RUN pnpm --filter @persai/types run build
 RUN pnpm --filter @persai/web run build
 
 WORKDIR /workspace/apps/web
