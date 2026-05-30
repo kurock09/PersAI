@@ -76,6 +76,10 @@ import type {
   GetAppBootstrapResponse,
   GetAssistantBillingPaymentIntentResponse,
   GetAssistantBillingSubscriptionResponse,
+  GetAssistantFileDownloadParams,
+  GetAssistantFileResponse,
+  GetAssistantFilesParams,
+  GetAssistantFilesResponse,
   GetAssistantKnowledgeSourceResponse,
   GetAssistantKnowledgeSourcesResponse,
   GetAssistantListResponse,
@@ -156,6 +160,7 @@ import type {
   PostAssistantTaskItemDisableResponse,
   PostAssistantTaskItemEnableResponse,
   PostAssistantWebChatCompactResponse,
+  PostAssistantWebChatStageAttachmentBody,
   PostCloudpaymentsWebhookBody,
   PostProductKnowledgeTextEntryResponse,
   ProductKnowledgeTextEntryInput,
@@ -171,6 +176,7 @@ import type {
   ReplayNotificationDeadLetter200,
   SkillAuthoringDraftRequest,
   SkillKnowledgeCardInput,
+  StageAttachmentResponse,
   SuccessResponse,
   TestSendNotificationChannelResponse,
   UpdateUserPreferencesRequest
@@ -8294,6 +8300,287 @@ export const postMeOnboarding = async (
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(onboardingRequest)
   });
+};
+
+/**
+ * @summary Stage a file attachment for an upcoming web chat turn
+ */
+export type postAssistantWebChatStageAttachmentResponse200 = {
+  data: StageAttachmentResponse;
+  status: 200;
+};
+
+export type postAssistantWebChatStageAttachmentResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAssistantWebChatStageAttachmentResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantWebChatStageAttachmentResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantWebChatStageAttachmentResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantWebChatStageAttachmentResponseSuccess =
+  postAssistantWebChatStageAttachmentResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantWebChatStageAttachmentResponseError = (
+  | postAssistantWebChatStageAttachmentResponse400
+  | postAssistantWebChatStageAttachmentResponse401
+  | postAssistantWebChatStageAttachmentResponse404
+  | postAssistantWebChatStageAttachmentResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantWebChatStageAttachmentResponse =
+  | postAssistantWebChatStageAttachmentResponseSuccess
+  | postAssistantWebChatStageAttachmentResponseError;
+
+export const getPostAssistantWebChatStageAttachmentUrl = () => {
+  return `/assistant/chat/web/stage-attachment`;
+};
+
+export const postAssistantWebChatStageAttachment = async (
+  postAssistantWebChatStageAttachmentBody: PostAssistantWebChatStageAttachmentBody,
+  options?: RequestInit
+): Promise<postAssistantWebChatStageAttachmentResponse> => {
+  const formData = new FormData();
+  formData.append(`surfaceThreadKey`, postAssistantWebChatStageAttachmentBody.surfaceThreadKey);
+  if (postAssistantWebChatStageAttachmentBody.clientTurnId !== undefined) {
+    formData.append(`clientTurnId`, postAssistantWebChatStageAttachmentBody.clientTurnId);
+  }
+  if (postAssistantWebChatStageAttachmentBody.clientAttachmentId !== undefined) {
+    formData.append(
+      `clientAttachmentId`,
+      postAssistantWebChatStageAttachmentBody.clientAttachmentId
+    );
+  }
+  formData.append(`file`, postAssistantWebChatStageAttachmentBody.file);
+
+  return customFetch<postAssistantWebChatStageAttachmentResponse>(
+    getPostAssistantWebChatStageAttachmentUrl(),
+    {
+      ...options,
+      method: "POST",
+      body: formData
+    }
+  );
+};
+
+/**
+ * @summary List assistant-owned files in the file registry
+ */
+export type getAssistantFilesResponse200 = {
+  data: GetAssistantFilesResponse;
+  status: 200;
+};
+
+export type getAssistantFilesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantFilesResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantFilesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantFilesResponseSuccess = getAssistantFilesResponse200 & {
+  headers: Headers;
+};
+export type getAssistantFilesResponseError = (
+  | getAssistantFilesResponse401
+  | getAssistantFilesResponse404
+  | getAssistantFilesResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantFilesResponse =
+  | getAssistantFilesResponseSuccess
+  | getAssistantFilesResponseError;
+
+export const getGetAssistantFilesUrl = (params?: GetAssistantFilesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/assistant/files?${stringifiedParams}`
+    : `/assistant/files`;
+};
+
+export const getAssistantFiles = async (
+  params?: GetAssistantFilesParams,
+  options?: RequestInit
+): Promise<getAssistantFilesResponse> => {
+  return customFetch<getAssistantFilesResponse>(getGetAssistantFilesUrl(params), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Get a single assistant file record by its fileRef
+ */
+export type getAssistantFileResponse200 = {
+  data: GetAssistantFileResponse;
+  status: 200;
+};
+
+export type getAssistantFileResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantFileResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantFileResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantFileResponseSuccess = getAssistantFileResponse200 & {
+  headers: Headers;
+};
+export type getAssistantFileResponseError = (
+  | getAssistantFileResponse401
+  | getAssistantFileResponse404
+  | getAssistantFileResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantFileResponse =
+  | getAssistantFileResponseSuccess
+  | getAssistantFileResponseError;
+
+export const getGetAssistantFileUrl = (fileRef: string) => {
+  return `/assistant/files/${fileRef}`;
+};
+
+export const getAssistantFile = async (
+  fileRef: string,
+  options?: RequestInit
+): Promise<getAssistantFileResponse> => {
+  return customFetch<getAssistantFileResponse>(getGetAssistantFileUrl(fileRef), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * Returns the file content as binary with the appropriate Content-Type header.
+Supports Range requests (RFC 7233) for partial content delivery to media players.
+Add `?download=1` to force Content-Disposition attachment mode.
+
+ * @summary Download the raw binary content of an assistant file
+ */
+export type getAssistantFileDownloadResponse200 = {
+  data: Blob;
+  status: 200;
+};
+
+export type getAssistantFileDownloadResponse206 = {
+  data: Blob;
+  status: 206;
+};
+
+export type getAssistantFileDownloadResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantFileDownloadResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantFileDownloadResponse416 = {
+  data: void;
+  status: 416;
+};
+
+export type getAssistantFileDownloadResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantFileDownloadResponseSuccess = (
+  | getAssistantFileDownloadResponse200
+  | getAssistantFileDownloadResponse206
+) & {
+  headers: Headers;
+};
+export type getAssistantFileDownloadResponseError = (
+  | getAssistantFileDownloadResponse401
+  | getAssistantFileDownloadResponse404
+  | getAssistantFileDownloadResponse416
+  | getAssistantFileDownloadResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantFileDownloadResponse =
+  | getAssistantFileDownloadResponseSuccess
+  | getAssistantFileDownloadResponseError;
+
+export const getGetAssistantFileDownloadUrl = (
+  fileRef: string,
+  params?: GetAssistantFileDownloadParams
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/assistant/files/${fileRef}/download?${stringifiedParams}`
+    : `/assistant/files/${fileRef}/download`;
+};
+
+export const getAssistantFileDownload = async (
+  fileRef: string,
+  params?: GetAssistantFileDownloadParams,
+  options?: RequestInit
+): Promise<getAssistantFileDownloadResponse> => {
+  return customFetch<getAssistantFileDownloadResponse>(
+    getGetAssistantFileDownloadUrl(fileRef, params),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
 };
 
 /**

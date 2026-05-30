@@ -2,6 +2,40 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-30 — ADR-102 orchestration: doc corrections + Slices 1, 2, 3, 4, 7, 9
+
+### Baseline
+
+- Baseline SHA: `011399c8` (clean tree at session start, Slice 0 gate satisfied).
+- Orchestrator = senior-engineer role (no direct coding); all code executed by synchronous `claude-4.6-sonnet-medium-thinking` subagents, each result diff-reviewed and gate-verified by the orchestrator.
+
+### What changed
+
+1. **ADR-102 re-verification + corrections (docs-only):** re-checked all code claims against the tree — all hold. Applied 3 ADR corrections (Slice 5 → recommended; Slice 9 problem restated; Slice 4 scope += dead P2002 catch) and replaced the always-applied rule `ADR-078 Continuity` → `ADR-102 Continuity` (ADR-078 is closed archive). Minimum PROD path now `0 → 1 → 2 → 9 → 10`.
+2. **Slices 1+2 (runtime honesty) — DONE:** blocked `files.send` + `files.write_and_send` while a same-turn document is pending; stable `reorderToolCallsDocumentFirst` so `document` runs before `files` regardless of model order; document copy → `pending_delivery`/`canSendFileNow=false`; deferred-media correction always normalizes delivery-claiming text.
+3. **Slice 7 — DONE:** Telegram completed-turn path forwards `runtimeResponse.toolInvocations` to the tool-path ledger (web-sync parity).
+4. **Slice 9 — DONE:** root `format:check` + `detect-affected.mjs` unit tests added to CI affected-quality lane; contract/runtime-boundary→integration escalation policy + values-dev image-tag pin rule documented in TEST-PLAN.
+5. **Slice 4 — DONE:** admin ownership transfer plan-aware (`maxAssistants`), dead P2002 catch removed; Ops cockpit web-chat counts scoped to `assistantId`.
+6. **Slice 3 — DONE:** `RuntimeOpenDocumentJobContext` + `openDocumentJobs` added to runtime contract, sourced via `listOpenJobsForRuntimeContext` and rendered as `open_document_jobs` developer section (mirrors `openMediaJobs`).
+
+### Verification (independently re-run by orchestrator)
+
+Recursive lint PASS; format:check PASS; api + web + runtime + runtime-contract typecheck PASS. Focused: deferred-document 7/7, deferred-media 3/3, runtime-document-tool 11/11, turn-execution PASS, telegram-turn PASS, ops-cockpit PASS, ownership PASS, send-web 12/12, stream-web 13/13, detect-affected 4/4.
+
+### Deploy
+
+DEPLOY REQUIRED once committed: **runtime** image (Slices 1, 2, 3) and **api** image (Slices 3, 4, 7). Slice 9 is CI-only. Slices 1-4/7 ship together.
+
+### Risks / residuals
+
+- Blocking `write_and_send` wholesale also drops the write side for that turn; intended per ADR.
+- Slice 9 documents a known gap: the affected integration matrix does not yet exercise web OpenAPI-contract consumers (see TEST-PLAN); revisit with Slice 5.
+- Not yet committed — full ADR-102 cleanup batch accumulating in working tree (no commit/push without founder ask).
+
+### Next recommended step
+
+Remaining ADR-102: **Slice 5** (OpenAPI + web contract drift — recommended, demoted from blocking; largest remaining, touches generated contracts + web client — recommend founder review of regenerated contract before merge), optional **Slice 6** (web assistant-switch plan refresh), the non-blocking cleanup inventory, and **Slice 10** (PROD preflight smoke) after the runtime+api deploy. Founder decision needed: commit + deploy this batch to dev, then run Slice 10 smoke.
+
 ## 2026-05-30 — Setup wizard step 2 fix + chat mode menu spacing
 
 ### What changed

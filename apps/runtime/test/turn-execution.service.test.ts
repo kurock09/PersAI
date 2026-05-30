@@ -2697,6 +2697,34 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[openMediaJobsOffset]?.developerInstructions ?? "",
     /1\. image_generate job is running; created 2026-04-11T11:55:00.000Z, started 2026-04-11T11:56:00.000Z\./
   );
+  const openDocumentJobsRequest = createRuntimeTurnRequest();
+  openDocumentJobsRequest.message.text = "документ готов?";
+  openDocumentJobsRequest.openDocumentJobs = [
+    {
+      jobId: "doc-job-1",
+      descriptorMode: "create_pdf_document",
+      documentType: "pdf_document",
+      status: "running",
+      createdAt: "2026-04-11T12:00:00.000Z",
+      startedAt: "2026-04-11T12:01:00.000Z",
+      updatedAt: "2026-04-11T12:02:00.000Z"
+    }
+  ];
+  const openDocumentJobsOffset = providerGatewayClient.calls.length;
+  const openDocumentJobsCompleted = await service.createTurn(openDocumentJobsRequest);
+  assert.equal(openDocumentJobsCompleted.assistantText, "runtime reply");
+  assert.match(
+    providerGatewayClient.calls[openDocumentJobsOffset]?.developerInstructions ?? "",
+    /## Open Document Jobs/
+  );
+  assert.match(
+    providerGatewayClient.calls[openDocumentJobsOffset]?.developerInstructions ?? "",
+    /Server truth: background document rendering is already in progress in this chat\./
+  );
+  assert.match(
+    providerGatewayClient.calls[openDocumentJobsOffset]?.developerInstructions ?? "",
+    /1\. create_pdf_document \(pdf_document\) job is running; created 2026-04-11T12:00:00\.000Z, started 2026-04-11T12:01:00\.000Z\./
+  );
   const telegramGroupRequest = createRuntimeTurnRequest();
   telegramGroupRequest.conversation = {
     assistantId: "assistant-1",
@@ -7142,6 +7170,7 @@ type DeveloperSectionsAccessor = {
     openLoopRefsBlock: null;
     presenceBlock: null;
     openMediaJobs: undefined;
+    openDocumentJobs: undefined;
   }): Array<{ key: string; content: string }>;
 };
 
@@ -7244,7 +7273,8 @@ export async function runRecentPdfsHintTests(): Promise<void> {
       retrievedKnowledgeContext: null,
       openLoopRefsBlock: null,
       presenceBlock: null,
-      openMediaJobs: undefined
+      openMediaJobs: undefined,
+      openDocumentJobs: undefined
     });
     const workingFiles =
       sections.find((section) => section.key === "working_files")?.content ?? null;

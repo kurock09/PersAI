@@ -19,6 +19,14 @@ A read-only architectural audit (2026-05-30) found that **prod risk is not OpenC
 
 This ADR is the **single execution program** for cleaning those seams before PROD test users. It is not a rewrite, not a new product feature wave, and not a reopen of ADR-078 backlog.
 
+### Orchestrator re-verification (2026-05-30)
+
+A second read-only pass re-checked every code-level claim against the tree (baseline `011399c8`). All substantive findings hold. Three corrections were applied to this ADR during that pass:
+
+1. **Slice 5 demoted from PROD-blocking to recommended.** OpenAPI/web contract drift is a contract-truth hygiene gap; web already works on hand-rolled types, so it is not a user-facing PROD blocker. Minimum path updated accordingly.
+2. **Slice 9 problem statement corrected.** `contracts-boundary` / `runtime-boundary` risks already escalate to the **integration** matrix (`requiresIntegration`) in `detect-affected.mjs`; they only fail to reach `requiresFullCi`. The gap is narrower than originally written.
+3. **Slice 4 scope extended.** `manage-admin-assistant-ownership.service.ts` still relies on a `P2002` unique-constraint catch that ADR-101 Slice 1 made dead by removing the `(workspaceId, userId)` uniqueness; that dead catch must be removed when the uniqueness rule is replaced.
+
 ## Non-goals
 
 - Reintroducing OpenClaw runtime/deploy wiring or compatibility shims.
@@ -95,14 +103,14 @@ Record HEAD SHA in session handoff. **Do not start Slice 1 on a dirty tree.**
 | 2 | Runtime media honesty | **yes** | DEPLOY REQUIRED |
 | 3 | Runtime open document jobs context | recommended | DEPLOY REQUIRED |
 | 4 | Multi-assistant admin tails | recommended | DEPLOY REQUIRED |
-| 5 | OpenAPI + web contract drift | **yes** | NO (unless contract-only deploy policy says otherwise) |
+| 5 | OpenAPI + web contract drift | recommended | NO (unless contract-only deploy policy says otherwise) |
 | 6 | Web assistant-switch plan refresh | no | NO |
 | 7 | Telegram inline tool-path ledger | no | DEPLOY REQUIRED |
 | 8 | Document worker LLM economics (optional) | no | DEPLOY REQUIRED |
 | 9 | CI / deploy hygiene | **yes** | NO |
 | 10 | PROD preflight smoke | **yes** | DEPLOY REQUIRED |
 
-**Minimum PROD path:** `0 → 1 → 2 → 5 → 9 → 10`.  
+**Minimum PROD path:** `0 → 1 → 2 → 9 → 10`. Slice 5 is **recommended** (contract-truth hygiene, not a user-facing PROD blocker — web already works on hand-rolled types); run it in the full cleanup before PROD if time allows.  
 **Recommended full cleanup:** all slices through 10 except optional Slice 8.
 
 ---
@@ -120,6 +128,8 @@ Record HEAD SHA in session handoff. **Do not start Slice 1 on a dirty tree.**
 ---
 
 ### Slice 1 — Runtime document honesty
+
+**Status: DONE (2026-05-30)** — `send`+`write_and_send` guarded, batch document-before-files reorder landed, projection copy fixed; tests green.
 
 **Problem:** Same-turn tool order can queue an older file before a new document job registers; `write_and_send` is not guarded; model-facing copy still mentions `deferred`.
 
@@ -163,6 +173,8 @@ corepack pnpm --filter @persai/runtime run typecheck
 
 ### Slice 2 — Runtime media honesty
 
+**Status: DONE (2026-05-30)** — deferred-media correction now always normalizes delivery-claiming text; tests green.
+
 **Problem:** Deferred media preserves model text like “готово, держи результат” while job is still open.
 
 **Scope:** Align media acknowledgement correction with document: when deferred media jobs exist and no artifacts were produced, normalize delivery-claiming assistant text to honest pending acknowledgement.
@@ -188,6 +200,8 @@ corepack pnpm --filter @persai/runtime run typecheck
 ---
 
 ### Slice 3 — Runtime open document jobs context
+
+**Status: DONE (2026-05-30)** — `RuntimeOpenDocumentJobContext` + `openDocumentJobs` added to the runtime contract, sourced via `AssistantDocumentJobReadService.listOpenJobsForRuntimeContext` in web sync/stream + Telegram and rendered as an `open_document_jobs` developer section, mirroring `openMediaJobs`; tests green.
 
 **Problem:** Runtime receives `openMediaJobs` but not open document jobs; follow-up turns lack server truth about in-flight PDF renders.
 
@@ -223,11 +237,13 @@ corepack pnpm --filter @persai/api run typecheck
 
 ### Slice 4 — Multi-assistant admin tails
 
+**Status: DONE (2026-05-30)** — ownership transfer now plan-aware (`maxAssistants`) with dead P2002 catch removed; ops cockpit web-chat counts scoped to `assistantId`; tests green.
+
 **Problem:** Admin ownership transfer still enforces MVP “1 user = 1 assistant”; Ops cockpit mixes workspace-wide web chat counts with assistant-scoped blocks.
 
 **Scope:**
 
-1. `manage-admin-assistant-ownership.service.ts`: replace global user assistant uniqueness with workspace/plan-aware rules (`assistantPolicy.maxAssistants` or equivalent honest conflict).
+1. `manage-admin-assistant-ownership.service.ts`: replace global user assistant uniqueness with workspace/plan-aware rules (`assistantPolicy.maxAssistants` or equivalent honest conflict). Also remove the now-dead `P2002` unique-constraint catch — ADR-101 Slice 1 removed the `(workspaceId, userId)` uniqueness it depended on, so that branch can no longer fire.
 2. `resolve-admin-ops-cockpit.service.ts`: scope `activeWebChats` / `archivedWebChats` and quota `activeWebChats` to `assistantId` when block is assistant-scoped.
 
 **Likely files:**
@@ -252,6 +268,8 @@ corepack pnpm --filter @persai/api run typecheck
 ---
 
 ### Slice 5 — OpenAPI + web contract drift
+
+**Status: DONE (2026-05-30)** — `AssistantWebChatMessageAttachmentState`/`...DocumentLink` + required `attachments[]`, Files read surfaces, and `stage-attachment` added to `openapi.yaml`; contracts regenerated; web client message-attachment + cleanup-summary types migrated to generated; web 78/78 + typechecks green. Note: `contracts:generate` requires a follow-up `prettier --write` on generated files before `format:check`.
 
 **Problem:** Real API returns message `attachments[]` with `fileRef`, `documentLink`, `fileDeleted`; OpenAPI `AssistantWebChatMessageState` omits attachments; Files API and stage-attachment not in contract; web uses hand-rolled types.
 
@@ -284,6 +302,8 @@ corepack pnpm --filter @persai/web run typecheck
 
 ### Slice 6 — Web assistant-switch plan refresh
 
+**Status: DONE (2026-05-30)** — `refreshAssistantScopedSlices` now also refetches `getAssistantPlanVisibility` and `setPlan`, so per-assistant plan UI no longer stays stale after switch/create; test green.
+
 **Problem:** After switch/create assistant, `refreshAssistantScopedSlices` does not refetch plan visibility.
 
 **Scope:** Add `getAssistantPlanVisibility(token)` to assistant-scoped refresh; test in `use-app-data.test.tsx`.
@@ -300,6 +320,8 @@ corepack pnpm --filter @persai/web run typecheck
 ---
 
 ### Slice 7 — Telegram inline tool-path ledger parity
+
+**Status: DONE (2026-05-30)** — completed-turn caller now forwards `runtimeResponse.toolInvocations` to the tool-path ledger; test + typecheck green.
 
 **Problem:** Telegram turn path passes `usageAccounting` to ledger append but omits `runtimeResponse.toolInvocations`; web sync passes both.
 
@@ -338,7 +360,9 @@ corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.servic
 
 ### Slice 9 — CI / deploy hygiene
 
-**Problem:** Affected PR lane skips root `format:check`; contract/runtime boundary risks may not escalate to full CI; `detect-affected.mjs` lacks automated tests; `values-dev.yaml` global image tag may lag per-service pins.
+**Status: DONE (2026-05-30)** — root `format:check` + `detect-affected` unit tests now run in the affected-quality lane; contract/runtime-boundary→integration policy and values-dev tag-pin rule documented in TEST-PLAN; tests green.
+
+**Problem:** Affected PR lane skips root `format:check`; `contracts-boundary` / `runtime-boundary` risks already escalate to the **integration** matrix (`requiresIntegration`) but never to `requiresFullCi`, so a full lint/typecheck sweep can still be skipped on contract/runtime-contract edits; `detect-affected.mjs` lacks automated tests; `values-dev.yaml` global image tag may lag per-service pins.
 
 **Scope:**
 

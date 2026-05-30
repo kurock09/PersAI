@@ -177,6 +177,10 @@ describe("useAppData", () => {
       selectedChannel: "web",
       availableChannels: ["web"]
     });
+    apiMocks.getAssistantPlanVisibility.mockResolvedValue({
+      planId: "plan-alpha",
+      displayName: "Alpha Plan"
+    });
 
     const { result } = renderHook(() => useAppData(null));
 
@@ -199,6 +203,16 @@ describe("useAppData", () => {
       }
     ]);
 
+    await waitFor(() => {
+      expect(apiMocks.getAssistantPlanVisibility).toHaveBeenCalled();
+    });
+    const planCallsBeforeSwitch = apiMocks.getAssistantPlanVisibility.mock.calls.length;
+
+    apiMocks.getAssistantPlanVisibility.mockResolvedValue({
+      planId: "plan-beta",
+      displayName: "Beta Plan"
+    });
+
     await act(async () => {
       await result.current.switchAssistant("assistant-2");
     });
@@ -209,5 +223,9 @@ describe("useAppData", () => {
     expect(apiMocks.postAssistantSwitch).toHaveBeenCalledWith("token-1", "assistant-2");
     expect(result.current.assistant?.id).toBe("assistant-2");
     expect(result.current.chats[0]?.chat.surfaceThreadKey).toBe("thread-2");
+    expect(apiMocks.getAssistantPlanVisibility.mock.calls.length).toBeGreaterThan(
+      planCallsBeforeSwitch
+    );
+    expect(result.current.plan).toEqual({ planId: "plan-beta", displayName: "Beta Plan" });
   });
 });

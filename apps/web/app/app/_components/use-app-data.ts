@@ -188,10 +188,11 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
 
   const refreshAssistantScopedSlices = useCallback(
     async (token: string) => {
-      const [chatsRes, telegramRes, preferenceRes] = await Promise.allSettled([
+      const [chatsRes, telegramRes, preferenceRes, planRes] = await Promise.allSettled([
         getAssistantWebChats(token),
         getAssistantTelegramIntegration(token),
-        getAssistantNotificationPreference(token)
+        getAssistantNotificationPreference(token),
+        getAssistantPlanVisibility(token)
       ]);
 
       if (chatsRes.status === "fulfilled") {
@@ -203,8 +204,11 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
       if (preferenceRes.status === "fulfilled") {
         setNotificationPreference(preferenceRes.value);
       }
+      if (planRes.status === "fulfilled") {
+        setPlan(planRes.value);
+      }
     },
-    [setChats, setNotificationPreference, setTelegram]
+    [setChats, setNotificationPreference, setTelegram, setPlan]
   );
 
   const runAssistantDirectoryMutation = useCallback(

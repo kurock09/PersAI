@@ -133,6 +133,7 @@ const PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
 const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 const APPROX_CHARS_PER_TOKEN = 4;
 const MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS = 4;
+const MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS = 4;
 const MAX_MODEL_VISIBLE_WORKING_FILES = 20;
 const MAX_WORKING_FILE_MICRO_DESCRIPTION_CHARS = 120;
 const WORKING_FILE_REF_SUFFIX_HEX_LENGTH = 8;
@@ -327,6 +328,7 @@ type DeveloperInstructionSectionKey =
   | "working_files"
   | "retrieved_knowledge"
   | "open_media_jobs"
+  | "open_document_jobs"
   | "presence"
   | "tool_follow_up"
   | "deferred_media_follow_up"
@@ -667,7 +669,8 @@ export class TurnExecutionService {
       retrievedKnowledgeContext: plannedRetrievedKnowledgeContext,
       openLoopRefsBlock,
       presenceBlock,
-      openMediaJobs: input.openMediaJobs
+      openMediaJobs: input.openMediaJobs,
+      openDocumentJobs: input.openDocumentJobs
     });
     const promptMode = options?.promptMode ?? "chat";
     const providerRequest = this.buildProviderRequest(
@@ -1122,7 +1125,7 @@ export class TurnExecutionService {
 
               let durableCompactionExecuted = false;
               const plannedToolExecutions = this.planToolExecutions(
-                event.result.toolCalls,
+                this.reorderToolCallsDocumentFirst(event.result.toolCalls),
                 toolBudgetPolicy,
                 iteration
               );
@@ -1766,6 +1769,7 @@ export class TurnExecutionService {
     openLoopRefsBlock: string | null;
     presenceBlock: string | null;
     openMediaJobs: RuntimeTurnRequest["openMediaJobs"];
+    openDocumentJobs: RuntimeTurnRequest["openDocumentJobs"];
   }): DeveloperInstructionSection[] {
     const routingGuidance = this.buildTurnRoutingPrompt(
       input.projectedTools,
@@ -1780,6 +1784,9 @@ export class TurnExecutionService {
     );
     const openLoopRefsSection = this.normalizeOptionalText(input.openLoopRefsBlock);
     const openMediaJobsSection = this.buildOpenMediaJobsDeveloperSection(input.openMediaJobs);
+    const openDocumentJobsSection = this.buildOpenDocumentJobsDeveloperSection(
+      input.openDocumentJobs
+    );
     // ADR-077 follow-up: `promptDocuments.heartbeat` is now the dedicated
     // Background Task Evaluation prompt. It must never be appended to a normal
     // user-visible chat turn; otherwise the main assistant may return service
@@ -1799,6 +1806,7 @@ export class TurnExecutionService {
       { key: "working_files", content: workingFilesSection },
       { key: "retrieved_knowledge", content: retrievedKnowledgeSection },
       { key: "open_media_jobs", content: openMediaJobsSection },
+      { key: "open_document_jobs", content: openDocumentJobsSection },
       { key: "presence", content: presenceSection }
     ]);
   }
@@ -1957,6 +1965,28 @@ export class TurnExecutionService {
             ? `created ${job.createdAt}, not started yet`
             : `created ${job.createdAt}, started ${job.startedAt}`;
         return `${index + 1}. ${job.toolCode} job is ${job.status}; ${ageLine}.`;
+      })
+    ];
+    return lines.join("\n");
+  }
+
+  private buildOpenDocumentJobsDeveloperSection(
+    openDocumentJobs: RuntimeTurnRequest["openDocumentJobs"]
+  ): string | null {
+    if (openDocumentJobs === undefined || openDocumentJobs.length === 0) {
+      return null;
+    }
+    const lines = [
+      "## Open Document Jobs",
+      "Server truth: background document rendering is already in progress in this chat.",
+      "Use this status block for any progress reply in the current turn.",
+      "Do not start a new document job unless the current user turn is clearly asking for a separate new document task.",
+      ...openDocumentJobs.slice(0, MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS).map((job, index) => {
+        const ageLine =
+          job.startedAt === null
+            ? `created ${job.createdAt}, not started yet`
+            : `created ${job.createdAt}, started ${job.startedAt}`;
+        return `${index + 1}. ${job.descriptorMode} (${job.documentType}) job is ${job.status}; ${ageLine}.`;
       })
     ];
     return lines.join("\n");
@@ -2468,7 +2498,7 @@ export class TurnExecutionService {
 
       let durableCompactionExecuted = false;
       const plannedToolExecutions = this.planToolExecutions(
-        providerResult.toolCalls,
+        this.reorderToolCallsDocumentFirst(providerResult.toolCalls),
         toolBudgetPolicy,
         iteration
       );
@@ -2556,6 +2586,28 @@ export class TurnExecutionService {
       reservation: toolBudgetPolicy.reserve(toolCall.name, iteration),
       parallelSafe: SAFE_PARALLEL_TOOL_CODES.has(toolCall.name)
     }));
+  }
+
+  /**
+   * Stable reorder of a single provider tool-call batch: all `document` entries
+   * precede all `files` entries. Only activates when the batch contains both;
+   * otherwise returns the original array unchanged. Relative order is preserved
+   * within the document group, within the files group, and among all other tools.
+   */
+  private reorderToolCallsDocumentFirst(
+    toolCalls: readonly ProviderGatewayToolCall[]
+  ): readonly ProviderGatewayToolCall[] {
+    const hasDocument = toolCalls.some((tc) => tc.name === DOCUMENT_TOOL_CODE);
+    const hasFiles = toolCalls.some((tc) => tc.name === FILES_TOOL_CODE);
+    if (!hasDocument || !hasFiles) {
+      return toolCalls;
+    }
+    const docCalls = toolCalls.filter((tc) => tc.name === DOCUMENT_TOOL_CODE);
+    const otherCalls = toolCalls.filter(
+      (tc) => tc.name !== DOCUMENT_TOOL_CODE && tc.name !== FILES_TOOL_CODE
+    );
+    const filesCalls = toolCalls.filter((tc) => tc.name === FILES_TOOL_CODE);
+    return [...docCalls, ...otherCalls, ...filesCalls];
   }
 
   private findToolExecutionChunkEnd(
@@ -2733,14 +2785,15 @@ export class TurnExecutionService {
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
       case FILES_TOOL_CODE: {
+        const requestedFilesAction = this.readFilesRequestedAction(toolCall.arguments);
         if (
           currentDeferredDocumentJobs.length > 0 &&
-          this.readFilesRequestedAction(toolCall.arguments) === "send"
+          (requestedFilesAction === "send" || requestedFilesAction === "write_and_send")
         ) {
           return this.createToolExecutionOutcome(toolCall, {
             toolCode: "files",
             executionMode: "inline",
-            requestedAction: "send",
+            requestedAction: requestedFilesAction,
             action: "skipped",
             reason: "document_pending_delivery",
             warning:
@@ -3860,9 +3913,7 @@ export class TurnExecutionService {
     if (deferredMediaJobs.length === 0 || artifacts.length > 0) {
       return normalizedText;
     }
-    return normalizedText.length > 0
-      ? normalizedText
-      : this.buildDeferredMediaAcknowledgement(locale, deferredMediaJobs);
+    return this.buildDeferredMediaAcknowledgement(locale, deferredMediaJobs);
   }
 
   private applyDeferredDocumentAcknowledgementCorrection(
@@ -4710,7 +4761,8 @@ export class TurnExecutionService {
       retrievedKnowledgeContext: execution.retrievedKnowledgeContext,
       openLoopRefsBlock,
       presenceBlock,
-      openMediaJobs: input.openMediaJobs
+      openMediaJobs: input.openMediaJobs,
+      openDocumentJobs: input.openDocumentJobs
     });
     execution.developerInstructionSections = developerInstructionSections;
     return this.buildProviderRequest(

@@ -5671,6 +5671,204 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chat/web/stage-attachment:
+    post:
+      operationId: postAssistantWebChatStageAttachment
+      summary: Stage a file attachment for an upcoming web chat turn
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - surfaceThreadKey
+                - file
+              properties:
+                surfaceThreadKey:
+                  type: string
+                clientTurnId:
+                  type: string
+                clientAttachmentId:
+                  type: string
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Staged attachment state with provisional chat and message identifiers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StageAttachmentResponse"
+        "400":
+          description: Validation error (missing surfaceThreadKey or file)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: File not provided
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/files:
+    get:
+      operationId: getAssistantFiles
+      summary: List assistant-owned files in the file registry
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional search query to filter files by name
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Maximum number of files to return (1–100, default 50)
+      responses:
+        "200":
+          description: File list with cleanup eligibility summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantFilesResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/files/{fileRef}:
+    get:
+      operationId: getAssistantFile
+      summary: Get a single assistant file record by its fileRef
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: fileRef
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Single file state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantFileResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/files/{fileRef}/download:
+    get:
+      operationId: getAssistantFileDownload
+      summary: Download the raw binary content of an assistant file
+      description: |
+        Returns the file content as binary with the appropriate Content-Type header.
+        Supports Range requests (RFC 7233) for partial content delivery to media players.
+        Add `?download=1` to force Content-Disposition attachment mode.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: fileRef
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: download
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "1"
+          description: Set to "1" to force Content-Disposition attachment (download prompt)
+      responses:
+        "200":
+          description: File binary content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: Partial file content (Range request satisfied)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "416":
+          description: Range not satisfiable
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /app/bootstrap:
     get:
       operationId: getAppBootstrap
@@ -10350,6 +10548,77 @@ components:
         updatedAt:
           type: string
           format: date-time
+    AssistantWebChatMessageAttachmentDocumentLink:
+      type: object
+      required:
+        - docId
+        - versionId
+        - versionNumber
+        - descriptorMode
+        - documentType
+        - documentStatus
+        - versionStatus
+        - isCurrentOutput
+      properties:
+        docId:
+          type: string
+        versionId:
+          type: string
+        versionNumber:
+          type: integer
+          nullable: true
+        descriptorMode:
+          type: string
+          nullable: true
+        documentType:
+          type: string
+          nullable: true
+        documentStatus:
+          type: string
+          nullable: true
+        versionStatus:
+          type: string
+          nullable: true
+        isCurrentOutput:
+          type: boolean
+    AssistantWebChatMessageAttachmentState:
+      type: object
+      required:
+        - id
+        - fileRef
+        - attachmentType
+        - originalFilename
+        - mimeType
+        - sizeBytes
+        - processingStatus
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileRef:
+          type: string
+          nullable: true
+        attachmentType:
+          type: string
+        originalFilename:
+          type: string
+          nullable: true
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+        processingStatus:
+          type: string
+        fileDeleted:
+          type: boolean
+        documentLink:
+          allOf:
+            - $ref: "#/components/schemas/AssistantWebChatMessageAttachmentDocumentLink"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
     AssistantWebChatMessageState:
       type: object
       required:
@@ -10358,6 +10627,7 @@ components:
         - assistantId
         - author
         - content
+        - attachments
         - createdAt
       properties:
         id:
@@ -10373,6 +10643,10 @@ components:
           $ref: "#/components/schemas/AssistantChatMessageAuthor"
         content:
           type: string
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatMessageAttachmentState"
         createdAt:
           type: string
           format: date-time
@@ -15148,6 +15422,188 @@ components:
           nullable: true
         challenge:
           $ref: "#/components/schemas/AdminStepUpChallengeState"
+    AssistantFileDocumentLink:
+      type: object
+      required:
+        - docId
+        - versionId
+        - versionNumber
+        - descriptorMode
+        - documentType
+        - documentStatus
+        - versionStatus
+        - isCurrentOutput
+      properties:
+        docId:
+          type: string
+        versionId:
+          type: string
+        versionNumber:
+          type: integer
+          nullable: true
+        descriptorMode:
+          type: string
+          nullable: true
+        documentType:
+          type: string
+          nullable: true
+        documentStatus:
+          type: string
+          nullable: true
+        versionStatus:
+          type: string
+          nullable: true
+        isCurrentOutput:
+          type: boolean
+    AssistantFileState:
+      type: object
+      required:
+        - fileRef
+        - origin
+        - displayName
+        - filename
+        - mimeType
+        - sizeBytes
+        - logicalSizeBytes
+        - fileBucket
+        - cleanupEligible
+        - cleanupReason
+        - documentLink
+        - createdAt
+      properties:
+        fileRef:
+          type: string
+        origin:
+          type: string
+          enum:
+            - uploaded_attachment
+            - runtime_output
+            - sandbox_output
+        displayName:
+          type: string
+          nullable: true
+        filename:
+          type: string
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+        logicalSizeBytes:
+          type: integer
+          nullable: true
+        fileBucket:
+          type: string
+          enum:
+            - user_files
+            - assistant_created
+            - documents
+            - media_uploads
+            - cache_history
+        cleanupEligible:
+          type: boolean
+        cleanupReason:
+          type: string
+          nullable: true
+          enum:
+            - voice_upload_cache
+        documentLink:
+          allOf:
+            - $ref: "#/components/schemas/AssistantFileDocumentLink"
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    AssistantFilesCleanupSummary:
+      type: object
+      required:
+        - eligibleCount
+        - eligibleBytes
+      properties:
+        eligibleCount:
+          type: integer
+        eligibleBytes:
+          type: integer
+    GetAssistantFilesResponse:
+      type: object
+      required:
+        - files
+        - cleanup
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantFileState"
+        cleanup:
+          $ref: "#/components/schemas/AssistantFilesCleanupSummary"
+    GetAssistantFileResponse:
+      type: object
+      required:
+        - file
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        file:
+          $ref: "#/components/schemas/AssistantFileState"
+    StageAttachmentAttachment:
+      type: object
+      required:
+        - id
+        - messageId
+        - chatId
+        - attachmentType
+        - mimeType
+        - sizeBytes
+        - processingStatus
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileRef:
+          type: string
+          nullable: true
+        messageId:
+          type: string
+          format: uuid
+        chatId:
+          type: string
+          format: uuid
+        attachmentType:
+          type: string
+        originalFilename:
+          type: string
+          nullable: true
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+        processingStatus:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    StageAttachmentResponse:
+      type: object
+      required:
+        - chatId
+        - messageId
+        - attachment
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        chatId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
+        attachment:
+          $ref: "#/components/schemas/StageAttachmentAttachment"
     ErrorEnvelope:
       type: object
       required:

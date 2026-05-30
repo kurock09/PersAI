@@ -282,6 +282,16 @@ async function run(): Promise<void> {
           };
         }) {
           if (args?.where?.assistantId === "assistant-1") {
+            if (args.where.surface === "web" && args.where.archivedAt === null) {
+              return 7;
+            }
+            if (
+              args.where.surface === "web" &&
+              typeof args.where.archivedAt === "object" &&
+              args.where.archivedAt !== null
+            ) {
+              return 3;
+            }
             return 9;
           }
           if (
@@ -605,6 +615,11 @@ async function run(): Promise<void> {
     ]);
     assert.equal(result.quotaUsage?.tokenBudgetUsed, 3200);
     assert.equal(result.quotaUsage?.tokenBudgetPeriodSource, "subscription_period");
+    assert.equal(
+      result.quotaUsage?.activeWebChats,
+      7,
+      "activeWebChats must be scoped to the assistant (assistant-1 has 7), not workspace-wide (ws-1 has 2)"
+    );
     assert.deepEqual(result.quotaUsage?.monthlyMediaTools, [
       {
         toolCode: "image_generate",

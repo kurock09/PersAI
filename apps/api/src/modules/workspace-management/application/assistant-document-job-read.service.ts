@@ -4,6 +4,7 @@ import type {
   AssistantDocumentRenderJobStatus,
   AssistantDocumentType
 } from "@prisma/client";
+import type { RuntimeOpenDocumentJobContext } from "@persai/runtime-contract";
 import type { AssistantWebChatActiveDocumentJobState } from "./web-chat.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
@@ -19,6 +20,23 @@ function toWebOpenDocumentJobStatus(
       return status;
     default:
       throw new Error(`Unexpected closed document job status in open-job query: ${status}`);
+  }
+}
+
+function toRuntimeOpenDocumentJobStatus(
+  status: AssistantDocumentRenderJobStatus
+): RuntimeOpenDocumentJobContext["status"] {
+  switch (status) {
+    case "queued":
+      return "queued";
+    case "running":
+    case "provider_processing":
+      return "running";
+    case "fetching_output":
+    case "ready_for_delivery":
+      return "completion_pending";
+    default:
+      throw new Error(`Unexpected closed document job status in runtime context query: ${status}`);
   }
 }
 
@@ -84,6 +102,54 @@ export class AssistantDocumentJobReadService {
         row.document.documentType
       ),
       status: toWebOpenDocumentJobStatus(row.status),
+      createdAt: row.createdAt.toISOString(),
+      startedAt: row.startedAt?.toISOString() ?? null,
+      updatedAt: row.updatedAt.toISOString()
+    }));
+  }
+
+  async listOpenJobsForRuntimeContext(input: {
+    assistantId: string;
+    userId: string;
+    chatId: string;
+  }): Promise<RuntimeOpenDocumentJobContext[]> {
+    const rows = await this.prisma.assistantDocumentRenderJob.findMany({
+      where: {
+        assistantId: input.assistantId,
+        userId: input.userId,
+        chatId: input.chatId,
+        status: {
+          in: ["queued", "running", "provider_processing", "fetching_output", "ready_for_delivery"]
+        }
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        startedAt: true,
+        updatedAt: true,
+        version: {
+          select: {
+            descriptorMode: true
+          }
+        },
+        document: {
+          select: {
+            documentType: true
+          }
+        }
+      }
+    });
+
+    return rows.map((row) => ({
+      jobId: row.id,
+      descriptorMode: normalizeDescriptorMode(
+        row.version?.descriptorMode,
+        row.document.documentType
+      ),
+      documentType: row.document.documentType,
+      status: toRuntimeOpenDocumentJobStatus(row.status),
       createdAt: row.createdAt.toISOString(),
       startedAt: row.startedAt?.toISOString() ?? null,
       updatedAt: row.updatedAt.toISOString()

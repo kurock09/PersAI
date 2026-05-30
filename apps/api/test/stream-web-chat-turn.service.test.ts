@@ -87,7 +87,8 @@ function createSkillStatePersistenceServiceMock() {
 
 function createAssistantDocumentJobReadServiceMock() {
   return {
-    listOpenJobsForWebChat: async () => []
+    listOpenJobsForWebChat: async () => [],
+    listOpenJobsForRuntimeContext: async () => []
   };
 }
 

@@ -2367,6 +2367,7 @@ export interface RuntimeTurnRequest {
   channelContext?: RuntimeChannelContext;
   message: RuntimeInboundMessage;
   openMediaJobs?: RuntimeOpenMediaJobContext[];
+  openDocumentJobs?: RuntimeOpenDocumentJobContext[];
   chatMode?: "normal" | "smart" | "project";
   deepMode?: boolean;
   modelRoleOverride?: PersaiRuntimeModelRole;
@@ -2379,6 +2380,20 @@ export interface RuntimeOpenMediaJobContext {
   jobId: string;
   kind: "image" | "audio" | "video";
   toolCode: "image_generate" | "image_edit" | "video_generate" | "audio_generate";
+  status: "queued" | "running" | "completion_pending";
+  createdAt: IsoTimestamp;
+  startedAt: IsoTimestamp | null;
+  updatedAt: IsoTimestamp;
+}
+
+export interface RuntimeOpenDocumentJobContext {
+  jobId: string;
+  descriptorMode:
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver";
+  documentType: "pdf_document" | "presentation";
   status: "queued" | "running" | "completion_pending";
   createdAt: IsoTimestamp;
   startedAt: IsoTimestamp | null;

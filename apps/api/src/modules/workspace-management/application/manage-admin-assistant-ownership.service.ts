@@ -1,13 +1,18 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException
 } from "@nestjs/common";
-import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import {
+  ASSISTANT_PLAN_CATALOG_REPOSITORY,
+  type AssistantPlanCatalogRepository
+} from "../domain/assistant-plan-catalog.repository";
+import { resolveAssistantPolicy } from "./assistant-policy";
 
 export type OwnershipFlowMode = "transfer" | "recovery";
 
@@ -75,6 +80,8 @@ export class ManageAdminAssistantOwnershipService {
   constructor(
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
+    private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -190,33 +197,36 @@ export class ManageAdminAssistantOwnershipService {
     if (targetMembership === null) {
       throw new ConflictException("Target owner must be a member of assistant workspace.");
     }
-    const targetExistingAssistant = await this.prisma.assistant.findFirst({
-      where: { userId: params.targetOwnerUserId },
-      orderBy: { createdAt: "asc" }
+    const workspaceSubscription = await this.prisma.workspaceSubscription.findUnique({
+      where: { workspaceId: assistant.workspaceId },
+      select: { planCode: true }
     });
-    if (targetExistingAssistant !== null && targetExistingAssistant.id !== assistant.id) {
+    const plan = workspaceSubscription?.planCode
+      ? await this.assistantPlanCatalogRepository.findByCode(workspaceSubscription.planCode)
+      : await this.assistantPlanCatalogRepository.findDefaultRegistrationPlan();
+    const maxAssistants = resolveAssistantPolicy({
+      billingProviderHints: plan?.billingProviderHints ?? null
+    }).maxAssistants;
+    const targetCurrentCount = await this.prisma.assistant.count({
+      where: {
+        userId: params.targetOwnerUserId,
+        workspaceId: assistant.workspaceId,
+        id: { not: assistant.id }
+      }
+    });
+    if (targetCurrentCount + 1 > maxAssistants) {
       throw new ConflictException(
-        "Target owner already has an assistant in MVP (1 user = 1 assistant)."
+        `Target owner already has the maximum number of assistants allowed by their plan (${maxAssistants}).`
       );
     }
 
-    let updatedAssistantUserId = assistant.userId;
-    try {
-      const updatedAssistant = await this.prisma.assistant.update({
-        where: { id: assistant.id },
-        data: {
-          userId: params.targetOwnerUserId
-        }
-      });
-      updatedAssistantUserId = updatedAssistant.userId;
-    } catch (error) {
-      if (error instanceof PrismaClientKnownRequestError && error.code === "P2002") {
-        throw new ConflictException(
-          "Target owner already has an assistant in MVP (1 user = 1 assistant)."
-        );
+    const updatedAssistant = await this.prisma.assistant.update({
+      where: { id: assistant.id },
+      data: {
+        userId: params.targetOwnerUserId
       }
-      throw error;
-    }
+    });
+    const updatedAssistantUserId = updatedAssistant.userId;
 
     const eventCode =
       params.mode === "transfer"

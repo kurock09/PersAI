@@ -145,7 +145,9 @@ import {
   type GetNotificationDeliveriesResponse,
   type GetNotificationDeadLettersResponse,
   type ListNotificationDeliveriesParams,
-  type ListNotificationDeadLettersParams
+  type ListNotificationDeadLettersParams,
+  type AssistantWebChatMessageAttachmentState,
+  type AssistantFilesCleanupSummary
 } from "@persai/contracts";
 export type {
   AssistantBillingSubscriptionActionResult,
@@ -2320,18 +2322,8 @@ export async function uploadAssistantAvatar(
   return (await res.json()) as { avatarUrl: string };
 }
 
-export type ChatHistoryAttachment = {
-  id: string;
-  fileRef: string | null;
-  attachmentType: string;
-  originalFilename: string | null;
-  mimeType: string;
-  sizeBytes: number;
-  processingStatus: string;
-  fileDeleted?: boolean;
-  documentLink?: AssistantFileDocumentLink | null;
-  createdAt: string;
-};
+export type { AssistantWebChatMessageAttachmentState };
+export type ChatHistoryAttachment = AssistantWebChatMessageAttachmentState;
 
 export type ChatHistoryMessage = {
   id: string;
@@ -4313,10 +4305,7 @@ export type AssistantFileDocumentLink = {
   isCurrentOutput: boolean;
 };
 
-export type AssistantFilesCleanupSummary = {
-  eligibleCount: number;
-  eligibleBytes: number;
-};
+export type { AssistantFilesCleanupSummary };
 
 export type AssistantFilesCleanupResult = AssistantFilesCleanupSummary & {
   deletedCount: number;

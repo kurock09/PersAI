@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import { ManageAdminAssistantOwnershipService } from "../src/modules/workspace-management/application/manage-admin-assistant-ownership.service";
 
-async function run(): Promise<void> {
-  const auditEvents: unknown[] = [];
-  const service = new ManageAdminAssistantOwnershipService(
+function buildService(options: {
+  targetAssistantCount?: number;
+  maxAssistantsFromPlan?: number | null;
+  auditEvents?: unknown[];
+}) {
+  const auditEvents = options.auditEvents ?? [];
+
+  const billingProviderHints =
+    options.maxAssistantsFromPlan != null && options.maxAssistantsFromPlan > 1
+      ? { assistantPolicy: { maxAssistants: options.maxAssistantsFromPlan } }
+      : null;
+
+  return new ManageAdminAssistantOwnershipService(
     {
       assertCanPerformDangerousAdminAction: async () => ({
         userId: "admin-1",
@@ -17,8 +27,12 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      findByCode: async () => ({ billingProviderHints }) as never,
+      findDefaultRegistrationPlan: async () => null
+    } as never,
+    {
       assistant: {
-        findUnique: async ({ where }: { where: { id?: string; userId?: string } }) => {
+        findUnique: async ({ where }: { where: { id?: string } }) => {
           if (where.id === "assistant-1") {
             return {
               id: "assistant-1",
@@ -26,21 +40,17 @@ async function run(): Promise<void> {
               workspaceId: "ws-1"
             };
           }
-          if (where.userId === "user-new") {
-            return null;
-          }
           return null;
         },
-        findFirst: async ({
+        count: async ({
           where
         }: {
-          where: { userId?: string };
-          orderBy: { createdAt: "asc" | "desc" };
+          where: { userId?: string; workspaceId?: string; id?: unknown };
         }) => {
           if (where.userId === "user-new") {
-            return null;
+            return options.targetAssistantCount ?? 0;
           }
-          return null;
+          return 0;
         },
         update: async () => ({
           id: "assistant-1",
@@ -52,9 +62,19 @@ async function run(): Promise<void> {
         findUnique: async () => ({
           id: "wm-1"
         })
+      },
+      workspaceSubscription: {
+        findUnique: async () => ({
+          planCode: "pro"
+        })
       }
     } as never
   );
+}
+
+async function run(): Promise<void> {
+  const auditEvents: unknown[] = [];
+  const service = buildService({ targetAssistantCount: 0, auditEvents });
 
   const transferInput = service.parseTransferInput({
     assistantId: "assistant-1",
@@ -79,6 +99,39 @@ async function run(): Promise<void> {
   assert.equal(recovery.mode, "recovery");
   assert.equal(recovery.supportTicketRef, "SUP-123");
   assert.equal(auditEvents.length, 2);
+
+  // Target already at plan limit (maxAssistants=1, target has 1): transfer must be blocked.
+  const atLimitService = buildService({ targetAssistantCount: 1, maxAssistantsFromPlan: null });
+  const blockedInput = atLimitService.parseTransferInput({
+    assistantId: "assistant-1",
+    currentOwnerUserId: "user-old",
+    targetOwnerUserId: "user-new",
+    reason: "should be blocked"
+  });
+  await assert.rejects(
+    () => atLimitService.transferOwnership("admin-1", blockedInput, "step-up-token"),
+    (err: Error) => {
+      assert.ok(err.message.includes("maximum number of assistants"), `unexpected: ${err.message}`);
+      assert.ok(err.message.includes("1"), `expected limit 1 in: ${err.message}`);
+      return true;
+    }
+  );
+
+  // Target has 1 existing assistant but plan allows 3: transfer must be allowed.
+  const multiPlanService = buildService({ targetAssistantCount: 1, maxAssistantsFromPlan: 3 });
+  const multiInput = multiPlanService.parseTransferInput({
+    assistantId: "assistant-1",
+    currentOwnerUserId: "user-old",
+    targetOwnerUserId: "user-new",
+    reason: "multi-assistant workspace transfer"
+  });
+  const multiResult = await multiPlanService.transferOwnership(
+    "admin-1",
+    multiInput,
+    "step-up-token"
+  );
+  assert.equal(multiResult.mode, "transfer");
+  assert.equal(multiResult.newOwnerUserId, "user-new");
 }
 
 void run();

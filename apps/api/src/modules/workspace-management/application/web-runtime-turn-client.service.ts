@@ -3,6 +3,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import type {
   RuntimeOpenMediaJobContext,
+  RuntimeOpenDocumentJobContext,
   RuntimeAttachmentRef,
   RuntimeSkillStateCheckResult,
   RuntimeSkillStateContext,
@@ -36,6 +37,7 @@ export interface WebRuntimeTurnClientInput {
   userMessage: string;
   attachments: RuntimeAttachmentRef[];
   openMediaJobs?: RuntimeOpenMediaJobContext[];
+  openDocumentJobs?: RuntimeOpenDocumentJobContext[];
   userTimezone?: string;
   currentTimeIso?: string;
   chatMode?: RuntimeTurnRequest["chatMode"];
@@ -122,6 +124,7 @@ export class WebRuntimeTurnClientService {
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
       ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
+      ...(input.openDocumentJobs === undefined ? {} : { openDocumentJobs: input.openDocumentJobs }),
       ...(input.chatMode === undefined ? {} : { chatMode: input.chatMode }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
@@ -257,6 +260,7 @@ export class WebRuntimeTurnClientService {
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
       ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
+      ...(input.openDocumentJobs === undefined ? {} : { openDocumentJobs: input.openDocumentJobs }),
       ...(input.chatMode === undefined ? {} : { chatMode: input.chatMode }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined

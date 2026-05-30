@@ -73,39 +73,46 @@ const deployableAppIds = allAppIds.filter((projectId) =>
   Object.prototype.hasOwnProperty.call(APP_METADATA, projectId)
 );
 
-const diffFiles = changedFilesOverride
-  ? parseChangedFiles(changedFilesOverride)
-  : getChangedFiles(baseRef, headRef, eventName);
-const result = detectAffected(diffFiles);
+// Guard: only execute as a CLI when run directly (not when imported by tests).
+const isMain =
+  process.argv[1] != null &&
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
-if (outputPath) {
-  writeGithubOutput(outputPath, result);
+if (isMain) {
+  const diffFiles = changedFilesOverride
+    ? parseChangedFiles(changedFilesOverride)
+    : getChangedFiles(baseRef, headRef, eventName);
+  const result = detectAffected(diffFiles);
+
+  if (outputPath) {
+    writeGithubOutput(outputPath, result);
+  }
+
+  if (summaryPath) {
+    writeGithubSummary(summaryPath, result);
+  }
+
+  const output = {
+    baseRef: result.baseRef,
+    headRef: result.headRef,
+    changedFiles: result.changedFiles,
+    flags: {
+      docsOnly: result.docsOnly,
+      testOnly: result.testOnly,
+      runHelmValidation: result.runHelmValidation,
+      migrationChanged: result.migrationChanged,
+      requiresIntegration: result.requiresIntegration,
+      requiresFullCi: result.requiresFullCi
+    },
+    risks: result.riskReasons,
+    affectedProjects: result.affectedProjects,
+    appTestTargets: result.appTestTargets,
+    deployServices: result.deployServices,
+    summary: result.summary
+  };
+
+  process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
 }
-
-if (summaryPath) {
-  writeGithubSummary(summaryPath, result);
-}
-
-const output = {
-  baseRef: result.baseRef,
-  headRef: result.headRef,
-  changedFiles: result.changedFiles,
-  flags: {
-    docsOnly: result.docsOnly,
-    testOnly: result.testOnly,
-    runHelmValidation: result.runHelmValidation,
-    migrationChanged: result.migrationChanged,
-    requiresIntegration: result.requiresIntegration,
-    requiresFullCi: result.requiresFullCi
-  },
-  risks: result.riskReasons,
-  affectedProjects: result.affectedProjects,
-  appTestTargets: result.appTestTargets,
-  deployServices: result.deployServices,
-  summary: result.summary
-};
-
-process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
 
 function detectAffected(changedFiles) {
   const changedProjectIds = new Set();
@@ -762,3 +769,5 @@ function isPackageTestFile(file) {
     /^(packages|services)\/[^/]+\/.*\.test\.[^/]+$/u.test(file)
   );
 }
+
+export { detectAffected };

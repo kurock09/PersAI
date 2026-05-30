@@ -69,7 +69,8 @@ function createQuotaAdvisoryFollowUpServiceMock() {
 
 function createAssistantDocumentJobReadServiceMock() {
   return {
-    listOpenJobsForWebChat: async () => []
+    listOpenJobsForWebChat: async () => [],
+    listOpenJobsForRuntimeContext: async () => []
   };
 }
 
@@ -376,6 +377,123 @@ describe("SendWebChatTurnService", () => {
       executionMode: "premium",
       source: "llm"
     });
+  });
+
+  test("forwards open document jobs from document read service to runtime client", async () => {
+    let capturedOpenDocumentJobs: unknown[] | undefined;
+
+    const service = new SendWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:02.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        completeWebTurnProcessing: async () => undefined,
+        releaseWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async (input: { userMessage: string; openDocumentJobs?: unknown[] }) => {
+          capturedOpenDocumentJobs = input.openDocumentJobs;
+          return {
+            assistantMessage: "native",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            media: [],
+            turnRouting: { mode: "shadow", executionMode: "premium", source: "llm" }
+          };
+        }
+      } as never,
+      {
+        execute: async () => ({
+          chat: {
+            id: "chat-1",
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: "Chat",
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: "2026-04-05T12:00:00.000Z",
+            updatedAt: "2026-04-05T12:00:00.000Z"
+          },
+          userMessage: {
+            id: "user-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "документ готов?",
+            attachments: [],
+            createdAt: "2026-04-05T12:00:00.000Z"
+          },
+          assistant: { id: "assistant-1", workspaceId: "workspace-1" },
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          quotaDegradeModelOverride: null,
+          quotaDegradeReason: null,
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          workspaceTimezone: "UTC"
+        })
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1",
+          assistant: { workspaceId: "workspace-1" }
+        })
+      } as never,
+      { execute: async () => undefined } as never,
+      { recordWebChatTurnUsage: async () => undefined } as never,
+      { recordChatMainReplyEvents: async () => 0 } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      {
+        listOpenJobsForWebChat: async () => [],
+        listOpenJobsForRuntimeContext: async () => [
+          {
+            jobId: "doc-job-1",
+            descriptorMode: "create_pdf_document",
+            documentType: "pdf_document",
+            status: "running",
+            createdAt: "2026-04-05T11:59:00.000Z",
+            startedAt: "2026-04-05T11:59:10.000Z",
+            updatedAt: "2026-04-05T11:59:30.000Z"
+          }
+        ]
+      } as never,
+      { deliver: async () => ({ attachments: [] }) } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createQuotaAdvisoryFollowUpServiceMock() as never
+    );
+
+    await service.execute("user-1", { surfaceThreadKey: "thread-1", message: "документ готов?" });
+
+    assert.deepEqual(capturedOpenDocumentJobs, [
+      {
+        jobId: "doc-job-1",
+        descriptorMode: "create_pdf_document",
+        documentType: "pdf_document",
+        status: "running",
+        createdAt: "2026-04-05T11:59:00.000Z",
+        startedAt: "2026-04-05T11:59:10.000Z",
+        updatedAt: "2026-04-05T11:59:30.000Z"
+      }
+    ]);
   });
 
   test("forces classifier drift checks for background skill rechecks", async () => {

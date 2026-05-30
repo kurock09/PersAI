@@ -151,4 +151,122 @@ describe("deferred document acknowledgement", () => {
     assert.equal(outcome.payload.action, "skipped");
     assert.equal(outcome.payload.reason, "document_pending_delivery");
   });
+
+  test("blocks files.write_and_send while a document from the same turn is pending delivery", async () => {
+    const service = createBareTurnExecutionService() as unknown as {
+      executeProjectedToolCall: (
+        execution: unknown,
+        acceptedTurn: unknown,
+        input: unknown,
+        toolCall: { id: string; name: string; arguments: Record<string, unknown> },
+        currentUserMessageId: string | null,
+        currentArtifacts: unknown[],
+        currentFileRefs: unknown[],
+        currentDeferredDocumentJobs: Array<{
+          jobId: string;
+          toolCode: "document";
+          descriptorMode: "create_pdf_document";
+          documentType: "pdf_document";
+        }>
+      ) => Promise<{
+        payload: { action?: string; reason?: string | null; requestedAction?: string | null };
+      }>;
+    };
+
+    const outcome = await service.executeProjectedToolCall(
+      {
+        projectedTools: { tools: [{ name: "files" }] },
+        bundle: {
+          runtime: {
+            sharedCompaction: {
+              summarizeToolCode: "summarize_context",
+              compactToolCode: "compact_context"
+            }
+          }
+        }
+      },
+      {},
+      {},
+      {
+        id: "tool-files-was-1",
+        name: "files",
+        arguments: { action: "write_and_send", alias: "result.pdf", content: "..." }
+      },
+      "user-message-2",
+      [],
+      [],
+      [
+        {
+          jobId: "doc-job-2",
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          documentType: "pdf_document"
+        }
+      ]
+    );
+
+    assert.equal(outcome.payload.action, "skipped");
+    assert.equal(outcome.payload.reason, "document_pending_delivery");
+    assert.equal(outcome.payload.requestedAction, "write_and_send");
+  });
+
+  test("reorders batch so document executes before files.send when model emits files.send first", () => {
+    const service = createBareTurnExecutionService() as unknown as {
+      reorderToolCallsDocumentFirst: (
+        toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>
+      ) => Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+    };
+
+    const reordered = service.reorderToolCallsDocumentFirst([
+      { id: "tc-files-1", name: "files", arguments: { action: "send" } },
+      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "create_pdf_document" } }
+    ]);
+
+    assert.equal(reordered[0]?.name, "document");
+    assert.equal(reordered[1]?.name, "files");
+  });
+
+  test("reorderToolCallsDocumentFirst preserves relative order within document and files groups", () => {
+    const service = createBareTurnExecutionService() as unknown as {
+      reorderToolCallsDocumentFirst: (
+        toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>
+      ) => Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+    };
+
+    const reordered = service.reorderToolCallsDocumentFirst([
+      { id: "tc-files-1", name: "files", arguments: { action: "send" } },
+      { id: "tc-other-1", name: "web_search", arguments: {} },
+      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "create_pdf_document" } },
+      { id: "tc-files-2", name: "files", arguments: { action: "write_and_send" } },
+      { id: "tc-doc-2", name: "document", arguments: { descriptorMode: "create_presentation" } }
+    ]);
+
+    assert.equal(reordered[0]?.id, "tc-doc-1");
+    assert.equal(reordered[1]?.id, "tc-doc-2");
+    assert.equal(reordered[2]?.id, "tc-other-1");
+    assert.equal(reordered[3]?.id, "tc-files-1");
+    assert.equal(reordered[4]?.id, "tc-files-2");
+  });
+
+  test("reorderToolCallsDocumentFirst leaves order unchanged when no document or no files in batch", () => {
+    const service = createBareTurnExecutionService() as unknown as {
+      reorderToolCallsDocumentFirst: (
+        toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>
+      ) => Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+    };
+
+    const input = [
+      { id: "tc-files-1", name: "files", arguments: { action: "send" } },
+      { id: "tc-other-1", name: "web_search", arguments: {} }
+    ];
+    const reordered = service.reorderToolCallsDocumentFirst(input);
+    assert.equal(reordered, input);
+
+    const input2 = [
+      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "create_pdf_document" } },
+      { id: "tc-other-1", name: "web_search", arguments: {} }
+    ];
+    const reordered2 = service.reorderToolCallsDocumentFirst(input2);
+    assert.equal(reordered2, input2);
+  });
 });

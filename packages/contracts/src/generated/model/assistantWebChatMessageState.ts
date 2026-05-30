@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantChatMessageAuthor } from "./assistantChatMessageAuthor";
+import type { AssistantWebChatMessageAttachmentState } from "./assistantWebChatMessageAttachmentState";
 
 export interface AssistantWebChatMessageState {
   id: string;
@@ -12,5 +13,6 @@ export interface AssistantWebChatMessageState {
   assistantId: string;
   author: AssistantChatMessageAuthor;
   content: string;
+  attachments: AssistantWebChatMessageAttachmentState[];
   createdAt: string;
 }

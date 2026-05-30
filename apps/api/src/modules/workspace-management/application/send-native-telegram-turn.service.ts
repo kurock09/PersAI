@@ -7,6 +7,7 @@ import type {
   RuntimeInterruptedEvent,
   RuntimeChannelContext,
   RuntimeOpenMediaJobContext,
+  RuntimeOpenDocumentJobContext,
   RuntimeOutputArtifact,
   RuntimeTurnRequest,
   RuntimeTurnResult,
@@ -46,6 +47,7 @@ export interface SendNativeTelegramTurnInput {
   userMessage: string;
   attachments: RuntimeAttachmentRef[];
   openMediaJobs?: RuntimeOpenMediaJobContext[];
+  openDocumentJobs?: RuntimeOpenDocumentJobContext[];
   userTimezone?: string;
   currentTimeIso?: string;
   deepMode?: RuntimeTurnRequest["deepMode"];
@@ -146,6 +148,7 @@ export class SendNativeTelegramTurnService {
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
       ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
+      ...(input.openDocumentJobs === undefined ? {} : { openDocumentJobs: input.openDocumentJobs }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })

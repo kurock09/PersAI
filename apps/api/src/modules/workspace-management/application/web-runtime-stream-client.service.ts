@@ -3,6 +3,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import type {
   RuntimeOpenMediaJobContext,
+  RuntimeOpenDocumentJobContext,
   RuntimeAttachmentRef,
   RuntimeFailedEvent,
   RuntimeInterruptedEvent,
@@ -43,6 +44,7 @@ export interface WebRuntimeStreamClientInput {
   userMessage: string;
   attachments: RuntimeAttachmentRef[];
   openMediaJobs?: RuntimeOpenMediaJobContext[];
+  openDocumentJobs?: RuntimeOpenDocumentJobContext[];
   userTimezone?: string;
   currentTimeIso?: string;
   chatMode?: RuntimeTurnRequest["chatMode"];
@@ -132,6 +134,7 @@ export class WebRuntimeStreamClientService {
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
       ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
+      ...(input.openDocumentJobs === undefined ? {} : { openDocumentJobs: input.openDocumentJobs }),
       ...(input.chatMode === undefined ? {} : { chatMode: input.chatMode }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined

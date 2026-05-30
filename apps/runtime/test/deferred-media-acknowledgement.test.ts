@@ -58,7 +58,7 @@ describe("deferred media acknowledgement", () => {
     assert.ok(instructions?.includes("will arrive separately when ready"));
   });
 
-  test("preserves non-empty deferred-media assistant copy", () => {
+  test("normalizes delivery-claiming deferred-media assistant text to honest pending acknowledgement", () => {
     const service = createBareTurnExecutionService() as unknown as {
       applyAssistantTextCorrections(input: {
         assistantText: string;
@@ -85,10 +85,13 @@ describe("deferred media acknowledgement", () => {
       deferredDocumentJobs: [],
       locale: "ru-RU"
     });
-    assert.equal(corrected, "Сделала картинку, держи результат.");
+    assert.equal(
+      corrected,
+      "Запрос принят. Делаю изображение и пришлю его отдельно, когда оно будет готово."
+    );
   });
 
-  test("preserves an honest deferred-media acknowledgement", () => {
+  test("normalizes any non-empty deferred-media text to honest pending acknowledgement", () => {
     const service = createBareTurnExecutionService() as unknown as {
       applyAssistantTextCorrections(input: {
         assistantText: string;
@@ -115,6 +118,9 @@ describe("deferred media acknowledgement", () => {
       deferredDocumentJobs: [],
       locale: "ru-RU"
     });
-    assert.equal(corrected, "Делаю и пришлю отдельно, когда будет готово.");
+    assert.equal(
+      corrected,
+      "Запрос принят. Делаю изображение и пришлю его отдельно, когда оно будет готово."
+    );
   });
 });

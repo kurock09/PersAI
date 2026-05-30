@@ -411,7 +411,7 @@ export class ResolveAdminOpsCockpitService {
       );
 
     const activeWebChats = await this.prisma.assistantChat.count({
-      where: { workspaceId, surface: "web", archivedAt: null }
+      where: { assistantId: assistant.id, surface: "web", archivedAt: null }
     });
 
     return {
@@ -564,10 +564,10 @@ export class ResolveAdminOpsCockpitService {
         where: { assistantId }
       }),
       this.prisma.assistantChat.count({
-        where: { workspaceId, surface: "web", archivedAt: null }
+        where: { assistantId, surface: "web", archivedAt: null }
       }),
       this.prisma.assistantChat.count({
-        where: { workspaceId, surface: "web", archivedAt: { not: null } }
+        where: { assistantId, surface: "web", archivedAt: { not: null } }
       })
     ]);
     return { totalChats, activeWebChats, archivedWebChats };

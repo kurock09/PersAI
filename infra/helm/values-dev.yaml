@@ -4,6 +4,11 @@ global:
     registryHost: europe-west1-docker.pkg.dev
     projectId: project-44786b14-b7d7-4554-a8a
     repository: persai
+    # Fallback image tag for services NOT explicitly rebuilt in a given push.
+    # When a service IS rebuilt, its per-service image.tag below MUST be pinned
+    # to the new digest. Never rely on this global tag for a freshly published
+    # service — the stale global value will silently shadow the new image until
+    # the next full-rebuild push. See ADR-102 Slice 9 and docs/TEST-PLAN.md.
     tag: ddc3aadfca11cc6fabe7d3e8c9e60aca9124c525
 
 networkPolicy:

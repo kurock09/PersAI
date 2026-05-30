@@ -30,6 +30,7 @@ import {
 } from "./send-native-telegram-turn.service";
 import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 import { AssistantMediaJobService } from "./assistant-media-job.service";
+import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
@@ -95,6 +96,7 @@ export class HandleInternalTelegramTurnService {
     private readonly sendNativeTelegramTurnService: SendNativeTelegramTurnService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly assistantMediaJobService: AssistantMediaJobService,
+    private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly recordToolPathLedgerFromToolInvocationsService: RecordToolPathLedgerFromToolInvocationsService,
     @Optional()
@@ -277,6 +279,12 @@ export class HandleInternalTelegramTurnService {
         userId: chat.userId,
         chatId: chat.id
       });
+      const openDocumentJobs =
+        await this.assistantDocumentJobReadService.listOpenJobsForRuntimeContext({
+          assistantId: resolved.assistantId,
+          userId: chat.userId,
+          chatId: chat.id
+        });
       const nativeTurnInput: SendNativeTelegramTurnInput = {
         assistantId: resolved.assistantId,
         publishedVersionId: resolved.publishedVersionId,
@@ -296,6 +304,7 @@ export class HandleInternalTelegramTurnService {
         userMessage: enrichedMessage,
         attachments: runtimeAttachments,
         ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
+        ...(openDocumentJobs.length === 0 ? {} : { openDocumentJobs }),
         userTimezone: workspace.timezone,
         currentTimeIso,
         deepMode: defaultDeepModeEnabled
@@ -407,7 +416,10 @@ export class HandleInternalTelegramTurnService {
         traceId: trace.getTraceId(),
         ...(runtimeResponse.usageAccounting === undefined
           ? {}
-          : { usageAccounting: runtimeResponse.usageAccounting })
+          : { usageAccounting: runtimeResponse.usageAccounting }),
+        ...(runtimeResponse.toolInvocations === undefined
+          ? {}
+          : { toolInvocations: runtimeResponse.toolInvocations })
       });
       const quotaAdvisoryFollowUp =
         (await this.quotaAdvisoryFollowUpService?.maybeCreateFollowUp({

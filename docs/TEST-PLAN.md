@@ -71,7 +71,44 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
-## ADR-101 multi-assistant workspace model focused checks
+---
+
+## ADR-102 Slice 9 — CI / deploy hygiene policy
+
+### CI lane overview
+
+The affected-quality job (PR lane when `requiresFullCi !== true` and not docs-only) runs:
+
+1. `corepack pnpm run format:check` — whole-repo Prettier check (root, all apps/packages).
+2. `corepack pnpm run test:ci-detect-affected` — unit tests for the `detect-affected.mjs` classifier itself.
+3. Affected lint — `pnpm --filter <workspace> lint` for each affected project.
+4. Affected typecheck — `pnpm --filter <workspace> typecheck` for each affected project.
+
+Full CI (`full-checks` job) covers the same ground plus Prisma, integration tests, and build, and runs on push-to-main and on PRs where `requiresFullCi === true`.
+
+### Escalation policy: contract and runtime-boundary changes → integration matrix, not full CI
+
+**Deliberate policy:** changes to `packages/contracts/`, `openapi.yaml`, `src/generated/`, `packages/runtime-contract/`, or `packages/runtime-bundle/` escalate to the `affected-integration` job (sets `requiresIntegration=true`) rather than to `full-checks` (`requiresFullCi`).
+
+Rationale: full CI on every contract tweak is too costly; the integration matrix (`test:step2`) already exercises cross-app consumers of the contract surface. This is encoded in `scripts/ci/detect-affected.mjs` via `requiresIntegration` risks `contracts-boundary` and `runtime-boundary`.
+
+**Known gap:** the `affected-integration` job runs `corepack pnpm run test:step2`, which covers API ↔ runtime integration. It does not currently exercise the web app's contract consumer path independently. If a contract change only breaks the web client (not the API), that gap would not be caught by the integration matrix alone — it would surface in the full-checks build or in downstream review. This gap is accepted for now; if web contract coverage becomes critical, add a dedicated web integration step to `affected-integration`.
+
+**Do NOT add `contracts-boundary` or `runtime-boundary` to `requiresFullCi`.** Those risks belong only in `requiresIntegration`.
+
+The risks that trigger `requiresFullCi` are: `auth`, `billing`, `runtime-concurrency`, `root-workspace`, and `ci-config` changes. Migration changes also escalate to full CI (they need DB provisioning).
+
+### values-dev image tag rule
+
+When a service is rebuilt and published in a Dev Image Publish run, its per-service `image.tag` field in `infra/helm/values-dev.yaml` **must** be pinned to the new digest. `global.images.tag` is only the fallback for services that were **not** rebuilt in that push.
+
+- **Never** rely on `global.images.tag` for a newly rebuilt service. This causes the old global tag to shadow the new image until the next global-rebuild push.
+- Selective pinning is the mechanism: only the rebuilt service's `<service>.image.tag` changes; unrelated services continue to resolve through `global.images.tag`.
+- Prisma/schema/migration changes gate behind the `persai-dev-migrations` GitHub Environment approval before GitOps pinning proceeds.
+
+A full automated CI check for stale fallback is out of scope (the tag values require runtime knowledge of which services were rebuilt). The rule is enforced through the deploy pipeline logic in `scripts/ci/pin-dev-image-tags.mjs` and human review of `values-dev.yaml` diffs.
+
+---
 
 When a change touches ADR-101 schema, plan assistant limits, active assistant resolution, bootstrap, chat entrypoints, assistant-scoped settings, web assistant switching, or runtime isolation, add focused checks before broad verification:
 

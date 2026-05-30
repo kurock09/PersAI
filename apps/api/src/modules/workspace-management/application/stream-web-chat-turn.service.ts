@@ -375,6 +375,12 @@ export class StreamWebChatTurnService {
       userId: prepared.userId,
       chatId: prepared.chat.id
     });
+    const openDocumentJobs =
+      await this.assistantDocumentJobReadService.listOpenJobsForRuntimeContext({
+        assistantId: prepared.assistantId,
+        userId: prepared.userId,
+        chatId: prepared.chat.id
+      });
     const currentTimeIso = new Date().toISOString();
     const skillStateContext = await this.autoSkillRoutingStateService.buildRuntimeContext({
       chatId: prepared.chat.id,
@@ -394,6 +400,7 @@ export class StreamWebChatTurnService {
       userMessage: baseMessage,
       attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
       ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
+      ...(openDocumentJobs.length === 0 ? {} : { openDocumentJobs }),
       userTimezone: prepared.workspaceTimezone,
       currentTimeIso,
       skillStateContext,
@@ -866,6 +873,7 @@ export class StreamWebChatTurnService {
     userMessage: string;
     attachments: WebRuntimeStreamClientInput["attachments"];
     openMediaJobs?: WebRuntimeStreamClientInput["openMediaJobs"];
+    openDocumentJobs?: WebRuntimeStreamClientInput["openDocumentJobs"];
     userTimezone: string;
     currentTimeIso: string;
     skillStateContext?: WebRuntimeStreamClientInput["skillStateContext"];
@@ -887,6 +895,7 @@ export class StreamWebChatTurnService {
       userMessage: input.userMessage,
       attachments: input.attachments,
       ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
+      ...(input.openDocumentJobs === undefined ? {} : { openDocumentJobs: input.openDocumentJobs }),
       userTimezone: input.userTimezone,
       currentTimeIso: input.currentTimeIso,
       ...(input.skillStateContext === undefined
