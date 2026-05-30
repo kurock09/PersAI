@@ -2,6 +2,45 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-30 — ADR-102 commit + dev deploy + Slice 5/6 + Slice 10 agent preflight
+
+### Baseline / end SHA
+
+- Batch commit `5ccf9703` (ADR-102 Slices 1-7, 9 + Slice 5/6), rebased onto bot pin `b4d82b8d`.
+- Follow-up commit `e3c78b63` (deferred image/edit test alignment — see below).
+- Bot pin `9a6bfeaa` pinned all five services to `e3c78b63`; HEAD = `e3c78b63`.
+
+### What changed this session
+
+1. **Slice 5 (OpenAPI + web contract drift) — DONE:** `attachments[]` + `AssistantWebChatMessageAttachmentState`/`...DocumentLink`, Files read surfaces, and `stage-attachment` added to `openapi.yaml`; contracts regenerated (+ required `prettier --write` on generated files); web message-attachment + cleanup-summary types migrated to generated.
+2. **Slice 6 (web assistant-switch plan refresh) — DONE:** `refreshAssistantScopedSlices` now also refetches `getAssistantPlanVisibility` + `setPlan`, so per-assistant plan UI is no longer stale after switch/create.
+3. **Pre-push CI-equivalent verification:** ran the full lane on the rebased tree — recursive lint PASS, `format:check` PASS, recursive typecheck PASS, runtime/api/web full suites, `helm lint` + `helm template` PASS, `detect-affected` unit 4/4. `detect-affected` confirmed `requiresFullCi` (ci-config + root-workspace + runtime-concurrency) → all five services rebuilt.
+4. **Deferred image/edit test alignment (`e3c78b63`):** the full runtime suite caught that `turn-execution.service.test.ts` still asserted old assistant text for deferred `image_generate` and `image_edit` (the Slice 2 subagent only updated `deferred-media-acknowledgement.test.ts`). Aligned those two assertions to the honest pending acknowledgement (`image_generate`/`image_edit` create a deferred job → text normalized); `video_generate` and referenced-edit scenarios do not enqueue a deferred job in those tests, so their text is preserved (left unchanged). Runtime suite now green.
+
+### Deploy (DONE)
+
+`e3c78b63` pushed → Dev Image Publish run `26688107785` **success** → bot pin `9a6bfeaa` → Argo CD `persai-dev` **Synced + Healthy**. Cluster verified: all five deploys `2/2` ready, up-to-date, available, `0` restarts, running image `:e3c78b63…`; runtime `Nest application successfully started`; api serving `/health` + `/ready` 200 and a real user request 200. Ingress `persai.dev / api.persai.dev / bot.persai.dev` → `34.8.195.135`.
+
+### Slice 10 — PROD preflight smoke (DONE)
+
+- Agent checks PASS: `kubectl -n persai-dev get deploy,svc,ingress` + `get pods -o wide` all healthy on `e3c78b63`.
+- **Human smoke PASSED (founder, account `alex@agse.ru`):** all 6 checks green — web stream + history reconcile; document create + `revise_document` → honest pending then separate delivery; image generate → honest pending then delivered; file open/download by `fileRef`; assistant switch isolates chats + refreshes plan UI; Admin Ops counts assistant-scoped.
+- **Log verification clean:** `document-jobs/enqueue` 202 → `AssistantDocumentJobDeliveryService` delivered the revised PDF with `companionOriginalStatus=absent` (no same-turn old-file masquerade — Slice 1 confirmed live); `media-jobs` enqueue 202 → `Processed 1 assistant media job(s)`; zero error/warn-level api/runtime logs.
+
+### ADR-102 — CLOSED (2026-05-30)
+
+All PROD-blocking + recommended slices (0–7, 9, 10) landed, deployed, and verified live. ADR status set to **Completed**. Optional Slice 8 (document-worker LLM economics) and the cleanup inventory remain non-blocking follow-ups.
+
+### Risks / residuals
+
+- Slice 2 honesty replaces **any** non-empty assistant text on deferred image/edit (not just delivery-claiming) — intended parity with documents, but founder may later want to preserve non-claiming prose. Logged as product follow-up.
+- Optional Slice 8 + cleanup inventory (`services/openclaw/.gitkeep`, `WebRuntimeShadowComparisonService`, `send-native-*` rename, dead `uploadChatAttachment()`, hardcoded "Навык - …", stale ARCHITECTURE phrase, `RuntimeDocumentToolResult.action: "deferred"` tail) still open — none PROD-blocking.
+- CI deploy-resilience gap discussed separately (partial build failure strands successfully-built services; no `fail-fast:false` + no pin-only-succeeded + no reconcile). Not part of ADR-102; candidate for its own slice/ADR.
+
+### Next recommended step
+
+ADR-102 is closed. Next options (founder choice): (a) CI deploy-resilience hardening (`fail-fast:false` + pin-only-succeeded + reconcile-cron) for dev, and a separate atomic `prod-release` design; (b) optional Slice 8 economics; (c) the non-blocking cleanup inventory.
+
 ## 2026-05-30 — ADR-102 orchestration: doc corrections + Slices 1, 2, 3, 4, 7, 9
 
 ### Baseline

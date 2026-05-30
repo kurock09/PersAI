@@ -1,6 +1,6 @@
 # ADR-102: Pre-PROD architectural cleanup and truth hardening
 
-**Status:** Accepted  
+**Status:** Completed (2026-05-30) — all PROD-blocking + recommended slices (0–7, 9, 10) landed and deployed to `persai-dev` on `e3c78b63`; PROD preflight + human smoke passed. Optional Slice 8 and the cleanup inventory remain as non-blocking follow-ups.  
 **Date:** 2026-05-30  
 **Relates to:** [ADR-078](078-consolidated-follow-through-program.md) (closed continuation program — this ADR does not reopen it), [ADR-081](081-unified-user-files-architecture.md), [ADR-086](086-async-media-jobs-for-generated-image-audio-and-video.md), [ADR-093](093-clean-prod-launch-readiness-and-concurrency-hardening.md) (agent/deploy discipline), [ADR-097](097-autonomous-document-tool-and-async-rendering.md), [ADR-099](099-provider-pricing-catalog-and-unified-model-cost-ledger.md), [ADR-101](101-multi-assistant-workspace-model.md), [ARCHITECTURE.md](../ARCHITECTURE.md), [API-BOUNDARY.md](../API-BOUNDARY.md), [TEST-PLAN.md](../TEST-PLAN.md)
 
@@ -384,6 +384,8 @@ node scripts/ci/detect-affected.mjs --changed-files "docs/FOO.md"
 ---
 
 ### Slice 10 — PROD preflight smoke
+
+**Status: DONE (2026-05-30)** — all PROD-blocking slices deployed to `persai-dev` on `e3c78b63` (Argo CD Synced + Healthy, five deploys `2/2`, 0 restarts, runtime started clean, api `/health`+`/ready` 200); agent `kubectl get deploy,svc,ingress,pods` checks PASS. Founder ran the 6-point human smoke on `persai-dev` — all passed: web stream + history reconcile; document create/revise → honest pending then separate delivery with `companionOriginalStatus=absent` (no same-turn old-file masquerade); image generate → honest pending then delivered; file open/download by `fileRef`; assistant switch isolates chats + refreshes plan UI; Admin Ops counts assistant-scoped. Log verification clean: `document-jobs/enqueue` 202 → `AssistantDocumentJobDeliveryService` delivered `revise_document` PDF (`companionOriginalStatus=absent`); `media-jobs` enqueue 202 → `Processed 1 assistant media job(s)`; zero error/warn-level api/runtime logs.
 
 **Scope:** After PROD-blocking slices deploy to dev, run short human + agent checklist.
 
