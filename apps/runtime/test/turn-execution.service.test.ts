@@ -5854,7 +5854,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const imageGenerateCompleted = await service.createTurn(request);
-  assert.equal(imageGenerateCompleted.assistantText, "reply after image");
+  assert.equal(
+    imageGenerateCompleted.assistantText,
+    "Request accepted. I am generating the image and will send it separately when it is ready."
+  );
   assert.equal(imageGenerateCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageGenerate + 2);
   assert.equal(
@@ -6138,7 +6141,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const imageEditCompleted = await service.createTurn(request);
-  assert.equal(imageEditCompleted.assistantText, "reply after image edit");
+  assert.equal(
+    imageEditCompleted.assistantText,
+    "Request accepted. I am editing the image and will send it separately when it is ready."
+  );
   assert.equal(imageEditCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageEdit + 2);
   assert.equal(
