@@ -2,6 +2,38 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-30 — ADR-103 proposed: one-flow interactive landing demo system
+
+### Baseline
+
+- Tree dirty at session start (pre-existing ADR-102 artifacts + generated Prisma client untracked); this session is **docs-only** (added `docs/ADR/103-…`, CHANGELOG + handoff entries). No app code touched.
+
+### What changed this session
+
+1. Codebase audit (read-only) of the landing + real chat UI + LLM path, recorded in ADR-103.
+2. **ADR-103 created (Proposed):** new premium landing with a single interactive hero demo (autoplay → takeover → guided chips → limited LLM → soft reset) as a faithful live replica of the real PersAI UI, plus 3 Tier-2 scroll-triggered product-window blocks (project/B2B+documents, knowledge base + sources, media before/after) replacing the retired pseudo-3D `WorkflowSurface`. State machine = `useReducer`; reply source abstracted behind `getReply()` (stub → real capped LLM). Dark/light token discipline (ADR-076) is mandatory.
+3. Two-slice plan: **Slice A** (frontend demo system, stubbed replies, no backend, no risk) is next; **Slice B** (public unauthenticated `POST /api/demo/turn` → provider-gateway, IP rate-limit + caps, ADR-044/ADR-055 review, `API-BOUNDARY`/`DATA-MODEL` updates) is gated.
+
+### Founder decisions captured
+
+- Landing fully rebuilt premium; hero demo is the only fully-live (Tier 1) surface; lower blocks are Tier-2 micro-interactive on scroll.
+- Real LLM **yes**, but via gated Slice B with a scripted stub fallback; MVP (Slice A) ships on stubs.
+- Pseudo-3D rejected (toy-like) → flat front-facing product windows.
+- Workflow trimmed 6 → 3: project mode (Skill+documents, B2B), knowledge base, media before/after.
+- Setup step = scripted ~2–2.5s customization trailer (no real onboarding), goal "this assistant is yours / configured by you".
+- Telegram shown as one calm continuity beat inside the same thread, not a separate block.
+- Guided suggestion chips (Cursor-inspired) are the primary takeover path.
+- Adaptive demo shell: full window+sidebar on desktop, thread+composer only on mobile.
+
+### Risks / residuals
+
+- Slice B is a new public, unauthenticated trust/cost surface — must be rate-limited + abuse-reviewed before it lands; carries a dedicated demo credential and recurring inference cost.
+- Premium polish needs visual iteration (typography rhythm, timings, artifact quality); not "build once and forget".
+
+### Next recommended step
+
+Start **Slice A** beginning with A1 (extract `chat-atoms` on real classes; retire pseudo-3D) + A2 (adaptive `demo-window` with dark/light verification), then A3 (`demo-script` + `use-demo-machine` + transition tests).
+
 ## 2026-05-30 — ADR-102 commit + dev deploy + Slice 5/6 + Slice 10 agent preflight
 
 ### Baseline / end SHA
