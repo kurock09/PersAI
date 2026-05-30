@@ -12,6 +12,7 @@ RUN apt-get update \
 
 COPY . .
 
+# Shared runtime packages must be compiled before the Nest build resolves workspace imports.
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @persai/types run build
 RUN pnpm --filter @persai/logger run build
