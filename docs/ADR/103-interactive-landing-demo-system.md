@@ -2,16 +2,16 @@
 
 ## Status
 
-Proposed. No code landed yet. This ADR is the source of truth for the new premium
-landing redesign and its interactive hero demo, and is written to be **executed by
-subagents under an orchestrator** (see "Execution model" below) — the orchestrator
-writes no production code, dispatches one coding subagent per task, and owns
-diff-review + the verification gate. Implementation is split into two bounded slices
-(Slice A — frontend demo system, stubbed replies; Slice B — public demo LLM
-endpoint), each decomposed into dispatchable agent tasks. Slice A is the immediate
-next step **once the founder gives the go-ahead**; Slice B is additionally gated
-behind its own boundary review because it introduces a new public, unauthenticated
-trust surface.
+Accepted — **Slice A landed (frontend demo system, stubbed replies)**; Slice B not
+started. This ADR is the source of truth for the new premium landing redesign and its
+interactive hero demo, and is **executed by subagents under an orchestrator** (see
+"Execution model" below) — the orchestrator writes no production code, dispatches one
+coding subagent per task, and owns diff-review + the verification gate. Implementation
+is split into two bounded slices (Slice A — frontend demo system, stubbed replies;
+Slice B — public demo LLM endpoint). Slice A (tasks A1–A6) is **complete and verified
+(typecheck / lint / format / full web vitest all green; both-theme browser pass done)**.
+Slice B remains gated behind its own boundary review because it introduces a new public,
+unauthenticated trust surface, and is dispatched only on explicit founder go-ahead.
 
 ## Date
 
@@ -344,26 +344,48 @@ status/slice checkboxes) at slice boundaries.
 Each `A#`/`B#` below is a single dispatchable subagent task. Status legend:
 `[ ]` not started · `[~]` in progress · `[x]` accepted.
 
-- **Slice A — Frontend demo system (no backend, no risk):**
-  - `[ ]` **A1 — Shared chat atoms + retire pseudo-3D.** Extract `ChatBubble`,
-    `AssistantRow`, `ArtifactPill`, `MemoryChip`, `ChannelFrame` into
-    `landing/demo/chat-atoms.tsx` using the real `chat-message.tsx` classes; remove
-    the pseudo-3D tilt from `workflow-surface.tsx` (or supersede it). Gate: lint /
-    format / web typecheck / existing landing tests still pass.
-  - `[ ]` **A2 — Adaptive `demo-window` replica.** Build the PersAI-replica shell
-    (bento `bg-chrome`/`bg-bg`, sidebar desktop-only, thread, real composer) on
-    tokens; verify dark + `html.light`. Gate as above.
-  - `[ ]` **A3 — State machine + script.** `demo-script.ts` (steps + intent→stub-reply
-    rules, i18n keys) + `use-demo-machine.ts` (`useReducer`) + `use-idle-timer.ts` +
-    `hero-demo.test.tsx` covering all transitions. Gate: transition tests pass.
-  - `[ ]` **A4 — `HeroDemo` island.** Autoplay → takeover → stubbed `getReply()` →
-    `limitReached` → soft reset; suggested-prompt chips; `use-typewriter.ts`. Mount in
-    `hero-section.tsx` (server passes i18n strings). Keep static first-frame fallback.
-  - `[ ]` **A5 — Tier-2 blocks.** `block-project.tsx`, `block-knowledge.tsx`,
-    `block-media.tsx` + `use-in-view-once.ts`; replace the 6-scene `workflow-section`
-    gallery with the 3 blocks.
-  - `[ ]` **A6 — Polish + i18n + fallbacks.** `landing.demo.*` / `landing.blocks.*`
-    copy; reduced-motion, mobile (lazy-mount, no-hover), no-JS; full both-theme pass.
+- **Slice A — Frontend demo system (no backend, no risk): COMPLETE.**
+  - `[x]` **A1 — Shared chat atoms + retire pseudo-3D.** Extracted `AssistantRow`,
+    `UserBubble`, `ArtifactPill`, `MemoryChip`, `ChannelFrame` into
+    `landing/demo/chat-atoms.tsx` using the real `chat-message.tsx` classes/tokens
+    (+ `chat-atoms.test.tsx`). (Pseudo-3D `workflow-surface.tsx` was retired later in
+    A5, once the 3 blocks replaced its only consumer.)
+  - `[x]` **A2 — Adaptive `demo-window` replica.** Built the PersAI-replica shell
+    (`DemoWindow`/`DemoSidebar`/`DemoComposer`, bento `bg-chrome`/`bg-bg`, sidebar
+    desktop-only, thread, composer) on tokens (+ `demo-window.test.tsx`); verified dark
+    + `html.light`.
+  - `[x]` **A3 — State machine + script.** `demo-script.ts` (steps + `classifyIntent` →
+    `getStubReply` rules, i18n keys) + `use-demo-machine.ts` (`useReducer`) +
+    `use-idle-timer.ts` + `use-demo-machine.test.ts` (27 transition tests).
+  - `[x]` **A4 — `HeroDemo` island.** Autoplay → takeover → stubbed reply →
+    `limitReached` → soft reset; suggested-prompt chips; mounted in `hero-section.tsx`
+    (responsive 2-col grid, copy → demo → CTAs) + static first-frame fallback
+    (+ `hero-demo.test.tsx`).
+  - `[x]` **A5 — Tier-2 blocks.** `block-project.tsx`, `block-knowledge.tsx`,
+    `block-media.tsx` + `use-in-view-once.ts` (one-shot IntersectionObserver); replaced
+    the 6-scene `workflow-section` gallery with the 3 blocks; **deleted**
+    `workflow-surface.tsx` (grep-confirmed sole importer) (+ `blocks.test.tsx`).
+  - `[x]` **A6 — Polish + i18n + fallbacks.** `landing.demo.*` / `landing.blocks.*`
+    copy (en + ru); reduced-motion for ambient loops (scroll-cue + thinking pulse),
+    no-JS static first frame (+ test), hardcoded aria-labels → i18n, mobile
+    single-column pass, full both-theme browser pass (light + dark hero + all 3 blocks).
+
+  **Slice A deviations from the original file plan (recorded honestly):**
+  - `use-typewriter.ts` was **not created**; text reveal uses framer-motion entrance +
+    a calm thinking indicator instead of a per-character typewriter (calmer; honors
+    `prefers-reduced-motion`). The "…or type your own" affordance is the real composer
+    placeholder, not a blinking typewriter.
+  - `get-reply.ts` adapter was **not yet extracted**; Slice A calls `getStubReply()`
+    from `demo-script.ts` directly inside `HeroDemo`. **Slice B must introduce the
+    `getReply()` seam** (stub ↔ `/api/demo/turn`) at that call site.
+  - `block-media.tsx` uses a **token gradient before/after composition** (cool→warm
+    clip-path wipe), not a real photo. The swap point is the named
+    `PHOTO_AFTER_LAYER_CLASS` / `PHOTO_BASE_CLASS`; dropping in a real `next/image`
+    asset is a follow-up visual-polish item.
+  - The hero CTAs render **once** in the DOM (responsive grid `lg:row-span-2`), not
+    duplicated per breakpoint.
+  - `ChatBubble` was split into the more accurate `AssistantRow` (no bubble) +
+    `UserBubble` (right-aligned bubble), matching `chat-message.tsx` exactly.
 - **Slice B — Public demo LLM endpoint (full-stack, gated; dispatched only on explicit
   founder go-ahead):**
   - `[ ]` **B1 — Endpoint + service.** `POST /api/demo/turn` (web BFF) + public

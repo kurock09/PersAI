@@ -2,21 +2,18 @@ import Link from "next/link";
 import type { Route } from "next";
 import { getTranslations } from "next-intl/server";
 import { LandingSection } from "./section";
+import { HeroDemo } from "./demo/hero-demo";
 
 export async function LandingHeroSection() {
   const t = await getTranslations("landing");
   const headlineLine2 = t("headlineLine2").trim();
 
   return (
-    <LandingSection
-      id="hero"
-      // Hero owns the entire first viewport (minus the sticky header). The
-      // content is centered vertically so the eye lands on the headline +
-      // CTA, and a quiet scroll-cue at the bottom hints at continuation
-      // without competing with the type.
-      className="relative flex min-h-[calc(100svh-4.5rem)] flex-col items-center justify-center pt-6 pb-24 sm:min-h-[calc(100svh-5rem)] sm:pt-10 sm:pb-28"
-    >
-      <div className="mx-auto flex max-w-4xl flex-col items-center text-center">
+    <LandingSection id="hero" className="relative overflow-hidden pt-10 pb-28 sm:pt-14 sm:pb-32">
+      {/* Stacked: copy → CTAs → demo full-width */}
+
+      {/* 1. Copy block — always centered */}
+      <div className="flex flex-col items-center text-center">
         <p className="animate-fade-in text-[10px] font-semibold uppercase tracking-[0.26em] text-text-subtle">
           {t("eyebrow")}
         </p>
@@ -35,26 +32,30 @@ export async function LandingHeroSection() {
         <p className="animate-fade-in-up-delay mt-6 max-w-[34rem] text-sm leading-relaxed text-text-muted sm:text-lg">
           {t("subtitle")}
         </p>
-
-        <div className="animate-fade-in-up-delay mt-10 flex w-full max-w-[18rem] flex-col items-stretch gap-2.5">
-          <Link
-            href={"/sign-up" as Route}
-            className="flex min-h-12 cursor-pointer items-center justify-center rounded-[1.35rem] border border-[rgba(72,91,79,0.28)] bg-accent px-6 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),inset_0_-1px_0_rgba(52,68,58,0.18),0_16px_28px_-20px_rgba(72,91,79,0.78)] transition-colors hover:bg-accent-hover dark:border-[#a8baa0]/35 dark:bg-[#8faa9a] dark:text-[#f6f0e8] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-1px_0_rgba(0,0,0,0.22),0_18px_32px_-24px_rgba(143,170,154,0.56)] dark:hover:bg-[#9ab5a4]"
-          >
-            {t("cta")}
-          </Link>
-          <Link
-            href={"/sign-in" as Route}
-            className="flex min-h-12 cursor-pointer items-center justify-center rounded-[1.35rem] border border-[rgba(92,72,48,0.12)] bg-surface-raised/62 px-6 text-sm font-medium text-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.08),0_14px_26px_-22px_rgba(92,72,48,0.46)] transition-colors hover:border-[rgba(92,72,48,0.18)] hover:bg-surface-raised/82 hover:text-text dark:border-white/16 dark:bg-surface-raised/48 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(0,0,0,0.24),0_16px_30px_-24px_rgba(0,0,0,0.8)] dark:hover:border-white/22 dark:hover:bg-surface-hover/64"
-          >
-            {t("ctaSecondary")} →
-          </Link>
-        </div>
       </div>
 
-      {/* Premium scroll-cue: a thin sage hairline with a dot quietly drifting
-          downward. Anchored to the next section so a click takes the user
-          straight into the body of the page. */}
+      {/* 2. CTA buttons — centered, constrained */}
+      <div className="animate-fade-in-up-delay mx-auto mt-8 flex w-full max-w-[18rem] flex-col items-stretch gap-2.5">
+        <Link
+          href={"/sign-up" as Route}
+          className="flex min-h-12 cursor-pointer items-center justify-center rounded-[1.35rem] border border-[rgba(72,91,79,0.28)] bg-accent px-6 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),inset_0_-1px_0_rgba(52,68,58,0.18),0_16px_28px_-20px_rgba(72,91,79,0.78)] transition-colors hover:bg-accent-hover dark:border-[#a8baa0]/35 dark:bg-[#8faa9a] dark:text-[#f6f0e8] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-1px_0_rgba(0,0,0,0.22),0_18px_32px_-24px_rgba(143,170,154,0.56)] dark:hover:bg-[#9ab5a4]"
+        >
+          {t("cta")}
+        </Link>
+        <Link
+          href={"/sign-in" as Route}
+          className="flex min-h-12 cursor-pointer items-center justify-center rounded-[1.35rem] border border-[rgba(92,72,48,0.12)] bg-surface-raised/62 px-6 text-sm font-medium text-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.74),inset_0_-1px_0_rgba(92,72,48,0.08),0_14px_26px_-22px_rgba(92,72,48,0.46)] transition-colors hover:border-[rgba(92,72,48,0.18)] hover:bg-surface-raised/82 hover:text-text dark:border-white/16 dark:bg-surface-raised/48 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(0,0,0,0.24),0_16px_30px_-24px_rgba(0,0,0,0.8)] dark:hover:border-white/22 dark:hover:bg-surface-hover/64"
+        >
+          {t("ctaSecondary")} →
+        </Link>
+      </div>
+
+      {/* 3. Demo — full-width below copy, max-w-6xl so it has real breathing room */}
+      <div className="mx-auto mt-12 w-full max-w-6xl">
+        <HeroDemo />
+      </div>
+
+      {/* Premium scroll-cue: anchored to the next section. */}
       <Link
         href={"/#workflow" as Route}
         scroll
@@ -68,7 +69,7 @@ export async function LandingHeroSection() {
           aria-hidden
           className="relative block h-9 w-px bg-gradient-to-b from-accent/45 via-accent/20 to-transparent"
         >
-          <span className="absolute left-1/2 top-0 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-accent shadow-[0_0_10px_var(--accent-glow)] [animation:var(--animate-scroll-cue)]" />
+          <span className="scroll-cue-dot absolute left-1/2 top-0 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-accent shadow-[0_0_10px_var(--accent-glow)] [animation:var(--animate-scroll-cue)]" />
         </span>
       </Link>
     </LandingSection>

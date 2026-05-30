@@ -2,6 +2,68 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-30 — ADR-103 Slice A: one-flow interactive landing demo (frontend, stubbed)
+
+### Baseline
+
+- Orchestrator-led session (senior-engineer role, **no production code written
+  directly**): each of the six Slice A tasks (A1–A6) was dispatched to a coding
+  subagent with a full context-bearing prompt, then diff-reviewed and verification-gated
+  by the orchestrator before acceptance. Tree carried pre-existing untracked ADR-102
+  artifacts + generated Prisma client (unchanged by this session).
+
+### What changed this session
+
+1. **A1–A6 landed the complete frontend demo system** under
+   `apps/web/app/_components/landing/demo/` (stubbed replies, no backend, no risk):
+   `chat-atoms.tsx`, `demo-window.tsx`, `demo-script.ts`, `use-demo-machine.ts`
+   (`useReducer`), `use-idle-timer.ts`, `use-in-view-once.ts`, `hero-demo.tsx` (Tier-1
+   live island), and the 3 Tier-2 blocks `block-project.tsx` / `block-knowledge.tsx` /
+   `block-media.tsx`, each with tests.
+2. **Hero rewired** (`hero-section.tsx`): responsive 2-col grid (copy → demo → CTAs,
+   CTAs un-duplicated). **Workflow section rewired** (`workflow-section.tsx`): the
+   6-scene gallery replaced by the 3 blocks; **`workflow-surface.tsx` deleted** (retired
+   pseudo-3D, grep-confirmed sole importer).
+3. **i18n + a11y + fallbacks (A6):** `landing.demo.*` + `landing.blocks.*` in `en.json`
+   + `ru.json`; 4 hardcoded aria-labels → i18n; `prefers-reduced-motion` gating for the
+   scroll-cue dot (`globals.css`) and thinking pulse (`useReducedMotion()`); no-JS/
+   pre-hydration static first frame (greeting + composer in SSR HTML) + test.
+4. **Verification:** `@persai/web` typecheck / lint / root `format:check` / full web
+   vitest all PASS (one unrelated `use-chat` soft-detach polling test flaked under
+   full-suite parallel load; passes 81/81 in isolation). **Both-theme browser pass done**
+   on `localhost:3000`: light + dark hero, demo replica, full autoplay narrative
+   (setup → PDF artifact → memory → Telegram beat), takeover chips, pause/replay, and all
+   three blocks render premium in both themes.
+
+### Founder decisions / deviations captured
+
+- `use-typewriter.ts` **not built** — framer-motion entrance + a calm thinking indicator
+  instead of a per-character typewriter (calmer, reduced-motion-safe).
+- `get-reply.ts` adapter **not yet extracted** — `HeroDemo` calls `getStubReply()` from
+  `demo-script.ts` directly. **Slice B must introduce the `getReply()` seam** (stub ↔
+  `POST /api/demo/turn`) at that one call site.
+- `block-media.tsx` is a **token gradient before/after placeholder** (cool→warm clip-path
+  wipe); the named swap layer (`PHOTO_AFTER_LAYER_CLASS`) is ready for a real photo.
+
+### Risks / residuals
+
+- Visual polish iteration (timings, artifact realism, real media photo) is expected, not
+  "build once and forget".
+- The one flaked test is pre-existing `use-chat` timing flakiness, unrelated to the
+  landing; no action required.
+- A fresh `@persai/web dev` server was started this session and left running on
+  `localhost:3000` for the visual pass.
+
+### Next recommended step
+
+Slice A is complete and ready for founder visual review / a `web` image build (cosmetic,
+non-blocking). **Next options, founder's call:** (a) a visual-polish pass (real media
+photo via `PHOTO_AFTER_LAYER_CLASS`, timing/rhythm tuning); or (b) **Slice B** — the
+gated public `POST /api/demo/turn` endpoint (B1 endpoint+service → B2 abuse hardening
+[ADR-044/ADR-055] → B3 wire the real reply behind the new `get-reply.ts` seam with stub
+fallback → B4 `API-BOUNDARY`/`DATA-MODEL` docs). Slice B is dispatched only on explicit
+founder go-ahead because it adds a new public, unauthenticated trust/cost surface.
+
 ## 2026-05-30 — ADR-104: deploy resilience (partial-build isolation + pin-only-succeeded)
 
 ### Baseline / end SHA

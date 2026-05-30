@@ -31,58 +31,6 @@ const LANDING_MESSAGES: Record<string, string> = {
   "workflow.title": "One assistant. One continuous workflow.",
   "workflow.subtitle": "From conversation to finished artifact.",
 
-  "workflow.scenes.personality.tag": "Your assistant",
-  "workflow.scenes.personality.title": "Name, voice, character",
-  "workflow.scenes.personality.body":
-    "Give your assistant a name, avatar, tone, and voice. Talk to PersAI and hear it back.",
-  "workflow.scenes.personality.surface.prompt": "What should I call you?",
-  "workflow.scenes.personality.surface.reply": "I'm Aurora. How can I help?",
-  "workflow.scenes.personality.surface.nameLabel": "Name",
-  "workflow.scenes.personality.surface.chosenName": "Aurora",
-  "workflow.scenes.personality.surface.toneLabel": "Tone",
-  "workflow.scenes.personality.surface.toneWarm": "warm",
-  "workflow.scenes.personality.surface.toneDirect": "direct",
-  "workflow.scenes.personality.surface.toneFormal": "formal",
-  "workflow.scenes.personality.surface.voiceLabel": "Voice",
-
-  "workflow.scenes.memory.tag": "Conversation",
-  "workflow.scenes.memory.title": "Conversation with memory",
-  "workflow.scenes.memory.body": "PersAI carries your thread.",
-  "workflow.scenes.memory.surface.prompt": "Plan a 4-week launch",
-  "workflow.scenes.memory.surface.reply": "Prep -> Warm-up -> Launch -> Review",
-  "workflow.scenes.memory.surface.recall": "What about week 2?",
-  "workflow.scenes.memory.surface.memoryTag": "memory",
-
-  "workflow.scenes.plans.tag": "Acts",
-  "workflow.scenes.plans.title": "Plans and reminds",
-  "workflow.scenes.plans.body": "PersAI schedules tasks and reminds you on time.",
-  "workflow.scenes.plans.surface.prompt": "Prep a post for launch",
-  "workflow.scenes.plans.surface.reply": "Scheduled. I'll remind you in the morning.",
-  "workflow.scenes.plans.surface.task1": "Tomorrow 11:00 · post",
-  "workflow.scenes.plans.surface.task2": "in 30 min · report",
-  "workflow.scenes.plans.surface.task3": "in background · gathering data",
-  "workflow.scenes.plans.surface.task4": "done · sent",
-
-  "workflow.scenes.documents.tag": "Documents",
-  "workflow.scenes.documents.title": "PDFs, decks, reports",
-  "workflow.scenes.documents.body": "Creates PDFs and presentations.",
-  "workflow.scenes.documents.surface.prompt": "Build a deck from this plan",
-  "workflow.scenes.documents.surface.reply": "Done. Files attached.",
-  "workflow.scenes.media.tag": "Media",
-  "workflow.scenes.media.title": "Images and video",
-  "workflow.scenes.media.body": "Generates visuals and video.",
-  "workflow.scenes.media.surface.prompt": "Cover for the launch",
-  "workflow.scenes.media.surface.reply": "Here are options",
-  "workflow.scenes.knowledge.tag": "Knowledge",
-  "workflow.scenes.knowledge.title": "Knowledge base and Skills",
-  "workflow.scenes.knowledge.body": "Connect your documents and Skills.",
-  "workflow.scenes.knowledge.surface.prompt": "What did we miss in the plan?",
-  "workflow.scenes.knowledge.surface.reply": "Per sources, two items.",
-  "workflow.scenes.knowledge.surface.skillsLabel": "Skills",
-  "workflow.scenes.knowledge.surface.sourcesLabel": "Sources",
-  "workflow.scenes.knowledge.surface.usingLabel": "using",
-  "workflow.scenes.knowledge.surface.sourceFile": "project-brief.pdf",
-
   "system.eyebrow": "Personal system",
   "system.title": "Personal system.",
   "system.lead":
@@ -154,6 +102,27 @@ vi.mock("./_components/landing-theme-toggle", () => ({
   LandingThemeToggle: () => <div data-testid="landing-theme-toggle" />
 }));
 
+// HeroDemo is a "use client" island that calls useTranslations() and framer-motion
+// hooks — neither of which are available in the server-component render test.
+// Mock it with a stable, side-effect-free stub so hero-section renders cleanly.
+vi.mock("./_components/landing/demo/hero-demo", () => ({
+  HeroDemo: () => <div data-testid="hero-demo-stub" />
+}));
+
+// Tier-2 block components are "use client" and use IntersectionObserver /
+// framer-motion — both unavailable in the server-component render test.
+vi.mock("./_components/landing/demo/block-project", () => ({
+  BlockProject: () => <div data-testid="block-project-stub">Your assistant inside your project</div>
+}));
+vi.mock("./_components/landing/demo/block-knowledge", () => ({
+  BlockKnowledge: () => (
+    <div data-testid="block-knowledge-stub">Answers grounded in your own sources</div>
+  )
+}));
+vi.mock("./_components/landing/demo/block-media", () => ({
+  BlockMedia: () => <div data-testid="block-media-stub">Not just text — works with media</div>
+}));
+
 afterEach(() => {
   cleanup();
   delete (window as unknown as { PersaiNative?: unknown }).PersaiNative;
@@ -164,7 +133,7 @@ describe("Landing page", () => {
   // own pseudo-3D surfaces and a long string of getByText assertions, so the
   // default 5s vitest timeout can be flaky on slower machines / CI agents.
   // 15s is comfortably above the steady-state ~6s render we observe locally.
-  it("renders hero, 6-scene workflow, unified system block, and finale", async () => {
+  it("renders hero, 3-block workflow, unified system block, and finale", async () => {
     const view = await HomePage();
     render(view);
 
@@ -173,20 +142,15 @@ describe("Landing page", () => {
     expect(screen.getByText("built around you.")).toBeInTheDocument();
     expect(screen.queryByText("Context memory")).not.toBeInTheDocument();
 
-    // Workflow — 6 scenes, including the two new ones (Personality, Plans).
-    expect(screen.getByText("Name, voice, character")).toBeInTheDocument();
-    expect(screen.getByText("Conversation with memory")).toBeInTheDocument();
-    expect(screen.getByText("Plans and reminds")).toBeInTheDocument();
-    expect(screen.getByText("PDFs, decks, reports")).toBeInTheDocument();
-    expect(screen.getByText("Images and video")).toBeInTheDocument();
-    expect(screen.getByText("Knowledge base and Skills")).toBeInTheDocument();
+    // Three Tier-2 blocks — rendered as client stubs in this test environment.
+    expect(screen.getByTestId("block-project-stub")).toBeInTheDocument();
+    expect(screen.getByTestId("block-knowledge-stub")).toBeInTheDocument();
+    expect(screen.getByTestId("block-media-stub")).toBeInTheDocument();
 
-    // Surface labels live inside the schematic itself.
-    expect(screen.getAllByText("What about week 2?").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Cover for the launch").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("project-brief.pdf").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Aurora").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Tomorrow 11:00 · post").length).toBeGreaterThan(0);
+    // Block stubs surface their titles for quick human scanability.
+    expect(screen.getByText("Your assistant inside your project")).toBeInTheDocument();
+    expect(screen.getByText("Answers grounded in your own sources")).toBeInTheDocument();
+    expect(screen.getByText("Not just text — works with media")).toBeInTheDocument();
 
     // Unified «Personal system» block — pillars + audience-in-lead + channels.
     expect(screen.getByText("Personal system.")).toBeInTheDocument();

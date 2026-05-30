@@ -58,30 +58,29 @@
 :root.light {
   color-scheme: light;
   /*
-   * Light tonal palette — soft cream + sage (2026-05).
-   * Warm milk/peach chrome and quiet sage accents, matching the tactile
-   * reference without changing component shapes.
+   * Light tonal palette — Cursor-like neutral cream / warm gray.
+   * Less peach, more product-screenshot calm. Sage remains the action accent.
    */
-  --chrome: #f6eadc;
-  --bg: #fbf2e6;
-  --surface: #f0e4d4;
-  --surface-raised: #fff8ed;
-  --surface-hover: #f4e8d8;
-  --border: rgba(74, 58, 38, 0.1);
-  --border-strong: rgba(74, 58, 38, 0.18);
-  --ring: rgba(122, 156, 140, 0.24);
-  --text: #28231b;
-  --text-muted: #6d6356;
-  --text-subtle: #9a8e7c;
-  --accent: #7d9f91;
-  --accent-hover: #6c8d80;
-  --accent-glow: rgba(125, 159, 145, 0.14);
-  --accent-premium: #bd8f4f;
-  --chat-active-tint: #dce4da;
-  --destructive: #c85c4c;
-  --destructive-hover: #b64c3d;
-  --success: #5d987a;
-  --warning: #bd8e38;
+  --chrome: #ebe7de;
+  --bg: #f6f3ec;
+  --surface: #e8e2d7;
+  --surface-raised: #fbfaf6;
+  --surface-hover: #f1eee7;
+  --border: rgba(44, 39, 31, 0.1);
+  --border-strong: rgba(44, 39, 31, 0.18);
+  --ring: rgba(110, 130, 116, 0.22);
+  --text: #24221f;
+  --text-muted: #6d6960;
+  --text-subtle: #a09a90;
+  --accent: #738b7d;
+  --accent-hover: #627b6d;
+  --accent-glow: rgba(115, 139, 125, 0.13);
+  --accent-premium: #9f8556;
+  --chat-active-tint: #dfe6dc;
+  --destructive: #b85b4f;
+  --destructive-hover: #a84c42;
+  --success: #6b8f7c;
+  --warning: #a88445;
 }
 
 /* @theme inline keeps Tailwind classes referencing runtime CSS vars */
@@ -476,6 +475,9 @@ textarea::-webkit-resizer {
     animation: none;
     background-color: color-mix(in srgb, var(--accent) 12%, transparent);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+  .scroll-cue-dot {
+    animation: none !important;
   }
 }
 
