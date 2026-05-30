@@ -74,6 +74,7 @@ jobs:
       NEXT_PUBLIC_CLERK_PROXY_URL: ${{ vars.NEXT_PUBLIC_CLERK_PROXY_URL }}
       MAIN_TAG: dev-main
     strategy:
+      fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.detect-affected.outputs.deploy_services_json) }}
     steps:
@@ -153,6 +154,22 @@ jobs:
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.service }}:${{ env.MAIN_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # ADR-104 D2: marker written only after a successful build+push, so its
+      # presence proves this service's image exists in the registry.
+      - name: Record successful build marker
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p marker
+          printf '%s' "${{ matrix.service }}" > "marker/${{ matrix.service }}.txt"
+
+      - name: Upload build success marker
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-${{ matrix.service }}
+          path: marker/${{ matrix.service }}.txt
+          retention-days: 1
 
   pin-approved-migration-values-tag:
     if: ${{ github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed == 'true' }}
@@ -268,7 +285,10 @@ jobs:
           EOF
 
   pin-dev-values-tag:
-    if: ${{ github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed != 'true' }}
+    # ADR-104 D2: run even if some matrix legs failed (always()) so that the
+    # services that DID build successfully still roll forward. Guarded to push,
+    # a non-empty deploy list, the non-migration path, and a successful detect.
+    if: ${{ always() && needs.detect-affected.result == 'success' && github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed != 'true' }}
     needs:
       - detect-affected
       - build-and-push
@@ -279,9 +299,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Pin affected dev Helm image tags to current commit SHA
+      # ADR-104 D2: collect the per-service success markers produced by the
+      # build matrix. Only services whose build+push succeeded have a marker.
+      - name: Download build success markers
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: built-*
+          path: built-markers
+          merge-multiple: true
+
+      - name: Compute successfully-built services
+        id: succeeded
+        shell: bash
+        run: |
+          set -euo pipefail
+          csv=""
+          if [ -d built-markers ]; then
+            for f in built-markers/*.txt; do
+              [ -f "$f" ] || continue
+              svc="$(tr -d '[:space:]' < "$f")"
+              [ -n "$svc" ] || continue
+              if [ -z "$csv" ]; then csv="$svc"; else csv="$csv,$svc"; fi
+            done
+          fi
+          echo "csv=$csv" >> "$GITHUB_OUTPUT"
+          echo "Successfully-built services to pin: ${csv:-<none>}"
+
+      - name: Pin successfully-built dev Helm image tags to current commit SHA
+        if: ${{ steps.succeeded.outputs.csv != '' }}
         env:
-          DEPLOY_SERVICES: ${{ needs.detect-affected.outputs.deploy_service_names_csv }}
+          DEPLOY_SERVICES: ${{ steps.succeeded.outputs.csv }}
         run: |
           set -eu
           node scripts/ci/pin-dev-image-tags.mjs \
@@ -290,6 +338,7 @@ jobs:
             --services "${DEPLOY_SERVICES}"
 
       - name: Commit and push values-dev tag update
+        if: ${{ steps.succeeded.outputs.csv != '' }}
         run: |
           set -eu
           if git diff --quiet -- infra/helm/values-dev.yaml; then

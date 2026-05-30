@@ -2,6 +2,32 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-30 — ADR-104: deploy resilience (partial-build isolation + pin-only-succeeded)
+
+### Baseline / end SHA
+
+- Continues the same orchestrator-led session. Built on top of the deployed Slice 8 commit (`c9850995`, live on `persai-dev`). Audited the dev deploy pipeline (read-only) before changing it.
+
+### What changed this session
+
+1. **ADR-104 created (Accepted).** Documents the root cause (implicit `fail-fast: true` cancels sibling builds; pin job is success-only on the whole matrix so a partial failure pins nothing; `detect-affected` only re-detects newly-changed services so stranded ones stay behind; no drift cron).
+2. **D1 implemented:** `dev-image-publish.yml` build matrix → `strategy.fail-fast: false`.
+3. **D2 implemented:** per-service `built-<service>` marker artifacts on successful build+push; non-migration pin job → `if: always()`, downloads markers, computes the successfully-built CSV, pins only that subset. Migration pin job kept atomic (success-only + verify-every-image).
+4. **D3 (drift-repair cron) deferred** — intentionally not shipping an auto-mutating `values-dev.yaml` cron yet (D1+D2 already stop stranding of successful builds). **D4 (prod-atomic) is design-only** (no `values-prod.yaml`).
+
+### Verification
+
+- Workflow YAML parses (4 jobs intact, `fail-fast: false` set); `pin-dev-image-tags.mjs --services api,web --dry-run` validates subset pinning. The change is **self-testing on this push** (it edits the workflow + ADR; `web` is affected → exercises the marker→subset-pin path on the happy case, which is behavior-identical to before).
+
+### Risks / residuals
+
+- Real partial-failure behavior is only fully exercised when a build actually fails; the happy-path invariant bounds the risk (identical to prior behavior when all builds succeed).
+- D3 drift cron and D4 prod-atomic pipeline remain to be built when needed.
+
+### Next recommended step
+
+After this push lands and `web` re-pins via the new path, the ADR-102 + ADR-104 tails are complete. Remaining optional work: build D3 (dev drift-repair cron) and, when a prod environment is introduced, the D4 atomic prod-release pipeline. ADR-103 Slice A (interactive landing demo) is the founder's separate track.
+
 ## 2026-05-30 — ADR-102 tails: safe cleanup inventory + Slice 8 (document-worker LLM economics)
 
 ### Baseline
