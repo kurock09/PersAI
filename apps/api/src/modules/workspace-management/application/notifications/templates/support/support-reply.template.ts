@@ -59,10 +59,10 @@ export default function renderSupportReplyTemplate(
   const subject = SUBJECTS[l](shortId);
   const heading = HEADINGS[l];
   const bodyLines = BODY_LINES[l](shortId);
-  const rows = [
-    { label: TICKET_LABEL[l], value: `#${shortId}` },
+  const stackedRows = [
+    { label: TICKET_LABEL[l], value: `#${shortId}`, kind: "short" as const },
     ...(replyBody.length > 0
-      ? [{ label: REPLY_LABEL[l], value: escapeHtmlForEmail(replyBody) }]
+      ? [{ label: REPLY_LABEL[l], value: escapeHtmlForEmail(replyBody), kind: "long" as const }]
       : [])
   ];
 
@@ -71,7 +71,7 @@ export default function renderSupportReplyTemplate(
     title: subject,
     heading,
     bodyLines,
-    rows,
+    stackedRows,
     officialReceiptUrl: null,
     footerVariant: "support"
   });
@@ -79,10 +79,7 @@ export default function renderSupportReplyTemplate(
   const plainText = buildPlainText({
     locale: l,
     heading,
-    bodyLines: [
-      ...bodyLines.map((line) => line.replace(/<[^>]+>/g, "")),
-      ...(replyBody.length > 0 ? ["", `${REPLY_LABEL[l]}:`, replyBody] : [])
-    ],
+    bodyLines: bodyLines.map((line) => line.replace(/<[^>]+>/g, "")),
     rows: [
       { label: TICKET_LABEL[l], value: `#${shortId}` },
       ...(replyBody.length > 0 ? [{ label: REPLY_LABEL[l], value: replyBody }] : [])

@@ -116,12 +116,48 @@ export function formatDate(isoString: string | null | undefined, locale: string)
 
 // ── HTML builder ──────────────────────────────────────────────────────────────
 
+export type StackedEmailRow = {
+  label: string;
+  value: string;
+  kind: "short" | "long";
+};
+
+function buildStackedFactSectionHtml(sections: StackedEmailRow[]): string {
+  const blocks = sections
+    .map((section, index) => {
+      const labelMarginTop = index === 0 ? "0" : "20px";
+      const labelHtml = `<p style="margin:${labelMarginTop} 0 6px;font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#8a837c">${section.label}</p>`;
+
+      if (section.kind === "long") {
+        return (
+          labelHtml +
+          `<div style="margin:0;padding:14px 16px;background:#faf5ef;border:1px solid #ede7de;border-radius:10px;font-size:15px;color:#49443f;line-height:1.65;text-align:left;white-space:pre-wrap;word-break:break-word">${section.value}</div>`
+        );
+      }
+
+      return (
+        labelHtml +
+        `<p style="margin:0;font-size:15px;font-weight:600;color:#1a1714;text-align:left">${section.value}</p>`
+      );
+    })
+    .join("\n              ");
+
+  return `
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"
+            style="border-top:1px solid #ede7de;margin-top:20px;padding-top:0">
+            <tr><td style="padding-top:16px">
+              ${blocks}
+            </td></tr>
+          </table>`;
+}
+
 export function buildHtml(params: {
   locale: string;
   title: string;
   heading: string;
   bodyLines: string[];
-  rows: Array<{ label: string; value: string }>;
+  rows?: Array<{ label: string; value: string }>;
+  stackedRows?: StackedEmailRow[];
   officialReceiptUrl?: string | null;
   footerVariant?: EmailFooterVariant;
 }): string {
@@ -130,7 +166,8 @@ export function buildHtml(params: {
     title,
     heading,
     bodyLines,
-    rows,
+    rows = [],
+    stackedRows = [],
     officialReceiptUrl = null,
     footerVariant = "billing"
   } = params;
@@ -147,10 +184,12 @@ export function buildHtml(params: {
     .map((l) => `<p style="margin:0 0 12px;font-size:15px;color:#49443f;line-height:1.65">${l}</p>`)
     .join("\n              ");
 
-  // Fact rows table (plan, date, amount, etc.)
+  // Fact rows table (plan, date, amount, etc.) or stacked blocks for long-form support content.
   const rowsSection =
-    rows.length > 0
-      ? `
+    stackedRows.length > 0
+      ? buildStackedFactSectionHtml(stackedRows)
+      : rows.length > 0
+        ? `
           <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"
             style="border-top:1px solid #ede7de;margin-top:20px;padding-top:0">
             <tr><td style="padding-top:16px">
@@ -167,7 +206,7 @@ export function buildHtml(params: {
               </table>
             </td></tr>
           </table>`
-      : "";
+        : "";
 
   // Footer link row
   const footerLinks = [

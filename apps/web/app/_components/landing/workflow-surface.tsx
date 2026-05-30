@@ -2,6 +2,13 @@ import Image from "next/image";
 import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/app/lib/utils";
 
+/** Soft neumorphic contour — keeps workflow cards readable on sand (light) and charcoal (dark). */
+const SCHEMATIC_FRAME =
+  "border-[rgba(92,72,48,0.2)] bg-surface-raised/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.84),inset_0_-1px_0_rgba(92,72,48,0.1),0_26px_52px_-30px_rgba(92,72,48,0.34)] dark:border-white/[0.14] dark:bg-surface-raised/44 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),inset_0_-1px_0_rgba(0,0,0,0.4),0_26px_52px_-28px_rgba(0,0,0,0.74)]";
+
+const SCHEMATIC_CARD =
+  "border-[rgba(92,72,48,0.17)] bg-surface-raised/84 shadow-[inset_0_1px_0_rgba(255,255,255,0.88),inset_0_-1px_0_rgba(92,72,48,0.08),0_16px_34px_-22px_rgba(92,72,48,0.36)] dark:border-white/[0.13] dark:bg-surface-raised/50 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.09),inset_0_-1px_0_rgba(0,0,0,0.32),0_16px_34px_-20px_rgba(0,0,0,0.7)]";
+
 export type WorkflowSurfaceKind =
   | "personality"
   | "memory"
@@ -109,7 +116,12 @@ function renderScene(strings: WorkflowSurfaceStrings) {
 
 function SceneFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="relative h-[18.5rem] w-full overflow-hidden rounded-2xl border border-border/40 bg-surface-raised/15 shadow-[0_30px_60px_-30px_rgba(0,0,0,0.45)] sm:h-auto sm:aspect-[16/10]">
+    <div
+      className={cn(
+        "relative h-[18.5rem] w-full overflow-hidden rounded-2xl border backdrop-blur-[2px] sm:h-auto sm:aspect-[16/10]",
+        SCHEMATIC_FRAME
+      )}
+    >
       {/* Soft aurora glow behind the schematic — gives depth without competing. */}
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div className="absolute -left-12 top-1/3 h-72 w-72 rounded-full bg-accent/12 blur-[110px]" />
@@ -141,8 +153,11 @@ function ChatBubble(props: {
     <div
       style={style}
       className={cn(
-        "relative rounded-2xl border p-2.5 backdrop-blur-sm shadow-[0_14px_30px_-18px_rgba(0,0,0,0.55)] sm:p-3",
-        isUser ? "border-border/55 bg-surface-raised/55" : "border-accent/35 bg-accent/[0.07]",
+        "relative rounded-2xl border p-2.5 backdrop-blur-sm sm:p-3",
+        SCHEMATIC_CARD,
+        isUser
+          ? "border-[rgba(92,72,48,0.2)] dark:border-white/[0.15]"
+          : "border-accent/35 bg-accent/[0.09] dark:border-accent/30 dark:bg-accent/[0.12]",
         className
       )}
     >
@@ -170,10 +185,11 @@ function FloatingChip(props: {
     <div
       style={style}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.22em] backdrop-blur-sm shadow-[0_8px_18px_-12px_rgba(0,0,0,0.55)]",
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.22em] backdrop-blur-sm",
+        SCHEMATIC_CARD,
         tone === "accent"
-          ? "border-accent/45 bg-accent/[0.08] text-accent/90"
-          : "border-border/55 bg-surface-raised/60 text-text-subtle",
+          ? "border-accent/45 bg-accent/[0.1] text-accent/90 dark:border-accent/35 dark:bg-accent/[0.14]"
+          : "text-text-subtle",
         className
       )}
     >
@@ -294,8 +310,11 @@ function DocumentCardShell(props: {
   return (
     <div
       className={cn(
-        "rounded-2xl border bg-surface-raised/55 p-2.5 backdrop-blur-sm shadow-[0_22px_40px_-22px_rgba(0,0,0,0.65)] sm:p-3",
-        tone === "accent" ? "border-accent/45 bg-accent/[0.07]" : "border-border/55",
+        "rounded-2xl border p-2.5 backdrop-blur-sm sm:p-3",
+        SCHEMATIC_CARD,
+        tone === "accent"
+          ? "border-accent/40 bg-accent/[0.09] dark:border-accent/32 dark:bg-accent/[0.12]"
+          : null,
         className
       )}
     >
@@ -440,11 +459,7 @@ function MediaTileShell({
 }) {
   return (
     <div
-      className={cn(
-        "relative overflow-hidden rounded-xl border border-border/40 shadow-[0_22px_40px_-22px_rgba(0,0,0,0.65)]",
-        bg,
-        className
-      )}
+      className={cn("relative overflow-hidden rounded-xl border", SCHEMATIC_CARD, bg, className)}
     >
       {children}
     </div>
@@ -606,10 +621,7 @@ function KnowledgePanel(props: { title: string; className?: string; children: Re
   const { title, className, children } = props;
   return (
     <div
-      className={cn(
-        "rounded-2xl border border-border/55 bg-surface-raised/55 p-2.5 backdrop-blur-sm shadow-[0_22px_40px_-22px_rgba(0,0,0,0.6)] sm:p-3",
-        className
-      )}
+      className={cn("rounded-2xl border p-2.5 backdrop-blur-sm sm:p-3", SCHEMATIC_CARD, className)}
     >
       <p className="text-[9px] font-semibold uppercase tracking-[0.22em] text-text-subtle/75">
         {title}
@@ -743,7 +755,8 @@ function AvatarTile({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "relative h-16 w-16 self-start overflow-hidden rounded-2xl border border-border/55 bg-surface-raised/70 shadow-[0_14px_30px_-18px_rgba(0,0,0,0.55)]",
+        "relative h-16 w-16 self-start overflow-hidden rounded-2xl border",
+        SCHEMATIC_CARD,
         className
       )}
     >
@@ -756,7 +769,8 @@ function NameChip(props: { label: string; name: string; className?: string }) {
   return (
     <div
       className={cn(
-        "rounded-xl border border-border/55 bg-surface-raised/55 p-2 backdrop-blur-sm shadow-[0_12px_24px_-14px_rgba(0,0,0,0.55)] sm:p-2.5",
+        "rounded-xl border p-2 backdrop-blur-sm sm:p-2.5",
+        SCHEMATIC_CARD,
         props.className
       )}
     >
@@ -785,7 +799,8 @@ function TonePanel(props: {
   return (
     <div
       className={cn(
-        "rounded-xl border border-border/55 bg-surface-raised/55 p-2 backdrop-blur-sm shadow-[0_12px_24px_-14px_rgba(0,0,0,0.55)] sm:p-2.5",
+        "rounded-xl border p-2 backdrop-blur-sm sm:p-2.5",
+        SCHEMATIC_CARD,
         props.className
       )}
     >
@@ -854,7 +869,9 @@ function VoiceWaveformPanel({ label, className }: { label: string; className?: s
   return (
     <div
       className={cn(
-        "rounded-xl border border-accent/35 bg-accent/[0.07] p-2 backdrop-blur-sm shadow-[0_12px_24px_-14px_rgba(0,0,0,0.55)] sm:p-2.5",
+        "rounded-xl border p-2 backdrop-blur-sm sm:p-2.5",
+        SCHEMATIC_CARD,
+        "border-accent/35 bg-accent/[0.09] dark:border-accent/30 dark:bg-accent/[0.12]",
         className
       )}
     >
@@ -962,7 +979,8 @@ function TaskChip(props: {
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-2 rounded-full border bg-surface-raised/60 px-2.5 py-1.5 backdrop-blur-sm shadow-[0_14px_28px_-16px_rgba(0,0,0,0.6)]",
+        "inline-flex items-center gap-2 rounded-full border px-2.5 py-1.5 backdrop-blur-sm",
+        SCHEMATIC_CARD,
         toneClasses,
         className
       )}

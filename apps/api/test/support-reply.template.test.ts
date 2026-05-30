@@ -19,6 +19,10 @@ test("support.reply template renders ru subject and billing-style html shell", (
   assert.doesNotMatch(rendered.html, /подтверждение оплаты/i);
   assert.doesNotMatch(rendered.plainText, /подтверждение оплаты/i);
   assert.match(rendered.html, /Раздел «Поддержка»/);
+  assert.doesNotMatch(rendered.html, /width:50%/);
+  assert.match(rendered.html, /text-transform:uppercase/);
+  assert.match(rendered.html, /white-space:pre-wrap/);
+  assert.match(rendered.html, /Попробуйте переподключить Telegram/);
 });
 
 test("support.reply template renders en copy", () => {
