@@ -1450,4 +1450,163 @@ describe("RecordModelCostLedgerService", () => {
     assert.equal(createdRows[0]?.billingMode, "fixed_operation");
     assert.equal(createdRows[0]?.actualCostMicros, 8n);
   });
+
+  test("records document generation usage with purpose document_generation (token_metered chat model)", async () => {
+    const createdRows: Array<Record<string, unknown>> = [];
+    const prisma = {
+      modelCostLedgerEvent: {
+        createMany: async (input: {
+          data: Array<Record<string, unknown>>;
+          skipDuplicates?: boolean;
+        }) => {
+          createdRows.push(...input.data);
+          return { count: input.data.length };
+        }
+      }
+    } as unknown as WorkspaceManagementPrismaService;
+
+    const settingsResolver = {
+      execute: async () => ({
+        schema: "persai.runtimeProviderProfile.v1",
+        mode: "admin_managed",
+        derivedFrom: {
+          policyEnvelopeSchema: "persai.runtimeProviderProfile.v1",
+          secretRefsSchema: "persai.runtimeProviderCredentialRefs.v1"
+        },
+        allowedProviders: ["openai", "anthropic"],
+        availableModelsByProvider: { openai: ["gpt-4.1-mini"], anthropic: [] },
+        availableModelCatalogByProvider: {
+          openai: {
+            models: [
+              {
+                model: "gpt-4.1-mini",
+                capabilities: ["chat"],
+                active: true,
+                billingMode: "token_metered",
+                effectiveFrom: "2026-01-01T00:00:00.000Z",
+                effectiveTo: null,
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  tokenPricing: { inputPer1M: 100, cachedInputPer1M: 50, outputPer1M: 400 }
+                }
+              }
+            ]
+          },
+          anthropic: { models: [] }
+        },
+        primary: {
+          provider: "openai",
+          model: "gpt-4.1-mini",
+          credentialRef: {
+            refKey: "env:openai:OPENAI_API_KEY",
+            secretRef: { source: "env", provider: "openai", id: "OPENAI_API_KEY" },
+            updatedAt: null
+          }
+        },
+        fallback: null,
+        notes: []
+      })
+    } as ResolvePlatformRuntimeProviderSettingsService;
+
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
+    const writtenCount = await service.recordDocumentGenerationUsageEvent({
+      workspaceId: "workspace-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surface: "background",
+      source: "document_job_generation",
+      sourceEventId: "document_render_job:job-doc-1:generation",
+      occurredAt: "2026-05-30T12:00:00.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-4.1-mini",
+        inputTokens: 3000,
+        cachedInputTokens: 0,
+        outputTokens: 1500,
+        totalTokens: 4500
+      }
+    });
+
+    assert.equal(writtenCount, 1, "must write exactly one ledger row");
+    assert.equal(createdRows[0]?.purpose, "document_generation");
+    assert.equal(createdRows[0]?.source, "document_job_generation");
+    assert.equal(createdRows[0]?.capability, "chat");
+    assert.equal(createdRows[0]?.billingMode, "token_metered");
+    assert.equal(createdRows[0]?.workspaceId, "workspace-1");
+    assert.equal(createdRows[0]?.assistantId, "assistant-1");
+    assert.equal(
+      (createdRows[0]?.sourceEventId as string | undefined)?.includes("generation"),
+      true,
+      "sourceEventId must contain 'generation'"
+    );
+  });
+
+  test("skips document_generation ledger row when usage is null", async () => {
+    const createdRows: Array<Record<string, unknown>> = [];
+    const prisma = {
+      modelCostLedgerEvent: {
+        createMany: async (input: {
+          data: Array<Record<string, unknown>>;
+          skipDuplicates?: boolean;
+        }) => {
+          createdRows.push(...input.data);
+          return { count: input.data.length };
+        }
+      }
+    } as unknown as WorkspaceManagementPrismaService;
+
+    const settingsResolver = {
+      execute: async () => ({
+        schema: "persai.runtimeProviderProfile.v1",
+        mode: "admin_managed",
+        derivedFrom: {
+          policyEnvelopeSchema: "persai.runtimeProviderProfile.v1",
+          secretRefsSchema: "persai.runtimeProviderCredentialRefs.v1"
+        },
+        allowedProviders: ["openai"],
+        availableModelsByProvider: { openai: [] },
+        availableModelCatalogByProvider: { openai: { models: [] }, anthropic: { models: [] } },
+        primary: null,
+        fallback: null,
+        notes: []
+      })
+    } as unknown as ResolvePlatformRuntimeProviderSettingsService;
+
+    const toolPathCatalogResolver = {
+      execute: async () => ({ schema: "persai.toolPathPricingCatalog.v1" as const, rows: [] })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
+    const writtenCount = await service.recordDocumentGenerationUsageEvent({
+      workspaceId: "workspace-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surface: "background",
+      source: "document_job_generation",
+      sourceEventId: "document_render_job:job-null-1:generation",
+      occurredAt: "2026-05-30T12:00:00.000Z",
+      usage: null
+    });
+
+    assert.equal(writtenCount, 0, "must write zero rows when usage is null");
+    assert.equal(createdRows.length, 0);
+  });
 });

@@ -5231,6 +5231,391 @@ describe("RuntimeDocumentProviderAdapterService", () => {
     assert.equal(classification, "document_style_patch");
   });
 
+  // ---- ADR-102 Slice 8: worker LLM usage aggregation tests ----
+
+  test("single-shot PDF with worker LLM usage returns non-null aggregated usage", async () => {
+    const mockUsage = {
+      providerKey: "openai",
+      modelKey: "gpt-4.1-mini",
+      inputTokens: 1200,
+      cachedInputTokens: 0,
+      outputTokens: 800,
+      totalTokens: 2000
+    };
+
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText() {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: "<!DOCTYPE html><html><body><h1>Usage Test Doc</h1><p>Single-shot document body text that is long enough to pass the PDFMonkey HTML body-text minimum validation threshold for a successful document generation job run.</p></body></html>",
+            respondedAt: "2026-05-30T10:00:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: mockUsage
+          };
+        },
+        async generateDocumentOutcome(input: ProviderGatewayDocumentGenerateRequest) {
+          return {
+            ok: true as const,
+            result: {
+              provider: "pdfmonkey",
+              outputFormat: "pdf",
+              documentId: "doc-usage-test-1",
+              templateId: readPdfMonkeyTemplateId(input),
+              filename: input.filename,
+              bytesBase64: Buffer.concat([
+                Buffer.from("%PDF-1.4\n", "utf8"),
+                Buffer.alloc(1400, "U"),
+                Buffer.from("\n%%EOF", "utf8")
+              ]).toString("base64"),
+              mimeType: "application/pdf",
+              respondedAt: "2026-05-30T10:01:00.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "pdfmonkey",
+                state: "success",
+                documentId: "doc-usage-test-1",
+                documentTemplateId: readPdfMonkeyTemplateId(input),
+                downloadUrl: "https://example.com/usage-test.pdf",
+                previewUrl: null,
+                failureCause: null,
+                filename: input.filename,
+                outputType: "pdf",
+                status: "success",
+                updatedAt: "2026-05-30T10:01:00.000Z"
+              }
+            } as ProviderGatewayDocumentGenerateResult
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+    service["extractPdfText"] = async () => ({
+      text: "Usage test PDF text long enough to pass minimum validation requirements for a generated document.",
+      error: null
+    });
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-usage-1",
+          docId: "doc-usage-1",
+          versionId: "version-usage-1",
+          surface: "web",
+          chatId: "chat-usage-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf",
+          sourceUserMessageId: "message-usage-1",
+          sourceUserMessageText: "Generate a test PDF",
+          sourceUserMessageCreatedAt: "2026-05-30T10:00:00.000Z"
+        },
+        attachments: [],
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt: "Generate a test document for usage tracking",
+            requestedName: "Usage Test"
+          }
+        }
+      }
+    });
+
+    assert.equal(result.artifacts.length, 1, "must produce one artifact");
+    assert.notEqual(result.usage, null, "usage must be non-null when generateText returned usage");
+    assert.equal(
+      result.usage?.inputTokens,
+      1200,
+      "usage.inputTokens must match the generateText response"
+    );
+    assert.equal(
+      result.usage?.outputTokens,
+      800,
+      "usage.outputTokens must match the generateText response"
+    );
+    assert.equal(
+      result.usage?.totalTokens,
+      2000,
+      "usage.totalTokens must match the generateText response"
+    );
+    const usageSnapshot = result.usage as import("@persai/runtime-contract").RuntimeUsageSnapshot;
+    assert.equal(usageSnapshot.providerKey, "openai");
+    assert.equal(usageSnapshot.modelKey, "gpt-4.1-mini");
+  });
+
+  test("Gamma presentation path returns null usage (no worker LLM calls)", async () => {
+    const service = new RuntimeDocumentProviderAdapterService(
+      {
+        async generateText() {
+          return {
+            provider: "openai",
+            model: "gpt-4.1-mini",
+            text: "<!DOCTYPE html><html><body><h1>Gamma</h1></body></html>",
+            respondedAt: "2026-05-30T10:00:00.000Z",
+            stopReason: "completed",
+            toolCalls: [],
+            usage: {
+              providerKey: "openai",
+              modelKey: "gpt-4.1-mini",
+              inputTokens: 500,
+              cachedInputTokens: 0,
+              outputTokens: 200,
+              totalTokens: 700
+            }
+          };
+        },
+        async generateDocumentOutcome(input: ProviderGatewayDocumentGenerateRequest) {
+          return {
+            ok: true as const,
+            result: {
+              provider: "gamma",
+              outputFormat: "pptx",
+              documentId: "gamma-usage-null-1",
+              templateId: null,
+              filename: input.filename,
+              bytesBase64: Buffer.from("pptx-null-usage").toString("base64"),
+              mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              respondedAt: "2026-05-30T10:01:00.000Z",
+              warning: null,
+              providerStatus: {
+                provider: "gamma",
+                state: "success",
+                generationId: "gen-null-usage",
+                gammaId: "g_null_usage",
+                gammaUrl: "https://gamma.app/docs/g_null_usage",
+                exportUrl: "https://gamma.app/export/g_null_usage.pptx",
+                filename: input.filename,
+                outputType: "pptx",
+                status: "completed",
+                updatedAt: "2026-05-30T10:01:00.000Z"
+              }
+            } as ProviderGatewayDocumentGenerateResult
+          };
+        }
+      } as never,
+      {
+        buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+          return `assistant-media/${input.artifactId}.${input.extension}`;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }) {
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: input.mimeType
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile(input: {
+          referenceId: string;
+          objectKey: string;
+          filename: string | null;
+          mimeType: string;
+          sizeBytes: number;
+        }) {
+          return {
+            fileRef: `file-${input.referenceId}`,
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            sandboxJobId: null,
+            origin: "runtime_output",
+            sourceToolCode: "document",
+            objectKey: input.objectKey,
+            relativePath: `artifacts/${input.filename}`,
+            displayName: input.filename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            logicalSizeBytes: input.sizeBytes,
+            sha256: null,
+            metadata: null,
+            createdAt: new Date()
+          };
+        },
+        toRuntimeFileRef(record: {
+          fileRef: string;
+          origin: "runtime_output";
+          sourceToolCode: string | null;
+          objectKey: string;
+          relativePath: string;
+          displayName: string | null;
+          mimeType: string;
+          sizeBytes: number;
+          logicalSizeBytes: number | null;
+        }) {
+          return {
+            fileRef: record.fileRef,
+            origin: record.origin,
+            sourceToolCode: record.sourceToolCode,
+            objectKey: record.objectKey,
+            relativePath: record.relativePath,
+            displayName: record.displayName,
+            mimeType: record.mimeType,
+            sizeBytes: record.sizeBytes,
+            logicalSizeBytes: record.logicalSizeBytes
+          };
+        }
+      } as never
+    );
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        runtimeTier: "paid_shared_restricted",
+        runtimeBundleDocument: "{}",
+        job: {
+          id: "job-gamma-usage-null",
+          docId: "doc-gamma-usage-null",
+          versionId: "version-gamma-usage-null",
+          surface: "web",
+          chatId: "chat-gamma-usage-null",
+          provider: "gamma",
+          outputFormat: "pptx",
+          sourceUserMessageId: "message-gamma-usage-null",
+          sourceUserMessageText: "Create a presentation",
+          sourceUserMessageCreatedAt: "2026-05-30T10:00:00.000Z"
+        },
+        attachments: [],
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_presentation",
+          request: {
+            prompt: "Create a business overview presentation",
+            requestedName: "Gamma Null Usage Test"
+          }
+        }
+      }
+    });
+
+    assert.equal(result.artifacts.length, 1, "must produce one artifact");
+    assert.equal(
+      result.usage,
+      null,
+      "Gamma path must return null usage since it makes no worker LLM calls"
+    );
+  });
+
+  test("patch-revise returns usage from worker LLM call", async () => {
+    const patchUsage = {
+      providerKey: "openai",
+      modelKey: "gpt-4.1-mini",
+      inputTokens: 2500,
+      cachedInputTokens: 100,
+      outputTokens: 1200,
+      totalTokens: 3700
+    };
+    const envelope = makePatchReviseEnvelope([
+      { search: "<p>Original paragraph.</p>", replace: "<p>Revised paragraph.</p>" }
+    ]);
+    const { service } = createPatchReviseService({ llmResponse: "" });
+    const gateway = (
+      service as unknown as {
+        providerGatewayClientService: {
+          generateText: () => Promise<unknown>;
+        };
+      }
+    ).providerGatewayClientService;
+    gateway.generateText = async () => ({
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      text: envelope,
+      respondedAt: "2026-05-30T10:00:00.000Z",
+      stopReason: "completed",
+      toolCalls: [],
+      usage: patchUsage
+    });
+
+    const previousHtml =
+      "<!DOCTYPE html><html><head></head><body><p>Original paragraph.</p></body></html>";
+
+    const result = await service.run({
+      bundle: createBundle(),
+      request: makePatchReviseRequest(previousHtml, "Update the paragraph")
+    });
+
+    assert.equal(result.artifacts.length, 1, "must produce one artifact");
+    assert.notEqual(
+      result.usage,
+      null,
+      "usage must be non-null when patch-revise LLM returned usage"
+    );
+    assert.equal(result.usage?.inputTokens, 2500);
+    assert.equal(result.usage?.cachedInputTokens, 100);
+    assert.equal(result.usage?.outputTokens, 1200);
+    assert.equal(result.usage?.totalTokens, 3700);
+  });
+
+  // ---- end ADR-102 Slice 8 usage tests ----
+
   test("small revise keeps patch-revise path when below structured threshold", async () => {
     const previousHtml =
       "<!DOCTYPE html><html><head></head><body><h1>Intro</h1><p>Old intro text here.</p></body></html>";
@@ -5328,5 +5713,397 @@ describe("RuntimeDocumentProviderAdapterService", () => {
       request: makePatchReviseRequest(previousHtml)
     });
     assert.equal(patchClassification, "document_pdf_patch_revise");
+  });
+
+  // ADR-102 Slice 8: document-worker LLM economics — usage aggregation tests
+  describe("worker LLM usage aggregation (Slice 8)", () => {
+    function makeMinimalPdfService(options: {
+      generateTextUsage: Record<string, unknown> | null;
+      htmlContent: string;
+    }) {
+      const service = new RuntimeDocumentProviderAdapterService(
+        {
+          async generateText() {
+            return {
+              provider: "openai",
+              model: "gpt-4.1-mini",
+              text: options.htmlContent,
+              respondedAt: "2026-05-30T10:00:00.000Z",
+              stopReason: "completed",
+              toolCalls: [],
+              usage: options.generateTextUsage
+            };
+          },
+          async generateDocumentOutcome(
+            input: ProviderGatewayDocumentGenerateRequest
+          ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+            return {
+              ok: true,
+              result: {
+                provider: "pdfmonkey",
+                outputFormat: "pdf",
+                documentId: "doc-usage-1",
+                templateId: "template-123",
+                filename: input.filename,
+                bytesBase64: Buffer.concat([
+                  Buffer.from("%PDF-1.4\n", "utf8"),
+                  Buffer.alloc(1400, "U"),
+                  Buffer.from("\n%%EOF", "utf8")
+                ]).toString("base64"),
+                mimeType: "application/pdf",
+                respondedAt: "2026-05-30T10:01:00.000Z",
+                warning: null,
+                providerStatus: { provider: "pdfmonkey", state: "success" } as never
+              }
+            };
+          }
+        } as never,
+        {
+          buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+            return `runtime/${input.artifactId}.${input.extension}`;
+          },
+          async saveObject() {
+            return { objectKey: "k", sizeBytes: 1, mimeType: "application/pdf" };
+          }
+        } as never,
+        {
+          async ensureAttachmentBackedFile() {
+            return {
+              fileRef: "file-usage",
+              assistantId: "assistant-1",
+              workspaceId: "workspace-1",
+              sandboxJobId: null,
+              origin: "runtime_output",
+              sourceToolCode: "document",
+              objectKey: "k",
+              relativePath: "doc.pdf",
+              displayName: "doc.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 1,
+              logicalSizeBytes: 1,
+              sha256: null,
+              metadata: null,
+              createdAt: new Date()
+            };
+          },
+          toRuntimeFileRef(record: { fileRef: string }) {
+            return {
+              fileRef: record.fileRef,
+              filename: "doc.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 1
+            };
+          }
+        } as never
+      );
+      mockExtractedPdfText(
+        service,
+        "Document text for usage test. Document text for usage test. Document text for usage test. Document text for usage test. Document text for usage test. Document text for usage test. Document text for usage test."
+      );
+      return service;
+    }
+
+    function makeRequest() {
+      return {
+        job: {
+          id: "job-usage-1",
+          chatId: "chat-1",
+          provider: "pdfmonkey",
+          outputFormat: "pdf"
+        },
+        directToolExecution: {
+          toolCode: "document",
+          descriptorMode: "create_pdf_document",
+          request: {
+            prompt: "Generate a document",
+            requestedName: "Test Doc"
+          }
+        },
+        sourceFiles: [],
+        runtimeBundleDocument: JSON.stringify({ metadata: { assistantId: "assistant-1" } })
+      };
+    }
+
+    test("single-shot PDF path returns generateText usage in result", async () => {
+      const htmlContent =
+        "<!DOCTYPE html><html><body><h1>Title</h1><p>This is enough body text for the PDF generation test to pass the minimum body text length requirement and avoid the too-little-body-text error threshold.</p></body></html>";
+      const service = makeMinimalPdfService({
+        generateTextUsage: {
+          providerKey: "openai",
+          modelKey: "gpt-4.1-mini",
+          inputTokens: 500,
+          cachedInputTokens: 0,
+          outputTokens: 250,
+          totalTokens: 750
+        },
+        htmlContent
+      });
+
+      const result = await service.run({
+        bundle: createBundle(),
+        request: makeRequest() as never
+      });
+
+      assert.ok(result.usage !== null, "usage must be non-null when generateText returned usage");
+      const usage = result.usage as {
+        inputTokens: number | null;
+        outputTokens: number | null;
+        totalTokens: number | null;
+        providerKey: string | null;
+      };
+      assert.equal(usage.inputTokens, 500);
+      assert.equal(usage.outputTokens, 250);
+      assert.equal(usage.totalTokens, 750);
+      assert.equal(usage.providerKey, "openai");
+    });
+
+    test("single-shot PDF path keeps usage null when generateText returns null usage", async () => {
+      const htmlContent =
+        "<!DOCTYPE html><html><body><h1>Title</h1><p>This is enough body text for the PDF generation test to pass the minimum body text length requirement and avoid the too-little-body-text error threshold.</p></body></html>";
+      const service = makeMinimalPdfService({
+        generateTextUsage: null,
+        htmlContent
+      });
+
+      const result = await service.run({
+        bundle: createBundle(),
+        request: makeRequest() as never
+      });
+
+      assert.equal(result.usage, null, "usage must be null when generateText returned null");
+    });
+
+    test("Gamma path returns usage null (no worker LLM calls)", async () => {
+      let generateTextCalled = false;
+      const service = new RuntimeDocumentProviderAdapterService(
+        {
+          async generateText() {
+            generateTextCalled = true;
+            throw new Error("Gamma must not call generateText");
+          },
+          async generateDocumentOutcome(
+            input: ProviderGatewayDocumentGenerateRequest
+          ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+            return {
+              ok: true,
+              result: {
+                provider: "gamma",
+                outputFormat: "pptx",
+                documentId: "gamma-1",
+                templateId: null,
+                filename: input.filename,
+                bytesBase64: Buffer.concat([Buffer.alloc(100, "G")]).toString("base64"),
+                mimeType:
+                  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                respondedAt: "2026-05-30T10:01:00.000Z",
+                warning: null,
+                providerStatus: { provider: "gamma", state: "success" } as never
+              }
+            };
+          }
+        } as never,
+        {
+          buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+            return `runtime/${input.artifactId}.${input.extension}`;
+          },
+          async saveObject() {
+            return {
+              objectKey: "k",
+              sizeBytes: 1,
+              mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            };
+          }
+        } as never,
+        {
+          async ensureAttachmentBackedFile() {
+            return {
+              fileRef: "file-gamma",
+              assistantId: "assistant-1",
+              workspaceId: "workspace-1",
+              sandboxJobId: null,
+              origin: "runtime_output",
+              sourceToolCode: "document",
+              objectKey: "k",
+              relativePath: "pres.pptx",
+              displayName: "pres.pptx",
+              mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              sizeBytes: 1,
+              logicalSizeBytes: 1,
+              sha256: null,
+              metadata: null,
+              createdAt: new Date()
+            };
+          },
+          toRuntimeFileRef(record: { fileRef: string }) {
+            return {
+              fileRef: record.fileRef,
+              filename: "pres.pptx",
+              mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              sizeBytes: 1
+            };
+          }
+        } as never
+      );
+
+      const bundle = Object.assign({}, createBundle(), {
+        governance: {
+          toolCredentialRefs: {
+            document: {
+              refKey: "persai:persai-runtime:tool/document/gamma/api-key",
+              secretRef: {
+                source: "persai",
+                provider: "persai-runtime",
+                id: "tool/document/gamma/api-key"
+              },
+              configured: true,
+              providerId: "gamma",
+              fallbacks: []
+            }
+          }
+        }
+      }) as never;
+
+      const result = await service.run({
+        bundle,
+        request: {
+          job: {
+            id: "job-gamma-usage-1",
+            chatId: "chat-1",
+            provider: "gamma",
+            outputFormat: "pptx",
+            sourceUserMessageText: "Create a presentation",
+            sourceUserMessageCreatedAt: "2026-05-30T10:00:00.000Z"
+          },
+          directToolExecution: {
+            toolCode: "document",
+            descriptorMode: "create_presentation",
+            request: {
+              prompt: "Make a presentation",
+              requestedName: "Test Pres",
+              outputFormat: "pptx"
+            }
+          },
+          sourceFiles: [],
+          runtimeBundleDocument: JSON.stringify({ metadata: { assistantId: "assistant-1" } })
+        } as never
+      });
+
+      assert.equal(result.usage, null, "Gamma path must return usage: null");
+      assert.equal(generateTextCalled, false, "Gamma path must not call generateText");
+    });
+
+    test("patch-revise path returns generateText usage in result", async () => {
+      const filler = "Contract body text for patch revise test. ".repeat(1_500);
+      const previousHtml = `<!DOCTYPE html><html><head></head><body><p>${filler}</p></body></html>`;
+      const envelope = JSON.stringify({
+        mode: "document_pdf_patch_revise",
+        patches: [{ search: "<p>", replace: "<p>" }]
+      });
+
+      const service = new RuntimeDocumentProviderAdapterService(
+        {
+          async generateText() {
+            return {
+              provider: "openai",
+              model: "gpt-4.1-mini",
+              text: envelope,
+              respondedAt: "2026-05-30T10:00:00.000Z",
+              stopReason: "completed",
+              toolCalls: [],
+              usage: {
+                providerKey: "openai",
+                modelKey: "gpt-4.1-mini",
+                inputTokens: 4000,
+                cachedInputTokens: 1000,
+                outputTokens: 200,
+                totalTokens: 4200
+              }
+            };
+          },
+          async generateDocumentOutcome(
+            input: ProviderGatewayDocumentGenerateRequest
+          ): Promise<{ ok: true; result: ProviderGatewayDocumentGenerateResult }> {
+            return {
+              ok: true,
+              result: {
+                provider: "pdfmonkey",
+                outputFormat: "pdf",
+                documentId: "doc-patch-usage-1",
+                templateId: "template-123",
+                filename: input.filename,
+                bytesBase64: Buffer.concat([
+                  Buffer.from("%PDF-1.4\n", "utf8"),
+                  Buffer.alloc(1400, "P"),
+                  Buffer.from("\n%%EOF", "utf8")
+                ]).toString("base64"),
+                mimeType: "application/pdf",
+                respondedAt: "2026-05-30T10:01:00.000Z",
+                warning: null,
+                providerStatus: { provider: "pdfmonkey", state: "success" } as never
+              }
+            };
+          }
+        } as never,
+        {
+          buildRuntimeOutputObjectKey(input: { artifactId?: string; extension: string | null }) {
+            return `runtime/${input.artifactId}.${input.extension}`;
+          },
+          async saveObject() {
+            return { objectKey: "k", sizeBytes: 1, mimeType: "application/pdf" };
+          }
+        } as never,
+        {
+          async ensureAttachmentBackedFile() {
+            return {
+              fileRef: "file-patch-usage",
+              assistantId: "assistant-1",
+              workspaceId: "workspace-1",
+              sandboxJobId: null,
+              origin: "runtime_output",
+              sourceToolCode: "document",
+              objectKey: "k",
+              relativePath: "patched.pdf",
+              displayName: "patched.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 1,
+              logicalSizeBytes: 1,
+              sha256: null,
+              metadata: null,
+              createdAt: new Date()
+            };
+          },
+          toRuntimeFileRef(record: { fileRef: string }) {
+            return {
+              fileRef: record.fileRef,
+              filename: "patched.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 1
+            };
+          }
+        } as never
+      );
+      mockExtractedPdfText(
+        service,
+        "Contract body text for patch revise test. Contract body text for patch revise test. Contract body text for patch revise test."
+      );
+
+      const result = await service.run({
+        bundle: createBundle(),
+        request: {
+          ...makePatchReviseRequest(previousHtml, "Improve the clause"),
+          previousVersionEditStrategy: "fast_small"
+        } as never
+      });
+
+      assert.ok(result.usage !== null, "patch-revise result.usage must be non-null");
+      const usage = result.usage as {
+        inputTokens: number | null;
+        cachedInputTokens?: number | null;
+        outputTokens: number | null;
+      };
+      assert.equal(usage.inputTokens, 4000, "inputTokens must match generateText usage");
+      assert.equal(usage.cachedInputTokens, 1000, "cachedInputTokens must be propagated");
+      assert.equal(usage.outputTokens, 200, "outputTokens must match generateText usage");
+    });
   });
 });

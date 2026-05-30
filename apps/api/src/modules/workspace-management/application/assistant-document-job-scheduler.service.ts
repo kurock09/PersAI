@@ -6,7 +6,8 @@ import type {
   PersaiRuntimePresentationVisualDensity,
   PersaiRuntimePresentationVisualStyle,
   RuntimeAttachmentRef,
-  RuntimeDocumentJobRunRequest
+  RuntimeDocumentJobRunRequest,
+  RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
@@ -18,6 +19,7 @@ import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { AssistantDocumentJobDeliveryService } from "./assistant-document-job-delivery.service";
 import { DocumentSourceAttachmentExtractionService } from "./document-source-attachment-extraction.service";
+import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 
 const DOCUMENT_JOB_POLL_INTERVAL_MS = 5_000;
 const DOCUMENT_JOB_BATCH_SIZE = 4;
@@ -74,6 +76,7 @@ type ClaimedDocumentJob = {
   docId: string;
   versionId: string;
   assistantId: string;
+  userId: string;
   workspaceId: string;
   chatId: string;
   surface: "web" | "telegram";
@@ -112,7 +115,8 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
     private readonly documentSourceAttachmentExtractionService: DocumentSourceAttachmentExtractionService,
     private readonly assistantDocumentJobDeliveryService: AssistantDocumentJobDeliveryService,
     private readonly schedulerLeaseService: SchedulerLeaseService,
-    private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService
+    private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService,
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
   ) {}
 
   onModuleInit(): void {
@@ -260,6 +264,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           docId: string;
           versionId: string;
           assistantId: string;
+          userId: string;
           workspaceId: string;
           chatId: string;
           surface: "web" | "telegram";
@@ -278,6 +283,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           "doc_id" AS "docId",
           "version_id" AS "versionId",
           "assistant_id" AS "assistantId",
+          "user_id" AS "userId",
           "workspace_id" AS "workspaceId",
           "chat_id" AS "chatId",
           "surface"::text AS "surface",
@@ -349,6 +355,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           docId: row.docId,
           versionId: row.versionId,
           assistantId: row.assistantId,
+          userId: row.userId,
           workspaceId: row.workspaceId,
           chatId: row.chatId,
           surface: row.surface,
@@ -604,6 +611,25 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           providerMetadataJson: (outcome.result.providerStatus ?? {}) as Prisma.InputJsonValue
         });
       });
+
+      if (outcome.result.usage !== null) {
+        try {
+          await this.recordModelCostLedgerService.recordDocumentGenerationUsageEvent({
+            workspaceId: job.workspaceId,
+            assistantId: job.assistantId,
+            userId: job.userId,
+            surface: job.surface,
+            source: "document_job_generation",
+            sourceEventId: `document_render_job:${job.id}:generation`,
+            occurredAt: new Date().toISOString(),
+            usage: outcome.result.usage as RuntimeUsageSnapshot
+          });
+        } catch (error) {
+          this.logger.warn(
+            `document_generation_ledger_append_failed jobId=${job.id} message=${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
     } finally {
       clearInterval(heartbeat);
     }

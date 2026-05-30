@@ -103,6 +103,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
         recordTickAcquired() {},
         recordLeaseLost() {},
         recordLeaseExpiredRecovered() {}
+      } as never,
+      {
+        async recordDocumentGenerationUsageEvent() {}
       } as never
     );
 
@@ -172,6 +175,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
             }
           })
       } as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -334,6 +338,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
         recordTickAcquired() {},
         recordLeaseLost() {},
         recordLeaseExpiredRecovered() {}
+      } as never,
+      {
+        async recordDocumentGenerationUsageEvent() {}
       } as never
     );
 
@@ -495,6 +502,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
         recordTickAcquired() {},
         recordLeaseLost() {},
         recordLeaseExpiredRecovered() {}
+      } as never,
+      {
+        async recordDocumentGenerationUsageEvent() {}
       } as never
     );
 
@@ -676,6 +686,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
         recordTickAcquired() {},
         recordLeaseLost() {},
         recordLeaseExpiredRecovered() {}
+      } as never,
+      {
+        async recordDocumentGenerationUsageEvent() {}
       } as never
     );
 
@@ -865,6 +878,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
         recordTickAcquired() {},
         recordLeaseLost() {},
         recordLeaseExpiredRecovered() {}
+      } as never,
+      {
+        async recordDocumentGenerationUsageEvent() {}
       } as never
     );
 
@@ -1067,6 +1083,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
         recordTickAcquired() {},
         recordLeaseLost() {},
         recordLeaseExpiredRecovered() {}
+      } as never,
+      {
+        async recordDocumentGenerationUsageEvent() {}
       } as never
     );
 
@@ -1234,6 +1253,9 @@ describe("AssistantDocumentJobSchedulerService", () => {
         recordTickAcquired() {},
         recordLeaseLost() {},
         recordLeaseExpiredRecovered() {}
+      } as never,
+      {
+        async recordDocumentGenerationUsageEvent() {}
       } as never
     );
 
@@ -1342,6 +1364,343 @@ describe("AssistantDocumentJobSchedulerService", () => {
     assert.equal(
       documentUpdates.some((input) => input.data?.status === "failed"),
       false
+    );
+  });
+
+  test("appends document_generation ledger row when outcome.result.usage is non-null", async () => {
+    const ledgerCalls: Array<Record<string, unknown>> = [];
+    const service = new AssistantDocumentJobSchedulerService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantDocumentVersion: { update: async () => undefined },
+            assistantDocumentProviderMapping: {
+              findFirst: async () => null,
+              create: async () => undefined,
+              update: async () => undefined
+            }
+          }),
+        assistantDocumentRenderJob: { updateMany: async () => ({ count: 0 }) }
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        async resolveCurrent() {
+          return {
+            runtimeBundleDocument: JSON.stringify({
+              metadata: { assistantId: "assistant-1", workspaceId: "workspace-1" },
+              runtime: {},
+              promptConstructor: {}
+            })
+          };
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          return { runtimeTier: "paid_shared_restricted" };
+        }
+      } as never,
+      {
+        async run() {
+          return {
+            ok: true,
+            result: {
+              assistantText: null,
+              artifacts: [
+                {
+                  artifactId: "artifact-ledger-1",
+                  fileRef: "file-ledger-1",
+                  file: {
+                    fileRef: "file-ledger-1",
+                    origin: "runtime_output",
+                    sourceToolCode: "document",
+                    objectKey: "key/ledger-doc.pdf",
+                    relativePath: "ledger-doc.pdf",
+                    displayName: "ledger-doc.pdf",
+                    mimeType: "application/pdf",
+                    sizeBytes: 1500
+                  },
+                  kind: "file",
+                  sourceToolCode: "document",
+                  objectKey: "key/ledger-doc.pdf",
+                  mimeType: "application/pdf",
+                  filename: "ledger-doc.pdf",
+                  sizeBytes: 1500,
+                  voiceNote: false
+                }
+              ],
+              usage: {
+                providerKey: "openai",
+                modelKey: "gpt-4.1-mini",
+                inputTokens: 1200,
+                cachedInputTokens: 0,
+                outputTokens: 800,
+                totalTokens: 2000
+              },
+              toolInvocations: [
+                { name: "document", iteration: 1, ok: true, executionMode: "worker" }
+              ],
+              rawText: null,
+              providerStatus: { provider: "pdfmonkey", state: "success" }
+            }
+          };
+        }
+      } as never,
+      {
+        async extractSourceFiles() {
+          return [];
+        }
+      } as never,
+      {
+        async deliverReadyJob() {
+          throw new Error("delivery should not run");
+        }
+      } as never,
+      {
+        async getLeaseState() {
+          return null;
+        },
+        async acquire() {
+          return null;
+        },
+        async heartbeat() {
+          return true;
+        },
+        async release() {}
+      } as never,
+      {
+        recordTickSkipped() {},
+        recordTickAcquired() {},
+        recordLeaseLost() {},
+        recordLeaseExpiredRecovered() {}
+      } as never,
+      {
+        async recordDocumentGenerationUsageEvent(input: Record<string, unknown>) {
+          ledgerCalls.push(input);
+        }
+      } as never
+    );
+
+    await (
+      service as unknown as { processQueuedJob: (job: Record<string, unknown>) => Promise<void> }
+    ).processQueuedJob({
+      id: "job-ledger-1",
+      docId: "doc-ledger-1",
+      versionId: "version-ledger-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-ledger-1",
+      surface: "web",
+      provider: "pdfmonkey",
+      outputFormat: "pdf",
+      sourceUserMessageId: "message-ledger-1",
+      requestJson: {
+        sourceUserMessageText: "Generate a PDF",
+        sourceUserMessageCreatedAt: "2026-05-30T10:00:00.000Z",
+        descriptorMode: "create_pdf_document",
+        sourceJson: { prompt: "Generate a PDF" }
+      },
+      attemptCount: 1,
+      maxAttempts: 5,
+      claimToken: "claim-ledger-1"
+    });
+
+    assert.equal(ledgerCalls.length, 1, "recordDocumentGenerationUsageEvent must be called once");
+    assert.equal(ledgerCalls[0]!.source, "document_job_generation");
+    assert.equal(ledgerCalls[0]!.sourceEventId, "document_render_job:job-ledger-1:generation");
+    assert.equal(ledgerCalls[0]!.workspaceId, "workspace-1");
+    assert.equal(ledgerCalls[0]!.assistantId, "assistant-1");
+    assert.equal(ledgerCalls[0]!.userId, "user-1");
+    assert.equal(
+      (ledgerCalls[0]!.usage as Record<string, unknown>).inputTokens,
+      1200,
+      "usage inputTokens must be forwarded"
+    );
+  });
+
+  test("does not append ledger row when outcome.result.usage is null", async () => {
+    const ledgerCalls: Array<Record<string, unknown>> = [];
+    const service = new AssistantDocumentJobSchedulerService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantDocumentVersion: { update: async () => undefined },
+            assistantDocumentProviderMapping: {
+              findFirst: async () => null,
+              create: async () => undefined,
+              update: async () => undefined
+            }
+          }),
+        assistantDocumentRenderJob: { updateMany: async () => ({ count: 0 }) }
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        async resolveCurrent() {
+          return {
+            runtimeBundleDocument: JSON.stringify({
+              metadata: { assistantId: "assistant-1", workspaceId: "workspace-1" },
+              runtime: {},
+              promptConstructor: {}
+            })
+          };
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          return { runtimeTier: "paid_shared_restricted" };
+        }
+      } as never,
+      {
+        async run() {
+          return {
+            ok: true,
+            result: {
+              assistantText: null,
+              artifacts: [
+                {
+                  artifactId: "artifact-null-usage-1",
+                  fileRef: "file-null-usage-1",
+                  file: {
+                    fileRef: "file-null-usage-1",
+                    origin: "runtime_output",
+                    sourceToolCode: "document",
+                    objectKey: "key/null-usage.pdf",
+                    relativePath: "null-usage.pdf",
+                    displayName: "null-usage.pdf",
+                    mimeType: "application/pdf",
+                    sizeBytes: 1500
+                  },
+                  kind: "file",
+                  sourceToolCode: "document",
+                  objectKey: "key/null-usage.pdf",
+                  mimeType: "application/pdf",
+                  filename: "null-usage.pdf",
+                  sizeBytes: 1500,
+                  voiceNote: false
+                }
+              ],
+              usage: null,
+              toolInvocations: [
+                { name: "document", iteration: 1, ok: true, executionMode: "worker" }
+              ],
+              rawText: null,
+              providerStatus: { provider: "pdfmonkey", state: "success" }
+            }
+          };
+        }
+      } as never,
+      {
+        async extractSourceFiles() {
+          return [];
+        }
+      } as never,
+      {
+        async deliverReadyJob() {
+          throw new Error("delivery should not run");
+        }
+      } as never,
+      {
+        async getLeaseState() {
+          return null;
+        },
+        async acquire() {
+          return null;
+        },
+        async heartbeat() {
+          return true;
+        },
+        async release() {}
+      } as never,
+      {
+        recordTickSkipped() {},
+        recordTickAcquired() {},
+        recordLeaseLost() {},
+        recordLeaseExpiredRecovered() {}
+      } as never,
+      {
+        async recordDocumentGenerationUsageEvent(input: Record<string, unknown>) {
+          ledgerCalls.push(input);
+        }
+      } as never
+    );
+
+    await (
+      service as unknown as { processQueuedJob: (job: Record<string, unknown>) => Promise<void> }
+    ).processQueuedJob({
+      id: "job-null-usage-1",
+      docId: "doc-null-usage-1",
+      versionId: "version-null-usage-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-null-usage-1",
+      surface: "web",
+      provider: "pdfmonkey",
+      outputFormat: "pdf",
+      sourceUserMessageId: "message-null-usage-1",
+      requestJson: {
+        sourceUserMessageText: "Generate a PDF",
+        sourceUserMessageCreatedAt: "2026-05-30T10:00:00.000Z",
+        descriptorMode: "create_pdf_document",
+        sourceJson: { prompt: "Generate a PDF" }
+      },
+      attemptCount: 1,
+      maxAttempts: 5,
+      claimToken: "claim-null-usage-1"
+    });
+
+    assert.equal(
+      ledgerCalls.length,
+      0,
+      "recordDocumentGenerationUsageEvent must NOT be called when usage is null"
     );
   });
 });

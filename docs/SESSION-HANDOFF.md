@@ -2,6 +2,32 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-30 — ADR-102 tails: safe cleanup inventory + Slice 8 (document-worker LLM economics)
+
+### Baseline
+
+- Continuation of the ADR-102 program after closure. Orchestrator-led (senior-engineer role, no production code written directly): each unit dispatched to a synchronous coding subagent with a full context-bearing prompt, then diff-reviewed and verification-gated by the orchestrator before acceptance. Started from a clean tree on `main` after the founder's ADR-103 docs commit (`e58ed0e3`).
+
+### What changed this session
+
+0. **Safe cleanup inventory** (committed separately, ADR-102 inventory): removed the dead `WebRuntimeShadowComparisonService` + its tests and DI/registration + `overview-dashboard` types/field; deleted the dead `uploadChatAttachment()` web client export; moved the hardcoded `"Навык - "` skill-badge literal to the `skillBadgePrefix` i18n key (`en`/`ru` + `use-chat` + test); fixed a stale ledger phrase in `ARCHITECTURE.md`; narrowed `RuntimeDocumentToolResult.action` (dropped unused `"deferred"`); deleted `services/openclaw/.gitkeep`. The `native-*` / `send-native-*` filename rename was **intentionally skipped** per founder decision (cosmetic, high-churn forcing a full api+runtime rebuild, and `native` is the endorsed PersAI-native term, not dead scaffolding).
+1. **Runtime usage aggregation** (`apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts`): Added `mergeUsageSnapshots` helper; modified six `generateText`-calling methods (`generatePdfHtmlContent`, `generateChunkedOutline`, `generateSectionFragment`, `generateStructuredStylePatch`, `generateStructuredSectionPatches`, `runPdfPatchRevise`) to return `usage: RuntimeUsageSnapshot | null` alongside their primary data; accumulated all per-call snapshots into one merged snapshot per job run. The Gamma path (zero worker LLM calls) stays `usage: null`.
+2. **Ledger service** (`apps/api/src/modules/workspace-management/application/record-model-cost-ledger.service.ts`): Added `"document_generation"` to `ModelCostLedgerPurpose`; added `recordDocumentGenerationUsageEvent()` method reusing `recordTokenMeteredUsageSnapshot`.
+3. **Read model label** (`apps/api/src/modules/workspace-management/application/model-cost-ledger-read-model.ts`): Added `"Document generation (worker LLM)"` label.
+4. **API scheduler** (`apps/api/src/modules/workspace-management/application/assistant-document-job-scheduler.service.ts`): Added `userId` to `ClaimedDocumentJob` type and SQL query; injected `RecordModelCostLedgerService`; appended `document_generation` ledger row (non-blocking try/catch) after successful job run when `outcome.result.usage` is non-null.
+5. **Tests extended:** runtime adapter (4 new Slice 8 tests covering single-shot, Gamma null, patch-revise); API scheduler (2 new tests: ledger appended on non-null usage, skipped on null); ledger service (2 new tests: `document_generation` purpose recorded, skipped when usage is null).
+6. **Verification gate:** lint PASS, format:check PASS, runtime-contract typecheck PASS, runtime typecheck PASS, API typecheck PASS; all focused tests PASS (49 runtime adapter, 11 scheduler, 14 ledger).
+
+### Risks / residuals
+
+- No Prisma migration added; no quota path touched; no schema change.
+- Three distinct ledger row identities: `document_render` (render op), `chat_helper` (completion framing), `document_generation` (worker LLM) — no double-count.
+- Ledger append is non-blocking; if model is not token-metered, row is silently skipped (acceptable — ledger is best-effort).
+
+### Next recommended step
+
+Commit + push the Slice 8 code batch and deploy to `persai-dev`; verify rollout (Argo CD Synced/Healthy, api+runtime on the new tag) and confirm a `document_generation` ledger row is appended after a real document job (log/DB check). Then proceed to **Item 3 — deploy resilience** (`fail-fast:false` + pin-only-succeeded + dev reconcile-cron, plus an atomic prod-release design) with its own ADR. ADR-103 Slice A (interactive landing demo) remains the founder's separate track.
+
 ## 2026-05-30 — ADR-103 proposed: one-flow interactive landing demo system
 
 ### Baseline

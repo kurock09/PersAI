@@ -1,6 +1,6 @@
 # ADR-102: Pre-PROD architectural cleanup and truth hardening
 
-**Status:** Completed (2026-05-30) — all PROD-blocking + recommended slices (0–7, 9, 10) landed and deployed to `persai-dev` on `e3c78b63`; PROD preflight + human smoke passed. Optional Slice 8 and the cleanup inventory remain as non-blocking follow-ups.  
+**Status:** Completed (2026-05-30) — all PROD-blocking + recommended slices (0–7, 9, 10) landed and deployed to `persai-dev` on `e3c78b63`; PROD preflight + human smoke passed. Optional Slice 8 (document-worker `document_generation` economics) and the safe cleanup inventory (dead shadow-comparison service, dead `uploadChatAttachment`, skill-badge i18n, narrowed document action union, stale ARCHITECTURE phrase) also landed (2026-05-30); the `native-*` filename rename was intentionally **skipped** (cosmetic/high-churn, `native` is the endorsed PersAI-native term).  
 **Date:** 2026-05-30  
 **Relates to:** [ADR-078](078-consolidated-follow-through-program.md) (closed continuation program — this ADR does not reopen it), [ADR-081](081-unified-user-files-architecture.md), [ADR-086](086-async-media-jobs-for-generated-image-audio-and-video.md), [ADR-093](093-clean-prod-launch-readiness-and-concurrency-hardening.md) (agent/deploy discipline), [ADR-097](097-autonomous-document-tool-and-async-rendering.md), [ADR-099](099-provider-pricing-catalog-and-unified-model-cost-ledger.md), [ADR-101](101-multi-assistant-workspace-model.md), [ARCHITECTURE.md](../ARCHITECTURE.md), [API-BOUNDARY.md](../API-BOUNDARY.md), [TEST-PLAN.md](../TEST-PLAN.md)
 
@@ -65,9 +65,9 @@ Cleanup slices must **not** accidentally reintroduce user-only assistant lookup.
 | PDFMonkey/Gamma render on delivery | yes | `document_render` via tool-path `billingFacts` |
 | Delivery framing LLM text | yes | `chat_helper` / completion framing |
 | Document OCR/extraction | yes | extraction path |
-| Document worker internal LLM (outline, sections, HTML, patch) | **no** | `usage: null` in runtime adapter; `document_generation` **not wired** per ADR-099 |
+| Document worker internal LLM (outline, sections, HTML, patch) | **yes (Slice 8, 2026-05-30)** | usage aggregated in runtime adapter → `document_generation` ledger row appended at scheduler |
 
-Do not claim full document economics in Admin Business/Ops until Slice 8 (optional) lands.
+Document economics are now three-way (`document_render` + `chat_helper` framing + `document_generation` worker LLM); Admin read-model still must not overclaim "full platform economics" beyond the wired purposes.
 
 ### Mandatory pre-start baseline (Slice 0)
 
@@ -338,7 +338,7 @@ corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.servic
 
 ---
 
-### Slice 8 — Document worker LLM economics (optional, post-PROD-minimum)
+### Slice 8 — Document worker LLM economics (optional, post-PROD-minimum) — DONE (2026-05-30)
 
 **Problem:** Internal document-worker LLM calls return `usage: null`; ADR-099 lists `document_generation` as not wired.
 
@@ -355,6 +355,8 @@ corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.servic
 **Tests:** New adapter + delivery/scheduler ledger tests.
 
 **Deploy:** DEPLOY REQUIRED.
+
+**As-built (2026-05-30):** (1) `runtime-document-provider-adapter.service.ts` now merges every worker `generateText` `usage` (chunked outline + sections, single-shot HTML, patch-revise, structured style/section patches) into one token-summed `RuntimeUsageSnapshot` returned on `RuntimeDocumentJobRunResult.usage`; Gamma / zero-LLM paths stay `usage: null`. (2) **No DB column / migration added** — the snapshot is consumed directly from the run result at scheduler time (mirroring the media scheduler's billing-facts append), so durable per-row persistence was unnecessary. (3) `AssistantDocumentJobSchedulerService`, after the success transaction, appends one ledger row via the new `RecordModelCostLedgerService.recordDocumentGenerationUsageEvent` (`purpose: document_generation`, `source: document_job_generation`, idempotent `sourceEventId: document_render_job:${id}:generation`), wrapped in try/catch + warn (non-blocking, never blocks delivery). Quota paths untouched (`consumeAssistantMonthlyToolQuotaSuccessOnly` unchanged). Three distinct rows now exist per document job and never double-count: `document_render` (PDFMonkey/Gamma operation billing facts), `chat_helper` (delivery completion framing), `document_generation` (worker token usage). Read-model label added. Verified: recursive lint + `format:check` + recursive typecheck clean; runtime + api full suites green (adapter aggregation + scheduler append + ledger purpose tests added).
 
 ---
 

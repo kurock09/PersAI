@@ -43,6 +43,7 @@ export type ModelCostLedgerPurpose =
   | "retrieval_helper"
   | "tool_helper"
   | "chat_helper"
+  | "document_generation"
   | "image_generation"
   | "image_edit"
   | "video_generation"
@@ -722,6 +723,38 @@ export class RecordModelCostLedgerService {
       occurredAt: input.occurredAt,
       stepType: "async_completion_framing",
       modelRole: "normal_reply",
+      usage: input.usage
+    });
+  }
+
+  /**
+   * ADR-102 Slice 8 — record token-metered worker LLM usage for a document
+   * generation job (outline + section + HTML + patch calls). Purpose is
+   * `document_generation`, distinct from `document_render` (PDFMonkey billing
+   * facts) and `chat_helper` (completion framing). Non-blocking: callers must
+   * wrap in try/catch.
+   */
+  async recordDocumentGenerationUsageEvent(input: {
+    workspaceId: string;
+    assistantId: string;
+    userId: string;
+    surface: ModelCostLedgerSurface;
+    source: string;
+    sourceEventId: string;
+    occurredAt: string;
+    usage: RuntimeUsageSnapshot | null;
+  }): Promise<number> {
+    return this.recordTokenMeteredUsageSnapshot({
+      workspaceId: input.workspaceId,
+      assistantId: input.assistantId,
+      userId: input.userId,
+      surface: input.surface,
+      purpose: "document_generation",
+      source: input.source,
+      sourceEventId: input.sourceEventId,
+      occurredAt: input.occurredAt,
+      stepType: "document_worker_generation",
+      modelRole: "tool_worker",
       usage: input.usage
     });
   }

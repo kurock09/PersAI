@@ -85,6 +85,8 @@ function labelPurpose(value: string): string {
       return "Tool helper";
     case "chat_helper":
       return "Completion framing";
+    case "document_generation":
+      return "Document generation (worker LLM)";
     case "ocr_or_document_parsing":
       return "OCR / document parsing";
     case "knowledge_embedding":

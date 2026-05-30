@@ -10,7 +10,8 @@ import type {
   RuntimeDocumentJobRunRequest,
   RuntimeDocumentJobRunResult,
   RuntimeDocumentSourceFile,
-  RuntimeOutputArtifact
+  RuntimeOutputArtifact,
+  RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
@@ -109,6 +110,24 @@ interface Parse5Node {
 interface Parse5Document extends Parse5Node {
   mode?: string;
 }
+function mergeUsageSnapshots(
+  current: RuntimeUsageSnapshot | null,
+  next: RuntimeUsageSnapshot | null
+): RuntimeUsageSnapshot | null {
+  if (current === null) return next;
+  if (next === null) return current;
+  const sum = (left: number | null, right: number | null): number | null =>
+    left === null && right === null ? null : (left ?? 0) + (right ?? 0);
+  return {
+    providerKey: current.providerKey ?? next.providerKey,
+    modelKey: current.modelKey ?? next.modelKey,
+    inputTokens: sum(current.inputTokens, next.inputTokens),
+    cachedInputTokens: sum(current.cachedInputTokens ?? null, next.cachedInputTokens ?? null),
+    outputTokens: sum(current.outputTokens, next.outputTokens),
+    totalTokens: sum(current.totalTokens, next.totalTokens)
+  };
+}
+
 const DEFAULT_DOCUMENT_TIMEOUT_MS = 6 * 60 * 1000;
 const CHUNKED_DOCUMENT_TIMEOUT_MS = 15 * 60 * 1000;
 // ADR-097 Slice 3: per-request timeout hint for document LLM generation calls that may
@@ -394,6 +413,7 @@ export class RuntimeDocumentProviderAdapterService {
     let capturedStructureJson: PersaiDocumentStructureSnapshot | null = null;
     let capturedStyleProfileJson: PersaiDocumentStyleProfile | null = null;
     let capturedEditStrategy: PersaiDocumentEditStrategy | null = null;
+    let accumulatedWorkerUsage: RuntimeUsageSnapshot | null = null;
 
     this.logger.log(
       `[document-pdf-start] jobId=${input.request.job.id} filename=${filename} templateId=${templateId} timeoutMs=${String(timeoutMs)} maxAttempts=${String(DOCUMENT_PDF_MAX_RENDER_ATTEMPTS)} useChunked=${String(useChunked)} useDirectSourceTransfer=${String(useDirectSourceTransfer)} useStructuredSourcePreservingCreate=${String(useStructuredSourcePreservingCreate)} contentIntent=${String(contentIntent ?? "unset")} editStrategy=${createEditStrategy}`
@@ -442,6 +462,7 @@ export class RuntimeDocumentProviderAdapterService {
           });
           htmlContent = chunkedResult.htmlContent;
           capturedRenderedHtml = htmlContent;
+          accumulatedWorkerUsage = mergeUsageSnapshots(accumulatedWorkerUsage, chunkedResult.usage);
           this.logger.log(
             `[document-pdf-chunked-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(chunkedResult.bodyTextLength)} sections=${String(chunkedResult.sectionCount)}`
           );
@@ -501,6 +522,7 @@ export class RuntimeDocumentProviderAdapterService {
           });
           htmlContent = generation.htmlContent;
           capturedRenderedHtml = htmlContent;
+          accumulatedWorkerUsage = mergeUsageSnapshots(accumulatedWorkerUsage, generation.usage);
           this.logger.log(
             `[document-pdf-html-ready] jobId=${input.request.job.id} attempt=${String(attempt)} htmlBytes=${String(htmlContent.length)} bodyTextLength=${String(generation.bodyTextLength)}`
           );
@@ -732,7 +754,7 @@ export class RuntimeDocumentProviderAdapterService {
     return {
       assistantText: null,
       artifacts: [artifact],
-      usage: null,
+      usage: accumulatedWorkerUsage,
       billingFacts: artifact.billingFacts ?? null,
       toolInvocations: [
         {
@@ -789,9 +811,11 @@ export class RuntimeDocumentProviderAdapterService {
     // Build the LLM request for patch-revise.
     const patchRequest = this.buildPdfPatchReviseRequest(input, providerSelection, maxOutputTokens);
     let rawText: string;
+    let patchReviseUsage: RuntimeUsageSnapshot | null = null;
     try {
       const response = await this.providerGatewayClientService.generateText(patchRequest);
       rawText = response.text ?? "";
+      patchReviseUsage = response.usage ?? null;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
@@ -979,7 +1003,7 @@ export class RuntimeDocumentProviderAdapterService {
     return {
       assistantText: null,
       artifacts: [artifact],
-      usage: null,
+      usage: patchReviseUsage,
       billingFacts: artifact.billingFacts ?? null,
       toolInvocations: [{ name: "document", iteration: 1, ok: true, executionMode: "worker" }],
       rawText: null,
@@ -1118,10 +1142,11 @@ export class RuntimeDocumentProviderAdapterService {
 
     let nextStructure = reviseState.structure;
     let nextStyle = reviseState.style;
+    let workerUsage: RuntimeUsageSnapshot | null = null;
 
     try {
       if (operation === "style_only") {
-        const stylePatch = await this.generateStructuredStylePatch({
+        const stylePatchResult = await this.generateStructuredStylePatch({
           bundle: input.bundle,
           request: input.request,
           providerSelection,
@@ -1129,9 +1154,10 @@ export class RuntimeDocumentProviderAdapterService {
           style: reviseState.style,
           structure: reviseState.structure
         });
-        nextStyle = mergeStyleProfile(reviseState.style, stylePatch);
+        workerUsage = stylePatchResult.usage;
+        nextStyle = mergeStyleProfile(reviseState.style, stylePatchResult.patch);
       } else {
-        const sectionPatches = await this.generateStructuredSectionPatches({
+        const sectionPatchesResult = await this.generateStructuredSectionPatches({
           bundle: input.bundle,
           request: input.request,
           providerSelection,
@@ -1140,7 +1166,8 @@ export class RuntimeDocumentProviderAdapterService {
           structure: reviseState.structure,
           style: reviseState.style
         });
-        nextStructure = applySectionPatches(reviseState.structure, sectionPatches);
+        workerUsage = sectionPatchesResult.usage;
+        nextStructure = applySectionPatches(reviseState.structure, sectionPatchesResult.patches);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1237,7 +1264,7 @@ export class RuntimeDocumentProviderAdapterService {
     return {
       assistantText: null,
       artifacts: [artifact],
-      usage: null,
+      usage: workerUsage,
       billingFacts: artifact.billingFacts ?? null,
       toolInvocations: [{ name: "document", iteration: 1, ok: true, executionMode: "worker" }],
       rawText: null,
@@ -1266,7 +1293,7 @@ export class RuntimeDocumentProviderAdapterService {
     maxOutputTokens: number;
     style: PersaiDocumentStyleProfile;
     structure: PersaiDocumentStructureSnapshot;
-  }): Promise<Record<string, unknown>> {
+  }): Promise<{ patch: Record<string, unknown>; usage: RuntimeUsageSnapshot | null }> {
     const response = await this.providerGatewayClientService.generateText({
       provider: input.providerSelection.provider,
       model: input.providerSelection.model,
@@ -1317,7 +1344,7 @@ export class RuntimeDocumentProviderAdapterService {
     if (stylePatch === null || typeof stylePatch !== "object" || Array.isArray(stylePatch)) {
       throw new Error('Structured style patch envelope must include object "stylePatch".');
     }
-    return stylePatch as Record<string, unknown>;
+    return { patch: stylePatch as Record<string, unknown>, usage: response.usage ?? null };
   }
 
   private async generateStructuredSectionPatches(input: {
@@ -1328,13 +1355,14 @@ export class RuntimeDocumentProviderAdapterService {
     operation: PersaiDocumentInternalOperation;
     structure: PersaiDocumentStructureSnapshot;
     style: PersaiDocumentStyleProfile;
-  }): Promise<
-    Array<{
+  }): Promise<{
+    patches: Array<{
       sectionId: string;
       blocks?: PersaiDocumentStructureSnapshot["sections"][number]["blocks"];
       heading?: string | null;
-    }>
-  > {
+    }>;
+    usage: RuntimeUsageSnapshot | null;
+  }> {
     const targetSectionIds = input.request.directToolExecution.request.targetSectionIds ?? [];
     const sections =
       targetSectionIds.length > 0
@@ -1419,7 +1447,7 @@ export class RuntimeDocumentProviderAdapterService {
     if (patches.length === 0) {
       throw new Error("Structured section patch envelope returned no valid section patches.");
     }
-    return patches;
+    return { patches, usage: response.usage ?? null };
   }
 
   private parseStructuredJsonEnvelope(
@@ -2223,7 +2251,12 @@ export class RuntimeDocumentProviderAdapterService {
     filename: string;
     sourceFiles: DocumentSourceFilePayload[];
     attempt: number;
-  }): Promise<{ htmlContent: string; bodyTextLength: number; isTruncated: boolean }> {
+  }): Promise<{
+    htmlContent: string;
+    bodyTextLength: number;
+    isTruncated: boolean;
+    usage: RuntimeUsageSnapshot | null;
+  }> {
     const providerSelection = this.resolveDocumentGenerationProviderSelection(input.bundle);
     const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
     if (input.sourceFiles.length > 0) {
@@ -2279,7 +2312,12 @@ export class RuntimeDocumentProviderAdapterService {
         )}, minimum=${String(DOCUMENT_HTML_MIN_BODY_TEXT_LENGTH)}).`
       );
     }
-    return { htmlContent: repaired.html, bodyTextLength: repaired.bodyTextLength, isTruncated };
+    return {
+      htmlContent: repaired.html,
+      bodyTextLength: repaired.bodyTextLength,
+      isTruncated,
+      usage: response.usage ?? null
+    };
   }
 
   private buildPdfContentRequest(
@@ -2706,19 +2744,26 @@ export class RuntimeDocumentProviderAdapterService {
     sourceFiles: DocumentSourceFilePayload[];
     locale: "ru" | "en";
     attempt: number;
-  }): Promise<{ htmlContent: string; bodyTextLength: number; sectionCount: number }> {
+  }): Promise<{
+    htmlContent: string;
+    bodyTextLength: number;
+    sectionCount: number;
+    usage: RuntimeUsageSnapshot | null;
+  }> {
     const providerSelection = this.resolveDocumentGenerationProviderSelection(input.bundle);
     const maxOutputTokens = this.resolveMaxOutputTokens(input.bundle, providerSelection);
     const jobId = input.request.job.id;
 
     // Step D.1: Outline call
-    const outline = await this.generateChunkedOutline({
+    const outlineResult = await this.generateChunkedOutline({
       bundle: input.bundle,
       request: input.request,
       sourceFiles: input.sourceFiles,
       providerSelection,
       maxOutputTokens
     });
+    const outline = outlineResult.outline;
+    let accumulatedUsage: RuntimeUsageSnapshot | null = outlineResult.usage;
     const progressOutline =
       input.locale === "ru"
         ? `План готов (${String(outline.sections.length)} разделов)`
@@ -2747,7 +2792,7 @@ export class RuntimeDocumentProviderAdapterService {
         outline.sections
       );
       const tailSummary = this.buildTailSummary(tailSummaries);
-      const fragment = await this.generateSectionFragment({
+      const sectionResult = await this.generateSectionFragment({
         bundle: input.bundle,
         request: input.request,
         providerSelection,
@@ -2758,9 +2803,10 @@ export class RuntimeDocumentProviderAdapterService {
         sourceSlice,
         tailSummary
       });
-      sectionFragments.push(fragment);
+      accumulatedUsage = mergeUsageSnapshots(accumulatedUsage, sectionResult.usage);
+      sectionFragments.push(sectionResult.fragment);
       // Extract plain text tail for the next section's context
-      const plainText = this.extractPlainTextFromHtmlPassthrough(fragment);
+      const plainText = this.extractPlainTextFromHtmlPassthrough(sectionResult.fragment);
       const tail = plainText.replace(/\s+/g, " ").trim().slice(-CHUNKED_TAIL_SUMMARY_PER_SECTION);
       tailSummaries.push(tail);
     }
@@ -2780,7 +2826,8 @@ export class RuntimeDocumentProviderAdapterService {
     return {
       htmlContent: repaired.html,
       bodyTextLength: repaired.bodyTextLength,
-      sectionCount: outline.sections.length
+      sectionCount: outline.sections.length,
+      usage: accumulatedUsage
     };
   }
 
@@ -2790,7 +2837,7 @@ export class RuntimeDocumentProviderAdapterService {
     sourceFiles: DocumentSourceFilePayload[];
     providerSelection: ProviderSelection;
     maxOutputTokens: number;
-  }): Promise<ChunkedOutline> {
+  }): Promise<{ outline: ChunkedOutline; usage: RuntimeUsageSnapshot | null }> {
     const bundle = input.bundle;
     const request = input.request;
     const developerInstructions = [
@@ -2870,7 +2917,7 @@ export class RuntimeDocumentProviderAdapterService {
         `Outline call returned invalid or empty JSON envelope. rawLength=${String(rawText.length)} preview=${JSON.stringify(rawText.slice(0, 200))}`
       );
     }
-    return outline;
+    return { outline, usage: response.usage ?? null };
   }
 
   private parseChunkedOutline(rawText: string): ChunkedOutline | null {
@@ -2953,7 +3000,7 @@ export class RuntimeDocumentProviderAdapterService {
     sectionIdx: number;
     sourceSlice: string;
     tailSummary: string;
-  }): Promise<string> {
+  }): Promise<{ fragment: string; usage: RuntimeUsageSnapshot | null }> {
     const section = input.outline.sections[input.sectionIdx];
     if (section === undefined) {
       throw new Error(
@@ -3049,7 +3096,7 @@ export class RuntimeDocumentProviderAdapterService {
     }
     // Extract the fragment: prefer inner HTML content, strip any accidental wrappers
     const extracted = this.extractSectionFragment(rawText);
-    return extracted.length > 0 ? extracted : rawText;
+    return { fragment: extracted.length > 0 ? extracted : rawText, usage: response.usage ?? null };
   }
 
   /**
