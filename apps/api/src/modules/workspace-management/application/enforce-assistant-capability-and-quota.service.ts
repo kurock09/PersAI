@@ -175,6 +175,16 @@ export class EnforceAssistantCapabilityAndQuotaService {
     });
   }
 
+  async resolvePaidTokenLightModeActive(assistant: Assistant): Promise<boolean> {
+    const governance = await this.resolveGovernance(assistant.id);
+    const limits = await this.resolveLimits(assistant, governance);
+    if (!limits.paidTokenLightModeEligible || limits.tokenBudgetLimit === null) {
+      return false;
+    }
+    const tokenBudgetUsage = await this.resolveCurrentTokenBudgetUsage(assistant, governance);
+    return tokenBudgetUsage >= limits.tokenBudgetLimit;
+  }
+
   private async resolveGovernance(assistantId: string): Promise<AssistantGovernance> {
     const governance = await this.assistantGovernanceRepository.findByAssistantId(assistantId);
     if (governance === null) {

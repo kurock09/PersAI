@@ -56,6 +56,7 @@ interface ChatAreaProps {
   billingReturnKind?: "success" | "failed" | "pending" | undefined;
   billingPlanCode?: string | undefined;
   billingPaymentIntentId?: string | undefined;
+  paidLightModeActive?: boolean | undefined;
 }
 
 function formatBillingPlanLabel(planCode: string | undefined): string {
@@ -88,7 +89,8 @@ export function ChatArea({
   onDocumentJobAccepted,
   billingReturnKind,
   billingPlanCode,
-  billingPaymentIntentId
+  billingPaymentIntentId,
+  paidLightModeActive = false
 }: ChatAreaProps) {
   const { getToken } = useAuth();
   const t = useTranslations("chat");
@@ -394,6 +396,26 @@ export function ChatArea({
     setChatMode(initialChatMode ?? (deepModeEnabled ? "smart" : "normal"));
   }, [chat.chatId, initialChatMode, deepModeEnabled]);
 
+  useEffect(() => {
+    const chatId = chat.chatId;
+    if (!paidLightModeActive || chatMode === "normal" || !chatId) {
+      return;
+    }
+    setChatMode("normal");
+    void (async () => {
+      const token = await getToken();
+      if (!token) {
+        return;
+      }
+      try {
+        await patchAssistantWebChat(token, chatId, { chatMode: "normal" });
+        onTitleChanged?.();
+      } catch {
+        /* keep local normal state; server reset happens on next chat list load */
+      }
+    })();
+  }, [paidLightModeActive, chat.chatId, chatMode, getToken, onTitleChanged]);
+
   useLayoutEffect(() => {
     if (scrollStateChatIdRef.current === chat.chatId) return;
     scrollStateChatIdRef.current = chat.chatId;
@@ -407,6 +429,9 @@ export function ChatArea({
 
   const handleChatModeChange = useCallback(
     async (nextMode: AssistantChatMode) => {
+      if (paidLightModeActive && nextMode !== "normal") {
+        return;
+      }
       const previousMode = chatMode;
       setChatMode(nextMode);
       if (!chat.chatId) {
@@ -434,7 +459,7 @@ export function ChatArea({
         setChatMode(previousMode);
       }
     },
-    [chat.chatId, chatMode, getToken, onTitleChanged, openSidebar]
+    [chat.chatId, chatMode, getToken, onTitleChanged, openSidebar, paidLightModeActive]
   );
 
   return (
@@ -512,6 +537,7 @@ export function ChatArea({
           </div>
           <ChatModeToggle
             mode={chatMode}
+            paidLightModeActive={paidLightModeActive}
             disabled={!assistantReady || chat.isStreaming}
             onChange={(mode) => void handleChatModeChange(mode)}
           />
@@ -889,7 +915,14 @@ function chatModeLabel(t: ReturnType<typeof useTranslations>, mode: AssistantCha
   }
 }
 
-function chatModeCaption(t: ReturnType<typeof useTranslations>, mode: AssistantChatMode): string {
+function chatModeCaption(
+  t: ReturnType<typeof useTranslations>,
+  mode: AssistantChatMode,
+  paidLightModeActive: boolean
+): string {
+  if (paidLightModeActive && mode !== "normal") {
+    return t("modeLimitReachedCaption");
+  }
   switch (mode) {
     case "project":
       return t("modeProjectCaption");
@@ -900,22 +933,32 @@ function chatModeCaption(t: ReturnType<typeof useTranslations>, mode: AssistantC
   }
 }
 
-function ChatModeIcon({ mode, className }: { mode: AssistantChatMode; className?: string }) {
+function ChatModeIcon({
+  mode,
+  className,
+  muted = false
+}: {
+  mode: AssistantChatMode;
+  className?: string;
+  muted?: boolean;
+}) {
   if (mode === "project") {
     return <FolderKanban className={className} />;
   }
   if (mode === "smart") {
-    return <Sparkles className={cn(className, "animate-pulse")} />;
+    return <Sparkles className={cn(className, !muted && "animate-pulse")} />;
   }
   return <MessageSquare className={className} />;
 }
 
 function ChatModeToggle({
   mode,
+  paidLightModeActive,
   disabled,
   onChange
 }: {
   mode: AssistantChatMode;
+  paidLightModeActive: boolean;
   disabled?: boolean;
   onChange: (mode: AssistantChatMode) => void;
 }) {
@@ -948,10 +991,13 @@ function ChatModeToggle({
 
   const selectMode = useCallback(
     (nextMode: AssistantChatMode) => {
+      if (paidLightModeActive && nextMode !== "normal") {
+        return;
+      }
       setMenuOpen(false);
       onChange(nextMode);
     },
-    [onChange]
+    [onChange, paidLightModeActive]
   );
 
   return (
@@ -965,7 +1011,7 @@ function ChatModeToggle({
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           aria-label={t("modeMenuAria", { mode: chatModeLabel(t, mode) })}
-          title={chatModeCaption(t, mode)}
+          title={chatModeCaption(t, mode, paidLightModeActive)}
           onClick={() => setMenuOpen((open) => !open)}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface-raised/90 px-2.5 py-1 text-[11px] font-semibold text-text shadow-sm backdrop-blur-sm transition-colors md:px-3 md:py-1.5",
@@ -994,41 +1040,58 @@ function ChatModeToggle({
             ref={menuRef}
             role="menu"
             aria-label={t("modeMenuAria", { mode: chatModeLabel(t, mode) })}
-            className="absolute top-full right-0 z-30 mt-2 min-w-[11rem] max-w-[calc(100vw-1rem)] rounded-xl border border-border bg-surface-raised p-1 shadow-xl backdrop-blur-sm md:min-w-[12rem]"
+            className="absolute top-full right-0 z-30 mt-2 flex min-w-[11rem] max-w-[calc(100vw-1rem)] flex-col gap-1 rounded-xl border border-border bg-surface-raised p-1 shadow-xl backdrop-blur-sm md:min-w-[12rem]"
           >
-            {CHAT_MODES.map((option) => (
-              <button
-                key={option}
-                type="button"
-                role="menuitem"
-                aria-current={mode === option ? "true" : undefined}
-                disabled={disabled}
-                onClick={() => selectMode(option)}
-                className={cn(
-                  "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold transition-colors",
-                  mode === option
-                    ? option === "normal"
-                      ? "bg-surface text-text"
-                      : "bg-accent-premium/10 text-accent-premium"
-                    : "text-text-muted hover:bg-surface-hover hover:text-text",
-                  disabled && "cursor-not-allowed opacity-50"
-                )}
-              >
-                <ChatModeIcon
-                  mode={option}
+            {CHAT_MODES.map((option) => {
+              const optionLimited = paidLightModeActive && option !== "normal";
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  role="menuitem"
+                  aria-current={mode === option ? "true" : undefined}
+                  aria-disabled={optionLimited ? "true" : undefined}
+                  disabled={disabled || optionLimited}
+                  onClick={() => selectMode(option)}
                   className={cn(
-                    "h-3.5 w-3.5 shrink-0",
-                    option === "normal" ? "text-text-muted" : "text-accent-premium"
+                    "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold transition-colors",
+                    optionLimited ? "cursor-not-allowed opacity-45" : "cursor-pointer",
+                    mode === option
+                      ? option === "normal"
+                        ? "bg-surface text-text"
+                        : "bg-accent-premium/10 text-accent-premium"
+                      : optionLimited
+                        ? "text-text-subtle"
+                        : "text-text-muted hover:bg-surface-hover hover:text-text",
+                    disabled && !optionLimited && "cursor-not-allowed opacity-50"
                   )}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block">{chatModeLabel(t, option)}</span>
-                  <span className="block text-[10px] font-normal text-text-subtle">
-                    {chatModeCaption(t, option)}
+                >
+                  <ChatModeIcon
+                    mode={option}
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0",
+                      optionLimited
+                        ? "text-text-subtle"
+                        : option === "normal"
+                          ? "text-text-muted"
+                          : "text-accent-premium"
+                    )}
+                    muted={optionLimited}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block">{chatModeLabel(t, option)}</span>
+                    <span
+                      className={cn(
+                        "block text-[10px] font-normal",
+                        optionLimited ? "text-text-subtle/80" : "text-text-subtle"
+                      )}
+                    >
+                      {chatModeCaption(t, option, paidLightModeActive)}
+                    </span>
                   </span>
-                </span>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

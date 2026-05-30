@@ -232,6 +232,22 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     return chats.map((chat) => this.mapChatToDomain(chat));
   }
 
+  async resetElevatedWebChatModesForAssistant(assistantId: string): Promise<number> {
+    const result = await this.prisma.assistantChat.updateMany({
+      where: {
+        assistantId,
+        surface: "web",
+        archivedAt: null,
+        chatMode: { in: ["smart", "project"] }
+      },
+      data: {
+        chatMode: "normal",
+        deepModeEnabled: false
+      }
+    });
+    return result.count;
+  }
+
   async getChatListMetadata(chatId: string): Promise<AssistantChatListMetadata> {
     const [messageCount, latestMessage] = await this.prisma.$transaction([
       this.prisma.assistantChatMessage.count({

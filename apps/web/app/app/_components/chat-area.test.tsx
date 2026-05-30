@@ -555,4 +555,25 @@ describe("ChatArea", () => {
     expect(secondProps?.onAssistantAction).toBe(firstProps?.onAssistantAction);
     expect(secondProps?.onDoNotRemember).toBe(firstProps?.onDoNotRemember);
   });
+
+  it("dims smart and project modes with limit caption while paid light mode is active", async () => {
+    getTokenMock.mockResolvedValue("token");
+    render(
+      <ChatArea
+        chat={createChat(["Hello"], { chatId: "chat-light", isStreaming: false })}
+        chatMode="normal"
+        paidLightModeActive
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /modeMenuAria/ }));
+
+    const smartItem = screen.getByRole("menuitem", { name: /modeDeepLabel/ });
+    const projectItem = screen.getByRole("menuitem", { name: /modeProjectLabel/ });
+
+    expect(smartItem).toHaveAttribute("aria-disabled", "true");
+    expect(projectItem).toHaveAttribute("aria-disabled", "true");
+    expect(smartItem).toHaveTextContent("modeLimitReachedCaption");
+    expect(projectItem).toHaveTextContent("modeLimitReachedCaption");
+  });
 });

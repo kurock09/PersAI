@@ -2,6 +2,45 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-30 — Setup wizard step 2 fix + chat mode menu spacing
+
+### What changed
+
+Fixed new-user registration on `/app/setup` step 2: communication-style presets now load after Clerk auth is ready (archetypes fetched independently; `getAssistant` no longer blocks bootstrap when workspace/onboarding is missing). Professional skills no longer spin forever — step 2 ensures onboarding + assistant exist before listing skills, dedupes concurrent prerequisite calls, and stops infinite retry on failure (manual retry button). Chat mode dropdown items now have `gap-1` between hover/selected rows matching horizontal `p-1` inset.
+
+### Files / modules
+
+- `apps/web/app/app/setup/page.tsx`, `page.test.tsx`, `assistant-api-client.ts`, `_components/chat-area.tsx`, `messages/en.json`, `messages/ru.json`
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Setup page tests PASS (9); chat-area tests PASS (18); lint PASS; format:check PASS after Prettier; api/web typecheck PASS.
+
+### Next recommended step
+
+Commit + deploy `web`; smoke-test fresh registration on dev (`/app/setup` step 2 presets + skills); continue ADR-102 Slice 0.
+
+## 2026-05-30 — Light mode: block smart/project chat modes in UI + API
+
+### What changed
+
+When paid token light mode is active (`paidLightModeActive`), smart/project chat modes are reset server-side on chat list load and turn prepare, PATCH to smart/project is rejected, and the web mode dropdown shows muted items with caption «лимит исчерпан».
+
+### Files / modules
+
+- `apps/api` — assistant-chat entity helpers, manage-web-chat-list, prepare-assistant-inbound-turn, prisma chat repo, enforce quota service
+- `apps/web` — chat-area, chat page, messages ru/en, tests
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+Focused API + web chat-area tests PASS; lint/format/typecheck pending in session.
+
+### Next recommended step
+
+Commit + deploy; continue ADR-102 Slice 0.
+
 ## 2026-05-30 — Fix: token-metered weights use absolute provider prices
 
 ### What changed

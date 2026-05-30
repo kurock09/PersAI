@@ -11,6 +11,20 @@ export function chatModeToDeepModeEnabled(mode: AssistantChatMode): boolean {
   return mode !== "normal";
 }
 
+export function isElevatedAssistantChatMode(mode: AssistantChatMode): boolean {
+  return mode === "smart" || mode === "project";
+}
+
+export function normalizeAssistantChatModeForPaidLightMode(
+  mode: AssistantChatMode | undefined,
+  paidLightModeActive: boolean
+): AssistantChatMode | undefined {
+  if (!paidLightModeActive || mode === undefined) {
+    return mode;
+  }
+  return isElevatedAssistantChatMode(mode) ? "normal" : mode;
+}
+
 export type AssistantChatSkillDecisionState = {
   status: "inactive" | "active";
   activeSkillId: string | null;

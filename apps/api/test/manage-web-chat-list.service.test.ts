@@ -29,7 +29,13 @@ function createAssistant() {
   };
 }
 
-function createChat() {
+function createChat(overrides?: {
+  chatMode?: "normal" | "smart" | "project";
+  deepModeEnabled?: boolean;
+  id?: string;
+  surfaceThreadKey?: string;
+  assistantId?: string;
+}) {
   return {
     id: "chat-1",
     assistantId: "assistant-1",
@@ -38,10 +44,13 @@ function createChat() {
     surface: "web" as const,
     surfaceThreadKey: "thread-1",
     title: "Chat",
+    chatMode: "normal" as const,
+    deepModeEnabled: false,
     archivedAt: null,
     lastMessageAt: null,
     createdAt: new Date("2026-03-31T00:00:00.000Z"),
-    updatedAt: new Date("2026-03-31T00:00:00.000Z")
+    updatedAt: new Date("2026-03-31T00:00:00.000Z"),
+    ...overrides
   };
 }
 
@@ -254,6 +263,9 @@ function createService(overrides?: {
   contextHydration?: Partial<{
     autoCompactionWeb: boolean;
   }>;
+  paidLightModeActive?: boolean;
+  chats?: ReturnType<typeof createChat>[];
+  onResetElevatedWebChatModes?: () => Promise<number>;
 }) {
   const callOrder: string[] = [];
   const releasedBytes: bigint[] = [];
@@ -268,8 +280,14 @@ function createService(overrides?: {
 
   const service = new ManageWebChatListService(
     {
-      listChatsByAssistantId: async () => [createChat()],
+      listChatsByAssistantId: async () => overrides?.chats ?? [createChat()],
+      resetElevatedWebChatModesForAssistant: async () =>
+        overrides?.onResetElevatedWebChatModes?.() ?? 0,
       findChatById: async (chatId: string) => (chatId === "chat-1" ? createChat() : null),
+      updateChat: async (_chatId: string, input: Record<string, unknown>) => ({
+        ...createChat(),
+        ...input
+      }),
       getChatListMetadata: async () => ({
         messageCount: 24,
         lastMessagePreview: "message-24"
@@ -375,6 +393,9 @@ function createService(overrides?: {
       }
     } as never,
     {
+      resolvePaidTokenLightModeActive: async () => overrides?.paidLightModeActive ?? false
+    } as never,
+    {
       runtimeSession: {
         findUnique: async () => ({
           currentTokens: 12_000,
@@ -426,6 +447,7 @@ describe("ManageWebChatListService", () => {
             }
           ];
         },
+        resetElevatedWebChatModesForAssistant: async () => 0,
         getChatListMetadata: async () => ({
           messageCount: 1,
           lastMessagePreview: "message-1"
@@ -501,6 +523,9 @@ describe("ManageWebChatListService", () => {
             }
           };
         }
+      } as never,
+      {
+        resolvePaidTokenLightModeActive: async () => false
       } as never,
       {
         runtimeSession: {
@@ -823,6 +848,33 @@ describe("ManageWebChatListService", () => {
       (error) =>
         error instanceof BadRequestException &&
         error.message.includes("chatMode conflicts with deepModeEnabled")
+    );
+  });
+
+  test("resets elevated chat modes before listing when paid light mode is active", async () => {
+    let resetCalled = false;
+    const { service } = createService({
+      paidLightModeActive: true,
+      onResetElevatedWebChatModes: async () => {
+        resetCalled = true;
+        return 1;
+      }
+    });
+
+    await service.listChats("user-1");
+
+    assert.equal(resetCalled, true);
+  });
+
+  test("rejects smart chatMode update while paid light mode is active", async () => {
+    const { service } = createService({
+      paidLightModeActive: true
+    });
+
+    await assert.rejects(
+      () => service.updateChat("user-1", "chat-1", { chatMode: "smart" }),
+      (error) =>
+        error instanceof BadRequestException && error.message.includes("token light mode is active")
     );
   });
 });

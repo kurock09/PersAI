@@ -28,7 +28,11 @@ import {
 } from "../domain/assistant-chat-message-attachment.repository";
 import type { RuntimeTier } from "./runtime-assignment";
 import type { AssistantChatMode } from "../domain/assistant-chat.entity";
-import { chatModeToDeepModeEnabled } from "../domain/assistant-chat.entity";
+import {
+  chatModeToDeepModeEnabled,
+  isElevatedAssistantChatMode,
+  normalizeAssistantChatModeForPaidLightMode
+} from "../domain/assistant-chat.entity";
 
 export interface PrepareAssistantInboundTurnInput {
   userId: string;
@@ -110,22 +114,37 @@ export class PrepareAssistantInboundTurnService {
         : input.deepModeEnabled
           ? "smart"
           : "normal");
+    const paidLightModeActive = quotaDecision.mode === "degrade_allowed";
+    const normalizedRequestedMode = normalizeAssistantChatModeForPaidLightMode(
+      requestedMode,
+      paidLightModeActive
+    );
     const requestedDeepModeEnabled =
-      requestedMode === undefined
-        ? input.deepModeEnabled
-        : chatModeToDeepModeEnabled(requestedMode);
+      normalizedRequestedMode === undefined
+        ? paidLightModeActive
+          ? false
+          : input.deepModeEnabled
+        : chatModeToDeepModeEnabled(normalizedRequestedMode);
 
     const chat =
       existingChat !== null
         ? input.surface === "web_chat" &&
-          ((requestedMode !== undefined && existingChat.chatMode !== requestedMode) ||
+          ((normalizedRequestedMode !== undefined &&
+            existingChat.chatMode !== normalizedRequestedMode) ||
             (requestedDeepModeEnabled !== undefined &&
-              existingChat.deepModeEnabled !== requestedDeepModeEnabled))
+              existingChat.deepModeEnabled !== requestedDeepModeEnabled) ||
+            (paidLightModeActive && isElevatedAssistantChatMode(existingChat.chatMode)))
           ? await this.assistantChatRepository
               .updateChat(existingChat.id, {
-                ...(requestedMode === undefined ? {} : { chatMode: requestedMode }),
+                ...(normalizedRequestedMode === undefined
+                  ? paidLightModeActive
+                    ? { chatMode: "normal" as const, deepModeEnabled: false }
+                    : {}
+                  : { chatMode: normalizedRequestedMode }),
                 ...(requestedDeepModeEnabled === undefined
-                  ? {}
+                  ? paidLightModeActive
+                    ? { deepModeEnabled: false }
+                    : {}
                   : { deepModeEnabled: requestedDeepModeEnabled })
               })
               .then((updated) => updated ?? existingChat)
@@ -134,7 +153,7 @@ export class PrepareAssistantInboundTurnService {
             assistant,
             surfaceThreadKey: input.surfaceThreadKey,
             title: input.title ?? (input.message.trim().slice(0, 50).replace(/\s+/g, " ") || null),
-            ...(requestedMode === undefined ? {} : { chatMode: requestedMode }),
+            ...(normalizedRequestedMode === undefined ? {} : { chatMode: normalizedRequestedMode }),
             deepModeEnabled: requestedDeepModeEnabled ?? false
           });
 

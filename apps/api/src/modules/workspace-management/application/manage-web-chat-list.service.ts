@@ -13,7 +13,11 @@ import type {
   AssistantChatSkillCadenceState,
   AssistantChatSkillDecisionState
 } from "../domain/assistant-chat.entity";
-import { chatModeToDeepModeEnabled, isAssistantChatMode } from "../domain/assistant-chat.entity";
+import {
+  chatModeToDeepModeEnabled,
+  isAssistantChatMode,
+  isElevatedAssistantChatMode
+} from "../domain/assistant-chat.entity";
 import type { Assistant } from "../domain/assistant.entity";
 import { AssistantRuntimeError } from "./assistant-runtime.facade";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
@@ -43,6 +47,7 @@ import {
   isLatestAutoCompactionWeak
 } from "./compaction-advisory-state";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
+import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 
 export interface UpdateWebChatRequest {
   title?: string | null;
@@ -110,6 +115,7 @@ export class ManageWebChatListService {
     private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
     private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
+    private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -185,6 +191,8 @@ export class ManageWebChatListService {
   async listChats(userId: string): Promise<AssistantWebChatListItemState[]> {
     const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
 
+    await this.ensureElevatedChatModesResetForPaidLightMode(assistant);
+
     const chats = await this.assistantChatRepository.listChatsByAssistantId(assistant.id);
     const webChats = chats.filter((chat) => chat.surface === "web");
 
@@ -227,6 +235,23 @@ export class ManageWebChatListService {
     const chat = await this.assistantChatRepository.findChatById(chatId);
     if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
       throw new NotFoundException("Web chat does not exist for this assistant.");
+    }
+
+    const paidLightModeActive =
+      await this.enforceAssistantCapabilityAndQuotaService.resolvePaidTokenLightModeActive(
+        assistant
+      );
+    if (paidLightModeActive) {
+      if (request.chatMode !== undefined && isElevatedAssistantChatMode(request.chatMode)) {
+        throw new BadRequestException(
+          "Smart and project chat modes are unavailable while token light mode is active."
+        );
+      }
+      if (request.deepModeEnabled === true) {
+        throw new BadRequestException(
+          "Smart and project chat modes are unavailable while token light mode is active."
+        );
+      }
     }
 
     const updated = await this.assistantChatRepository.updateChat(chatId, request);
@@ -618,6 +643,17 @@ export class ManageWebChatListService {
     await Promise.all(
       files.map((file) => this.mediaObjectStorage.deleteObject(file.objectKey).catch(() => {}))
     );
+  }
+
+  private async ensureElevatedChatModesResetForPaidLightMode(assistant: Assistant): Promise<void> {
+    const paidLightModeActive =
+      await this.enforceAssistantCapabilityAndQuotaService.resolvePaidTokenLightModeActive(
+        assistant
+      );
+    if (!paidLightModeActive) {
+      return;
+    }
+    await this.assistantChatRepository.resetElevatedWebChatModesForAssistant(assistant.id);
   }
 
   private async resolveOwnedWebChatWithStats(

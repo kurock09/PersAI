@@ -174,6 +174,14 @@ function ChatPageInner() {
   // server during the first send becomes visible in the header immediately
   // after `reloadChats()` lands, even before the URL has been updated.
   const existingChat = appData.chats.find((c) => c.chat.surfaceThreadKey === threadKey);
+  const paidLightModeActive = appData.plan?.advisories?.tokenBudget?.paidLightModeActive ?? false;
+
+  useEffect(() => {
+    if (!paidLightModeActive) {
+      return;
+    }
+    void appData.reloadChats();
+  }, [paidLightModeActive, appData.reloadChats]);
 
   // ADR-076 mobile UX: hardware Back from a chat thread should jump straight
   // to the app home (`/app`) instead of walking back through every previously
@@ -407,6 +415,7 @@ function ChatPageInner() {
       billingReturnKind={billingBanner.kind}
       billingPlanCode={billingBanner.planCode}
       billingPaymentIntentId={billingBanner.paymentIntentId}
+      paidLightModeActive={paidLightModeActive}
     />
   );
 }

@@ -70,6 +70,7 @@ export interface AssistantChatRepository {
     surface: AssistantChatSurface
   ): Promise<number>;
   listChatsByAssistantId(assistantId: string): Promise<AssistantChat[]>;
+  resetElevatedWebChatModesForAssistant(assistantId: string): Promise<number>;
   getChatListMetadata(chatId: string): Promise<AssistantChatListMetadata>;
   updateChat(chatId: string, input: UpdateAssistantChatInput): Promise<AssistantChat | null>;
   archiveChat(chatId: string): Promise<AssistantChat | null>;

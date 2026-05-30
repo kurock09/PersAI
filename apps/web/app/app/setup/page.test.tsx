@@ -44,7 +44,9 @@ const assistantApiMocks = vi.hoisted(() => ({
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
-    getToken: clerkMocks.getToken
+    getToken: clerkMocks.getToken,
+    isLoaded: true,
+    isSignedIn: true
   })
 }));
 
@@ -524,7 +526,7 @@ describe("SetupWizardPage", () => {
             voiceId: "female-voice"
           },
           yandex: {
-            voice: "marina",
+            voice: "jane",
             role: null
           },
           openai: {

@@ -246,7 +246,7 @@ function resolveSetupVoiceProfile(input: {
 export default function SetupWizardPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { getToken } = useAuth();
+  const { getToken, isLoaded, isSignedIn } = useAuth();
   const appData = useAppDataContext();
   const t = useTranslations("setup");
   const tp = useTranslations("persona");
@@ -297,6 +297,9 @@ export default function SetupWizardPage() {
   const [skillsError, setSkillsError] = useState<string | null>(null);
   const previewDraftPersistedRef = useRef(false);
   const autoPreviewStepRef = useRef<number | null>(null);
+  const skillsLoadAttemptedRef = useRef(false);
+  const setupPrerequisitesRef = useRef({ onboarding: false, assistant: false });
+  const setupPrerequisitesPromiseRef = useRef<Promise<void> | null>(null);
   const [existingAssistant, setExistingAssistant] = useState<AssistantLifecycleState | null>(null);
   const [voiceSettings, setVoiceSettings] = useState<AssistantVoiceSettingsState | null>(null);
   const [setupMode, setSetupMode] = useState<SetupMode>("create");
@@ -336,55 +339,71 @@ export default function SetupWizardPage() {
   }, [appData.reload]);
 
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) {
+      return;
+    }
+
     setTimezone(detectTimezone());
 
     void (async () => {
       try {
         const token = await getToken();
-        if (!token) return;
-
-        const existing = await getAssistant(token);
-        if (existing && existing.runtimeApply.status === "succeeded") {
-          await reloadAppDataRef.current();
-          router.replace("/app");
+        if (!token) {
           return;
         }
-        setExistingAssistant(existing);
-        const nextSetupMode = resolveSetupMode(existing, {
-          preferCreateForBlankDraft
-        });
-        setSetupMode(nextSetupMode);
+
         try {
           const runtimeArchetypes = await getAssistantPersonaArchetypes(token);
           setArchetypes(runtimeArchetypes);
         } catch {
           setArchetypes([]);
         }
-        if (existing?.draft.displayName) {
-          setAssistantName(existing.draft.displayName);
-          setAssistantNameTouched(true);
+
+        try {
+          const existing = await getAssistant(token);
+          if (existing && existing.runtimeApply.status === "succeeded") {
+            await reloadAppDataRef.current();
+            router.replace("/app");
+            return;
+          }
+          setExistingAssistant(existing);
+          if (existing !== null) {
+            setupPrerequisitesRef.current.assistant = true;
+          }
+          const nextSetupMode = resolveSetupMode(existing, {
+            preferCreateForBlankDraft
+          });
+          setSetupMode(nextSetupMode);
+          if (existing?.draft.displayName) {
+            setAssistantName(existing.draft.displayName);
+            setAssistantNameTouched(true);
+          }
+          if (existing?.draft.instructions) {
+            setAssistantNotes(existing.draft.instructions);
+          }
+          if (existing?.draft.traits) {
+            setTraits(toTraitRecord(existing.draft.traits));
+          }
+          if (existing?.draft.archetypeKey) {
+            setSelectedArchetypeKey(existing.draft.archetypeKey as VoiceDnaArchetypeKey);
+          }
+          if (existing?.draft.assistantGender) {
+            setAssistantGender(existing.draft.assistantGender as AssistantGender);
+          }
+          if (existing?.draft.avatarUrl) {
+            setPersistedAvatarUrl(existing.draft.avatarUrl);
+            setSelectedAvatarPresetId(
+              findAssistantAvatarPresetByUrl(existing.draft.avatarUrl)?.id ?? null
+            );
+          } else if (!existing?.draft.displayName && nextSetupMode !== "recover") {
+            setSelectedAvatarPresetId(ASSISTANT_AVATAR_PRESETS[0]?.id ?? null);
+            setAssistantName(ASSISTANT_AVATAR_PRESETS[0]?.defaultName ?? "");
+          }
+        } catch {
+          setExistingAssistant(null);
+          setSetupMode(resolveSetupMode(null, { preferCreateForBlankDraft }));
         }
-        if (existing?.draft.instructions) {
-          setAssistantNotes(existing.draft.instructions);
-        }
-        if (existing?.draft.traits) {
-          setTraits(toTraitRecord(existing.draft.traits));
-        }
-        if (existing?.draft.archetypeKey) {
-          setSelectedArchetypeKey(existing.draft.archetypeKey as VoiceDnaArchetypeKey);
-        }
-        if (existing?.draft.assistantGender) {
-          setAssistantGender(existing.draft.assistantGender as AssistantGender);
-        }
-        if (existing?.draft.avatarUrl) {
-          setPersistedAvatarUrl(existing.draft.avatarUrl);
-          setSelectedAvatarPresetId(
-            findAssistantAvatarPresetByUrl(existing.draft.avatarUrl)?.id ?? null
-          );
-        } else if (!existing?.draft.displayName && nextSetupMode !== "recover") {
-          setSelectedAvatarPresetId(ASSISTANT_AVATAR_PRESETS[0]?.id ?? null);
-          setAssistantName(ASSISTANT_AVATAR_PRESETS[0]?.defaultName ?? "");
-        }
+
         try {
           const nextVoiceSettings = await getAssistantVoiceSettings(token);
           setVoiceSettings(nextVoiceSettings);
@@ -392,30 +411,41 @@ export default function SetupWizardPage() {
           setVoiceSettings(null);
         }
 
-        const me = await getMe(token);
-        const u = me.me.appUser;
-        const onboardingComplete = me.me.onboarding.isComplete;
-        setHasCompletedOnboardingProfile(onboardingComplete);
-        if (startsInAssistantOnlyMode) {
-          setStep(onboardingComplete ? 1 : 0);
-        }
-        if (u.displayName) setUserName(u.displayName);
-        if (u.birthday) setBirthday(normalizeBirthdayForDateInput(u.birthday));
-        if (u.gender) setGender(u.gender as Gender);
-        if (u.countryCode) {
-          setCountryCode(u.countryCode);
-        } else {
-          const suggestedCountryCode = await fetchGeoHint();
-          if (suggestedCountryCode) {
-            setCountryCode(suggestedCountryCode);
+        try {
+          const me = await getMe(token);
+          const u = me.me.appUser;
+          const onboardingComplete = me.me.onboarding.isComplete;
+          setHasCompletedOnboardingProfile(onboardingComplete);
+          if (startsInAssistantOnlyMode) {
+            setStep(onboardingComplete ? 1 : 0);
           }
+          if (u.displayName) setUserName(u.displayName);
+          if (u.birthday) setBirthday(normalizeBirthdayForDateInput(u.birthday));
+          if (u.gender) setGender(u.gender as Gender);
+          if (u.countryCode) {
+            setCountryCode(u.countryCode);
+          } else {
+            const suggestedCountryCode = await fetchGeoHint();
+            if (suggestedCountryCode) {
+              setCountryCode(suggestedCountryCode);
+            }
+          }
+          if (me.me.workspace?.timezone) setTimezone(me.me.workspace.timezone);
+        } catch {
+          // Profile pre-fill is best-effort before onboarding completes.
         }
-        if (me.me.workspace?.timezone) setTimezone(me.me.workspace.timezone);
       } catch {
         // Pre-fill is best-effort; ignore errors.
       }
     })();
-  }, [getToken, preferCreateForBlankDraft, router, startsInAssistantOnlyMode]);
+  }, [
+    getToken,
+    isLoaded,
+    isSignedIn,
+    preferCreateForBlankDraft,
+    router,
+    startsInAssistantOnlyMode
+  ]);
 
   useEffect(() => {
     if (!countryCode) {
@@ -597,15 +627,39 @@ export default function SetupWizardPage() {
     [birthday, countryCode, gender, locale, timezone, userName]
   );
 
-  const persistDraftForPreview = useCallback(async () => {
-    if (!shouldSkipProfileStep) {
-      await postOnboarding(await resolveSetupToken(true), buildOnboardingPayload());
+  const ensureSetupPrerequisites = useCallback(async () => {
+    if (setupPrerequisitesRef.current.onboarding && setupPrerequisitesRef.current.assistant) {
+      return;
     }
 
-    if (existingAssistant === null) {
-      const createdAssistant = await postAssistantCreate(await resolveSetupToken(true));
-      setExistingAssistant(createdAssistant);
+    if (setupPrerequisitesPromiseRef.current !== null) {
+      await setupPrerequisitesPromiseRef.current;
+      return;
     }
+
+    setupPrerequisitesPromiseRef.current = (async () => {
+      if (!shouldSkipProfileStep && !setupPrerequisitesRef.current.onboarding) {
+        await postOnboarding(await resolveSetupToken(true), buildOnboardingPayload());
+        setupPrerequisitesRef.current.onboarding = true;
+        setHasCompletedOnboardingProfile(true);
+      }
+
+      if (!setupPrerequisitesRef.current.assistant && existingAssistant === null) {
+        const createdAssistant = await postAssistantCreate(await resolveSetupToken(true));
+        setupPrerequisitesRef.current.assistant = true;
+        setExistingAssistant(createdAssistant);
+      }
+    })();
+
+    try {
+      await setupPrerequisitesPromiseRef.current;
+    } finally {
+      setupPrerequisitesPromiseRef.current = null;
+    }
+  }, [buildOnboardingPayload, existingAssistant, resolveSetupToken, shouldSkipProfileStep]);
+
+  const ensureSetupDraftReady = useCallback(async () => {
+    await ensureSetupPrerequisites();
 
     const archetypeKeyForDraft: VoiceDnaArchetypeKey =
       selectedArchetypeKey ??
@@ -622,26 +676,30 @@ export default function SetupWizardPage() {
       voiceProfile: setupVoiceProfile,
       archetypeKey: archetypeKeyForDraft
     });
-    previewDraftPersistedRef.current = true;
   }, [
     assistantGender,
     assistantName,
     assistantNotes,
-    buildOnboardingPayload,
     customAvatarFile,
     draftAvatarUrl,
-    existingAssistant,
+    ensureSetupPrerequisites,
+    existingAssistant?.draft.archetypeKey,
     resolveSetupToken,
     selectedArchetypeKey,
-    shouldSkipProfileStep,
     setupVoiceProfile,
     traits
   ]);
+
+  const persistDraftForPreview = useCallback(async () => {
+    await ensureSetupDraftReady();
+    previewDraftPersistedRef.current = true;
+  }, [ensureSetupDraftReady]);
 
   const loadSkills = useCallback(async () => {
     setSkillsLoading(true);
     setSkillsError(null);
     try {
+      await ensureSetupPrerequisites();
       const nextState = await getAssistantSkills(await resolveSetupToken(true));
       setSkillsState(nextState);
       setSelectedSkillIds(nextState.assignedSkillIds);
@@ -650,7 +708,13 @@ export default function SetupWizardPage() {
     } finally {
       setSkillsLoading(false);
     }
-  }, [resolveSetupToken, t]);
+  }, [ensureSetupPrerequisites, resolveSetupToken, t]);
+
+  const retryLoadSkills = useCallback(() => {
+    skillsLoadAttemptedRef.current = true;
+    setSkillsError(null);
+    void loadSkills();
+  }, [loadSkills]);
 
   const loadRuntimePreview = useCallback(async () => {
     setPreviewLoading(true);
@@ -669,11 +733,13 @@ export default function SetupWizardPage() {
 
   useEffect(() => {
     if (step !== 2) {
+      skillsLoadAttemptedRef.current = false;
       return;
     }
-    if (skillsState !== null || skillsLoading) {
+    if (skillsState !== null || skillsLoading || skillsLoadAttemptedRef.current) {
       return;
     }
+    skillsLoadAttemptedRef.current = true;
     void loadSkills();
   }, [loadSkills, skillsLoading, skillsState, step]);
 
@@ -1193,21 +1259,29 @@ export default function SetupWizardPage() {
                     </div>
                   </div>
 
-                  {skillsState !== null || skillsLoading || skillsError !== null ? (
-                    <div className="mt-6 rounded-[28px] border border-border bg-surface/70 p-4 text-left sm:p-5">
-                      <AssistantSkillsManager
-                        state={skillsState}
-                        selectedSkillIds={selectedSkillIds}
-                        onChange={setSelectedSkillIds}
-                        loading={skillsLoading}
-                        error={skillsError}
-                        mode="setup"
-                        disabled={creating}
-                        collapsible
-                        initialVisibleCount={4}
-                      />
-                    </div>
-                  ) : null}
+                  <div className="mt-6 rounded-[28px] border border-border bg-surface/70 p-4 text-left sm:p-5">
+                    <AssistantSkillsManager
+                      state={skillsState}
+                      selectedSkillIds={selectedSkillIds}
+                      onChange={setSelectedSkillIds}
+                      loading={skillsLoading}
+                      error={skillsError}
+                      mode="setup"
+                      disabled={creating}
+                      collapsible
+                      initialVisibleCount={4}
+                    />
+                    {skillsError && !skillsLoading ? (
+                      <button
+                        type="button"
+                        onClick={retryLoadSkills}
+                        className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-surface-raised px-3 py-1.5 text-xs font-medium text-text transition-colors hover:bg-surface-hover"
+                      >
+                        <RefreshCcw className="h-3.5 w-3.5" />
+                        {t("retrySkillsLoad")}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </StepContainer>
             )}

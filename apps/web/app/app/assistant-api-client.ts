@@ -1538,10 +1538,22 @@ export async function getAssistantLifecycleView(
     });
 
     if (response.status === 404) {
-      return {
-        assistant: null,
-        ...(await getAssistantList(token))
-      };
+      try {
+        return {
+          assistant: null,
+          ...(await getAssistantList(token))
+        };
+      } catch {
+        return {
+          assistant: null,
+          assistants: [],
+          activeAssistantId: null,
+          assistantLimit: {
+            usedAssistants: 0,
+            maxAssistants: 1
+          }
+        };
+      }
     }
 
     if (response.status !== 200) {
@@ -1556,10 +1568,22 @@ export async function getAssistantLifecycleView(
     };
   } catch (error) {
     if (error instanceof ContractsApiError && error.status === 404) {
-      return {
-        assistant: null,
-        ...(await getAssistantList(token))
-      };
+      try {
+        return {
+          assistant: null,
+          ...(await getAssistantList(token))
+        };
+      } catch {
+        return {
+          assistant: null,
+          assistants: [],
+          activeAssistantId: null,
+          assistantLimit: {
+            usedAssistants: 0,
+            maxAssistants: 1
+          }
+        };
+      }
     }
     throw new Error(toErrorMessage(error));
   }
