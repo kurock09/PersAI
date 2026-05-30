@@ -74,7 +74,6 @@ jobs:
       NEXT_PUBLIC_CLERK_PROXY_URL: ${{ vars.NEXT_PUBLIC_CLERK_PROXY_URL }}
       MAIN_TAG: dev-main
     strategy:
-      fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.detect-affected.outputs.deploy_services_json) }}
     steps:
@@ -154,18 +153,6 @@ jobs:
             ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ matrix.service }}:${{ env.MAIN_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Record successful ${{ matrix.service }} build
-        if: success()
-        run: echo -n "${{ matrix.service }}" > "deploy-success-${{ matrix.service }}.txt"
-
-      - name: Upload successful build marker
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: deploy-success-${{ matrix.service }}
-          path: deploy-success-${{ matrix.service }}.txt
-          retention-days: 1
 
   pin-approved-migration-values-tag:
     if: ${{ github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed == 'true' }}
@@ -281,7 +268,7 @@ jobs:
           EOF
 
   pin-dev-values-tag:
-    if: ${{ always() && !cancelled() && github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed != 'true' && needs.build-and-push.result != 'cancelled' }}
+    if: ${{ github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed != 'true' }}
     needs:
       - detect-affected
       - build-and-push
@@ -292,33 +279,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Download successful build markers
-        uses: actions/download-artifact@v4
-        with:
-          pattern: deploy-success-*
-          merge-multiple: true
-          path: successful-deploys
-
-      - name: Resolve services to pin
-        id: pin-targets
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          markers=(successful-deploys/*.txt)
-          if [ "${#markers[@]}" -eq 0 ]; then
-            echo "No successful service builds to pin."
-            echo "services=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          services="$(cat "${markers[@]}" | paste -sd, -)"
-          echo "Pinning successful services: ${services}"
-          echo "services=${services}" >> "$GITHUB_OUTPUT"
-
       - name: Pin affected dev Helm image tags to current commit SHA
-        if: steps.pin-targets.outputs.services != ''
         env:
-          DEPLOY_SERVICES: ${{ steps.pin-targets.outputs.services }}
+          DEPLOY_SERVICES: ${{ needs.detect-affected.outputs.deploy_service_names_csv }}
         run: |
           set -eu
           node scripts/ci/pin-dev-image-tags.mjs \
@@ -327,7 +290,6 @@ jobs:
             --services "${DEPLOY_SERVICES}"
 
       - name: Commit and push values-dev tag update
-        if: steps.pin-targets.outputs.services != ''
         run: |
           set -eu
           if git diff --quiet -- infra/helm/values-dev.yaml; then

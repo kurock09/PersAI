@@ -43,7 +43,7 @@ api:
     gcpServiceAccountEmail: api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: api
-    tag: 9fea915c950e00a87b1c47ca82632ae4b111b338
+    tag: 294cd73339ee908349b830c54b9389b2f02e5a5f
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
