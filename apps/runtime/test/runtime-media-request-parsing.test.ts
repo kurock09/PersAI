@@ -28,6 +28,34 @@ describe("runtime media request parsing", () => {
     assert.ok(!(parsed instanceof Error));
   });
 
+  test("image_generate accepts explicit series mode with one item per output", () => {
+    const service = new RuntimeImageGenerateToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const parsed = (
+      service as unknown as {
+        readImageGenerateArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageGenerateArguments({
+      toolCode: "image_generate",
+      prompt: "instagram carousel about sneakers",
+      count: 3,
+      outputMode: "series",
+      seriesItems: ["hero frame", "detail frame", "cta frame"],
+      background: "auto"
+    });
+    assert.ok(!(parsed instanceof Error));
+    assert.equal((parsed as { outputMode: string }).outputMode, "series");
+    assert.deepEqual((parsed as { seriesItems: string[] }).seriesItems, [
+      "hero frame",
+      "detail frame",
+      "cta frame"
+    ]);
+  });
+
   test("image_edit accepts persisted toolCode inside worker request", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
@@ -50,6 +78,28 @@ describe("runtime media request parsing", () => {
     });
     assert.ok(!(parsed instanceof Error));
     assert.equal((parsed as { count: number }).count, 2);
+  });
+
+  test("image_edit rejects series mode when seriesItems count mismatches", () => {
+    const service = new RuntimeImageEditToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const parsed = (
+      service as unknown as {
+        readImageEditArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readImageEditArguments({
+      toolCode: "image_edit",
+      prompt: "make a 3-frame story",
+      count: 3,
+      outputMode: "series",
+      seriesItems: ["frame 1", "frame 2"],
+      sourceImageAlias: "current image #1"
+    });
+    assert.ok(parsed instanceof Error);
   });
 
   test("video_generate accepts persisted toolCode inside worker request", () => {

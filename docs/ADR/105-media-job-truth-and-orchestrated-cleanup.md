@@ -343,6 +343,19 @@ ADR-105 had appended the same facts to media tools in three places (main descrip
 
 Separately removed the prompt word-parse heuristic from `runtime-image-edit-tool.service.ts`: `SECOND_IMAGE_REFERENCE_PROMPT_MARKERS` (a hardcoded multilingual phrase list) and `inferReferenceGuidedSelection` are deleted. `resolveImageSelection` now uses the structural `sourceImageAlias`/`referenceImageAlias` the model already provides (all validation guards intact). **Behavior change:** a 2-image reference-guided edit now requires the model to set `referenceImageAlias` explicitly (the `image_edit` description was strengthened to instruct this) instead of inferring it from scanning prompt words. The pre-existing `isLikelyAnalysisOnlyPrompt` keyword guard and `DELIVERY_CLAIM_PATTERNS` output guardrail are left for a separate review (out of scope here). `MAX_OPEN_MEDIA_JOBS_PER_CHAT = 2` remains a documented constant (Decision §5), a candidate to become plan-driven in a later ADR.
 
+### Open-job semantic summaries + explicit multi-image `series` mode (2026-05-31, follow-up)
+
+The live `сова -> лев` audit found a missing model-facing truth: open async jobs were rendered with ids/status/timestamps/counts but without enough semantic meaning for the model to distinguish "older open owl job" from "new lion request in this turn". Closed:
+
+- `RuntimeOpenMediaJobContext` and `RuntimeOpenDocumentJobContext` now carry `sourceSummary`, derived from persisted source user text / version source summary.
+- `turn-execution.service.ts` open-job developer sections now render `sourceSummary`, age, and explicit current-turn safety language: older open jobs are server truth for prior tasks, **not** proof that the current turn started a new async job; the model may only claim a new acceptance when this same turn structurally returned `pending_delivery` with a real `jobId`.
+
+The live carousel audit also found that one batched `count=N` prompt describing an entire N-slide concept is collage-prone even when the provider returns N separate files. Closed without keyword routing or multi-job split:
+
+- `RuntimeImageGenerateRequest` / `RuntimeImageEditRequest` now support explicit `outputMode: "variants" | "series"` plus ordered `seriesItems[]`.
+- `native-tool-projection.ts` now teaches the model to use `variants` for alternate versions of one image idea and `series` + `seriesItems[]` for distinct final frames/items (carousel slides, storyboard frames, etc.).
+- Runtime image generate/edit execution keeps **one structured request = one durable media job**, but when `outputMode="series"` it runs multiple single-image provider calls inside that job (`count=1` per call) using one frame-specific prompt per series item. This preserves ADR-105's no-silent-split rule while removing the collage-prone "one shared prompt for the whole carousel" shape.
+
 ### Residuals (tracked, accepted for this program)
 
 1. `assistant_not_found` in `failJob` cannot release its reservation (no `Assistant` entity remains to resolve governance/period); it is logged for workspace-level reconciliation. Rare (assistant deleted between enqueue and scheduling).

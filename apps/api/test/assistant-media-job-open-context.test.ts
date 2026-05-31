@@ -69,6 +69,7 @@ async function run(): Promise<void> {
     assert.equal(ctx.toolCode, "image_generate");
     assert.equal(ctx.kind, "image");
     assert.equal(ctx.status, "queued");
+    assert.equal(ctx.sourceSummary, "Generate 3 images");
   }
 
   // ── Test 2: image_edit with count=2 carries requestedCount=2 ─────────────
@@ -115,6 +116,7 @@ async function run(): Promise<void> {
     assert.equal(ctx.expectedResultCount, 2, "expectedResultCount should match requestedCount");
     assert.equal(ctx.toolCode, "image_edit");
     assert.notEqual(ctx.startedAt, null, "startedAt should be present for running job");
+    assert.equal(ctx.sourceSummary, "Edit 2 images");
   }
 
   // ── Test 3: video_generate always has requestedCount=1 ───────────────────
@@ -159,6 +161,7 @@ async function run(): Promise<void> {
     assert.equal(ctx.expectedResultCount, 1);
     assert.equal(ctx.toolCode, "video_generate");
     assert.equal(ctx.kind, "video");
+    assert.equal(ctx.sourceSummary, "Make a video");
   }
 
   // ── Test 4: Missing/corrupt requestJson falls back to null ────────────────
@@ -195,9 +198,52 @@ async function run(): Promise<void> {
       "image_generate",
       "kind=image falls back to image_generate toolCode"
     );
+    assert.equal(ctx.sourceSummary, null);
   }
 
-  console.log("[assistant-media-job-open-context.test] All 4 assertions passed.");
+  // ── Test 5: seriesItems length becomes requestedCount for series mode ─────
+  {
+    const prisma = buildPrismaStub([
+      {
+        id: "job-series",
+        kind: "image",
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "Carousel about sneakers",
+          sourceUserMessageCreatedAt: "2026-05-31T00:00:00.000Z",
+          directToolExecution: {
+            toolCode: "image_generate",
+            request: {
+              toolCode: "image_generate",
+              count: 4,
+              outputMode: "series",
+              seriesItems: ["slide 1", "slide 2", "slide 3", "slide 4"],
+              prompt: "carousel",
+              filename: null,
+              size: null,
+              background: "auto"
+            }
+          }
+        },
+        status: "queued",
+        createdAt: new Date("2026-05-31T10:00:00.000Z"),
+        startedAt: null,
+        updatedAt: new Date("2026-05-31T10:00:00.000Z")
+      }
+    ]);
+    (service as never)["prisma"] = prisma;
+
+    const results = await service.listOpenJobsForChatContext({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1"
+    });
+
+    assert.equal(results[0]?.requestedCount, 4);
+    assert.equal(results[0]?.expectedResultCount, 4);
+  }
+
+  console.log("[assistant-media-job-open-context.test] All assertions passed.");
 }
 
 void run();

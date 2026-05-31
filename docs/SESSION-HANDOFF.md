@@ -2,6 +2,44 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-31 (cont.) — ADR-105 follow-up: semantic open-job context + explicit multi-image series mode
+
+### What changed & why
+
+Closed the two live media regressions from the `сова -> лев` and carousel investigations with contract-level/runtime-level fixes, not prompt-word parsing or legacy fallbacks.
+
+- **Open-job semantic truth:** `RuntimeOpenMediaJobContext` and `RuntimeOpenDocumentJobContext` now carry `sourceSummary`. API open-job readers populate it from persisted source request text / document source summary, and runtime developer sections now render the summary plus explicit current-turn safety copy: older open jobs are server truth for prior tasks, **not** proof that the current turn started a new async job. This directly closes the live `сова -> лев` failure mode where the model could see "an open image job exists" but not know it was for the owl rather than the new lion request.
+- **Multi-image clean series contract:** `RuntimeImageGenerateRequest` / `RuntimeImageEditRequest` gained `outputMode: "variants" | "series"` and ordered `seriesItems[]`. Tool projection now teaches the model to use `variants` for alternate versions of one image idea and `series` + `seriesItems[]` for distinct final frames/items (carousel slides, storyboard frames, etc.). Runtime generate/edit execution preserves ADR-105's invariant `one structured request = one durable media job`, but when `outputMode="series"` it executes multiple single-image provider calls (`count=1`) inside that same job/turn with one item-specific prompt per frame. This removes the collage-prone "one shared prompt for the whole carousel with n=count" shape without splitting into multiple jobs or routing by user keywords.
+
+### Files touched
+
+`packages/runtime-contract/src/index.ts`; `apps/api/src/modules/workspace-management/application/assistant-media-job.service.ts`; `apps/api/src/modules/workspace-management/application/assistant-document-job-read.service.ts`; `apps/runtime/src/modules/turns/turn-execution.service.ts`; `apps/runtime/src/modules/turns/native-tool-projection.ts`; `apps/runtime/src/modules/turns/runtime-image-generate-tool.service.ts`; `apps/runtime/src/modules/turns/runtime-image-edit-tool.service.ts`; focused runtime/api tests; `docs/API-BOUNDARY.md`; `docs/TEST-PLAN.md`; `docs/ADR/105-media-job-truth-and-orchestrated-cleanup.md`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- Focused PASS: `@persai/runtime` `test/runtime-media-request-parsing.test.ts`
+- Focused PASS: `@persai/runtime` `test/runtime-image-generate-tool.service.test.ts`
+- Focused PASS: `@persai/runtime` `test/runtime-image-edit-tool.service.test.ts`
+- Focused PASS: `@persai/runtime` `test/native-tool-projection.test.ts`
+- Focused PASS: `@persai/runtime` `test/turn-execution.service.test.ts`
+- Focused PASS: `@persai/api` `test/assistant-media-job-open-context.test.ts`
+- Focused PASS: `@persai/api` `test/send-web-chat-turn.service.test.ts`
+- `@persai/runtime` typecheck PASS
+- `@persai/api` typecheck PASS
+
+### Risks / residuals
+
+- This session updates the runtime/API contract and focused tests but does **not** yet include a fresh live smoke after deploy; runtime + api images are required before re-checking the exact founder cases in `persai-dev`.
+- `outputMode="series"` is now the clean path for distinct frames/items, but it depends on the model choosing that structured shape correctly from the updated tool schema/description. If future live traces show misses, the next step should be improving model-facing contract/examples, not adding keyword routing.
+
+### Deploy
+
+- runtime + api images required. No Prisma migration. No web image required for this slice.
+
+### Next recommended step
+
+- Deploy runtime + api to `persai-dev`, then live-smoke both fixed cases: (1) `сова -> лев` follow-up while the owl job is still open — confirm the lion turn either emits a real `pending_delivery` result with a new job id or honestly does not claim acceptance; (2) carousel / multi-frame request — confirm the model emits `outputMode="series"` + `seriesItems[]` and delivered outputs are one frame per image, not collages.
+
 ## 2026-05-31 (cont.) — full-suite verification + restore structural full-undelivery notice
 
 ### What changed & why

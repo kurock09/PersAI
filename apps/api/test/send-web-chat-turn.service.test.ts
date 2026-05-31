@@ -467,6 +467,7 @@ describe("SendWebChatTurnService", () => {
             descriptorMode: "create_pdf_document",
             documentType: "pdf_document",
             status: "running",
+            sourceSummary: "документ по брифу",
             createdAt: "2026-04-05T11:59:00.000Z",
             startedAt: "2026-04-05T11:59:10.000Z",
             updatedAt: "2026-04-05T11:59:30.000Z"
@@ -489,6 +490,7 @@ describe("SendWebChatTurnService", () => {
         descriptorMode: "create_pdf_document",
         documentType: "pdf_document",
         status: "running",
+        sourceSummary: "документ по брифу",
         createdAt: "2026-04-05T11:59:00.000Z",
         startedAt: "2026-04-05T11:59:10.000Z",
         updatedAt: "2026-04-05T11:59:30.000Z"

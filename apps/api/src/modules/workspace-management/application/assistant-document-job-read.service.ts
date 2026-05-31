@@ -56,6 +56,14 @@ function normalizeDescriptorMode(
   return documentType === "presentation" ? "create_presentation" : "create_pdf_document";
 }
 
+function normalizeSourceSummary(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 @Injectable()
 export class AssistantDocumentJobReadService {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
@@ -83,7 +91,8 @@ export class AssistantDocumentJobReadService {
         updatedAt: true,
         version: {
           select: {
-            descriptorMode: true
+            descriptorMode: true,
+            sourceSummaryText: true
           }
         },
         document: {
@@ -131,7 +140,8 @@ export class AssistantDocumentJobReadService {
         updatedAt: true,
         version: {
           select: {
-            descriptorMode: true
+            descriptorMode: true,
+            sourceSummaryText: true
           }
         },
         document: {
@@ -150,6 +160,7 @@ export class AssistantDocumentJobReadService {
       ),
       documentType: row.document.documentType,
       status: toRuntimeOpenDocumentJobStatus(row.status),
+      sourceSummary: normalizeSourceSummary(row.version?.sourceSummaryText),
       createdAt: row.createdAt.toISOString(),
       startedAt: row.startedAt?.toISOString() ?? null,
       updatedAt: row.updatedAt.toISOString()

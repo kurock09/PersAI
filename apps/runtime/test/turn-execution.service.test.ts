@@ -2652,6 +2652,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       kind: "image",
       toolCode: "image_generate",
       status: "running",
+      sourceSummary: "сделай сову в африке",
       requestedCount: 1,
       expectedResultCount: 1,
       createdAt: "2026-04-11T11:55:00.000Z",
@@ -2672,7 +2673,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     providerGatewayClient.calls[openMediaJobsOffset]?.developerInstructions ?? "",
-    /1\. image_generate job is running; created 2026-04-11T11:55:00.000Z, started 2026-04-11T11:56:00.000Z\./
+    /1\. image_generate job is running; source: "сделай сову в африке"; created 2026-04-11T11:55:00.000Z, started 2026-04-11T11:56:00.000Z; requested 1 result unit\(s\)\./
+  );
+  assert.match(
+    providerGatewayClient.calls[openMediaJobsOffset]?.developerInstructions ?? "",
+    /They are NOT proof that the current user turn started a new media job\./
   );
   const openDocumentJobsRequest = createRuntimeTurnRequest();
   openDocumentJobsRequest.message.text = "документ готов?";
@@ -2682,6 +2687,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       descriptorMode: "create_pdf_document",
       documentType: "pdf_document",
       status: "running",
+      sourceSummary: "сделай pdf по брифу",
       createdAt: "2026-04-11T12:00:00.000Z",
       startedAt: "2026-04-11T12:01:00.000Z",
       updatedAt: "2026-04-11T12:02:00.000Z"
@@ -2700,7 +2706,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     providerGatewayClient.calls[openDocumentJobsOffset]?.developerInstructions ?? "",
-    /1\. create_pdf_document \(pdf_document\) job is running; created 2026-04-11T12:00:00\.000Z, started 2026-04-11T12:01:00\.000Z\./
+    /1\. create_pdf_document \(pdf_document\) job is running; source: "сделай pdf по брифу"; created 2026-04-11T12:00:00\.000Z, started 2026-04-11T12:01:00\.000Z\./
   );
   const telegramGroupRequest = createRuntimeTurnRequest();
   telegramGroupRequest.conversation = {

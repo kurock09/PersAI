@@ -331,4 +331,102 @@ describe("RuntimeImageGenerateToolService", () => {
     assert.match(result.payload.warning ?? "", /also rejected by the provider safety system/i);
     assert.equal(imageCallCount, 2);
   });
+
+  test("runs series mode as multiple single-image provider calls", async () => {
+    const imageCalls: ProviderGatewayImageGenerateRequest[] = [];
+    const service = new RuntimeImageGenerateToolService(
+      {
+        async generateImage(
+          input: ProviderGatewayImageGenerateRequest
+        ): Promise<ProviderGatewayImageGenerateResult> {
+          imageCalls.push(input);
+          return {
+            provider: "openai",
+            model: "gpt-image-1",
+            prompt: input.prompt,
+            size: input.size,
+            images: [
+              {
+                bytesBase64: Buffer.from([
+                  0x89,
+                  0x50,
+                  0x4e,
+                  0x47,
+                  0x0d,
+                  0x0a,
+                  0x1a,
+                  0x0a,
+                  imageCalls.length
+                ]).toString("base64"),
+                mimeType: "image/png",
+                revisedPrompt: null
+              }
+            ],
+            respondedAt: "2026-05-25T12:00:03.000Z",
+            usage: null,
+            billingFacts: null,
+            warning: null
+          };
+        }
+      } as never,
+      {} as never,
+      {
+        buildRuntimeOutputObjectKey() {
+          return `runtime/image-${String(imageCalls.length)}.png`;
+        },
+        async saveObject() {
+          return {
+            objectKey: `runtime/image-${String(imageCalls.length)}.png`,
+            mimeType: "image/png",
+            sizeBytes: 9
+          };
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile() {
+          return {
+            id: `file-${String(imageCalls.length)}`,
+            filename: `image-${String(imageCalls.length)}.png`,
+            mimeType: "image/png",
+            sizeBytes: 9
+          };
+        },
+        toRuntimeFileRef(file: { id: string; filename: string; mimeType: string }) {
+          return {
+            fileRef: file.id,
+            displayName: file.filename,
+            mimeType: file.mimeType
+          };
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "call-series",
+        name: "image_generate",
+        arguments: {
+          prompt: "Create a 3-slide carousel about sneakers",
+          count: 3,
+          outputMode: "series",
+          seriesItems: ["slide 1 hero product", "slide 2 product detail", "slide 3 CTA"]
+        }
+      } as never,
+      sessionId: "session-series",
+      requestId: "request-series"
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "generated");
+    assert.equal(result.artifacts.length, 3);
+    assert.equal(imageCalls.length, 3);
+    assert.deepEqual(
+      imageCalls.map((call) => call.count),
+      [1, 1, 1]
+    );
+    assert.match(imageCalls[0]?.prompt ?? "", /This item only: slide 1 hero product/);
+    assert.match(imageCalls[1]?.prompt ?? "", /This item only: slide 2 product detail/);
+    assert.match(imageCalls[2]?.prompt ?? "", /This item only: slide 3 CTA/);
+  });
 });

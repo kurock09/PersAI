@@ -1969,12 +1969,20 @@ export class TurnExecutionService {
       "Server truth: background media generation is already in progress in this chat.",
       "Use this status block for any progress reply in the current turn.",
       "Do not start a new image_generate, image_edit, video_generate, or audio_generate call unless the current user turn is clearly asking for a separate new media task.",
+      "These are older or already-open jobs. They are NOT proof that the current user turn started a new media job.",
+      "Only say a new media request was accepted, queued, or in progress when this same turn actually returned a structural pending_delivery result with a real jobId.",
       ...openMediaJobs.slice(0, MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS).map((job, index) => {
         const ageLine =
           job.startedAt === null
             ? `created ${job.createdAt}, not started yet`
             : `created ${job.createdAt}, started ${job.startedAt}`;
-        return `${index + 1}. ${job.toolCode} job is ${job.status}; ${ageLine}.`;
+        const sourceLine =
+          job.sourceSummary === null ? "source unavailable" : `source: "${job.sourceSummary}"`;
+        const countLine =
+          job.requestedCount === null
+            ? null
+            : `requested ${String(job.requestedCount)} result unit(s)`;
+        return `${index + 1}. ${job.toolCode} job is ${job.status}; ${sourceLine}; ${ageLine}${countLine === null ? "." : `; ${countLine}.`}`;
       })
     ];
     return lines.join("\n");
@@ -1991,12 +1999,16 @@ export class TurnExecutionService {
       "Server truth: background document rendering is already in progress in this chat.",
       "Use this status block for any progress reply in the current turn.",
       "Do not start a new document job unless the current user turn is clearly asking for a separate new document task.",
+      "These are older or already-open jobs. They are NOT proof that the current user turn started a new document job.",
+      "Only say a new document request was accepted, queued, or in progress when this same turn actually returned a structural pending_delivery result with a real jobId.",
       ...openDocumentJobs.slice(0, MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS).map((job, index) => {
         const ageLine =
           job.startedAt === null
             ? `created ${job.createdAt}, not started yet`
             : `created ${job.createdAt}, started ${job.startedAt}`;
-        return `${index + 1}. ${job.descriptorMode} (${job.documentType}) job is ${job.status}; ${ageLine}.`;
+        const sourceLine =
+          job.sourceSummary === null ? "source unavailable" : `source: "${job.sourceSummary}"`;
+        return `${index + 1}. ${job.descriptorMode} (${job.documentType}) job is ${job.status}; ${sourceLine}; ${ageLine}.`;
       })
     ];
     return lines.join("\n");

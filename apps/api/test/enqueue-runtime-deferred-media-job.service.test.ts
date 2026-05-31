@@ -129,6 +129,28 @@ function imageGenerateInput(count: number, messageId: string) {
   };
 }
 
+function imageGenerateSeriesInput(count: number, messageId: string, seriesItems: string[]) {
+  return {
+    assistantId: "assistant-1",
+    sourceUserMessageId: messageId,
+    sourceUserMessageText: "Generate carousel",
+    attachments: [],
+    directToolExecution: {
+      toolCode: "image_generate" as const,
+      request: {
+        toolCode: "image_generate" as const,
+        count,
+        outputMode: "series" as const,
+        seriesItems,
+        prompt: "carousel",
+        filename: null,
+        size: null,
+        background: "auto" as const
+      }
+    }
+  };
+}
+
 async function run(): Promise<void> {
   // ── Test 1: count=2 reserves exactly 2 units and enqueues ────────────────
   {
@@ -253,7 +275,64 @@ async function run(): Promise<void> {
     );
   }
 
-  console.log("[enqueue-runtime-deferred-media-job.service.test] All 6 scenarios passed.");
+  // ── Test 7: series mode reserves by seriesItems length and enqueues ───────
+  {
+    const { service, reserveCalls, enqueueCalls } = buildService({});
+    const parsed = service.parseInput(
+      imageGenerateSeriesInput(3, "message-7", ["slide 1", "slide 2", "slide 3"])
+    );
+    const result = await service.execute(parsed);
+
+    assert.equal(result.accepted, true);
+    assert.equal(reserveCalls.length, 1);
+    assert.equal(
+      reserveCalls[0]!.units,
+      3,
+      "series mode must reserve units from semantic item count"
+    );
+    assert.equal(enqueueCalls.count, 1);
+  }
+
+  // ── Test 8: series mode rejects mismatched seriesItems length at parse ────
+  {
+    const { service } = buildService({});
+    assert.throws(
+      () => service.parseInput(imageGenerateSeriesInput(3, "message-8", ["slide 1", "slide 2"])),
+      /must contain exactly 3 item\(s\) when outputMode="series"/,
+      "series mode must be rejected when seriesItems length mismatches count"
+    );
+  }
+
+  // ── Test 9: seriesItems without outputMode=series is rejected at parse ────
+  {
+    const { service } = buildService({});
+    assert.throws(
+      () =>
+        service.parseInput({
+          assistantId: "assistant-1",
+          sourceUserMessageId: "message-9",
+          sourceUserMessageText: "Generate images",
+          attachments: [],
+          directToolExecution: {
+            toolCode: "image_generate",
+            request: {
+              toolCode: "image_generate",
+              count: 2,
+              outputMode: "variants",
+              seriesItems: ["frame 1", "frame 2"],
+              prompt: "bad shape",
+              filename: null,
+              size: null,
+              background: "auto"
+            }
+          }
+        }),
+      /can only be provided when outputMode="series"/,
+      "seriesItems must be rejected when outputMode is not series"
+    );
+  }
+
+  console.log("[enqueue-runtime-deferred-media-job.service.test] All scenarios passed.");
 }
 
 void run();

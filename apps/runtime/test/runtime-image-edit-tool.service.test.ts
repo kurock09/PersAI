@@ -496,4 +496,113 @@ describe("RuntimeImageEditToolService", () => {
     assert.equal(enqueueCalls[0]?.toolCode, "image_edit");
     assert.equal(enqueueCalls[0]?.request.count, 2);
   });
+
+  test("runs edit series mode as multiple single-image provider calls", async () => {
+    const editCalls: ProviderGatewayImageEditRequest[] = [];
+    const service = new RuntimeImageEditToolService(
+      {
+        async editImage(
+          input: ProviderGatewayImageEditRequest
+        ): Promise<ProviderGatewayImageEditResult> {
+          editCalls.push(input);
+          return {
+            provider: "openai",
+            model: "gpt-image-1",
+            prompt: input.prompt,
+            size: input.size,
+            images: [
+              {
+                bytesBase64: Buffer.from([
+                  0x89,
+                  0x50,
+                  0x4e,
+                  0x47,
+                  0x0d,
+                  0x0a,
+                  0x1a,
+                  0x0a,
+                  editCalls.length
+                ]).toString("base64"),
+                mimeType: "image/png",
+                revisedPrompt: null
+              }
+            ],
+            respondedAt: "2026-05-31T00:00:00.000Z",
+            usage: null,
+            billingFacts: null,
+            warning: null
+          };
+        }
+      } as never,
+      {} as never,
+      {
+        buildRuntimeOutputObjectKey() {
+          return `runtime/edit-series-${String(editCalls.length)}.png`;
+        },
+        async saveObject() {
+          return {
+            objectKey: `runtime/edit-series-${String(editCalls.length)}.png`,
+            mimeType: "image/png",
+            sizeBytes: 9
+          };
+        },
+        async downloadObject() {
+          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile() {
+          return {
+            id: `file-series-${String(editCalls.length)}`,
+            filename: `series-${String(editCalls.length)}.png`,
+            mimeType: "image/png",
+            sizeBytes: 9
+          };
+        },
+        toRuntimeFileRef(file: { id: string; filename: string; mimeType: string }) {
+          return { fileRef: file.id, displayName: file.filename, mimeType: file.mimeType };
+        }
+      } as never
+    );
+
+    const attachments = [
+      {
+        attachmentId: "attachment-1",
+        kind: "image",
+        objectKey: "uploads/source.png",
+        mimeType: "image/png",
+        filename: "source.png",
+        sizeBytes: 9,
+        aliases: ["current image #1"]
+      }
+    ] as unknown as RuntimeAttachmentRef[];
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "call-series-edit",
+        name: "image_edit",
+        arguments: {
+          prompt: "Create a 3-frame edited story",
+          sourceImageAlias: "current image #1",
+          count: 3,
+          outputMode: "series",
+          seriesItems: ["frame 1 warmer hero shot", "frame 2 close detail", "frame 3 CTA overlay"]
+        }
+      } as never,
+      availableAttachments: attachments,
+      sessionId: "session-series",
+      requestId: "request-series"
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "generated");
+    assert.equal(result.artifacts.length, 3);
+    assert.equal(editCalls.length, 3);
+    assert.deepEqual(
+      editCalls.map((call) => call.count),
+      [1, 1, 1]
+    );
+    assert.match(editCalls[0]?.prompt ?? "", /This item only: frame 1 warmer hero shot/);
+  });
 });

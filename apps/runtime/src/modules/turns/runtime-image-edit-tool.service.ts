@@ -18,6 +18,7 @@ import {
   type RuntimeAttachmentRef,
   type RuntimeImageEditRequest,
   type RuntimeImageEditToolResult,
+  type RuntimeUsageSnapshot,
   type RuntimeOutputArtifact,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
@@ -38,6 +39,26 @@ import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-re
 const IMAGE_EDIT_TOOL_CODE = "image_edit" as const;
 const DEFAULT_IMAGE_EDIT_TIMEOUT_MS = 300_000;
 const SUPPORTED_IMAGE_EDIT_INPUT_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+function mergeUsageSnapshots(
+  current: RuntimeUsageSnapshot | null,
+  next: RuntimeUsageSnapshot | null
+): RuntimeUsageSnapshot | null {
+  if (current === null) return next;
+  if (next === null) return current;
+  const sum = (left: number | null | undefined, right: number | null | undefined): number | null =>
+    typeof left === "number" || typeof right === "number"
+      ? (typeof left === "number" ? left : 0) + (typeof right === "number" ? right : 0)
+      : null;
+  return {
+    providerKey: current.providerKey ?? next.providerKey ?? null,
+    modelKey: current.modelKey ?? next.modelKey ?? null,
+    inputTokens: sum(current.inputTokens, next.inputTokens),
+    cachedInputTokens: sum(current.cachedInputTokens, next.cachedInputTokens),
+    outputTokens: sum(current.outputTokens, next.outputTokens),
+    totalTokens: sum(current.totalTokens, next.totalTokens)
+  };
+}
 
 type ResolvedImageEditSelection =
   | {
@@ -366,7 +387,6 @@ export class RuntimeImageEditToolService {
       const timeoutMs = this.resolveWorkerTimeoutMs(params.bundle);
       const baseProviderRequest = {
         model: modelSelection.model,
-        count: request.count,
         size: request.size,
         background: request.background,
         sourceImage: selection.sourceImage,
@@ -377,123 +397,204 @@ export class RuntimeImageEditToolService {
           providerId
         }
       } as const;
-      let effectivePrompt = request.prompt;
-      let safetyRetryWarning: string | null = null;
-      let providerResult: ProviderGatewayImageEditResult;
-      try {
-        providerResult = await this.providerGatewayClientService.editImage(
-          {
-            ...baseProviderRequest,
-            prompt: effectivePrompt
-          },
-          {
-            timeoutMs
-          }
-        );
-      } catch (error) {
-        if (!(error instanceof ProviderGatewaySafetyRejectedError)) {
-          throw error;
-        }
-        const rewriteOutcome = await rewritePromptAfterProviderSafetyReject({
-          bundle: params.bundle,
-          providerGatewayClientService: this.providerGatewayClientService,
-          requestId: params.requestId,
-          toolCode: IMAGE_EDIT_TOOL_CODE,
-          originalPrompt: request.prompt,
-          failure: error
-        });
-        if (!rewriteOutcome.ok) {
-          return {
-            payload: {
-              toolCode: IMAGE_EDIT_TOOL_CODE,
-              executionMode: "worker",
-              provider: providerId,
-              model: modelSelection.model,
-              prompt: request.prompt,
-              revisedPrompt: null,
-              requestedCount: request.count,
-              sourceImageAlias: selection.sourceImageAlias,
-              referenceImageAlias: selection.referenceImageAlias,
-              sourceFilename: selection.sourceFilename,
-              referenceFilename: selection.referenceFilename,
-              size: request.size,
-              artifacts: [],
-              usage: null,
-              action: "skipped",
-              reason: "image_provider_safety_rejected",
-              warning: rewriteOutcome.failureWarning
-            },
-            artifacts: [],
-            isError: true
-          };
-        }
-        effectivePrompt = rewriteOutcome.rewrittenPrompt;
-        safetyRetryWarning = rewriteOutcome.retryWarning;
+      const runEditCall = async (prompt: string, count: number, requestIdSuffix = "") => {
+        let effectivePrompt = prompt;
+        let safetyRetryWarning: string | null = null;
+        let providerResult: ProviderGatewayImageEditResult;
         try {
           providerResult = await this.providerGatewayClientService.editImage(
             {
               ...baseProviderRequest,
-              prompt: effectivePrompt
+              prompt: effectivePrompt,
+              count
             },
             {
               timeoutMs
             }
           );
-        } catch (retryError) {
+        } catch (error) {
+          if (!(error instanceof ProviderGatewaySafetyRejectedError)) {
+            throw error;
+          }
+          const rewriteOutcome = await rewritePromptAfterProviderSafetyReject({
+            bundle: params.bundle,
+            providerGatewayClientService: this.providerGatewayClientService,
+            requestId: `${params.requestId}${requestIdSuffix}`,
+            toolCode: IMAGE_EDIT_TOOL_CODE,
+            originalPrompt: prompt,
+            failure: error
+          });
+          if (!rewriteOutcome.ok) {
+            return {
+              ok: false as const,
+              payload: {
+                toolCode: IMAGE_EDIT_TOOL_CODE,
+                executionMode: "worker" as const,
+                provider: providerId,
+                model: modelSelection.model,
+                prompt: request.prompt,
+                revisedPrompt: null,
+                requestedCount: request.count,
+                sourceImageAlias: selection.sourceImageAlias,
+                referenceImageAlias: selection.referenceImageAlias,
+                sourceFilename: selection.sourceFilename,
+                referenceFilename: selection.referenceFilename,
+                size: request.size,
+                artifacts: [],
+                usage: null,
+                action: "skipped" as const,
+                reason: "image_provider_safety_rejected",
+                warning: rewriteOutcome.failureWarning
+              }
+            };
+          }
+          effectivePrompt = rewriteOutcome.rewrittenPrompt;
+          safetyRetryWarning = rewriteOutcome.retryWarning;
+          try {
+            providerResult = await this.providerGatewayClientService.editImage(
+              {
+                ...baseProviderRequest,
+                prompt: effectivePrompt,
+                count
+              },
+              {
+                timeoutMs
+              }
+            );
+          } catch (retryError) {
+            return {
+              ok: false as const,
+              payload: {
+                toolCode: IMAGE_EDIT_TOOL_CODE,
+                executionMode: "worker" as const,
+                provider: providerId,
+                model: modelSelection.model,
+                prompt: request.prompt,
+                revisedPrompt: effectivePrompt,
+                requestedCount: request.count,
+                sourceImageAlias: selection.sourceImageAlias,
+                referenceImageAlias: selection.referenceImageAlias,
+                sourceFilename: selection.sourceFilename,
+                referenceFilename: selection.referenceFilename,
+                size: request.size,
+                artifacts: [],
+                usage: null,
+                action: "skipped" as const,
+                reason: "image_provider_safety_rejected",
+                warning: buildImageSafetyRetryFailureWarning({
+                  originalFailure: error,
+                  retryError
+                })
+              }
+            };
+          }
+        }
+        return {
+          ok: true as const,
+          effectivePrompt,
+          providerResult,
+          warning: safetyRetryWarning
+        };
+      };
+      this.logger.log(
+        `[image-edit] requestId=${params.requestId} provider=${providerId} sourceAlias="${selection.sourceImageAlias}" referenceAlias="${selection.referenceImageAlias ?? "none"}"`
+      );
+      let accumulatedUsage: RuntimeUsageSnapshot | null = null;
+      let accumulatedWarning: string | null = modelSelection.warning;
+      let revisedPrompt: string | null = null;
+      const persistedArtifacts: RuntimeOutputArtifact[] = [];
+      const providerResult =
+        request.outputMode === "series" && request.seriesItems !== null
+          ? null
+          : await runEditCall(request.prompt, request.count);
+      if (providerResult !== null) {
+        if (!providerResult.ok) {
           return {
-            payload: {
-              toolCode: IMAGE_EDIT_TOOL_CODE,
-              executionMode: "worker",
-              provider: providerId,
-              model: modelSelection.model,
-              prompt: request.prompt,
-              revisedPrompt: effectivePrompt,
-              requestedCount: request.count,
-              sourceImageAlias: selection.sourceImageAlias,
-              referenceImageAlias: selection.referenceImageAlias,
-              sourceFilename: selection.sourceFilename,
-              referenceFilename: selection.referenceFilename,
-              size: request.size,
-              artifacts: [],
-              usage: null,
-              action: "skipped",
-              reason: "image_provider_safety_rejected",
-              warning: buildImageSafetyRetryFailureWarning({
-                originalFailure: error,
-                retryError
-              })
-            },
+            payload: providerResult.payload,
             artifacts: [],
             isError: true
           };
         }
+        revisedPrompt =
+          providerResult.providerResult.images.find((image) => image.revisedPrompt !== null)
+            ?.revisedPrompt ??
+          (providerResult.warning === null ? null : providerResult.effectivePrompt);
+        accumulatedUsage = mergeUsageSnapshots(
+          accumulatedUsage,
+          providerResult.providerResult.usage
+        );
+        accumulatedWarning = this.mergeWarnings(
+          accumulatedWarning,
+          providerResult.warning,
+          providerResult.providerResult.warning
+        );
+        const artifacts = await Promise.all(
+          providerResult.providerResult.images.map((image, index) =>
+            this.persistEditedArtifact({
+              assistantId: params.bundle.metadata.assistantId,
+              workspaceId: params.bundle.metadata.workspaceId,
+              sessionId: params.sessionId,
+              requestId: params.requestId,
+              filenameHint: request.filename,
+              requestPrompt: providerResult.effectivePrompt,
+              sourceFilename: selection.sourceFilename,
+              image,
+              index,
+              billingFacts: providerResult.providerResult.billingFacts
+            })
+          )
+        );
+        persistedArtifacts.push(...artifacts);
+      } else {
+        const seriesItems = request.seriesItems ?? [];
+        for (const [index, itemPrompt] of seriesItems.entries()) {
+          const composedPrompt = `Series item ${String(index + 1)} of ${String(seriesItems.length)}. Overall request: ${request.prompt}\n\nThis item only: ${itemPrompt}`;
+          const seriesResult = await runEditCall(composedPrompt, 1, `:series:${String(index + 1)}`);
+          if (!seriesResult.ok) {
+            return {
+              payload: seriesResult.payload,
+              artifacts: [],
+              isError: true
+            };
+          }
+          revisedPrompt =
+            seriesResult.providerResult.images.find((image) => image.revisedPrompt !== null)
+              ?.revisedPrompt ?? revisedPrompt;
+          accumulatedUsage = mergeUsageSnapshots(
+            accumulatedUsage,
+            seriesResult.providerResult.usage
+          );
+          accumulatedWarning = this.mergeWarnings(
+            accumulatedWarning,
+            seriesResult.warning,
+            seriesResult.providerResult.warning
+          );
+          const artifacts = await Promise.all(
+            seriesResult.providerResult.images.map((image) =>
+              this.persistEditedArtifact({
+                assistantId: params.bundle.metadata.assistantId,
+                workspaceId: params.bundle.metadata.workspaceId,
+                sessionId: params.sessionId,
+                requestId: `${params.requestId}:series:${String(index + 1)}`,
+                filenameHint: request.filename,
+                requestPrompt: itemPrompt,
+                sourceFilename: selection.sourceFilename,
+                image,
+                index,
+                billingFacts: seriesResult.providerResult.billingFacts
+              })
+            )
+          );
+          persistedArtifacts.push(...artifacts);
+        }
       }
-      this.logger.log(
-        `[image-edit] requestId=${params.requestId} provider=${providerId} sourceAlias="${selection.sourceImageAlias}" referenceAlias="${selection.referenceImageAlias ?? "none"}"`
-      );
-      const artifacts = await Promise.all(
-        providerResult.images.map((image, index) =>
-          this.persistEditedArtifact({
-            assistantId: params.bundle.metadata.assistantId,
-            workspaceId: params.bundle.metadata.workspaceId,
-            sessionId: params.sessionId,
-            requestId: params.requestId,
-            filenameHint: request.filename,
-            requestPrompt: effectivePrompt,
-            sourceFilename: selection.sourceFilename,
-            image,
-            index,
-            billingFacts: providerResult.billingFacts
-          })
-        )
-      );
-      if (artifacts.length === 0) {
+      if (persistedArtifacts.length === 0) {
         return {
           payload: {
             toolCode: "image_edit",
             executionMode: "worker",
             provider: providerId,
-            model: providerResult.model,
+            model: modelSelection.model,
             prompt: request.prompt,
             revisedPrompt: null,
             requestedCount: request.count,
@@ -503,7 +604,7 @@ export class RuntimeImageEditToolService {
             referenceFilename: selection.referenceFilename,
             size: request.size,
             artifacts: [],
-            usage: providerResult.usage,
+            usage: accumulatedUsage,
             action: "skipped",
             reason: "empty_result",
             warning: "Image-edit provider returned no images."
@@ -513,12 +614,9 @@ export class RuntimeImageEditToolService {
         };
       }
 
-      const revisedPrompt =
-        providerResult.images.find((image) => image.revisedPrompt !== null)?.revisedPrompt ??
-        (safetyRetryWarning === null ? null : effectivePrompt);
       this.logger.log(
         `[image-edit] completed requestId=${params.requestId} provider=${providerId} artifacts=${String(
-          artifacts.length
+          persistedArtifacts.length
         )} sourceAlias="${selection.sourceImageAlias}" referenceAlias="${
           selection.referenceImageAlias ?? "none"
         }"`
@@ -528,7 +626,7 @@ export class RuntimeImageEditToolService {
           toolCode: "image_edit",
           executionMode: "worker",
           provider: providerId,
-          model: providerResult.model,
+          model: modelSelection.model,
           prompt: request.prompt,
           revisedPrompt,
           requestedCount: request.count,
@@ -537,20 +635,19 @@ export class RuntimeImageEditToolService {
           sourceFilename: selection.sourceFilename,
           referenceFilename: selection.referenceFilename,
           size: request.size,
-          artifacts,
-          usage: providerResult.usage,
+          artifacts: persistedArtifacts,
+          usage: accumulatedUsage,
           action: "generated",
           reason: null,
           warning:
-            providerResult.images.length === request.count
-              ? this.mergeWarnings(
-                  modelSelection.warning,
-                  safetyRetryWarning,
-                  providerResult.warning
+            persistedArtifacts.length === request.count
+              ? accumulatedWarning
+              : this.mergeWarnings(
+                  accumulatedWarning,
+                  `Requested ${String(request.count)} image(s), received ${String(persistedArtifacts.length)}.`
                 )
-              : `Requested ${String(request.count)} image(s), received ${String(providerResult.images.length)}.`
         },
-        artifacts,
+        artifacts: persistedArtifacts,
         isError: false
       };
     } catch (error) {
@@ -601,6 +698,8 @@ export class RuntimeImageEditToolService {
         key !== "toolCode" &&
         key !== "prompt" &&
         key !== "count" &&
+        key !== "outputMode" &&
+        key !== "seriesItems" &&
         key !== "filename" &&
         key !== "size" &&
         key !== "background" &&
@@ -630,6 +729,40 @@ export class RuntimeImageEditToolService {
       return new Error(
         `count must be an integer between ${String(MIN_RUNTIME_IMAGE_EDIT_COUNT)} and ${String(MAX_RUNTIME_IMAGE_EDIT_COUNT)}`
       );
+    }
+
+    const outputMode =
+      args.outputMode === undefined || args.outputMode === null
+        ? null
+        : args.outputMode === "variants" || args.outputMode === "series"
+          ? args.outputMode
+          : null;
+    if ("outputMode" in args && args.outputMode !== null && outputMode === null) {
+      return new Error('outputMode must be "variants", "series", or null when provided');
+    }
+
+    const seriesItemsRaw = args.seriesItems;
+    const seriesItems =
+      seriesItemsRaw === undefined || seriesItemsRaw === null
+        ? null
+        : Array.isArray(seriesItemsRaw)
+          ? seriesItemsRaw
+              .map((item) => this.asNonEmptyString(item))
+              .filter((item): item is string => item !== null)
+          : null;
+    if ("seriesItems" in args && args.seriesItems !== null && seriesItems === null) {
+      return new Error("seriesItems must be an array of non-empty strings when provided");
+    }
+    if (outputMode === "series") {
+      if (seriesItems === null || seriesItems.length === 0) {
+        return new Error("series outputMode requires non-empty seriesItems");
+      }
+      if (seriesItems.length !== count) {
+        return new Error("seriesItems length must match count for series outputMode");
+      }
+    }
+    if (outputMode !== "series" && seriesItems !== null) {
+      return new Error("seriesItems can only be used when outputMode is 'series'");
     }
 
     const filename =
@@ -689,6 +822,8 @@ export class RuntimeImageEditToolService {
       toolCode: "image_edit",
       prompt,
       count,
+      outputMode,
+      seriesItems,
       filename,
       size,
       background,

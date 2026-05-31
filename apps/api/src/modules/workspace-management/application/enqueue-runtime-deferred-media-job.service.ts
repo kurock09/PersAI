@@ -278,6 +278,12 @@ export class EnqueueRuntimeDeferredMediaJobService {
       directToolExecution.toolCode === "image_generate" ||
       directToolExecution.toolCode === "image_edit"
     ) {
+      if (
+        directToolExecution.request.outputMode === "series" &&
+        Array.isArray(directToolExecution.request.seriesItems)
+      ) {
+        return directToolExecution.request.seriesItems.length;
+      }
       return directToolExecution.request.count;
     }
     return 1;
@@ -293,9 +299,16 @@ export class EnqueueRuntimeDeferredMediaJobService {
         MAX_RUNTIME_IMAGE_GENERATE_COUNT,
         "image_generate"
       );
+      const validatedRequest = this.validateImageSeriesShape(
+        {
+          ...(request as unknown as RuntimeImageGenerateRequest),
+          count
+        },
+        "image_generate"
+      );
       return {
         toolCode: "image_generate",
-        request: { ...(request as unknown as RuntimeImageGenerateRequest), count }
+        request: validatedRequest
       };
     }
     if (row.toolCode === "image_edit") {
@@ -305,9 +318,16 @@ export class EnqueueRuntimeDeferredMediaJobService {
         MAX_RUNTIME_IMAGE_EDIT_COUNT,
         "image_edit"
       );
+      const validatedRequest = this.validateImageSeriesShape(
+        {
+          ...(request as unknown as RuntimeImageEditRequest),
+          count
+        },
+        "image_edit"
+      );
       return {
         toolCode: "image_edit",
-        request: { ...(request as unknown as RuntimeImageEditRequest), count }
+        request: validatedRequest
       };
     }
     if (row.toolCode === "video_generate") {
@@ -334,6 +354,54 @@ export class EnqueueRuntimeDeferredMediaJobService {
       );
     }
     return value;
+  }
+
+  private validateImageSeriesShape<T extends RuntimeImageGenerateRequest | RuntimeImageEditRequest>(
+    request: T,
+    toolCode: "image_generate" | "image_edit"
+  ): T {
+    const outputMode = request.outputMode ?? null;
+    if (outputMode !== null && outputMode !== "variants" && outputMode !== "series") {
+      throw new BadRequestException(
+        `directToolExecution.request.outputMode for ${toolCode} must be "variants", "series", or null.`
+      );
+    }
+    const seriesItems = request.seriesItems ?? null;
+    if (outputMode === "series") {
+      if (!Array.isArray(seriesItems) || seriesItems.length === 0) {
+        throw new BadRequestException(
+          `directToolExecution.request.seriesItems for ${toolCode} must be a non-empty array when outputMode="series".`
+        );
+      }
+      const normalizedItems = seriesItems.map((item, index) => {
+        if (typeof item !== "string" || item.trim().length === 0) {
+          throw new BadRequestException(
+            `directToolExecution.request.seriesItems[${String(index)}] for ${toolCode} must be a non-empty string.`
+          );
+        }
+        return item.trim();
+      });
+      if (normalizedItems.length !== request.count) {
+        throw new BadRequestException(
+          `directToolExecution.request.seriesItems for ${toolCode} must contain exactly ${String(request.count)} item(s) when outputMode="series".`
+        );
+      }
+      return {
+        ...request,
+        outputMode: "series",
+        seriesItems: normalizedItems
+      };
+    }
+    if (seriesItems !== null) {
+      throw new BadRequestException(
+        `directToolExecution.request.seriesItems for ${toolCode} can only be provided when outputMode="series".`
+      );
+    }
+    return {
+      ...request,
+      ...(outputMode === null ? { outputMode: null } : { outputMode }),
+      seriesItems: null
+    };
   }
 
   private attachments(value: unknown): RuntimeAttachmentRef[] {

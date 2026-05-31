@@ -379,6 +379,8 @@ async function run(): Promise<void> {
     imageGenerate?.description ?? "",
     /count=N means N separate final images in this one job, not a collage, contact sheet, grid, or multiple panels/
   );
+  assert.match(imageGenerate?.description ?? "", /outputMode='series'/);
+  assert.match(imageGenerate?.description ?? "", /seriesItems/);
   assert.match(
     imageGenerate?.description ?? "",
     /do NOT claim they are already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
@@ -397,6 +399,8 @@ async function run(): Promise<void> {
     imageEdit?.description ?? "",
     /count=N means N separate final edited images in this one job, not a collage, contact sheet, grid, or multiple panels/
   );
+  assert.match(imageEdit?.description ?? "", /outputMode='series'/);
+  assert.match(imageEdit?.description ?? "", /seriesItems/);
   assert.match(
     imageEdit?.description ?? "",
     /do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
@@ -426,6 +430,13 @@ async function run(): Promise<void> {
   );
   assert.equal(imageGenerateCount?.minimum, 1);
   assert.match(imageGenerateCount?.description ?? "", /1\.\.2/);
+  const imageGenerateOutputMode = (
+    imageGenerate?.inputSchema as {
+      properties?: { outputMode?: { enum?: unknown[] }; seriesItems?: { type?: string } };
+    }
+  )?.properties;
+  assert.deepEqual(imageGenerateOutputMode?.outputMode?.enum, ["variants", "series"]);
+  assert.equal(imageGenerateOutputMode?.seriesItems?.type, "array");
 
   const imageEditCount = (
     imageEdit?.inputSchema as {
@@ -438,6 +449,13 @@ async function run(): Promise<void> {
     "FIX A: image_edit count.maximum must equal MAX_RUNTIME_IMAGE_GENERATE_COUNT=10 when perTurnCap is unset"
   );
   assert.equal(imageEditCount?.minimum, 1);
+  const imageEditOutputMode = (
+    imageEdit?.inputSchema as {
+      properties?: { outputMode?: { enum?: unknown[] }; seriesItems?: { type?: string } };
+    }
+  )?.properties;
+  assert.deepEqual(imageEditOutputMode?.outputMode?.enum, ["variants", "series"]);
+  assert.equal(imageEditOutputMode?.seriesItems?.type, "array");
 
   // ADR-105 FIX A: with perTurnCap=10 the model sees count.maximum=10 — one job, no split.
   {

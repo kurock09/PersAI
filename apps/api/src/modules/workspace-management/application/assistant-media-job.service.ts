@@ -69,10 +69,28 @@ function extractRequestedCountFromRequestJson(requestJson: unknown): number | nu
   if (!exec) return null;
   if (exec.toolCode === "video_generate") return 1;
   if (exec.toolCode === "image_generate" || exec.toolCode === "image_edit") {
-    const count = (exec.request as { count?: unknown }).count;
+    const count = (exec.request as { count?: unknown; seriesItems?: unknown }).count;
+    const seriesItems = (exec.request as { seriesItems?: unknown }).seriesItems;
+    if (Array.isArray(seriesItems)) {
+      const normalizedLength = seriesItems.filter(
+        (item) => typeof item === "string" && item.trim().length > 0
+      ).length;
+      if (normalizedLength > 0) {
+        return normalizedLength;
+      }
+    }
     return typeof count === "number" && Number.isInteger(count) && count > 0 ? count : null;
   }
   return null;
+}
+
+function extractSourceSummaryFromRequestJson(requestJson: unknown): string | null {
+  const payload = requestJson as AssistantMediaJobRequestPayload | null;
+  if (typeof payload?.sourceUserMessageText !== "string") {
+    return null;
+  }
+  const normalized = payload.sourceUserMessageText.replace(/\s+/g, " ").trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 function toWebOpenMediaJobStatus(
@@ -160,6 +178,7 @@ export class AssistantMediaJobService {
           requestJson: row.requestJson
         }),
         status: toRuntimeOpenMediaJobStatus(row.status),
+        sourceSummary: extractSourceSummaryFromRequestJson(row.requestJson),
         requestedCount,
         expectedResultCount: requestedCount,
         createdAt: row.createdAt.toISOString(),

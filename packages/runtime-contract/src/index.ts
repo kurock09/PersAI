@@ -1488,6 +1488,8 @@ export interface RuntimeImageGenerateRequest {
   toolCode: "image_generate";
   prompt: string;
   count: number;
+  outputMode?: "variants" | "series" | null;
+  seriesItems?: string[] | null;
   filename: string | null;
   size: PersaiRuntimeImageGenerateSize | null;
   background: PersaiRuntimeImageBackground;
@@ -1523,6 +1525,8 @@ export interface RuntimeImageEditRequest {
   toolCode: "image_edit";
   prompt: string;
   count: number;
+  outputMode?: "variants" | "series" | null;
+  seriesItems?: string[] | null;
   filename: string | null;
   size: PersaiRuntimeImageGenerateSize | null;
   background: PersaiRuntimeImageBackground;
@@ -2409,6 +2413,7 @@ export interface RuntimeOpenMediaJobContext {
   kind: "image" | "audio" | "video";
   toolCode: "image_generate" | "image_edit" | "video_generate" | "audio_generate";
   status: "queued" | "running" | "completion_pending";
+  sourceSummary: string | null;
   requestedCount: number | null;
   expectedResultCount: number | null;
   createdAt: IsoTimestamp;
@@ -2425,6 +2430,7 @@ export interface RuntimeOpenDocumentJobContext {
     | "export_or_redeliver";
   documentType: "pdf_document" | "presentation";
   status: "queued" | "running" | "completion_pending";
+  sourceSummary: string | null;
   createdAt: IsoTimestamp;
   startedAt: IsoTimestamp | null;
   updatedAt: IsoTimestamp;

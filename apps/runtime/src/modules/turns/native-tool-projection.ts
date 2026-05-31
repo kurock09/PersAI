@@ -691,12 +691,12 @@ function createImageGenerateToolDefinition(
         resolveToolDefinitionDescription(
           policy,
           appendPerTurnCapHint(
-            "Generate new images from a text prompt. To produce a series, set count so it runs as one job — do not make extra calls.",
+            "Generate new images from a text prompt. Use outputMode='variants' for multiple alternate versions of one image idea. Use outputMode='series' with seriesItems when the user wants several distinct final frames/tiles/slides in one clean job; do not make extra calls.",
             "image_generate",
             policy
           )
         ),
-        "count=N means N separate final images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid."
+        "count=N means N separate final images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one single-image instruction per item in seriesItems."
       ),
       "If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the images are being prepared and will arrive separately; do NOT claim they are already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for image_generate before the final answer."
     ),
@@ -714,6 +714,18 @@ function createImageGenerateToolDefinition(
           minimum: MIN_RUNTIME_IMAGE_GENERATE_COUNT,
           maximum: effectiveCap,
           description: `Number of images to produce in this single job (${String(MIN_RUNTIME_IMAGE_GENERATE_COUNT)}..${String(effectiveCap)}). Each image uses one per-turn result unit and one daily-quota unit.`
+        },
+        outputMode: {
+          type: "string",
+          enum: ["variants", "series"],
+          description:
+            "Optional output shape. Use variants for multiple alternate versions of one image concept. Use series for multiple distinct final frames/items in one job."
+        },
+        seriesItems: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Required when outputMode='series'. Provide exactly one single-image instruction per requested output, in order. Each item must describe only one final frame/item, not the whole series."
         },
         filename: {
           type: "string",
@@ -746,12 +758,12 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           resolveToolDefinitionDescription(
             policy,
             appendPerTurnCapHint(
-              "Edit a user-referenced image and return a new image file — use this only when the user explicitly wants an image modified, never to describe, analyze, or answer questions about an image (those are answered in text). To produce several edited variants, set count so it runs as one job — do not make extra calls. When another image should guide style or appearance, set referenceImageAlias to that image.",
+              "Edit a user-referenced image and return a new image file — use this only when the user explicitly wants an image modified, never to describe, analyze, or answer questions about an image (those are answered in text). Use outputMode='variants' for alternate edits of the same idea. Use outputMode='series' with seriesItems when the user wants several distinct final edited frames/items in one clean job; do not make extra calls. When another image should guide style or appearance, set referenceImageAlias to that image.",
               "image_edit",
               policy
             )
           ),
-          "count=N means N separate final edited images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid."
+          "count=N means N separate final edited images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one single-image instruction per item in seriesItems."
         ),
         "If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the edit is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for image_edit before the final answer."
       ),
@@ -771,6 +783,18 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           minimum: MIN_RUNTIME_IMAGE_EDIT_COUNT,
           maximum: effectiveCap,
           description: `Number of edited variants to produce in this single job (${String(MIN_RUNTIME_IMAGE_EDIT_COUNT)}..${String(effectiveCap)}). Each output uses one per-turn result unit and one daily-quota unit.`
+        },
+        outputMode: {
+          type: "string",
+          enum: ["variants", "series"],
+          description:
+            "Optional output shape. Use variants for multiple alternate edits of one idea. Use series for multiple distinct final edited frames/items in one job."
+        },
+        seriesItems: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Required when outputMode='series'. Provide exactly one single-image edit instruction per requested output, in order. Each item must describe only one final frame/item, not the whole series."
         },
         sourceImageAlias: {
           type: "string",

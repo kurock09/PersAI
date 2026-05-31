@@ -316,9 +316,11 @@ When a change touches the async media lane (media tool projection/budgeting, med
 1. One structured media request with `count=N` becomes exactly one media job — no silent split, no silent trim.
 2. Media `perTurnCap` budgeting counts total requested result units, not tool calls (`tool-budget-policy` `reserve(requestedUnits)`); an oversized single request is rejected as a whole.
 3. `image_edit.count` is honored end to end (schema → parse → provider → unit budgeting → enqueue reservation units).
-4. Accepted async media results are model-visible `action:"pending_delivery"` (`canSendFileNow=false`) with no false ready/sent language; mixed accepted+rejected media outcomes in one turn are not collapsed into one generic pending sentence (`hadRejectedMediaRequest`).
-5. The third concurrent open media job in a chat gets an explicit structured `media_job_concurrency_limit` rejection.
-6. **Single-owner quota invariant:** the runtime worker makes zero monthly-media-quota calls (grep `apps/runtime/src/modules/turns`); reservation happens once at enqueue admission; each reservation is resolved exactly once — scheduler `failJob` releases the full `N` once per terminal failure, completion `failDelivery` reconciles `N` once for pre-delivery failures (guarded against post-`deliver()` double-count), delivery loop settles/reconciles per artifact. No double/multi-release across concurrent jobs.
+4. Multi-image `series` requests stay one job but execute as multiple single-image provider calls inside that job (`outputMode="series"` + ordered `seriesItems[]`), so carousel/storyboard requests produce one distinct frame per output instead of collage-prone repeated batch prompts.
+5. Accepted async media results are model-visible `action:"pending_delivery"` (`canSendFileNow=false`) with no false ready/sent language; mixed accepted+rejected media outcomes in one turn are not collapsed into one generic pending sentence (`hadRejectedMediaRequest`).
+6. Runtime open-job context (media + document) includes a compact `sourceSummary`, and developer instructions explicitly forbid treating older open jobs as proof that the current turn started a new async job.
+7. The third concurrent open media job in a chat gets an explicit structured `media_job_concurrency_limit` rejection.
+8. **Single-owner quota invariant:** the runtime worker makes zero monthly-media-quota calls (grep `apps/runtime/src/modules/turns`); reservation happens once at enqueue admission; each reservation is resolved exactly once — scheduler `failJob` releases the full `N` once per terminal failure, completion `failDelivery` reconciles `N` once for pre-delivery failures (guarded against post-`deliver()` double-count), delivery loop settles/reconciles per artifact. No double/multi-release across concurrent jobs.
 
 Focused suites:
 

@@ -17,6 +17,7 @@ import {
   type ProviderGatewayImageGenerateResult,
   type RuntimeImageGenerateRequest,
   type RuntimeImageGenerateToolResult,
+  type RuntimeUsageSnapshot,
   type RuntimeOutputArtifact,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
@@ -36,6 +37,26 @@ import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-re
 
 const IMAGE_GENERATE_TOOL_CODE = "image_generate" as const;
 const DEFAULT_IMAGE_GENERATE_TIMEOUT_MS = 300_000;
+
+function mergeUsageSnapshots(
+  current: RuntimeUsageSnapshot | null,
+  next: RuntimeUsageSnapshot | null
+): RuntimeUsageSnapshot | null {
+  if (current === null) return next;
+  if (next === null) return current;
+  const sum = (left: number | null | undefined, right: number | null | undefined): number | null =>
+    typeof left === "number" || typeof right === "number"
+      ? (typeof left === "number" ? left : 0) + (typeof right === "number" ? right : 0)
+      : null;
+  return {
+    providerKey: current.providerKey ?? next.providerKey ?? null,
+    modelKey: current.modelKey ?? next.modelKey ?? null,
+    inputTokens: sum(current.inputTokens, next.inputTokens),
+    cachedInputTokens: sum(current.cachedInputTokens, next.cachedInputTokens),
+    outputTokens: sum(current.outputTokens, next.outputTokens),
+    totalTokens: sum(current.totalTokens, next.totalTokens)
+  };
+}
 
 export interface RuntimeImageGenerateToolExecutionResult {
   payload: RuntimeImageGenerateToolResult;
@@ -283,7 +304,6 @@ export class RuntimeImageGenerateToolService {
       const timeoutMs = this.resolveWorkerTimeoutMs(params.bundle);
       const baseProviderRequest = {
         model: modelSelection.model,
-        count: request.count,
         size: request.size,
         background: request.background,
         credential: {
@@ -292,117 +312,203 @@ export class RuntimeImageGenerateToolService {
           providerId
         }
       } as const;
-      let effectivePrompt = request.prompt;
-      let safetyRetryWarning: string | null = null;
-      let providerResult: ProviderGatewayImageGenerateResult;
-      try {
-        providerResult = await this.providerGatewayClientService.generateImage(
-          {
-            ...baseProviderRequest,
-            prompt: effectivePrompt
-          },
-          {
-            timeoutMs
-          }
-        );
-      } catch (error) {
-        if (!(error instanceof ProviderGatewaySafetyRejectedError)) {
-          throw error;
-        }
-        const rewriteOutcome = await rewritePromptAfterProviderSafetyReject({
-          bundle: params.bundle,
-          providerGatewayClientService: this.providerGatewayClientService,
-          requestId: params.requestId,
-          toolCode: IMAGE_GENERATE_TOOL_CODE,
-          originalPrompt: request.prompt,
-          failure: error
-        });
-        if (!rewriteOutcome.ok) {
-          return {
-            payload: {
-              toolCode: IMAGE_GENERATE_TOOL_CODE,
-              executionMode: "worker",
-              provider: providerId,
-              model: modelSelection.model,
-              prompt: request.prompt,
-              revisedPrompt: null,
-              requestedCount: request.count,
-              size: request.size,
-              artifacts: [],
-              usage: null,
-              action: "skipped",
-              reason: "image_provider_safety_rejected",
-              warning: rewriteOutcome.failureWarning
-            },
-            artifacts: [],
-            isError: true
-          };
-        }
-        effectivePrompt = rewriteOutcome.rewrittenPrompt;
-        safetyRetryWarning = rewriteOutcome.retryWarning;
+      const runGenerateCall = async (prompt: string, count: number, requestIdSuffix = "") => {
+        let effectivePrompt = prompt;
+        let safetyRetryWarning: string | null = null;
+        let providerResult: ProviderGatewayImageGenerateResult;
         try {
           providerResult = await this.providerGatewayClientService.generateImage(
             {
               ...baseProviderRequest,
-              prompt: effectivePrompt
+              prompt: effectivePrompt,
+              count
             },
             {
               timeoutMs
             }
           );
-        } catch (retryError) {
+        } catch (error) {
+          if (!(error instanceof ProviderGatewaySafetyRejectedError)) {
+            throw error;
+          }
+          const rewriteOutcome = await rewritePromptAfterProviderSafetyReject({
+            bundle: params.bundle,
+            providerGatewayClientService: this.providerGatewayClientService,
+            requestId: `${params.requestId}${requestIdSuffix}`,
+            toolCode: IMAGE_GENERATE_TOOL_CODE,
+            originalPrompt: prompt,
+            failure: error
+          });
+          if (!rewriteOutcome.ok) {
+            return {
+              ok: false as const,
+              payload: {
+                toolCode: IMAGE_GENERATE_TOOL_CODE,
+                executionMode: "worker" as const,
+                provider: providerId,
+                model: modelSelection.model,
+                prompt: request.prompt,
+                revisedPrompt: null,
+                requestedCount: request.count,
+                size: request.size,
+                artifacts: [],
+                usage: null,
+                action: "skipped" as const,
+                reason: "image_provider_safety_rejected",
+                warning: rewriteOutcome.failureWarning
+              }
+            };
+          }
+          effectivePrompt = rewriteOutcome.rewrittenPrompt;
+          safetyRetryWarning = rewriteOutcome.retryWarning;
+          try {
+            providerResult = await this.providerGatewayClientService.generateImage(
+              {
+                ...baseProviderRequest,
+                prompt: effectivePrompt,
+                count
+              },
+              {
+                timeoutMs
+              }
+            );
+          } catch (retryError) {
+            return {
+              ok: false as const,
+              payload: {
+                toolCode: IMAGE_GENERATE_TOOL_CODE,
+                executionMode: "worker" as const,
+                provider: providerId,
+                model: modelSelection.model,
+                prompt: request.prompt,
+                revisedPrompt: effectivePrompt,
+                requestedCount: request.count,
+                size: request.size,
+                artifacts: [],
+                usage: null,
+                action: "skipped" as const,
+                reason: "image_provider_safety_rejected",
+                warning: buildImageSafetyRetryFailureWarning({
+                  originalFailure: error,
+                  retryError
+                })
+              }
+            };
+          }
+        }
+        return {
+          ok: true as const,
+          effectivePrompt,
+          providerResult,
+          warning: safetyRetryWarning
+        };
+      };
+
+      let accumulatedUsage: RuntimeUsageSnapshot | null = null;
+      let accumulatedWarning: string | null = modelSelection.warning;
+      let revisedPrompt: string | null = null;
+      const persistedArtifacts: RuntimeOutputArtifact[] = [];
+      const providerResult =
+        request.outputMode === "series" && request.seriesItems !== null
+          ? null
+          : await runGenerateCall(request.prompt, request.count);
+
+      if (providerResult !== null) {
+        if (!providerResult.ok) {
           return {
-            payload: {
-              toolCode: IMAGE_GENERATE_TOOL_CODE,
-              executionMode: "worker",
-              provider: providerId,
-              model: modelSelection.model,
-              prompt: request.prompt,
-              revisedPrompt: effectivePrompt,
-              requestedCount: request.count,
-              size: request.size,
-              artifacts: [],
-              usage: null,
-              action: "skipped",
-              reason: "image_provider_safety_rejected",
-              warning: buildImageSafetyRetryFailureWarning({
-                originalFailure: error,
-                retryError
-              })
-            },
+            payload: providerResult.payload,
             artifacts: [],
             isError: true
           };
         }
+        revisedPrompt =
+          providerResult.providerResult.images.find((image) => image.revisedPrompt !== null)
+            ?.revisedPrompt ??
+          (providerResult.warning === null ? null : providerResult.effectivePrompt);
+        accumulatedUsage = mergeUsageSnapshots(
+          accumulatedUsage,
+          providerResult.providerResult.usage
+        );
+        accumulatedWarning = this.mergeWarnings(
+          accumulatedWarning,
+          providerResult.warning,
+          providerResult.providerResult.warning
+        );
+        const artifacts = await Promise.all(
+          providerResult.providerResult.images.map((image, index) =>
+            this.persistGeneratedArtifact({
+              assistantId: params.bundle.metadata.assistantId,
+              workspaceId: params.bundle.metadata.workspaceId,
+              sessionId: params.sessionId,
+              requestId: params.requestId,
+              filenameHint: request.filename,
+              requestPrompt: providerResult.effectivePrompt,
+              image,
+              index,
+              billingFacts: providerResult.providerResult.billingFacts
+            })
+          )
+        );
+        persistedArtifacts.push(...artifacts);
+      } else {
+        const seriesItems = request.seriesItems ?? [];
+        for (const [index, itemPrompt] of seriesItems.entries()) {
+          const composedPrompt = `Series item ${String(index + 1)} of ${String(seriesItems.length)}. Overall request: ${request.prompt}\n\nThis item only: ${itemPrompt}`;
+          const seriesResult = await runGenerateCall(
+            composedPrompt,
+            1,
+            `:series:${String(index + 1)}`
+          );
+          if (!seriesResult.ok) {
+            return {
+              payload: seriesResult.payload,
+              artifacts: [],
+              isError: true
+            };
+          }
+          revisedPrompt =
+            seriesResult.providerResult.images.find((image) => image.revisedPrompt !== null)
+              ?.revisedPrompt ?? revisedPrompt;
+          accumulatedUsage = mergeUsageSnapshots(
+            accumulatedUsage,
+            seriesResult.providerResult.usage
+          );
+          accumulatedWarning = this.mergeWarnings(
+            accumulatedWarning,
+            seriesResult.warning,
+            seriesResult.providerResult.warning
+          );
+          const artifacts = await Promise.all(
+            seriesResult.providerResult.images.map((image) =>
+              this.persistGeneratedArtifact({
+                assistantId: params.bundle.metadata.assistantId,
+                workspaceId: params.bundle.metadata.workspaceId,
+                sessionId: params.sessionId,
+                requestId: `${params.requestId}:series:${String(index + 1)}`,
+                filenameHint: request.filename,
+                requestPrompt: itemPrompt,
+                image,
+                index,
+                billingFacts: seriesResult.providerResult.billingFacts
+              })
+            )
+          );
+          persistedArtifacts.push(...artifacts);
+        }
       }
-      const artifacts = await Promise.all(
-        providerResult.images.map((image, index) =>
-          this.persistGeneratedArtifact({
-            assistantId: params.bundle.metadata.assistantId,
-            workspaceId: params.bundle.metadata.workspaceId,
-            sessionId: params.sessionId,
-            requestId: params.requestId,
-            filenameHint: request.filename,
-            requestPrompt: effectivePrompt,
-            image,
-            index,
-            billingFacts: providerResult.billingFacts
-          })
-        )
-      );
-      if (artifacts.length === 0) {
+      if (persistedArtifacts.length === 0) {
         return {
           payload: {
             toolCode: "image_generate",
             executionMode: "worker",
             provider: providerId,
-            model: providerResult.model,
+            model: modelSelection.model,
             prompt: request.prompt,
             revisedPrompt: null,
             requestedCount: request.count,
             size: request.size,
             artifacts: [],
-            usage: providerResult.usage,
+            usage: accumulatedUsage,
             action: "skipped",
             reason: "empty_result",
             warning: "Image provider returned no images."
@@ -412,30 +518,30 @@ export class RuntimeImageGenerateToolService {
         };
       }
 
-      const revisedPrompt =
-        providerResult.images.find((image) => image.revisedPrompt !== null)?.revisedPrompt ??
-        (safetyRetryWarning === null ? null : effectivePrompt);
       const warning =
-        providerResult.images.length === request.count
-          ? this.mergeWarnings(modelSelection.warning, safetyRetryWarning, providerResult.warning)
-          : `Requested ${String(request.count)} image(s), received ${String(providerResult.images.length)}.`;
+        persistedArtifacts.length === request.count
+          ? accumulatedWarning
+          : this.mergeWarnings(
+              accumulatedWarning,
+              `Requested ${String(request.count)} image(s), received ${String(persistedArtifacts.length)}.`
+            );
       return {
         payload: {
           toolCode: "image_generate",
           executionMode: "worker",
           provider: providerId,
-          model: providerResult.model,
+          model: modelSelection.model,
           prompt: request.prompt,
           revisedPrompt,
           requestedCount: request.count,
           size: request.size,
-          artifacts,
-          usage: providerResult.usage,
+          artifacts: persistedArtifacts,
+          usage: accumulatedUsage,
           action: "generated",
           reason: null,
           warning
         },
-        artifacts,
+        artifacts: persistedArtifacts,
         isError: false
       };
     } catch (error) {
@@ -480,6 +586,8 @@ export class RuntimeImageGenerateToolService {
         key !== "toolCode" &&
         key !== "prompt" &&
         key !== "count" &&
+        key !== "outputMode" &&
+        key !== "seriesItems" &&
         key !== "filename" &&
         key !== "size" &&
         key !== "background"
@@ -507,6 +615,40 @@ export class RuntimeImageGenerateToolService {
       return new Error(
         `count must be an integer between ${String(MIN_RUNTIME_IMAGE_GENERATE_COUNT)} and ${String(MAX_RUNTIME_IMAGE_GENERATE_COUNT)}`
       );
+    }
+
+    const outputMode =
+      args.outputMode === undefined || args.outputMode === null
+        ? null
+        : args.outputMode === "variants" || args.outputMode === "series"
+          ? args.outputMode
+          : null;
+    if ("outputMode" in args && args.outputMode !== null && outputMode === null) {
+      return new Error('outputMode must be "variants", "series", or null when provided');
+    }
+
+    const seriesItemsRaw = args.seriesItems;
+    const seriesItems =
+      seriesItemsRaw === undefined || seriesItemsRaw === null
+        ? null
+        : Array.isArray(seriesItemsRaw)
+          ? seriesItemsRaw
+              .map((item) => this.asNonEmptyString(item))
+              .filter((item): item is string => item !== null)
+          : null;
+    if ("seriesItems" in args && args.seriesItems !== null && seriesItems === null) {
+      return new Error("seriesItems must be an array of non-empty strings when provided");
+    }
+    if (outputMode === "series") {
+      if (seriesItems === null || seriesItems.length === 0) {
+        return new Error("series outputMode requires non-empty seriesItems");
+      }
+      if (seriesItems.length !== count) {
+        return new Error("seriesItems length must match count for series outputMode");
+      }
+    }
+    if (outputMode !== "series" && seriesItems !== null) {
+      return new Error("seriesItems can only be used when outputMode is 'series'");
     }
 
     const filename =
@@ -546,6 +688,8 @@ export class RuntimeImageGenerateToolService {
       toolCode: "image_generate",
       prompt,
       count,
+      outputMode,
+      seriesItems,
       filename,
       size,
       background
