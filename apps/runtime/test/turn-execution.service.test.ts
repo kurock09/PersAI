@@ -3250,8 +3250,27 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     "# Retrieved Knowledge Context"
   );
   assert.notEqual(plannedRetrievalBlockStart, -1);
+  const nextDeveloperSectionStartCandidates = [
+    "\n## Open Media Jobs",
+    "\n## Open Document Jobs",
+    "\n## File history (newest first)",
+    "\n## Sense of Time",
+    "\nDo not write markdown links"
+  ]
+    .map((marker) =>
+      groundedSkillDeveloperInstructions.indexOf(
+        marker,
+        plannedRetrievalBlockStart + "# Retrieved Knowledge Context".length
+      )
+    )
+    .filter((index) => index !== -1);
+  const nextDeveloperSectionStart =
+    nextDeveloperSectionStartCandidates.length === 0
+      ? -1
+      : Math.min(...nextDeveloperSectionStartCandidates);
   const plannedRetrievalBlock = groundedSkillDeveloperInstructions.slice(
-    plannedRetrievalBlockStart
+    plannedRetrievalBlockStart,
+    nextDeveloperSectionStart === -1 ? undefined : nextDeveloperSectionStart
   );
   assert.match(plannedRetrievalBlock, /skill grounded exact nutrition facts/);
   assert.ok(plannedRetrievalBlock.length <= 1_250);
@@ -5859,6 +5878,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       toolCode: "image_generate",
       prompt: "Draw a serene poster",
       count: 1,
+      outputMode: null,
+      seriesItems: null,
       filename: "poster.png",
       size: "1024x1024",
       background: "auto"
