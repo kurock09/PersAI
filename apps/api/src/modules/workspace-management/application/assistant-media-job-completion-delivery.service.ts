@@ -5,14 +5,20 @@ import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
+import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
+import type { WorkspaceMonthlyToolQuotaToolCode } from "../domain/workspace-quota-accounting.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { runtimeOutputArtifactsToMediaArtifacts } from "./assistant-runtime.facade";
-import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
+import {
+  applyFinalDeliveryHonestyCorrection,
+  buildPartialDeliveryShortfallLine
+} from "./final-delivery-honesty";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import { TelegramBotClientService } from "./telegram-bot.client.service";
 import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-channel-runtime-config.service";
 import { AssistantMediaJobCompletionTurnService } from "./assistant-media-job-completion-turn.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import {
   buildAssistantMediaJobFailureMessage,
   inferAssistantMediaJobFailureLocale
@@ -86,7 +92,10 @@ export class AssistantMediaJobCompletionDeliveryService {
     private readonly telegramBotClientService: TelegramBotClientService,
     private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
     private readonly assistantMediaJobCompletionTurnService: AssistantMediaJobCompletionTurnService,
-    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
+    @Inject(ASSISTANT_REPOSITORY)
+    private readonly assistantRepository: AssistantRepository,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   private async persistCompletionFramingLedger(input: {
@@ -238,12 +247,16 @@ export class AssistantMediaJobCompletionDeliveryService {
   ): Promise<void> {
     const requestPayload = this.parseRequestPayload(job.requestJson);
     if (requestPayload === null) {
+      // ADR-105 §5: pre-delivery-loop terminal failure. Provider cost was
+      // incurred (the job reached completion_pending with artifacts) but
+      // nothing is deliverable, so reconcile the full reserved N once.
       await this.failDelivery(
         job,
         false,
         "completion_request_missing",
         "Media job completion request payload is invalid.",
-        "en"
+        "en",
+        true
         // No LLM framing: the original user-message context is missing from the persisted payload.
       );
       return;
@@ -256,12 +269,15 @@ export class AssistantMediaJobCompletionDeliveryService {
 
     const artifacts = this.parseArtifacts(job.artifactsJson);
     if (artifacts === null || artifacts.length === 0) {
+      // ADR-105 §5: pre-delivery-loop terminal failure. Same reasoning as above
+      // — reconcile the full reserved N once.
       await this.failDelivery(
         job,
         false,
         "completion_artifacts_missing",
         "Media job has no artifacts to deliver.",
         "en",
+        true,
         failContext
       );
       return;
@@ -270,6 +286,13 @@ export class AssistantMediaJobCompletionDeliveryService {
     const failureLocale = inferAssistantMediaJobFailureLocale({
       sourceText: requestPayload.sourceUserMessageText
     });
+
+    // ADR-105 §5: tracks whether `MediaDeliveryService.deliver()` ran to
+    // completion. Once it returns, the delivery loop has already resolved ALL
+    // N reserved units per-artifact (settle on delivered, reconcile on failed),
+    // so a later exception (e.g. a post-delivery message update) must NOT
+    // trigger another reconcile here — that would double-count.
+    const deliveryState = { loopResolved: false };
 
     try {
       const completionAssistantText = await this.resolveCompletionAssistantText({
@@ -292,7 +315,8 @@ export class AssistantMediaJobCompletionDeliveryService {
           job,
           artifacts,
           messageId,
-          rawAssistantText: completionAssistantText.text
+          rawAssistantText: completionAssistantText.text,
+          deliveryState
         });
         return;
       }
@@ -305,14 +329,27 @@ export class AssistantMediaJobCompletionDeliveryService {
         messageId,
         workspaceId: job.workspaceId
       });
-      const finalText = applyFinalDeliveryHonestyCorrection({
+      deliveryState.loopResolved = true;
+      await this.releaseUnproducedRemainderBestEffort(job, artifacts.length);
+      let finalText = applyFinalDeliveryHonestyCorrection({
         assistantText: completionAssistantText.text,
         attemptedArtifactCount: artifacts.length,
         deliveredAttachmentCount: delivered.attachments.length,
         deliveredAttachmentFilenames: delivered.attachments
           .map((attachment) => attachment.originalFilename)
-          .filter((filename): filename is string => typeof filename === "string")
+          .filter((filename): filename is string => typeof filename === "string"),
+        attemptedArtifactKind: "media"
       });
+      // ADR-105 FIX B: system-authored structural truth for partial under-delivery.
+      const webReservationN =
+        this.extractReservationInfoFromRequestJson(job.requestJson)?.units ?? null;
+      const webShortfallLine =
+        webReservationN !== null
+          ? buildPartialDeliveryShortfallLine(artifacts.length, webReservationN, failureLocale)
+          : null;
+      if (webShortfallLine !== null) {
+        finalText = `${finalText}\n\n${webShortfallLine}`;
+      }
 
       if (completionAssistantText.text !== finalText) {
         await this.assistantChatRepository.updateMessageContent(
@@ -335,12 +372,17 @@ export class AssistantMediaJobCompletionDeliveryService {
       const message = error instanceof Error ? error.message : "Media delivery failed.";
       const canRetry = job.attemptCount < job.maxAttempts;
       if (!canRetry) {
+        // ADR-105 §5: terminal delivery failure. Reconcile the reserved N ONLY
+        // if the delivery loop never resolved the units (exception thrown
+        // before/while reaching `deliver()`). If the loop already ran, it has
+        // resolved all N per-artifact and we must not reconcile again.
         await this.failDelivery(
           job,
           false,
           "media_delivery_failed",
           message,
           failureLocale,
+          !deliveryState.loopResolved,
           failContext
         );
         return;
@@ -434,8 +476,16 @@ export class AssistantMediaJobCompletionDeliveryService {
     code: string,
     message: string,
     locale: "ru" | "en",
+    reconcileReservation: boolean,
     context?: { sourceUserMessageText: string; sourceUserMessageCreatedAt: string }
   ): Promise<void> {
+    // ADR-105 §5: when the delivery loop never resolved the reservation, the
+    // provider cost was incurred but nothing was delivered — mark the full
+    // reserved N as reconciliation-required exactly once.
+    if (reconcileReservation) {
+      await this.reconcileEnqueueReservationBestEffort(job);
+    }
+
     const llmAuthored =
       context === undefined
         ? null
@@ -464,6 +514,115 @@ export class AssistantMediaJobCompletionDeliveryService {
         ...(completionAssistantMessageId === null ? {} : { completionAssistantMessageId })
       }
     });
+  }
+
+  /**
+   * ADR-105 §5 — mark the job's full enqueue-time monthly media reservation as
+   * reconciliation-required exactly once, for terminal failures reached BEFORE
+   * the delivery loop ran (provider cost incurred, nothing delivered). Reuses
+   * the same `requestJson` extraction style as the scheduler / enqueue seam: N
+   * = `count` for image tools, 1 for video. Best-effort: a missing assistant
+   * entity is the only path where the reservation cannot be resolved here.
+   */
+  private async reconcileEnqueueReservationBestEffort(
+    job: ClaimedCompletionPendingMediaJob
+  ): Promise<void> {
+    const reservation = this.extractReservationInfoFromRequestJson(job.requestJson);
+    if (reservation === null) {
+      this.logger.warn(
+        `ADR-105 reconcile skipped: could not resolve toolCode/units from requestJson jobId=${job.id}`
+      );
+      return;
+    }
+    const assistant = await this.assistantRepository.findById(job.assistantId);
+    if (assistant === null) {
+      this.logger.warn(
+        `ADR-105 reconcile skipped: assistant missing for jobId=${job.id} toolCode=${reservation.toolCode} units=${String(reservation.units)} (reserved units stranded for workspace reconciliation)`
+      );
+      return;
+    }
+    try {
+      await this.trackWorkspaceQuotaUsageService.markAssistantMonthlyMediaQuotaReconciliationRequired(
+        {
+          assistant,
+          toolCode: reservation.toolCode,
+          units: reservation.units
+        }
+      );
+    } catch (error) {
+      this.logger.warn(
+        `ADR-105 monthly media quota reconcile failed jobId=${job.id} toolCode=${reservation.toolCode} units=${String(reservation.units)}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * ADR-105 §5 — after the delivery loop resolves the M produced artifacts,
+   * release the remainder (N − M) that the provider never produced. Called
+   * only after `deliveryState.loopResolved = true` so per-artifact accounting
+   * is already complete; this covers only the never-produced units. When M ≥ N
+   * (full delivery), `releaseAssistantMonthlyMediaQuota` is a no-op for units≤0.
+   * Best-effort: quota service failures are logged and swallowed.
+   */
+  private async releaseUnproducedRemainderBestEffort(
+    job: ClaimedCompletionPendingMediaJob,
+    producedArtifactCount: number
+  ): Promise<void> {
+    const reservation = this.extractReservationInfoFromRequestJson(job.requestJson);
+    if (reservation === null) {
+      return;
+    }
+    const remainder = reservation.units - producedArtifactCount;
+    if (remainder <= 0) {
+      return;
+    }
+    const assistant = await this.assistantRepository.findById(job.assistantId);
+    if (assistant === null) {
+      this.logger.warn(
+        `ADR-105 remainder-release skipped: assistant missing for jobId=${job.id} toolCode=${reservation.toolCode} remainder=${String(remainder)}`
+      );
+      return;
+    }
+    try {
+      await this.trackWorkspaceQuotaUsageService.releaseAssistantMonthlyMediaQuota({
+        assistant,
+        toolCode: reservation.toolCode,
+        units: remainder
+      });
+    } catch (error) {
+      this.logger.warn(
+        `ADR-105 remainder-release failed jobId=${job.id} toolCode=${reservation.toolCode} remainder=${String(remainder)}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  private extractReservationInfoFromRequestJson(
+    requestJson: unknown
+  ): { toolCode: WorkspaceMonthlyToolQuotaToolCode; units: number } | null {
+    if (requestJson === null || typeof requestJson !== "object" || Array.isArray(requestJson)) {
+      return null;
+    }
+    const exec = (requestJson as Record<string, unknown>).directToolExecution;
+    if (exec === null || typeof exec !== "object" || Array.isArray(exec)) {
+      return null;
+    }
+    const row = exec as Record<string, unknown>;
+    const toolCode = row.toolCode;
+    if (toolCode === "image_generate" || toolCode === "image_edit") {
+      const request = row.request;
+      if (request === null || typeof request !== "object" || Array.isArray(request)) {
+        return null;
+      }
+      const count = (request as Record<string, unknown>).count;
+      if (typeof count === "number" && Number.isInteger(count) && count > 0) {
+        return { toolCode, units: count };
+      }
+      return null;
+    }
+    if (toolCode === "video_generate") {
+      return { toolCode: "video_generate", units: 1 };
+    }
+    return null;
   }
 
   private async ensureFailureMessage(
@@ -533,6 +692,7 @@ export class AssistantMediaJobCompletionDeliveryService {
     artifacts: RuntimeOutputArtifact[];
     messageId: string;
     rawAssistantText: string;
+    deliveryState: { loopResolved: boolean };
   }): Promise<void> {
     const deliveryContext = await this.resolveTelegramDeliveryContext(params.job);
     const delivered = await this.mediaDeliveryService.deliver({
@@ -550,15 +710,34 @@ export class AssistantMediaJobCompletionDeliveryService {
         }
       }
     });
-    const finalText = applyFinalDeliveryHonestyCorrection({
+    // ADR-105 §5: the delivery loop has now resolved all N reserved units
+    // per-artifact; any later exception in this method must not reconcile again.
+    params.deliveryState.loopResolved = true;
+    await this.releaseUnproducedRemainderBestEffort(params.job, params.artifacts.length);
+    let finalText = applyFinalDeliveryHonestyCorrection({
       assistantText: params.rawAssistantText,
       attemptedArtifactCount: params.artifacts.length,
       deliveredAttachmentCount: delivered.attachments.length,
       deliveredAttachmentFilenames: delivered.attachments
         .map((attachment) => attachment.originalFilename)
         .filter((filename): filename is string => typeof filename === "string"),
+      attemptedArtifactKind: "media",
       locale: deliveryContext.locale
     });
+    // ADR-105 FIX B: system-authored structural truth for partial under-delivery.
+    const tgReservationN =
+      this.extractReservationInfoFromRequestJson(params.job.requestJson)?.units ?? null;
+    const tgShortfallLine =
+      tgReservationN !== null
+        ? buildPartialDeliveryShortfallLine(
+            params.artifacts.length,
+            tgReservationN,
+            deliveryContext.locale
+          )
+        : null;
+    if (tgShortfallLine !== null) {
+      finalText = `${finalText}\n\n${tgShortfallLine}`;
+    }
 
     if (params.rawAssistantText !== finalText) {
       await this.assistantChatRepository.updateMessageContent(

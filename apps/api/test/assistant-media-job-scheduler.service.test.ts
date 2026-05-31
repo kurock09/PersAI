@@ -81,6 +81,7 @@ function createService(overrides?: {
   const txUpdates: Array<Record<string, unknown>> = [];
   const finalUpdates: Array<Record<string, unknown>> = [];
   const createdMessages: Array<Record<string, unknown>> = [];
+  const releaseCalls: Array<Record<string, unknown>> = [];
   const prisma = {
     $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
       callback({
@@ -205,15 +206,20 @@ function createService(overrides?: {
       async recordPersistedBillingFactsEvent() {
         return 0;
       }
+    } as never,
+    {
+      async releaseAssistantMonthlyMediaQuota(input: Record<string, unknown>) {
+        releaseCalls.push(input);
+      }
     } as never
   );
 
-  return { service, txUpdates, finalUpdates, createdMessages };
+  return { service, txUpdates, finalUpdates, createdMessages, releaseCalls };
 }
 
 describe("AssistantMediaJobSchedulerService", () => {
   test("claims queued jobs and moves successful runs to completion_pending", async () => {
-    const { service, txUpdates, finalUpdates } = createService();
+    const { service, txUpdates, finalUpdates, releaseCalls } = createService();
 
     const processed = await service.processDueJobsBatch();
 
@@ -222,6 +228,9 @@ describe("AssistantMediaJobSchedulerService", () => {
     assert.equal(finalUpdates.length, 1);
     assert.equal(finalUpdates[0]?.where?.id, "job-1");
     assert.equal(finalUpdates[0]?.data?.status, "completion_pending");
+    // ADR-105 §5: success path is resolved by the delivery loop, never by
+    // failJob — the scheduler must NOT release on success.
+    assert.equal(releaseCalls.length, 0);
     assert.equal(finalUpdates[0]?.data?.resultText, "Your image is ready.");
     assert.deepEqual(finalUpdates[0]?.data?.artifactsJson, [
       { artifactId: "artifact-1", kind: "image" }
@@ -243,7 +252,7 @@ describe("AssistantMediaJobSchedulerService", () => {
   });
 
   test("requeues retryable runtime failures with backoff", async () => {
-    const { service, finalUpdates } = createService({
+    const { service, finalUpdates, releaseCalls } = createService({
       runtimeOutcome: {
         ok: false,
         retryable: true,
@@ -260,10 +269,14 @@ describe("AssistantMediaJobSchedulerService", () => {
     assert.equal(finalUpdates[0]?.data?.status, "queued");
     assert.equal(finalUpdates[0]?.data?.lastErrorCode, "runtime_unavailable");
     assert.ok(finalUpdates[0]?.data?.nextRetryAt instanceof Date);
+    // ADR-105 §5: a retryable requeue holds the reservation across attempts —
+    // the scheduler must NOT release here (that would multi-release the shared
+    // aggregate counter across retries).
+    assert.equal(releaseCalls.length, 0);
   });
 
   test("fails jobs immediately when runtime returns no deliverable artifacts", async () => {
-    const { service, finalUpdates, createdMessages } = createService({
+    const { service, finalUpdates, createdMessages, releaseCalls } = createService({
       runtimeOutcome: {
         ok: true,
         result: {
@@ -288,10 +301,18 @@ describe("AssistantMediaJobSchedulerService", () => {
       String(createdMessages[0]?.content),
       /couldn't finish the image request in the background/i
     );
+    // ADR-105 §5: worker-execution terminal failure — failJob releases the full
+    // reserved N (= count = 1) exactly once. The worker no longer releases.
+    assert.equal(releaseCalls.length, 1);
+    assert.deepEqual(releaseCalls[0], {
+      assistant: { id: "assistant-1" },
+      toolCode: "image_generate",
+      units: 1
+    });
   });
 
   test("creates a user-visible policy explanation when the provider blocks the background job", async () => {
-    const { service, finalUpdates, createdMessages } = createService({
+    const { service, finalUpdates, createdMessages, releaseCalls } = createService({
       runtimeOutcome: {
         ok: false,
         retryable: false,
@@ -311,6 +332,117 @@ describe("AssistantMediaJobSchedulerService", () => {
       String(createdMessages[0]?.content),
       /blocked the request under its safety policy/i
     );
+    // ADR-105 §5: terminal worker failure (incl. content_policy_violation /
+    // image_provider_safety_rejected) releases the reserved N once via failJob.
+    assert.equal(releaseCalls.length, 1);
+    assert.deepEqual(releaseCalls[0], {
+      assistant: { id: "assistant-1" },
+      toolCode: "image_generate",
+      units: 1
+    });
+  });
+
+  test("releases the full reserved count once on a pre-execution invalid payload failure", async () => {
+    const { service, finalUpdates, releaseCalls } = createService({
+      queryRows: [
+        {
+          id: "job-invalid-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          surface: "web",
+          kind: "image",
+          sourceUserMessageId: "user-message-1",
+          // Missing sourceUserMessageText / sourceUserMessageCreatedAt -> parse
+          // fails -> invalid_request_payload. directToolExecution still carries
+          // the reserved count so failJob can release exactly N.
+          requestJson: {
+            attachments: [],
+            directToolExecution: {
+              toolCode: "image_generate",
+              request: {
+                toolCode: "image_generate",
+                prompt: "draw three sunsets",
+                count: 3,
+                filename: null,
+                size: "1024x1024",
+                background: "auto"
+              }
+            }
+          },
+          attemptCount: 0,
+          maxAttempts: 5
+        }
+      ]
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates[0]?.data?.status, "failed");
+    assert.equal(finalUpdates[0]?.data?.lastErrorCode, "invalid_request_payload");
+    // ADR-105 §5: pre-execution failure (worker never ran) releases the full
+    // reserved N (= count = 3) exactly once.
+    assert.equal(releaseCalls.length, 1);
+    assert.deepEqual(releaseCalls[0], {
+      assistant: { id: "assistant-1" },
+      toolCode: "image_generate",
+      units: 3
+    });
+  });
+
+  test("releases a single video unit on terminal failure", async () => {
+    const { service, finalUpdates, releaseCalls } = createService({
+      queryRows: [
+        {
+          id: "job-video-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          surface: "web",
+          kind: "video",
+          sourceUserMessageId: "user-message-1",
+          requestJson: {
+            attachments: [],
+            sourceUserMessageText: "make a clip",
+            sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            directToolExecution: {
+              toolCode: "video_generate",
+              request: {
+                toolCode: "video_generate",
+                prompt: "make a clip",
+                filename: null,
+                size: "720x1280",
+                seconds: 4,
+                referenceImageAlias: null
+              }
+            }
+          },
+          attemptCount: 0,
+          maxAttempts: 5
+        }
+      ],
+      runtimeOutcome: {
+        ok: false,
+        retryable: false,
+        status: 500,
+        code: "video_generation_failed",
+        message: "provider exploded"
+      }
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates[0]?.data?.status, "failed");
+    assert.equal(releaseCalls.length, 1);
+    assert.deepEqual(releaseCalls[0], {
+      assistant: { id: "assistant-1" },
+      toolCode: "video_generate",
+      units: 1
+    });
   });
 
   test("does not process claimed rows when userId is missing from the claim query", async () => {

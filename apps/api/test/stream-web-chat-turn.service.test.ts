@@ -905,7 +905,8 @@ describe("StreamWebChatTurnService", () => {
         quotaDegradeReason: null,
         userId: "user-1",
         workspaceId: "workspace-1",
-        workspaceTimezone: "UTC"
+        workspaceTimezone: "UTC",
+        welcomeLocale: "ru"
       } as never,
       {
         isClientAborted: () => false,

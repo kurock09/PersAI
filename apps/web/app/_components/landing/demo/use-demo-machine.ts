@@ -45,6 +45,8 @@ export type DemoEvent =
   // ── Trailer lifecycle ────────────────────────────────────────────
   /** Opening animation finished — transition to idle so autoplay can start. */
   | { type: "TRAILER_DONE" }
+  /** Opening animation finished, but keep autoplay paused on an alternate chat. */
+  | { type: "TRAILER_DONE_PAUSED" }
   // ── Autoplay lifecycle ───────────────────────────────────────────
   | { type: "AUTOPLAY_START" }
   /** Begin typing the current user-turn step into the composer. */
@@ -118,6 +120,11 @@ export function demoReducer(state: DemoMachineState, event: DemoEvent): DemoMach
     case "TRAILER_DONE": {
       if (state.status !== "trailer") return state;
       return { ...state, status: "idle" };
+    }
+
+    case "TRAILER_DONE_PAUSED": {
+      if (state.status !== "trailer") return state;
+      return { ...state, status: "takeover" };
     }
 
     // ── Autoplay lifecycle ─────────────────────────────────────────

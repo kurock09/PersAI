@@ -139,6 +139,8 @@ function MediaWindow({ animate, reduced }: { animate: boolean; reduced: boolean 
 
   const interactiveChat = useInteractiveBlockChat({
     placeholder: t("landing.blocks.media.composerPlaceholder"),
+    viewportRef: threadViewportRef,
+    reducedMotion: reduced,
     children: (
       <motion.div
         variants={containerVariants}
@@ -232,11 +234,14 @@ function MediaWindow({ animate, reduced }: { animate: boolean; reduced: boolean 
 
 export function BlockMedia({ reversed = false }: { reversed?: boolean }) {
   const t = useTranslations();
-  const { ref, inView } = useInViewOnce<HTMLElement>({ rootMargin: "0px 0px -8% 0px" });
+  const { ref, inView } = useInViewOnce<HTMLElement>({ rootMargin: "0px", threshold: 0.5 });
   const shouldReduceMotion = useReducedMotion();
 
   return (
-    <article ref={ref} className="grid gap-8 sm:gap-12 lg:grid-cols-12 lg:items-center">
+    <article
+      ref={ref}
+      className="grid w-full min-w-0 gap-8 overflow-hidden sm:gap-12 lg:grid-cols-12 lg:items-center lg:overflow-visible"
+    >
       {/* Copy */}
       <div className={cn("lg:col-span-4", reversed ? "lg:order-2 lg:pl-2" : "lg:pr-2")}>
         <span className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-surface-raised/30 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-text-subtle">
@@ -252,7 +257,7 @@ export function BlockMedia({ reversed = false }: { reversed?: boolean }) {
       </div>
 
       {/* Window */}
-      <div className={cn("lg:col-span-8", reversed ? "lg:order-1" : null)}>
+      <div className={cn("min-w-0 lg:col-span-8", reversed ? "lg:order-1" : null)}>
         <MediaWindow animate={inView} reduced={shouldReduceMotion} />
       </div>
     </article>

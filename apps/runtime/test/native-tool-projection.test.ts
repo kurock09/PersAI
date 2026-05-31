@@ -387,6 +387,59 @@ async function run(): Promise<void> {
   assert.match(imageEdit?.description ?? "", /actually called image_edit/);
   assert.deepEqual(imageEditBackground?.enum, ["auto", "transparent", "opaque"]);
   assert.match(imageEditBackground?.description ?? "", /remove background/);
+
+  // ADR-105 FIX A: count.maximum cascade — with perTurnCap=2, image_generate
+  // must advertise count.maximum=2 (not old hardcap 4). With no perTurnCap,
+  // image_edit must fall back to MAX_RUNTIME_IMAGE_GENERATE_COUNT=10.
+  const imageGenerateCount = (
+    imageGenerate?.inputSchema as {
+      properties?: { count?: { maximum?: number; minimum?: number; description?: string } };
+    }
+  )?.properties?.count;
+  assert.equal(
+    imageGenerateCount?.maximum,
+    2,
+    "FIX A: image_generate count.maximum must equal perTurnCap=2, NOT old hardcap 4"
+  );
+  assert.equal(imageGenerateCount?.minimum, 1);
+  assert.match(imageGenerateCount?.description ?? "", /1\.\.2/);
+
+  const imageEditCount = (
+    imageEdit?.inputSchema as {
+      properties?: { count?: { maximum?: number; minimum?: number; description?: string } };
+    }
+  )?.properties?.count;
+  assert.equal(
+    imageEditCount?.maximum,
+    10,
+    "FIX A: image_edit count.maximum must equal MAX_RUNTIME_IMAGE_GENERATE_COUNT=10 when perTurnCap is unset"
+  );
+  assert.equal(imageEditCount?.minimum, 1);
+
+  // ADR-105 FIX A: with perTurnCap=10 the model sees count.maximum=10 — one job, no split.
+  {
+    const bundleCap10 = {
+      ...artifact.bundle,
+      governance: {
+        ...artifact.bundle.governance,
+        toolPolicies: artifact.bundle.governance.toolPolicies.map((p) =>
+          p.toolCode === "image_generate" ? { ...p, perTurnCap: 10 } : p
+        )
+      }
+    };
+    const projectedCap10 = projectRuntimeNativeTools(bundleCap10);
+    const gen10 = projectedCap10.tools.find((t) => t.name === "image_generate");
+    const gen10Count = (
+      gen10?.inputSchema as {
+        properties?: { count?: { maximum?: number } };
+      }
+    )?.properties?.count;
+    assert.equal(
+      gen10Count?.maximum,
+      10,
+      "FIX A: perTurnCap=10 must yield count.maximum=10 — one job, no split"
+    );
+  }
   assert.ok(document, "document should be projected when enabled and configured");
   const documentProperties = (
     document?.inputSchema as {
@@ -409,7 +462,7 @@ async function run(): Promise<void> {
   assert.match(document?.description ?? "", /existing PersAI document ids/);
   assert.match(
     documentProperties?.docId?.description ?? "",
-    /revise_document and export_or_redeliver/
+    /revise_document \(current chat\) and export_or_redeliver/
   );
   // ADR-097 Slice 5 — descriptor sharpening assertions
   assert.match(
@@ -428,9 +481,9 @@ async function run(): Promise<void> {
     "tool description must not use snake_case file_ref (should be camelCase fileRef)"
   );
   assert.match(
-    document?.description ?? "",
+    documentProperties?.docId?.description ?? "",
     /fileRef/,
-    "tool description must use camelCase fileRef"
+    "docId description must reference camelCase fileRef (the cross-chat alternative)"
   );
   assert.deepEqual(documentProperties?.visualStyle?.enum, [
     "professional_modern",
@@ -451,7 +504,7 @@ async function run(): Promise<void> {
   ]);
   assert.match(documentProperties?.visualStyle?.description ?? "", /presentation-only/);
   assert.match(documentProperties?.imagePolicy?.description ?? "", /visual deck/);
-  assert.match(documentProperties?.visualDensity?.description ?? "", /image-rich/);
+  assert.match(documentProperties?.visualDensity?.description ?? "", /denser slide copy/);
   const scheduledActionKindDescription = (
     scheduledAction?.inputSchema as {
       properties?: {

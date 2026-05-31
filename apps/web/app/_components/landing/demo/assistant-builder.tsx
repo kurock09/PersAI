@@ -1,32 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
 import { Check, Upload } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { useTypewriter } from "./use-typewriter";
 
-/* ------------------------------------------------------------------ */
-/* Timing constants                                                      */
-/* ------------------------------------------------------------------ */
-
-/**
- * In test env timers are 0 so the trailer completes instantly and all
- * existing hero-demo tests continue to work without needing extra ticks.
- * Matches the pattern used in apps/web/app/app/setup/page.tsx.
- */
 const IS_TEST = process.env.NODE_ENV === "test";
 
-const T = {
-  avatarSelect: IS_TEST ? 0 : 650,
-  nameFill: IS_TEST ? 0 : 1150,
-  toneSelect: IS_TEST ? 0 : 1700,
-  skillSelect: IS_TEST ? 0 : 2250,
-  doneDelay: IS_TEST ? 0 : 3900
+const DELAYS = {
+  avatar: IS_TEST ? 0 : 320,
+  name: IS_TEST ? 0 : 760,
+  instruction: IS_TEST ? 0 : 1160,
+  create: IS_TEST ? 0 : 420,
+  press: IS_TEST ? 0 : 360,
+  done: IS_TEST ? 0 : 700
 } as const;
 
-/* ------------------------------------------------------------------ */
-/* Sub-atoms                                                             */
-/* ------------------------------------------------------------------ */
+type BuilderStep = 0 | 1 | 2 | 3 | 4 | 5;
 
 const AVATARS = [
   { id: "persai", label: "PersAI", imagePath: "/avatar-presets/persai.png" },
@@ -41,16 +31,15 @@ function AvatarGrid({ selected }: { selected: boolean }) {
       {AVATARS.map((avatar) => {
         const active = selected && avatar.id === "luma";
         return (
-          <motion.div
+          <div
             key={avatar.id}
-            animate={active ? { y: -2, scale: 1.03 } : { y: 0, scale: 1 }}
-            transition={{ duration: 0.24, ease: "easeOut" }}
             className={cn(
-              "relative aspect-[0.83] overflow-hidden rounded-[18px] border bg-surface-raised/80",
+              "relative aspect-[0.83] overflow-hidden rounded-[18px] border bg-surface-raised/80 transition-[transform,box-shadow,border-color] duration-200",
               active
                 ? "border-accent/70 shadow-[0_0_0_1px_var(--accent-glow),0_14px_32px_-20px_var(--accent)]"
                 : "border-border/70"
             )}
+            style={active ? { transform: "translateY(-2px) scale(1.03)" } : undefined}
           >
             <img
               src={avatar.imagePath}
@@ -63,7 +52,7 @@ function AvatarGrid({ selected }: { selected: boolean }) {
                 <Check className="h-3 w-3" strokeWidth={2.6} />
               </span>
             ) : null}
-          </motion.div>
+          </div>
         );
       })}
       <div className="flex aspect-[0.83] items-center justify-center rounded-[18px] border border-dashed border-border-strong bg-surface-raised/70 text-text-subtle">
@@ -73,63 +62,55 @@ function AvatarGrid({ selected }: { selected: boolean }) {
   );
 }
 
-function NameField({
-  filled,
-  label,
-  placeholder
-}: {
-  filled: boolean;
-  label: string;
-  placeholder: string;
-}) {
+function NameField({ label }: { label: string }) {
   return (
-    <div className="mt-4">
+    <div className="mt-4 animate-[fadeIn_180ms_ease-out]">
       <p className="mb-1.5 text-[11px] font-medium text-text-muted">{label}</p>
       <div className="rounded-xl border border-border bg-surface-raised px-4 py-3 text-center text-base font-semibold text-text">
-        {filled ? "Aurora" : <span className="text-text-subtle">{placeholder}</span>}
+        Aurora
       </div>
     </div>
   );
 }
 
-function BuilderRow({
-  visible,
-  label,
-  caption,
-  selected
+function InstructionField({
+  instructionLabel,
+  instructionValue,
+  isDone
 }: {
-  visible: boolean;
-  label: string;
-  caption: string;
-  selected: boolean;
+  instructionLabel: string;
+  instructionValue: string;
+  isDone: boolean;
 }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -6 }}
-      animate={visible ? { opacity: 1, x: 0 } : { opacity: 0, x: -6 }}
-      transition={{ duration: 0.26, ease: "easeOut" }}
-      className={cn(
-        "flex items-center justify-between rounded-xl border px-3 py-2.5 transition-colors",
-        selected
-          ? "border-accent/40 bg-accent/[0.09] dark:border-accent/30 dark:bg-accent/[0.12]"
-          : "border-border bg-surface-raised/60"
-      )}
-    >
-      <span className="min-w-0">
-        <span className={cn("block text-sm font-medium", selected ? "text-accent" : "text-text")}>
-          {label}
+    <div className="animate-[fadeIn_180ms_ease-out] rounded-xl border border-border bg-surface-raised/60 px-4 py-3">
+      <span className="block min-w-0">
+        <span className="mb-2 block text-[11px] font-medium uppercase tracking-[0.16em] text-text-subtle">
+          {instructionLabel}
         </span>
-        <span className="block text-[11px] text-text-subtle">{caption}</span>
+        <span className="block min-h-[4.25rem] text-sm leading-relaxed text-text">
+          {instructionValue}
+          {!isDone ? (
+            <span className="ml-0.5 inline-block h-4 w-1 rounded-sm bg-accent/65 align-middle" />
+          ) : null}
+        </span>
       </span>
-      <motion.span
-        initial={{ scale: 0, opacity: 0 }}
-        animate={selected ? { scale: 1, opacity: 1 } : { scale: 0, opacity: 0 }}
-        transition={{ duration: 0.18, ease: "backOut" }}
-        className="ml-3 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent"
-      >
-        <Check className="h-3 w-3" strokeWidth={2.5} />
-      </motion.span>
-    </motion.div>
+    </div>
+  );
+}
+
+function CreateButton({ pressed, label }: { pressed: boolean; label: string }) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "mt-3 inline-flex w-full items-center justify-center rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white shadow-sm transition-[transform,background-color,box-shadow] duration-150",
+        pressed && "bg-accent-hover shadow-[inset_0_2px_4px_rgba(0,0,0,0.14)]"
+      )}
+      style={pressed ? { transform: "scale(0.97)" } : undefined}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -144,6 +125,8 @@ export interface AssistantBuilderProps {
   shouldPlay: boolean;
   /** When true, skip animation and call onDone immediately. */
   reducedMotion: boolean;
+  /** Parent thread viewport to scroll when CTA appears. */
+  scrollViewportRef?: React.RefObject<HTMLDivElement | null> | undefined;
   /** i18n labels — passed from HeroDemo so this component is i18n-agnostic. */
   labels: {
     ariaLabel: string;
@@ -151,73 +134,110 @@ export interface AssistantBuilderProps {
     subtitle: string;
     nameLabel: string;
     namePlaceholder: string;
-    configuring: string;
-    toneName: string;
-    toneCaption: string;
-    skillName: string;
-    skillCaption: string;
+    instructionLabel: string;
+    instructionText: string;
+    createLabel: string;
   };
 }
 
-/**
- * Opening "create Aurora" trailer.
- *
- * Renders a calm, condensed replay of the setup wizard (avatar → name →
- * tone → skill) as an absolute overlay inside the demo thread area.
- * Calls `onDone()` after the sequence completes so the machine can
- * transition to `idle` → `autoplay`.
- *
- * The trailer plays ONCE per mount. After a soft-reset the machine goes
- * directly to `autoplay`, so the trailer is never replayed on loop.
- *
- * SSR / no-JS safety: the component always renders its final configured
- * state as the initial server frame (all steps visible), giving a
- * meaningful first paint without a hydration mismatch. Framer-motion's
- * `initial` starts each item hidden so the animation plays on the client.
- * Under `reducedMotion` everything is shown at once and `onDone` fires
- * after a 1-frame delay.
- *
- * All timers are cleaned up on unmount.
- */
 export function AssistantBuilder({
   onDone,
   shouldPlay,
   reducedMotion,
+  scrollViewportRef,
   labels
 }: AssistantBuilderProps) {
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [step, setStep] = useState<BuilderStep>(0);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
+  const instant = IS_TEST || reducedMotion;
+
+  const { visibleText: typedInstruction, isDone: instructionDone } = useTypewriter(
+    step >= 3 ? labels.instructionText : "",
+    instant
+  );
 
   useEffect(() => {
     if (!shouldPlay) {
-      setStep(1);
+      setStep(0);
       return;
     }
 
-    if (reducedMotion) {
-      setStep(4);
+    if (instant) {
+      setStep(5);
       const id = setTimeout(() => onDoneRef.current(), 0);
       return () => clearTimeout(id);
     }
 
     const timers: ReturnType<typeof setTimeout>[] = [];
-
-    timers.push(setTimeout(() => setStep(2), T.avatarSelect));
-    timers.push(setTimeout(() => setStep(3), T.nameFill));
-    timers.push(setTimeout(() => setStep(4), T.toneSelect));
-    timers.push(setTimeout(() => setStep(5), T.skillSelect));
-    timers.push(setTimeout(() => onDoneRef.current(), T.doneDelay));
+    setStep(0);
+    timers.push(setTimeout(() => setStep(1), DELAYS.avatar));
+    timers.push(setTimeout(() => setStep(2), DELAYS.name));
+    timers.push(setTimeout(() => setStep(3), DELAYS.instruction));
 
     return () => timers.forEach(clearTimeout);
-  }, [shouldPlay, reducedMotion]);
+  }, [instant, shouldPlay]);
 
-  const show = (minStep: number) => reducedMotion || step >= minStep;
+  useEffect(() => {
+    if (!shouldPlay || instant || !instructionDone || step !== 3) return;
+    const id = setTimeout(() => setStep(4), DELAYS.create);
+    return () => clearTimeout(id);
+  }, [instant, instructionDone, shouldPlay, step]);
+
+  useEffect(() => {
+    if (!shouldPlay || instant || step !== 4) return;
+    const id = setTimeout(() => setStep(5), DELAYS.press);
+    return () => clearTimeout(id);
+  }, [instant, shouldPlay, step]);
+
+  useEffect(() => {
+    if (!shouldPlay || instant || step !== 5) return;
+    const id = setTimeout(() => onDoneRef.current(), DELAYS.done);
+    return () => clearTimeout(id);
+  }, [instant, shouldPlay, step]);
+
+  useEffect(() => {
+    if (IS_TEST) return;
+    if (step < 4) return;
+    const viewport = scrollViewportRef?.current;
+    if (!viewport) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (typeof viewport.scrollTo === "function") {
+        viewport.scrollTo({
+          top: viewport.scrollHeight,
+          behavior: instant ? "auto" : "smooth"
+        });
+      } else {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
+    });
+    const followUps = [140, 320].map((delay) =>
+      window.setTimeout(() => {
+        if (typeof viewport.scrollTo === "function") {
+          viewport.scrollTo({
+            top: viewport.scrollHeight,
+            behavior: instant ? "auto" : "smooth"
+          });
+        } else {
+          viewport.scrollTop = viewport.scrollHeight;
+        }
+      }, delay)
+    );
+    return () => {
+      window.cancelAnimationFrame(frame);
+      followUps.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [instant, scrollViewportRef, step]);
+
+  const showName = step >= 2;
+  const showInstruction = step >= 3;
+  const showCreate = step >= 4;
+  const pressed = step >= 5;
 
   return (
     <div
       aria-label={labels.ariaLabel}
-      className="absolute inset-0 z-10 flex items-center justify-center bg-bg px-4"
+      className="flex min-h-[22rem] items-center justify-center bg-bg px-4"
     >
       <div className="w-full max-w-[28rem]">
         <div className="mb-4 text-center">
@@ -227,27 +247,19 @@ export function AssistantBuilder({
           <p className="mt-1 text-sm text-text-muted">{labels.subtitle}</p>
         </div>
 
-        <AvatarGrid selected={show(2)} />
-        <NameField filled={show(3)} label={labels.nameLabel} placeholder={labels.namePlaceholder} />
+        <AvatarGrid selected={step >= 1} />
+        {showName ? <NameField label={labels.nameLabel} /> : null}
 
-        <div className="mt-3 space-y-2">
-          <BuilderRow
-            visible={show(4)}
-            label={labels.toneName}
-            caption={labels.toneCaption}
-            selected={show(4)}
-          />
-          <BuilderRow
-            visible={show(5)}
-            label={labels.skillName}
-            caption={labels.skillCaption}
-            selected={show(5)}
-          />
+        <div className="mt-3">
+          {showInstruction ? (
+            <InstructionField
+              instructionLabel={labels.instructionLabel}
+              instructionValue={typedInstruction}
+              isDone={instructionDone}
+            />
+          ) : null}
+          {showCreate ? <CreateButton pressed={pressed} label={labels.createLabel} /> : null}
         </div>
-
-        {show(1) && !show(5) && (
-          <p className="mt-4 text-center text-[11px] text-text-subtle">{labels.configuring}</p>
-        )}
       </div>
     </div>
   );

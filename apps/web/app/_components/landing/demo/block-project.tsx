@@ -75,6 +75,8 @@ function ProjectWindow({ animate, reduced }: { animate: boolean; reduced: boolea
 
   const interactiveChat = useInteractiveBlockChat({
     placeholder: t("landing.blocks.project.composerPlaceholder"),
+    viewportRef: threadViewportRef,
+    reducedMotion: reduced,
     children: (
       <motion.div
         variants={containerVariants}
@@ -148,7 +150,7 @@ function ProjectWindow({ animate, reduced }: { animate: boolean; reduced: boolea
 
 export function BlockProject({ reversed = false }: { reversed?: boolean }) {
   const t = useTranslations();
-  const { ref, inView } = useInViewOnce<HTMLElement>({ rootMargin: "0px 0px -8% 0px" });
+  const { ref, inView } = useInViewOnce<HTMLElement>({ rootMargin: "0px", threshold: 0.5 });
   const shouldReduceMotion = useReducedMotion();
 
   return (

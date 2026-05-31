@@ -229,11 +229,20 @@ export class ToolBudgetPolicy {
    * `iterationIndex >= loopLimit()` means "we are in the wrap-up window
    * after the iteration cap has already been used".
    *
-   * On a non-exhausted reservation the per-tool counter is incremented so
-   * subsequent calls in the same turn see the new total. On an exhausted
-   * reservation no counter mutates (the call did not actually run).
+   * ADR-105 Slice 2 — the per-tool cap now counts requested **result units**,
+   * not tool invocations. `requestedUnits` defaults to `1` so every non-media
+   * tool keeps its historical one-call-one-unit accounting. For the counted
+   * media tools (`image_generate`/`image_edit` with `count = N`) the call site
+   * passes the requested result units so the per-turn cap measures total
+   * generated artifacts. A single structured request whose units exceed the
+   * cap is rejected whole (no silent split / no silent trim): we never reserve
+   * a partial amount, so the tool service never runs for that call.
+   *
+   * On a non-exhausted reservation the per-tool counter advances by
+   * `requestedUnits` so subsequent calls in the same turn see the new total.
+   * On an exhausted reservation no counter mutates (the call did not run).
    */
-  reserve(toolName: string, iterationIndex: number): ToolBudgetReservation {
+  reserve(toolName: string, iterationIndex: number, requestedUnits = 1): ToolBudgetReservation {
     const limit = this.loopLimit();
     if (iterationIndex >= limit) {
       return {
@@ -243,17 +252,19 @@ export class ToolBudgetPolicy {
         observed: iterationIndex + 1
       };
     }
+    const units =
+      Number.isFinite(requestedUnits) && requestedUnits > 0 ? Math.floor(requestedUnits) : 1;
     const cap = this.perToolCap(toolName);
     const observed = this.observedToolCount(toolName);
-    if (cap !== null && observed >= cap) {
+    if (cap !== null && observed + units > cap) {
       return {
         exhausted: true,
         reason: "per_tool_cap",
         limit: cap,
-        observed: observed + 1
+        observed: observed + units
       };
     }
-    this.perToolCounts.set(toolName, observed + 1);
+    this.perToolCounts.set(toolName, observed + units);
     return { exhausted: false };
   }
 }

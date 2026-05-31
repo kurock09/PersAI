@@ -412,6 +412,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       const payload: OpenAIImageEditParams = {
         model,
         prompt: providerPrompt,
+        n: input.count,
         image: referenceImage === null ? sourceImage : [sourceImage, referenceImage],
         output_format: "png",
         background: input.background,
@@ -1501,13 +1502,24 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
   private buildImageEditPrompt(input: ProviderGatewayImageEditRequest): string {
     const prompt = input.prompt.trim();
+    const count = input.count ?? 1;
     if (input.referenceImage === null) {
-      return prompt;
+      if (count <= 1) {
+        return prompt;
+      }
+      return [
+        `Return ${String(count)} distinct edited variations of the source image.`,
+        `User request: ${prompt}`
+      ].join(" ");
     }
     const sourceFilename = input.sourceImage.filename ?? "image #1";
     const referenceFilename = input.referenceImage.filename ?? "image #2";
+    const outputCardinalityInstruction =
+      count <= 1
+        ? "Edit only the first/source image and return one edited version of that source image."
+        : `Edit the source image and return ${String(count)} distinct edited variations of it.`;
     return [
-      "Edit only the first/source image and return one edited version of that source image.",
+      outputCardinalityInstruction,
       "Use the second/reference image only as visual guidance for style, appearance, makeup, color palette, lighting, environment, or similar attributes unless the user explicitly asks to borrow a concrete object from it.",
       "Do not separately edit, restyle, or reproduce the reference image as its own output.",
       "Preserve the identity, pose, framing, and main content of the source image unless the user explicitly asks to change them.",

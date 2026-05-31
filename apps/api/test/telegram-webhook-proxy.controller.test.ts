@@ -314,18 +314,16 @@ async function run(): Promise<void> {
     }
   });
   assert.deepEqual(noMediaClaimResult, { statusCode: 200, body: { ok: true } });
+  // Structural-only honesty: the runtime produced zero artifacts (media: []), so
+  // there is no structural undelivered signal. A bare prose claim is left unchanged
+  // (no prose-meaning detection); upstream the delivery-honesty contract prevents
+  // the model from claiming delivery it did not make.
   assert.equal(
     (noMediaReplyPayloads[0]?.turnResult as { assistantMessage?: string } | undefined)
       ?.assistantMessage,
-    "Your image is ready.\n\nCorrection: no image or other media was actually delivered in this reply."
+    "Your image is ready."
   );
-  assert.deepEqual(noMediaCorrections, [
-    {
-      messageId: "assistant-msg-2",
-      content:
-        "Your image is ready.\n\nCorrection: no image or other media was actually delivered in this reply."
-    }
-  ]);
+  assert.deepEqual(noMediaCorrections, []);
 
   const claimSyncCalls: Array<Record<string, unknown>> = [];
   const claimReplies: string[] = [];

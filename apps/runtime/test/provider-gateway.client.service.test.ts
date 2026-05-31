@@ -121,6 +121,7 @@ function createImageEditRequest(): ProviderGatewayImageEditRequest {
   return {
     prompt: "Replace the couch with a red chair",
     model: "gpt-image-2",
+    count: 1,
     size: "1024x1024",
     background: "opaque",
     sourceImage: {

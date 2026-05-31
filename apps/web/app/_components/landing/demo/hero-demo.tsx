@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import type { Route } from "next";
@@ -27,6 +27,9 @@ import {
   StreamingCursor
 } from "./chat-atoms";
 import { AssistantBuilder } from "./assistant-builder";
+import { scrollElementToBottom } from "./use-autoscroll";
+import { useMarketplaceThread } from "./block-market";
+import { useStableReducedMotion } from "./use-stable-reduced-motion";
 
 /* ------------------------------------------------------------------ */
 /* Timing constants                                                      */
@@ -43,6 +46,8 @@ const AUTOPLAY_START_DELAY_MS = 600;
 /* ------------------------------------------------------------------ */
 
 const PRIMARY_CHAT_ID = "c1";
+const MARKETPLACE_CHAT_ID = "c2";
+const MEDIA_CHAT_ID = "c3";
 const MEDIA_ORIGINAL_SRC = "/landing/media-demo/selfie-original.png";
 const MEDIA_RESULT_SRC = "/landing/media-demo/selfie-cartoon.png";
 
@@ -168,7 +173,11 @@ function MessageRow({
 export function HeroDemo() {
   const t = useTranslations();
   const { state, dispatch } = useDemoMachine();
-  const shouldReduceMotion = useReducedMotion() ?? false;
+  // Stable across SSR + first client render (always false), then adopts the
+  // real preference after mount. This prevents framer-motion's transient
+  // `useReducedMotion() === true` first-render value from briefly revealing the
+  // trailer's finished form (the "field/button blink then restart").
+  const shouldReduceMotion = useStableReducedMotion();
 
   // The whole demo (trailer → autoplay) must only START after the visitor has
   // actively scrolled to the product window. Do not auto-start on mount: browsers
@@ -182,8 +191,8 @@ export function HeroDemo() {
   // Active sidebar chat id — "c1" is the live thread, others show static content.
   const [activeChatId, setActiveChatId] = useState(PRIMARY_CHAT_ID);
   const [secondaryThreadMessages, setSecondaryThreadMessages] = useState<Record<string, string[]>>({
-    c2: [],
-    c3: []
+    [MARKETPLACE_CHAT_ID]: [],
+    [MEDIA_CHAT_ID]: []
   });
 
   // Current mode chip selection — visual only, does not affect thread content.
@@ -277,22 +286,21 @@ export function HeroDemo() {
     return () => clearTimeout(id);
   }, [state.status, dispatch]);
 
-  // Keep the live thread pinned to the newest beat during autoplay/streaming.
+  // Keep the active thread pinned to the newest beat during autoplay/streaming
+  // and when the visitor types into the primary or media chats. The marketplace
+  // chat (c2) owns its own viewport ref + autoscroll inside useMarketplaceThread.
   useEffect(() => {
-    if (!isOnPrimaryChat) return;
+    if (activeChatId === MARKETPLACE_CHAT_ID) return;
     const el = threadViewportRef.current;
     if (!el) return;
-    if (typeof el.scrollTo === "function") {
-      el.scrollTo({ top: el.scrollHeight, behavior: shouldReduceMotion ? "auto" : "smooth" });
-    } else {
-      el.scrollTop = el.scrollHeight;
-    }
+    scrollElementToBottom(el, shouldReduceMotion);
   }, [
-    isOnPrimaryChat,
+    activeChatId,
     state.messages.length,
     state.status,
     state.streamingId,
     composerDisplayValue,
+    secondaryThreadMessages,
     shouldReduceMotion
   ]);
 
@@ -457,6 +465,10 @@ export function HeroDemo() {
   const handleChatSelect = useCallback(
     (id: string) => {
       setActiveChatId(id);
+      if (id === PRIMARY_CHAT_ID && stateRef.current.status === "takeover") {
+        dispatch({ type: "RESET_DONE" });
+        return;
+      }
       if (id !== PRIMARY_CHAT_ID) {
         const s = stateRef.current;
         if (
@@ -519,12 +531,23 @@ export function HeroDemo() {
   };
 
   /* ---------------------------------------------------------------- */
+  /* Marketplace scripted thread                                        */
+  /* ---------------------------------------------------------------- */
+
+  const marketplace = useMarketplaceThread({
+    active: activeChatId === MARKETPLACE_CHAT_ID,
+    extraMessages: secondaryThreadMessages[MARKETPLACE_CHAT_ID] ?? []
+  });
+
+  /* ---------------------------------------------------------------- */
   /* Sidebar chat rows                                                  */
   /* ---------------------------------------------------------------- */
 
+  // Sidebar order: carousel (c2) first, launch-plan live chat (c1) second, media (c3) third.
+  // Ids are unchanged — c1 stays the primary live/autoplay chat.
   const chats = [
-    { id: "c1", title: tx("landing.demo.sidebar.chat1"), active: activeChatId === "c1" },
     { id: "c2", title: tx("landing.demo.sidebar.chat2"), active: activeChatId === "c2" },
+    { id: "c1", title: tx("landing.demo.sidebar.chat1"), active: activeChatId === "c1" },
     { id: "c3", title: tx("landing.demo.sidebar.chat3"), active: activeChatId === "c3" }
   ];
 
@@ -553,11 +576,9 @@ export function HeroDemo() {
     subtitle: tx("landing.demo.trailer.subtitle"),
     nameLabel: tx("landing.demo.trailer.nameLabel"),
     namePlaceholder: tx("landing.demo.trailer.namePlaceholder"),
-    configuring: tx("landing.demo.trailer.configuring"),
-    toneName: tx("landing.demo.trailer.toneName"),
-    toneCaption: tx("landing.demo.trailer.toneCaption"),
-    skillName: tx("landing.demo.trailer.skillName"),
-    skillCaption: tx("landing.demo.trailer.skillCaption")
+    instructionLabel: tx("landing.demo.trailer.instructionLabel"),
+    instructionText: tx("landing.demo.trailer.instructionText"),
+    createLabel: tx("landing.demo.trailer.createLabel")
   };
 
   /* ---------------------------------------------------------------- */
@@ -566,7 +587,7 @@ export function HeroDemo() {
 
   const showTrailer = state.status === "trailer";
 
-  // Static thread for the secondary media chat (c2)
+  // Static thread for the media chat (c3 — moved from c2)
   const staticMediaThread = (
     <div>
       <StaticMediaImage
@@ -580,29 +601,10 @@ export function HeroDemo() {
       <AssistantRow showAvatar={false}>
         <StaticMediaImage src={MEDIA_RESULT_SRC} alt={tx("landing.blocks.media.resultAlt")} />
       </AssistantRow>
-      {(secondaryThreadMessages.c2 ?? []).map((message, index) => (
-        <UserBubble key={`c2-user-${index}`}>{message}</UserBubble>
+      {(secondaryThreadMessages[MEDIA_CHAT_ID] ?? []).map((message, index) => (
+        <UserBubble key={`c3-user-${index}`}>{message}</UserBubble>
       ))}
     </div>
-  );
-
-  const newChatMessages = secondaryThreadMessages.c3 ?? [];
-
-  // Empty-state for "New chat" (c3), then local user messages once typed.
-  const staticEmptyThread = (
-    <>
-      {newChatMessages.length === 0 ? (
-        <div className="flex h-full flex-col items-center justify-center py-12 text-center">
-          <p className="text-sm text-text-subtle">{tx("landing.demo.staticThread.emptyHint")}</p>
-        </div>
-      ) : (
-        <div>
-          {newChatMessages.map((message, index) => (
-            <UserBubble key={`c3-user-${index}`}>{message}</UserBubble>
-          ))}
-        </div>
-      )}
-    </>
   );
 
   // Primary (live) thread
@@ -684,7 +686,11 @@ export function HeroDemo() {
 
   // Decide which content to show inside the thread area for non-primary chats.
   const nonPrimaryThreadContent: React.ReactNode =
-    activeChatId === "c2" ? staticMediaThread : staticEmptyThread;
+    activeChatId === MARKETPLACE_CHAT_ID
+      ? marketplace.thread
+      : activeChatId === MEDIA_CHAT_ID
+        ? staticMediaThread
+        : null;
 
   /* ---------------------------------------------------------------- */
   /* Render                                                             */
@@ -704,7 +710,10 @@ export function HeroDemo() {
         userName={tx("landing.demo.sidebar.userName")}
         userPlanLabel={tx("landing.demo.sidebar.userPlan")}
         composer={composer}
-        threadViewportRef={threadViewportRef}
+        threadViewportRef={
+          activeChatId === MARKETPLACE_CHAT_ID ? marketplace.threadViewportRef : threadViewportRef
+        }
+        overlay={activeChatId === MARKETPLACE_CHAT_ID ? marketplace.overlay : undefined}
       >
         {isOnPrimaryChat ? (
           /* Primary chat: live thread with trailer overlay.
@@ -712,24 +721,20 @@ export function HeroDemo() {
              is findable by screen readers and search bots even during the trailer). */
           <div className="relative min-h-[22rem]">
             <div aria-hidden={showTrailer}>{liveThread}</div>
-            <AnimatePresence>
-              {showTrailer && (
-                <motion.div
-                  key="trailer"
-                  initial={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.45, ease: "easeInOut" }}
-                  className="absolute inset-0 z-10"
-                >
-                  <AssistantBuilder
-                    onDone={() => dispatch({ type: "TRAILER_DONE" })}
-                    shouldPlay={hasReachedDemoWindow}
-                    reducedMotion={shouldReduceMotion}
-                    labels={trailerLabels}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {showTrailer && (
+              <div className="absolute inset-0 z-10 bg-bg">
+                <AssistantBuilder
+                  onDone={() => {
+                    setActiveChatId(MARKETPLACE_CHAT_ID);
+                    dispatch({ type: "TRAILER_DONE_PAUSED" });
+                  }}
+                  shouldPlay={hasReachedDemoWindow}
+                  reducedMotion={shouldReduceMotion}
+                  scrollViewportRef={threadViewportRef}
+                  labels={trailerLabels}
+                />
+              </div>
+            )}
           </div>
         ) : (
           /* Non-primary chats: static thread snapshot */

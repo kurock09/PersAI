@@ -42,12 +42,14 @@ describe("runtime media request parsing", () => {
     ).readImageEditArguments({
       toolCode: "image_edit",
       prompt: "make it brighter",
+      count: 2,
       filename: "edit.png",
       size: "1024x1024",
       background: "auto",
       sourceImageAlias: "current image #1"
     });
     assert.ok(!(parsed instanceof Error));
+    assert.equal((parsed as { count: number }).count, 2);
   });
 
   test("video_generate accepts persisted toolCode inside worker request", () => {

@@ -309,6 +309,29 @@ Interpretation rules:
 6. Monthly media settlement must reserve before expensive media provider work, settle only after delivery succeeds, and release or mark reconciliation-required when provider/output work does not become user-visible delivery.
 7. `image_generate`, `image_edit`, and `video_generate` must not use day-keyed tool counters as paid media quota truth.
 
+## ADR-105 media job truth focused checks
+
+When a change touches the async media lane (media tool projection/budgeting, media tool services, media enqueue/reservation, scheduler/completion media paths, or the media runtime contract), add these focused checks before broad verification:
+
+1. One structured media request with `count=N` becomes exactly one media job — no silent split, no silent trim.
+2. Media `perTurnCap` budgeting counts total requested result units, not tool calls (`tool-budget-policy` `reserve(requestedUnits)`); an oversized single request is rejected as a whole.
+3. `image_edit.count` is honored end to end (schema → parse → provider → unit budgeting → enqueue reservation units).
+4. Accepted async media results are model-visible `action:"pending_delivery"` (`canSendFileNow=false`) with no false ready/sent language; mixed accepted+rejected media outcomes in one turn are not collapsed into one generic pending sentence (`hadRejectedMediaRequest`).
+5. The third concurrent open media job in a chat gets an explicit structured `media_job_concurrency_limit` rejection.
+6. **Single-owner quota invariant:** the runtime worker makes zero monthly-media-quota calls (grep `apps/runtime/src/modules/turns`); reservation happens once at enqueue admission; each reservation is resolved exactly once — scheduler `failJob` releases the full `N` once per terminal failure, completion `failDelivery` reconciles `N` once for pre-delivery failures (guarded against post-`deliver()` double-count), delivery loop settles/reconciles per artifact. No double/multi-release across concurrent jobs.
+
+Focused suites:
+
+```bash
+corepack pnpm --filter @persai/runtime exec tsx test/tool-budget-policy.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-image-generate-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-image-edit-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-scheduler.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-completion-delivery.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/enqueue-runtime-deferred-media-job.service.test.ts
+```
+
 ## ADR-099 Session A catalog foundation focused checks
 
 When a change touches the structured Admin Runtime provider/model catalog, pricing metadata fields, or the compatibility alias that downstream model pickers still consume, add these focused checks before broad verification:
@@ -920,7 +943,7 @@ Interpretation rules:
 20. if sandbox internal file execution or admin sandbox observability changes, verify the active sandbox job/operator truth uses `files` for file operations rather than internal `read_file` / `write_file` / `edit_file` codes, and confirm `Admin > Ops` persisted file counts come from canonical `assistantFiles` rather than removed sandbox-era relations
 21. if `files.send` changes, verify runtime no longer carries a separate `send_media_to_user` tool payload/service path and that send-by-`fileRef` plus current-turn `artifactId` delivery still resolve through the same canonical `files` execution result
 22. if `files.write_and_send` changes or is introduced, verify one tool call persists the file, returns the canonical `fileRef`, emits the delivered artifact in the same result, and leaves model-facing guidance preferring that atomic path for “create and send in one turn” requests
-23. if delivery-honesty protection changes, verify a completed turn that claims a file was sent but returns zero delivered artifacts is corrected explicitly instead of being stored as a confident false-success reply
+23. if delivery-honesty protection changes, verify it is structural, not prose-meaning: markdown links to local/internal file paths (`sandbox:`, `attachment://`, bare relative paths) are neutralized (href removed, link text kept), technical attachment-summary lines and delivered-attachment links are stripped, and an empty body with delivered attachments falls back to a localized "file sent" line; a bare prose claim with no link/attachment is left untouched (no keyword/regex meaning detection), and the model is instructed (delivery-honesty contract) not to announce attachment/delivery in prose because the UI renders delivered files structurally
 24. if assistant workspace hydrate/reset changes, verify missing object-storage blobs do not crash the sandbox path: stale `assistant_files` rows must be removed from canonical truth, the local workspace must rebuild from the remaining accessible files, and the job must complete or fail structurally instead of taking down the pod
 25. if `files.read` / `files.write` / `files.edit` or sandbox explicit mounts change, verify the normal canonical `files` path runs by hydrated workspace `relativePath` without redundant `mountedFileRefs`, and verify any remaining explicit mounted `fileRef` path is scoped to the same assistant/workspace and fails structurally after stale-row cleanup when the backing blob is missing
 26. if `files.delete` or default `files.list` presentation changes, verify recursive directory delete works, root delete stays blocked, single-file delete returns the canonical deleted item, and the default list summary groups `workspace`, `uploads`, and `artifacts` without exposing raw service-noise paths unnecessarily

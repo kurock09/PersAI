@@ -13,20 +13,19 @@
         "initialGreeting": "I'm Aurora. I can see your project, documents, and working style — let's turn it into a result without switching tools.",
         "setup": "I've been set up with your context, preferred tone, and a Documents skill.",
         "whatICanDo": "I can help you write, summarize documents, remember your preferences, and stay with you in web and Telegram.",
-        "summarizePdf": "Turn this PDF into a short Q3 leadership update and slides.",
+        "summarizePdf": "Turn this PDF into a short launch plan for leadership and slides.",
         "preparing": "I’ll pull out the decisions, risks, and numbers first — then package it into a tight deck.",
         "rememberPreference": "And remember: no fluff, business tone.",
         "memoryAck": "Noted. From here I’ll keep replies shorter, more direct, and ready for work.",
         "memoryStored": "Prefers a business tone",
         "telegramContinue": "Move this same thread to Telegram — I’ll continue from my phone.",
         "telegramAck": "Done. Open Telegram and the same context, files, and tone are already there.",
-        "telegramContinuity": "The thread continues in Telegram. No need to repeat the task or reattach files.",
-        "cta": "That’s why setup matters: the assistant knows your style, documents, and channel. Yours takes about a minute."
+        "telegramContinuity": "The thread continues in Telegram. No need to repeat the task or reattach files."
       },
       "artifacts": {
-        "reportPdf": "Q3-Strategy.pdf",
+        "reportPdf": "Launch-Plan.pdf",
         "reportPdfMeta": "4.2 MB",
-        "summaryPptx": "Q3-Summary.pptx",
+        "summaryPptx": "Launch-Brief.pptx",
         "summaryPptxMeta": "12 slides"
       },
       "prompts": {
@@ -51,9 +50,9 @@
         "statusLabel": "Active",
         "userName": "Alex",
         "userPlan": "Pro plan",
-        "chat1": "Q3 Strategy review",
-        "chat2": "Make me a cartoon",
-        "chat3": "New chat"
+        "chat1": "Launch plan",
+        "chat2": "Sales carousel",
+        "chat3": "Make me a cartoon"
       },
       "header": {
         "title": "Strategy Chat",
@@ -65,11 +64,9 @@
         "subtitle": "Avatar, name, tone, skills",
         "nameLabel": "Name",
         "namePlaceholder": "Assistant name",
-        "configuring": "Choosing avatar, name, tone, and skill…",
-        "toneName": "Professional",
-        "toneCaption": "tone",
-        "skillName": "Documents",
-        "skillCaption": "skill"
+        "instructionLabel": "Instruction",
+        "instructionText": "You behave calmly, briefly, and professionally. You help with documents, summaries, and work-ready replies without fluff.",
+        "createLabel": "Create"
       },
       "modes": {
         "normal": "Normal",
@@ -83,6 +80,16 @@
         "planningUser": "Help me plan my week",
         "planningReply": "Here's a clear weekly plan: start with your top priorities on Monday, block focus time mid-week, and keep Friday for review and handoffs.",
         "emptyHint": "Start a conversation with Aurora"
+      },
+      "market": {
+        "chatTitle": "Sales carousel",
+        "userPrompt": "Turn this photo into an Instagram carousel to sell these sneakers, price $120",
+        "workingReply": "On it — building a sales carousel from your reference.",
+        "refAlt": "Reference photo",
+        "coverAlt": "Product cover slide",
+        "detailAlt": "Materials and features slide",
+        "socialAlt": "Social proof slide",
+        "lightboxClose": "Close"
       },
       "composerPlaceholder": "…or type your own",
       "channelLabel": "Telegram",
@@ -183,7 +190,7 @@
         "skill3": "Strategy",
         "file1": "Product-Brief.pdf",
         "file1Meta": "2.4 MB",
-        "file2": "Roadmap-Q3.pptx",
+        "file2": "Launch-Roadmap.pptx",
         "file2Meta": "8 slides",
         "composerPlaceholder": "Ask Luma about this project…",
         "userPrompt": "Prepare an executive brief from this project pack for 5 PM",

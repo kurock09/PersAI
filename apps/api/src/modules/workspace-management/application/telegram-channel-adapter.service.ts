@@ -29,7 +29,10 @@ import {
 import { RenderAssistantInboundSurfaceMessageService } from "./render-assistant-inbound-surface-message.service";
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { MediaDeliveryService } from "./media/media-delivery.service";
-import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
+import {
+  applyFinalDeliveryHonestyCorrection,
+  resolveUndeliveredArtifactKind
+} from "./final-delivery-honesty";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import { TelegramAlbumCollectorService } from "./telegram-album-collector.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
@@ -1037,6 +1040,7 @@ export class TelegramChannelAdapterService {
         attemptedArtifactCount: turnResult.media.length,
         deliveredAttachmentCount,
         deliveredAttachmentFilenames,
+        attemptedArtifactKind: resolveUndeliveredArtifactKind(turnResult.media),
         locale: config.locale
       });
       if (

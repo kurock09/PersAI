@@ -20,7 +20,10 @@ import type { AssistantDocumentJobReadService } from "./assistant-document-job-r
 import type { AssistantMediaJobService } from "./assistant-media-job.service";
 import type { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
 import type { CompactionAdvisoryFollowUpService } from "./compaction-advisory-follow-up.service";
-import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
+import {
+  applyFinalDeliveryHonestyCorrection,
+  resolveUndeliveredArtifactKind
+} from "./final-delivery-honesty";
 import type { MediaDeliveryService } from "./media/media-delivery.service";
 import type { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import type { QuotaAdvisoryFollowUpService } from "./quota-advisory-follow-up.service";
@@ -73,6 +76,7 @@ async function persistFinalAssistantContentIfNeeded(input: {
   assistantText: string;
   deliveredAttachments: Awaited<ReturnType<MediaDeliveryService["deliver"]>>["attachments"];
   attemptedArtifactCount: number;
+  attemptedArtifactKind: ReturnType<typeof resolveUndeliveredArtifactKind>;
   locale: string | null;
 }): Promise<string> {
   const finalAssistantContent = applyFinalDeliveryHonestyCorrection({
@@ -82,6 +86,7 @@ async function persistFinalAssistantContentIfNeeded(input: {
     deliveredAttachmentFilenames: input.deliveredAttachments
       .map((attachment) => attachment.originalFilename)
       .filter((filename): filename is string => typeof filename === "string"),
+    attemptedArtifactKind: input.attemptedArtifactKind,
     locale: input.locale
   });
   if (finalAssistantContent === input.assistantMessage.content) {
@@ -294,6 +299,7 @@ export async function finalizePersistedWebTurn(input: {
     assistantText: input.assistantText,
     deliveredAttachments: delivered.attachments,
     attemptedArtifactCount: input.mediaArtifacts.length,
+    attemptedArtifactKind: resolveUndeliveredArtifactKind(input.mediaArtifacts),
     locale: input.locale
   });
 

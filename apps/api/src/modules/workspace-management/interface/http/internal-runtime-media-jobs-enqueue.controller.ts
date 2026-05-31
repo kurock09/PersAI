@@ -1,10 +1,22 @@
 import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
-import { EnqueueRuntimeDeferredMediaJobService } from "../../application/enqueue-runtime-deferred-media-job.service";
+import {
+  EnqueueRuntimeDeferredMediaJobService,
+  type EnqueueRuntimeDeferredMediaJobRejection
+} from "../../application/enqueue-runtime-deferred-media-job.service";
 import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
 
 type InternalRequestLike = {
   headers: Record<string, string | string[] | undefined>;
 };
+
+type EnqueueResponse =
+  | {
+      ok: true;
+      accepted: true;
+      jobId: string;
+      kind: "image" | "video";
+    }
+  | ({ ok: true } & EnqueueRuntimeDeferredMediaJobRejection);
 
 @Controller("api/v1/internal/runtime/media-jobs")
 export class InternalRuntimeMediaJobsEnqueueController {
@@ -14,24 +26,7 @@ export class InternalRuntimeMediaJobsEnqueueController {
 
   @HttpCode(202)
   @Post("enqueue")
-  async enqueue(
-    @Req() req: InternalRequestLike,
-    @Body() body: unknown
-  ): Promise<
-    | {
-        ok: true;
-        accepted: true;
-        jobId: string;
-        kind: "image" | "video";
-      }
-    | {
-        ok: true;
-        accepted: false;
-        code: string;
-        message: string;
-        guidance?: string | null;
-      }
-  > {
+  async enqueue(@Req() req: InternalRequestLike, @Body() body: unknown): Promise<EnqueueResponse> {
     this.assertAuthorized(req);
     const input = this.enqueueRuntimeDeferredMediaJobService.parseInput(body);
     const outcome = await this.enqueueRuntimeDeferredMediaJobService.execute(input);

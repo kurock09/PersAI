@@ -1438,31 +1438,6 @@ class FakePersaiInternalApiClientService {
     return this.consumeOutcome;
   }
 
-  async reserveMonthlyMediaQuota(input: {
-    assistantId: string;
-    toolCode: "image_generate" | "image_edit" | "video_generate";
-    units: number;
-  }) {
-    this.consumeCalls.push({
-      assistantId: input.assistantId,
-      toolCode: input.toolCode,
-      dailyCallLimit: null,
-      units: input.units
-    });
-    return {
-      allowed: true,
-      currentUsedUnits: input.units,
-      limitUnits: 10,
-      periodStartedAt: "2026-05-01T00:00:00.000Z",
-      periodEndsAt: "2026-06-01T00:00:00.000Z",
-      periodSource: "subscription_period" as const
-    };
-  }
-
-  async releaseMonthlyMediaQuota() {
-    return undefined;
-  }
-
   async readQuotaStatus(input: Record<string, unknown>) {
     this.quotaStatusCalls.push(input);
     if (this.quotaStatusError !== null) {
@@ -2677,6 +2652,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       kind: "image",
       toolCode: "image_generate",
       status: "running",
+      requestedCount: 1,
+      expectedResultCount: 1,
       createdAt: "2026-04-11T11:55:00.000Z",
       startedAt: "2026-04-11T11:56:00.000Z",
       updatedAt: "2026-04-11T11:59:00.000Z"
@@ -4001,31 +3978,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(atomicWriteAndSendToolHistory.delivered, true);
   assert.equal(atomicWriteAndSendToolHistory.queuedAttachments, 1);
   assert.equal(atomicWriteAndSendToolHistory.queuedArtifacts, undefined);
-
-  const undeliveredClaimRequest = createRuntimeTurnRequest();
-  undeliveredClaimRequest.bundle.bundleHash = request.bundle.bundleHash;
-  undeliveredClaimRequest.message.locale = "ru";
-  turnAcceptanceService.result = createAcceptedTurn();
-  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
-    request.bundle.bundleHash;
-  providerGatewayClient.resultQueue = [
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "Файл отправлен.",
-      respondedAt: "2026-04-11T12:00:04.050Z",
-      usage: null,
-      stopReason: "completed",
-      toolCalls: []
-    }
-  ];
-  const undeliveredClaimCompleted = await service.createTurn(undeliveredClaimRequest);
-  assert.match(undeliveredClaimCompleted.assistantText, /Файл отправлен\./);
-  assert.match(
-    undeliveredClaimCompleted.assistantText,
-    /Поправка: файл не был реально доставлен в этот чат в рамках этого ответа\./
-  );
-  assert.equal(undeliveredClaimCompleted.artifacts.length, 0);
 
   const sandboxWorkspaceContinuityRequest = createRuntimeTurnRequest();
   sandboxWorkspaceContinuityRequest.bundle.bundleHash = request.bundle.bundleHash;
@@ -5921,7 +5873,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       sizeBytes?: number | null;
     }>;
   };
-  assert.equal(imageGenerateToolHistory.action, "deferred");
+  assert.equal(imageGenerateToolHistory.action, "pending_delivery");
   assert.equal(imageGenerateToolHistory.provider, "openai");
   assert.equal(imageGenerateToolHistory.prompt, "Draw a serene poster");
   assert.deepEqual(imageGenerateToolHistory.artifacts, []);
@@ -6177,7 +6129,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       sizeBytes?: number | null;
     }>;
   };
-  assert.equal(imageEditToolHistory.action, "deferred");
+  assert.equal(imageEditToolHistory.action, "pending_delivery");
   assert.equal(imageEditToolHistory.provider, "openai");
   assert.equal(imageEditToolHistory.prompt, "Replace the couch with a red chair");
   assert.equal(imageEditToolHistory.sourceImageAlias, "living-room.png");

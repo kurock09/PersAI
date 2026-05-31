@@ -19,6 +19,69 @@ function createBareTurnExecutionService(): TurnExecutionService {
 }
 
 describe("deferred document acknowledgement", () => {
+  test("stream and sync paths both inject deferred_document_follow_up instruction (parity)", () => {
+    const service = createBareTurnExecutionService() as unknown as {
+      buildToolLoopDeveloperInstructions: (
+        existing: unknown[],
+        availableWorkingFileRefs: unknown[],
+        closedOpenLoopRefs: string[],
+        hasToolHistory: boolean,
+        toolHistory: unknown[],
+        availableToolNames: string[],
+        forceFinalTextOnly: boolean,
+        deferredMediaJobs: [],
+        deferredDocumentJobs: Array<{
+          jobId: string;
+          toolCode: "document";
+          descriptorMode: "create_pdf_document";
+          documentType: "pdf_document";
+        }>
+      ) => string | null;
+    };
+    const docJob = {
+      jobId: "doc-parity-1",
+      toolCode: "document" as const,
+      descriptorMode: "create_pdf_document" as const,
+      documentType: "pdf_document" as const
+    };
+    const stubToolExchange = [{ toolCall: { name: "document" }, toolResult: {} }];
+    // Simulate what both stream and sync paths now pass: deferredDocumentJobs populated
+    const withDocs = service.buildToolLoopDeveloperInstructions(
+      [],
+      [],
+      [],
+      true,
+      stubToolExchange,
+      [],
+      false,
+      [],
+      [docJob]
+    );
+    // Without deferred document jobs the section must be absent
+    const withoutDocs = service.buildToolLoopDeveloperInstructions(
+      [],
+      [],
+      [],
+      true,
+      stubToolExchange,
+      [],
+      false,
+      [],
+      []
+    );
+    assert.ok(
+      withDocs?.includes("accepted for async background processing"),
+      "deferred_document_follow_up present when deferredDocumentJobs is non-empty"
+    );
+    // The stream path (which now passes deferredDocumentJobs just like the sync path)
+    // must produce the same instruction; without jobs the section must be absent
+    assert.equal(
+      withoutDocs?.includes("final document will arrive separately when ready") ?? false,
+      false,
+      "deferred_document_follow_up absent when deferredDocumentJobs is empty"
+    );
+  });
+
   test("adds a hard follow-up instruction for deferred document jobs", () => {
     const service = createBareTurnExecutionService() as unknown as {
       buildToolLoopDeveloperInstructions: (

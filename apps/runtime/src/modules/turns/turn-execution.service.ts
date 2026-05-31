@@ -13,6 +13,10 @@ import type {
   AssistantRuntimeBundleToolCredentialRef
 } from "@persai/runtime-bundle";
 import {
+  MAX_RUNTIME_IMAGE_EDIT_COUNT,
+  MAX_RUNTIME_IMAGE_GENERATE_COUNT,
+  MIN_RUNTIME_IMAGE_EDIT_COUNT,
+  MIN_RUNTIME_IMAGE_GENERATE_COUNT,
   PERSAI_RUNTIME_MODEL_ROLES,
   PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
   type PersaiRuntimeWebSearchProviderId,
@@ -190,6 +194,14 @@ type TurnExecutionState = {
   usageEntries: RuntimeUsageAccountingEntry[];
   toolInvocations: RuntimeTurnToolInvocation[];
   deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
+  /**
+   * ADR-105 — set true when any media tool call in this turn returned a
+   * `skipped` rejection (limit, quota, safety, validation, concurrency). Used
+   * to preserve the model's explicit rejection wording instead of overwriting
+   * the whole reply with a generic "pending delivery" acknowledgement when a
+   * turn mixes accepted (`pending_delivery`) and rejected media outcomes.
+   */
+  hadRejectedMediaRequest: boolean;
   deferredDocumentJobs: RuntimeDeferredDocumentJobSummary[];
   closedOpenLoopRefs: string[];
   /**
@@ -306,14 +318,8 @@ const SAFE_PARALLEL_TOOL_CODES = new Set<string>([
   "knowledge_search",
   "knowledge_fetch"
 ]);
-const DELIVERY_CLAIM_PATTERNS = [
-  /\b(i(?:'ve| have)?|we(?:'ve| have)?)\s+(?:already\s+|just\s+)?(?:sent|attached|uploaded)\b/i,
-  /\b(?:file|document|attachment)\s+(?:is|was|has been)\s+(?:sent|attached|uploaded)\b/i,
-  /\bhere(?:'s| is)\s+(?:your\s+|the\s+)?(?:file|document|attachment)\b/i,
-  /\b(?:отправил|отправила|прикрепил|прикрепила|скинул|скинула|вложил|вложила)\b/i,
-  /(?:файл|документ|вложение)\s+(?:отправлен|прикреплен|прикреплён|скинут|вложен)/i,
-  /(?:вот|держи)\s+(?:файл|документ|вложение)/i
-] as const;
+const DELIVERY_HONESTY_CONTRACT =
+  "Do not write markdown links to local or internal file paths, and do not state that a file, image, video, or document is attached, sent, or uploaded in the current message. Delivered files are shown to the user structurally by the interface. For pending media or documents, only say the item is being prepared and will arrive separately.";
 const LEGACY_TECHNICAL_ATTACHMENT_SUMMARY_PATTERNS = [
   /^Assistant sent (?:an? )?attachments?:\s+.+$/i,
   /^\[?Working files from user attachments:.*$/i
@@ -330,6 +336,7 @@ type DeveloperInstructionSectionKey =
   | "open_media_jobs"
   | "open_document_jobs"
   | "presence"
+  | "delivery_contract"
   | "tool_follow_up"
   | "deferred_media_follow_up"
   | "deferred_document_follow_up";
@@ -1027,6 +1034,7 @@ export class TurnExecutionService {
             closedOpenLoopRefs: turnState.closedOpenLoopRefs,
             forceFinalTextOnly,
             deferredMediaJobs: turnState.deferredMediaJobs,
+            deferredDocumentJobs: turnState.deferredDocumentJobs,
             requestMetadata: this.createTurnProviderRequestMetadata({
               acceptedTurn,
               classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
@@ -1268,6 +1276,7 @@ export class TurnExecutionService {
                 assistantText: completedProviderResult.text ?? "",
                 artifacts: turnState.artifacts,
                 deferredMediaJobs: turnState.deferredMediaJobs,
+                hadRejectedMediaRequest: turnState.hadRejectedMediaRequest,
                 deferredDocumentJobs: turnState.deferredDocumentJobs,
                 locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
               });
@@ -1807,7 +1816,8 @@ export class TurnExecutionService {
       { key: "retrieved_knowledge", content: retrievedKnowledgeSection },
       { key: "open_media_jobs", content: openMediaJobsSection },
       { key: "open_document_jobs", content: openDocumentJobsSection },
-      { key: "presence", content: presenceSection }
+      { key: "presence", content: presenceSection },
+      { key: "delivery_contract", content: DELIVERY_HONESTY_CONTRACT }
     ]);
   }
 
@@ -2481,6 +2491,7 @@ export class TurnExecutionService {
             assistantText: accumulatedText,
             artifacts: turnState.artifacts,
             deferredMediaJobs: turnState.deferredMediaJobs,
+            hadRejectedMediaRequest: turnState.hadRejectedMediaRequest,
             deferredDocumentJobs: turnState.deferredDocumentJobs,
             locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
           })
@@ -2583,9 +2594,52 @@ export class TurnExecutionService {
   ): PlannedToolExecution[] {
     return toolCalls.map((toolCall) => ({
       toolCall,
-      reservation: toolBudgetPolicy.reserve(toolCall.name, iteration),
+      reservation: toolBudgetPolicy.reserve(
+        toolCall.name,
+        iteration,
+        this.resolveRequestedToolResultUnits(toolCall)
+      ),
       parallelSafe: SAFE_PARALLEL_TOOL_CODES.has(toolCall.name)
     }));
+  }
+
+  /**
+   * ADR-105 Slice 2 — per-turn media budgeting counts requested **result
+   * units**, not tool invocations. `image_generate`/`image_edit` reserve their
+   * `count` argument (one structured request = one job of `count` artifacts);
+   * `video_generate` reserves exactly one unit. Every other tool reserves one
+   * unit per call. A count outside the contract bounds is clamped to the
+   * per-job maximum so an oversized request is still measured (and rejected)
+   * whole rather than silently under-counted.
+   */
+  private resolveRequestedToolResultUnits(toolCall: ProviderGatewayToolCall): number {
+    if (toolCall.name === IMAGE_GENERATE_TOOL_CODE) {
+      return this.readRequestedMediaCount(
+        toolCall.arguments,
+        MIN_RUNTIME_IMAGE_GENERATE_COUNT,
+        MAX_RUNTIME_IMAGE_GENERATE_COUNT
+      );
+    }
+    if (toolCall.name === IMAGE_EDIT_TOOL_CODE) {
+      return this.readRequestedMediaCount(
+        toolCall.arguments,
+        MIN_RUNTIME_IMAGE_EDIT_COUNT,
+        MAX_RUNTIME_IMAGE_EDIT_COUNT
+      );
+    }
+    return 1;
+  }
+
+  private readRequestedMediaCount(
+    rawArguments: Record<string, unknown>,
+    minCount: number,
+    maxCount: number
+  ): number {
+    const value = rawArguments.count;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < minCount) {
+      return minCount;
+    }
+    return Math.min(value, maxCount);
   }
 
   /**
@@ -3862,6 +3916,7 @@ export class TurnExecutionService {
     assistantText: string;
     artifacts: RuntimeOutputArtifact[];
     deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
+    hadRejectedMediaRequest: boolean;
     deferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"];
     locale: string | null;
   }): string {
@@ -3870,47 +3925,34 @@ export class TurnExecutionService {
       normalizedText,
       input.artifacts,
       input.deferredMediaJobs,
+      input.hadRejectedMediaRequest,
       input.locale
     );
-    const deferredDocumentCorrected = this.applyDeferredDocumentAcknowledgementCorrection(
+    return this.applyDeferredDocumentAcknowledgementCorrection(
       deferredCorrected,
       input.artifacts,
       input.deferredDocumentJobs,
       input.locale
     );
-    return this.applyUndeliveredAttachmentCorrection(
-      deferredDocumentCorrected,
-      input.artifacts,
-      input.locale
-    );
-  }
-
-  private applyUndeliveredAttachmentCorrection(
-    assistantText: string,
-    artifacts: RuntimeOutputArtifact[],
-    locale: string | null
-  ): string {
-    const normalizedText = this.normalizeOptionalText(assistantText) ?? "";
-    if (normalizedText.length === 0 || artifacts.length > 0) {
-      return normalizedText;
-    }
-    if (!this.claimsAttachmentDelivery(normalizedText)) {
-      return normalizedText;
-    }
-    const correction = this.buildUndeliveredAttachmentCorrection(locale);
-    return normalizedText.includes(correction)
-      ? normalizedText
-      : `${normalizedText}\n\n${correction}`;
   }
 
   private applyDeferredMediaAcknowledgementCorrection(
     assistantText: string,
     artifacts: RuntimeOutputArtifact[],
     deferredMediaJobs: RuntimeDeferredMediaJobSummary[],
+    hadRejectedMediaRequest: boolean,
     locale: string | null
   ): string {
     const normalizedText = this.normalizeOptionalText(assistantText) ?? "";
     if (deferredMediaJobs.length === 0 || artifacts.length > 0) {
+      return normalizedText;
+    }
+    // ADR-105 — a turn that mixed accepted (pending) and rejected media must not
+    // collapse into one generic pending sentence: blanket-overwriting would
+    // erase the model's explanation of the rejected request. Preserve the
+    // model's text and let the undelivered-attachment correction below catch
+    // any false "I sent the file" claim.
+    if (hadRejectedMediaRequest) {
       return normalizedText;
     }
     return this.buildDeferredMediaAcknowledgement(locale, deferredMediaJobs);
@@ -3927,17 +3969,6 @@ export class TurnExecutionService {
       return normalizedText;
     }
     return this.buildDeferredDocumentAcknowledgement(locale, deferredDocumentJobs);
-  }
-
-  private claimsAttachmentDelivery(assistantText: string): boolean {
-    return DELIVERY_CLAIM_PATTERNS.some((pattern) => pattern.test(assistantText));
-  }
-
-  private buildUndeliveredAttachmentCorrection(locale: string | null): string {
-    if (locale?.toLowerCase().startsWith("ru")) {
-      return "Поправка: файл не был реально доставлен в этот чат в рамках этого ответа.";
-    }
-    return "Correction: no file was actually delivered in this reply.";
   }
 
   private buildDeferredMediaAcknowledgement(
@@ -4377,6 +4408,7 @@ export class TurnExecutionService {
       usageEntries: [],
       toolInvocations: [],
       deferredMediaJobs: [],
+      hadRejectedMediaRequest: false,
       deferredDocumentJobs: [],
       closedOpenLoopRefs: [],
       discoveredFileRefIdSet: []
@@ -4508,6 +4540,7 @@ export class TurnExecutionService {
       if (deferredMediaJob !== null) {
         turnState.deferredMediaJobs.push(deferredMediaJob);
       }
+      this.markRejectedMediaRequestIfApplicable(turnState, outcome.payload);
       const deferredDocumentJob = this.extractDeferredDocumentJob(outcome.payload);
       if (deferredDocumentJob !== null) {
         turnState.deferredDocumentJobs.push(deferredDocumentJob);
@@ -4518,6 +4551,7 @@ export class TurnExecutionService {
     if (deferredMediaJob !== null) {
       turnState.deferredMediaJobs.push(deferredMediaJob);
     }
+    this.markRejectedMediaRequestIfApplicable(turnState, outcome.payload);
     const deferredDocumentJob = this.extractDeferredDocumentJob(outcome.payload);
     if (deferredDocumentJob !== null) {
       turnState.deferredDocumentJobs.push(deferredDocumentJob);
@@ -4562,14 +4596,46 @@ export class TurnExecutionService {
     return !input.conversation.externalThreadKey.startsWith("system:media-job:");
   }
 
+  /**
+   * ADR-105 — flag a turn that contains a rejected media request (a media tool
+   * returning `action: "skipped"`). When set, the deferred-media text
+   * correction does not blanket-overwrite the assistant reply, so an explicit
+   * rejection explanation (limit hit, quota, safety, validation) survives even
+   * when another media request in the same turn was accepted as pending.
+   */
+  private markRejectedMediaRequestIfApplicable(
+    turnState: TurnExecutionState,
+    payload: ToolExecutionOutcome["payload"]
+  ): void {
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+      return;
+    }
+    const row = payload as { action?: unknown; toolCode?: unknown };
+    if (
+      row.action === "skipped" &&
+      (row.toolCode === IMAGE_GENERATE_TOOL_CODE ||
+        row.toolCode === IMAGE_EDIT_TOOL_CODE ||
+        row.toolCode === VIDEO_GENERATE_TOOL_CODE)
+    ) {
+      turnState.hadRejectedMediaRequest = true;
+    }
+  }
+
   private extractDeferredMediaJob(
     payload: ToolExecutionOutcome["payload"]
   ): RuntimeDeferredMediaJobSummary | null {
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       return null;
     }
-    const row = payload as { action?: unknown; jobId?: unknown; toolCode?: unknown };
-    if (row.action !== "deferred" || typeof row.jobId !== "string") {
+    const row = payload as {
+      action?: unknown;
+      jobId?: unknown;
+      toolCode?: unknown;
+      messageToUser?: unknown;
+      requestedCount?: unknown;
+      expectedResultCount?: unknown;
+    };
+    if (row.action !== "pending_delivery" || typeof row.jobId !== "string") {
       return null;
     }
     if (
@@ -4582,7 +4648,18 @@ export class TurnExecutionService {
     return {
       jobId: row.jobId,
       toolCode: row.toolCode,
-      kind: row.toolCode === VIDEO_GENERATE_TOOL_CODE ? "video" : "image"
+      kind: row.toolCode === VIDEO_GENERATE_TOOL_CODE ? "video" : "image",
+      action: "pending_delivery",
+      canSendFileNow: false,
+      messageToUser: typeof row.messageToUser === "string" ? row.messageToUser : null,
+      requestedCount:
+        typeof row.requestedCount === "number" && Number.isInteger(row.requestedCount)
+          ? row.requestedCount
+          : null,
+      expectedResultCount:
+        typeof row.expectedResultCount === "number" && Number.isInteger(row.expectedResultCount)
+          ? row.expectedResultCount
+          : null
     };
   }
 

@@ -2,6 +2,208 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-31 (cont.) — full-suite verification + restore structural full-undelivery notice
+
+### What changed & why
+
+After the interrupted FIX A/B subagent, ran the full AGENTS gate + CI-like full suites across the whole ADR-105 + delivery-honesty + founder-UI working set, then fixed every real failure honestly (no test-bending to hide defects).
+
+- **Behavioral correction — restored the structural full-undelivery notice (`apps/api/.../final-delivery-honesty.ts`).** The prior delivery-honesty rework removed the prose-meaning machinery but also dropped the *legitimately structural* full-undelivery notice. That left `telegram-webhook-proxy.controller` red and silently shipped a false "here is your file" to the user whenever the runtime produced/attempted an artifact that delivery dropped (`attempted>0 && delivered===0`). `applyFinalDeliveryHonestyCorrection` now appends a count-driven, locale-aware, **type-aware** honest notice in exactly that case (EN/RU; "no file…" vs "no image or other media… was actually delivered in this reply"). The file-vs-media kind is resolved **structurally** from the attempted artifacts' `type` via the new exported `resolveUndeliveredArtifactKind` (`document → file`, else `media`) — never from prose. Threaded `attemptedArtifactKind` through `telegram-channel-adapter.service.ts`, `complete-web-post-runtime-turn.ts`, and the two `assistant-media-job-completion-delivery.service.ts` sites (`"media"`); `assistant-document-job-delivery.service.ts` keeps the `"file"` default. Structural-only principle preserved: a bare prose claim with **nothing** attempted (`attempted===0`, e.g. an image claim with `media: []`) is still left untouched — owned upstream by the `delivery_contract` instruction.
+- **Test-truth fixes surfaced by the full suite:**
+  - `provider-image-generation.service.test.ts`: accumulated `secretIds` expectation was stale (the `editImage(count=3)` success adds a 3rd `image_generate` secret fetch). Also discovered per-file `node --test` runs of the gateway are **false-greens** (those files only export run-functions invoked by `run-suite.ts`); corrected the expectation and re-verified via the suite.
+  - `enqueue-runtime-deferred-media-job.service.test.ts`: out-of-range count `9 → 11` for the new `MAX=10`.
+  - `send-web-chat-turn` + `stream-web-chat-turn` undelivered tests: set `welcomeLocale: "ru"` so the RU notice flows (the removed `containsCyrillic` means locale must be explicit).
+  - `telegram-webhook-proxy.controller.test.ts`: image-claim-with-zero-media case now expects **unchanged** text (prose-meaning removed).
+  - `final-delivery-honesty.test.ts`: added file+media notice unit coverage (RU+EN, full-delivery no-notice).
+
+### Files touched
+
+`final-delivery-honesty.ts`, `telegram-channel-adapter.service.ts`, `complete-web-post-runtime-turn.ts`, `assistant-media-job-completion-delivery.service.ts` (src); `final-delivery-honesty.test.ts`, `telegram-webhook-proxy.controller.test.ts`, `send-web-chat-turn.service.test.ts`, `stream-web-chat-turn.service.test.ts`, `enqueue-runtime-deferred-media-job.service.test.ts`, `provider-image-generation.service.test.ts` (tests); `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- typecheck PASS: runtime-contract, runtime, api, web, provider-gateway
+- recursive lint PASS; root `format:check` PASS
+- full suites GREEN: runtime, api (all files), provider-gateway (`run-suite`)
+- web: 609/611 with 2 **rotating** failures (different tests each run) — all pass in isolation (13/13, 92/92): pre-existing parallel-load flakiness in the web vitest env, not a regression
+- founder landing-demo UI edits verified (web typecheck + lint + landing/demo tests green)
+
+### Risks / residuals
+
+- Web vitest full-suite flakiness under parallel load (timeouts in heavy jsdom tests like `admin/runtime/page`, `sign-up`, `use-chat` soft-detach). Not introduced here; all pass in isolation. A future hardening slice could lower vitest concurrency or raise per-test timeouts.
+- `MAX_OPEN_MEDIA_JOBS_PER_CHAT=2` remains a global safety bound (per-plan would be a separate product feature: plan field + Prisma migration + admin UI).
+
+### Deploy
+
+- api image required. No Prisma migration. No web/runtime/contract code change in this session's fixes (contract `MAX=10` already landed in the FIX A+B section below).
+
+### Next recommended step
+
+- Founder live smoke on dev for the full-undelivery path (produce a file/image whose delivery drops to zero → confirm the honest notice) once the api image is deployed; optionally schedule the web-vitest flakiness hardening slice.
+
+## 2026-05-31 (cont.) — ADR-105 FIX A+B: count-ceiling split-job fix + partial under-delivery honesty
+
+### What changed this session
+
+- **FIX A — contract cap raised to gpt-image-1 provider limit (`packages/runtime-contract`, `apps/runtime`)**
+  - `MAX_RUNTIME_IMAGE_GENERATE_COUNT` raised `4 → 10` (gpt-image-1 supports `n` up to 10 per call; old `4` caused a 10-image request to split into 3 jobs, violating the "one request = one job" invariant).
+  - `MAX_RUNTIME_IMAGE_EDIT_COUNT = MAX_RUNTIME_IMAGE_GENERATE_COUNT` follows.
+  - Added clarifying comment: "10 is the gpt-image-1 provider batch capability; resolveImageCountCap clamps to min(perTurnCap, 10); with any plan cap ≤ 10, count == perTurnCap and a series runs as ONE job."
+  - **Also fixed `resolveImageCountCap` in `native-tool-projection.ts`**: the function was using `resolveAdvertisedPerTurnCap` (which falls back to `TOOL_HARD_CAP_PER_TURN["image_edit"]=1`, the _call-loop_ cap) when `perTurnCap` is unset. This conflated two independent dimensions: call-loop cap vs per-call image batch size. Fixed to read `policy.perTurnCap` directly, falling back to `hardCap` when unset. `TOOL_HARD_CAP_PER_TURN["image_generate/edit"]=1` correctly governs call iterations; `resolveImageCountCap` governs how many images per call.
+  - `provider-image-generation.service.ts` normalizeEditInput/normalizeGenerateInput validations now accept up to 10 (they use the constant, no literal change needed).
+  - Tests: added `count.maximum` assertions to `native-tool-projection.test.ts` — `perTurnCap=2→max=2`, `perTurnCap unset→max=10` (image_edit fallback), `perTurnCap=10→max=10`. `provider-image-generation.service.test.ts` uses `MAX_RUNTIME_IMAGE_EDIT_COUNT+1` (=11) — still correct.
+
+- **FIX B — honest shortfall line on partial under-delivery (`apps/api`)**
+  - Added `buildPartialDeliveryShortfallLine(produced, requested, locale)` to `final-delivery-honesty.ts`: returns a locale-aware one-line notice when `1 ≤ produced < requested`; returns null for full delivery or zero produced (full-failure paths handle the latter). EN: "Requested N, delivered M — the rest could not be generated." RU: "Запросили N, готово M — остальные не удалось создать."
+  - Wired at both delivery resolution sites in `assistant-media-job-completion-delivery.service.ts`:
+    - **Web path** (after `applyFinalDeliveryHonestyCorrection`): reads N from `extractReservationInfoFromRequestJson`, uses `failureLocale` for locale selection, appends shortfall if `M < N`.
+    - **Telegram path** (after `applyFinalDeliveryHonestyCorrection`): reads N from requestJson, uses `deliveryContext.locale`.
+  - Does NOT fire when M=0 (pre-delivery failure handled elsewhere). Does NOT double-release quota (that was already fixed in the prior session).
+  - Tests added to `assistant-media-job-completion-delivery.service.test.ts` (tests 11–14): EN partial (N=4, M=3, web), RU partial (N=4, M=3, telegram locale=ru), no shortfall on full delivery (M=N), no shortfall on pre-delivery failure (M=0 path).
+
+### Verification
+
+- `@persai/runtime-contract` typecheck PASS
+- `@persai/runtime` typecheck + lint PASS
+- `@persai/api` typecheck + lint PASS
+- `@persai/provider-gateway` typecheck + lint PASS
+- root `format:check` PASS
+- runtime: `native-tool-projection.test.ts` 1/1, `tool-budget-policy.test.ts` 1/1, `runtime-image-generate-tool.service.test.ts` 4/4, `runtime-image-edit-tool.service.test.ts` 5/5
+- provider-gateway: `provider-image-generation.service.test.ts` 1/1, `openai-provider.client.test.ts` 1/1
+- api: `assistant-media-job-completion-delivery.service.test.ts` 15/15 (4 new shortfall tests)
+
+### Stray `4` audit
+
+- Only hardcoded `4` in the generate path was `MAX_RUNTIME_IMAGE_GENERATE_COUNT = 4` in `runtime-contract/src/index.ts`. No other `Math.min(_, 4)` or literal `4` in image tool paths. The existing test comment `// Reserved N=4` in the partial-under-delivery test refers to a COUNT=4 fixture value, not a cap constant — not a stray literal.
+
+### Deploy
+
+- runtime + api images required. No Prisma migration. No web change.
+
+### Next recommended step
+
+- Deploy runtime + api to `persai-dev`. Smoke: (1) request 10 images with perTurnCap=10 — confirm single job, no split; (2) partial under-delivery (provider returns 3 of 4) — confirm shortfall line appears in EN and RU chat; (3) full delivery — confirm no shortfall line.
+
+## 2026-05-31 (cont.) — Delivery honesty: structural truth replaces prose-meaning regex
+
+### What changed this session
+
+- Orchestrator-led (two parallel Sonnet subagents; parent reviewed diffs + ran the integrated gate). No ADR for this stage per founder ("control adr not needed, fill docs at the end").
+- **Root-cause framing:** delivery honesty across all delivery types (media/document/file) was previously "fix the symptom" — trust the model's prose for the *fact* of delivery, then patch false claims with keyword/regex meaning detection. New model: the **UI/system is the single source of the delivery fact**, the model is contractually told never to announce delivery in prose, and downstream correction is **structural-only**.
+- **Runtime (`turn-execution.service.ts`):** added `DELIVERY_HONESTY_CONTRACT` as a `delivery_contract` developer-instruction section present on every turn (no local/internal file links, no attached/sent/uploaded claims; pending = "being prepared, will arrive separately"); fixed stream/sync asymmetry so the stream follow-up now passes `deferredDocumentJobs: turnState.deferredDocumentJobs`; deleted the prose-meaning path `DELIVERY_CLAIM_PATTERNS` / `claimsAttachmentDelivery()` / `applyUndeliveredAttachmentCorrection()` / `buildUndeliveredAttachmentCorrection()`. Structural deferred-acknowledgement corrections kept.
+- **Runtime (`runtime-image-edit-tool.service.ts` + `native-tool-projection.ts`):** removed the last word-parse heuristic `isLikelyAnalysisOnlyPrompt()` + its `edit_intent_not_explicit` branch; sharpened the `image_edit` description (modify-only, never analysis).
+- **API (`final-delivery-honesty.ts`):** `applyFinalDeliveryHonestyCorrection` is now purely structural — strip technical attachment summaries → strip delivered-attachment links → neutralize undelivered phantom local-file links (href removed, text kept) → fall back to localized "file sent" only when empty *and* delivered. Removed `POSITIVE_*_DELIVERY_CLAIM_PATTERNS`, `detectUndeliveredClaimKind`, `buildUndelivered*Correction`, `containsCyrillic`, `UndeliveredClaimKind`. Signature unchanged → no call-site churn.
+
+### Tests / verification
+
+- Integrated gate GREEN: runtime + api typecheck PASS; runtime + api lint PASS; root `format:check` PASS.
+- Focused: runtime deferred-media 4/4, deferred-document 8/8 (incl. new stream-parity test), runtime-image-edit 5/5, native-tool-projection exit 0; api final-delivery-honesty 14 structural assertions (incl. "bare prose claim with no link/attachment left unchanged").
+- Grep-confirmed: all removed prose-meaning symbols absent from `apps/**` src (no dangling references).
+
+### Dead-code cleanup (same session)
+
+- Deleted the dead HTTP media-quota reservation path left over from the single-owner migration: 2 API services (`reserve-internal-runtime-monthly-media-quota.service.ts`, `mutate-internal-runtime-monthly-media-quota.service.ts`), the 3 `media-monthly/{reserve,release,reconcile}` controller routes + injections, the 2 module providers, and the 3 dead worker-client methods + unused type/helper. Verify-then-delete (grep proved zero src callers; live repository path untouched). Live single-owner path proven intact (scheduler 10/10, completion-delivery 11/11, enqueue + quota-accounting green).
+
+### Honest residual re-assessment (corrected)
+
+- `count` ceiling `=4` is NOT a stray hardcode — `resolveImageCountCap` already returns `min(perTurnCap, MAX_RUNTIME_IMAGE_GENERATE_COUNT)` (plan-clamped, ADR-074 L1.1); `4` is an absolute safety rail like every other tool's `MAX_*` guard. Retracted.
+- `MAX_OPEN_MEDIA_JOBS_PER_CHAT=2` is a defensible global safety bound and the concurrency rejection is already honest/structured (`media_job_concurrency_limit`). Making it per-plan is a separate product feature (new plan field + Prisma migration + admin UI), NOT a cleanup — intentionally deferred.
+- Behavior change (delivery honesty): a bare prose claim with no link and no delivered attachment (e.g. "Your image is ready.") is left untouched downstream; the `delivery_contract` instruction prevents the false announcement upstream and there is intentionally no regex backstop.
+- `assistant_not_found` in `failJob` cannot resolve the period to release its reservation → kept as a loud log for manual reconciliation (rare; separate non-cleanup task).
+- Genuine provider under-delivery: quota fully resolved; only the user-facing under-count copy remains deferred (not a leak).
+
+### Deploy
+
+- runtime + api images required. No Prisma migration. No web change (web already renders delivered files structurally from attachments).
+
+### Next recommended step
+
+- Deploy runtime + api to `persai-dev` and live-smoke delivery honesty: (1) pending document/media → model says only "being prepared", file arrives separately, no phantom link; (2) delivered file → UI renders attachment, prose has no local-file link; (3) confirm the model no longer writes `sandbox:`/`attachment://` links in normal replies.
+
+## 2026-05-31 (cont.) — ADR-105 implementation: Slices 1–6 + single-owner media quota
+
+### What changed this session
+
+- Executed ADR-105 Slices 1–6 as an orchestrator-led program (parent reviewed each slice; coding done by subagents).
+- **Contract (Slice 1):** media accepted results unified on `action:"pending_delivery"` (`canSendFileNow:false`, `messageToUser`, `expectedResultCount`); `image_edit.count` added; open-job/summary context carries `requestedCount`/`expectedResultCount`.
+- **Runtime (Slices 2–3):** tool projection describes media `perTurnCap` as total result units, exposes `image_edit.count`; `tool-budget-policy` is unit-aware (`reserve(requestedUnits)`, rejects oversized request as a whole, no split); `turn-execution` tracks `hadRejectedMediaRequest` so mixed accepted+rejected media outcomes are not overwritten by the blanket pending correction; three media tool services emit `pending_delivery`.
+- **API (Slice 4):** monthly media-quota reservation moved to enqueue admission (unit-aware, compensating release on insert failure); explicit structured `media_job_concurrency_limit` rejection for the third open job; open-job context populates count fields.
+- **Single-owner correction (Slice 5):** found that the monthly counter is aggregate per `(workspace,tool,period)`, so worker-side releases + enqueue reservation could cross-corrupt a concurrent job's reserved units. Removed ALL worker-side quota releases (worker now has zero monthly-media-quota call sites); the API now owns single-owner resolution — scheduler `failJob` releases full `N` once on every terminal failure, completion `failDelivery` reconciles `N` once for pre-delivery-loop failures (guarded against post-`deliver()` double-count), delivery loop still settles/reconciles per artifact.
+- **Follow-up (media description de-bloat + word-parse removal):** optimized media tool descriptions in `native-tool-projection.ts` (each fact once across main desc / cap hint / count param; cap hint no longer mentions `count=N`, fixing the video case); removed the hardcoded prompt word-parse heuristic in `runtime-image-edit-tool.service.ts` (`SECOND_IMAGE_REFERENCE_PROMPT_MARKERS` + `inferReferenceGuidedSelection`) in favor of the structural `referenceImageAlias`. Behavior change: 2-image reference edits now need an explicit `referenceImageAlias`. Left as documented follow-ups: `isLikelyAnalysisOnlyPrompt`/`DELIVERY_CLAIM_PATTERNS` keyword/regex guards and making `MAX_OPEN_MEDIA_JOBS_PER_CHAT=2` plan-driven.
+- **Follow-up (`image_edit.count` end-to-end + partial-leak closure):** found `image_edit(count=N)` was reserving `N` but the provider returned 1 (gateway `normalizeEditInput` dropped `count`; OpenAI `editImage` omitted `n`; prompt forced single output). Fixed all three (validate+forward `count`, send `n: input.count`, count-conditional prompt with no content hardcode) and closed the resulting partial-under-delivery leak: completion `releaseUnproducedRemainderBestEffort` releases `N−M` (never-produced) exactly once after the delivery loop. `image_edit.count` is now genuinely end-to-end.
+
+### Tests / verification
+
+- Repo gate GREEN: recursive lint PASS, root `format:check` PASS, runtime/api/web typecheck PASS.
+- Focused: runtime image-generate 4/4, image-edit 3/3, video pass, turn-execution + tool-budget-policy pass; API media-job-scheduler 10/10, completion-delivery 8/8, enqueue + open-context pass.
+
+### Risks / residuals
+
+- `assistant_not_found` in `failJob` cannot release its reservation (no `Assistant` to resolve period) → logged for workspace-level reconciliation. Rare.
+- Genuine provider under-delivery (`M<N` produced): quota side is now fully resolved (completion releases the never-produced `N−M` once). Only the user-facing under-count framing (telling the user fewer than requested were produced) remains deferred per ADR-105 Non-goals — copy-only, not a quota leak.
+- Unused `reserve/release/markReconciliation` methods remain on `persai-internal-api.client.service.ts` (worker client) + their internal endpoint — safe to delete in a later cleanup slice; left untouched to keep this program bounded.
+
+### Deploy
+
+- runtime + api + provider-gateway images required for ADR-105 behavior to take effect (provider-gateway for `image_edit` `n`/count). No Prisma migration. No web change.
+
+### Next recommended step
+
+- Deploy runtime + api to `persai-dev` and run a focused live smoke: (1) `image_generate count=4` under a cap of 4 → single pending job, honest pending copy, delivered later; (2) request exceeding the cap → explicit honest rejection (no silent trim); (3) third concurrent media job in one chat → explicit concurrency rejection; (4) a forced failure path → confirm reserved units are released (quota not leaked). Optionally schedule the client-method cleanup slice.
+
+## 2026-05-31 — ADR-105: media job truth and orchestrated cleanup
+
+### Baseline
+
+- Followed the founder correction from the prior session: **audit first, then ADR, then code**.
+- This session was **docs/orchestrator only**. Reviewed the completed audit findings for runtime media path, API media jobs, and media contracts/docs before writing any new architecture guidance.
+- Existing unrelated runtime worktree edits remained present at session start and were left untouched.
+
+### What changed this session
+
+1. **ADR-105 created and accepted.** It is now the source of truth for clean PROD media behavior on top of ADR-086/ADR-082.
+2. The ADR locks the core product/runtime rules:
+   - one structured media request = one durable media job,
+   - media `perTurnCap` means total result units, not tool calls,
+   - no silent split and no silent trim of oversized requests,
+   - explicit rejection for the third open media job in a chat,
+   - media accepted state converges on document-style `pending_delivery`,
+   - `image_edit.count` is target-state truth only when wired end to end,
+   - async quota admission must become unit-aware at enqueue while keeping ADR-082 delivery-confirmed settlement.
+3. The ADR also defines the bounded orchestrator rollout:
+   - Slice 1: contract unification,
+   - Slice 2: runtime projection + unit-aware budgeting,
+   - Slice 3: runtime media tool normalization,
+   - Slice 4: API enqueue/reservation/queue truth,
+   - Slice 5: scheduler/completion honesty,
+   - Slice 6: docs + verification closeout.
+4. `CHANGELOG.md` updated to record ADR-105 as a docs-only planning/source-of-truth slice.
+
+### Audit findings captured by ADR-105
+
+- Media still exposes model-visible `action="deferred"` while documents already use `pending_delivery`.
+- Media per-turn budgeting is not consistently count-aware; schema and runtime truth diverge.
+- `image_edit` lacks explicit product-level `count` despite active provider support.
+- Queue/concurrency rejection and mixed accepted/rejected media outcomes are not surfaced cleanly enough to the model.
+- Async quota admission is not yet fully unit-aware at enqueue time.
+
+### Tests / verification
+
+- Docs-only slice; no runtime/API/web code changed.
+- No repo verification gate run because there was no product code change in this session.
+
+### Risks / residuals
+
+- ADR-105 is planning truth only until implementation slices land.
+- The current runtime/API behavior still reflects the pre-ADR-105 gaps until Slice 1+ are executed.
+- Existing unrelated worktree changes were intentionally not touched.
+
+### Next recommended step
+
+- Start **ADR-105 Slice 1 — contract unification** as one bounded implementation session:
+  `packages/runtime-contract/src/index.ts` first, then generated contracts if needed.
+- After Slice 1 lands, continue with Slice 2 (runtime projection + unit-aware budgeting) before touching enqueue/scheduler behavior.
+
 ## 2026-05-30 — ADR-103 Slice A: one-flow interactive landing demo (frontend, stubbed)
 
 ### Baseline

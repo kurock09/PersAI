@@ -108,6 +108,11 @@ async function advanceToAutoplay() {
   await tick(600); // fire AUTOPLAY_START → autoplay
 }
 
+async function openLaunchPlanFlow() {
+  await advanceToAutoplay();
+  fireEvent.click(screen.getByRole("button", { name: "Launch plan" }));
+}
+
 /* ------------------------------------------------------------------ */
 /* Test suite                                                            */
 /* ------------------------------------------------------------------ */
@@ -138,14 +143,18 @@ describe("HeroDemo", () => {
     expect(screen.getByText(/project, documents, and working style/i)).toBeInTheDocument();
   });
 
-  it("trailer disappears and greeting is accessible once autoplay starts", async () => {
+  it("opens the marketplace carousel after the create trailer", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
     await advanceToAutoplay();
 
-    // Trailer overlay should be gone (exit animation is mocked instantly by framer-motion).
-    // The initial greeting remains visible.
-    expect(screen.getByText(/project, documents, and working style/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Setting up Aurora/i)).not.toBeInTheDocument();
+    expect(screen.getByAltText("Reference photo")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Turn this photo into an Instagram carousel to sell these sneakers, price $120"
+      )
+    ).toBeInTheDocument();
   });
 
   /* ---------------------------------------------------------------- */
@@ -155,7 +164,7 @@ describe("HeroDemo", () => {
   it("shows the pause label on the control while autoplay is running", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
-    await advanceToAutoplay();
+    await openLaunchPlanFlow();
 
     // en.json landing.demo.pauseLabel = "Pause demo"
     expect(screen.getByRole("button", { name: "Pause demo" })).toBeInTheDocument();
@@ -164,7 +173,7 @@ describe("HeroDemo", () => {
   it("shows suggested prompt chips once autoplay has started", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
-    await advanceToAutoplay();
+    await openLaunchPlanFlow();
 
     expect(screen.getByRole("button", { name: "Summarize this PDF" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remember my preferences" })).toBeInTheDocument();
@@ -173,19 +182,19 @@ describe("HeroDemo", () => {
   it("auto-types the first user turn into the composer and commits it as a user bubble", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
-    await advanceToAutoplay();
+    await openLaunchPlanFlow();
     await tick(DEMO_LIMITS.autoTypeStartDelayMs);
     await tick(DEMO_LIMITS.autoTypeSubmitDelayMs + 50);
 
     expect(
-      screen.getByText("Turn this PDF into a short Q3 leadership update and slides.")
+      screen.getByText("Turn this PDF into a short launch plan for leadership and slides.")
     ).toBeInTheDocument();
   });
 
   it("assistant text streams to completion after the user turn commits", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
-    await advanceToAutoplay();
+    await openLaunchPlanFlow();
     await tick(DEMO_LIMITS.autoTypeStartDelayMs);
     await tick(DEMO_LIMITS.autoTypeSubmitDelayMs + 50);
     await tick(DEMO_LIMITS.thinkingMs + 50);
@@ -196,7 +205,7 @@ describe("HeroDemo", () => {
   it("appends a user bubble on composer submit (visitor takeover) and shows stub reply", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
-    await advanceToAutoplay();
+    await openLaunchPlanFlow();
 
     const input = screen.getByRole("textbox");
     fireEvent.focus(input);
@@ -214,7 +223,7 @@ describe("HeroDemo", () => {
   it("clicking a suggested prompt chip sends the prompt and triggers a stub reply", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
-    await advanceToAutoplay();
+    await openLaunchPlanFlow();
 
     const chip = screen.getByRole("button", { name: "Remember my preferences" });
     fireEvent.click(chip);
@@ -229,7 +238,7 @@ describe("HeroDemo", () => {
   it("disables the composer input while thinking", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
-    await advanceToAutoplay();
+    await openLaunchPlanFlow();
 
     const input = screen.getByRole("textbox");
     fireEvent.focus(input);
@@ -242,7 +251,7 @@ describe("HeroDemo", () => {
   it("shows the replay label after a visitor takeover exchange completes", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
-    await advanceToAutoplay();
+    await openLaunchPlanFlow();
 
     const input = screen.getByRole("textbox");
     fireEvent.focus(input);
@@ -257,7 +266,7 @@ describe("HeroDemo", () => {
   it("shows the limit CTA after 3 takeover replies", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
-    await advanceToAutoplay();
+    await openLaunchPlanFlow();
 
     const input = screen.getByRole("textbox");
 
@@ -282,18 +291,20 @@ describe("HeroDemo", () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
     // All three chats rendered (using en.json sidebar keys)
-    expect(screen.getByRole("button", { name: "Q3 Strategy review" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Launch plan" })).toBeInTheDocument();
+    // c2 = marketplace carousel (new)
+    expect(screen.getByRole("button", { name: "Sales carousel" })).toBeInTheDocument();
+    // c3 = media chat (moved from c2)
     expect(screen.getByRole("button", { name: "Make me a cartoon" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "New chat" })).toBeInTheDocument();
   });
 
-  it("clicking the media row shows static media thread content", async () => {
+  it("clicking the media row (c3) shows static media thread content", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
     const mediaBtn = screen.getByRole("button", { name: "Make me a cartoon" });
     fireEvent.click(mediaBtn);
 
-    // Static thread content for c2
+    // Static thread content for c3 (media chat moved from c2)
     expect(screen.getByText(/Make me look like a cartoon/i)).toBeInTheDocument();
     expect(screen.getByText(/cartoon version is here/i)).toBeInTheDocument();
     expect(screen.getByAltText("Original photo")).toBeInTheDocument();
@@ -318,17 +329,30 @@ describe("HeroDemo", () => {
     fireEvent.click(screen.getByRole("button", { name: "Make me a cartoon" }));
     expect(screen.getByText(/Make me look like a cartoon/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Q3 Strategy review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Launch plan" }));
     // Live thread initial greeting is visible again
     expect(screen.getByText(/project, documents, and working style/i)).toBeInTheDocument();
   });
 
-  it("clicking New chat shows empty state hint", async () => {
+  it("clicking marketplace chat (c2) shows carousel sequence", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
-    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sales carousel" }));
 
-    expect(screen.getByText(/Start a conversation with Aurora/i)).toBeInTheDocument();
+    // In test env, useStagedDemoReveal immediately shows all 6 items
+    expect(screen.getByAltText("Reference photo")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Turn this photo into an Instagram carousel to sell these sneakers, price $120"
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("On it — building a sales carousel from your reference.")
+    ).toBeInTheDocument();
+    // Slide cards
+    expect(screen.getByAltText("Product cover slide")).toBeInTheDocument();
+    expect(screen.getByAltText("Materials and features slide")).toBeInTheDocument();
+    expect(screen.getByAltText("Social proof slide")).toBeInTheDocument();
   });
 
   it("allows typing into media chat without mutating the primary thread", async () => {
@@ -343,21 +367,24 @@ describe("HeroDemo", () => {
     expect(screen.getByText("add a gym block")).toBeInTheDocument();
     expect(input).toHaveValue("");
 
-    fireEvent.click(screen.getByRole("button", { name: "Q3 Strategy review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Launch plan" }));
     expect(screen.queryByText("add a gym block")).not.toBeInTheDocument();
   });
 
-  it("allows typing into New chat and replaces the empty state", async () => {
+  it("allows typing into marketplace chat without mutating the primary thread", async () => {
     render(<HeroDemo />, { wrapper: Wrapper });
 
-    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sales carousel" }));
 
     const input = screen.getByRole("textbox");
-    fireEvent.change(input, { target: { value: "hello Aurora" } });
+    fireEvent.change(input, { target: { value: "add a bio slide" } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter", shiftKey: false });
 
-    expect(screen.getByText("hello Aurora")).toBeInTheDocument();
-    expect(screen.queryByText(/Start a conversation with Aurora/i)).not.toBeInTheDocument();
+    expect(screen.getByText("add a bio slide")).toBeInTheDocument();
+    expect(input).toHaveValue("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Launch plan" }));
+    expect(screen.queryByText("add a bio slide")).not.toBeInTheDocument();
   });
 
   /* ---------------------------------------------------------------- */

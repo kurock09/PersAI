@@ -301,10 +301,15 @@ export class RuntimeVideoGenerateToolService {
             referenceFilename: selection.referenceFilename,
             artifact: null,
             usage: null,
-            action: "deferred",
+            action: "pending_delivery",
             reason: null,
             warning: null,
-            jobId: enqueueOutcome.jobId
+            jobId: enqueueOutcome.jobId,
+            canSendFileNow: false,
+            messageToUser:
+              "Accepted. The video cannot be attached in this reply; it is being prepared and will be delivered in a separate message when ready.",
+            requestedCount: 1,
+            expectedResultCount: 1
           },
           artifacts: [],
           isError: false
@@ -338,35 +343,13 @@ export class RuntimeVideoGenerateToolService {
     }
 
     try {
-      const quotaOutcome = await this.persaiInternalApiClientService.reserveMonthlyMediaQuota({
-        assistantId: params.bundle.metadata.assistantId,
-        toolCode: VIDEO_GENERATE_TOOL_CODE,
-        units: 1
-      });
-      if (!quotaOutcome.allowed) {
-        return {
-          payload: {
-            toolCode: VIDEO_GENERATE_TOOL_CODE,
-            executionMode: "worker",
-            provider: providerId,
-            model: null,
-            prompt: request.prompt,
-            requestedSeconds: request.seconds,
-            size: request.size,
-            referenceImageAlias: selection.referenceImageAlias,
-            referenceFilename: selection.referenceFilename,
-            artifact: null,
-            usage: null,
-            action: "skipped",
-            reason: quotaOutcome.code,
-            warning: quotaOutcome.message,
-            ...(quotaOutcome.guidance === null ? {} : { guidance: quotaOutcome.guidance })
-          },
-          artifacts: [],
-          isError: false
-        };
-      }
-
+      // ADR-105 §5 (single-owner reservation) — the worker NEVER touches the
+      // monthly media quota. The enqueue admission seam
+      // (`EnqueueRuntimeDeferredMediaJobService`) reserves the unit exactly
+      // once, and the API layer resolves that reservation exactly once at the
+      // job's terminal transition (scheduler `failJob` releases on failure; the
+      // API delivery loop settles delivered / reconciles undelivered units per
+      // ADR-082). The worker performs no reserve and no release.
       const providerResult = await this.providerGatewayClientService.generateVideo(
         {
           prompt: request.prompt,
@@ -423,9 +406,6 @@ export class RuntimeVideoGenerateToolService {
         isError: false
       };
     } catch (error) {
-      await this.releaseMonthlyMediaQuotaReservationBestEffort({
-        assistantId: params.bundle.metadata.assistantId
-      });
       this.logger.warn(
         `[video-generate] failed requestId=${params.requestId} referenceAlias="${
           selection.referenceImageAlias ?? "none"
@@ -734,24 +714,6 @@ export class RuntimeVideoGenerateToolService {
       voiceNote: false,
       billingFacts: input.billingFacts ?? null
     };
-  }
-
-  private async releaseMonthlyMediaQuotaReservationBestEffort(input: {
-    assistantId: string;
-  }): Promise<void> {
-    try {
-      await this.persaiInternalApiClientService.releaseMonthlyMediaQuota({
-        assistantId: input.assistantId,
-        toolCode: VIDEO_GENERATE_TOOL_CODE,
-        units: 1
-      });
-    } catch (error) {
-      this.logger.warn(
-        `[video-generate] failed to release monthly media quota reservation: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
   }
 
   private resolveWorkerTimeoutMs(bundle: AssistantRuntimeBundle): number {

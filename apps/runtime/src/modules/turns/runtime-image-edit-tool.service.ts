@@ -5,6 +5,8 @@ import type {
   AssistantRuntimeBundleToolCredentialRef
 } from "@persai/runtime-bundle";
 import {
+  MAX_RUNTIME_IMAGE_EDIT_COUNT,
+  MIN_RUNTIME_IMAGE_EDIT_COUNT,
   PERSAI_RUNTIME_IMAGE_BACKGROUNDS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
@@ -36,29 +38,6 @@ import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-re
 const IMAGE_EDIT_TOOL_CODE = "image_edit" as const;
 const DEFAULT_IMAGE_EDIT_TIMEOUT_MS = 300_000;
 const SUPPORTED_IMAGE_EDIT_INPUT_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-const SECOND_IMAGE_REFERENCE_PROMPT_MARKERS = [
-  "second image",
-  "second photo",
-  "2nd image",
-  "2nd photo",
-  "image #2",
-  "photo #2",
-  "как на втором фото",
-  "как на второй картинке",
-  "как на втором",
-  "второе фото",
-  "вторая картинка",
-  "второй картинке",
-  "со второго фото",
-  "из второго фото",
-  "reference image",
-  "reference photo",
-  "референс",
-  "по рефу",
-  "как реф",
-  "как на рефе",
-  "по референсу"
-] as const;
 
 type ResolvedImageEditSelection =
   | {
@@ -122,6 +101,7 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: null,
           revisedPrompt: null,
+          requestedCount: null,
           sourceImageAlias: null,
           referenceImageAlias: null,
           sourceFilename: null,
@@ -138,32 +118,6 @@ export class RuntimeImageEditToolService {
       };
     }
 
-    if (this.isLikelyAnalysisOnlyPrompt(request.prompt)) {
-      return {
-        payload: {
-          toolCode: IMAGE_EDIT_TOOL_CODE,
-          executionMode: "worker",
-          provider: null,
-          model: null,
-          prompt: request.prompt,
-          revisedPrompt: null,
-          sourceImageAlias: request.sourceImageAlias,
-          referenceImageAlias: request.referenceImageAlias,
-          sourceFilename: null,
-          referenceFilename: null,
-          size: request.size,
-          artifacts: [],
-          usage: null,
-          action: "skipped",
-          reason: "edit_intent_not_explicit",
-          warning:
-            "image_edit only runs when the user explicitly asks to modify an image, not for image description or problem solving."
-        },
-        artifacts: [],
-        isError: false
-      };
-    }
-
     const policy = this.resolveAllowedWorkerToolPolicy(params.bundle, IMAGE_EDIT_TOOL_CODE);
     if (policy === null) {
       return {
@@ -174,6 +128,7 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: request.prompt,
           revisedPrompt: null,
+          requestedCount: request.count,
           sourceImageAlias: request.sourceImageAlias,
           referenceImageAlias: request.referenceImageAlias,
           sourceFilename: null,
@@ -200,6 +155,7 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: request.prompt,
           revisedPrompt: null,
+          requestedCount: request.count,
           sourceImageAlias: request.sourceImageAlias,
           referenceImageAlias: request.referenceImageAlias,
           sourceFilename: null,
@@ -226,6 +182,7 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: request.prompt,
           revisedPrompt: null,
+          requestedCount: request.count,
           sourceImageAlias: request.sourceImageAlias,
           referenceImageAlias: request.referenceImageAlias,
           sourceFilename: null,
@@ -259,6 +216,7 @@ export class RuntimeImageEditToolService {
           model: this.resolveToolModelKey(credential),
           prompt: request.prompt,
           revisedPrompt: null,
+          requestedCount: request.count,
           sourceImageAlias: request.sourceImageAlias,
           referenceImageAlias: request.referenceImageAlias,
           sourceFilename: null,
@@ -285,6 +243,7 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: request.prompt,
           revisedPrompt: null,
+          requestedCount: request.count,
           sourceImageAlias: request.sourceImageAlias,
           referenceImageAlias: request.referenceImageAlias,
           sourceFilename: null,
@@ -322,6 +281,7 @@ export class RuntimeImageEditToolService {
               model: this.resolveToolModelKey(credential),
               prompt: request.prompt,
               revisedPrompt: null,
+              requestedCount: request.count,
               sourceImageAlias: selection.sourceImageAlias,
               referenceImageAlias: selection.referenceImageAlias,
               sourceFilename: selection.sourceFilename,
@@ -347,6 +307,7 @@ export class RuntimeImageEditToolService {
             model: this.resolveToolModelKey(credential),
             prompt: request.prompt,
             revisedPrompt: null,
+            requestedCount: request.count,
             sourceImageAlias: selection.sourceImageAlias,
             referenceImageAlias: selection.referenceImageAlias,
             sourceFilename: selection.sourceFilename,
@@ -354,10 +315,13 @@ export class RuntimeImageEditToolService {
             size: request.size,
             artifacts: [],
             usage: null,
-            action: "deferred",
+            action: "pending_delivery",
             reason: null,
             warning: null,
-            jobId: enqueueOutcome.jobId
+            jobId: enqueueOutcome.jobId,
+            canSendFileNow: false,
+            messageToUser: this.buildPendingDeliveryMessageToUser(request.count),
+            expectedResultCount: request.count
           },
           artifacts: [],
           isError: false
@@ -371,6 +335,7 @@ export class RuntimeImageEditToolService {
             model: null,
             prompt: request.prompt,
             revisedPrompt: null,
+            requestedCount: request.count,
             sourceImageAlias: selection.sourceImageAlias,
             referenceImageAlias: selection.referenceImageAlias,
             sourceFilename: selection.sourceFilename,
@@ -391,40 +356,17 @@ export class RuntimeImageEditToolService {
     }
 
     try {
-      const quotaOutcome = await this.persaiInternalApiClientService.reserveMonthlyMediaQuota({
-        assistantId: params.bundle.metadata.assistantId,
-        toolCode: IMAGE_EDIT_TOOL_CODE,
-        units: 1
-      });
-      if (!quotaOutcome.allowed) {
-        return {
-          payload: {
-            toolCode: IMAGE_EDIT_TOOL_CODE,
-            executionMode: "worker",
-            provider: providerId,
-            model: null,
-            prompt: request.prompt,
-            revisedPrompt: null,
-            sourceImageAlias: selection.sourceImageAlias,
-            referenceImageAlias: selection.referenceImageAlias,
-            sourceFilename: selection.sourceFilename,
-            referenceFilename: selection.referenceFilename,
-            size: request.size,
-            artifacts: [],
-            usage: null,
-            action: "skipped",
-            reason: quotaOutcome.code,
-            warning: quotaOutcome.message,
-            ...(quotaOutcome.guidance === null ? {} : { guidance: quotaOutcome.guidance })
-          },
-          artifacts: [],
-          isError: false
-        };
-      }
-
+      // ADR-105 §5 (single-owner reservation) — the worker NEVER touches the
+      // monthly media quota. The enqueue admission seam
+      // (`EnqueueRuntimeDeferredMediaJobService`) reserves the units exactly
+      // once, and the API layer resolves that reservation exactly once at the
+      // job's terminal transition (scheduler `failJob` releases on failure; the
+      // API delivery loop settles delivered / reconciles undelivered units per
+      // ADR-082). The worker performs no reserve and no release.
       const timeoutMs = this.resolveWorkerTimeoutMs(params.bundle);
       const baseProviderRequest = {
         model: modelSelection.model,
+        count: request.count,
         size: request.size,
         background: request.background,
         sourceImage: selection.sourceImage,
@@ -469,6 +411,7 @@ export class RuntimeImageEditToolService {
               model: modelSelection.model,
               prompt: request.prompt,
               revisedPrompt: null,
+              requestedCount: request.count,
               sourceImageAlias: selection.sourceImageAlias,
               referenceImageAlias: selection.referenceImageAlias,
               sourceFilename: selection.sourceFilename,
@@ -505,6 +448,7 @@ export class RuntimeImageEditToolService {
               model: modelSelection.model,
               prompt: request.prompt,
               revisedPrompt: effectivePrompt,
+              requestedCount: request.count,
               sourceImageAlias: selection.sourceImageAlias,
               referenceImageAlias: selection.referenceImageAlias,
               sourceFilename: selection.sourceFilename,
@@ -544,9 +488,6 @@ export class RuntimeImageEditToolService {
         )
       );
       if (artifacts.length === 0) {
-        await this.releaseMonthlyMediaQuotaReservationBestEffort({
-          assistantId: params.bundle.metadata.assistantId
-        });
         return {
           payload: {
             toolCode: "image_edit",
@@ -555,6 +496,7 @@ export class RuntimeImageEditToolService {
             model: providerResult.model,
             prompt: request.prompt,
             revisedPrompt: null,
+            requestedCount: request.count,
             sourceImageAlias: selection.sourceImageAlias,
             referenceImageAlias: selection.referenceImageAlias,
             sourceFilename: selection.sourceFilename,
@@ -589,6 +531,7 @@ export class RuntimeImageEditToolService {
           model: providerResult.model,
           prompt: request.prompt,
           revisedPrompt,
+          requestedCount: request.count,
           sourceImageAlias: selection.sourceImageAlias,
           referenceImageAlias: selection.referenceImageAlias,
           sourceFilename: selection.sourceFilename,
@@ -598,19 +541,19 @@ export class RuntimeImageEditToolService {
           usage: providerResult.usage,
           action: "generated",
           reason: null,
-          warning: this.mergeWarnings(
-            modelSelection.warning,
-            safetyRetryWarning,
-            providerResult.warning
-          )
+          warning:
+            providerResult.images.length === request.count
+              ? this.mergeWarnings(
+                  modelSelection.warning,
+                  safetyRetryWarning,
+                  providerResult.warning
+                )
+              : `Requested ${String(request.count)} image(s), received ${String(providerResult.images.length)}.`
         },
         artifacts,
         isError: false
       };
     } catch (error) {
-      await this.releaseMonthlyMediaQuotaReservationBestEffort({
-        assistantId: params.bundle.metadata.assistantId
-      });
       this.logger.warn(
         `[image-edit] failed requestId=${params.requestId} sourceAlias="${selection.sourceImageAlias}" referenceAlias="${
           selection.referenceImageAlias ?? "none"
@@ -624,6 +567,7 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: request.prompt,
           revisedPrompt: null,
+          requestedCount: request.count,
           sourceImageAlias: selection.sourceImageAlias,
           referenceImageAlias: selection.referenceImageAlias,
           sourceFilename: selection.sourceFilename,
@@ -641,11 +585,22 @@ export class RuntimeImageEditToolService {
     }
   }
 
+  /**
+   * ADR-105 — model-facing hint for an accepted async image-edit job. States
+   * the edited image is not in hand yet (`canSendFileNow: false`) and arrives
+   * in a separate delivery, so the model does not falsely claim attachment.
+   */
+  private buildPendingDeliveryMessageToUser(count: number): string {
+    const noun = count > 1 ? `${String(count)} edited images` : "edited image";
+    return `Accepted. The ${noun} cannot be attached in this reply; it is being prepared and will be delivered in a separate message when ready.`;
+  }
+
   private readImageEditArguments(args: Record<string, unknown>): RuntimeImageEditRequest | Error {
     const unknownKeys = Object.keys(args).filter(
       (key) =>
         key !== "toolCode" &&
         key !== "prompt" &&
+        key !== "count" &&
         key !== "filename" &&
         key !== "size" &&
         key !== "background" &&
@@ -661,6 +616,20 @@ export class RuntimeImageEditToolService {
     const prompt = this.asNonEmptyString(args.prompt);
     if (prompt === null) {
       return new Error("prompt must be a non-empty string");
+    }
+
+    const count =
+      args.count === undefined || args.count === null
+        ? 1
+        : Number.isInteger(args.count) &&
+            Number(args.count) >= MIN_RUNTIME_IMAGE_EDIT_COUNT &&
+            Number(args.count) <= MAX_RUNTIME_IMAGE_EDIT_COUNT
+          ? Number(args.count)
+          : null;
+    if (count === null) {
+      return new Error(
+        `count must be an integer between ${String(MIN_RUNTIME_IMAGE_EDIT_COUNT)} and ${String(MAX_RUNTIME_IMAGE_EDIT_COUNT)}`
+      );
     }
 
     const filename =
@@ -719,6 +688,7 @@ export class RuntimeImageEditToolService {
     return {
       toolCode: "image_edit",
       prompt,
+      count,
       filename,
       size,
       background,
@@ -741,18 +711,8 @@ export class RuntimeImageEditToolService {
       };
     }
 
-    const inferredSelection =
-      request.sourceImageAlias === null || request.referenceImageAlias === null
-        ? this.inferReferenceGuidedSelection(imageAttachments, request)
-        : null;
-    if (inferredSelection !== null) {
-      this.logger.log(
-        `[image-edit] inferred source/reference from prompt sourceAlias="${inferredSelection.sourceImageAlias}" referenceAlias="${inferredSelection.referenceImageAlias}"`
-      );
-    }
-    const sourceImageAlias = inferredSelection?.sourceImageAlias ?? request.sourceImageAlias;
-    const referenceImageAlias =
-      inferredSelection?.referenceImageAlias ?? request.referenceImageAlias;
+    const sourceImageAlias = request.sourceImageAlias;
+    const referenceImageAlias = request.referenceImageAlias;
 
     if (imageAttachments.length > 1 && sourceImageAlias === null) {
       return {
@@ -830,51 +790,6 @@ export class RuntimeImageEditToolService {
       sourceFilename: sourceAttachment.filename,
       referenceFilename: referenceAttachment?.filename ?? null
     };
-  }
-
-  private inferReferenceGuidedSelection(
-    imageAttachments: RuntimeAttachmentRef[],
-    request: RuntimeImageEditRequest
-  ): { sourceImageAlias: string; referenceImageAlias: string } | null {
-    if (imageAttachments.length !== 2) {
-      return null;
-    }
-    const firstAlias = this.resolvePrimaryAttachmentAlias(imageAttachments[0]!);
-    const secondAlias = this.resolvePrimaryAttachmentAlias(imageAttachments[1]!);
-    const normalizedPrompt = request.prompt.trim().toLowerCase();
-    const mentionsSecondImageAsReference = SECOND_IMAGE_REFERENCE_PROMPT_MARKERS.some((marker) =>
-      normalizedPrompt.includes(marker)
-    );
-    if (!mentionsSecondImageAsReference) {
-      return null;
-    }
-    if (request.sourceImageAlias === null && request.referenceImageAlias === null) {
-      return {
-        sourceImageAlias: firstAlias,
-        referenceImageAlias: secondAlias
-      };
-    }
-    if (
-      request.sourceImageAlias !== null &&
-      this.normalizeAlias(request.sourceImageAlias) === this.normalizeAlias(firstAlias) &&
-      request.referenceImageAlias === null
-    ) {
-      return {
-        sourceImageAlias: firstAlias,
-        referenceImageAlias: secondAlias
-      };
-    }
-    if (
-      request.sourceImageAlias === null &&
-      request.referenceImageAlias !== null &&
-      this.normalizeAlias(request.referenceImageAlias) === this.normalizeAlias(secondAlias)
-    ) {
-      return {
-        sourceImageAlias: firstAlias,
-        referenceImageAlias: secondAlias
-      };
-    }
-    return null;
   }
 
   private async loadSelectedImage(
@@ -1003,24 +918,6 @@ export class RuntimeImageEditToolService {
       voiceNote: false,
       billingFacts: input.billingFacts ?? null
     };
-  }
-
-  private async releaseMonthlyMediaQuotaReservationBestEffort(input: {
-    assistantId: string;
-  }): Promise<void> {
-    try {
-      await this.persaiInternalApiClientService.releaseMonthlyMediaQuota({
-        assistantId: input.assistantId,
-        toolCode: IMAGE_EDIT_TOOL_CODE,
-        units: 1
-      });
-    } catch (error) {
-      this.logger.warn(
-        `[image-edit] failed to release monthly media quota reservation: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
   }
 
   private resolveAllowedWorkerToolPolicy(
@@ -1152,29 +1049,5 @@ export class RuntimeImageEditToolService {
 
   private normalizeAlias(value: string): string {
     return value.trim().toLowerCase();
-  }
-
-  private isLikelyAnalysisOnlyPrompt(prompt: string): boolean {
-    const normalized = prompt.trim().toLowerCase();
-    const analysisMarkers = [
-      "what do you see",
-      "what is in this image",
-      "describe this image",
-      "describe the image",
-      "analyze this image",
-      "solve the task",
-      "solve this task",
-      "read the text",
-      "extract the text",
-      "ocr",
-      "что ты видишь",
-      "что изображено",
-      "опиши",
-      "проанализируй",
-      "реши задачу",
-      "прочитай текст",
-      "извлеки текст"
-    ];
-    return analysisMarkers.some((marker) => normalized.includes(marker));
   }
 }

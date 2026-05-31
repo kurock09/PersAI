@@ -20,33 +20,6 @@ async function run(): Promise<void> {
     } as never,
     {
       parseInput(body: unknown) {
-        return body as { assistantId: string; toolCode: string; units: number };
-      },
-      async execute() {
-        return {
-          ok: true,
-          allowed: true,
-          currentUsedUnits: 1,
-          limitUnits: 10,
-          periodStartedAt: "2026-05-01T00:00:00.000Z",
-          periodEndsAt: "2026-06-01T00:00:00.000Z",
-          periodSource: "subscription_period"
-        };
-      }
-    } as never,
-    {
-      parseInput(body: unknown) {
-        return body as { assistantId: string; toolCode: string; units: number };
-      },
-      async release() {
-        return { ok: true };
-      },
-      async markReconciliationRequired() {
-        return { ok: true };
-      }
-    } as never,
-    {
-      parseInput(body: unknown) {
         return body as { assistantId: string; toolCode?: string };
       },
       async execute() {
@@ -122,21 +95,6 @@ async function run(): Promise<void> {
   assert.equal(check.monthlyToolQuotas.tools[0]?.usedUnits, 3);
   assert.equal(check.monthlyToolQuotas.tools[0]?.limitUnits, 30);
 
-  const reserve = await successController.reserveMonthlyMediaQuota(
-    { headers: { authorization: "Bearer gateway-token" } },
-    { assistantId: "assistant-1", toolCode: "image_generate", units: 1 }
-  );
-  assert.equal(reserve.allowed, true);
-  assert.equal(reserve.limitUnits, 10);
-
-  assert.deepEqual(
-    await successController.releaseMonthlyMediaQuota(
-      { headers: { authorization: "Bearer gateway-token" } },
-      { assistantId: "assistant-1", toolCode: "image_generate", units: 1 }
-    ),
-    { ok: true }
-  );
-
   const deniedController = new InternalRuntimeToolQuotaController(
     {
       parseInput(body: unknown) {
@@ -152,33 +110,6 @@ async function run(): Promise<void> {
               "Try a request that does not need web_search until the daily limit resets."
           }
         });
-      }
-    } as never,
-    {
-      parseInput(body: unknown) {
-        return body as { assistantId: string; toolCode: string; units: number };
-      },
-      async execute() {
-        return {
-          ok: true,
-          allowed: true,
-          currentUsedUnits: 1,
-          limitUnits: 10,
-          periodStartedAt: "2026-05-01T00:00:00.000Z",
-          periodEndsAt: "2026-06-01T00:00:00.000Z",
-          periodSource: "subscription_period"
-        };
-      }
-    } as never,
-    {
-      parseInput(body: unknown) {
-        return body as { assistantId: string; toolCode: string; units: number };
-      },
-      async release() {
-        return { ok: true };
-      },
-      async markReconciliationRequired() {
-        return { ok: true };
       }
     } as never,
     {

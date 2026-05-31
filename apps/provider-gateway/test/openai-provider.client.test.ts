@@ -118,10 +118,12 @@ function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
 
 function createImageEditRequest(options?: {
   includeReference?: boolean;
+  count?: number;
 }): ProviderGatewayImageEditRequest {
   return {
     prompt: "Replace the couch with a red chair",
     model: "gpt-image-2",
+    count: options?.count ?? 1,
     size: "1024x1024",
     background: "opaque",
     sourceImage: {
@@ -951,6 +953,65 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       }
     }
   });
+  // DEFECT 2: edit payload must include n === 1 for the default (count=1) case
+  assert.equal(
+    (capturedImageEditPayload as { n?: number } | null)?.n,
+    1,
+    "editImage payload must include n=1 for count=1"
+  );
+
+  // DEFECT 2 + 3: count>1 with reference image — payload n===count, prompt uses multi-output wording
+  capturedImageEditPayload = null;
+  await client.editImage(createImageEditRequest({ includeReference: true, count: 3 }), {
+    apiKey: "tool-openai-key"
+  });
+  assert.equal(
+    (capturedImageEditPayload as { n?: number } | null)?.n,
+    3,
+    "editImage payload must include n=count for count>1"
+  );
+  assert.match(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
+    /return 3 distinct edited variations/,
+    "multi-output prompt must state count-specific cardinality"
+  );
+  assert.doesNotMatch(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
+    /return one edited version/,
+    "multi-output prompt must not say 'one edited version'"
+  );
+  assert.match(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
+    /Use the second\/reference image only as visual guidance/,
+    "reference guidance must be preserved in multi-output prompt"
+  );
+
+  // DEFECT 3: count>1 without reference image — prompt states cardinality
+  capturedImageEditPayload = null;
+  await client.editImage(createImageEditRequest({ includeReference: false, count: 2 }), {
+    apiKey: "tool-openai-key"
+  });
+  assert.equal(
+    (capturedImageEditPayload as { n?: number } | null)?.n,
+    2,
+    "editImage payload without reference must include n=count"
+  );
+  assert.match(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
+    /Return 2 distinct edited variations/,
+    "no-reference multi-output prompt must state count-specific cardinality"
+  );
+
+  // DEFECT 3: count===1 without reference — prompt is pass-through (no cardinality injection)
+  capturedImageEditPayload = null;
+  await client.editImage(createImageEditRequest({ includeReference: false, count: 1 }), {
+    apiKey: "tool-openai-key"
+  });
+  assert.equal(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt,
+    "Replace the couch with a red chair",
+    "no-reference single-output prompt must be pass-through"
+  );
 
   const speechResult = await client.generateSpeech(createSpeechGenerateRequest(), {
     apiKey: "tool-openai-key"

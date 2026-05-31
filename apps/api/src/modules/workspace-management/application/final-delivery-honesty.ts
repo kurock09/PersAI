@@ -1,44 +1,65 @@
-function containsCyrillic(text: string): boolean {
-  return /[\u0400-\u04FF]/.test(text);
-}
-
-function buildUndeliveredAttachmentCorrection(text: string, locale?: string | null): string {
-  if (locale?.toLowerCase().startsWith("ru") || containsCyrillic(text)) {
-    return "Поправка: файл не был реально доставлен в этот чат в рамках этого ответа.";
-  }
-  return "Correction: no file was actually delivered in this reply.";
-}
-
-function buildUndeliveredMediaCorrection(text: string, locale?: string | null): string {
-  if (locale?.toLowerCase().startsWith("ru") || containsCyrillic(text)) {
-    return "Поправка: изображение или другое медиа не было реально доставлено в этот чат в рамках этого ответа.";
-  }
-  return "Correction: no image or other media was actually delivered in this reply.";
-}
-
 function buildDeliveredAttachmentFallback(locale?: string | null): string {
   return locale?.toLowerCase().startsWith("ru") ? "Файл отправлен." : "File sent.";
 }
 
-type UndeliveredClaimKind = "file" | "media";
+export type UndeliveredArtifactKind = "file" | "media";
 
-const POSITIVE_MEDIA_DELIVERY_CLAIM_PATTERNS = [
-  /\b(?:your|the)\s+(?:image|photo|picture|video|clip|render|edit)\s+(?:is|was)\s+ready\b/i,
-  /\bhere(?:'s| is)\s+(?:your|the)\s+(?:image|photo|picture|video|clip|render|edit)\b/i,
-  /\b(?:i|we)\s+(?:generated|created|edited|made|rendered|prepared|attached|sent|uploaded)\s+(?:your|the|an?\s+)?(?:image|photo|picture|video|clip|render|edit)\b/i,
-  /(?:^|[\s,.:;!?-])вот\s+(?:готов[ао]е?\s+)?(?:фото|изображение|картинк[ауыеи]?|видео)(?:$|[\s,.:;!?-])/i,
-  /(?:^|[\s,.:;!?-])(?:фото|изображение|картинк[ауыеи]?|видео)\s+готов[ао](?:$|[\s,.:;!?-])/i,
-  /(?<!не\s)(?:^|[\s,.:;!?-])(?:сделал|сделала|сгенерировал|сгенерировала|создал|создала|отредактировал|отредактировала|прикрепил|прикрепила|отправил|отправила)\s+(?:вам\s+|тебе\s+)?(?:фото|изображение|картинку|видео)(?:$|[\s,.:;!?-])/i
-];
+/**
+ * Structurally classify the attempted artifacts as documents ("file") or
+ * image/video/audio ("media") from their `type` field — used only to pick the
+ * undelivered-notice wording. Never inspects the model's prose. Defaults to
+ * "file" when no non-document type is present (or the list is empty).
+ */
+export function resolveUndeliveredArtifactKind(
+  artifacts: ReadonlyArray<{ type?: string | null }>
+): UndeliveredArtifactKind {
+  return artifacts.some(
+    (artifact) => typeof artifact.type === "string" && artifact.type !== "document"
+  )
+    ? "media"
+    : "file";
+}
 
-const POSITIVE_FILE_DELIVERY_CLAIM_PATTERNS = [
-  /\b(?:file|document|attachment)\s+(?:is|was)\s+ready\b/i,
-  /\bhere(?:'s| is)\s+(?:your|the)\s+(?:file|document|attachment)\b/i,
-  /\b(?:i|we)\s+(?:attached|sent|uploaded|delivered)\s+(?:your|the|an?\s+)?(?:file|document|attachment)\b/i,
-  /(?:^|[\s,.:;!?-])вот\s+(?:готов[ао]й?\s+)?(?:файл|документ)(?:$|[\s,.:;!?-])/i,
-  /(?:^|[\s,.:;!?-])(?:файл|документ)\s+готов(?:$|[\s,.:;!?-])/i,
-  /(?<!не\s)(?:^|[\s,.:;!?-])(?:прикрепил|прикрепила|отправил|отправила)\s+(?:вам\s+|тебе\s+)?(?:файл|документ|вложение)(?:$|[\s,.:;!?-])/i
-];
+/**
+ * System-authored structural truth for a fully-undelivered attempt: the runtime
+ * produced/attempted at least one artifact but zero reached the user. Driven only
+ * by the counts (attempted > 0 && delivered === 0) and the structural artifact
+ * kind, never by parsing the model's prose — so it stays honest without
+ * re-introducing claim-detection heuristics.
+ */
+function buildUndeliveredAttachmentNotice(
+  locale: string | null | undefined,
+  kind: UndeliveredArtifactKind
+): string {
+  const ru = locale?.toLowerCase().startsWith("ru") ?? false;
+  if (kind === "media") {
+    return ru
+      ? "Поправка: изображение или другой медиафайл не был реально доставлен в этот чат."
+      : "Correction: no image or other media was actually delivered in this reply.";
+  }
+  return ru
+    ? "Поправка: файл не был реально доставлен в этот чат."
+    : "Correction: no file was actually delivered in this reply.";
+}
+
+/**
+ * ADR-105 FIX B — system-authored structural truth for partial under-delivery.
+ * Returns a locale-aware shortfall line when the provider produced fewer
+ * artifacts than requested (1 ≤ produced < requested). Returns null otherwise
+ * (full delivery, or zero produced — full-failure paths handle the latter).
+ */
+export function buildPartialDeliveryShortfallLine(
+  produced: number,
+  requested: number,
+  locale?: string | null
+): string | null {
+  if (produced <= 0 || produced >= requested) {
+    return null;
+  }
+  return locale?.toLowerCase().startsWith("ru")
+    ? `Запросили ${String(requested)}, готово ${String(produced)} — остальные не удалось создать.`
+    : `Requested ${String(requested)}, delivered ${String(produced)} — the rest could not be generated.`;
+}
 
 function normalizeFilename(value: string): string {
   const trimmed = value.trim();
@@ -100,10 +121,8 @@ function looksLikeFileReference(value: string): boolean {
 
 function stripUndeliveredLocalFileMarkdownLinks(input: { assistantText: string }): {
   assistantText: string;
-  strippedLocalFileLink: boolean;
 } {
   const markdownLinkPattern = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
-  let strippedLocalFileLink = false;
   const assistantText = input.assistantText.replace(
     markdownLinkPattern,
     (match, linkText, href) => {
@@ -116,12 +135,11 @@ function stripUndeliveredLocalFileMarkdownLinks(input: { assistantText: string }
       if (!looksLikeFileReference(linkText) && !looksLikeFileReference(href)) {
         return match;
       }
-      strippedLocalFileLink = true;
       const plainText = linkText.trim().length > 0 ? linkText.trim() : normalizeFilename(href);
       return plainText.length > 0 ? plainText : match;
     }
   );
-  return { assistantText, strippedLocalFileLink };
+  return { assistantText };
 }
 
 function stripDeliveredAttachmentMarkdownLinks(input: {
@@ -180,9 +198,7 @@ function stripDeliveredAttachmentMarkdownLinks(input: {
 
 function stripTechnicalAttachmentSummary(input: { assistantText: string }): {
   assistantText: string;
-  strippedTechnicalAttachmentSummary: boolean;
 } {
-  let strippedTechnicalAttachmentSummary = false;
   const assistantText = input.assistantText
     .split("\n")
     .filter((line) => {
@@ -191,7 +207,6 @@ function stripTechnicalAttachmentSummary(input: { assistantText: string }): {
         /^Assistant sent (?:an? )?attachments?:\s+.+$/i.test(normalized) ||
         /^\[?Working files from user attachments:.*$/i.test(normalized)
       ) {
-        strippedTechnicalAttachmentSummary = true;
         return false;
       }
       return true;
@@ -199,38 +214,7 @@ function stripTechnicalAttachmentSummary(input: { assistantText: string }): {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { assistantText, strippedTechnicalAttachmentSummary };
-}
-
-function detectUndeliveredClaimKind(input: {
-  assistantText: string;
-  strippedTechnicalAttachmentSummary: boolean;
-  strippedLocalFileLink: boolean;
-  attemptedArtifactCount: number;
-}): UndeliveredClaimKind | null {
-  const normalized = input.assistantText.replace(/\s+/g, " ").trim();
-  if (normalized.length > 0) {
-    if (POSITIVE_MEDIA_DELIVERY_CLAIM_PATTERNS.some((pattern) => pattern.test(normalized))) {
-      return "media";
-    }
-    if (POSITIVE_FILE_DELIVERY_CLAIM_PATTERNS.some((pattern) => pattern.test(normalized))) {
-      return "file";
-    }
-  }
-  if (input.strippedLocalFileLink || input.strippedTechnicalAttachmentSummary) {
-    return "file";
-  }
-  return input.attemptedArtifactCount > 0 ? "file" : null;
-}
-
-function buildUndeliveredCorrection(
-  kind: UndeliveredClaimKind,
-  text: string,
-  locale?: string | null
-): string {
-  return kind === "media"
-    ? buildUndeliveredMediaCorrection(text, locale)
-    : buildUndeliveredAttachmentCorrection(text, locale);
+  return { assistantText };
 }
 
 export function applyFinalDeliveryHonestyCorrection(input: {
@@ -238,38 +222,30 @@ export function applyFinalDeliveryHonestyCorrection(input: {
   attemptedArtifactCount: number;
   deliveredAttachmentCount: number;
   deliveredAttachmentFilenames?: string[];
+  attemptedArtifactKind?: UndeliveredArtifactKind;
   locale?: string | null;
 }): string {
-  const { assistantText: withoutTechnicalSummary, strippedTechnicalAttachmentSummary } =
-    stripTechnicalAttachmentSummary({
-      assistantText: input.assistantText.trim()
-    });
+  const { assistantText: withoutTechnicalSummary } = stripTechnicalAttachmentSummary({
+    assistantText: input.assistantText.trim()
+  });
   const deliveredNormalizedText = stripDeliveredAttachmentMarkdownLinks({
     assistantText: withoutTechnicalSummary,
     deliveredAttachmentFilenames: input.deliveredAttachmentFilenames ?? []
   });
-  const { assistantText: normalizedText, strippedLocalFileLink } =
-    stripUndeliveredLocalFileMarkdownLinks({
-      assistantText: deliveredNormalizedText
-    });
-  const undeliveredClaimKind = detectUndeliveredClaimKind({
-    assistantText: normalizedText.length > 0 ? normalizedText : input.assistantText,
-    strippedTechnicalAttachmentSummary,
-    strippedLocalFileLink,
-    attemptedArtifactCount: input.attemptedArtifactCount
+  const { assistantText: normalizedText } = stripUndeliveredLocalFileMarkdownLinks({
+    assistantText: deliveredNormalizedText
   });
+  if (input.attemptedArtifactCount > 0 && input.deliveredAttachmentCount === 0) {
+    const notice = buildUndeliveredAttachmentNotice(
+      input.locale,
+      input.attemptedArtifactKind ?? "file"
+    );
+    return normalizedText.length === 0 ? notice : `${normalizedText}\n\n${notice}`;
+  }
   if (normalizedText.length === 0) {
     return input.deliveredAttachmentCount > 0
       ? buildDeliveredAttachmentFallback(input.locale)
-      : undeliveredClaimKind === null
-        ? normalizedText
-        : buildUndeliveredCorrection(undeliveredClaimKind, input.assistantText, input.locale);
+      : normalizedText;
   }
-  if (input.deliveredAttachmentCount > 0 || undeliveredClaimKind === null) {
-    return normalizedText;
-  }
-  const correction = buildUndeliveredCorrection(undeliveredClaimKind, normalizedText, input.locale);
-  return normalizedText.includes(correction)
-    ? normalizedText
-    : `${normalizedText}\n\n${correction}`;
+  return normalizedText;
 }

@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
+  MAX_RUNTIME_IMAGE_EDIT_COUNT,
+  MIN_RUNTIME_IMAGE_EDIT_COUNT,
   MAX_RUNTIME_IMAGE_GENERATE_COUNT,
   MIN_RUNTIME_IMAGE_GENERATE_COUNT,
   PERSAI_RUNTIME_IMAGE_BACKGROUNDS,
@@ -127,6 +129,15 @@ export class ProviderImageGenerationService {
     if (typeof input.prompt !== "string" || input.prompt.trim().length === 0) {
       throw new BadRequestException("prompt must be a non-empty string");
     }
+    if (
+      !Number.isInteger(input.count) ||
+      input.count < MIN_RUNTIME_IMAGE_EDIT_COUNT ||
+      input.count > MAX_RUNTIME_IMAGE_EDIT_COUNT
+    ) {
+      throw new BadRequestException(
+        `count must be an integer between ${String(MIN_RUNTIME_IMAGE_EDIT_COUNT)} and ${String(MAX_RUNTIME_IMAGE_EDIT_COUNT)}`
+      );
+    }
     if (input.size !== null && !PERSAI_RUNTIME_IMAGE_GENERATE_SIZES.includes(input.size)) {
       throw new BadRequestException("size must be a supported image-generation size or null");
     }
@@ -159,6 +170,7 @@ export class ProviderImageGenerationService {
     return {
       prompt: input.prompt.trim(),
       model: this.normalizeOptionalModel(input.model, "model"),
+      count: input.count,
       size: input.size,
       background: input.background,
       timeoutMs: this.normalizeOptionalPositiveInteger(input.timeoutMs, "timeoutMs"),

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { applyFinalDeliveryHonestyCorrection } from "../src/modules/workspace-management/application/final-delivery-honesty";
 
 async function run(): Promise<void> {
+  // Delivered-attachment link on a standalone line is stripped entirely; remaining body returned
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText: "x: [report.md](report.md)\n\nbody",
@@ -13,6 +14,7 @@ async function run(): Promise<void> {
     "body"
   );
 
+  // Delivered-attachment link embedded in a long line: link text kept, href removed
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
@@ -25,6 +27,7 @@ async function run(): Promise<void> {
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa report.md bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   );
 
+  // Image attachment ref on standalone line stripped; surrounding prose kept
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
@@ -37,6 +40,7 @@ async function run(): Promise<void> {
     "Вот.\n\n### Дальше\n- Сделать вторую версию"
   );
 
+  // Undelivered phantom local-file link: href stripped, link text kept; NO correction appended
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText: "Готово: [report.md](sandbox:/tmp/report.md)",
@@ -45,9 +49,10 @@ async function run(): Promise<void> {
       deliveredAttachmentFilenames: [],
       locale: "ru"
     }),
-    "Готово: report.md\n\nПоправка: файл не был реально доставлен в этот чат в рамках этого ответа."
+    "Готово: report.md"
   );
 
+  // Safe https link left untouched
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText: "Source: [report.md](https://example.com/report.md)",
@@ -59,6 +64,7 @@ async function run(): Promise<void> {
     "Source: [report.md](https://example.com/report.md)"
   );
 
+  // Technical attachment summary stripped; prose before it kept
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
@@ -71,6 +77,7 @@ async function run(): Promise<void> {
     "Вот он. Скинул в чат."
   );
 
+  // Technical attachment summary only + delivered → fallback
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
@@ -83,6 +90,7 @@ async function run(): Promise<void> {
     "Файл отправлен."
   );
 
+  // Technical attachment summary only + nothing delivered → empty string (no correction)
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
@@ -92,9 +100,10 @@ async function run(): Promise<void> {
       deliveredAttachmentFilenames: [],
       locale: "ru"
     }),
-    "Вот этот. Отправила в чат:\n\nПоправка: файл не был реально доставлен в этот чат в рамках этого ответа."
+    "Вот этот. Отправила в чат:"
   );
 
+  // Image attachment summary only + delivered → fallback
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText: 'Assistant sent an attachment: image "mansion_photo_edit.png".',
@@ -106,6 +115,7 @@ async function run(): Promise<void> {
     "File sent."
   );
 
+  // Multiple attachment summaries + one delivered → fallback
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
@@ -118,6 +128,7 @@ async function run(): Promise<void> {
     "File sent."
   );
 
+  // Working-files injection line stripped; prose kept
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
@@ -130,6 +141,7 @@ async function run(): Promise<void> {
     "Here you go."
   );
 
+  // Bare prose media claim with NO link and NO attachment: left completely unchanged (structural-only)
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText: "Готово, вот готовое фото.",
@@ -138,9 +150,10 @@ async function run(): Promise<void> {
       deliveredAttachmentFilenames: [],
       locale: "ru"
     }),
-    "Готово, вот готовое фото.\n\nПоправка: изображение или другое медиа не было реально доставлено в этот чат в рамках этого ответа."
+    "Готово, вот готовое фото."
   );
 
+  // Bare prose file claim with NO link: left unchanged (no meaning-based detection)
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText: "Your image is ready.",
@@ -149,9 +162,10 @@ async function run(): Promise<void> {
       deliveredAttachmentFilenames: [],
       locale: "en"
     }),
-    "Your image is ready.\n\nCorrection: no image or other media was actually delivered in this reply."
+    "Your image is ready."
   );
 
+  // Technical summary only, nothing delivered → empty string returned
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText: 'Assistant sent an attachment: image "mansion_photo_edit.png".',
@@ -160,7 +174,57 @@ async function run(): Promise<void> {
       deliveredAttachmentFilenames: [],
       locale: "en"
     }),
-    "Correction: no file was actually delivered in this reply."
+    ""
+  );
+
+  // Structural undelivered notice: a file was attempted but zero delivered → honest
+  // notice appended (count-driven, not prose-detected); RU locale
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: "Готово, отправляю hello.txt",
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 0,
+      deliveredAttachmentFilenames: [],
+      locale: "ru"
+    }),
+    "Готово, отправляю hello.txt\n\nПоправка: файл не был реально доставлен в этот чат."
+  );
+
+  // Same structural rule, EN locale, file kind (default)
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: "Here is your file.",
+      attemptedArtifactCount: 2,
+      deliveredAttachmentCount: 0,
+      deliveredAttachmentFilenames: [],
+      locale: "en"
+    }),
+    "Here is your file.\n\nCorrection: no file was actually delivered in this reply."
+  );
+
+  // Structural rule with media kind → media-specific wording (EN)
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: "Your image is ready.",
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 0,
+      deliveredAttachmentFilenames: [],
+      attemptedArtifactKind: "media",
+      locale: "en"
+    }),
+    "Your image is ready.\n\nCorrection: no image or other media was actually delivered in this reply."
+  );
+
+  // Attempted > 0 but all delivered → no undelivered notice (full success)
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: "Here is your file.",
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 1,
+      deliveredAttachmentFilenames: ["hello.txt"],
+      locale: "en"
+    }),
+    "Here is your file."
   );
 }
 

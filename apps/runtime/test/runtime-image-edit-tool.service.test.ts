@@ -124,14 +124,7 @@ describe("RuntimeImageEditToolService", () => {
     };
     const service = new RuntimeImageEditToolService(
       providerGatewayClient as never,
-      {
-        async reserveMonthlyMediaQuota() {
-          return { allowed: true };
-        },
-        async releaseMonthlyMediaQuota() {
-          return undefined;
-        }
-      } as never,
+      {} as never,
       {
         buildRuntimeOutputObjectKey() {
           return "runtime/image-edit-1.png";
@@ -195,6 +188,8 @@ describe("RuntimeImageEditToolService", () => {
 
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "generated");
+    assert.equal(result.payload.requestedCount, 1);
+    assert.equal(editCalls[0]?.count, 1);
     assert.equal(editCalls.length, 2);
     assert.equal(rewriteCalls.length, 1);
     assert.equal(editCalls[0]?.prompt, "Сделай меня суперменом");
@@ -239,14 +234,7 @@ describe("RuntimeImageEditToolService", () => {
           };
         }
       } as never,
-      {
-        async reserveMonthlyMediaQuota() {
-          return { allowed: true };
-        },
-        async releaseMonthlyMediaQuota() {
-          return undefined;
-        }
-      } as never,
+      {} as never,
       {
         async downloadObject() {
           return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
@@ -288,5 +276,224 @@ describe("RuntimeImageEditToolService", () => {
     );
     assert.match(result.payload.warning ?? "", /also rejected by the provider safety system/i);
     assert.equal(editCallCount, 2);
+  });
+
+  test("selects source and reference images via explicit structural aliases", async () => {
+    let capturedRequest: ProviderGatewayImageEditRequest | undefined;
+    const service = new RuntimeImageEditToolService(
+      {
+        async editImage(
+          input: ProviderGatewayImageEditRequest
+        ): Promise<ProviderGatewayImageEditResult> {
+          capturedRequest = input;
+          return {
+            provider: "openai",
+            model: "gpt-image-1",
+            prompt: input.prompt,
+            size: input.size,
+            images: [
+              {
+                bytesBase64: Buffer.from([
+                  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01
+                ]).toString("base64"),
+                mimeType: "image/png",
+                revisedPrompt: null
+              }
+            ],
+            respondedAt: "2026-05-31T00:00:00.000Z",
+            usage: null,
+            billingFacts: null,
+            warning: null
+          };
+        }
+      } as never,
+      {} as never,
+      {
+        buildRuntimeOutputObjectKey() {
+          return "runtime/image-edit-ref.png";
+        },
+        async saveObject() {
+          return { objectKey: "runtime/image-edit-ref.png", mimeType: "image/png", sizeBytes: 9 };
+        },
+        async downloadObject() {
+          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile() {
+          return {
+            id: "file-ref-1",
+            filename: "source-edited.png",
+            mimeType: "image/png",
+            sizeBytes: 9
+          };
+        },
+        toRuntimeFileRef() {
+          return { fileRef: "file-ref-1", displayName: "source-edited.png", mimeType: "image/png" };
+        }
+      } as never
+    );
+
+    const attachments = [
+      {
+        attachmentId: "attachment-1",
+        kind: "image",
+        objectKey: "uploads/source.png",
+        mimeType: "image/png",
+        filename: "source.png",
+        sizeBytes: 9,
+        aliases: ["current image #1"]
+      },
+      {
+        attachmentId: "attachment-2",
+        kind: "image",
+        objectKey: "uploads/reference.png",
+        mimeType: "image/png",
+        filename: "reference.png",
+        sizeBytes: 9,
+        aliases: ["current image #2"]
+      }
+    ] as unknown as RuntimeAttachmentRef[];
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "call-ref",
+        name: "image_edit",
+        arguments: {
+          prompt: "Apply the style of the reference image",
+          sourceImageAlias: "current image #1",
+          referenceImageAlias: "current image #2"
+        }
+      } as never,
+      availableAttachments: attachments,
+      sessionId: "session-ref",
+      requestId: "request-ref"
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "generated");
+    assert.equal(result.payload.sourceImageAlias, "current image #1");
+    assert.equal(result.payload.referenceImageAlias, "current image #2");
+    assert.ok(
+      capturedRequest?.referenceImage !== null,
+      "reference image must be passed to provider"
+    );
+  });
+
+  test("returns source_image_alias_required when multiple images present and no alias provided", async () => {
+    const service = new RuntimeImageEditToolService(
+      {} as never,
+      {} as never,
+      {
+        async downloadObject() {
+          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+        }
+      } as never,
+      {} as never
+    );
+
+    const attachments = [
+      {
+        attachmentId: "attachment-1",
+        kind: "image",
+        objectKey: "uploads/a.png",
+        mimeType: "image/png",
+        filename: "a.png",
+        sizeBytes: 9,
+        aliases: ["current image #1"]
+      },
+      {
+        attachmentId: "attachment-2",
+        kind: "image",
+        objectKey: "uploads/b.png",
+        mimeType: "image/png",
+        filename: "b.png",
+        sizeBytes: 9,
+        aliases: ["current image #2"]
+      }
+    ] as unknown as RuntimeAttachmentRef[];
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "call-guard",
+        name: "image_edit",
+        arguments: {
+          prompt: "make it brighter"
+        }
+      } as never,
+      availableAttachments: attachments,
+      sessionId: "session-guard",
+      requestId: "request-guard"
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "source_image_alias_required");
+  });
+
+  test("wires count into the enqueue request and returns pending_delivery when accepted", async () => {
+    const enqueueCalls: Array<{ toolCode: string; request: { count?: number } }> = [];
+    const service = new RuntimeImageEditToolService(
+      {} as never,
+      {
+        async enqueueDeferredMediaJob(input: {
+          directToolExecution: { toolCode: string; request: { count?: number } };
+        }) {
+          enqueueCalls.push(input.directToolExecution);
+          return { accepted: true, jobId: "media-job-7", kind: "image" };
+        }
+      } as never,
+      {
+        async downloadObject() {
+          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+        }
+      } as never,
+      {} as never
+    );
+
+    const attachments = [
+      {
+        attachmentId: "attachment-1",
+        kind: "image",
+        objectKey: "uploads/source.png",
+        mimeType: "image/png",
+        filename: "source.png",
+        sizeBytes: 9,
+        aliases: ["current image #1"]
+      }
+    ] as unknown as RuntimeAttachmentRef[];
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "call-1",
+        name: "image_edit",
+        arguments: {
+          prompt: "Make the background a sunset",
+          sourceImageAlias: "current image #1",
+          count: 2
+        }
+      } as never,
+      availableAttachments: attachments,
+      sessionId: "session-1",
+      requestId: "request-1",
+      deferToAsyncMediaJob: {
+        sourceUserMessageId: "message-1",
+        sourceUserMessageText: "Make the background a sunset"
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "pending_delivery");
+    assert.equal(result.payload.canSendFileNow, false);
+    assert.equal(result.payload.jobId, "media-job-7");
+    assert.equal(result.payload.requestedCount, 2);
+    assert.equal(result.payload.expectedResultCount, 2);
+    assert.equal(typeof result.payload.messageToUser, "string");
+    assert.equal(enqueueCalls.length, 1);
+    assert.equal(enqueueCalls[0]?.toolCode, "image_edit");
+    assert.equal(enqueueCalls[0]?.request.count, 2);
   });
 });

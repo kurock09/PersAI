@@ -1466,7 +1466,23 @@ export const PERSAI_RUNTIME_IMAGE_BACKGROUNDS = ["auto", "transparent", "opaque"
 export type PersaiRuntimeImageBackground = (typeof PERSAI_RUNTIME_IMAGE_BACKGROUNDS)[number];
 
 export const MIN_RUNTIME_IMAGE_GENERATE_COUNT = 1 as const;
-export const MAX_RUNTIME_IMAGE_GENERATE_COUNT = 4 as const;
+// 10 = gpt-image-1 provider batch capability (maximum n per single API call).
+// Serves as the absolute safety ceiling above which resolveImageCountCap clamps;
+// the EFFECTIVE per-assistant ceiling is min(perTurnCap, 10), so for any plan cap
+// ≤ 10 the model sees count.maximum == perTurnCap and a series runs as ONE job —
+// no splitting into multiple jobs.
+export const MAX_RUNTIME_IMAGE_GENERATE_COUNT = 10 as const;
+
+export const MIN_RUNTIME_IMAGE_EDIT_COUNT = MIN_RUNTIME_IMAGE_GENERATE_COUNT;
+export const MAX_RUNTIME_IMAGE_EDIT_COUNT = MAX_RUNTIME_IMAGE_GENERATE_COUNT;
+
+export interface RuntimePendingMediaDeliveryFacts {
+  canSendFileNow: false;
+  jobId: string;
+  messageToUser: string;
+  requestedCount: number | null;
+  expectedResultCount: number | null;
+}
 
 export interface RuntimeImageGenerateRequest {
   toolCode: "image_generate";
@@ -1488,11 +1504,14 @@ export interface RuntimeImageGenerateToolResult {
   size: PersaiRuntimeImageGenerateSize | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
-  action: "generated" | "skipped" | "deferred";
+  action: "generated" | "skipped" | "pending_delivery";
   reason: string | null;
   warning: string | null;
   guidance?: string | null;
   jobId?: string | null;
+  canSendFileNow?: false;
+  messageToUser?: string | null;
+  expectedResultCount?: number | null;
 }
 
 export const PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS = ["openai"] as const;
@@ -1503,6 +1522,7 @@ export type PersaiRuntimeImageEditProviderId =
 export interface RuntimeImageEditRequest {
   toolCode: "image_edit";
   prompt: string;
+  count: number;
   filename: string | null;
   size: PersaiRuntimeImageGenerateSize | null;
   background: PersaiRuntimeImageBackground;
@@ -1517,6 +1537,7 @@ export interface RuntimeImageEditToolResult {
   model: string | null;
   prompt: string | null;
   revisedPrompt: string | null;
+  requestedCount: number | null;
   sourceImageAlias: string | null;
   referenceImageAlias: string | null;
   sourceFilename: string | null;
@@ -1524,11 +1545,14 @@ export interface RuntimeImageEditToolResult {
   size: PersaiRuntimeImageGenerateSize | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
-  action: "generated" | "skipped" | "deferred";
+  action: "generated" | "skipped" | "pending_delivery";
   reason: string | null;
   warning: string | null;
   guidance?: string | null;
   jobId?: string | null;
+  canSendFileNow?: false;
+  messageToUser?: string | null;
+  expectedResultCount?: number | null;
 }
 
 export const PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS = ["openai"] as const;
@@ -1582,11 +1606,15 @@ export interface RuntimeVideoGenerateToolResult {
   referenceFilename: string | null;
   artifact: RuntimeOutputArtifact | null;
   usage: RuntimeUsageSnapshot | null;
-  action: "generated" | "skipped" | "deferred";
+  action: "generated" | "skipped" | "pending_delivery";
   reason: string | null;
   warning: string | null;
   guidance?: string | null;
   jobId?: string | null;
+  canSendFileNow?: false;
+  messageToUser?: string | null;
+  requestedCount?: number | null;
+  expectedResultCount?: number | null;
 }
 
 export interface RuntimeDocumentToolResult {
@@ -2381,6 +2409,8 @@ export interface RuntimeOpenMediaJobContext {
   kind: "image" | "audio" | "video";
   toolCode: "image_generate" | "image_edit" | "video_generate" | "audio_generate";
   status: "queued" | "running" | "completion_pending";
+  requestedCount: number | null;
+  expectedResultCount: number | null;
   createdAt: IsoTimestamp;
   startedAt: IsoTimestamp | null;
   updatedAt: IsoTimestamp;
@@ -2421,6 +2451,11 @@ export interface RuntimeDeferredMediaJobSummary {
   jobId: string;
   toolCode: "image_generate" | "image_edit" | "video_generate";
   kind: "image" | "video";
+  action: "pending_delivery";
+  canSendFileNow: false;
+  messageToUser: string | null;
+  requestedCount: number | null;
+  expectedResultCount: number | null;
 }
 
 export interface RuntimeDeferredDocumentJobSummary {
@@ -2814,6 +2849,7 @@ export interface ProviderGatewayImageGenerateResult {
 export interface ProviderGatewayImageEditRequest {
   prompt: string;
   model: string | null;
+  count: number;
   size: PersaiRuntimeImageGenerateSize | null;
   background: PersaiRuntimeImageBackground;
   timeoutMs?: number | null;

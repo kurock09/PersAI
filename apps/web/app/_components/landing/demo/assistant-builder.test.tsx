@@ -18,7 +18,8 @@ vi.mock("framer-motion", () => {
   return {
     motion: {
       div: Passthrough,
-      span: Passthrough
+      span: Passthrough,
+      button: Passthrough
     },
     AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>
   };
@@ -30,11 +31,10 @@ const labels = {
   subtitle: "Avatar, name, tone, skills",
   nameLabel: "Name",
   namePlaceholder: "Assistant name",
-  configuring: "Configuring…",
-  toneName: "Professional",
-  toneCaption: "tone",
-  skillName: "Documents",
-  skillCaption: "skill"
+  instructionLabel: "Instruction",
+  instructionText:
+    "You behave calmly, briefly, and professionally. You help with documents, summaries, and work-ready replies without fluff.",
+  createLabel: "Create"
 };
 
 afterEach(() => {
@@ -65,7 +65,7 @@ describe("AssistantBuilder", () => {
     expect(onDone).not.toHaveBeenCalled();
   });
 
-  it("shows tone and skill labels in the final state", async () => {
+  it("shows instruction text and create CTA in the final state", async () => {
     // In test env (IS_TEST=true in assistant-builder), all timers are 0ms.
     render(
       <AssistantBuilder onDone={vi.fn()} shouldPlay={true} reducedMotion={false} labels={labels} />
@@ -73,8 +73,9 @@ describe("AssistantBuilder", () => {
     await act(async () => {
       vi.advanceTimersByTime(0);
     });
-    expect(screen.getByText("Professional")).toBeInTheDocument();
-    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(screen.getByText("Instruction")).toBeInTheDocument();
+    expect(screen.getByText(/behave calmly, briefly, and professionally/i)).toBeInTheDocument();
+    expect(screen.getByText("Create")).toBeInTheDocument();
   });
 
   it("calls onDone after animation completes", async () => {
@@ -99,14 +100,15 @@ describe("AssistantBuilder", () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
-  it("shows tone and skill labels under reducedMotion (final state visible immediately)", async () => {
+  it("shows instruction text and create CTA under reducedMotion", async () => {
     render(
       <AssistantBuilder onDone={vi.fn()} shouldPlay={true} reducedMotion={true} labels={labels} />
     );
     await act(async () => {
       vi.advanceTimersByTime(0);
     });
-    expect(screen.getByText("Professional")).toBeInTheDocument();
-    expect(screen.getByText("Documents")).toBeInTheDocument();
+    expect(screen.getByText("Instruction")).toBeInTheDocument();
+    expect(screen.getByText(/behave calmly, briefly, and professionally/i)).toBeInTheDocument();
+    expect(screen.getByText("Create")).toBeInTheDocument();
   });
 });

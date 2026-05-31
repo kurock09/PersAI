@@ -251,8 +251,6 @@ import { SchedulerLeaseService } from "./application/scheduler-lease.service";
 import { BackgroundCompactionQueueService } from "./application/background-compaction-queue.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
-import { MutateInternalRuntimeMonthlyMediaQuotaService } from "./application/mutate-internal-runtime-monthly-media-quota.service";
-import { ReserveInternalRuntimeMonthlyMediaQuotaService } from "./application/reserve-internal-runtime-monthly-media-quota.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./application/read-internal-runtime-quota-status.service";
 import { QuotaAdvisoryFollowUpService } from "./application/quota-advisory-follow-up.service";
 import { CompactionAdvisoryFollowUpService } from "./application/compaction-advisory-follow-up.service";
@@ -521,8 +519,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,
     ConsumeInternalRuntimeToolDailyLimitService,
-    MutateInternalRuntimeMonthlyMediaQuotaService,
-    ReserveInternalRuntimeMonthlyMediaQuotaService,
     ReadInternalRuntimeQuotaStatusService,
     QuotaAdvisoryFollowUpService,
     CompactionAdvisoryFollowUpService,

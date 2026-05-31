@@ -51,10 +51,14 @@ export function useStagedDemoReveal({
     const scrollToBottom = (behavior: ScrollBehavior) => {
       const viewport = threadViewportRef.current;
       if (!viewport) return;
-      viewport.scrollTo({
-        top: viewport.scrollHeight,
-        behavior
-      });
+      if (typeof viewport.scrollTo === "function") {
+        viewport.scrollTo({
+          top: viewport.scrollHeight,
+          behavior
+        });
+      } else {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
     };
     const frame = window.requestAnimationFrame(() => {
       scrollToBottom(reduced ? "auto" : "smooth");

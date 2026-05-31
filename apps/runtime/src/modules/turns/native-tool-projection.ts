@@ -3,7 +3,10 @@ import type {
   AssistantRuntimeBundleToolCredentialRef
 } from "@persai/runtime-bundle";
 import {
+  MAX_RUNTIME_IMAGE_EDIT_COUNT,
   MAX_RUNTIME_IMAGE_GENERATE_COUNT,
+  MIN_RUNTIME_IMAGE_EDIT_COUNT,
+  MIN_RUNTIME_IMAGE_GENERATE_COUNT,
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
@@ -40,6 +43,8 @@ import { resolveAdvertisedPerTurnCap } from "./tool-budget-policy";
  * the tool has no effective cap (e.g. memory_write), in which case no hint
  * is appended.
  */
+const MEDIA_RESULT_UNIT_TOOL_CODES = new Set(["image_generate", "image_edit", "video_generate"]);
+
 function describePerTurnCap(toolCode: string, policy: RuntimeToolPolicy): string | null {
   const overrides = new Map<string, number | null>();
   if (policy.perTurnCap !== undefined && policy.perTurnCap !== null) {
@@ -48,6 +53,11 @@ function describePerTurnCap(toolCode: string, policy: RuntimeToolPolicy): string
   const cap = resolveAdvertisedPerTurnCap(toolCode, overrides);
   if (cap === null) {
     return null;
+  }
+  // ADR-105: media caps count result units (each image, each video), not tool calls.
+  if (MEDIA_RESULT_UNIT_TOOL_CODES.has(toolCode)) {
+    const units = cap === 1 ? "1 result unit" : `${String(cap)} result units`;
+    return `Per-turn cap: ${units} (each generated image and each video counts as one unit). When the cap is reached, further results return tool_budget_exhausted and you must reply with what you have.`;
   }
   const calls = cap === 1 ? "1 call" : `${String(cap)} calls`;
   return `Per-turn cap: ${calls}; further calls return tool_budget_exhausted and you must reply with what you have.`;
@@ -63,23 +73,29 @@ function appendToolDefinitionHint(base: string, hint: string): string {
 }
 
 /**
- * ADR-074 Slice L1.1 — resolve the effective `image_generate.count.maximum`
- * the model should see in its tool schema. Returns the smaller of the
- * runtime hard cap (`MAX_RUNTIME_IMAGE_GENERATE_COUNT`) and the per-turn
- * cap configured for this assistant. Falls back to the runtime hard cap
- * when no per-turn cap is set. Always returns at least 1 so the schema
- * never advertises an unreachable `maximum`.
+ * ADR-074 Slice L1.1 / ADR-105 FIX A — resolve the effective
+ * `image_generate.count.maximum` the model should see in its tool schema.
+ *
+ * Returns the smaller of the runtime hard cap (`MAX_RUNTIME_IMAGE_GENERATE_COUNT`)
+ * and the per-turn cap configured for this assistant (`policy.perTurnCap`).
+ * Falls back to the runtime hard cap when no per-turn cap is set.
+ * Always returns at least 1 so the schema never advertises an unreachable maximum.
+ *
+ * NOTE: `TOOL_HARD_CAP_PER_TURN["image_generate"] = 1` is the CALL-loop cap
+ * (how many times the tool may be invoked per turn) and is deliberately NOT
+ * used here — this function governs the per-call IMAGE BATCH SIZE, an
+ * independent dimension.
  */
-function resolveImageGenerateCountCap(policy: RuntimeToolPolicy): number {
-  const overrides = new Map<string, number | null>();
-  if (policy.perTurnCap !== undefined && policy.perTurnCap !== null) {
-    overrides.set("image_generate", policy.perTurnCap);
+function resolveImageCountCap(
+  _toolCode: "image_generate" | "image_edit",
+  policy: RuntimeToolPolicy,
+  hardCap: number
+): number {
+  const perTurnCap = policy.perTurnCap;
+  if (perTurnCap !== undefined && perTurnCap !== null && perTurnCap > 0) {
+    return Math.max(1, Math.min(hardCap, Math.floor(perTurnCap)));
   }
-  const cap = resolveAdvertisedPerTurnCap("image_generate", overrides);
-  if (cap === null) {
-    return MAX_RUNTIME_IMAGE_GENERATE_COUNT;
-  }
-  return Math.max(1, Math.min(MAX_RUNTIME_IMAGE_GENERATE_COUNT, cap));
+  return hardCap;
 }
 
 export interface RuntimeNativeToolProjection {
@@ -662,21 +678,19 @@ function createBrowserToolDefinition(
 function createImageGenerateToolDefinition(
   policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
-  // ADR-074 Slice L1.1: clamp the model-facing `count.maximum` to the
-  // effective per-turn cap (founder anchor: per-turn cap counts artifacts,
-  // not just invocations, because OpenAI bills per generated image). This
-  // closes the «I asked for 1 picture, model returned 3 by passing
-  // count: 3» bypass observed live on 2026-04-23. With cap=1 the schema
-  // now mechanically refuses count > 1; with cap=4 the model can still
-  // batch four images in one call (cheaper for the provider per request).
-  const effectiveCap = resolveImageGenerateCountCap(policy);
+  // ADR-074 L1.1: clamp count.maximum to per-turn cap to close the count-bypass.
+  const effectiveCap = resolveImageCountCap(
+    "image_generate",
+    policy,
+    MAX_RUNTIME_IMAGE_GENERATE_COUNT
+  );
   return {
     name: "image_generate",
     description: resolveToolDefinitionDescription(
       policy,
       [
         appendPerTurnCapHint(
-          "Generate brand-new images from a text prompt. Each requested image counts against the per-turn cap and the daily quota.",
+          "Generate new images from a text prompt. To produce a series, set count so it runs as one job — do not make extra calls.",
           "image_generate",
           policy
         ),
@@ -694,9 +708,9 @@ function createImageGenerateToolDefinition(
         },
         count: {
           type: "integer",
-          minimum: 1,
+          minimum: MIN_RUNTIME_IMAGE_GENERATE_COUNT,
           maximum: effectiveCap,
-          description: `Optional number of images to generate (1..${String(effectiveCap)} on this assistant). Each image consumes one per-turn cap unit and one daily-quota unit.`
+          description: `Number of images to produce in this single job (${String(MIN_RUNTIME_IMAGE_GENERATE_COUNT)}..${String(effectiveCap)}). Each image uses one per-turn result unit and one daily-quota unit.`
         },
         filename: {
           type: "string",
@@ -720,13 +734,14 @@ function createImageGenerateToolDefinition(
 }
 
 function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  const effectiveCap = resolveImageCountCap("image_edit", policy, MAX_RUNTIME_IMAGE_EDIT_COUNT);
   return {
     name: "image_edit",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
       [
         appendPerTurnCapHint(
-          "Edit an existing user-referenced image according to the requested changes.",
+          "Edit a user-referenced image and return a new image file — use this only when the user explicitly wants an image modified, never to describe, analyze, or answer questions about an image (those are answered in text). To produce several edited variants, set count so it runs as one job — do not make extra calls. When another image should guide style or appearance, set referenceImageAlias to that image.",
           "image_edit",
           policy
         ),
@@ -742,6 +757,12 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
         prompt: {
           type: "string",
           description: "Text instruction describing how the referenced chat image should be edited."
+        },
+        count: {
+          type: "integer",
+          minimum: MIN_RUNTIME_IMAGE_EDIT_COUNT,
+          maximum: effectiveCap,
+          description: `Number of edited variants to produce in this single job (${String(MIN_RUNTIME_IMAGE_EDIT_COUNT)}..${String(effectiveCap)}). Each output uses one per-turn result unit and one daily-quota unit.`
         },
         sourceImageAlias: {
           type: "string",

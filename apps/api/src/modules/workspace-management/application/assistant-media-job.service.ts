@@ -63,6 +63,18 @@ function toRuntimeOpenMediaJobToolCode(input: {
   }
 }
 
+function extractRequestedCountFromRequestJson(requestJson: unknown): number | null {
+  const payload = requestJson as AssistantMediaJobRequestPayload | null;
+  const exec = payload?.directToolExecution;
+  if (!exec) return null;
+  if (exec.toolCode === "video_generate") return 1;
+  if (exec.toolCode === "image_generate" || exec.toolCode === "image_edit") {
+    const count = (exec.request as { count?: unknown }).count;
+    return typeof count === "number" && Number.isInteger(count) && count > 0 ? count : null;
+  }
+  return null;
+}
+
 function toWebOpenMediaJobStatus(
   status: AssistantMediaJobStatus
 ): AssistantWebChatActiveMediaJobState["status"] {
@@ -138,18 +150,23 @@ export class AssistantMediaJobService {
         updatedAt: true
       }
     });
-    return rows.map((row) => ({
-      jobId: row.id,
-      kind: row.kind,
-      toolCode: toRuntimeOpenMediaJobToolCode({
+    return rows.map((row) => {
+      const requestedCount = extractRequestedCountFromRequestJson(row.requestJson);
+      return {
+        jobId: row.id,
         kind: row.kind,
-        requestJson: row.requestJson
-      }),
-      status: toRuntimeOpenMediaJobStatus(row.status),
-      createdAt: row.createdAt.toISOString(),
-      startedAt: row.startedAt?.toISOString() ?? null,
-      updatedAt: row.updatedAt.toISOString()
-    }));
+        toolCode: toRuntimeOpenMediaJobToolCode({
+          kind: row.kind,
+          requestJson: row.requestJson
+        }),
+        status: toRuntimeOpenMediaJobStatus(row.status),
+        requestedCount,
+        expectedResultCount: requestedCount,
+        createdAt: row.createdAt.toISOString(),
+        startedAt: row.startedAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt.toISOString()
+      };
+    });
   }
 
   async listOpenJobsForWebChat(input: {

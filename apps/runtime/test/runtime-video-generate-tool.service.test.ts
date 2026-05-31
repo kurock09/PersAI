@@ -266,37 +266,12 @@ class FakeProviderGatewayClientService {
 }
 
 class FakePersaiInternalApiClientService {
-  quotaCalls: Array<{
-    assistantId: string;
-    toolCode: string;
-    units: number;
-  }> = [];
   dailyQuotaCalls: Array<{
     assistantId: string;
     toolCode: string;
     dailyCallLimit: number | null;
     units?: number;
   }> = [];
-
-  async reserveMonthlyMediaQuota(input: {
-    assistantId: string;
-    toolCode: "image_generate" | "image_edit" | "video_generate";
-    units: number;
-  }) {
-    this.quotaCalls.push(input);
-    return {
-      allowed: true,
-      currentUsedUnits: this.quotaCalls.length,
-      limitUnits: 10,
-      periodStartedAt: "2026-05-01T00:00:00.000Z",
-      periodEndsAt: "2026-06-01T00:00:00.000Z",
-      periodSource: "subscription_period" as const
-    };
-  }
-
-  async releaseMonthlyMediaQuota() {
-    return undefined;
-  }
 
   async consumeToolDailyLimit(input: {
     assistantId: string;
@@ -509,28 +484,6 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   });
   assert.equal(inferredPreviousAliasResult.payload.action, "generated");
   assert.equal(inferredPreviousAliasResult.payload.referenceImageAlias, "last generated image");
-  assert.deepEqual(persaiInternalApiClientService.quotaCalls, [
-    {
-      assistantId: "assistant-1",
-      toolCode: "video_generate",
-      units: 1
-    },
-    {
-      assistantId: "assistant-1",
-      toolCode: "video_generate",
-      units: 1
-    },
-    {
-      assistantId: "assistant-1",
-      toolCode: "video_generate",
-      units: 1
-    },
-    {
-      assistantId: "assistant-1",
-      toolCode: "video_generate",
-      units: 1
-    }
-  ]);
 
   const invalid = await service.executeToolCall({
     bundle,

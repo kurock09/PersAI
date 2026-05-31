@@ -368,4 +368,118 @@ export async function runToolBudgetPolicyTest(): Promise<void> {
       `ADR-074 L1 regression: image_generate uncapped via Number.MAX_SAFE_INTEGER override must allow call #${String(index + 1)} without per-tool exhaustion.`
     );
   }
+
+  // ── ADR-105 Slice 2 — unit-aware per-turn media budgeting ──
+  // §3 "no silent split / no silent trim": a single request for N result
+  // units is accepted whole if (observed + N ≤ cap), or rejected whole if
+  // (observed + N > cap). The per-tool counter advances by N on acceptance
+  // and does NOT advance at all on rejection.
+
+  // Case 1: cap=4, request exactly 4 units — the whole batch fits in one
+  // call, so the reservation must succeed; a follow-up single-unit request
+  // then exhausts the tool for this turn.
+  const unitCapPolicy4 = new ToolBudgetPolicy("reasoning", {
+    perToolCapOverrides: new Map([["image_generate", 4]])
+  });
+  const batchOf4 = unitCapPolicy4.reserve("image_generate", 0, 4);
+  assert.equal(
+    batchOf4.exhausted,
+    false,
+    "ADR-105 Slice 2: reserve(image_generate, 0, 4) with cap=4 must succeed (0+4 ≤ 4, no silent trim)."
+  );
+  const afterBatchOf4 = unitCapPolicy4.reserve("image_generate", 0, 1);
+  assert.equal(
+    afterBatchOf4.exhausted,
+    true,
+    "ADR-105 Slice 2: reserve(image_generate, 0, 1) after consuming 4/4 units must be exhausted."
+  );
+  if (afterBatchOf4.exhausted === true) {
+    assert.equal(
+      afterBatchOf4.reason,
+      "per_tool_cap",
+      "ADR-105 Slice 2: post-batch exhaustion reason must be per_tool_cap, not loop_limit."
+    );
+    assert.equal(
+      afterBatchOf4.limit,
+      4,
+      "ADR-105 Slice 2: exhaustion limit must reflect the overridden cap of 4."
+    );
+    assert.equal(
+      afterBatchOf4.observed,
+      5,
+      "ADR-105 Slice 2: observed must be 4 (consumed) + 1 (requested) = 5."
+    );
+  }
+
+  // Case 2: cap=1, request 4 units — the whole batch exceeds the cap so it
+  // must be rejected whole. Critically, the per-tool counter must NOT
+  // advance on rejection, so a subsequent reserve(units=1) is evaluated
+  // against observed=0 and succeeds (the single unit fits).
+  const unitCapPolicy1 = new ToolBudgetPolicy("reasoning", {
+    perToolCapOverrides: new Map([["image_generate", 1]])
+  });
+  const oversizedRequest = unitCapPolicy1.reserve("image_generate", 0, 4);
+  assert.equal(
+    oversizedRequest.exhausted,
+    true,
+    "ADR-105 Slice 2: reserve(image_generate, 0, 4) with cap=1 must be rejected whole (0+4 > 1)."
+  );
+  if (oversizedRequest.exhausted === true) {
+    assert.equal(
+      oversizedRequest.reason,
+      "per_tool_cap",
+      "ADR-105 Slice 2: oversized request rejection reason must be per_tool_cap."
+    );
+    assert.equal(
+      oversizedRequest.limit,
+      1,
+      "ADR-105 Slice 2: oversized request rejection must report the actual cap as limit."
+    );
+    assert.equal(
+      oversizedRequest.observed,
+      4,
+      "ADR-105 Slice 2: oversized request rejection must report 0+4=4 as observed."
+    );
+  }
+  // Counter must NOT have advanced — next reserve(1) is still evaluated
+  // against observed=0 and must succeed (no silent trim / no partial reserve).
+  const singleAfterRejection = unitCapPolicy1.reserve("image_generate", 0, 1);
+  assert.equal(
+    singleAfterRejection.exhausted,
+    false,
+    "ADR-105 Slice 2: a rejected oversized request must not advance the per-tool counter (reserve(1) after rejection must still succeed with cap=1, observed=0)."
+  );
+
+  // Case 3: requestedUnits default still behaves as 1 for non-media tools
+  // (regression guard — the ADR-105 unit parameter must not change existing
+  // one-call-one-unit accounting for tools that omit it).
+  const defaultUnitsPolicy = new ToolBudgetPolicy("reasoning", {
+    perToolCapOverrides: new Map([["web_fetch", 3]])
+  });
+  for (let index = 0; index < 3; index += 1) {
+    const res = defaultUnitsPolicy.reserve("web_fetch", 0);
+    assert.equal(
+      res.exhausted,
+      false,
+      `ADR-105 Slice 2 regression: web_fetch call #${String(index + 1)} without explicit units must count as 1 (default).`
+    );
+  }
+  const fourthDefaultFetch = defaultUnitsPolicy.reserve("web_fetch", 0);
+  assert.equal(
+    fourthDefaultFetch.exhausted,
+    true,
+    "ADR-105 Slice 2 regression: 4th web_fetch call (cap=3, default units=1) must be exhausted."
+  );
+  if (fourthDefaultFetch.exhausted === true) {
+    assert.equal(
+      fourthDefaultFetch.reason,
+      "per_tool_cap",
+      "ADR-105 Slice 2 regression: default-units exhaustion must report per_tool_cap."
+    );
+    assert.equal(
+      fourthDefaultFetch.observed,
+      4,
+      "ADR-105 Slice 2 regression: default-units observed must be 3 (consumed) + 1 (requested) = 4."
+    );
+  }
 }

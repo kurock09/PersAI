@@ -234,10 +234,13 @@ export class RuntimeImageGenerateToolService {
             size: request.size,
             artifacts: [],
             usage: null,
-            action: "deferred",
+            action: "pending_delivery",
             reason: null,
             warning: null,
-            jobId: enqueueOutcome.jobId
+            jobId: enqueueOutcome.jobId,
+            canSendFileNow: false,
+            messageToUser: this.buildPendingDeliveryMessageToUser(request.count),
+            expectedResultCount: request.count
           },
           artifacts: [],
           isError: false
@@ -270,34 +273,13 @@ export class RuntimeImageGenerateToolService {
     }
 
     try {
-      const quotaOutcome = await this.persaiInternalApiClientService.reserveMonthlyMediaQuota({
-        assistantId: params.bundle.metadata.assistantId,
-        toolCode: IMAGE_GENERATE_TOOL_CODE,
-        units: request.count
-      });
-      if (!quotaOutcome.allowed) {
-        return {
-          payload: {
-            toolCode: "image_generate",
-            executionMode: "worker",
-            provider: providerId,
-            model: null,
-            prompt: request.prompt,
-            revisedPrompt: null,
-            requestedCount: request.count,
-            size: request.size,
-            artifacts: [],
-            usage: null,
-            action: "skipped",
-            reason: quotaOutcome.code,
-            warning: quotaOutcome.message,
-            ...(quotaOutcome.guidance === null ? {} : { guidance: quotaOutcome.guidance })
-          },
-          artifacts: [],
-          isError: false
-        };
-      }
-
+      // ADR-105 §5 (single-owner reservation) — the worker NEVER touches the
+      // monthly media quota. The enqueue admission seam
+      // (`EnqueueRuntimeDeferredMediaJobService`) reserves the units exactly
+      // once, and the API layer resolves that reservation exactly once at the
+      // job's terminal transition (scheduler `failJob` releases on failure; the
+      // API delivery loop settles delivered / reconciles undelivered units per
+      // ADR-082). The worker performs no reserve and no release.
       const timeoutMs = this.resolveWorkerTimeoutMs(params.bundle);
       const baseProviderRequest = {
         model: modelSelection.model,
@@ -409,10 +391,6 @@ export class RuntimeImageGenerateToolService {
         )
       );
       if (artifacts.length === 0) {
-        await this.releaseMonthlyMediaQuotaReservationBestEffort({
-          assistantId: params.bundle.metadata.assistantId,
-          units: request.count
-        });
         return {
           payload: {
             toolCode: "image_generate",
@@ -432,13 +410,6 @@ export class RuntimeImageGenerateToolService {
           artifacts: [],
           isError: true
         };
-      }
-      const undeliverableUnits = Math.max(0, request.count - artifacts.length);
-      if (undeliverableUnits > 0) {
-        await this.releaseMonthlyMediaQuotaReservationBestEffort({
-          assistantId: params.bundle.metadata.assistantId,
-          units: undeliverableUnits
-        });
       }
 
       const revisedPrompt =
@@ -468,10 +439,6 @@ export class RuntimeImageGenerateToolService {
         isError: false
       };
     } catch (error) {
-      await this.releaseMonthlyMediaQuotaReservationBestEffort({
-        assistantId: params.bundle.metadata.assistantId,
-        units: request.count
-      });
       return {
         payload: {
           toolCode: "image_generate",
@@ -492,6 +459,17 @@ export class RuntimeImageGenerateToolService {
         isError: true
       };
     }
+  }
+
+  /**
+   * ADR-105 — model-facing hint for an accepted async image-generation job.
+   * It states the file is not in hand yet (`canSendFileNow: false`) and will
+   * arrive in a separate delivery, so the model does not falsely claim to have
+   * attached the image in this turn.
+   */
+  private buildPendingDeliveryMessageToUser(count: number): string {
+    const noun = count > 1 ? `${String(count)} images` : "image";
+    return `Accepted. The ${noun} cannot be attached in this reply; it is being prepared and will be delivered in a separate message when ready.`;
   }
 
   private readImageGenerateArguments(
@@ -643,25 +621,6 @@ export class RuntimeImageGenerateToolService {
       voiceNote: false,
       billingFacts: input.billingFacts ?? null
     };
-  }
-
-  private async releaseMonthlyMediaQuotaReservationBestEffort(input: {
-    assistantId: string;
-    units: number;
-  }): Promise<void> {
-    try {
-      await this.persaiInternalApiClientService.releaseMonthlyMediaQuota({
-        assistantId: input.assistantId,
-        toolCode: IMAGE_GENERATE_TOOL_CODE,
-        units: input.units
-      });
-    } catch (error) {
-      this.logger.warn(
-        `[image-generate] failed to release monthly media quota reservation: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
   }
 
   private resolveAllowedWorkerToolPolicy(

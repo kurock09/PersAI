@@ -7,6 +7,10 @@ import type {
   ProviderGatewayImageGenerateRequest,
   ProviderGatewayImageGenerateResult
 } from "@persai/runtime-contract";
+import {
+  MIN_RUNTIME_IMAGE_EDIT_COUNT,
+  MAX_RUNTIME_IMAGE_EDIT_COUNT
+} from "@persai/runtime-contract";
 import { ProviderDocumentGenerationService } from "../src/modules/providers/provider-document-generation.service";
 import type { GammaProviderClient } from "../src/modules/providers/gamma/gamma-provider.client";
 import { ProviderImageGenerationService } from "../src/modules/providers/provider-image-generation.service";
@@ -38,10 +42,12 @@ function createRequest(): ProviderGatewayImageGenerateRequest {
 
 function createEditRequest(options?: {
   includeReference?: boolean;
+  count?: number;
 }): ProviderGatewayImageEditRequest {
   return {
     prompt: "Replace the couch with a red chair",
     model: "gpt-image-2",
+    count: options?.count ?? 1,
     size: "1024x1024",
     background: "opaque",
     timeoutMs: null,
@@ -251,6 +257,35 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
     "tool/image_generate/api-key"
   ]);
 
+  // DEFECT 1: normalizeEditInput must preserve count and forward it to the client
+  const editResultMulti = await service.editImage(createEditRequest({ count: 3 }));
+  assert.equal(editResultMulti.provider, "openai");
+  const lastEditCall = openaiProviderClient.editCalls.at(-1);
+  assert.equal(lastEditCall?.input.count, 3, "count must be forwarded to the provider client");
+
+  // DEFECT 1: normalizeEditInput must reject out-of-range count
+  await assert.rejects(
+    () => service.editImage(createEditRequest({ count: 0 })),
+    /count must be an integer between/
+  );
+  await assert.rejects(
+    () =>
+      service.editImage({
+        ...createEditRequest(),
+        count: MAX_RUNTIME_IMAGE_EDIT_COUNT + 1
+      }),
+    /count must be an integer between/
+  );
+  await assert.rejects(
+    () =>
+      service.editImage({
+        ...createEditRequest(),
+        count: 1.5
+      }),
+    /count must be an integer between/
+  );
+  assert.equal(MIN_RUNTIME_IMAGE_EDIT_COUNT, 1, "MIN_RUNTIME_IMAGE_EDIT_COUNT sanity check");
+
   await assert.rejects(
     () =>
       service.generateImage({
@@ -307,6 +342,7 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
     /PDFMonkey deterministic failure/
   );
   assert.deepEqual(persaiInternalApiClientService.secretIds, [
+    "tool/image_generate/api-key",
     "tool/image_generate/api-key",
     "tool/image_generate/api-key",
     "tool/document/pdfmonkey/api-key",

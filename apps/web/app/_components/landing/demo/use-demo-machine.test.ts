@@ -318,23 +318,27 @@ describe("AUTOPLAY_STEP", () => {
 
 describe("AUTOPLAY_STREAM_START", () => {
   it("appends an assistant text step, enters assistantStreaming, sets streamingId", () => {
-    // CTA step (index 10) is a standalone assistant text step.
-    const ctaIdx = DEMO_SCRIPT.findIndex((s) => s.phase === "cta");
-    const state = autoplayState({ stepIndex: ctaIdx });
+    // Use the first standalone assistant text step in the script.
+    const asstTextIdx = DEMO_SCRIPT.findIndex(
+      (s) => s.message.role === "assistant" && s.message.kind === "text"
+    );
+    const state = autoplayState({ stepIndex: asstTextIdx });
     const next = demoReducer(state, { type: "AUTOPLAY_STREAM_START" });
     expect(next.status).toBe("assistantStreaming");
-    expect(next.streamingId).toBe(DEMO_SCRIPT[ctaIdx]?.message.id);
-    expect(next.stepIndex).toBe(ctaIdx + 1);
+    expect(next.streamingId).toBe(DEMO_SCRIPT[asstTextIdx]?.message.id);
+    expect(next.stepIndex).toBe(asstTextIdx + 1);
     expect(next.autoplayContext).toBe(true);
   });
 
   it("is a no-op when not in autoplay state", () => {
-    const ctaIdx = DEMO_SCRIPT.findIndex((s) => s.phase === "cta");
+    const asstTextIdx = DEMO_SCRIPT.findIndex(
+      (s) => s.message.role === "assistant" && s.message.kind === "text"
+    );
     for (const status of ["thinking", "autoTyping", "assistantStreaming"] as const) {
       const state: DemoMachineState = {
         ...getInitialDemoState(),
         status,
-        stepIndex: ctaIdx
+        stepIndex: asstTextIdx
       };
       expect(demoReducer(state, { type: "AUTOPLAY_STREAM_START" })).toBe(state);
     }

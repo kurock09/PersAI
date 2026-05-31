@@ -324,7 +324,7 @@ export function DemoModeChip({
   const isPremium = mode !== "normal";
 
   return (
-    <div className="relative shrink-0">
+    <div className="relative min-w-0 shrink-0">
       <button
         ref={triggerRef}
         type="button"
@@ -332,7 +332,7 @@ export function DemoModeChip({
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface-raised/90 px-2.5 py-1 text-[11px] font-semibold text-text shadow-sm backdrop-blur-sm transition-colors md:px-3 md:py-1.5",
+          "inline-flex max-w-[7.25rem] items-center gap-1.5 rounded-full border border-border/70 bg-surface-raised/90 px-2.5 py-1 text-[11px] font-semibold text-text shadow-sm backdrop-blur-sm transition-colors md:max-w-none md:px-3 md:py-1.5",
           isPremium && "border-accent-premium/25 text-accent-premium",
           menuOpen && "border-border-strong bg-surface-raised"
         )}
@@ -341,7 +341,7 @@ export function DemoModeChip({
           mode={mode}
           className={cn("h-3.5 w-3.5", isPremium ? "text-accent-premium" : "text-text-muted")}
         />
-        <span>{modeLabel(mode, labels)}</span>
+        <span className="min-w-0 truncate">{modeLabel(mode, labels)}</span>
         <ChevronDown
           className={cn("h-3 w-3 text-text-subtle transition-transform", menuOpen && "rotate-180")}
         />
@@ -685,7 +685,7 @@ export function DemoWindow({
           <div className="relative flex flex-1 flex-col overflow-hidden bg-bg md:rounded-2xl md:border md:border-border">
             {/* Header row — title text-sm font-medium text-text-muted */}
             {headerTitle != null && (
-              <div className="flex items-center border-b border-border px-4 py-3">
+              <div className="flex min-w-0 items-center border-b border-border px-3 py-3 sm:px-4">
                 {hasSidebar && (
                   <button
                     type="button"

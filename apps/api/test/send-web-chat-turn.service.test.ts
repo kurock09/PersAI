@@ -1063,7 +1063,8 @@ describe("SendWebChatTurnService", () => {
 
     const result = await service.execute("user-1", {
       surfaceThreadKey: "thread-1",
-      message: "send hello again"
+      message: "send hello again",
+      welcomeLocale: "ru"
     });
 
     assert.equal(updatedContents.length, 1);

@@ -29,7 +29,7 @@ export interface DemoMessage {
   channel?: "telegram" | undefined;
 }
 
-export type DemoPhase = "setup" | "value" | "action" | "memory" | "cta";
+export type DemoPhase = "setup" | "value" | "action" | "memory";
 
 export interface DemoStep {
   phase: DemoPhase;
@@ -151,17 +151,6 @@ export const DEMO_SCRIPT: DemoStep[] = [
       role: "assistant",
       kind: "text",
       textKey: "landing.demo.steps.memoryAck"
-    }
-  },
-  // ── CTA beat ──────────────────────────────────────────────────────
-  // ASSISTANT: standalone soft CTA (streamed directly, no prior user turn)
-  {
-    phase: "cta",
-    message: {
-      id: "script-cta-0",
-      role: "assistant",
-      kind: "text",
-      textKey: "landing.demo.steps.cta"
     }
   }
 ];

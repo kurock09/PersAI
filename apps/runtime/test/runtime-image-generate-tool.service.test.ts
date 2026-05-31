@@ -106,6 +106,50 @@ describe("RuntimeImageGenerateToolService", () => {
     );
   });
 
+  test("returns pending_delivery with count metadata when async media job is accepted", async () => {
+    const service = new RuntimeImageGenerateToolService(
+      {} as never,
+      {
+        async enqueueDeferredMediaJob() {
+          return {
+            accepted: true,
+            jobId: "media-job-1",
+            kind: "image"
+          };
+        }
+      } as never,
+      {} as never,
+      {} as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "call-1",
+        name: "image_generate",
+        arguments: {
+          prompt: "Draw a serene poster",
+          count: 3
+        }
+      } as never,
+      sessionId: "session-1",
+      requestId: "request-1",
+      deferToAsyncMediaJob: {
+        sourceUserMessageId: "message-1",
+        sourceUserMessageText: "Draw a serene poster"
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "pending_delivery");
+    assert.equal(result.payload.canSendFileNow, false);
+    assert.equal(result.payload.jobId, "media-job-1");
+    assert.equal(result.payload.requestedCount, 3);
+    assert.equal(result.payload.expectedResultCount, 3);
+    assert.equal(typeof result.payload.messageToUser, "string");
+    assert.equal(result.artifacts.length, 0);
+  });
+
   test("retries once with a safer paraphrase after provider safety rejection", async () => {
     const imageCalls: ProviderGatewayImageGenerateRequest[] = [];
     const rewriteCalls: ProviderGatewayTextGenerateRequest[] = [];
@@ -168,14 +212,7 @@ describe("RuntimeImageGenerateToolService", () => {
     };
     const service = new RuntimeImageGenerateToolService(
       providerGatewayClient as never,
-      {
-        async reserveMonthlyMediaQuota() {
-          return { allowed: true };
-        },
-        async releaseMonthlyMediaQuota() {
-          return undefined;
-        }
-      } as never,
+      {} as never,
       {
         buildRuntimeOutputObjectKey() {
           return "runtime/image-1.png";
@@ -266,14 +303,7 @@ describe("RuntimeImageGenerateToolService", () => {
           };
         }
       } as never,
-      {
-        async reserveMonthlyMediaQuota() {
-          return { allowed: true };
-        },
-        async releaseMonthlyMediaQuota() {
-          return undefined;
-        }
-      } as never,
+      {} as never,
       {} as never,
       {} as never
     );

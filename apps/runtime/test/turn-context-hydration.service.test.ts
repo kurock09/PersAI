@@ -640,6 +640,8 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       kind: "image",
       toolCode: "image_generate",
       status: "running",
+      requestedCount: 1,
+      expectedResultCount: 1,
       createdAt: "2026-04-11T11:55:00.000Z",
       startedAt: "2026-04-11T11:56:00.000Z",
       updatedAt: "2026-04-11T11:59:00.000Z"

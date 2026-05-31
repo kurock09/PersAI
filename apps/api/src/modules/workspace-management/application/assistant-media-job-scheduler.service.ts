@@ -13,6 +13,7 @@ import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
+import type { WorkspaceMonthlyToolQuotaToolCode } from "../domain/workspace-quota-accounting.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
 import {
@@ -30,6 +31,7 @@ import { BackgroundSchedulerMetricsService } from "./background-scheduler-metric
 import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
+import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 
 type FailJobContext = {
   sourceUserMessageText: string;
@@ -120,7 +122,8 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     private readonly assistantMediaJobCompletionTurnService: AssistantMediaJobCompletionTurnService,
     private readonly schedulerLeaseService: SchedulerLeaseService,
     private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService,
-    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   onModuleInit(): void {
@@ -413,6 +416,9 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     }
 
     if (outcome.result.artifacts.length === 0) {
+      // ADR-105 §5: worker-execution terminal failure with no deliverable
+      // artifacts. The job never reaches the delivery loop, so this is a clean
+      // release path — `failJob` releases the full reserved N exactly once.
       await this.failJob(
         job,
         false,
@@ -471,6 +477,11 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
   ): Promise<void> {
     const canRetry = outcome.retryable && job.attemptCount < job.maxAttempts;
     if (canRetry) {
+      // ADR-105 §5: retryable failure — requeue WITHOUT touching the quota. The
+      // enqueue reservation stays held across retries and is resolved exactly
+      // once at the eventual terminal transition (success delivery settles, or
+      // `failJob` releases). Releasing here would multi-release the shared
+      // aggregate counter across retry attempts.
       const retryAfterAt = new Date(Date.now() + computeRetryBackoffMs(job.attemptCount));
       await this.prisma.assistantMediaJob.updateMany({
         where: { id: job.id, schedulerClaimToken: job.claimToken },
@@ -487,6 +498,9 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       return;
     }
 
+    // ADR-105 §5: terminal worker-execution failure (incl.
+    // image_provider_safety_rejected). The worker no longer releases; `failJob`
+    // releases the full reserved N exactly once.
     await this.failJob(job, false, outcome.code, outcome.message, locale, context);
   }
 
@@ -510,6 +524,17 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         message,
         locale
       });
+
+    // ADR-105 §5 (single-owner reservation): `failJob` is the single terminal
+    // failure transition for a media job that never reached the delivery loop.
+    // The enqueue reservation (N units) has not been settled or reconciled by
+    // any other actor — the worker no longer touches the quota and the API
+    // delivery loop never ran — so we release the full reserved N here exactly
+    // once. Covers every failJob caller: invalid_request_payload,
+    // assistant_not_found, runtime_bundle_missing, media_job_artifacts_missing,
+    // and terminal worker failures (incl. image_provider_safety_rejected).
+    await this.releaseEnqueueReservationBestEffort(job);
+
     let completionAssistantMessageId: string | null = null;
 
     try {
@@ -541,6 +566,42 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         ...(completionAssistantMessageId === null ? {} : { completionAssistantMessageId })
       }
     });
+  }
+
+  /**
+   * ADR-105 §5 — release the job's full enqueue-time monthly media reservation
+   * exactly once on a terminal scheduler failure. Best-effort: the failure
+   * transition must still complete even if the quota release throws, and a
+   * missing assistant entity (deleted mid-flight) is the only path where the
+   * reservation cannot be resolved here (it requires the Assistant entity to
+   * resolve governance + subscription period); that rare edge is logged.
+   */
+  private async releaseEnqueueReservationBestEffort(job: ClaimedMediaJob): Promise<void> {
+    const reservation = this.extractReservationInfoFromRequestJson(job.requestJson);
+    if (reservation === null) {
+      this.logger.warn(
+        `ADR-105 release skipped: could not resolve toolCode/units from requestJson jobId=${job.id}`
+      );
+      return;
+    }
+    const assistant = await this.assistantRepository.findById(job.assistantId);
+    if (assistant === null) {
+      this.logger.warn(
+        `ADR-105 release skipped: assistant missing for jobId=${job.id} toolCode=${reservation.toolCode} units=${String(reservation.units)} (reserved units stranded for workspace reconciliation)`
+      );
+      return;
+    }
+    try {
+      await this.trackWorkspaceQuotaUsageService.releaseAssistantMonthlyMediaQuota({
+        assistant,
+        toolCode: reservation.toolCode,
+        units: reservation.units
+      });
+    } catch (error) {
+      this.logger.warn(
+        `ADR-105 monthly media quota release failed jobId=${job.id} toolCode=${reservation.toolCode} units=${String(reservation.units)}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   private async tryLlmAuthoredFailureCopy(
@@ -578,6 +639,43 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       );
       return null;
     }
+  }
+
+  /**
+   * ADR-105 §5 — recover the reservation tuple (toolCode + N units) from the
+   * persisted `requestJson`, mirroring the enqueue-time extraction
+   * (`EnqueueRuntimeDeferredMediaJobService.extractRequestedUnitCount`): N =
+   * `count` for image_generate / image_edit, 1 for video_generate. Reads the
+   * raw JSON defensively so it works even on the invalid_request_payload path
+   * where the structured parse failed.
+   */
+  private extractReservationInfoFromRequestJson(
+    requestJson: unknown
+  ): { toolCode: WorkspaceMonthlyToolQuotaToolCode; units: number } | null {
+    if (requestJson === null || typeof requestJson !== "object" || Array.isArray(requestJson)) {
+      return null;
+    }
+    const exec = (requestJson as Record<string, unknown>).directToolExecution;
+    if (exec === null || typeof exec !== "object" || Array.isArray(exec)) {
+      return null;
+    }
+    const row = exec as Record<string, unknown>;
+    const toolCode = row.toolCode;
+    if (toolCode === "image_generate" || toolCode === "image_edit") {
+      const request = row.request;
+      if (request === null || typeof request !== "object" || Array.isArray(request)) {
+        return null;
+      }
+      const count = (request as Record<string, unknown>).count;
+      if (typeof count === "number" && Number.isInteger(count) && count > 0) {
+        return { toolCode, units: count };
+      }
+      return null;
+    }
+    if (toolCode === "video_generate") {
+      return { toolCode: "video_generate", units: 1 };
+    }
+    return null;
   }
 
   private extractPreferredLocale(runtimeBundleDocument: string): string | null {
