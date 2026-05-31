@@ -2673,6 +2673,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     providerGatewayClient.calls[openMediaJobsOffset]?.developerInstructions ?? "",
+    /Do not let older open jobs block a genuine new media request in the current user turn\./
+  );
+  assert.match(
+    providerGatewayClient.calls[openMediaJobsOffset]?.developerInstructions ?? "",
     /1\. image_generate job is running; source: "сделай сову в африке"; created 2026-04-11T11:55:00.000Z, started 2026-04-11T11:56:00.000Z; requested 1 result unit\(s\)\./
   );
   assert.match(

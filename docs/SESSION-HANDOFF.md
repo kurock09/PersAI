@@ -2,6 +2,47 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-05-31 (cont.) — ADR-105 follow-up: invalid-arguments budget refund + ref-bound series guard
+
+### What changed & why
+
+Baseline SHA at session start: `f94ae707a3df488021a68c927b98f5229da4c99e`.
+
+Closed the next two live carousel/runtime regressions with structural runtime fixes, not prompt-word parsing.
+
+- **Invalid-arguments budget truth:** `tool-budget-policy.ts` now exposes `refund(toolName, reservedUnits)`, and `turn-execution.service.ts` uses it only when a previously reserved media call (`image_generate`, `image_edit`, `video_generate`) comes back as a structural `action:"skipped" + reason:"invalid_arguments"` outcome. This preserves ADR-105's unit-aware per-turn cap while stopping malformed tool JSON from burning the full turn budget and causing the corrected same-turn retry to fail with `tool_budget_exhausted`.
+- **Ref-bound carousel truth:** `turn-execution.service.ts` now passes reusable image attachments into `runtime-image-generate-tool.service.ts`. When a multi-frame `image_generate` series request arrives while a reusable current-turn image already exists, runtime returns a structural `source_image_required` rejection telling the model to use `image_edit` with `sourceImageAlias` instead of regenerating the product from scratch. This closes the live "sneaker ref -> model switched to generic image_generate and drifted to unrelated products" failure mode without keyword routing.
+- **Series continuity truth:** both runtime image generate/edit series paths now compose each item prompt with explicit continuity constraints ("same product/campaign identity", one final image per item, no collage/grid/contact sheet), so `series` means semantically consistent distinct frames rather than merely "N separate calls."
+
+### Files touched
+
+`apps/runtime/src/modules/turns/tool-budget-policy.ts`; `apps/runtime/src/modules/turns/turn-execution.service.ts`; `apps/runtime/src/modules/turns/runtime-image-generate-tool.service.ts`; `apps/runtime/src/modules/turns/runtime-image-edit-tool.service.ts`; `apps/runtime/src/modules/turns/native-tool-projection.ts`; `apps/runtime/test/tool-budget-policy.test.ts`; `apps/runtime/test/runtime-image-generate-tool.service.test.ts`; `apps/runtime/test/runtime-image-edit-tool.service.test.ts`; `apps/runtime/test/native-tool-projection.test.ts`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`; `docs/ADR/105-media-job-truth-and-orchestrated-cleanup.md`; `docs/TEST-PLAN.md`.
+
+### Tests run
+
+- Focused PASS: `@persai/runtime` `test/tool-budget-policy.test.ts`
+- Focused PASS: `@persai/runtime` `test/runtime-image-generate-tool.service.test.ts`
+- Focused PASS: `@persai/runtime` `test/runtime-image-edit-tool.service.test.ts`
+- Focused PASS: `@persai/runtime` `test/native-tool-projection.test.ts`
+- Focused PASS: `@persai/runtime` `test/turn-execution.service.test.ts`
+- Recursive lint PASS
+- Root `format:check` PASS
+- `@persai/api` typecheck PASS
+- `@persai/web` typecheck PASS
+
+### Risks / residuals
+
+- The ref-bound series guard currently activates when a reusable image already exists and the model still chooses `image_generate` for a multi-frame series. This is intentionally structural and conservative, but it still depends on the model retrying with `image_edit` after reading the returned guidance.
+- This session did not re-run live prod/dev smoke after deploy; runtime image rollout is still required before re-testing the sneaker/carousel sequence in `persai-dev`.
+
+### Deploy
+
+- runtime image required. No Prisma migration. No api/web deploy required for this bounded follow-up slice.
+
+### Next recommended step
+
+- Deploy runtime to `persai-dev`, then live-smoke the sneaker/carousel case again: first malformed call should no longer burn the turn budget, and any ref-bound multi-slide retry should route cleanly to `image_edit` with one consistent product across all slides.
+
 ## 2026-05-31 (cont.) — ADR-105 follow-up: semantic open-job context + explicit multi-image series mode
 
 ### What changed & why

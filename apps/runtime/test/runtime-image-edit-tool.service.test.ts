@@ -604,5 +604,9 @@ describe("RuntimeImageEditToolService", () => {
       [1, 1, 1]
     );
     assert.match(editCalls[0]?.prompt ?? "", /This item only: frame 1 warmer hero shot/);
+    assert.match(
+      editCalls[0]?.prompt ?? "",
+      /Keep the same source product\/object identity from current image #1 across every series item/i
+    );
   });
 });

@@ -267,6 +267,20 @@ export class ToolBudgetPolicy {
     this.perToolCounts.set(toolName, observed + units);
     return { exhausted: false };
   }
+
+  /**
+   * Refund previously reserved per-tool units when the runtime later proves the
+   * call never became a valid executable request (for example `invalid_arguments`
+   * from worker-side parsing/validation). This keeps the honest "one self-repair
+   * attempt" behavior from ADR-074/ADR-105: malformed media JSON must not burn
+   * the whole per-turn media budget for the rest of the turn.
+   */
+  refund(toolName: string, reservedUnits = 1): void {
+    const current = this.observedToolCount(toolName);
+    const units =
+      Number.isFinite(reservedUnits) && reservedUnits > 0 ? Math.floor(reservedUnits) : 1;
+    this.perToolCounts.set(toolName, Math.max(0, current - units));
+  }
 }
 
 /**

@@ -321,6 +321,8 @@ When a change touches the async media lane (media tool projection/budgeting, med
 6. Runtime open-job context (media + document) includes a compact `sourceSummary`, and developer instructions explicitly forbid treating older open jobs as proof that the current turn started a new async job.
 7. The third concurrent open media job in a chat gets an explicit structured `media_job_concurrency_limit` rejection.
 8. **Single-owner quota invariant:** the runtime worker makes zero monthly-media-quota calls (grep `apps/runtime/src/modules/turns`); reservation happens once at enqueue admission; each reservation is resolved exactly once — scheduler `failJob` releases the full `N` once per terminal failure, completion `failDelivery` reconciles `N` once for pre-delivery failures (guarded against post-`deliver()` double-count), delivery loop settles/reconciles per artifact. No double/multi-release across concurrent jobs.
+9. A malformed media tool call that returns structural `invalid_arguments` must refund any previously reserved per-turn media units so a corrected same-turn retry is not blocked by `tool_budget_exhausted`.
+10. When a reusable current-turn image already exists, a multi-frame ref-bound request must not continue as generic `image_generate` series; runtime should structurally steer the model to `image_edit` with `sourceImageAlias`, and `series` item prompts must preserve one product/campaign identity across outputs.
 
 Focused suites:
 

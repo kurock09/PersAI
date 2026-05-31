@@ -381,6 +381,7 @@ async function run(): Promise<void> {
   );
   assert.match(imageGenerate?.description ?? "", /outputMode='series'/);
   assert.match(imageGenerate?.description ?? "", /seriesItems/);
+  assert.match(imageGenerate?.description ?? "", /use image_edit with sourceImageAlias/i);
   assert.match(
     imageGenerate?.description ?? "",
     /do NOT claim they are already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
@@ -401,6 +402,7 @@ async function run(): Promise<void> {
   );
   assert.match(imageEdit?.description ?? "", /outputMode='series'/);
   assert.match(imageEdit?.description ?? "", /seriesItems/);
+  assert.match(imageEdit?.description ?? "", /same source product\/object identity across slides/i);
   assert.match(
     imageEdit?.description ?? "",
     /do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/

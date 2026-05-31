@@ -548,7 +548,14 @@ export class RuntimeImageEditToolService {
       } else {
         const seriesItems = request.seriesItems ?? [];
         for (const [index, itemPrompt] of seriesItems.entries()) {
-          const composedPrompt = `Series item ${String(index + 1)} of ${String(seriesItems.length)}. Overall request: ${request.prompt}\n\nThis item only: ${itemPrompt}`;
+          const composedPrompt = this.composeSeriesPrompt({
+            overallPrompt: request.prompt,
+            itemPrompt,
+            index,
+            total: seriesItems.length,
+            sourceImageAlias: selection.sourceImageAlias,
+            referenceImageAlias: selection.referenceImageAlias
+          });
           const seriesResult = await runEditCall(composedPrompt, 1, `:series:${String(index + 1)}`);
           if (!seriesResult.ok) {
             return {
@@ -1102,6 +1109,28 @@ export class RuntimeImageEditToolService {
   private mergeWarnings(...warnings: Array<string | null | undefined>): string | null {
     const filtered = warnings.filter((warning): warning is string => typeof warning === "string");
     return filtered.length > 0 ? filtered.join(" ") : null;
+  }
+
+  private composeSeriesPrompt(input: {
+    overallPrompt: string;
+    itemPrompt: string;
+    index: number;
+    total: number;
+    sourceImageAlias: string;
+    referenceImageAlias: string | null;
+  }): string {
+    const referenceLine =
+      input.referenceImageAlias === null
+        ? "No separate reference image was provided."
+        : `Use ${input.referenceImageAlias} only as a supporting visual reference; keep the edited product rooted in ${input.sourceImageAlias}.`;
+    return [
+      `Series item ${String(input.index + 1)} of ${String(input.total)}.`,
+      `Overall request: ${input.overallPrompt}`,
+      `Keep the same source product/object identity from ${input.sourceImageAlias} across every series item unless the user explicitly asked to replace it.`,
+      referenceLine,
+      "Return one final edited image for this item only, not a collage, grid, contact sheet, or multi-panel composition.",
+      `This item only: ${input.itemPrompt}`
+    ].join("\n\n");
   }
 
   private resolveImageEditProviderId(

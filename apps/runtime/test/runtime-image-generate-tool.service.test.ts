@@ -5,7 +5,8 @@ import type {
   ProviderGatewayImageGenerateRequest,
   ProviderGatewayImageGenerateResult,
   ProviderGatewayTextGenerateRequest,
-  ProviderGatewayTextGenerateResult
+  ProviderGatewayTextGenerateResult,
+  RuntimeAttachmentRef
 } from "@persai/runtime-contract";
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { ProviderGatewaySafetyRejectedError } from "../src/modules/turns/provider-gateway.client.service";
@@ -428,5 +429,54 @@ describe("RuntimeImageGenerateToolService", () => {
     assert.match(imageCalls[0]?.prompt ?? "", /This item only: slide 1 hero product/);
     assert.match(imageCalls[1]?.prompt ?? "", /This item only: slide 2 product detail/);
     assert.match(imageCalls[2]?.prompt ?? "", /This item only: slide 3 CTA/);
+    assert.match(
+      imageCalls[0]?.prompt ?? "",
+      /Keep the same product\/campaign identity, visual world, and brand continuity across all series items/i
+    );
+  });
+
+  test("rejects ref-bound series generate when a reusable source image is already available", async () => {
+    const service = new RuntimeImageGenerateToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+
+    const attachments = [
+      {
+        attachmentId: "attachment-1",
+        kind: "image",
+        objectKey: "uploads/source.png",
+        mimeType: "image/png",
+        filename: "source.png",
+        sizeBytes: 9,
+        fileRef: "file-1",
+        aliases: ["current image #1", "recent file #1"]
+      }
+    ] as unknown as RuntimeAttachmentRef[];
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "call-ref-bound-series",
+        name: "image_generate",
+        arguments: {
+          prompt: "Build a 4-slide carousel for this sneaker",
+          count: 4,
+          outputMode: "series",
+          seriesItems: ["hero", "detail", "lifestyle", "cta"]
+        }
+      } as never,
+      availableAttachments: attachments,
+      sessionId: "session-guard",
+      requestId: "request-guard"
+    });
+
+    assert.equal(result.isError, true);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "source_image_required");
+    assert.match(result.payload.warning ?? "", /image_edit/i);
+    assert.match(result.payload.warning ?? "", /sourceImageAlias="current image #1"/i);
   });
 });

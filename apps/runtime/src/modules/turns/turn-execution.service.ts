@@ -255,6 +255,7 @@ type ToolExecutionOutcome = {
 type PlannedToolExecution = {
   toolCall: ProviderGatewayToolCall;
   reservation: ReturnType<ToolBudgetPolicy["reserve"]>;
+  reservedUnits: number;
   parallelSafe: boolean;
 };
 
@@ -1162,6 +1163,11 @@ export class TurnExecutionService {
                   let firstError: unknown = null;
                   for (const result of batchResults) {
                     if (result.outcome !== undefined) {
+                      this.maybeRefundInvalidToolReservation(
+                        toolBudgetPolicy,
+                        batch.find((entry) => entry.toolCall.id === result.toolCall.id) ?? null,
+                        result.outcome
+                      );
                       toolHistory.push(result.outcome.exchange);
                       this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
                       durableCompactionExecuted =
@@ -1216,6 +1222,7 @@ export class TurnExecutionService {
                       throw error;
                     }
                   }
+                  this.maybeRefundInvalidToolReservation(toolBudgetPolicy, entry, outcome);
                   toolHistory.push(outcome.exchange);
                   this.applyToolExecutionOutcome(turnState, outcome, iteration);
                   durableCompactionExecuted =
@@ -1968,7 +1975,7 @@ export class TurnExecutionService {
       "## Open Media Jobs",
       "Server truth: background media generation is already in progress in this chat.",
       "Use this status block for any progress reply in the current turn.",
-      "Do not start a new image_generate, image_edit, video_generate, or audio_generate call unless the current user turn is clearly asking for a separate new media task.",
+      "Do not let older open jobs block a genuine new media request in the current user turn. If the current turn is asking for another image, edit, video, or audio task, you may start the matching new media tool call.",
       "These are older or already-open jobs. They are NOT proof that the current user turn started a new media job.",
       "Only say a new media request was accepted, queued, or in progress when this same turn actually returned a structural pending_delivery result with a real jobId.",
       ...openMediaJobs.slice(0, MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS).map((job, index) => {
@@ -2547,6 +2554,11 @@ export class TurnExecutionService {
           let firstError: unknown = null;
           for (const result of batchResults) {
             if (result.outcome !== undefined) {
+              this.maybeRefundInvalidToolReservation(
+                toolBudgetPolicy,
+                batch.find((entry) => entry.toolCall.id === result.toolCall.id) ?? null,
+                result.outcome
+              );
               toolHistory.push(result.outcome.exchange);
               this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
               durableCompactionExecuted =
@@ -2580,6 +2592,7 @@ export class TurnExecutionService {
                 turnState.fileRefs,
                 turnState.deferredDocumentJobs
               );
+          this.maybeRefundInvalidToolReservation(toolBudgetPolicy, entry, outcome);
           toolHistory.push(outcome.exchange);
           this.applyToolExecutionOutcome(turnState, outcome, iteration);
           durableCompactionExecuted =
@@ -2604,15 +2617,15 @@ export class TurnExecutionService {
     toolBudgetPolicy: ToolBudgetPolicy,
     iteration: number
   ): PlannedToolExecution[] {
-    return toolCalls.map((toolCall) => ({
-      toolCall,
-      reservation: toolBudgetPolicy.reserve(
-        toolCall.name,
-        iteration,
-        this.resolveRequestedToolResultUnits(toolCall)
-      ),
-      parallelSafe: SAFE_PARALLEL_TOOL_CODES.has(toolCall.name)
-    }));
+    return toolCalls.map((toolCall) => {
+      const reservedUnits = this.resolveRequestedToolResultUnits(toolCall);
+      return {
+        toolCall,
+        reservedUnits,
+        reservation: toolBudgetPolicy.reserve(toolCall.name, iteration, reservedUnits),
+        parallelSafe: SAFE_PARALLEL_TOOL_CODES.has(toolCall.name)
+      };
+    });
   }
 
   /**
@@ -2973,9 +2986,15 @@ export class TurnExecutionService {
         );
       }
       case IMAGE_GENERATE_TOOL_CODE: {
+        const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
+          acceptedTurn,
+          execution,
+          currentArtifacts
+        );
         const result = await this.runtimeImageGenerateToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
+          availableAttachments: availableImageAttachments,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
           ...(this.shouldDeferMediaToolExecution(input)
@@ -4492,6 +4511,7 @@ export class TurnExecutionService {
         }
       }
     }
+
     const producedFileRefs = this.extractProducedFileRefs(outcome.payload);
     if (producedFileRefs.length > 0) {
       for (const fileRef of producedFileRefs) {
@@ -4572,6 +4592,35 @@ export class TurnExecutionService {
     turnState.sharedCompaction.durableStatePersisted =
       turnState.sharedCompaction.durableStatePersisted ||
       outcome.sharedCompaction.durableStatePersisted;
+  }
+
+  private maybeRefundInvalidToolReservation(
+    toolBudgetPolicy: ToolBudgetPolicy,
+    entry: PlannedToolExecution | null,
+    outcome: ToolExecutionOutcome
+  ): void {
+    if (entry === null || entry.reservation.exhausted) {
+      return;
+    }
+    if (
+      entry.toolCall.name !== IMAGE_GENERATE_TOOL_CODE &&
+      entry.toolCall.name !== IMAGE_EDIT_TOOL_CODE &&
+      entry.toolCall.name !== VIDEO_GENERATE_TOOL_CODE
+    ) {
+      return;
+    }
+    if (!this.isStructuredInvalidArgumentsOutcome(outcome.payload)) {
+      return;
+    }
+    toolBudgetPolicy.refund(entry.toolCall.name, entry.reservedUnits);
+  }
+
+  private isStructuredInvalidArgumentsOutcome(payload: unknown): boolean {
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+      return false;
+    }
+    const candidate = payload as { action?: unknown; reason?: unknown };
+    return candidate.action === "skipped" && candidate.reason === "invalid_arguments";
   }
 
   private resolveToolInvocationExecutionMode(

@@ -209,8 +209,8 @@ export function useMarketplaceThread({ active, extraMessages }: UseMarketplaceTh
       {visibleCount >= 4 && (
         <motion.div variants={itemVariants}>
           <AssistantRow showAvatar={false}>
-            {/* grid-cols-1 on mobile; single 3-column row on sm+ */}
-            <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
+            {/* grid-cols-1 on mobile; on desktop the first card is slightly larger */}
+            <div className="grid min-w-0 grid-cols-1 gap-2 sm:gap-3 md:grid-cols-[1.1fr_0.95fr_0.95fr]">
               {/* Card 1 — always visible when the block appears */}
               <MarketCardButton
                 src={slides[0].src}

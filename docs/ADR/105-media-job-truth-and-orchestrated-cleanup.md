@@ -356,6 +356,20 @@ The live carousel audit also found that one batched `count=N` prompt describing 
 - `native-tool-projection.ts` now teaches the model to use `variants` for alternate versions of one image idea and `series` + `seriesItems[]` for distinct final frames/items (carousel slides, storyboard frames, etc.).
 - Runtime image generate/edit execution keeps **one structured request = one durable media job**, but when `outputMode="series"` it runs multiple single-image provider calls inside that job (`count=1` per call) using one frame-specific prompt per series item. This preserves ADR-105's no-silent-split rule while removing the collage-prone "one shared prompt for the whole carousel" shape.
 
+### Invalid-arguments refund + ref-bound series guard (2026-05-31, follow-up)
+
+The live carousel audit uncovered two more product-truth gaps after `series` landed:
+
+1. a malformed media tool call (`invalid_arguments`) could still consume the full per-turn media unit budget because reservation happened before worker-side argument validation, and
+2. a ref-bound multi-slide request could still drift to generic `image_generate` even when a reusable current-turn source image was structurally available, leading to unrelated products instead of edits of the referenced product.
+
+Closed:
+
+- `ToolBudgetPolicy` now supports an explicit `refund(toolName, reservedUnits)` path, and `turn-execution.service.ts` uses it only when a previously reserved media call comes back as structural `action:"skipped" + reason:"invalid_arguments"`. This preserves the ADR-105 unit-budget meaning while ensuring malformed media JSON does **not** burn the turn and block a corrected same-turn retry.
+- `turn-execution.service.ts` now passes reusable image attachments into `runtime-image-generate-tool.service.ts`, not only into edit/video tools.
+- `runtime-image-generate-tool.service.ts` now returns a structural `source_image_required` rejection for `outputMode="series"` multi-frame generation when a reusable current-turn image already exists, instructing the model to switch to `image_edit` with `sourceImageAlias` instead of regenerating from scratch.
+- Runtime series prompt composition in both generate/edit paths now explicitly preserves one product/campaign identity across all items and forbids collage/grid/contact-sheet composition per item, tightening the semantics of `series` from "N distinct calls" to "N distinct but continuous final frames."
+
 ### Residuals (tracked, accepted for this program)
 
 1. `assistant_not_found` in `failJob` cannot release its reservation (no `Assistant` entity remains to resolve governance/period); it is logged for workspace-level reconciliation. Rare (assistant deleted between enqueue and scheduling).

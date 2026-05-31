@@ -17,6 +17,7 @@ import {
   type ProviderGatewayImageGenerateResult,
   type RuntimeImageGenerateRequest,
   type RuntimeImageGenerateToolResult,
+  type RuntimeAttachmentRef,
   type RuntimeUsageSnapshot,
   type RuntimeOutputArtifact,
   type RuntimeToolPolicy
@@ -78,6 +79,7 @@ export class RuntimeImageGenerateToolService {
   async executeToolCall(params: {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
+    availableAttachments?: RuntimeAttachmentRef[];
     sessionId: string;
     requestId: string;
     deferToAsyncMediaJob?: {
@@ -103,6 +105,18 @@ export class RuntimeImageGenerateToolService {
           reason: "invalid_arguments",
           warning: request.message
         },
+        artifacts: [],
+        isError: true
+      };
+    }
+
+    const refBoundSeriesGuard = this.validateSeriesRequestAgainstAvailableImages(
+      request,
+      params.availableAttachments ?? []
+    );
+    if (refBoundSeriesGuard !== null) {
+      return {
+        payload: refBoundSeriesGuard,
         artifacts: [],
         isError: true
       };
@@ -453,7 +467,12 @@ export class RuntimeImageGenerateToolService {
       } else {
         const seriesItems = request.seriesItems ?? [];
         for (const [index, itemPrompt] of seriesItems.entries()) {
-          const composedPrompt = `Series item ${String(index + 1)} of ${String(seriesItems.length)}. Overall request: ${request.prompt}\n\nThis item only: ${itemPrompt}`;
+          const composedPrompt = this.composeSeriesPrompt({
+            overallPrompt: request.prompt,
+            itemPrompt,
+            index,
+            total: seriesItems.length
+          });
           const seriesResult = await runGenerateCall(
             composedPrompt,
             1,
@@ -813,6 +832,57 @@ export class RuntimeImageGenerateToolService {
   private mergeWarnings(...warnings: Array<string | null | undefined>): string | null {
     const filtered = warnings.filter((warning): warning is string => typeof warning === "string");
     return filtered.length > 0 ? filtered.join(" ") : null;
+  }
+
+  private composeSeriesPrompt(input: {
+    overallPrompt: string;
+    itemPrompt: string;
+    index: number;
+    total: number;
+  }): string {
+    return [
+      `Series item ${String(input.index + 1)} of ${String(input.total)}.`,
+      `Overall request: ${input.overallPrompt}`,
+      "Keep the same product/campaign identity, visual world, and brand continuity across all series items unless the user explicitly asked for different products.",
+      "Return one final image for this item only, not a collage, grid, contact sheet, or multi-panel composition.",
+      `This item only: ${input.itemPrompt}`
+    ].join("\n\n");
+  }
+
+  private validateSeriesRequestAgainstAvailableImages(
+    request: RuntimeImageGenerateRequest,
+    availableAttachments: RuntimeAttachmentRef[]
+  ): RuntimeImageGenerateToolResult | null {
+    if (request.outputMode !== "series" || request.count <= 1) {
+      return null;
+    }
+    const reusableImages = availableAttachments.filter((attachment) => attachment.kind === "image");
+    if (reusableImages.length === 0) {
+      return null;
+    }
+    const preferredAlias =
+      reusableImages
+        .find((attachment) =>
+          attachment.aliases.some((alias) => alias.startsWith("current image #"))
+        )
+        ?.aliases.find((alias) => alias.startsWith("current image #")) ??
+      reusableImages[0]?.aliases[0] ??
+      "current image #1";
+    return {
+      toolCode: IMAGE_GENERATE_TOOL_CODE,
+      executionMode: "worker",
+      provider: null,
+      model: null,
+      prompt: request.prompt,
+      revisedPrompt: null,
+      requestedCount: request.count,
+      size: request.size,
+      artifacts: [],
+      usage: null,
+      action: "skipped",
+      reason: "source_image_required",
+      warning: `A reusable source image is already available in this turn (${preferredAlias}). For a multi-frame campaign or carousel based on that image, call image_edit with sourceImageAlias="${preferredAlias}" and keep outputMode="series" with one frame instruction per seriesItems entry.`
+    };
   }
 
   private resolveImageGenerateProviderId(

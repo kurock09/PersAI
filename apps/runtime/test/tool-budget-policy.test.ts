@@ -450,6 +450,26 @@ export async function runToolBudgetPolicyTest(): Promise<void> {
     "ADR-105 Slice 2: a rejected oversized request must not advance the per-tool counter (reserve(1) after rejection must still succeed with cap=1, observed=0)."
   );
 
+  // Case 2b: an accepted reservation that is later refunded after
+  // `invalid_arguments` must also restore the per-tool budget so the model can
+  // self-repair in the same turn.
+  const refundedInvalidPolicy = new ToolBudgetPolicy("reasoning", {
+    perToolCapOverrides: new Map([["image_edit", 4]])
+  });
+  const acceptedBatch = refundedInvalidPolicy.reserve("image_edit", 0, 4);
+  assert.equal(
+    acceptedBatch.exhausted,
+    false,
+    "ADR-105 Slice 2 regression: reserve(image_edit, 0, 4) with cap=4 must succeed before a later runtime-side invalid_arguments refund."
+  );
+  refundedInvalidPolicy.refund("image_edit", 4);
+  const repairedRetry = refundedInvalidPolicy.reserve("image_edit", 0, 4);
+  assert.equal(
+    repairedRetry.exhausted,
+    false,
+    "ADR-105 Slice 2 regression: refund(image_edit, 4) must restore the full per-turn budget so a corrected same-turn retry can still reserve."
+  );
+
   // Case 3: requestedUnits default still behaves as 1 for non-media tools
   // (regression guard — the ADR-105 unit parameter must not change existing
   // one-call-one-unit accounting for tools that omit it).
