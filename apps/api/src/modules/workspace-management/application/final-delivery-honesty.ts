@@ -1,5 +1,12 @@
-function buildDeliveredAttachmentFallback(locale?: string | null): string {
-  return locale?.toLowerCase().startsWith("ru") ? "Файл отправлен." : "File sent.";
+function buildDeliveredAttachmentFallback(
+  locale: string | null | undefined,
+  kind: UndeliveredArtifactKind
+): string {
+  const ru = locale?.toLowerCase().startsWith("ru") ?? false;
+  if (kind === "media") {
+    return ru ? "Медиафайл отправлен." : "Media sent.";
+  }
+  return ru ? "Файл отправлен." : "File sent.";
 }
 
 export type UndeliveredArtifactKind = "file" | "media";
@@ -244,7 +251,7 @@ export function applyFinalDeliveryHonestyCorrection(input: {
   }
   if (normalizedText.length === 0) {
     return input.deliveredAttachmentCount > 0
-      ? buildDeliveredAttachmentFallback(input.locale)
+      ? buildDeliveredAttachmentFallback(input.locale, input.attemptedArtifactKind ?? "file")
       : normalizedText;
   }
   return normalizedText;

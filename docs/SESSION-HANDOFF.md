@@ -2,6 +2,44 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 — delivery fallback localization tail + verified ship
+
+### What changed & why
+
+Baseline SHA at session start: `c9c44831ddca1ef81c5de8b4e0bbdaf698b5dc70`.
+
+Closed the remaining delivery-honesty tail where attachment-only media replies could still surface the file-shaped fallback `File sent.` / `Файл отправлен.` after structural cleanup removed technical attachment lines and left no assistant prose.
+
+- **Media-aware delivered fallback truth:** `apps/api/src/modules/workspace-management/application/final-delivery-honesty.ts` no longer hardcodes the empty-body delivered fallback to `"file"`. The fallback is now selected structurally from `attemptedArtifactKind`: `media` returns `Media sent.` / `Медиафайл отправлен.`, while document/file delivery keeps `File sent.` / `Файл отправлен.`. This fixes the live UI case where a successfully delivered image/audio-only reply showed a non-localized / wrong-kind file fallback.
+- **Regression coverage:** `apps/api/test/final-delivery-honesty.test.ts` now covers EN/RU media-only fallback, and `apps/api/test/stream-web-chat-turn.service.test.ts` asserts the streamed attachment-only media path persists / transports `Media sent.` instead of `File sent.`.
+- **Included founder-owned web tweak:** the already-present `apps/web/app/_components/landing/demo/block-market.tsx` layout adjustment (equal desktop carousel squares) was included in the same verified commit rather than being reverted.
+
+### Files touched
+
+`apps/api/src/modules/workspace-management/application/final-delivery-honesty.ts`; `apps/api/test/final-delivery-honesty.test.ts`; `apps/api/test/stream-web-chat-turn.service.test.ts`; `apps/web/app/_components/landing/demo/block-market.tsx`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- Recursive lint PASS
+- Root `format:check` PASS
+- `@persai/api` typecheck PASS
+- `@persai/web` typecheck PASS
+- Focused PASS: `@persai/api` `test/final-delivery-honesty.test.ts`
+- Focused PASS: `@persai/api` `test/stream-web-chat-turn.service.test.ts`
+
+### Risks / residuals
+
+- This session fixes the delivery fallback copy only. The separate web UI bug where a new pending assistant bubble can visually appear next to an older image attachment is still a different unresolved slice.
+- Deploy is still required before founder/live environments show the media-aware fallback text.
+
+### Deploy
+
+- api + web images required. No Prisma migration.
+
+### Next recommended step
+
+- Fix the remaining web chat rendering tail so assistant messages without `attachments` can never visually inherit the previous assistant message's media block.
+
 ## 2026-05-31 (cont.) — ADR-105 follow-up: invalid-arguments budget refund + ref-bound series guard
 
 ### What changed & why

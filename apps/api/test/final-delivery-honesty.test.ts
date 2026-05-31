@@ -110,9 +110,10 @@ async function run(): Promise<void> {
       attemptedArtifactCount: 1,
       deliveredAttachmentCount: 1,
       deliveredAttachmentFilenames: ["mansion_photo_edit.png"],
+      attemptedArtifactKind: "media",
       locale: "en"
     }),
-    "File sent."
+    "Media sent."
   );
 
   // Multiple attachment summaries + one delivered → fallback
@@ -123,9 +124,23 @@ async function run(): Promise<void> {
       attemptedArtifactCount: 1,
       deliveredAttachmentCount: 1,
       deliveredAttachmentFilenames: ["mansion_photo_edit.png"],
+      attemptedArtifactKind: "media",
       locale: "en"
     }),
-    "File sent."
+    "Media sent."
+  );
+
+  // Media-only fallback localizes for RU too.
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: 'Assistant sent an attachment: image "portrait.png".',
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 1,
+      deliveredAttachmentFilenames: ["portrait.png"],
+      attemptedArtifactKind: "media",
+      locale: "ru"
+    }),
+    "Медиафайл отправлен."
   );
 
   // Working-files injection line stripped; prose kept
