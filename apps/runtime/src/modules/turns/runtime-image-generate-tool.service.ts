@@ -861,12 +861,14 @@ export class RuntimeImageGenerateToolService {
       return null;
     }
     const preferredAlias =
-      reusableImages
-        .find((attachment) =>
-          attachment.aliases.some((alias) => alias.startsWith("current image #"))
-        )
-        ?.aliases.find((alias) => alias.startsWith("current image #")) ??
-      reusableImages[0]?.aliases[0] ??
+      this.resolvePreferredCurrentImageAlias(
+        reusableImages.find((attachment) =>
+          this.resolveAttachmentAliases(attachment).some((alias) =>
+            alias.startsWith("current image #")
+          )
+        ) ?? null
+      ) ??
+      this.resolvePreferredCurrentImageAlias(reusableImages[0] ?? null) ??
       "current image #1";
     return {
       toolCode: IMAGE_GENERATE_TOOL_CODE,
@@ -883,6 +885,22 @@ export class RuntimeImageGenerateToolService {
       reason: "source_image_required",
       warning: `A reusable source image is already available in this turn (${preferredAlias}). For a multi-frame campaign or carousel based on that image, call image_edit with sourceImageAlias="${preferredAlias}" and keep outputMode="series" with one frame instruction per seriesItems entry.`
     };
+  }
+
+  private resolvePreferredCurrentImageAlias(
+    attachment: RuntimeAttachmentRef | null
+  ): string | null {
+    if (attachment === null) {
+      return null;
+    }
+    const aliases = this.resolveAttachmentAliases(attachment);
+    return aliases.find((alias) => alias.startsWith("current image #")) ?? aliases[0] ?? null;
+  }
+
+  private resolveAttachmentAliases(attachment: RuntimeAttachmentRef): string[] {
+    return Array.isArray(attachment.aliases)
+      ? attachment.aliases.filter((alias): alias is string => typeof alias === "string")
+      : [];
   }
 
   private resolveImageGenerateProviderId(
