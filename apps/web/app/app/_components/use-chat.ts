@@ -1700,7 +1700,6 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 id: primaryStreamStillOwnsTurn
                   ? fallbackAssistantMessage.id
                   : statusAssistantMessage.id,
-                attachments: statusAssistantMessage.attachments,
                 thought: statusAssistantMessage.thought,
                 thoughtStartedAt: statusAssistantMessage.thoughtStartedAt,
                 thoughtFinishedAt: statusAssistantMessage.thoughtFinishedAt
@@ -1710,7 +1709,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             statusAssistantMessage.content.length > fallbackAssistantMessage.content.length
               ? statusAssistantMessage.content
               : fallbackAssistantMessage.content,
-          status: "streaming"
+          status: "streaming",
+          // Running/accepted turn-status is only live-progress truth.
+          // Never hydrate attachment blocks from it, or an older committed
+          // assistant message returned by reattach/status can visually stick
+          // its media onto the new pending bubble.
+          attachments: undefined
         };
         const currentActivity = status.currentActivity;
         const nextLiveActivities =

@@ -19,15 +19,15 @@ function getSlides(isRu: boolean) {
   const suffix = isRu ? "ru" : "en";
   return [
     {
-      src: `/landing/market/cover-${suffix}.jpg`,
+      src: `/landing/market/cover-${suffix}.png`,
       altKey: "landing.demo.market.coverAlt" as const
     },
     {
-      src: `/landing/market/detail-${suffix}.jpg`,
+      src: `/landing/market/detail-${suffix}.png`,
       altKey: "landing.demo.market.detailAlt" as const
     },
     {
-      src: `/landing/market/social-${suffix}.jpg`,
+      src: `/landing/market/social-${suffix}.png`,
       altKey: "landing.demo.market.socialAlt" as const
     }
   ] as const;

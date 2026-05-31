@@ -2,6 +2,43 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — web pending-bubble attachment bleed fix + refreshed market PNGs
+
+### What changed & why
+
+Baseline SHA at session start: `9770eda53b18517f0e86db11ebc39b52d958b96e`.
+
+Closed the remaining web-only media rendering tail where a new pending assistant bubble could visually show an older committed image while the turn was still running.
+
+- **Attachment ownership truth for running turns:** `apps/web/app/app/_components/use-chat.ts` no longer hydrates `attachments` from `status.assistantMessage` inside `applyTurnStatusState()` when the turn is still `accepted` / `running`. Turn-status is now treated as progress-only truth for the live assistant bubble. This fixes the case where a reattach/status payload surfaced an older committed assistant message with an image attachment and that image visually stuck to the new pending bubble.
+- **Regression coverage:** `apps/web/app/app/_components/use-chat.test.tsx` now reproduces the stale-image scenario directly (older committed assistant with image attachment + new running turn) and asserts the live streaming assistant bubble has `attachments === undefined`.
+- **Founder-owned landing asset refresh:** `apps/web/app/_components/landing/demo/block-market.tsx` now points at refreshed `cover/detail/social-{en,ru}.png`, and the six new localized PNG assets were added under `apps/web/public/landing/market/`.
+
+### Files touched
+
+`apps/web/app/app/_components/use-chat.ts`; `apps/web/app/app/_components/use-chat.test.tsx`; `apps/web/app/_components/landing/demo/block-market.tsx`; `apps/web/public/landing/market/cover-en.png`; `apps/web/public/landing/market/cover-ru.png`; `apps/web/public/landing/market/detail-en.png`; `apps/web/public/landing/market/detail-ru.png`; `apps/web/public/landing/market/social-en.png`; `apps/web/public/landing/market/social-ru.png`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- Recursive lint PASS
+- Root `format:check` PASS
+- `@persai/api` typecheck PASS
+- `@persai/web` typecheck PASS
+- Focused PASS: `@persai/web` `app/app/_components/use-chat.test.tsx` (82/82)
+
+### Risks / residuals
+
+- This session fixes the running-status attachment bleed in web state reconciliation. It does not change runtime/API media orchestration semantics.
+- Deploy is still required before founder/live environments show both the pending-bubble fix and the refreshed landing market PNGs.
+
+### Deploy
+
+- web image required. No Prisma migration.
+
+### Next recommended step
+
+- Live-smoke the original carousel follow-up path in `persai-dev`: while a new media turn is pending, verify the assistant bubble shows only the pending text and no previously delivered image; separately verify the refreshed landing market block in both EN and RU.
+
 ## 2026-06-01 — delivery fallback localization tail + verified ship
 
 ### What changed & why

@@ -461,6 +461,192 @@ describe("useChat", () => {
     expect(result.current.isStreaming).toBe(false);
   });
 
+  it("does not copy old assistant attachments onto a running pending bubble during status refresh", async () => {
+    let releaseStream: (() => void) | null = null;
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onHeadersOk?: () => void;
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onDelta?: (payload: { delta: string }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onHeadersOk?.();
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+        });
+        handlers.onDelta?.({ delta: "Сделала запрос.\n\n4 картинки сейчас готовятся отдельно." });
+        await new Promise<void>((resolve) => {
+          releaseStream = resolve;
+        });
+        handlers.onCompleted?.({
+          transport: {
+            userMessage: {
+              id: "user-msg-1",
+              chatId: "chat-1",
+              attachments: []
+            },
+            assistantMessage: {
+              id: "assistant-msg-1",
+              content: "Сделала запрос.\n\n4 картинки сейчас готовятся отдельно.",
+              attachments: []
+            },
+            runtime: null
+          }
+        });
+      }
+    );
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+      status: "running",
+      chat: { id: "chat-1" },
+      userMessage: {
+        id: "user-msg-1",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "user",
+        content: "раздели на 4 отдельных картинки и добавь красок",
+        attachments: [],
+        createdAt: "2026-06-01T00:20:00.000Z"
+      },
+      assistantMessage: {
+        id: "older-committed-assistant",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "assistant",
+        content: "Исходник уже был отправлен раньше",
+        attachments: [
+          {
+            id: "att-old-image",
+            fileRef: "file-old",
+            attachmentType: "image",
+            originalFilename: "source-collage.png",
+            mimeType: "image/png",
+            sizeBytes: 2048,
+            processingStatus: "ready",
+            createdAt: "2026-06-01T00:19:00.000Z"
+          }
+        ],
+        createdAt: "2026-06-01T00:19:01.000Z"
+      },
+      currentActivity: null,
+      runtime: null,
+      error: null
+    });
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      nextCursor: null,
+      activeTurn: {
+        clientTurnId: "client-turn-attachments",
+        status: "running",
+        chat: { id: "chat-1" },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "раздели на 4 отдельных картинки и добавь красок",
+          attachments: [],
+          createdAt: "2026-06-01T00:20:00.000Z"
+        },
+        assistantMessage: {
+          id: "older-committed-assistant",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "Исходник уже был отправлен раньше",
+          attachments: [
+            {
+              id: "att-old-image",
+              fileRef: "file-old",
+              attachmentType: "image",
+              originalFilename: "source-collage.png",
+              mimeType: "image/png",
+              sizeBytes: 2048,
+              processingStatus: "ready",
+              createdAt: "2026-06-01T00:19:00.000Z"
+            }
+          ],
+          createdAt: "2026-06-01T00:19:01.000Z"
+        },
+        currentActivity: null
+      },
+      messages: [
+        {
+          id: "older-committed-assistant",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "Исходник уже был отправлен раньше",
+          attachments: [
+            {
+              id: "att-old-image",
+              fileRef: "file-old",
+              attachmentType: "image",
+              originalFilename: "source-collage.png",
+              mimeType: "image/png",
+              sizeBytes: 2048,
+              processingStatus: "ready",
+              createdAt: "2026-06-01T00:19:00.000Z"
+            }
+          ],
+          createdAt: "2026-06-01T00:19:01.000Z"
+        },
+        {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "раздели на 4 отдельных картинки и добавь красок",
+          attachments: [],
+          createdAt: "2026-06-01T00:20:00.000Z"
+        }
+      ]
+    });
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    let sendPromise: Promise<void> | undefined;
+    await act(async () => {
+      sendPromise = result.current.send(
+        "раздели на 4 отдельных картинки и добавь красок",
+        undefined,
+        {
+          clientTurnId: "client-turn-attachments"
+        }
+      );
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.isStreaming).toBe(true);
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const liveAssistant = result.current.messages.find(
+        (message) => message.role === "assistant" && message.status === "streaming"
+      );
+      expect(liveAssistant).toBeDefined();
+      expect(liveAssistant?.attachments).toBeUndefined();
+    });
+
+    await act(async () => {
+      releaseStream?.();
+      if (sendPromise !== undefined) {
+        await sendPromise;
+      }
+    });
+  });
+
   it("does not restore the primary local assistant after completed history replaces it", async () => {
     let releaseStream: (() => void) | null = null;
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
