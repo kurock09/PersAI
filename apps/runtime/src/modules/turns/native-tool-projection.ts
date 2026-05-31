@@ -686,16 +686,19 @@ function createImageGenerateToolDefinition(
   );
   return {
     name: "image_generate",
-    description: resolveToolDefinitionDescription(
-      policy,
-      [
-        appendPerTurnCapHint(
-          "Generate new images from a text prompt. To produce a series, set count so it runs as one job — do not make extra calls.",
-          "image_generate",
-          policy
+    description: appendToolDefinitionHint(
+      appendToolDefinitionHint(
+        resolveToolDefinitionDescription(
+          policy,
+          appendPerTurnCapHint(
+            "Generate new images from a text prompt. To produce a series, set count so it runs as one job — do not make extra calls.",
+            "image_generate",
+            policy
+          )
         ),
-        "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for image_generate before the final answer."
-      ].join(" ")
+        "count=N means N separate final images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid."
+      ),
+      "If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the images are being prepared and will arrive separately; do NOT claim they are already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for image_generate before the final answer."
     ),
     inputSchema: {
       type: "object",
@@ -737,16 +740,21 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
   const effectiveCap = resolveImageCountCap("image_edit", policy, MAX_RUNTIME_IMAGE_EDIT_COUNT);
   return {
     name: "image_edit",
-    description: resolveToolDefinitionDescriptionWithHint(
-      policy,
-      [
-        appendPerTurnCapHint(
-          "Edit a user-referenced image and return a new image file — use this only when the user explicitly wants an image modified, never to describe, analyze, or answer questions about an image (those are answered in text). To produce several edited variants, set count so it runs as one job — do not make extra calls. When another image should guide style or appearance, set referenceImageAlias to that image.",
-          "image_edit",
-          policy
+    description: appendToolDefinitionHint(
+      appendToolDefinitionHint(
+        appendToolDefinitionHint(
+          resolveToolDefinitionDescription(
+            policy,
+            appendPerTurnCapHint(
+              "Edit a user-referenced image and return a new image file — use this only when the user explicitly wants an image modified, never to describe, analyze, or answer questions about an image (those are answered in text). To produce several edited variants, set count so it runs as one job — do not make extra calls. When another image should guide style or appearance, set referenceImageAlias to that image.",
+              "image_edit",
+              policy
+            )
+          ),
+          "count=N means N separate final edited images in this one job, not a collage, contact sheet, grid, or multiple panels inside each image unless the user explicitly asked for a collage/grid."
         ),
-        "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for image_edit before the final answer."
-      ].join(" "),
+        "If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the edit is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for image_edit before the final answer."
+      ),
       "Do not claim the edit is done, ready, visible, attached, or sent unless this same turn actually called image_edit and got a successful result or explicit delivered artifact/result."
     ),
     inputSchema: {
@@ -800,16 +808,16 @@ function createVideoGenerateToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: "video_generate",
-    description: resolveToolDefinitionDescription(
-      policy,
-      [
+    description: appendToolDefinitionHint(
+      resolveToolDefinitionDescription(
+        policy,
         appendPerTurnCapHint(
           "Generate a short brand-new video clip from a text prompt.",
           "video_generate",
           policy
-        ),
-        "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer."
-      ].join(" ")
+        )
+      ),
+      "If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer."
     ),
     inputSchema: {
       type: "object",

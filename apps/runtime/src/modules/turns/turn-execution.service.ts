@@ -319,7 +319,7 @@ const SAFE_PARALLEL_TOOL_CODES = new Set<string>([
   "knowledge_fetch"
 ]);
 const DELIVERY_HONESTY_CONTRACT =
-  "Do not write markdown links to local or internal file paths, and do not state that a file, image, video, or document is attached, sent, or uploaded in the current message. Delivered files are shown to the user structurally by the interface. For pending media or documents, only say the item is being prepared and will arrive separately.";
+  "Do not write markdown links to local or internal file paths, and do not state that a file, image, video, or document is attached, sent, uploaded, queued, accepted, in progress, or will arrive separately unless this same turn actually produced the corresponding structural result. Delivered files are shown to the user structurally by the interface. For pending media or documents, only say the item is being prepared and will arrive separately when this same turn actually returned action='pending_delivery' with canSendFileNow=false and a real jobId. If no such structural result exists, do not claim that anything was queued, accepted, started, or already being prepared.";
 const LEGACY_TECHNICAL_ATTACHMENT_SUMMARY_PATTERNS = [
   /^Assistant sent (?:an? )?attachments?:\s+.+$/i,
   /^\[?Working files from user attachments:.*$/i

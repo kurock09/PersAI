@@ -829,7 +829,8 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   );
   assert.deepEqual(capturedImagePayload, {
     model: "gpt-image-1.5",
-    prompt: "Generate a serene lake at dusk",
+    prompt:
+      "Return 2 distinct standalone images. Each returned image must be one final image. Do not make a collage, grid, contact sheet, diptych, triptych, or multi-panel composition unless the user explicitly asked for that format. User request: Generate a serene lake at dusk",
     n: 2,
     output_format: "png",
     background: "transparent",
@@ -975,6 +976,11 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     /return 3 distinct edited variations/,
     "multi-output prompt must state count-specific cardinality"
   );
+  assert.match(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
+    /Each returned image must be one standalone final image/,
+    "multi-output edit prompt must forbid collage/grid outputs unless explicitly requested"
+  );
   assert.doesNotMatch(
     (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
     /return one edited version/,
@@ -1000,6 +1006,11 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
     /Return 2 distinct edited variations/,
     "no-reference multi-output prompt must state count-specific cardinality"
+  );
+  assert.match(
+    (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",
+    /Each returned image must be one standalone final image/,
+    "no-reference multi-output prompt must forbid collage/grid outputs unless explicitly requested"
   );
 
   // DEFECT 3: count===1 without reference — prompt is pass-through (no cardinality injection)

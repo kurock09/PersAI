@@ -375,6 +375,14 @@ async function run(): Promise<void> {
   )?.properties?.background;
   assert.deepEqual(imageGenerateBackground?.enum, ["auto", "transparent", "opaque"]);
   assert.match(imageGenerateBackground?.description ?? "", /PNG with alpha/);
+  assert.match(
+    imageGenerate?.description ?? "",
+    /count=N means N separate final images in this one job, not a collage, contact sheet, grid, or multiple panels/
+  );
+  assert.match(
+    imageGenerate?.description ?? "",
+    /do NOT claim they are already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
+  );
   const imageEditBackground = (
     imageEdit?.inputSchema as {
       properties?: { background?: { enum?: unknown[]; description?: string } };
@@ -385,8 +393,23 @@ async function run(): Promise<void> {
     /Do not claim the edit is done, ready, visible, attached, or sent/
   );
   assert.match(imageEdit?.description ?? "", /actually called image_edit/);
+  assert.match(
+    imageEdit?.description ?? "",
+    /count=N means N separate final edited images in this one job, not a collage, contact sheet, grid, or multiple panels/
+  );
+  assert.match(
+    imageEdit?.description ?? "",
+    /do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
+  );
   assert.deepEqual(imageEditBackground?.enum, ["auto", "transparent", "opaque"]);
   assert.match(imageEditBackground?.description ?? "", /remove background/);
+  const videoGenerate = projected.tools.find((tool) => tool.name === "video_generate");
+  if (videoGenerate !== undefined) {
+    assert.match(
+      videoGenerate.description ?? "",
+      /do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
+    );
+  }
 
   // ADR-105 FIX A: count.maximum cascade — with perTurnCap=2, image_generate
   // must advertise count.maximum=2 (not old hardcap 4). With no perTurnCap,

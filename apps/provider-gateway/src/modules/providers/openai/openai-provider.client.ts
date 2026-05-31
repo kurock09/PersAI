@@ -313,9 +313,17 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     );
     try {
       const model = input.model ?? OPENAI_IMAGE_GENERATION_MODEL;
+      const providerPrompt =
+        input.count > 1
+          ? [
+              `Return ${String(input.count)} distinct standalone images.`,
+              "Each returned image must be one final image. Do not make a collage, grid, contact sheet, diptych, triptych, or multi-panel composition unless the user explicitly asked for that format.",
+              `User request: ${input.prompt}`
+            ].join(" ")
+          : input.prompt;
       const payload: OpenAIImageGenerateParams = {
         model,
-        prompt: input.prompt,
+        prompt: providerPrompt,
         n: input.count,
         output_format: "png",
         background: input.background,
@@ -1509,6 +1517,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       }
       return [
         `Return ${String(count)} distinct edited variations of the source image.`,
+        "Each returned image must be one standalone final image. Do not make a collage, grid, contact sheet, diptych, triptych, or multi-panel composition unless the user explicitly asked for that format.",
         `User request: ${prompt}`
       ].join(" ");
     }
@@ -1520,6 +1529,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         : `Edit the source image and return ${String(count)} distinct edited variations of it.`;
     return [
       outputCardinalityInstruction,
+      "Each returned image must be one standalone final image. Do not make a collage, grid, contact sheet, diptych, triptych, or multi-panel composition unless the user explicitly asked for that format.",
       "Use the second/reference image only as visual guidance for style, appearance, makeup, color palette, lighting, environment, or similar attributes unless the user explicitly asks to borrow a concrete object from it.",
       "Do not separately edit, restyle, or reproduce the reference image as its own output.",
       "Preserve the identity, pose, framing, and main content of the source image unless the user explicitly asks to change them.",
