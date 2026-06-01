@@ -158,13 +158,17 @@ function createVideoGenerateRequest(): ProviderGatewayVideoGenerateRequest {
   };
 }
 
-function createProviderVideoResponse(provider: "openai" | "runway" | "kling", model: string) {
+function createProviderVideoResponse(
+  provider: "openai" | "runway" | "kling",
+  model: string,
+  seconds = 4
+) {
   return {
     provider,
     model,
     prompt: "Animate a calm paper-cut forest at sunrise",
     size: "1280x720",
-    seconds: 4,
+    seconds,
     video: {
       bytesBase64: "dmlkZW8tYnl0ZXM=",
       mimeType: "video/mp4"
@@ -425,7 +429,8 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
         JSON.stringify(
           createProviderVideoResponse(
             providerId === "runway" || providerId === "kling" ? providerId : "openai",
-            providerId === "runway" ? "gen4_turbo" : providerId === "kling" ? "kling-v3" : "sora-2"
+            providerId === "runway" ? "gen4_turbo" : providerId === "kling" ? "kling-v3" : "sora-2",
+            providerId === "runway" ? 5 : 4
           )
         ),
         {
@@ -697,6 +702,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(videoGenerate.video.mimeType, "video/mp4");
     assert.equal(runwayVideoGenerate.provider, "runway");
     assert.equal(runwayVideoGenerate.model, "gen4_turbo");
+    assert.equal(runwayVideoGenerate.seconds, 5);
     assert.equal(klingVideoGenerate.provider, "kling");
     assert.equal(klingVideoGenerate.model, "kling-v3");
     assert.equal(speechGenerate.model, "gpt-4o-mini-tts");

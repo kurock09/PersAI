@@ -20,7 +20,9 @@ function createConfig(): ProviderGatewayConfig {
   };
 }
 
-function createRequest(): ProviderGatewayVideoGenerateRequest {
+function createRequest(
+  overrides: Partial<ProviderGatewayVideoGenerateRequest> = {}
+): ProviderGatewayVideoGenerateRequest {
   return {
     prompt: "Animate a calm paper-cut forest at sunrise",
     model: "gen4.5",
@@ -35,7 +37,8 @@ function createRequest(): ProviderGatewayVideoGenerateRequest {
       toolCode: "video_generate",
       secretId: "tool/video_generate/runway/api-key",
       providerId: "runway"
-    }
+    },
+    ...overrides
   };
 }
 
@@ -51,26 +54,45 @@ export async function runRunwayProviderClientTest(): Promise<void> {
     } else {
       requests.push({ url, init });
     }
-    if (url === "https://api.dev.runwayml.com/v1/image_to_video") {
+    if (
+      url === "https://api.dev.runwayml.com/v1/image_to_video" ||
+      url === "https://api.dev.runwayml.com/v1/text_to_video"
+    ) {
       assert.equal((init?.headers as Record<string, string>)["Authorization"], "Bearer runway-key");
       assert.equal((init?.headers as Record<string, string>)["X-Runway-Version"], "2024-11-06");
       const body = JSON.parse(String(init?.body));
-      assert.deepEqual(body, {
-        model: "gen4.5",
-        promptText: "Animate a calm paper-cut forest at sunrise",
-        promptImage: "data:image/png;base64,cmVmLXZpZGVvLWltYWdl",
-        ratio: "1280:720",
-        duration: 4
-      });
-      return new Response(JSON.stringify({ id: "rw-task-1", status: "PENDING" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
-      });
+      if (url.endsWith("/image_to_video")) {
+        assert.deepEqual(body, {
+          model: "gen4.5",
+          promptText: "Animate a calm paper-cut forest at sunrise",
+          promptImage: "data:image/png;base64,cmVmLXZpZGVvLWltYWdl",
+          ratio: "1280:720",
+          duration: 4
+        });
+      } else {
+        assert.deepEqual(body, {
+          model: "gen4.5",
+          promptText: "Animate a calm paper-cut forest at sunrise",
+          ratio: "1280:720",
+          duration: 5
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          id: url.endsWith("/image_to_video") ? "rw-task-1" : "rw-task-2",
+          status: "PENDING"
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
     }
-    if (url === "https://api.dev.runwayml.com/v1/tasks/rw-task-1") {
-      const pollCount = requests.filter(
-        (entry) => entry.url === "https://api.dev.runwayml.com/v1/tasks/rw-task-1"
-      ).length;
+    if (
+      url === "https://api.dev.runwayml.com/v1/tasks/rw-task-1" ||
+      url === "https://api.dev.runwayml.com/v1/tasks/rw-task-2"
+    ) {
+      const pollCount = requests.filter((entry) => entry.url === url).length;
       if (pollCount === 1) {
         return new Response(JSON.stringify({ status: "RUNNING" }), {
           status: 200,
@@ -113,6 +135,18 @@ export async function runRunwayProviderClientTest(): Promise<void> {
         durationSeconds: 4
       }
     });
+    const textOnlyResult = await client.generateVideo(
+      createRequest({
+        seconds: 5,
+        referenceImage: null
+      }),
+      { apiKey: "runway-key" }
+    );
+    assert.equal(textOnlyResult.provider, "runway");
+    assert.equal(textOnlyResult.seconds, 5);
+    assert.ok(
+      requests.some((entry) => entry.url === "https://api.dev.runwayml.com/v1/text_to_video")
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

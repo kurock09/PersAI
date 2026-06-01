@@ -20,7 +20,9 @@ function createConfig(): ProviderGatewayConfig {
   };
 }
 
-function createRequest(): ProviderGatewayVideoGenerateRequest {
+function createRequest(
+  overrides: Partial<ProviderGatewayVideoGenerateRequest> = {}
+): ProviderGatewayVideoGenerateRequest {
   return {
     prompt: "Animate a calm paper-cut forest at sunrise",
     model: "kling-v3",
@@ -39,7 +41,8 @@ function createRequest(): ProviderGatewayVideoGenerateRequest {
     providerParameters: {
       mode: "pro",
       sound: "off"
-    }
+    },
+    ...overrides
   };
 }
 
@@ -67,17 +70,33 @@ export async function runKlingProviderClientTest(): Promise<void> {
       assert.deepEqual(body, {
         model_name: "kling-v3",
         prompt: "Animate a calm paper-cut forest at sunrise",
-        image: "cmVmLXZpZGVvLWltYWdl",
+        image: body.image,
         duration: "4",
         aspect_ratio: "16:9",
         negative_prompt: "",
         mode: "pro",
         sound: "off"
       });
+      const taskId = body.image === "response-shape-image" ? "task_kling_response" : "task_kling_1";
       return new Response(
         JSON.stringify({
           code: 0,
-          data: { task_id: "task_kling_1" }
+          data: { task_id: taskId }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+    if (url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_response") {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            task_status: "succeed",
+            response: ["https://cdn.klingai.com/result-response.mp4"]
+          }
         }),
         {
           status: 200,
@@ -124,6 +143,12 @@ export async function runKlingProviderClientTest(): Promise<void> {
         headers: { "Content-Type": "video/mp4" }
       });
     }
+    if (url === "https://cdn.klingai.com/result-response.mp4") {
+      return new Response(Buffer.from("kling-response-video"), {
+        status: 200,
+        headers: { "Content-Type": "video/mp4" }
+      });
+    }
     throw new Error(`Unexpected fetch URL in Kling provider client test: ${url}`);
   }) as typeof fetch;
 
@@ -143,6 +168,20 @@ export async function runKlingProviderClientTest(): Promise<void> {
         durationSeconds: 4
       }
     });
+    const responseShapeResult = await client.generateVideo(
+      createRequest({
+        referenceImage: {
+          bytesBase64: "response-shape-image",
+          mimeType: "image/png",
+          filename: "response-shape.png"
+        }
+      }),
+      { credentialValue }
+    );
+    assert.equal(
+      responseShapeResult.video.bytesBase64,
+      Buffer.from("kling-response-video").toString("base64")
+    );
 
     await assert.rejects(
       () => client.generateVideo(createRequest(), { credentialValue: "not-json" }),

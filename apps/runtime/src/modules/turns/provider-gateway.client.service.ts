@@ -973,6 +973,7 @@ export class ProviderGatewayClientService {
     }
     const video = this.asObject(row?.video);
     const provider = row?.provider;
+    const seconds = row?.seconds;
     const providerMatchesExpected =
       expectedProviderId === null ? true : provider === expectedProviderId;
     return (
@@ -985,7 +986,9 @@ export class ProviderGatewayClientService {
         row.size === "1024x1792" ||
         row.size === "1792x1024" ||
         row.size === null) &&
-      (row.seconds === 4 || row.seconds === 8 || row.seconds === 12) &&
+      Number.isInteger(seconds) &&
+      typeof seconds === "number" &&
+      seconds > 0 &&
       typeof video?.bytesBase64 === "string" &&
       typeof video.mimeType === "string" &&
       typeof row.respondedAt === "string" &&

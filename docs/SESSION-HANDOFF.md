@@ -2,6 +2,50 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-02 — Hotfix follow-up: Kling result parsing + Runway fallback delivery
+
+### What changed & why
+
+Baseline SHA at session start: `59ce14699e903966b89592f3d273ffa93d171d00`.
+
+Closed the next live `video_generate` provider chain failure:
+
+- Kling primary could finish provider polling but still fail artifact creation if the successful response used result URL shapes outside the parser's old `task_result.videos[0].url` assumptions. Provider-gateway now accepts `data.response[0]`, `data.videoUrl`, and `data.video_url` as downloadable Kling video URL locations.
+- Runway fallback no longer sends prompt-only generation to `/image_to_video` without `promptImage`; prompt-only fallback now uses `/text_to_video`, while image-guided requests keep `/image_to_video`.
+- Runtime provider-gateway validation no longer rejects valid provider-catalog video durations such as Runway `seconds=5`.
+- Runtime logs every video provider attempt with provider/model/seconds/fallback state, so a failed Kling primary attempt remains visible even when fallback later fails.
+
+### Files touched
+
+`apps/provider-gateway/src/modules/providers/kling/kling-provider.client.ts`; `apps/provider-gateway/src/modules/providers/runway/runway-provider.client.ts`; focused provider-gateway tests; `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`; `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`; focused runtime tests; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx test/kling-provider.client.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx test/runway-provider.client.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/provider-gateway.client.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
+- PASS: `corepack pnpm -r --if-present run lint`
+- PASS: `corepack pnpm run format:check`
+- PASS: `corepack pnpm run test`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm --filter @persai/web run typecheck`
+- PASS: `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS: `corepack pnpm --filter @persai/provider-gateway run typecheck`
+
+### Risks / residuals
+
+- Live smoke with real Kling v3 primary plus Runway Gen-4.5 fallback is still required after deploy to confirm the exact provider response shape in `persai-dev`.
+- This does not add webhook/callback support for provider video completion; polling remains the active execution path.
+
+### Deploy
+
+- RUNTIME and PROVIDER-GATEWAY.
+
+### Next recommended step
+
+- Run full verification, commit/push, wait for deploy, then live-smoke one reference-image Kling primary request and one forced Runway fallback request.
+
 ## 2026-06-01 (cont.) — Hotfix follow-up: video params UI + bundle hash guard
 
 ### What changed & why

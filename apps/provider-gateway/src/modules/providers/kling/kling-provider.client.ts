@@ -146,6 +146,9 @@ export class KlingProviderClient {
       this.readString(body, ["data", "task_result", "url"]) ??
       this.readString(body, ["data", "videos", "0", "url"]) ??
       this.readString(body, ["data", "video", "url"]) ??
+      this.readString(body, ["data", "response", "0"]) ??
+      this.readString(body, ["data", "videoUrl"]) ??
+      this.readString(body, ["data", "video_url"]) ??
       this.readString(body, ["data", "url"]);
     if (videoUrl === null) {
       throw new Error("Kling video generation completed without a downloadable video URL.");

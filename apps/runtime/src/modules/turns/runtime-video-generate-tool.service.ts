@@ -346,14 +346,16 @@ export class RuntimeVideoGenerateToolService {
 
     const warnings: string[] = [];
     for (const [attemptIndex, attempt] of credentialAttempts.entries()) {
+      let attemptNormalizedRequest: NormalizedVideoExecutionRequest | null = null;
       try {
-        const attemptNormalizedRequest = this.normalizeExecutionRequest(
+        const normalizedAttempt = this.normalizeExecutionRequest(
           request,
           attempt.credential.videoModelParameters
         );
-        if (attemptNormalizedRequest instanceof Error) {
-          throw attemptNormalizedRequest;
+        if (normalizedAttempt instanceof Error) {
+          throw normalizedAttempt;
         }
+        attemptNormalizedRequest = normalizedAttempt;
         // ADR-105 §5 (single-owner reservation) — the worker NEVER touches the
         // monthly media quota. The enqueue admission seam
         // (`EnqueueRuntimeDeferredMediaJobService`) reserves the unit exactly
@@ -428,15 +430,19 @@ export class RuntimeVideoGenerateToolService {
         const shouldTryFallback =
           attemptIndex < credentialAttempts.length - 1 &&
           this.isFallbackEligibleVideoFailure(error);
+        this.logger.warn(
+          `[video-generate] attempt failed requestId=${params.requestId} provider=${
+            attempt.providerId
+          } model=${attempt.model ?? "default"} seconds=${String(
+            attemptNormalizedRequest?.request.seconds ?? normalizedRequest.request.seconds
+          )} fallback=${String(shouldTryFallback)} referenceAlias="${
+            selection.referenceImageAlias ?? "none"
+          }": ${failureMessage}`
+        );
         if (shouldTryFallback) {
           warnings.push(attemptWarning);
           continue;
         }
-        this.logger.warn(
-          `[video-generate] failed requestId=${params.requestId} provider=${attempt.providerId} referenceAlias="${
-            selection.referenceImageAlias ?? "none"
-          }": ${failureMessage}`
-        );
         return {
           payload: {
             toolCode: VIDEO_GENERATE_TOOL_CODE,
@@ -444,8 +450,9 @@ export class RuntimeVideoGenerateToolService {
             provider: attempt.providerId,
             model: null,
             prompt: request.prompt,
-            requestedSeconds: normalizedRequest.request.seconds,
-            size: normalizedRequest.request.size,
+            requestedSeconds:
+              attemptNormalizedRequest?.request.seconds ?? normalizedRequest.request.seconds,
+            size: attemptNormalizedRequest?.request.size ?? normalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
             artifact: null,

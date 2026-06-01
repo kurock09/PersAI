@@ -10,6 +10,8 @@ import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 const RUNWAY_API_BASE_URL = "https://api.dev.runwayml.com/v1";
 const RUNWAY_API_VERSION = "2024-11-06";
 const RUNWAY_DEFAULT_VIDEO_MODEL = "gen4.5";
+const RUNWAY_IMAGE_TO_VIDEO_PATH = "/image_to_video";
+const RUNWAY_TEXT_TO_VIDEO_PATH = "/text_to_video";
 const RUNWAY_VIDEO_TIMEOUT_MS = 600_000;
 const RUNWAY_VIDEO_POLL_INTERVAL_MS = 5_000;
 
@@ -61,23 +63,14 @@ export class RunwayProviderClient {
     apiKey: string,
     signal: AbortSignal
   ): Promise<string> {
-    const response = await fetch(`${RUNWAY_API_BASE_URL}/image_to_video`, {
+    const response = await fetch(`${RUNWAY_API_BASE_URL}${this.createTaskPath(input)}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         "X-Runway-Version": RUNWAY_API_VERSION
       },
-      body: JSON.stringify({
-        model,
-        promptText: input.prompt,
-        promptImage:
-          input.referenceImage === null
-            ? undefined
-            : this.toDataUri(input.referenceImage.bytesBase64, input.referenceImage.mimeType),
-        ratio: this.toRunwayRatio(input.size),
-        duration: this.toRunwayDurationSeconds(input.seconds)
-      }),
+      body: JSON.stringify(this.buildCreateTaskBody(input, model)),
       signal
     });
     const body = await this.readJsonBody(response);
@@ -188,6 +181,29 @@ export class RunwayProviderClient {
       case undefined:
         return undefined;
     }
+  }
+
+  private createTaskPath(input: ProviderGatewayVideoGenerateRequest): string {
+    return input.referenceImage === null ? RUNWAY_TEXT_TO_VIDEO_PATH : RUNWAY_IMAGE_TO_VIDEO_PATH;
+  }
+
+  private buildCreateTaskBody(
+    input: ProviderGatewayVideoGenerateRequest,
+    model: string
+  ): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+      model,
+      promptText: input.prompt,
+      ratio: this.toRunwayRatio(input.size),
+      duration: this.toRunwayDurationSeconds(input.seconds)
+    };
+    if (input.referenceImage !== null) {
+      body.promptImage = this.toDataUri(
+        input.referenceImage.bytesBase64,
+        input.referenceImage.mimeType
+      );
+    }
+    return body;
   }
 
   private toRunwayDurationSeconds(seconds: ProviderGatewayVideoGenerateRequest["seconds"]): number {
