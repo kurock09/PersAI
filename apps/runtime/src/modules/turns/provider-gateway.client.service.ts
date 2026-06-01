@@ -404,7 +404,7 @@ export class ProviderGatewayClientService {
     if (!response.ok) {
       throw this.toGatewayException(response);
     }
-    if (!this.isVideoGenerateResult(response.body)) {
+    if (!this.isVideoGenerateResult(response.body, input.credential.providerId ?? null)) {
       throw new BadGatewayException(
         "Provider gateway returned an invalid video generation response."
       );
@@ -952,11 +952,21 @@ export class ProviderGatewayClientService {
     );
   }
 
-  private isVideoGenerateResult(value: unknown): value is ProviderGatewayVideoGenerateResult {
+  private isVideoGenerateResult(
+    value: unknown,
+    expectedProviderId: ProviderGatewayVideoGenerateRequest["credential"]["providerId"] = null
+  ): value is ProviderGatewayVideoGenerateResult {
     const row = this.asObject(value);
+    if (row === null) {
+      return false;
+    }
     const video = this.asObject(row?.video);
+    const provider = row?.provider;
+    const providerMatchesExpected =
+      expectedProviderId === null ? true : provider === expectedProviderId;
     return (
-      row?.provider === "openai" &&
+      (provider === "openai" || provider === "runway" || provider === "kling") &&
+      providerMatchesExpected &&
       typeof row.model === "string" &&
       typeof row.prompt === "string" &&
       (row.size === "720x1280" ||

@@ -157,6 +157,23 @@ function createVideoGenerateRequest(): ProviderGatewayVideoGenerateRequest {
   };
 }
 
+function createProviderVideoResponse(provider: "openai" | "runway" | "kling", model: string) {
+  return {
+    provider,
+    model,
+    prompt: "Animate a calm paper-cut forest at sunrise",
+    size: "1280x720",
+    seconds: 4,
+    video: {
+      bytesBase64: "dmlkZW8tYnl0ZXM=",
+      mimeType: "video/mp4"
+    },
+    respondedAt: "2026-04-12T12:00:01.700Z",
+    usage: null,
+    warning: null
+  };
+}
+
 function createSpeechGenerateRequest(): ProviderGatewaySpeechGenerateRequest {
   return {
     text: "Привет, это тестовый voice note.",
@@ -401,21 +418,19 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     }
 
     if (url.endsWith("/api/v1/providers/generate-video")) {
+      const requestBody = bodyText === null ? null : JSON.parse(bodyText);
+      const providerId = requestBody?.credential?.providerId;
       return new Response(
-        JSON.stringify({
-          provider: "openai",
-          model: "sora-2",
-          prompt: "Animate a calm paper-cut forest at sunrise",
-          size: "1280x720",
-          seconds: 4,
-          video: {
-            bytesBase64: "dmlkZW8tYnl0ZXM=",
-            mimeType: "video/mp4"
-          },
-          respondedAt: "2026-04-12T12:00:01.700Z",
-          usage: null,
-          warning: null
-        }),
+        JSON.stringify(
+          createProviderVideoResponse(
+            providerId === "runway" || providerId === "kling" ? providerId : "openai",
+            providerId === "runway"
+              ? "gen4_turbo"
+              : providerId === "kling"
+                ? "kling-v1-6"
+                : "sora-2"
+          )
+        ),
         {
           status: 200,
           headers: {
@@ -647,6 +662,24 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     const videoGenerate = await service.generateVideo(createVideoGenerateRequest(), {
       timeoutMs: 600000
     });
+    const runwayVideoGenerate = await service.generateVideo({
+      ...createVideoGenerateRequest(),
+      model: "gen4_turbo",
+      credential: {
+        toolCode: "video_generate",
+        secretId: "secret-runway",
+        providerId: "runway"
+      }
+    });
+    const klingVideoGenerate = await service.generateVideo({
+      ...createVideoGenerateRequest(),
+      model: "kling-v1-6",
+      credential: {
+        toolCode: "video_generate",
+        secretId: "secret-kling",
+        providerId: "kling"
+      }
+    });
     const speechGenerate = await service.generateSpeech(createSpeechGenerateRequest());
     const documentGenerate = await service.generateDocument(createDocumentGenerateRequest());
     const documentFailure = await service.generateDocumentOutcome(createDocumentGenerateRequest());
@@ -665,6 +698,10 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     );
     assert.equal(videoGenerate.model, "sora-2");
     assert.equal(videoGenerate.video.mimeType, "video/mp4");
+    assert.equal(runwayVideoGenerate.provider, "runway");
+    assert.equal(runwayVideoGenerate.model, "gen4_turbo");
+    assert.equal(klingVideoGenerate.provider, "kling");
+    assert.equal(klingVideoGenerate.model, "kling-v1-6");
     assert.equal(speechGenerate.model, "gpt-4o-mini-tts");
     assert.equal(speechGenerate.mimeType, "audio/ogg");
     assert.equal(documentGenerate.provider, "pdfmonkey");
@@ -673,7 +710,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(webFetch.provider, "firecrawl");
     assert.equal(webSearch.provider, "tavily");
     assert.equal(browserAction.provider, "browserless");
-    assert.equal(requests.length, 13);
+    assert.equal(requests.length, 15);
     assert.equal(requests[0]?.url, "http://provider-gateway.local/ready");
     assert.equal(requests[1]?.url, "http://provider-gateway.local/api/v1/providers/generate-text");
     assert.equal(requests[1]?.init?.method, "POST");
@@ -705,30 +742,34 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(JSON.parse(String(requests[5]?.init?.body ?? "{}")).timeoutMs, 300000);
     assert.equal(requests[6]?.url, "http://provider-gateway.local/api/v1/providers/generate-video");
     assert.equal(requests[6]?.init?.method, "POST");
-    assert.equal(
-      requests[7]?.url,
-      "http://provider-gateway.local/api/v1/providers/generate-speech"
-    );
+    assert.equal(requests[7]?.url, "http://provider-gateway.local/api/v1/providers/generate-video");
     assert.equal(requests[7]?.init?.method, "POST");
-    assert.equal(
-      requests[8]?.url,
-      "http://provider-gateway.local/api/v1/providers/generate-document"
-    );
+    assert.equal(requests[8]?.url, "http://provider-gateway.local/api/v1/providers/generate-video");
     assert.equal(requests[8]?.init?.method, "POST");
     assert.equal(
       requests[9]?.url,
-      "http://provider-gateway.local/api/v1/providers/generate-document"
+      "http://provider-gateway.local/api/v1/providers/generate-speech"
     );
     assert.equal(requests[9]?.init?.method, "POST");
-    assert.equal(requests[10]?.url, "http://provider-gateway.local/api/v1/providers/web-fetch");
-    assert.equal(requests[10]?.init?.method, "POST");
-    assert.equal(requests[11]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
-    assert.equal(requests[11]?.init?.method, "POST");
     assert.equal(
-      requests[12]?.url,
+      requests[10]?.url,
+      "http://provider-gateway.local/api/v1/providers/generate-document"
+    );
+    assert.equal(requests[10]?.init?.method, "POST");
+    assert.equal(
+      requests[11]?.url,
+      "http://provider-gateway.local/api/v1/providers/generate-document"
+    );
+    assert.equal(requests[11]?.init?.method, "POST");
+    assert.equal(requests[12]?.url, "http://provider-gateway.local/api/v1/providers/web-fetch");
+    assert.equal(requests[12]?.init?.method, "POST");
+    assert.equal(requests[13]?.url, "http://provider-gateway.local/api/v1/providers/web-search");
+    assert.equal(requests[13]?.init?.method, "POST");
+    assert.equal(
+      requests[14]?.url,
       "http://provider-gateway.local/api/v1/providers/browser-action"
     );
-    assert.equal(requests[12]?.init?.method, "POST");
+    assert.equal(requests[14]?.init?.method, "POST");
 
     const unconfiguredService = new ProviderGatewayClientService(createUnconfiguredConfig());
     const unconfiguredReadiness = await unconfiguredService.getReadiness();
@@ -893,6 +934,33 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
         assert.equal(error.requestId, "req_safety_123");
         return true;
       }
+    );
+
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/api/v1/providers/generate-video")) {
+        return new Response(JSON.stringify(createProviderVideoResponse("openai", "sora-2")), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () =>
+        service.generateVideo({
+          ...createVideoGenerateRequest(),
+          credential: {
+            toolCode: "video_generate",
+            secretId: "secret-runway",
+            providerId: "runway"
+          }
+        }),
+      /invalid video generation response/
     );
   } finally {
     globalThis.fetch = originalFetch;

@@ -421,6 +421,8 @@ Default for this ADR: implement provider-aware fallback for video only if fallba
 
 - Runtime can execute configured non-OpenAI video models through provider-gateway.
 
+**Status (2026-06-01): Completed.** Runtime `video_generate` now calls provider-gateway with the materialized provider/secret/model ref from the assistant bundle and supports one bounded provider-aware fallback using materialized fallback refs. Provider-gateway response validation accepts OpenAI/Runway/Kling video results and rejects provider mismatches. Image generation/edit behavior remains unchanged. No billing ledger/pricing work was included.
+
 ### Slice 9 - Ledger/pricing and billing facts
 
 **Scope**

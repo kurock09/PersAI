@@ -50,7 +50,17 @@ const BROWSER_CONFIG = {
   confirmationRequiredActions: ["act"]
 } satisfies RuntimeBrowserConfig;
 
-function createBundle(options?: { configured?: boolean; modelKey?: "sora-2" | "sora-2-pro" }) {
+function createBundle(options?: {
+  configured?: boolean;
+  providerId?: "openai" | "runway" | "kling";
+  secretId?: string;
+  modelKey?: string;
+  fallbacks?: Array<{
+    providerId: "openai" | "runway" | "kling";
+    secretId: string;
+    modelKey?: string;
+  }>;
+}) {
   return compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
@@ -144,15 +154,30 @@ function createBundle(options?: { configured?: boolean; modelKey?: "sora-2" | "s
       tasksControl: null,
       toolCredentialRefs: {
         video_generate: {
-          refKey: "persai:persai-runtime:tool/image_generate/api-key",
+          refKey: `persai:persai-runtime:${options?.secretId ?? "tool/image_generate/api-key"}`,
           secretRef: {
             source: "persai",
             provider: "persai-runtime",
-            id: "tool/image_generate/api-key"
+            id: options?.secretId ?? "tool/image_generate/api-key"
           },
           configured: options?.configured ?? true,
-          providerId: "openai",
-          ...(options?.modelKey ? { modelKey: options.modelKey } : {})
+          providerId: options?.providerId ?? "openai",
+          ...(options?.modelKey ? { modelKey: options.modelKey } : {}),
+          ...(options?.fallbacks
+            ? {
+                fallbacks: options.fallbacks.map((fallback) => ({
+                  refKey: `persai:persai-runtime:${fallback.secretId}`,
+                  secretRef: {
+                    source: "persai",
+                    provider: "persai-runtime",
+                    id: fallback.secretId
+                  },
+                  configured: true,
+                  providerId: fallback.providerId,
+                  ...(fallback.modelKey ? { modelKey: fallback.modelKey } : {})
+                }))
+              }
+            : {})
         }
       },
       toolPolicies: [
@@ -235,15 +260,23 @@ class FakeProviderGatewayClientService {
     input: ProviderGatewayVideoGenerateRequest;
     options?: { timeoutMs?: number };
   }> = [];
+  failuresByProvider = new Map<string, Error>();
 
   async generateVideo(
     input: ProviderGatewayVideoGenerateRequest,
     options?: { timeoutMs?: number }
   ): Promise<ProviderGatewayVideoGenerateResult> {
     this.videoCalls.push(options === undefined ? { input } : { input, options });
-    const resolvedModel = input.model ?? "sora-2";
+    const providerId = input.credential.providerId ?? "openai";
+    const failure = this.failuresByProvider.get(providerId);
+    if (failure) {
+      throw failure;
+    }
+    const resolvedModel =
+      input.model ??
+      (providerId === "runway" ? "gen4_turbo" : providerId === "kling" ? "kling-v1-6" : "sora-2");
     return {
-      provider: "openai",
+      provider: providerId,
       model: resolvedModel,
       prompt: input.prompt,
       size: input.size,
@@ -254,7 +287,7 @@ class FakeProviderGatewayClientService {
       },
       respondedAt: "2026-04-14T12:00:00.000Z",
       usage: {
-        providerKey: "openai",
+        providerKey: providerId,
         modelKey: resolvedModel,
         inputTokens: null,
         outputTokens: null,
@@ -363,6 +396,28 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
 
   const bundle = createBundle();
   const bundleWithProModel = createBundle({ modelKey: "sora-2-pro" });
+  const runwayBundle = createBundle({
+    providerId: "runway",
+    secretId: "tool/video_generate/runway/api-key",
+    modelKey: "gen4_turbo"
+  });
+  const klingBundle = createBundle({
+    providerId: "kling",
+    secretId: "tool/video_generate/kling/api-key",
+    modelKey: "kling-v1-6"
+  });
+  const fallbackBundle = createBundle({
+    providerId: "runway",
+    secretId: "tool/video_generate/runway/api-key",
+    modelKey: "gen4_turbo",
+    fallbacks: [
+      {
+        providerId: "kling",
+        secretId: "tool/video_generate/kling/api-key",
+        modelKey: "kling-v1-6"
+      }
+    ]
+  });
   const projection = projectRuntimeNativeTools(bundle);
   assert.equal(
     projection.tools.some((tool) => tool.name === "video_generate"),
@@ -469,6 +524,126 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     providerGatewayClientService.videoCalls[2]?.input.referenceImage?.bytesBase64,
     Buffer.from("reference-image-binary").toString("base64")
   );
+
+  const runwayResult = await service.executeToolCall({
+    bundle: runwayBundle,
+    toolCall: createToolCall({
+      prompt: "Create a glossy product teaser video",
+      seconds: 4,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-2c"
+  });
+  assert.equal(runwayResult.payload.action, "generated");
+  assert.equal(runwayResult.payload.provider, "runway");
+  assert.equal(runwayResult.payload.model, "gen4_turbo");
+  assert.deepEqual(providerGatewayClientService.videoCalls[3], {
+    input: {
+      prompt: "Create a glossy product teaser video",
+      model: "gen4_turbo",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: null,
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/runway/api-key",
+        providerId: "runway"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+
+  const klingResult = await service.executeToolCall({
+    bundle: klingBundle,
+    toolCall: createToolCall({
+      prompt: "Create an anime-style city flythrough",
+      seconds: 4,
+      size: "720x1280"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-2d"
+  });
+  assert.equal(klingResult.payload.action, "generated");
+  assert.equal(klingResult.payload.provider, "kling");
+  assert.equal(klingResult.payload.model, "kling-v1-6");
+  assert.deepEqual(providerGatewayClientService.videoCalls[4], {
+    input: {
+      prompt: "Create an anime-style city flythrough",
+      model: "kling-v1-6",
+      size: "720x1280",
+      seconds: 4,
+      referenceImage: null,
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/kling/api-key",
+        providerId: "kling"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+
+  providerGatewayClientService.failuresByProvider.set(
+    "runway",
+    new Error("Runway returned a terminal provider failure.")
+  );
+  const fallbackResult = await service.executeToolCall({
+    bundle: fallbackBundle,
+    toolCall: createToolCall({
+      prompt: "Create a moody noir trailer shot",
+      seconds: 8,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-2e"
+  });
+  providerGatewayClientService.failuresByProvider.delete("runway");
+  assert.equal(fallbackResult.payload.action, "generated");
+  assert.equal(fallbackResult.payload.provider, "kling");
+  assert.equal(fallbackResult.payload.model, "kling-v1-6");
+  assert.match(fallbackResult.payload.warning ?? "", /runway failed/i);
+  assert.match(fallbackResult.payload.warning ?? "", /Used fallback provider "kling"/i);
+  assert.deepEqual(providerGatewayClientService.videoCalls[5], {
+    input: {
+      prompt: "Create a moody noir trailer shot",
+      model: "gen4_turbo",
+      size: "1280x720",
+      seconds: 8,
+      referenceImage: null,
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/runway/api-key",
+        providerId: "runway"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+  assert.deepEqual(providerGatewayClientService.videoCalls[6], {
+    input: {
+      prompt: "Create a moody noir trailer shot",
+      model: "kling-v1-6",
+      size: "1280x720",
+      seconds: 8,
+      referenceImage: null,
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/kling/api-key",
+        providerId: "kling"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
 
   const inferredPreviousAliasResult = await service.executeToolCall({
     bundle,

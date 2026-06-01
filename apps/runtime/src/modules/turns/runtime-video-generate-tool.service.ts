@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import type {
   AssistantRuntimeBundle,
   AssistantRuntimeBundleToolCredentialRef
@@ -21,9 +21,11 @@ import {
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
-import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import {
+  ProviderGatewayClientService,
+  ProviderGatewayTimeoutError
+} from "./provider-gateway.client.service";
 import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
-import { selectMediaModelForRequest } from "./media-model-routing";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
 const VIDEO_GENERATE_TOOL_CODE = "video_generate" as const;
@@ -72,6 +74,12 @@ type ResolvedVideoReferenceSelection =
       reason: string;
       warning: string;
     };
+
+type ResolvedVideoCredentialAttempt = {
+  credential: AssistantRuntimeBundleToolCredentialRef;
+  providerId: PersaiRuntimeVideoGenerateProviderId;
+  model: ProviderGatewayVideoGenerateRequest["model"];
+};
 
 export interface RuntimeVideoGenerateToolExecutionResult {
   payload: RuntimeVideoGenerateToolResult;
@@ -197,32 +205,15 @@ export class RuntimeVideoGenerateToolService {
         isError: false
       };
     }
-    const modelSelection = selectMediaModelForRequest({
-      toolCode: VIDEO_GENERATE_TOOL_CODE,
-      credential
-    });
-    if ("reason" in modelSelection) {
-      return {
-        payload: {
-          toolCode: VIDEO_GENERATE_TOOL_CODE,
-          executionMode: "worker",
-          provider: providerId,
-          model: this.resolveVideoGenerateModelKey(credential),
-          prompt: request.prompt,
-          requestedSeconds: request.seconds,
-          size: request.size,
-          referenceImageAlias: request.referenceImageAlias,
-          referenceFilename: null,
-          artifact: null,
-          usage: null,
-          action: "skipped",
-          reason: modelSelection.reason,
-          warning: modelSelection.warning
-        },
-        artifacts: [],
-        isError: false
-      };
-    }
+    const primaryModel = this.resolveVideoGenerateModelKey(credential);
+    const credentialAttempts: ResolvedVideoCredentialAttempt[] = [
+      {
+        credential,
+        providerId,
+        model: primaryModel
+      },
+      ...this.resolveFallbackVideoCredentialAttempts(credential)
+    ];
 
     const selection = await this.resolveReferenceImageSelection(
       params.availableAttachments,
@@ -270,7 +261,7 @@ export class RuntimeVideoGenerateToolService {
               toolCode: VIDEO_GENERATE_TOOL_CODE,
               executionMode: "worker",
               provider: providerId,
-              model: this.resolveVideoGenerateModelKey(credential),
+              model: primaryModel,
               prompt: request.prompt,
               requestedSeconds: request.seconds,
               size: request.size,
@@ -293,7 +284,7 @@ export class RuntimeVideoGenerateToolService {
             toolCode: VIDEO_GENERATE_TOOL_CODE,
             executionMode: "worker",
             provider: providerId,
-            model: this.resolveVideoGenerateModelKey(credential),
+            model: primaryModel,
             prompt: request.prompt,
             requestedSeconds: request.seconds,
             size: request.size,
@@ -342,96 +333,180 @@ export class RuntimeVideoGenerateToolService {
       }
     }
 
-    try {
-      // ADR-105 §5 (single-owner reservation) — the worker NEVER touches the
-      // monthly media quota. The enqueue admission seam
-      // (`EnqueueRuntimeDeferredMediaJobService`) reserves the unit exactly
-      // once, and the API layer resolves that reservation exactly once at the
-      // job's terminal transition (scheduler `failJob` releases on failure; the
-      // API delivery loop settles delivered / reconciles undelivered units per
-      // ADR-082). The worker performs no reserve and no release.
-      const providerResult = await this.providerGatewayClientService.generateVideo(
-        {
-          prompt: request.prompt,
-          model: modelSelection.model,
-          size: request.size,
-          seconds: request.seconds,
-          referenceImage: selection.referenceImage,
-          credential: {
+    const warnings: string[] = [];
+    for (const [attemptIndex, attempt] of credentialAttempts.entries()) {
+      try {
+        // ADR-105 §5 (single-owner reservation) — the worker NEVER touches the
+        // monthly media quota. The enqueue admission seam
+        // (`EnqueueRuntimeDeferredMediaJobService`) reserves the unit exactly
+        // once, and the API layer resolves that reservation exactly once at the
+        // job's terminal transition (scheduler `failJob` releases on failure; the
+        // API delivery loop settles delivered / reconciles undelivered units per
+        // ADR-082). The worker performs no reserve and no release.
+        const providerResult = await this.providerGatewayClientService.generateVideo(
+          {
+            prompt: request.prompt,
+            model: attempt.model,
+            size: request.size,
+            seconds: request.seconds,
+            referenceImage: selection.referenceImage,
+            credential: {
+              toolCode: VIDEO_GENERATE_TOOL_CODE,
+              secretId: attempt.credential.secretRef.id,
+              providerId: attempt.providerId
+            }
+          },
+          {
+            timeoutMs: this.resolveWorkerTimeoutMs(params.bundle)
+          }
+        );
+        this.logger.log(
+          `[video-generate] requestId=${params.requestId} provider=${providerResult.provider} seconds=${String(
+            request.seconds
+          )} referenceAlias="${selection.referenceImageAlias ?? "none"}"`
+        );
+
+        const artifact = await this.persistGeneratedArtifact({
+          assistantId: params.bundle.metadata.assistantId,
+          workspaceId: params.bundle.metadata.workspaceId,
+          sessionId: params.sessionId,
+          requestId: params.requestId,
+          filenameHint: request.filename,
+          requestPrompt: request.prompt,
+          referenceFilename: selection.referenceFilename,
+          video: providerResult.video,
+          billingFacts: providerResult.billingFacts
+        });
+
+        return {
+          payload: {
             toolCode: VIDEO_GENERATE_TOOL_CODE,
-            secretId: modelSelection.credential.secretRef.id,
-            providerId
+            executionMode: "worker",
+            provider: providerResult.provider,
+            model: providerResult.model,
+            prompt: request.prompt,
+            requestedSeconds: request.seconds,
+            size: providerResult.size ?? request.size,
+            referenceImageAlias: selection.referenceImageAlias,
+            referenceFilename: selection.referenceFilename,
+            artifact,
+            usage: providerResult.usage,
+            action: "generated",
+            reason: null,
+            warning: this.mergeWarnings(
+              ...warnings,
+              providerResult.warning,
+              attemptIndex > 0 ? `Used fallback provider "${providerResult.provider}".` : null
+            )
+          },
+          artifacts: [artifact],
+          isError: false
+        };
+      } catch (error) {
+        const failureMessage = error instanceof Error ? error.message : "Video generation failed.";
+        const attemptWarning = `${attempt.providerId} failed: ${failureMessage}`;
+        const shouldTryFallback =
+          attemptIndex < credentialAttempts.length - 1 &&
+          this.isFallbackEligibleVideoFailure(error);
+        if (shouldTryFallback) {
+          warnings.push(attemptWarning);
+          continue;
+        }
+        this.logger.warn(
+          `[video-generate] failed requestId=${params.requestId} provider=${attempt.providerId} referenceAlias="${
+            selection.referenceImageAlias ?? "none"
+          }": ${failureMessage}`
+        );
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: attempt.providerId,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: request.seconds,
+            size: request.size,
+            referenceImageAlias: selection.referenceImageAlias,
+            referenceFilename: selection.referenceFilename,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "video_generation_failed",
+            warning: this.mergeWarnings(...warnings, attemptWarning)
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+    }
+
+    return {
+      payload: {
+        toolCode: VIDEO_GENERATE_TOOL_CODE,
+        executionMode: "worker",
+        provider: providerId,
+        model: null,
+        prompt: request.prompt,
+        requestedSeconds: request.seconds,
+        size: request.size,
+        referenceImageAlias: selection.referenceImageAlias,
+        referenceFilename: selection.referenceFilename,
+        artifact: null,
+        usage: null,
+        action: "skipped",
+        reason: "video_generation_failed",
+        warning: this.mergeWarnings(...warnings, "Video generation failed.")
+      },
+      artifacts: [],
+      isError: true
+    };
+  }
+
+  private resolveFallbackVideoCredentialAttempts(
+    credential: AssistantRuntimeBundleToolCredentialRef
+  ): ResolvedVideoCredentialAttempt[] {
+    const resolved: ResolvedVideoCredentialAttempt[] = [];
+    const seenKeys = new Set<string>();
+
+    for (const candidate of credential.fallbacks ?? []) {
+      if (
+        candidate.configured !== true ||
+        typeof candidate.secretRef.id !== "string" ||
+        candidate.secretRef.id.trim().length === 0
+      ) {
+        continue;
+      }
+      const providerId = this.resolveVideoGenerateProviderId(candidate.providerId ?? null);
+      if (providerId === null) {
+        continue;
+      }
+      const secretId = candidate.secretRef.id.trim();
+      const model = this.resolveVideoGenerateModelKey(candidate);
+      const dedupeKey = `${providerId}:${secretId}:${model ?? ""}`;
+      if (seenKeys.has(dedupeKey)) {
+        continue;
+      }
+      seenKeys.add(dedupeKey);
+      resolved.push({
+        credential: {
+          ...candidate,
+          secretRef: {
+            ...candidate.secretRef,
+            id: secretId
           }
         },
-        {
-          timeoutMs: this.resolveWorkerTimeoutMs(params.bundle)
-        }
-      );
-      this.logger.log(
-        `[video-generate] requestId=${params.requestId} provider=${providerId} seconds=${String(
-          request.seconds
-        )} referenceAlias="${selection.referenceImageAlias ?? "none"}"`
-      );
-
-      const artifact = await this.persistGeneratedArtifact({
-        assistantId: params.bundle.metadata.assistantId,
-        workspaceId: params.bundle.metadata.workspaceId,
-        sessionId: params.sessionId,
-        requestId: params.requestId,
-        filenameHint: request.filename,
-        requestPrompt: request.prompt,
-        referenceFilename: selection.referenceFilename,
-        video: providerResult.video,
-        billingFacts: providerResult.billingFacts
+        providerId,
+        model
       });
-
-      return {
-        payload: {
-          toolCode: VIDEO_GENERATE_TOOL_CODE,
-          executionMode: "worker",
-          provider: providerId,
-          model: providerResult.model,
-          prompt: request.prompt,
-          requestedSeconds: request.seconds,
-          size: providerResult.size ?? request.size,
-          referenceImageAlias: selection.referenceImageAlias,
-          referenceFilename: selection.referenceFilename,
-          artifact,
-          usage: providerResult.usage,
-          action: "generated",
-          reason: null,
-          warning: this.mergeWarnings(modelSelection.warning, providerResult.warning)
-        },
-        artifacts: [artifact],
-        isError: false
-      };
-    } catch (error) {
-      this.logger.warn(
-        `[video-generate] failed requestId=${params.requestId} referenceAlias="${
-          selection.referenceImageAlias ?? "none"
-        }": ${error instanceof Error ? error.message : "Video generation failed."}`
-      );
-      return {
-        payload: {
-          toolCode: VIDEO_GENERATE_TOOL_CODE,
-          executionMode: "worker",
-          provider: providerId,
-          model: null,
-          prompt: request.prompt,
-          requestedSeconds: request.seconds,
-          size: request.size,
-          referenceImageAlias: selection.referenceImageAlias,
-          referenceFilename: selection.referenceFilename,
-          artifact: null,
-          usage: null,
-          action: "skipped",
-          reason: "video_generation_failed",
-          warning: error instanceof Error ? error.message : "Video generation failed."
-        },
-        artifacts: [],
-        isError: true
-      };
     }
+
+    return resolved;
+  }
+
+  private isFallbackEligibleVideoFailure(error: unknown): boolean {
+    return !(
+      error instanceof ProviderGatewayTimeoutError || error instanceof ServiceUnavailableException
+    );
   }
 
   private readVideoGenerateArguments(

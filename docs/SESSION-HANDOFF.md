@@ -2,6 +2,48 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-106 Slice 8 runtime execution and fallback
+
+### What changed & why
+
+Baseline SHA at session start: `5a78a50ef046823e84e4f809cdb3043618de5f22`.
+
+Implemented ADR-106 Slice 8 only through a synchronous subagent, with orchestrator review and verification. Runtime `video_generate` now uses the materialized provider/secret/model refs from the assistant bundle when calling provider-gateway:
+
+- OpenAI video keeps the existing behavior.
+- Runway/Kling video calls send their provider ids, dedicated secret ids, and selected catalog model keys.
+- Cross-provider video fallback is provider-aware and bounded: one configured materialized fallback ref is attempted after an eligible terminal primary failure, with warning text that preserves the primary failure and records fallback use.
+
+Runtime provider-gateway client validation now accepts OpenAI/Runway/Kling video results and rejects provider mismatches. Returned provider-gateway billing facts continue to flow into persisted runtime artifacts as before, but no ledger/pricing attribution changes were made.
+
+No Slice 9+ work was done: no billing ledger/pricing changes, no provider-gateway adapter changes, and no API materialization/gating changes. `image_generate` and `image_edit` behavior remain unchanged and were regression-tested.
+
+### Files touched
+
+`apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`; `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`; focused runtime tests; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`; `docs/ADR/106-video-provider-catalog-and-execution-routing.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/runtime-video-generate-tool.service.test.ts runRuntimeVideoGenerateToolServiceTest`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/provider-gateway.client.service.test.ts runProviderGatewayClientServiceTest`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-image-generate-tool.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-image-edit-tool.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS: `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Slice 9 still must verify cost ledger/pricing attribution uses executing provider/model facts end to end and does not assume OpenAI for video.
+- Slice 10 must run broader E2E verification with real operator keys, especially reference image upload/download and cross-provider fallback.
+
+### Deploy
+
+- RUNTIME.
+
+### Next recommended step
+
+- ADR-106 Slice 9 only: ensure video billing facts and ledger/pricing lookup use executing provider/model/catalog truth for OpenAI/Runway/Kling while keeping media quota settlement unchanged.
+
 ## 2026-06-01 (cont.) — ADR-106 Slice 7 provider-gateway clients
 
 ### What changed & why
