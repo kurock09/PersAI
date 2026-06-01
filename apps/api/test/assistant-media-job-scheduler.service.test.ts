@@ -53,6 +53,7 @@ class FakeBackgroundSchedulerMetricsService {
 
 function createService(overrides?: {
   queryRows?: Array<Record<string, unknown>>;
+  recoveredFiles?: Array<Record<string, unknown>>;
   runResult?: Awaited<
     ReturnType<InstanceType<typeof AssistantMediaJobSchedulerService>["processDueJobsBatch"]>
   >;
@@ -120,6 +121,9 @@ function createService(overrides?: {
           update: async (input: Record<string, unknown>) => {
             txUpdates.push(input);
           }
+        },
+        assistantFile: {
+          findMany: async () => overrides?.recoveredFiles ?? []
         }
       }),
     assistantMediaJob: {
@@ -127,6 +131,9 @@ function createService(overrides?: {
         finalUpdates.push(input);
         return { count: 1 };
       }
+    },
+    assistantFile: {
+      findMany: async () => overrides?.recoveredFiles ?? []
     }
   };
 
@@ -338,6 +345,106 @@ describe("AssistantMediaJobSchedulerService", () => {
       { artifactId: "artifact-1", kind: "image" },
       { artifactId: "artifact-2", kind: "image" }
     ]);
+    assert.equal(createdMessages.length, 0);
+    assert.equal(releaseCalls.length, 0);
+  });
+
+  test("recovers persisted runtime-output artifacts after retryable runtime fetch failure", async () => {
+    const { service, finalUpdates, createdMessages, releaseCalls } = createService({
+      queryRows: [
+        {
+          id: "job-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          surface: "web",
+          kind: "image",
+          sourceUserMessageId: "user-message-1",
+          requestJson: {
+            attachments: [],
+            sourceUserMessageText: "draw four scenes",
+            sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            directToolExecution: {
+              toolCode: "image_edit",
+              request: {
+                toolCode: "image_edit",
+                prompt: "draw four scenes",
+                count: 4,
+                filename: null,
+                size: "1024x1024",
+                background: "auto",
+                outputMode: "series",
+                seriesItems: ["yacht", "dubai", "ski", "jungle"],
+                sourceImageAlias: "current image #1",
+                referenceImageAlias: null
+              }
+            }
+          },
+          attemptCount: 1,
+          maxAttempts: 5
+        }
+      ],
+      runtimeOutcome: {
+        ok: false,
+        retryable: true,
+        status: null,
+        code: "network_error",
+        message: "fetch failed"
+      },
+      recoveredFiles: [
+        {
+          id: "file-early-dubai",
+          objectKey:
+            "assistant-media/assistants/assistant-1/runtime-output/sessions/media-job:job-1/requests/media-job-run:job-1:abc:series:2/old.png",
+          relativePath: "runtime-output/old.png",
+          displayName: "old-2.png",
+          mimeType: "image/png",
+          sizeBytes: BigInt(11),
+          logicalSizeBytes: null,
+          metadata: { attachmentId: "artifact-early-dubai", semanticSummary: "old dubai" },
+          createdAt: new Date("2026-05-05T09:05:00.000Z")
+        },
+        {
+          id: "file-yacht",
+          objectKey:
+            "assistant-media/assistants/assistant-1/runtime-output/sessions/media-job:job-1/requests/media-job-run:job-1:abc:series:1/a.png",
+          relativePath: "runtime-output/a.png",
+          displayName: "scene-1.png",
+          mimeType: "image/png",
+          sizeBytes: BigInt(12),
+          logicalSizeBytes: null,
+          metadata: { attachmentId: "artifact-yacht", semanticSummary: "yacht" },
+          createdAt: new Date("2026-05-05T09:06:00.000Z")
+        },
+        {
+          id: "file-dubai-latest",
+          objectKey:
+            "assistant-media/assistants/assistant-1/runtime-output/sessions/media-job:job-1/requests/media-job-run:job-1:abc:series:2/b.png",
+          relativePath: "runtime-output/b.png",
+          displayName: "scene-2.png",
+          mimeType: "image/png",
+          sizeBytes: BigInt(13),
+          logicalSizeBytes: null,
+          metadata: { attachmentId: "artifact-dubai", semanticSummary: "dubai" },
+          createdAt: new Date("2026-05-05T09:07:00.000Z")
+        }
+      ]
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.length, 1);
+    assert.equal(finalUpdates[0]?.data?.status, "completion_pending");
+    assert.equal(Array.isArray(finalUpdates[0]?.data?.artifactsJson), true);
+    assert.equal(finalUpdates[0]?.data?.artifactsJson?.length, 2);
+    assert.deepEqual(
+      finalUpdates[0]?.data?.artifactsJson?.map(
+        (artifact: { artifactId: string }) => artifact.artifactId
+      ),
+      ["artifact-yacht", "artifact-dubai"]
+    );
     assert.equal(createdMessages.length, 0);
     assert.equal(releaseCalls.length, 0);
   });

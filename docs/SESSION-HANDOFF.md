@@ -2,6 +2,40 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-105 follow-up: duplicate media-job run recovery + ADR-106 accepted as next program
+
+### What changed & why
+
+Baseline SHA at session start: `036bd0730f7f6e03d6cd01f6d4ed70484db57862`.
+
+Closed the exact live duplicate media-job bug found in `persai-dev`, then accepted the founder-authored `ADR-106` as the next proposed execution program.
+
+- **Exact live media fix:** the bad path was not prompt wording and not `seriesItems` parsing. The durable media job `ff12eb98-...` proved that `/internal/runtime/media-jobs/run` could fail on the API side as retryable `network_error` (`fetch failed`) while runtime had already persisted `assistant_files` side effects for that same `jobId`. Scheduler then requeued the same durable job, which replayed `series:1..4` and produced duplicate Dubai / ski / jungle / yacht frames while the banner stayed pending because `artifactsJson` never landed. `apps/api/src/modules/workspace-management/application/assistant-media-job-scheduler.service.ts` now performs a recovery pass before requeueing retryable runtime-run failures: if durable `runtime_output` files already exist for the same `jobId`, scheduler reconstructs `RuntimeOutputArtifact[]` from those files, dedupes repeated `series:N` waves to the latest file per series index, and moves the job to `completion_pending` instead of running it again.
+- **ADR-106 accepted:** founder-authored `docs/ADR/106-video-provider-catalog-and-execution-routing.md` is now accepted as the source-of-truth proposed execution program for the next bounded video-provider work. No ADR-106 product code is implemented in this session; acceptance only means the repo now recognizes that ADR as the orchestrator plan for Runway/Kling video-provider catalog + execution routing work after the current media-truth emergency fix.
+
+### Files touched
+
+`apps/api/src/modules/workspace-management/application/assistant-media-job-scheduler.service.ts`; `apps/api/test/assistant-media-job-scheduler.service.test.ts`; `docs/ADR/106-video-provider-catalog-and-execution-routing.md`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- Focused PASS: `@persai/api` `test/assistant-media-job-scheduler.service.test.ts`
+- PASS: `@persai/api` typecheck
+- PASS: `@persai/runtime` typecheck
+
+### Risks / residuals
+
+- This fix recovers from the exact transport-blip duplicate-run class by using durable `assistant_files` truth before requeue. It does not yet introduce a deeper end-to-end idempotent receipt/result store for `/internal/runtime/media-jobs/run`; that would be a larger follow-up if transport instability continues.
+- ADR-106 is accepted as planning truth only in this session. Its execution ledger is not started here.
+
+### Deploy
+
+- api image required for the duplicate-run recovery fix. No Prisma migration.
+
+### Next recommended step
+
+- Deploy `apps/api` to `persai-dev`, then re-run the founder 4-scene repro. Expected behavior: if runtime side effects already produced files but the API-side run call blips, scheduler should recover those files into `completion_pending` instead of re-executing the same `jobId`.
+
 ## 2026-06-01 (cont.) — ADR-105 follow-up: partial series artifact truth + series-first multi-image guidance
 
 ### What changed & why

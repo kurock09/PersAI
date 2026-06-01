@@ -6,6 +6,7 @@ import type {
   RuntimeImageEditRequest,
   RuntimeImageGenerateRequest,
   RuntimeMediaJobRunRequest,
+  RuntimeOutputArtifact,
   RuntimeVideoGenerateRequest
 } from "@persai/runtime-contract";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
@@ -475,6 +476,28 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     locale: "ru" | "en",
     context: FailJobContext
   ): Promise<void> {
+    if (outcome.retryable) {
+      const recoveredArtifacts = await this.tryRecoverRuntimeOutputArtifacts(job);
+      if (recoveredArtifacts.length > 0) {
+        await this.prisma.assistantMediaJob.updateMany({
+          where: { id: job.id, schedulerClaimToken: job.claimToken },
+          data: {
+            status: "completion_pending",
+            resultText: "",
+            artifactsJson: recoveredArtifacts as unknown as Prisma.InputJsonValue,
+            billingFactsJson: Prisma.DbNull,
+            completedAt: new Date(),
+            nextRetryAt: null,
+            schedulerClaimToken: null,
+            schedulerClaimedAt: null,
+            schedulerClaimExpiresAt: null,
+            lastErrorCode: null,
+            lastErrorMessage: null
+          }
+        });
+        return;
+      }
+    }
     const canRetry = outcome.retryable && job.attemptCount < job.maxAttempts;
     if (canRetry) {
       // ADR-105 §5: retryable failure — requeue WITHOUT touching the quota. The
@@ -502,6 +525,167 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     // image_provider_safety_rejected). The worker no longer releases; `failJob`
     // releases the full reserved N exactly once.
     await this.failJob(job, false, outcome.code, outcome.message, locale, context);
+  }
+
+  private async tryRecoverRuntimeOutputArtifacts(
+    job: ClaimedMediaJob
+  ): Promise<RuntimeOutputArtifact[]> {
+    const objectKeyNeedle = `/sessions/media-job:${job.id}/requests/media-job-run:${job.id}:`;
+    const rows = await this.prisma.assistantFile.findMany({
+      where: {
+        assistantId: job.assistantId,
+        workspaceId: job.workspaceId,
+        origin: "runtime_output",
+        objectKey: { contains: objectKeyNeedle }
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        objectKey: true,
+        relativePath: true,
+        displayName: true,
+        mimeType: true,
+        sizeBytes: true,
+        logicalSizeBytes: true,
+        metadata: true,
+        createdAt: true
+      }
+    });
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const requestedCount = this.extractRequestedArtifactCountFromRequestJson(job.requestJson);
+    const directToolExecution = this.extractDirectToolExecution(job.requestJson);
+    const sourceToolCode = directToolExecution?.toolCode ?? null;
+    const dedupedRows = this.selectRecoveredArtifactRows(rows, requestedCount);
+
+    return dedupedRows.map((row) => {
+      const metadata =
+        row.metadata !== null && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+          ? (row.metadata as Record<string, unknown>)
+          : null;
+      const artifactId =
+        typeof metadata?.attachmentId === "string" && metadata.attachmentId.trim().length > 0
+          ? metadata.attachmentId.trim()
+          : row.id;
+      const semanticSummaryHint =
+        typeof metadata?.semanticSummary === "string" && metadata.semanticSummary.trim().length > 0
+          ? metadata.semanticSummary.trim()
+          : null;
+      return {
+        artifactId,
+        fileRef: row.id,
+        file: {
+          fileRef: row.id,
+          origin: "runtime_output",
+          sourceToolCode,
+          objectKey: row.objectKey,
+          relativePath: row.relativePath,
+          displayName: row.displayName,
+          mimeType: row.mimeType,
+          sizeBytes: Number(row.sizeBytes),
+          logicalSizeBytes: row.logicalSizeBytes === null ? null : Number(row.logicalSizeBytes),
+          createdAt: row.createdAt.toISOString(),
+          authorLabel: "model",
+          semanticSummaryHint
+        },
+        kind: this.inferArtifactKindFromMimeType(row.mimeType),
+        sourceToolCode,
+        objectKey: row.objectKey,
+        mimeType: row.mimeType,
+        filename: row.displayName,
+        sizeBytes: Number(row.sizeBytes),
+        voiceNote: false,
+        billingFacts: null
+      } satisfies RuntimeOutputArtifact;
+    });
+  }
+
+  private selectRecoveredArtifactRows(
+    rows: Array<{
+      id: string;
+      objectKey: string;
+      relativePath: string;
+      displayName: string | null;
+      mimeType: string;
+      sizeBytes: bigint;
+      logicalSizeBytes: bigint | null;
+      metadata: Prisma.JsonValue | null;
+      createdAt: Date;
+    }>,
+    requestedCount: number | null
+  ) {
+    const latestBySeriesIndex = new Map<number, (typeof rows)[number]>();
+    const otherRows: Array<(typeof rows)[number]> = [];
+
+    for (const row of rows) {
+      const match = row.objectKey.match(/:series:(\d+)\//);
+      if (match === null) {
+        otherRows.push(row);
+        continue;
+      }
+      latestBySeriesIndex.set(Number(match[1]), row);
+    }
+
+    if (latestBySeriesIndex.size > 0) {
+      const deduped = [...latestBySeriesIndex.entries()]
+        .sort((left, right) => left[0] - right[0])
+        .map(([, row]) => row);
+      return requestedCount === null ? deduped : deduped.slice(0, requestedCount);
+    }
+
+    if (requestedCount !== null && otherRows.length > requestedCount) {
+      return otherRows.slice(-requestedCount);
+    }
+    return otherRows;
+  }
+
+  private extractRequestedArtifactCountFromRequestJson(requestJson: unknown): number | null {
+    const directToolExecution = this.extractDirectToolExecution(requestJson);
+    const count = directToolExecution?.request.count;
+    return typeof count === "number" && Number.isInteger(count) && count > 0 ? count : 1;
+  }
+
+  private extractDirectToolExecution(requestJson: unknown): {
+    toolCode: WorkspaceMonthlyToolQuotaToolCode | null;
+    request: Record<string, unknown>;
+  } | null {
+    if (requestJson === null || typeof requestJson !== "object" || Array.isArray(requestJson)) {
+      return null;
+    }
+    const direct = (requestJson as Record<string, unknown>).directToolExecution;
+    if (direct === null || typeof direct !== "object" || Array.isArray(direct)) {
+      return null;
+    }
+    const row = direct as Record<string, unknown>;
+    const request = row.request;
+    if (request === null || typeof request !== "object" || Array.isArray(request)) {
+      return null;
+    }
+    const toolCode =
+      row.toolCode === "image_generate" ||
+      row.toolCode === "image_edit" ||
+      row.toolCode === "video_generate"
+        ? (row.toolCode as WorkspaceMonthlyToolQuotaToolCode)
+        : null;
+    return {
+      toolCode,
+      request: request as Record<string, unknown>
+    };
+  }
+
+  private inferArtifactKindFromMimeType(mimeType: string): RuntimeOutputArtifact["kind"] {
+    if (mimeType.startsWith("image/")) {
+      return "image";
+    }
+    if (mimeType.startsWith("audio/")) {
+      return "audio";
+    }
+    if (mimeType.startsWith("video/")) {
+      return "video";
+    }
+    return "file";
   }
 
   private async failJob(
