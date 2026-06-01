@@ -2,6 +2,45 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-106 Slice 9 video cost attribution
+
+### What changed & why
+
+Baseline SHA at session start: `8e77f6388165a042718eb2dbd0230d2bb0e65eeb`.
+
+Implemented ADR-106 Slice 9 only through a synchronous subagent, with orchestrator review and verification. Persisted billing-fact ledger pricing lookup now uses the executing provider's catalog bucket and timestamp-matched row for video billing facts instead of searching model keys across providers.
+
+Focused tests prove:
+
+- OpenAI video remains attributed to OpenAI.
+- Runway video uses the Runway catalog row, including an inactive historical row when `occurredAt` falls inside its effective window.
+- Kling video uses the Kling catalog row even when OpenAI has the same model key, so video cost is not hardcoded or accidentally attributed to OpenAI.
+
+Media quota settlement is unchanged: reservations, releases, reconciliations, and monthly media counters were not touched. This slice changes additive provider-cost accounting only.
+
+### Files touched
+
+`apps/api/src/modules/workspace-management/application/record-model-cost-ledger.service.ts`; `apps/api/test/record-model-cost-ledger.service.test.ts`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`; `docs/ADR/106-video-provider-catalog-and-execution-routing.md`; `docs/DATA-MODEL.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Slice 10 still needs broader end-to-end verification that runtime/provider-gateway billing facts flow through media-job completion into ledger writes in the full completion path.
+- Live verification with real Runway/Kling operator keys remains owed before presenting the provider path as production-ready.
+
+### Deploy
+
+- API.
+
+### Next recommended step
+
+- ADR-106 Slice 10 only: run final focused and repo gates, update final architecture/API/data/test docs, and perform/live-document smoke where credentials are available. Do not add new provider behavior.
+
 ## 2026-06-01 (cont.) — ADR-106 Slice 8 runtime execution and fallback
 
 ### What changed & why

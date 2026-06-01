@@ -23,7 +23,6 @@ import {
   type ToolPathLedgerPurpose
 } from "./tool-path-pricing-catalog";
 import {
-  findRuntimeProviderCatalogProfileAcrossProvidersForTimestamp,
   findRuntimeProviderCatalogProfileForTimestamp,
   type ManagedRuntimeProvider,
   type RuntimeProviderBillingMode,
@@ -1083,8 +1082,15 @@ export class RecordModelCostLedgerService {
 
     const runtimeProviderSettings =
       await this.resolvePlatformRuntimeProviderSettingsService.execute();
-    const profile = findRuntimeProviderCatalogProfileAcrossProvidersForTimestamp(
-      runtimeProviderSettings.availableModelCatalogByProvider,
+    const catalog =
+      runtimeProviderSettings.availableModelCatalogByProvider[
+        facts.providerKey as keyof typeof runtimeProviderSettings.availableModelCatalogByProvider
+      ];
+    if (catalog === undefined) {
+      return 0;
+    }
+    const profile = findRuntimeProviderCatalogProfileForTimestamp(
+      catalog,
       facts.modelKey,
       occurredAt
     );

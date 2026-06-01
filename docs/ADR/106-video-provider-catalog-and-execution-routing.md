@@ -450,6 +450,8 @@ Default for this ADR: implement provider-aware fallback for video only if fallba
 
 - Admin economics does not misattribute Runway/Kling video cost to OpenAI.
 
+**Status (2026-06-01): Completed.** Persisted video billing-fact ledger lookup now uses the executing provider's catalog bucket plus timestamp-matched row, so OpenAI/Runway/Kling video costs are attributed to the actual provider/model and historical effective window. Media quota settlement remains unchanged. No runtime/provider-gateway execution or Slice 10 E2E work was included.
+
 ### Slice 10 - End-to-end verification and docs
 
 **Scope**

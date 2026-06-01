@@ -854,14 +854,336 @@ describe("RecordModelCostLedgerService", () => {
     assert.equal(writtenCount, 1);
     assert.deepEqual(
       {
+        provider: createdRows[0]?.provider,
+        model: createdRows[0]?.model,
+        capability: createdRows[0]?.capability,
         purpose: createdRows[0]?.purpose,
         actualCostMicros: createdRows[0]?.actualCostMicros,
-        billingMode: createdRows[0]?.billingMode
+        billingMode: createdRows[0]?.billingMode,
+        snapshotProvider: (
+          createdRows[0]?.priceCatalogSnapshot as { provider?: string } | undefined
+        )?.provider
       },
       {
+        provider: "openai",
+        model: "sora-2",
+        capability: "video",
         purpose: "video_generation",
         actualCostMicros: BigInt(80),
-        billingMode: "time_metered"
+        billingMode: "time_metered",
+        snapshotProvider: "openai"
+      }
+    );
+  });
+
+  test("records Runway video cost from the executing provider and timestamp-matched historical row", async () => {
+    const createdRows: Array<Record<string, unknown>> = [];
+    const prisma = {
+      modelCostLedgerEvent: {
+        createMany: async (input: { data: Array<Record<string, unknown>> }) => {
+          createdRows.push(...input.data);
+          return { count: input.data.length };
+        }
+      }
+    } as unknown as WorkspaceManagementPrismaService;
+
+    const settingsResolver = {
+      execute: async () => ({
+        schema: "persai.runtimeProviderProfile.v1",
+        mode: "admin_managed",
+        derivedFrom: {
+          policyEnvelopeSchema: "persai.runtimeProviderProfile.v1",
+          secretRefsSchema: "persai.runtimeProviderCredentialRefs.v1"
+        },
+        allowedProviders: ["openai", "anthropic"],
+        availableModelsByProvider: { openai: ["sora-2"], anthropic: [] },
+        availableModelCatalogByProvider: {
+          openai: {
+            models: [
+              {
+                model: "shared-video-model",
+                capabilities: ["video"],
+                active: true,
+                billingMode: "time_metered",
+                effectiveFrom: null,
+                effectiveTo: null,
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  timePricing: {
+                    unit: "second",
+                    pricePerUnit: 999
+                  }
+                }
+              }
+            ]
+          },
+          anthropic: { models: [] },
+          runway: {
+            models: [
+              {
+                model: "shared-video-model",
+                capabilities: ["video"],
+                active: false,
+                billingMode: "time_metered",
+                effectiveFrom: "2026-01-01T00:00:00.000Z",
+                effectiveTo: "2026-05-15T00:00:00.000Z",
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  timePricing: {
+                    unit: "second",
+                    pricePerUnit: 25
+                  }
+                }
+              },
+              {
+                model: "shared-video-model",
+                capabilities: ["video"],
+                active: true,
+                billingMode: "time_metered",
+                effectiveFrom: "2026-05-15T00:00:00.000Z",
+                effectiveTo: null,
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  timePricing: {
+                    unit: "second",
+                    pricePerUnit: 40
+                  }
+                }
+              }
+            ]
+          },
+          kling: { models: [] }
+        },
+        primary: {
+          provider: "openai",
+          model: "sora-2",
+          credentialRef: {
+            refKey: "env:openai:OPENAI_API_KEY",
+            secretRef: { source: "env", provider: "openai", id: "OPENAI_API_KEY" },
+            updatedAt: null
+          }
+        },
+        fallback: null,
+        notes: []
+      })
+    } as ResolvePlatformRuntimeProviderSettingsService;
+
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
+    const writtenCount = await service.recordPersistedBillingFactsEvent({
+      workspaceId: "workspace-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surface: "telegram",
+      source: "media_job_completion",
+      sourceEventId: "media_job:job-runway-1",
+      billingFacts: {
+        providerKey: "runway",
+        modelKey: "shared-video-model",
+        capability: "video",
+        occurredAt: "2026-05-10T09:10:00.000Z",
+        metering: {
+          meteringKind: "time_metered",
+          durationMs: 8_000,
+          durationSeconds: 8
+        }
+      }
+    });
+
+    assert.equal(writtenCount, 1);
+    assert.deepEqual(
+      {
+        provider: createdRows[0]?.provider,
+        model: createdRows[0]?.model,
+        capability: createdRows[0]?.capability,
+        purpose: createdRows[0]?.purpose,
+        surface: createdRows[0]?.surface,
+        actualCostMicros: createdRows[0]?.actualCostMicros,
+        billingMode: createdRows[0]?.billingMode,
+        snapshotProvider: (
+          createdRows[0]?.priceCatalogSnapshot as { provider?: string } | undefined
+        )?.provider,
+        snapshotEffectiveTo: (
+          createdRows[0]?.priceCatalogSnapshot as { effectiveTo?: string } | undefined
+        )?.effectiveTo
+      },
+      {
+        provider: "runway",
+        model: "shared-video-model",
+        capability: "video",
+        purpose: "video_generation",
+        surface: "telegram",
+        actualCostMicros: BigInt(200),
+        billingMode: "time_metered",
+        snapshotProvider: "runway",
+        snapshotEffectiveTo: "2026-05-15T00:00:00.000Z"
+      }
+    );
+  });
+
+  test("records Kling video cost from the executing provider without OpenAI hardcoding", async () => {
+    const createdRows: Array<Record<string, unknown>> = [];
+    const prisma = {
+      modelCostLedgerEvent: {
+        createMany: async (input: { data: Array<Record<string, unknown>> }) => {
+          createdRows.push(...input.data);
+          return { count: input.data.length };
+        }
+      }
+    } as unknown as WorkspaceManagementPrismaService;
+
+    const settingsResolver = {
+      execute: async () => ({
+        schema: "persai.runtimeProviderProfile.v1",
+        mode: "admin_managed",
+        derivedFrom: {
+          policyEnvelopeSchema: "persai.runtimeProviderProfile.v1",
+          secretRefsSchema: "persai.runtimeProviderCredentialRefs.v1"
+        },
+        allowedProviders: ["openai", "anthropic"],
+        availableModelsByProvider: { openai: ["sora-2"], anthropic: [] },
+        availableModelCatalogByProvider: {
+          openai: {
+            models: [
+              {
+                model: "kling-v2-master",
+                capabilities: ["video"],
+                active: true,
+                billingMode: "time_metered",
+                effectiveFrom: null,
+                effectiveTo: null,
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  timePricing: {
+                    unit: "second",
+                    pricePerUnit: 500
+                  }
+                }
+              }
+            ]
+          },
+          anthropic: { models: [] },
+          runway: { models: [] },
+          kling: {
+            models: [
+              {
+                model: "kling-v2-master",
+                capabilities: ["video"],
+                active: true,
+                billingMode: "time_metered",
+                effectiveFrom: null,
+                effectiveTo: null,
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: {
+                  currency: "USD",
+                  timePricing: {
+                    unit: "second",
+                    pricePerUnit: 7
+                  }
+                }
+              }
+            ]
+          }
+        },
+        primary: {
+          provider: "openai",
+          model: "sora-2",
+          credentialRef: {
+            refKey: "env:openai:OPENAI_API_KEY",
+            secretRef: { source: "env", provider: "openai", id: "OPENAI_API_KEY" },
+            updatedAt: null
+          }
+        },
+        fallback: null,
+        notes: []
+      })
+    } as ResolvePlatformRuntimeProviderSettingsService;
+
+    const toolPathCatalogResolver = {
+      execute: async () => ({
+        schema: "persai.toolPathPricingCatalog.v1" as const,
+        rows: []
+      })
+    };
+    const service = new RecordModelCostLedgerService(
+      prisma,
+      settingsResolver,
+      toolPathCatalogResolver as never
+    );
+    const writtenCount = await service.recordPersistedBillingFactsEvent({
+      workspaceId: "workspace-1",
+      assistantId: "assistant-1",
+      userId: "user-1",
+      surface: "web",
+      source: "media_job_completion",
+      sourceEventId: "media_job:job-kling-1",
+      billingFacts: {
+        providerKey: "kling",
+        modelKey: "kling-v2-master",
+        capability: "video",
+        occurredAt: "2026-05-20T09:10:00.000Z",
+        metering: {
+          meteringKind: "time_metered",
+          durationMs: 12_000,
+          durationSeconds: 12
+        }
+      }
+    });
+
+    assert.equal(writtenCount, 1);
+    assert.deepEqual(
+      {
+        provider: createdRows[0]?.provider,
+        model: createdRows[0]?.model,
+        capability: createdRows[0]?.capability,
+        purpose: createdRows[0]?.purpose,
+        actualCostMicros: createdRows[0]?.actualCostMicros,
+        billingMode: createdRows[0]?.billingMode,
+        snapshotProvider: (
+          createdRows[0]?.priceCatalogSnapshot as { provider?: string } | undefined
+        )?.provider
+      },
+      {
+        provider: "kling",
+        model: "kling-v2-master",
+        capability: "video",
+        purpose: "video_generation",
+        actualCostMicros: BigInt(84),
+        billingMode: "time_metered",
+        snapshotProvider: "kling"
       }
     );
   });
