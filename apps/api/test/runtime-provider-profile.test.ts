@@ -4,6 +4,29 @@ import {
   resolveRuntimeProviderProfileState
 } from "../src/modules/workspace-management/application/runtime-provider-profile";
 
+const RUNWAY_VIDEO_MODEL_PARAMETERS = {
+  duration: { kind: "allowed_list" as const, values: [5, 8, 10] },
+  aspectRatios: [
+    { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "1280:720" },
+    { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720:1280" }
+  ],
+  referenceImageSupported: true,
+  providerParameters: null
+};
+
+const KLING_VIDEO_MODEL_PARAMETERS = {
+  duration: { kind: "range" as const, min: 3, max: 15, step: 1 },
+  aspectRatios: [
+    { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "16:9" },
+    { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "9:16" }
+  ],
+  referenceImageSupported: true,
+  providerParameters: {
+    mode: "pro",
+    sound: "off" as const
+  }
+};
+
 async function run(): Promise<void> {
   const legacy = resolveRuntimeProviderProfileState({
     policyEnvelope: null,
@@ -93,10 +116,22 @@ async function run(): Promise<void> {
             models: [{ model: "claude-sonnet-4-5", capabilities: ["chat"] }]
           },
           runway: {
-            models: [{ model: "runway-gen-4", capabilities: ["video"] }]
+            models: [
+              {
+                model: "runway-gen-4",
+                capabilities: ["video"],
+                videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS
+              }
+            ]
           },
           kling: {
-            models: [{ model: "kling-v1", capabilities: ["video"] }]
+            models: [
+              {
+                model: "kling-v3",
+                capabilities: ["video"],
+                videoModelParameters: KLING_VIDEO_MODEL_PARAMETERS
+              }
+            ]
           }
         }
       }
@@ -130,7 +165,7 @@ async function run(): Promise<void> {
   );
   assert.deepEqual(
     catalogOnlyManaged.availableModelCatalogByProvider.kling.models.map((profile) => profile.model),
-    ["kling-v1"]
+    ["kling-v3"]
   );
 
   assert.throws(
@@ -215,7 +250,13 @@ async function run(): Promise<void> {
                 models: [{ model: "claude-sonnet-4-5", capabilities: ["chat"] }]
               },
               runway: {
-                models: [{ model: "runway-gen-4", capabilities: ["chat", "video"] }]
+                models: [
+                  {
+                    model: "runway-gen-4",
+                    capabilities: ["chat", "video"],
+                    videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS
+                  }
+                ]
               }
             }
           }

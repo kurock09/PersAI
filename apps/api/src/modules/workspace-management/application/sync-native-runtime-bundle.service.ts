@@ -4,6 +4,7 @@ import { Injectable } from "@nestjs/common";
 import { AssistantRuntimeError, type AssistantRuntimeErrorCode } from "./assistant-runtime.facade";
 import type { AssistantMaterializedSpec } from "../domain/assistant-materialized-spec.entity";
 import type { RuntimeTier } from "./runtime-assignment";
+import { resolveMaterializedNativeRuntimeBundle } from "./native-runtime-bundle-hash";
 
 type NativeRuntimeBundleSyncStatus = "skipped_unconfigured" | "warmed";
 
@@ -19,14 +20,10 @@ export class SyncNativeRuntimeBundleService {
       return "skipped_unconfigured";
     }
 
-    const bundleDocument = input.materializedSpec.runtimeBundleDocument?.trim() ?? "";
-    const bundleHash = input.materializedSpec.runtimeBundleHash?.trim() ?? "";
-    if (!bundleDocument || !bundleHash) {
-      throw new AssistantRuntimeError(
-        "runtime_degraded",
-        "Native runtime bundle document/hash is missing after materialization."
-      );
-    }
+    const { bundleDocument, bundleHash } = resolveMaterializedNativeRuntimeBundle({
+      materializedSpec: input.materializedSpec,
+      context: "Native runtime"
+    });
 
     const bundleRef: RuntimeBundleRef = {
       bundleId: input.materializedSpec.id,

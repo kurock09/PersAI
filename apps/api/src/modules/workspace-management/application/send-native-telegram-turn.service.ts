@@ -27,6 +27,7 @@ import {
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
+import { resolveMaterializedNativeRuntimeBundle } from "./native-runtime-bundle-hash";
 import type { RuntimeTier } from "./runtime-assignment";
 
 const HIDDEN_RUNTIME_TOOL_NAMES = new Set<string>();
@@ -111,13 +112,10 @@ export class SendNativeTelegramTurnService {
       );
     }
 
-    const bundleHash = materializedSpec.runtimeBundleHash?.trim() ?? "";
-    if (!bundleHash) {
-      throw new AssistantRuntimeError(
-        "runtime_degraded",
-        "Native runtime bundle hash is missing for the current published version."
-      );
-    }
+    const { bundleHash } = resolveMaterializedNativeRuntimeBundle({
+      materializedSpec,
+      context: "Native runtime"
+    });
 
     const request: RuntimeTurnRequest = {
       requestId: randomUUID(),

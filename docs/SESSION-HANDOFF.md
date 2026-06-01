@@ -2,7 +2,85 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — Hotfix follow-up: video params UI + bundle hash guard
+
+### What changed & why
+
+Baseline SHA at session start: `9a1767cf1d3e20b60dbece1f8ccfe87448f969bf`.
+
+Closed the live tails discovered after the catalog-driven video parameter hotfix:
+
+- API runtime-boundary callers now compute `bundleHash` from the exact `runtimeBundleDocument` they send/warm, so stale persisted hash columns cannot make runtime reject a turn with `bundleDocument hash does not match bundle.bundleHash`.
+- Runtime failed-turn finalization now retries a minimal terminal failed receipt when full failure-payload persistence fails, reducing the chance of accepted receipts staying stuck after an error.
+- `Admin > Runtime` now creates, displays, edits, and saves `videoModelParameters` for video catalog rows. New Runway/Kling video rows get provider defaults and focused web coverage asserts those params are present in the saved catalog payload.
+- `persai-dev` recovery performed during the session: corrected mismatched materialized spec hashes, closed stuck accepted receipts, bumped config generation to `922`, and refreshed the affected assistants so their active runtime bundles contain `videoModelParameters`.
+
+### Files touched
+
+`apps/api/src/modules/workspace-management/application/native-runtime-bundle-hash.ts`; API runtime-boundary clients (`web-runtime-turn-client`, `web-runtime-stream-client`, Telegram, preview, sync warm, internal ensure-fresh); `apps/runtime/src/modules/turns/turn-execution.service.ts`; `apps/runtime/src/modules/turns/turn-finalization.service.ts`; `apps/web/app/admin/runtime/page.tsx`; focused API/runtime/web tests; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm -r --if-present run lint`
+- PASS: `corepack pnpm run format:check`
+- PASS: `corepack pnpm run typecheck`
+- PASS: focused API/runtime/web tests covering bundle hash, failed-turn finalization fallback, runtime video normalization, and Admin Runtime video params UI.
+- FULL TEST NOTE: `corepack pnpm run test` reached web full-suite Vitest timeouts in known parallel-load-sensitive files (`admin/abuse`, `admin/knowledge`, `admin/plans`, `app/setup`, `chat-area`); every timed-out file passed in isolated reruns.
+
+### Risks / residuals
+
+- Live `video_generate` smoke with real Runway/Kling still needs one final user/operator retry after the deployed images and refreshed bundles are in place.
+- Frontend generated contracts still do not expose a named `videoModelParameters` shape on model profiles; the UI uses a local typed overlay until OpenAPI/generation is refreshed in a separate contract slice.
+
+### Deploy
+
+- API, WEB, RUNTIME.
+- Provider-gateway was not changed in this follow-up, but may still be deployed together if the platform deploy flow pins all affected services from the branch.
+
+### Next recommended step
+
+- Commit/push this follow-up, deploy API/WEB/RUNTIME, then live-smoke one Kling v3 primary + Runway fallback `video_generate` request.
+
 ## 2026-06-01 (cont.) — Hotfix: catalog-driven video model parameters + Kling v3
+
+## 2026-06-01 (cont.) — Hotfix follow-up: video params UI + bundle hash guard
+
+### What changed & why
+
+Baseline SHA at session start: `9a1767cf1d3e20b60dbece1f8ccfe87448f969bf`.
+
+Closed the live tails discovered after the catalog-driven video parameter hotfix:
+
+- API runtime-boundary callers now compute `bundleHash` from the exact `runtimeBundleDocument` they send/warm, so stale persisted hash columns cannot make runtime reject a turn with `bundleDocument hash does not match bundle.bundleHash`.
+- Runtime failed-turn finalization now retries a minimal terminal failed receipt when full failure-payload persistence fails, reducing the chance of accepted receipts staying stuck after an error.
+- `Admin > Runtime` now creates, displays, edits, and saves `videoModelParameters` for video catalog rows. New Runway/Kling video rows get provider defaults and focused web coverage asserts those params are present in the saved catalog payload.
+- `persai-dev` recovery performed during the session: corrected mismatched materialized spec hashes, closed stuck accepted receipts, bumped config generation to `922`, and refreshed the affected assistants so their active runtime bundles contain `videoModelParameters`.
+
+### Files touched
+
+`apps/api/src/modules/workspace-management/application/native-runtime-bundle-hash.ts`; API runtime-boundary clients (`web-runtime-turn-client`, `web-runtime-stream-client`, Telegram, preview, sync warm, internal ensure-fresh); `apps/runtime/src/modules/turns/turn-execution.service.ts`; `apps/runtime/src/modules/turns/turn-finalization.service.ts`; `apps/web/app/admin/runtime/page.tsx`; focused API/runtime/web tests; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm -r --if-present run lint`
+- PASS: `corepack pnpm run format:check`
+- PASS: `corepack pnpm run typecheck`
+- PASS: focused API/runtime/web tests covering bundle hash, failed-turn finalization fallback, runtime video normalization, and Admin Runtime video params UI.
+- FULL TEST NOTE: `corepack pnpm run test` reached web full-suite Vitest timeouts in known parallel-load-sensitive files (`admin/abuse`, `admin/knowledge`, `admin/plans`, `app/setup`, `chat-area`); every timed-out file passed in isolated reruns.
+
+### Risks / residuals
+
+- Live `video_generate` smoke with real Runway/Kling still needs one final user/operator retry after the deployed images and refreshed bundles are in place.
+- Frontend generated contracts still do not expose a named `videoModelParameters` shape on model profiles; the UI uses a local typed overlay until OpenAPI/generation is refreshed in a separate contract slice.
+
+### Deploy
+
+- API, WEB, RUNTIME.
+- Provider-gateway was not changed in this follow-up, but may still be deployed together if the platform deploy flow pins all affected services from the branch.
+
+### Next recommended step
+
+- Commit/push this follow-up, deploy API/WEB/RUNTIME, then live-smoke one Kling v3 primary + Runway fallback `video_generate` request.
 
 ### What changed & why
 

@@ -17,6 +17,7 @@ import {
 } from "../../domain/assistant-published-version.repository";
 import { ResolvePlatformRuntimeProviderSettingsService } from "../../application/resolve-platform-runtime-provider-settings.service";
 import { EnsureAssistantMaterializedSpecCurrentService } from "../../application/ensure-assistant-materialized-spec-current.service";
+import { resolveMaterializedNativeRuntimeBundle } from "../../application/native-runtime-bundle-hash";
 import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
 
 type InternalRequestLike = {
@@ -140,11 +141,10 @@ export class InternalRuntimeConfigGenerationController {
       res.status(204);
       return;
     }
-    const bundleHash = refreshedSpec.runtimeBundleHash?.trim() ?? "";
-    const bundleDocument = refreshedSpec.runtimeBundleDocument?.trim() ?? "";
-    if (!bundleHash || !bundleDocument) {
-      throw new BadRequestException("Fresh materialized runtime bundle document/hash is missing.");
-    }
+    const { bundleHash, bundleDocument } = resolveMaterializedNativeRuntimeBundle({
+      materializedSpec: refreshedSpec,
+      context: "Fresh materialized"
+    });
 
     return {
       generation: freshness.currentGeneration,

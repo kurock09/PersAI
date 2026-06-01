@@ -31,6 +31,7 @@ import {
   readRuntimeAssignmentStateFromMaterializedLayers,
   type RuntimeTier
 } from "./runtime-assignment";
+import { hashNativeRuntimeBundleDocument } from "./native-runtime-bundle-hash";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 
 export interface AssistantSetupPreviewState {
@@ -166,13 +167,13 @@ export class PreviewAssistantSetupService {
       );
     }
     const bundleDocument = input.runtimeBundleDocument.trim();
-    const bundleHash = input.runtimeBundleHash?.trim() ?? "";
-    if (!bundleDocument || !bundleHash) {
+    if (!bundleDocument) {
       throw new AssistantRuntimeError(
         "runtime_degraded",
-        "Native runtime setup preview bundle document/hash is missing."
+        "Native runtime setup preview bundle document is missing."
       );
     }
+    const bundleHash = hashNativeRuntimeBundleDocument(bundleDocument);
 
     const bundleRef: RuntimeBundleRef = {
       bundleId: input.previewPublishedVersionId,

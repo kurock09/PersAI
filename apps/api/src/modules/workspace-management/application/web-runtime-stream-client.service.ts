@@ -27,6 +27,7 @@ import {
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
+import { resolveMaterializedNativeRuntimeBundle } from "./native-runtime-bundle-hash";
 import type { RuntimeTier } from "./runtime-assignment";
 
 const HIDDEN_RUNTIME_TOOL_NAMES = new Set<string>();
@@ -98,13 +99,10 @@ export class WebRuntimeStreamClientService {
       );
     }
 
-    const bundleHash = materializedSpec.runtimeBundleHash?.trim() ?? "";
-    if (!bundleHash) {
-      throw new AssistantRuntimeError(
-        "runtime_degraded",
-        "Web runtime bundle hash is missing for the current published version."
-      );
-    }
+    const { bundleHash } = resolveMaterializedNativeRuntimeBundle({
+      materializedSpec,
+      context: "Web runtime"
+    });
 
     const request: RuntimeTurnRequest = {
       requestId: input.requestId ?? randomUUID(),

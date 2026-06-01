@@ -174,6 +174,43 @@ export class TurnFinalizationService {
     };
   }
 
+  async failAcceptedTurnMinimal(
+    acceptedTurn: AcceptedRuntimeTurn,
+    event: RuntimeFailedEvent,
+    completedAtIso: string = new Date().toISOString()
+  ): Promise<FinalizedRuntimeTurn> {
+    this.assertMatchingFailedTurnIdentity(acceptedTurn, event);
+
+    const completedAt = this.parseRequiredIsoTimestamp(completedAtIso, "completedAtIso");
+    let leaseReleased = false;
+    let terminalReceiptPersisted = false;
+
+    try {
+      await this.runtimeStatePostgresService.markTurnReceiptFailed({
+        requestId: acceptedTurn.receipt.requestId,
+        errorCode: event.code,
+        errorMessage: event.message,
+        completedAt
+      });
+      terminalReceiptPersisted = true;
+    } finally {
+      if (terminalReceiptPersisted) {
+        leaseReleased = await this.releaseLeaseQuietly(acceptedTurn);
+      }
+    }
+    if (!leaseReleased) {
+      this.logger.warn(
+        `runtime_turn_failed_minimal_lease_not_released requestId=${acceptedTurn.receipt.requestId} sessionId=${acceptedTurn.session.sessionId} code=${event.code}`
+      );
+    }
+
+    return {
+      receiptStatus: "failed",
+      session: acceptedTurn.session,
+      leaseReleased
+    };
+  }
+
   private assertMatchingTurnIdentity(input: {
     expectedRequestId: string;
     expectedSessionId: string;

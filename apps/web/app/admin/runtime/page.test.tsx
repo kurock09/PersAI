@@ -362,7 +362,16 @@ describe("AdminRuntimePage catalog picker", () => {
     expect(request.availableModelCatalogByProvider.runway.models[0]).toMatchObject({
       model: "runway-gen-4",
       capabilities: ["video"],
-      billingMode: "time_metered"
+      billingMode: "time_metered",
+      videoModelParameters: {
+        duration: { kind: "allowed_list", values: [5, 8, 10] },
+        aspectRatios: [
+          { aspectRatio: "16:9", size: "1280x720", providerValue: "1280:720" },
+          { aspectRatio: "9:16", size: "720x1280", providerValue: "720:1280" }
+        ],
+        referenceImageSupported: true,
+        providerParameters: null
+      }
     });
     expect(request.availableModelsByProvider).toEqual({
       openai: ["gpt-5.4"],

@@ -5354,6 +5354,13 @@ export class TurnExecutionService {
     return value === "openai" || value === "anthropic" ? value : null;
   }
 
+  private formatLogError(error: unknown): string {
+    if (error instanceof Error) {
+      return `${error.name}: ${error.message}`;
+    }
+    return String(error);
+  }
+
   private async failAcceptedTurnQuietly(
     acceptedTurn: AcceptedRuntimeTurn,
     error: unknown,
@@ -5366,8 +5373,17 @@ export class TurnExecutionService {
     }
     try {
       await this.turnFinalizationService.failAcceptedTurn(acceptedTurn, failure);
-    } catch {
-      // The durable accepted receipt remains replay truth even if failure finalization also breaks.
+    } catch (finalizationError) {
+      this.logger.warn(
+        `runtime_turn_failure_finalization_payload_failed requestId=${acceptedTurn.receipt.requestId} sessionId=${acceptedTurn.session.sessionId} code=${failure.code} error=${this.formatLogError(finalizationError)}`
+      );
+      try {
+        await this.turnFinalizationService.failAcceptedTurnMinimal(acceptedTurn, failure);
+      } catch (minimalFinalizationError) {
+        this.logger.error(
+          `runtime_turn_failure_finalization_minimal_failed requestId=${acceptedTurn.receipt.requestId} sessionId=${acceptedTurn.session.sessionId} code=${failure.code} error=${this.formatLogError(minimalFinalizationError)}`
+        );
+      }
     }
     return failure;
   }

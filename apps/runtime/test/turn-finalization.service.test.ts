@@ -97,6 +97,7 @@ class FakeRuntimeStatePostgresService {
   interruptedArgs: unknown[] = [];
   failedArgs: unknown[] = [];
   throwOnComplete = false;
+  throwOnFailedPayload = false;
 
   async markTurnReceiptCompleted(args: unknown): Promise<void> {
     this.completedArgs.push(args);
@@ -111,6 +112,14 @@ class FakeRuntimeStatePostgresService {
 
   async markTurnReceiptFailed(args: unknown): Promise<void> {
     this.failedArgs.push(args);
+    if (
+      this.throwOnFailedPayload &&
+      args !== null &&
+      typeof args === "object" &&
+      "resultPayload" in args
+    ) {
+      throw new Error("failed payload rejected");
+    }
   }
 }
 
@@ -201,6 +210,32 @@ export async function runTurnFinalizationServiceTest(): Promise<void> {
   assert.equal(failed.receiptStatus, "failed");
   assert.equal(failed.leaseReleased, true);
   assert.equal(sessionStore.updateCalls.length, 2);
+
+  postgres.throwOnFailedPayload = true;
+  await assert.rejects(
+    () => service.failAcceptedTurn(createAcceptedTurn(), createFailedEvent()),
+    /failed payload rejected/
+  );
+  const minimalFailed = await service.failAcceptedTurnMinimal(
+    createAcceptedTurn(),
+    createFailedEvent()
+  );
+  assert.equal(minimalFailed.receiptStatus, "failed");
+  const minimalFailureArgs = postgres.failedArgs.at(-1) as {
+    requestId: string;
+    errorCode: string;
+    errorMessage: string;
+    completedAt: Date;
+    resultPayload?: unknown;
+  };
+  assert.deepEqual(minimalFailureArgs, {
+    requestId: "request-1",
+    errorCode: "runtime_timeout",
+    errorMessage: "Timed out",
+    completedAt: minimalFailureArgs.completedAt
+  });
+  assert.equal("resultPayload" in minimalFailureArgs, false);
+  postgres.throwOnFailedPayload = false;
 
   sessionStore.throwOnUpdate = true;
   await assert.rejects(

@@ -27,6 +27,29 @@ type RuntimeProviderModelProfileForMode<M extends RuntimeProviderBillingModeStat
 type RuntimeProviderPriceMetadataMerger = (
   current: RuntimeProviderPriceMetadataState
 ) => RuntimeProviderPriceMetadataState;
+type RuntimeVideoDurationConstraintState =
+  | { kind: "allowed_list"; values: number[] }
+  | {
+      kind: "range";
+      min: number;
+      max: number;
+      step: number | null;
+      preferredValues: number[] | null;
+    };
+type RuntimeVideoAspectRatioOptionState = {
+  aspectRatio: "16:9" | "9:16" | "1:1";
+  size: "1280x720" | "720x1280" | "1024x1024";
+  providerValue: string | null;
+};
+type RuntimeVideoModelParametersState = {
+  duration: RuntimeVideoDurationConstraintState;
+  aspectRatios: RuntimeVideoAspectRatioOptionState[];
+  referenceImageSupported: boolean;
+  providerParameters: { mode?: string | null; sound?: "on" | "off" | null } | null;
+};
+type RuntimeProviderModelProfileWithVideo = RuntimeProviderModelProfileState & {
+  videoModelParameters?: RuntimeVideoModelParametersState | null;
+};
 
 /** Accepts `0.075` and `0,075` while typing; incomplete fragments like `0.` stay in the field until blur. */
 export function normalizeDecimalInputText(raw: string): string {
@@ -154,6 +177,49 @@ const MANAGED_CATALOG_PROVIDERS = [
 
 function isVideoOnlyCatalogProvider(provider: ManagedRuntimeCatalogProvider): boolean {
   return provider === "runway" || provider === "kling";
+}
+
+function createDefaultVideoModelParameters(
+  provider: ManagedRuntimeCatalogProvider | null
+): RuntimeVideoModelParametersState {
+  if (provider === "kling") {
+    return {
+      duration: { kind: "range", min: 3, max: 15, step: 1, preferredValues: [5, 10] },
+      aspectRatios: [
+        { aspectRatio: "16:9", size: "1280x720", providerValue: "16:9" },
+        { aspectRatio: "9:16", size: "720x1280", providerValue: "9:16" }
+      ],
+      referenceImageSupported: true,
+      providerParameters: { mode: "pro", sound: "off" }
+    };
+  }
+  return {
+    duration: { kind: "allowed_list", values: [5, 8, 10] },
+    aspectRatios: [
+      { aspectRatio: "16:9", size: "1280x720", providerValue: "1280:720" },
+      { aspectRatio: "9:16", size: "720x1280", providerValue: "720:1280" }
+    ],
+    referenceImageSupported: true,
+    providerParameters: null
+  };
+}
+
+function withVideoModelParameters(
+  profile: RuntimeProviderModelProfileState,
+  provider: ManagedRuntimeCatalogProvider | null
+): RuntimeProviderModelProfileState {
+  const profileWithVideo = profile as RuntimeProviderModelProfileWithVideo;
+  if (!profile.capabilities.includes("video")) {
+    return {
+      ...profile,
+      videoModelParameters: null
+    } as unknown as RuntimeProviderModelProfileState;
+  }
+  return {
+    ...profile,
+    videoModelParameters:
+      profileWithVideo.videoModelParameters ?? createDefaultVideoModelParameters(provider)
+  } as unknown as RuntimeProviderModelProfileState;
 }
 
 function clampCatalogIndex(index: number, length: number): number {
@@ -467,7 +533,8 @@ function inferBillingModeForCapabilities(
 }
 
 function createModelProfile(
-  capability: RuntimeProviderModelProfileState["capabilities"][number] = "chat"
+  capability: RuntimeProviderModelProfileState["capabilities"][number] = "chat",
+  provider: ManagedRuntimeCatalogProvider | null = null
 ): RuntimeProviderModelProfileState {
   const capabilities = [capability];
   const billingMode = inferBillingModeForCapabilities(capabilities);
@@ -485,35 +552,50 @@ function createModelProfile(
   };
   switch (billingMode) {
     case "token_metered":
-      return {
-        ...base,
-        billingMode,
-        providerPriceMetadata: createDefaultProviderPriceMetadata("token_metered")
-      };
+      return withVideoModelParameters(
+        {
+          ...base,
+          billingMode,
+          providerPriceMetadata: createDefaultProviderPriceMetadata("token_metered")
+        },
+        provider
+      );
     case "time_metered":
-      return {
-        ...base,
-        billingMode,
-        providerPriceMetadata: createDefaultProviderPriceMetadata("time_metered")
-      };
+      return withVideoModelParameters(
+        {
+          ...base,
+          billingMode,
+          providerPriceMetadata: createDefaultProviderPriceMetadata("time_metered")
+        },
+        provider
+      );
     case "text_chars_metered":
-      return {
-        ...base,
-        billingMode,
-        providerPriceMetadata: createDefaultProviderPriceMetadata("text_chars_metered")
-      };
+      return withVideoModelParameters(
+        {
+          ...base,
+          billingMode,
+          providerPriceMetadata: createDefaultProviderPriceMetadata("text_chars_metered")
+        },
+        provider
+      );
     case "fixed_operation":
-      return {
-        ...base,
-        billingMode,
-        providerPriceMetadata: createDefaultProviderPriceMetadata("fixed_operation")
-      };
+      return withVideoModelParameters(
+        {
+          ...base,
+          billingMode,
+          providerPriceMetadata: createDefaultProviderPriceMetadata("fixed_operation")
+        },
+        provider
+      );
     case "tiered_operation":
-      return {
-        ...base,
-        billingMode,
-        providerPriceMetadata: createDefaultProviderPriceMetadata("tiered_operation")
-      };
+      return withVideoModelParameters(
+        {
+          ...base,
+          billingMode,
+          providerPriceMetadata: createDefaultProviderPriceMetadata("tiered_operation")
+        },
+        provider
+      );
   }
 }
 
@@ -531,7 +613,9 @@ function rebuildProfileForBillingMode(
     cachedInputTokenWeight: profile.cachedInputTokenWeight,
     outputTokenWeight: profile.outputTokenWeight,
     displayLabel: profile.displayLabel,
-    notes: profile.notes
+    notes: profile.notes,
+    videoModelParameters:
+      (profile as RuntimeProviderModelProfileWithVideo).videoModelParameters ?? null
   };
   switch (billingMode) {
     case "token_metered":
@@ -587,16 +671,24 @@ function withDerivedCatalogWeights(
 ): RuntimeProviderModelCatalogByProviderState {
   return {
     openai: {
-      models: catalog.openai.models.map((profile) => applyDerivedTokenMeteredWeights(profile))
+      models: catalog.openai.models.map((profile) =>
+        applyDerivedTokenMeteredWeights(withVideoModelParameters(profile, "openai"))
+      )
     },
     anthropic: {
-      models: catalog.anthropic.models.map((profile) => applyDerivedTokenMeteredWeights(profile))
+      models: catalog.anthropic.models.map((profile) =>
+        applyDerivedTokenMeteredWeights(withVideoModelParameters(profile, "anthropic"))
+      )
     },
     runway: {
-      models: catalog.runway.models.map((profile) => applyDerivedTokenMeteredWeights(profile))
+      models: catalog.runway.models.map((profile) =>
+        applyDerivedTokenMeteredWeights(withVideoModelParameters(profile, "runway"))
+      )
     },
     kling: {
-      models: catalog.kling.models.map((profile) => applyDerivedTokenMeteredWeights(profile))
+      models: catalog.kling.models.map((profile) =>
+        applyDerivedTokenMeteredWeights(withVideoModelParameters(profile, "kling"))
+      )
     }
   };
 }
@@ -681,6 +773,18 @@ function parseDateInputValue(value: string): string | null {
     return null;
   }
   return new Date(`${value}T00:00:00.000Z`).toISOString();
+}
+
+function formatJsonField(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function parseJsonField<T>(value: string, label: string): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    throw new Error(`${label} must be valid JSON.`);
+  }
 }
 
 export default function AdminRuntimePage() {
@@ -978,7 +1082,10 @@ export default function AdminRuntimePage() {
           [provider]: {
             models: [
               ...current[provider].models,
-              createModelProfile(isVideoOnlyCatalogProvider(provider) ? "video" : capability)
+              createModelProfile(
+                isVideoOnlyCatalogProvider(provider) ? "video" : capability,
+                provider
+              )
             ]
           }
         };
@@ -1812,6 +1919,22 @@ function ModelProfileEditor({
 
       <PriceMetadataEditor profile={profile} onChange={onProviderPriceMetadataChange} />
 
+      {profile.capabilities.includes("video") && (
+        <VideoModelParametersEditor
+          provider={provider}
+          value={
+            (profile as RuntimeProviderModelProfileWithVideo).videoModelParameters ??
+            createDefaultVideoModelParameters(provider)
+          }
+          onChange={(videoModelParameters) =>
+            onChange({
+              ...profile,
+              videoModelParameters
+            } as unknown as RuntimeProviderModelProfileState)
+          }
+        />
+      )}
+
       <div>
         <label className="mb-1 block text-[10px] font-medium text-text-muted">Notes</label>
         <textarea
@@ -1827,6 +1950,144 @@ function ModelProfileEditor({
           placeholder="Optional operator note"
         />
       </div>
+    </div>
+  );
+}
+
+function VideoModelParametersEditor({
+  provider,
+  value,
+  onChange
+}: {
+  provider: ManagedRuntimeCatalogProvider;
+  value: RuntimeVideoModelParametersState;
+  onChange: (value: RuntimeVideoModelParametersState) => void;
+}) {
+  const durationValues =
+    value.duration.kind === "allowed_list"
+      ? value.duration.values.join(", ")
+      : [
+          value.duration.min,
+          value.duration.max,
+          value.duration.step ?? "",
+          value.duration.preferredValues?.join(", ") ?? ""
+        ].join(", ");
+  return (
+    <div className="space-y-2 rounded border border-border/50 bg-surface-raised/70 p-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+          Video model parameters
+        </h4>
+        <button
+          type="button"
+          onClick={() => onChange(createDefaultVideoModelParameters(provider))}
+          className="rounded border border-border/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-text-muted hover:border-border-strong hover:text-text"
+        >
+          Reset provider defaults
+        </button>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <SelectField
+          label="Duration mode"
+          value={value.duration.kind}
+          onChange={(kind) =>
+            onChange({
+              ...value,
+              duration:
+                kind === "range"
+                  ? { kind: "range", min: 3, max: 15, step: 1, preferredValues: [5, 10] }
+                  : { kind: "allowed_list", values: [5, 8, 10] }
+            })
+          }
+          options={[
+            { value: "allowed_list", label: "Allowed list" },
+            { value: "range", label: "Range" }
+          ]}
+        />
+        <Field
+          label={
+            value.duration.kind === "allowed_list"
+              ? "Allowed seconds, comma-separated"
+              : "Range min, max, step, preferred"
+          }
+          value={durationValues}
+          onChange={(raw) => {
+            const parts = raw
+              .split(",")
+              .map((entry) => entry.trim())
+              .filter(Boolean);
+            if (value.duration.kind === "allowed_list") {
+              const values = parts
+                .map((entry) => Number.parseInt(entry, 10))
+                .filter(Number.isFinite);
+              onChange({ ...value, duration: { kind: "allowed_list", values } });
+              return;
+            }
+            const [minRaw, maxRaw, stepRaw, preferredRaw] = parts;
+            const min = Number.parseInt(minRaw ?? "3", 10);
+            const max = Number.parseInt(maxRaw ?? "15", 10);
+            const step = stepRaw ? Number.parseInt(stepRaw, 10) : null;
+            const preferredValues =
+              preferredRaw === undefined
+                ? null
+                : preferredRaw
+                    .split(/\s+/)
+                    .map((entry) => Number.parseInt(entry, 10))
+                    .filter(Number.isFinite);
+            onChange({
+              ...value,
+              duration: {
+                kind: "range",
+                min: Number.isFinite(min) ? min : 3,
+                max: Number.isFinite(max) ? max : 15,
+                step: Number.isFinite(step) ? step : null,
+                preferredValues
+              }
+            });
+          }}
+          placeholder={value.duration.kind === "allowed_list" ? "5, 8, 10" : "3, 15, 1, 5 10"}
+        />
+      </div>
+      <label className="flex items-center gap-2 text-[10px] text-text-muted">
+        <input
+          type="checkbox"
+          checked={value.referenceImageSupported}
+          onChange={(event) =>
+            onChange({ ...value, referenceImageSupported: event.target.checked })
+          }
+          className="h-3.5 w-3.5 rounded border-border accent-accent"
+        />
+        Reference image supported
+      </label>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <JsonTextareaField
+          label="Aspect ratios JSON"
+          value={value.aspectRatios}
+          onCommit={(next) =>
+            onChange({
+              ...value,
+              aspectRatios: next
+            })
+          }
+          placeholder='[{"aspectRatio":"16:9","size":"1280x720","providerValue":"16:9"}]'
+        />
+        <JsonTextareaField
+          label="Provider parameters JSON"
+          value={value.providerParameters}
+          onCommit={(next) =>
+            onChange({
+              ...value,
+              providerParameters: next
+            })
+          }
+          placeholder='{"mode":"pro","sound":"off"}'
+        />
+      </div>
+      <p className="text-[10px] text-text-subtle">
+        These fields are persisted into the materialized runtime catalog and are required before
+        `video_generate` can normalize duration, size, reference images, and provider-native
+        options.
+      </p>
     </div>
   );
 }
@@ -2306,6 +2567,57 @@ function TextareaField({
         spellCheck={false}
         className="w-full resize-y rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
       />
+    </div>
+  );
+}
+
+function JsonTextareaField<T>({
+  label,
+  value,
+  onCommit,
+  placeholder
+}: {
+  label: string;
+  value: T;
+  onCommit: (value: T) => void;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState(formatJsonField(value));
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setDraft(formatJsonField(value));
+    setError(null);
+  }, [value]);
+
+  return (
+    <div>
+      <label className="mb-1 block text-[10px] font-medium text-text-muted">{label}</label>
+      <textarea
+        value={draft}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setError(null);
+        }}
+        onBlur={() => {
+          try {
+            const parsed = parseJsonField<T>(draft, label);
+            onCommit(parsed);
+            setDraft(formatJsonField(parsed));
+            setError(null);
+          } catch (parseError) {
+            setError(parseError instanceof Error ? parseError.message : `${label} is invalid.`);
+          }
+        }}
+        aria-label={label}
+        placeholder={placeholder}
+        rows={5}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        className="w-full resize-y rounded border border-border bg-surface-raised px-2.5 py-1.5 font-mono text-[12px] text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+      />
+      {error && <p className="mt-1 text-[10px] text-rose-600 dark:text-rose-300">{error}</p>}
     </div>
   );
 }

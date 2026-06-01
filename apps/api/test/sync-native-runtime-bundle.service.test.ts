@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import type { AssistantMaterializedSpec } from "../src/modules/workspace-management/domain/assistant-materialized-spec.entity";
 import { AssistantRuntimeError } from "../src/modules/workspace-management/application/assistant-runtime.facade";
 import { SyncNativeRuntimeBundleService } from "../src/modules/workspace-management/application/sync-native-runtime-bundle.service";
 
 function createMaterializedSpec(): AssistantMaterializedSpec {
+  const runtimeBundleDocument = '{"metadata":{"workspaceId":"workspace-1"}}';
   return {
     id: "spec-1",
     assistantId: "assistant-1",
@@ -20,8 +22,8 @@ function createMaterializedSpec(): AssistantMaterializedSpec {
     assistantConfig: {},
     assistantWorkspace: {},
     layersDocument: "{}",
-    runtimeBundleDocument: '{"metadata":{"workspaceId":"workspace-1"}}',
-    runtimeBundleHash: "bundle-hash-1",
+    runtimeBundleDocument,
+    runtimeBundleHash: "stale-bundle-hash-1",
     assistantConfigDocument: "{}",
     assistantWorkspaceDocument: "{}",
     contentHash: "content-hash-1",
@@ -69,6 +71,9 @@ async function run(): Promise<void> {
       materializedSpec: createMaterializedSpec(),
       runtimeTier: "paid_shared_restricted"
     });
+    const expectedBundleHash = createHash("sha256")
+      .update('{"metadata":{"workspaceId":"workspace-1"}}')
+      .digest("hex");
     assert.equal(warmed, "warmed");
     assert.equal(calls.length, 2);
     assert.equal(calls[0]?.url, "http://runtime.internal:3012/api/v1/bundles/invalidate");
@@ -82,7 +87,7 @@ async function run(): Promise<void> {
         assistantId: "assistant-1",
         workspaceId: "workspace-1",
         publishedVersionId: "version-1",
-        bundleHash: "bundle-hash-1",
+        bundleHash: expectedBundleHash,
         compiledAt: (calls[1]?.body as { bundle: { compiledAt: string } }).bundle.compiledAt
       },
       bundleDocument: '{"metadata":{"workspaceId":"workspace-1"}}',

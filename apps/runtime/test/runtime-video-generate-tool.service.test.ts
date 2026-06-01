@@ -548,6 +548,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       size: "1280x720",
       seconds: 4,
       referenceImage: null,
+      providerParameters: null,
       credential: {
         toolCode: "video_generate",
         secretId: "tool/image_generate/api-key",
@@ -565,6 +566,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       size: "1280x720",
       seconds: 4,
       referenceImage: null,
+      providerParameters: null,
       credential: {
         toolCode: "video_generate",
         secretId: "tool/image_generate/api-key",

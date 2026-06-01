@@ -24,6 +24,7 @@ import {
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
+import { resolveMaterializedNativeRuntimeBundle } from "./native-runtime-bundle-hash";
 import type { RuntimeTier } from "./runtime-assignment";
 
 export interface WebRuntimeTurnClientInput {
@@ -88,13 +89,10 @@ export class WebRuntimeTurnClientService {
       );
     }
 
-    const bundleHash = materializedSpec.runtimeBundleHash?.trim() ?? "";
-    if (!bundleHash) {
-      throw new AssistantRuntimeError(
-        "runtime_degraded",
-        "Web runtime bundle hash is missing for the current published version."
-      );
-    }
+    const { bundleHash } = resolveMaterializedNativeRuntimeBundle({
+      materializedSpec,
+      context: "Web runtime"
+    });
 
     const request: RuntimeTurnRequest = {
       requestId: randomUUID(),
@@ -225,13 +223,10 @@ export class WebRuntimeTurnClientService {
         "Web runtime materialized spec assistant identity does not match the prepared turn."
       );
     }
-    const bundleHash = materializedSpec.runtimeBundleHash?.trim() ?? "";
-    if (!bundleHash) {
-      throw new AssistantRuntimeError(
-        "runtime_degraded",
-        "Web runtime bundle hash is missing for the current published version."
-      );
-    }
+    const { bundleHash } = resolveMaterializedNativeRuntimeBundle({
+      materializedSpec,
+      context: "Web runtime"
+    });
     return {
       requestId: randomUUID(),
       idempotencyKey: input.userMessageId,

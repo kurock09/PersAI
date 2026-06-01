@@ -347,6 +347,13 @@ export class RuntimeVideoGenerateToolService {
     const warnings: string[] = [];
     for (const [attemptIndex, attempt] of credentialAttempts.entries()) {
       try {
+        const attemptNormalizedRequest = this.normalizeExecutionRequest(
+          request,
+          attempt.credential.videoModelParameters
+        );
+        if (attemptNormalizedRequest instanceof Error) {
+          throw attemptNormalizedRequest;
+        }
         // ADR-105 §5 (single-owner reservation) — the worker NEVER touches the
         // monthly media quota. The enqueue admission seam
         // (`EnqueueRuntimeDeferredMediaJobService`) reserves the unit exactly
@@ -358,8 +365,8 @@ export class RuntimeVideoGenerateToolService {
           {
             prompt: request.prompt,
             model: attempt.model,
-            size: normalizedRequest.request.size,
-            seconds: normalizedRequest.request.seconds,
+            size: attemptNormalizedRequest.request.size,
+            seconds: attemptNormalizedRequest.request.seconds,
             referenceImage: selection.referenceImage,
             providerParameters: attempt.credential.videoModelParameters?.providerParameters ?? null,
             credential: {
@@ -374,7 +381,7 @@ export class RuntimeVideoGenerateToolService {
         );
         this.logger.log(
           `[video-generate] requestId=${params.requestId} provider=${providerResult.provider} seconds=${String(
-            normalizedRequest.request.seconds
+            attemptNormalizedRequest.request.seconds
           )} referenceAlias="${selection.referenceImageAlias ?? "none"}"`
         );
 
@@ -397,8 +404,8 @@ export class RuntimeVideoGenerateToolService {
             provider: providerResult.provider,
             model: providerResult.model,
             prompt: request.prompt,
-            requestedSeconds: normalizedRequest.request.seconds,
-            size: providerResult.size ?? normalizedRequest.request.size,
+            requestedSeconds: attemptNormalizedRequest.request.seconds,
+            size: providerResult.size ?? attemptNormalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
             artifact,
@@ -406,7 +413,7 @@ export class RuntimeVideoGenerateToolService {
             action: "generated",
             reason: null,
             warning: this.mergeWarnings(
-              normalizedRequest.warning,
+              attemptNormalizedRequest.warning,
               ...warnings,
               providerResult.warning,
               attemptIndex > 0 ? `Used fallback provider "${providerResult.provider}".` : null
