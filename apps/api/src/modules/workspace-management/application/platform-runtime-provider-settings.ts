@@ -845,6 +845,33 @@ function normalizeModelProfiles(
   return result.map((profile) => applyDerivedTokenMeteredWeights(profile));
 }
 
+function assertNoDuplicateActiveVideoModelsAcrossProviders(
+  catalogs: RuntimeProviderModelCatalogByProvider,
+  path: string
+): void {
+  const providersByModel = new Map<string, Set<ManagedRuntimeCatalogProvider>>();
+  for (const provider of ["openai", "runway", "kling"] as const) {
+    for (const profile of catalogs[provider].models) {
+      if (!profile.active || !profile.capabilities.includes("video")) {
+        continue;
+      }
+      const providers =
+        providersByModel.get(profile.model) ?? new Set<ManagedRuntimeCatalogProvider>();
+      providers.add(provider);
+      providersByModel.set(profile.model, providers);
+    }
+  }
+  for (const [model, providers] of providersByModel.entries()) {
+    if (providers.size > 1) {
+      throw new Error(
+        `${path} contains duplicate active video model id "${model}" across providers (${Array.from(
+          providers
+        ).join(", ")}). Bare plan video selections must stay unambiguous.`
+      );
+    }
+  }
+}
+
 function defaultBillingModeForCapabilities(
   capabilities: RuntimeProviderModelCapability[]
 ): RuntimeProviderBillingMode {
@@ -1172,6 +1199,10 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     row.availableModelCatalogByProvider,
     availableModelsFallback
   );
+  assertNoDuplicateActiveVideoModelsAcrossProviders(
+    availableModelCatalogByProvider,
+    "availableModelCatalogByProvider"
+  );
   const availableModelsByProvider = deriveAvailableModelsFromProfileCatalog(
     availableModelCatalogByProvider
   );
@@ -1271,6 +1302,10 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
   const availableModelCatalogByProvider = normalizeAvailableModelCatalogByProvider(
     params.settings.availableModelCatalogByProvider,
     availableModelsFallback
+  );
+  assertNoDuplicateActiveVideoModelsAcrossProviders(
+    availableModelCatalogByProvider,
+    "availableModelCatalogByProvider"
   );
   const availableModelsByProvider = deriveAvailableModelsFromProfileCatalog(
     availableModelCatalogByProvider

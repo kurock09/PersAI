@@ -1170,14 +1170,77 @@ export class ManageAdminPlansService {
   ): Promise<void> {
     const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
     const catalogs = settings.availableModelCatalogByProvider;
+    const getCapabilityModels = (
+      providerCatalog:
+        | { models: Array<{ model: string; active: boolean; capabilities: string[] }> }
+        | undefined,
+      capability: "image" | "video"
+    ): string[] =>
+      providerCatalog === undefined
+        ? []
+        : getRuntimeProviderCatalogModelsByCapability(
+            providerCatalog as Parameters<typeof getRuntimeProviderCatalogModelsByCapability>[0],
+            capability
+          );
+    const capabilityCatalogs: Record<
+      "image" | "video",
+      Array<{
+        provider: string;
+        models: string[];
+      }>
+    > = {
+      image: [
+        {
+          provider: "openai",
+          models: getCapabilityModels(catalogs.openai, "image")
+        },
+        {
+          provider: "anthropic",
+          models: getCapabilityModels(catalogs.anthropic, "image")
+        }
+      ],
+      video: [
+        {
+          provider: "openai",
+          models: getCapabilityModels(catalogs.openai, "video")
+        },
+        {
+          provider: "runway",
+          models: getCapabilityModels(catalogs.runway, "video")
+        },
+        {
+          provider: "kling",
+          models: getCapabilityModels(catalogs.kling, "video")
+        }
+      ]
+    };
+    const providersByVideoModel = new Map<string, Set<string>>();
+    for (const catalog of capabilityCatalogs.video) {
+      for (const model of catalog.models) {
+        const providers = providersByVideoModel.get(model) ?? new Set<string>();
+        providers.add(catalog.provider);
+        providersByVideoModel.set(model, providers);
+      }
+    }
     for (const entry of entries) {
       if (entry.modelKey === null) {
         continue;
       }
-      const catalog = [
-        ...getRuntimeProviderCatalogModelsByCapability(catalogs.openai, entry.capability),
-        ...getRuntimeProviderCatalogModelsByCapability(catalogs.anthropic, entry.capability)
-      ];
+      if (entry.capability === "video") {
+        const duplicateProviders = providersByVideoModel.get(entry.modelKey);
+        if (duplicateProviders !== undefined && duplicateProviders.size > 1) {
+          throw new BadRequestException(
+            `"${entry.modelKey}" is ambiguous across active Runtime Admin video models (${Array.from(
+              duplicateProviders
+            ).join(
+              ", "
+            )}). Remove duplicate active video model ids in Admin > Runtime before saving plans.`
+          );
+        }
+      }
+      const catalog = capabilityCatalogs[entry.capability].flatMap(
+        (providerCatalog) => providerCatalog.models
+      );
       if (!catalog.includes(entry.modelKey)) {
         throw new BadRequestException(
           `"${entry.modelKey}" must be selected from Runtime Admin ${entry.capability} models.`

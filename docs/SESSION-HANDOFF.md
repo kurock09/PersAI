@@ -2,6 +2,44 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-106 Slice 4 plan video model validation
+
+### What changed & why
+
+Baseline SHA at session start: `4ab075f5a1d5367f912def7273d3f51f49e19033`.
+
+Implemented ADR-106 Slice 4 only through a synchronous subagent, with orchestrator diff-review and verification. Plan `videoGenerateModelKey` and `videoGenerateFallbackModelKey` now validate against active video catalog rows from OpenAI, Runway, and Kling. Image model validation remains on the existing image-capable path.
+
+The orchestrator chose the conservative ADR-106 path for duplicate model ids: plans still store bare model keys, so duplicate active video model ids across OpenAI/Runway/Kling are rejected in runtime-settings normalization and plan-save validation. `Admin > Plans` shows provider-labeled video options and disables duplicate active video ids with an explicit warning; saved values remain bare model keys and no contract shape changed.
+
+No Slice 5+ work was done: no `video_generate` credential materialization decoupling, no runtime/provider-gateway execution widening, no provider clients, and no billing/ledger changes. `image_generate -> OpenAI` and `image_edit -> OpenAI` behavior remain unchanged.
+
+### Files touched
+
+`apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`; `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`; focused API tests; `apps/web/app/admin/plans/page.tsx`; `apps/web/app/admin/plans/page.test.tsx`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`; `docs/API-BOUNDARY.md`; `docs/DATA-MODEL.md`; `docs/ADR/106-video-provider-catalog-and-execution-routing.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts`
+- PASS: `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx --config vitest.config.ts`
+- PASS: `corepack pnpm run format:check`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Slice 5 must continue assuming active video model ids are unique across video providers unless the contract is intentionally changed later.
+- Plans can now select Runway/Kling video model keys, but published assistant bundles still materialize `video_generate` from the existing image credential ref until Slice 5.
+
+### Deploy
+
+- API/WEB.
+
+### Next recommended step
+
+- ADR-106 Slice 5 only: materialize independent `video_generate` credential refs from the selected video catalog provider and the new Admin Tools video provider credential ids. Keep image generate/edit materialization unchanged.
+
 ## 2026-06-01 (cont.) — ADR-106 Slice 3 Admin Runtime catalog UI
 
 ### What changed & why

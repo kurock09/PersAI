@@ -934,6 +934,95 @@ async function run(): Promise<void> {
       error.message.includes("trial fallback plan must reference an active plan")
   );
 
+  const videoCatalogService = createService({
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          availableModelsByProvider: {
+            openai: ["gpt-5.4"],
+            anthropic: []
+          },
+          availableModelCatalogByProvider: {
+            openai: {
+              models: [
+                { model: "gpt-image-2", capabilities: ["image"], active: true },
+                { model: "gpt-image-1.5", capabilities: ["image"], active: true },
+                { model: "sora-2-pro", capabilities: ["video"], active: true }
+              ]
+            },
+            anthropic: { models: [] },
+            runway: {
+              models: [{ model: "runway-gen-4", capabilities: ["video"], active: true }]
+            },
+            kling: {
+              models: [{ model: "kling-v1", capabilities: ["video"], active: true }]
+            }
+          }
+        };
+      }
+    }
+  });
+  await (
+    videoCatalogService as unknown as {
+      assertCapabilityModelKeysAvailable(
+        entries: Array<{ modelKey: string | null; capability: "image" | "video" }>
+      ): Promise<void>;
+    }
+  ).assertCapabilityModelKeysAvailable([
+    { modelKey: "runway-gen-4", capability: "video" },
+    { modelKey: "kling-v1", capability: "video" },
+    { modelKey: "sora-2-pro", capability: "video" }
+  ]);
+  await assert.rejects(
+    () =>
+      (
+        videoCatalogService as unknown as {
+          assertCapabilityModelKeysAvailable(
+            entries: Array<{ modelKey: string | null; capability: "image" | "video" }>
+          ): Promise<void>;
+        }
+      ).assertCapabilityModelKeysAvailable([{ modelKey: "runway-gen-4", capability: "image" }]),
+    (error) =>
+      error instanceof BadRequestException &&
+      error.message.includes('"runway-gen-4" must be selected from Runtime Admin image models')
+  );
+
+  const duplicateVideoCatalogService = createService({
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          availableModelsByProvider: {
+            openai: ["gpt-5.4"],
+            anthropic: []
+          },
+          availableModelCatalogByProvider: {
+            openai: {
+              models: [{ model: "shared-video", capabilities: ["video"], active: true }]
+            },
+            anthropic: { models: [] },
+            runway: {
+              models: [{ model: "shared-video", capabilities: ["video"], active: true }]
+            },
+            kling: { models: [] }
+          }
+        };
+      }
+    }
+  });
+  await assert.rejects(
+    () =>
+      (
+        duplicateVideoCatalogService as unknown as {
+          assertCapabilityModelKeysAvailable(
+            entries: Array<{ modelKey: string | null; capability: "image" | "video" }>
+          ): Promise<void>;
+        }
+      ).assertCapabilityModelKeysAvailable([{ modelKey: "shared-video", capability: "video" }]),
+    (error) =>
+      error instanceof BadRequestException &&
+      error.message.includes("ambiguous across active Runtime Admin video models")
+  );
+
   assert.throws(
     () =>
       service.parseUpdateInput({

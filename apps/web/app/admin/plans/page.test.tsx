@@ -385,8 +385,20 @@ describe("admin plans page helpers", () => {
           { provider: "openai", model: "gpt-image-2" }
         ]}
         availableVideoModelKeys={[
-          { provider: "openai", model: "sora-2" },
-          { provider: "openai", model: "sora-2-pro" }
+          { provider: "openai", model: "sora-2", label: "sora-2 (openai)" },
+          { provider: "openai", model: "sora-2-pro", label: "sora-2-pro (openai)" },
+          {
+            provider: "runway",
+            model: "shared-video",
+            label: "shared-video (runway) - duplicate active model id",
+            disabled: true
+          },
+          {
+            provider: "kling",
+            model: "shared-video",
+            label: "shared-video (kling) - duplicate active model id",
+            disabled: true
+          }
         ]}
       />
     );
@@ -402,12 +414,20 @@ describe("admin plans page helpers", () => {
     const imageEditPrimarySelect = screen.getByDisplayValue("gpt-image-1");
     fireEvent.change(imageEditPrimarySelect, { target: { value: "gpt-image-1.5" } });
     expect(onImageEditModelKeyChange).toHaveBeenCalledWith("gpt-image-1.5");
-    const select = screen.getByDisplayValue("sora-2-pro");
+    const select = screen.getByDisplayValue("sora-2-pro (openai)");
     fireEvent.change(select, { target: { value: "sora-2" } });
     expect(onVideoGenerateModelKeyChange).toHaveBeenCalledWith("sora-2");
-    const fallbackSelects = screen.getAllByDisplayValue("sora-2");
+    const fallbackSelects = screen.getAllByDisplayValue("sora-2 (openai)");
     fireEvent.change(fallbackSelects.at(-1)!, { target: { value: "" } });
     expect(onVideoGenerateFallbackModelKeyChange).toHaveBeenCalledWith("");
+    expect(screen.getAllByRole("option", { name: "sora-2-pro (openai)" }).length).toBeGreaterThan(
+      0
+    );
+    expect(
+      screen.getAllByRole("option", {
+        name: "shared-video (runway) - duplicate active model id"
+      })[0]
+    ).toBeDisabled();
   });
 });
 

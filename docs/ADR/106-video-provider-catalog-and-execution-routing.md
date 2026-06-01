@@ -298,6 +298,8 @@ Default for this ADR: choose conservative path unless duplicate real provider mo
 
 - Admin can select Runway/Kling video primary/fallback models in plans without breaking image selectors.
 
+**Status (2026-06-01): Completed.** The conservative path was chosen: plan media selections continue to store bare model keys, and duplicate active video model ids across OpenAI/Runway/Kling are rejected so provider resolution remains unambiguous. Plan validation now accepts active OpenAI/Runway/Kling video rows for `videoGenerateModelKey` / fallback while preserving existing image validation. `Admin > Plans` displays provider-labeled video options and disables duplicate active video ids. No materialization, runtime/provider-gateway execution, provider clients, or billing work was included.
+
 ### Slice 5 - Materialization decoupling
 
 **Scope**

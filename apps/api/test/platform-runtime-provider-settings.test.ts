@@ -463,6 +463,47 @@ async function run(): Promise<void> {
 
   assert.throws(
     () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        availableModelCatalogByProvider: {
+          ...parsed.availableModelCatalogByProvider,
+          openai: {
+            models: [
+              ...parsed.availableModelCatalogByProvider.openai.models,
+              {
+                model: "shared-video",
+                capabilities: ["video"],
+                ...timeMeteredDefaults(),
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null
+              }
+            ]
+          },
+          runway: {
+            models: [
+              {
+                model: "shared-video",
+                capabilities: ["video"],
+                ...timeMeteredDefaults(),
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null
+              }
+            ]
+          },
+          kling: { models: [] }
+        }
+      }),
+    /duplicate active video model id "shared-video" across providers/
+  );
+
+  assert.throws(
+    () =>
       assertRequiredProviderKeysAvailable({
         primary: {
           provider: "openai",

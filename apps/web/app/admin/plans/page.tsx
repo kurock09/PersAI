@@ -58,6 +58,13 @@ type PlanQuotaLimitsDraftShape = AdminPlanQuotaLimits & {
   documentMonthlyUnitsLimit?: number | null;
 };
 
+type ModelOption = {
+  provider: string;
+  model: string;
+  label?: string;
+  disabled?: boolean;
+};
+
 export type PlanDraft = {
   displayName: string;
   description: string;
@@ -1705,8 +1712,8 @@ export function ToolActivationsEdit({
   onVideoGenerateModelKeyChange: (value: string) => void;
   videoGenerateFallbackModelKey: string;
   onVideoGenerateFallbackModelKeyChange: (value: string) => void;
-  availableImageModelKeys: { provider: string; model: string }[];
-  availableVideoModelKeys: { provider: string; model: string }[];
+  availableImageModelKeys: ModelOption[];
+  availableVideoModelKeys: ModelOption[];
 }) {
   if (activations.length === 0) {
     return (
@@ -1914,12 +1921,12 @@ function ModelOptionSelect({
 }: {
   value: string;
   onChange: (value: string) => void;
-  options: { provider: string; model: string }[];
+  options: ModelOption[];
   placeholder: string;
   className: string;
 }) {
-  const grouped = options.reduce<Record<string, string[]>>((acc, { provider, model }) => {
-    (acc[provider] ??= []).push(model);
+  const grouped = options.reduce<Record<string, ModelOption[]>>((acc, option) => {
+    (acc[option.provider] ??= []).push(option);
     return acc;
   }, {});
   return (
@@ -1927,9 +1934,13 @@ function ModelOptionSelect({
       <option value="">{placeholder}</option>
       {Object.entries(grouped).map(([provider, models]) => (
         <optgroup key={provider} label={provider}>
-          {models.map((model) => (
-            <option key={`${provider}-${model}`} value={model}>
-              {model}
+          {models.map((option) => (
+            <option
+              key={`${provider}-${option.model}`}
+              value={option.model}
+              disabled={option.disabled}
+            >
+              {option.label ?? option.model}
             </option>
           ))}
         </optgroup>
@@ -2077,9 +2088,9 @@ function PlanForm({
   code: string;
   onCodeChange: (v: string) => void;
   fallbackPlanOptions?: Array<{ code: string; displayName: string; status: "active" | "inactive" }>;
-  availableModelKeys?: { provider: string; model: string }[];
-  availableImageModelKeys?: { provider: string; model: string }[];
-  availableVideoModelKeys?: { provider: string; model: string }[];
+  availableModelKeys?: ModelOption[];
+  availableImageModelKeys?: ModelOption[];
+  availableVideoModelKeys?: ModelOption[];
   runtimePrimaryModelKey?: string | null;
   tokenMeteredWeightsByModel?: Record<string, TokenMeteredWeights>;
 }) {
@@ -3413,6 +3424,12 @@ function PlanForm({
           availableImageModelKeys={availableImageModelKeys}
           availableVideoModelKeys={availableVideoModelKeys}
         />
+        {availableVideoModelKeys.some((option) => option.disabled) ? (
+          <HelpText className="mt-2 text-amber-300">
+            Duplicate active video model ids exist across providers in Admin {">"} Runtime. Those
+            entries stay disabled here because plans still save bare model keys.
+          </HelpText>
+        ) : null}
         <HelpText className="mt-2">
           Only plan-managed tools are editable here. Platform-managed and internal tools stay
           read-only in summaries. Leave `Daily cap` blank for unlimited daily calls (still counted
@@ -3865,15 +3882,9 @@ export default function AdminPlansPage() {
   const [editDraft, setEditDraft] = useState<PlanDraft | null>(null);
   const [editBaseline, setEditBaseline] = useState<string | null>(null);
   const [editValidationErrors, setEditValidationErrors] = useState<DraftValidationErrors>({});
-  const [availableModelKeys, setAvailableModelKeys] = useState<
-    { provider: string; model: string }[]
-  >([]);
-  const [availableImageModelKeys, setAvailableImageModelKeys] = useState<
-    { provider: string; model: string }[]
-  >([]);
-  const [availableVideoModelKeys, setAvailableVideoModelKeys] = useState<
-    { provider: string; model: string }[]
-  >([]);
+  const [availableModelKeys, setAvailableModelKeys] = useState<ModelOption[]>([]);
+  const [availableImageModelKeys, setAvailableImageModelKeys] = useState<ModelOption[]>([]);
+  const [availableVideoModelKeys, setAvailableVideoModelKeys] = useState<ModelOption[]>([]);
   const [runtimePrimaryModelKey, setRuntimePrimaryModelKey] = useState<string | null>(null);
   const [tokenMeteredWeightsByModel, setTokenMeteredWeightsByModel] = useState<
     Record<string, TokenMeteredWeights>
@@ -3900,7 +3911,7 @@ export default function AdminPlansPage() {
         .then(setPackages)
         .catch(() => null);
       if (runtimeData?.availableModelsByProvider) {
-        const keys: { provider: string; model: string }[] = [];
+        const keys: ModelOption[] = [];
         for (const [provider, models] of Object.entries(
           runtimeData.availableModelsByProvider as unknown as Record<string, string[]>
         )) {
@@ -3913,8 +3924,8 @@ export default function AdminPlansPage() {
       setRuntimePrimaryModelKey(runtimeData?.primary?.model ?? null);
       if (runtimeData?.availableModelCatalogByProvider) {
         const weightsByModel: Record<string, TokenMeteredWeights> = {};
-        const imageKeys: { provider: string; model: string }[] = [];
-        const videoKeys: { provider: string; model: string }[] = [];
+        const imageKeys: ModelOption[] = [];
+        const rawVideoKeys: ModelOption[] = [];
         for (const [provider, catalog] of Object.entries(
           runtimeData.availableModelCatalogByProvider as unknown as Record<
             string,
@@ -3958,10 +3969,27 @@ export default function AdminPlansPage() {
               imageKeys.push({ provider, model: profile.model });
             }
             if (profile.active && profile.capabilities.includes("video")) {
-              videoKeys.push({ provider, model: profile.model });
+              rawVideoKeys.push({
+                provider,
+                model: profile.model,
+                label: `${profile.model} (${provider})`
+              });
             }
           }
         }
+        const videoCounts = rawVideoKeys.reduce<Record<string, number>>((acc, option) => {
+          acc[option.model] = (acc[option.model] ?? 0) + 1;
+          return acc;
+        }, {});
+        const videoKeys = rawVideoKeys.map((option) =>
+          (videoCounts[option.model] ?? 0) > 1
+            ? {
+                ...option,
+                disabled: true,
+                label: `${option.model} (${option.provider}) - duplicate active model id`
+              }
+            : option
+        );
         setTokenMeteredWeightsByModel(weightsByModel);
         setAvailableImageModelKeys(imageKeys);
         setAvailableVideoModelKeys(videoKeys);
