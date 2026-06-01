@@ -2,6 +2,31 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-106 Slice 0 baseline and contract map
+
+### What changed & why
+
+Baseline SHA at session start: `dac9efcdf9b6d260064fcdb199f0b15ac8759a41`.
+
+Started ADR-106 execution with Slice 0 only. This slice is read-only/product-code-free except this handoff note: confirmed a clean working tree, recorded the baseline, and mapped the current OpenAI-only video-provider seams before any Runway/Kling implementation. No ADR-106 implementation slice has started.
+
+### Files touched
+
+`docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- `git status --short` — clean before Slice 0.
+
+### Risks / residuals
+
+- Slice 0 is an audit/baseline slice only. Runway/Kling are not catalog-configurable or live-callable yet.
+- Existing OpenAI `image_generate` and `image_edit` paths remain out of scope for ADR-106 changes except focused regression checks around touched seams in later slices.
+
+### Next recommended step
+
+- Start ADR-106 Slice 1 only after explicit user approval: split chat-routing providers from managed catalog providers, add Runway/Kling as video-only managed catalog providers, keep `availableModelsByProvider` chat-only, and add focused API/profile tests proving Runway/Kling cannot enter chat routing or non-video capabilities.
+
 ## 2026-06-01 (cont.) — ADR-105 follow-up: idempotent media-job run replay + ADR-106 accepted as next program
 
 ### What changed & why
