@@ -225,10 +225,6 @@ function isChatRoutingProvider(value: string): value is ChatRoutingRuntimeProvid
   return CHAT_ROUTING_PROVIDERS.includes(value as ChatRoutingRuntimeProvider);
 }
 
-function isManagedCatalogProvider(value: string): value is ManagedRuntimeCatalogProvider {
-  return MANAGED_CATALOG_PROVIDERS.includes(value as ManagedRuntimeCatalogProvider);
-}
-
 function isVideoOnlyCatalogProvider(value: ManagedRuntimeCatalogProvider): boolean {
   return value === "runway" || value === "kling";
 }

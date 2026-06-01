@@ -145,11 +145,6 @@ function providerLabel(provider: ManagedRuntimeProvider | ManagedRuntimeCatalogP
   }
 }
 
-const CHAT_ROUTING_PROVIDERS = [
-  "openai",
-  "anthropic"
-] as const satisfies readonly ManagedRuntimeProvider[];
-
 const MANAGED_CATALOG_PROVIDERS = [
   "openai",
   "anthropic",

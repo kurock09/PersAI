@@ -118,19 +118,19 @@ Subagents must:
 
 ## Execution ledger
 
-| Slice | Title | Purpose | Deploy |
-| ----- | ----- | ------- | ------ |
-| 0 | Baseline and contract map | Confirm clean baseline, exact generated contract workflow, and current hardcoded seams | NO |
-| 1 | Provider catalog types and normalization | Add Runway/Kling to managed catalog/settings as video-only providers | API/WEB if shipped |
-| 2 | Admin Tools credentials | Add provider key storage/editing for Runway/Kling video credentials | API/WEB |
-| 3 | Admin Runtime catalog UI | Render Runway/Kling video-only catalog cards and pricing rows | WEB/API |
-| 4 | Plan validation and model selection | Make video model selection validate/resolve across OpenAI/Runway/Kling | API/WEB |
-| 5 | Materialization decoupling | Build independent `video_generate` credential refs from selected video catalog provider | API |
-| 6 | Runtime contract and native gating | Allow OpenAI/Runway/Kling video refs through runtime/API gates | API/RUNTIME |
-| 7 | Provider gateway clients | Implement Runway/Kling video submit/poll/download adapters | PROVIDER-GATEWAY |
-| 8 | Runtime execution and fallback | Execute provider-aware video refs and optional cross-provider fallback | RUNTIME |
-| 9 | Ledger/pricing and billing facts | Ensure video billing facts carry correct provider/model/catalog pricing truth | API/RUNTIME/PROVIDER-GATEWAY |
-| 10 | End-to-end verification and docs | Run focused and repo gates, update architecture/API/data/test docs | DEPENDS |
+| Slice | Title                                    | Purpose                                                                                 | Deploy                       |
+| ----- | ---------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------- |
+| 0     | Baseline and contract map                | Confirm clean baseline, exact generated contract workflow, and current hardcoded seams  | NO                           |
+| 1     | Provider catalog types and normalization | Add Runway/Kling to managed catalog/settings as video-only providers                    | API/WEB if shipped           |
+| 2     | Admin Tools credentials                  | Add provider key storage/editing for Runway/Kling video credentials                     | API/WEB                      |
+| 3     | Admin Runtime catalog UI                 | Render Runway/Kling video-only catalog cards and pricing rows                           | WEB/API                      |
+| 4     | Plan validation and model selection      | Make video model selection validate/resolve across OpenAI/Runway/Kling                  | API/WEB                      |
+| 5     | Materialization decoupling               | Build independent `video_generate` credential refs from selected video catalog provider | API                          |
+| 6     | Runtime contract and native gating       | Allow OpenAI/Runway/Kling video refs through runtime/API gates                          | API/RUNTIME                  |
+| 7     | Provider gateway clients                 | Implement Runway/Kling video submit/poll/download adapters                              | PROVIDER-GATEWAY             |
+| 8     | Runtime execution and fallback           | Execute provider-aware video refs and optional cross-provider fallback                  | RUNTIME                      |
+| 9     | Ledger/pricing and billing facts         | Ensure video billing facts carry correct provider/model/catalog pricing truth           | API/RUNTIME/PROVIDER-GATEWAY |
+| 10    | End-to-end verification and docs         | Run focused and repo gates, update architecture/API/data/test docs                      | DEPENDS                      |
 
 Minimum useful path for admin-selectable but not live-callable catalog work: `0 -> 1 -> 2 -> 3 -> 4`.
 
@@ -488,6 +488,8 @@ corepack pnpm --filter @persai/provider-gateway run typecheck
 - Feature is clearly marked as either catalog-only or live-callable.
 - Next recommended deploy/smoke step is recorded.
 
+**Status (2026-06-01): Completed.** Final Slice 10 verification ran an independent read-only audit plus repo/focused gates over the full ADR-106 path. The implementation is now code-live-callable for `video_generate` with OpenAI, Runway, and Kling after deployment and real operator credentials: Admin Tools owns separate Runway/Kling video keys, Admin Runtime owns video-only Runway/Kling catalog rows, Admin Plans can select unambiguous OpenAI/Runway/Kling video models, materialization writes provider-specific video refs/fallbacks, runtime executes those refs through provider-gateway, and billing facts/ledger attribution use the executing provider/model. `image_generate` and `image_edit` remain OpenAI-only, and chat routing remains OpenAI/Anthropic-only. No live external provider smoke was run in this local Slice 10 session; the next operator step is deploy affected services and smoke one OpenAI video plus at least one real Runway/Kling video path in `persai-dev`.
+
 ## Cross-slice invariants
 
 1. OpenAI image generation/editing behavior must remain unchanged.
@@ -545,15 +547,16 @@ Rejected. Runway and Kling are enough for the current product/cost need. More pr
 
 ## Acceptance checklist
 
-- [ ] `Admin > Tools` can save OpenAI image key and Runway/Kling video keys independently.
-- [ ] `Admin > Runtime` shows OpenAI/Anthropic chat-capable catalogs and Runway/Kling video-only catalogs.
-- [ ] `Admin > Plans` can select OpenAI/Runway/Kling models for `video_generate`.
-- [ ] `Admin > Plans` cannot select Runway/Kling models for `image_generate` or `image_edit`.
-- [ ] Published runtime bundle materializes `video_generate` with provider-specific secret refs.
-- [ ] Runtime can execute OpenAI video after the refactor.
-- [ ] Runtime can execute Runway video through provider-gateway.
-- [ ] Runtime can execute Kling video through provider-gateway.
-- [ ] Unsupported video provider fails explicitly and observably.
-- [ ] Billing facts and cost rows use the actual provider/model.
-- [ ] Docs explain whether the deployed state is catalog-only or live-callable.
+- [x] `Admin > Tools` can save OpenAI image key and Runway/Kling video keys independently.
+- [x] `Admin > Runtime` shows OpenAI/Anthropic chat-capable catalogs and Runway/Kling video-only catalogs.
+- [x] `Admin > Plans` can select OpenAI/Runway/Kling models for `video_generate`.
+- [x] `Admin > Plans` cannot select Runway/Kling models for `image_generate` or `image_edit`.
+- [x] Published runtime bundle materializes `video_generate` with provider-specific secret refs.
+- [x] Runtime can execute OpenAI video after the refactor.
+- [x] Runtime can execute Runway video through provider-gateway.
+- [x] Runtime can execute Kling video through provider-gateway.
+- [x] Unsupported video provider fails explicitly and observably.
+- [x] Billing facts and cost rows use the actual provider/model.
+- [x] Docs explain whether the deployed state is catalog-only or live-callable.
 
+Operator residual: live smoke with real Runway/Kling credentials is still required after deploy before claiming provider operational readiness in `persai-dev` or PROD.

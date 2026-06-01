@@ -2,6 +2,58 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-106 Slice 10 final verification and docs
+
+### What changed & why
+
+Baseline SHA at session start: `47468fac1957aa373777143ef1bff91ff9a68511`.
+
+Completed ADR-106 Slice 10 final verification and closeout. An independent read-only audit found no blocking ADR-106 invariant failures, but flagged a stale web helper that could drop Runway/Kling catalog rows if reused. Slice 10 cleanup then:
+
+- removed dead lint leftovers in API/web provider catalog code;
+- updated the legacy `runtime-provider-settings-admin` helper/tests so four catalog buckets are preserved while `availableModelsByProvider` remains OpenAI/Anthropic chat-only;
+- made Runway/Kling provider-gateway polling loops lint-clean while preserving their timeout-controlled behavior;
+- closed the ADR checklist and added a focused ADR-106 verification matrix to `docs/TEST-PLAN.md`.
+
+Final code state is live-callable after deployment and real operator credentials: `video_generate` can resolve/execute OpenAI, Runway, or Kling; `image_generate` and `image_edit` remain OpenAI-only; chat routing remains OpenAI/Anthropic-only.
+
+### Files touched
+
+`apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`; `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts`; `apps/provider-gateway/src/modules/providers/kling/kling-provider.client.ts`; `apps/provider-gateway/src/modules/providers/runway/runway-provider.client.ts`; `apps/web/app/admin/runtime/page.tsx`; `apps/web/app/app/runtime-provider-settings-admin.ts`; `apps/web/app/app/runtime-provider-settings-admin.test.ts`; `docs/ADR/106-video-provider-catalog-and-execution-routing.md`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`; `docs/TEST-PLAN.md`.
+
+### Tests run
+
+- PASS: independent read-only ADR-106 audit (no blockers)
+- PASS: `corepack pnpm -r --if-present run lint`
+- PASS: `corepack pnpm run format:check`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm --filter @persai/web run typecheck`
+- PASS: `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS: `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/runtime-provider-profile.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/materialize-assistant-published-version.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/web exec vitest run app/app/runtime-provider-settings-admin.test.ts app/admin/runtime/page.test.tsx app/admin/tools/page.test.tsx app/admin/plans/page.test.tsx --config vitest.config.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-video-generate-tool.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-image-generate-tool.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-image-edit-tool.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway run test`
+
+### Risks / residuals
+
+- Live smoke with real Runway/Kling credentials was not run in this local Slice 10 session.
+- Provider API behavior can still drift; Runway/Kling operational readiness should be confirmed in `persai-dev` after deployment with operator-owned keys and at least one reference-image path.
+
+### Deploy
+
+- API, WEB, RUNTIME, PROVIDER-GATEWAY.
+
+### Next recommended step
+
+- Commit Slice 10, deploy affected services to `persai-dev`, then live-smoke one OpenAI video path and at least one real Runway/Kling `video_generate` path, including provider-aware fallback if credentials/catalog rows are available.
+
 ## 2026-06-01 (cont.) — ADR-106 Slice 9 video cost attribution
 
 ### What changed & why
@@ -625,7 +677,7 @@ Closed the two live media regressions from the `сова -> лев` and carousel
 
 After the interrupted FIX A/B subagent, ran the full AGENTS gate + CI-like full suites across the whole ADR-105 + delivery-honesty + founder-UI working set, then fixed every real failure honestly (no test-bending to hide defects).
 
-- **Behavioral correction — restored the structural full-undelivery notice (`apps/api/.../final-delivery-honesty.ts`).** The prior delivery-honesty rework removed the prose-meaning machinery but also dropped the *legitimately structural* full-undelivery notice. That left `telegram-webhook-proxy.controller` red and silently shipped a false "here is your file" to the user whenever the runtime produced/attempted an artifact that delivery dropped (`attempted>0 && delivered===0`). `applyFinalDeliveryHonestyCorrection` now appends a count-driven, locale-aware, **type-aware** honest notice in exactly that case (EN/RU; "no file…" vs "no image or other media… was actually delivered in this reply"). The file-vs-media kind is resolved **structurally** from the attempted artifacts' `type` via the new exported `resolveUndeliveredArtifactKind` (`document → file`, else `media`) — never from prose. Threaded `attemptedArtifactKind` through `telegram-channel-adapter.service.ts`, `complete-web-post-runtime-turn.ts`, and the two `assistant-media-job-completion-delivery.service.ts` sites (`"media"`); `assistant-document-job-delivery.service.ts` keeps the `"file"` default. Structural-only principle preserved: a bare prose claim with **nothing** attempted (`attempted===0`, e.g. an image claim with `media: []`) is still left untouched — owned upstream by the `delivery_contract` instruction.
+- **Behavioral correction — restored the structural full-undelivery notice (`apps/api/.../final-delivery-honesty.ts`).** The prior delivery-honesty rework removed the prose-meaning machinery but also dropped the _legitimately structural_ full-undelivery notice. That left `telegram-webhook-proxy.controller` red and silently shipped a false "here is your file" to the user whenever the runtime produced/attempted an artifact that delivery dropped (`attempted>0 && delivered===0`). `applyFinalDeliveryHonestyCorrection` now appends a count-driven, locale-aware, **type-aware** honest notice in exactly that case (EN/RU; "no file…" vs "no image or other media… was actually delivered in this reply"). The file-vs-media kind is resolved **structurally** from the attempted artifacts' `type` via the new exported `resolveUndeliveredArtifactKind` (`document → file`, else `media`) — never from prose. Threaded `attemptedArtifactKind` through `telegram-channel-adapter.service.ts`, `complete-web-post-runtime-turn.ts`, and the two `assistant-media-job-completion-delivery.service.ts` sites (`"media"`); `assistant-document-job-delivery.service.ts` keeps the `"file"` default. Structural-only principle preserved: a bare prose claim with **nothing** attempted (`attempted===0`, e.g. an image claim with `media: []`) is still left untouched — owned upstream by the `delivery_contract` instruction.
 - **Test-truth fixes surfaced by the full suite:**
   - `provider-image-generation.service.test.ts`: accumulated `secretIds` expectation was stale (the `editImage(count=3)` success adds a 3rd `image_generate` secret fetch). Also discovered per-file `node --test` runs of the gateway are **false-greens** (those files only export run-functions invoked by `run-suite.ts`); corrected the expectation and re-verified via the suite.
   - `enqueue-runtime-deferred-media-job.service.test.ts`: out-of-range count `9 → 11` for the new `MAX=10`.
@@ -706,10 +758,10 @@ After the interrupted FIX A/B subagent, ran the full AGENTS gate + CI-like full 
 ### What changed this session
 
 - Orchestrator-led (two parallel Sonnet subagents; parent reviewed diffs + ran the integrated gate). No ADR for this stage per founder ("control adr not needed, fill docs at the end").
-- **Root-cause framing:** delivery honesty across all delivery types (media/document/file) was previously "fix the symptom" — trust the model's prose for the *fact* of delivery, then patch false claims with keyword/regex meaning detection. New model: the **UI/system is the single source of the delivery fact**, the model is contractually told never to announce delivery in prose, and downstream correction is **structural-only**.
+- **Root-cause framing:** delivery honesty across all delivery types (media/document/file) was previously "fix the symptom" — trust the model's prose for the _fact_ of delivery, then patch false claims with keyword/regex meaning detection. New model: the **UI/system is the single source of the delivery fact**, the model is contractually told never to announce delivery in prose, and downstream correction is **structural-only**.
 - **Runtime (`turn-execution.service.ts`):** added `DELIVERY_HONESTY_CONTRACT` as a `delivery_contract` developer-instruction section present on every turn (no local/internal file links, no attached/sent/uploaded claims; pending = "being prepared, will arrive separately"); fixed stream/sync asymmetry so the stream follow-up now passes `deferredDocumentJobs: turnState.deferredDocumentJobs`; deleted the prose-meaning path `DELIVERY_CLAIM_PATTERNS` / `claimsAttachmentDelivery()` / `applyUndeliveredAttachmentCorrection()` / `buildUndeliveredAttachmentCorrection()`. Structural deferred-acknowledgement corrections kept.
 - **Runtime (`runtime-image-edit-tool.service.ts` + `native-tool-projection.ts`):** removed the last word-parse heuristic `isLikelyAnalysisOnlyPrompt()` + its `edit_intent_not_explicit` branch; sharpened the `image_edit` description (modify-only, never analysis).
-- **API (`final-delivery-honesty.ts`):** `applyFinalDeliveryHonestyCorrection` is now purely structural — strip technical attachment summaries → strip delivered-attachment links → neutralize undelivered phantom local-file links (href removed, text kept) → fall back to localized "file sent" only when empty *and* delivered. Removed `POSITIVE_*_DELIVERY_CLAIM_PATTERNS`, `detectUndeliveredClaimKind`, `buildUndelivered*Correction`, `containsCyrillic`, `UndeliveredClaimKind`. Signature unchanged → no call-site churn.
+- **API (`final-delivery-honesty.ts`):** `applyFinalDeliveryHonestyCorrection` is now purely structural — strip technical attachment summaries → strip delivered-attachment links → neutralize undelivered phantom local-file links (href removed, text kept) → fall back to localized "file sent" only when empty _and_ delivered. Removed `POSITIVE_*_DELIVERY_CLAIM_PATTERNS`, `detectUndeliveredClaimKind`, `buildUndelivered*Correction`, `containsCyrillic`, `UndeliveredClaimKind`. Signature unchanged → no call-site churn.
 
 ### Tests / verification
 
@@ -844,9 +896,9 @@ After the interrupted FIX A/B subagent, ran the full AGENTS gate + CI-like full 
    6-scene gallery replaced by the 3 blocks; **`workflow-surface.tsx` deleted** (retired
    pseudo-3D, grep-confirmed sole importer).
 3. **i18n + a11y + fallbacks (A6):** `landing.demo.*` + `landing.blocks.*` in `en.json`
-   + `ru.json`; 4 hardcoded aria-labels → i18n; `prefers-reduced-motion` gating for the
-   scroll-cue dot (`globals.css`) and thinking pulse (`useReducedMotion()`); no-JS/
-   pre-hydration static first frame (greeting + composer in SSR HTML) + test.
+   - `ru.json`; 4 hardcoded aria-labels → i18n; `prefers-reduced-motion` gating for the
+     scroll-cue dot (`globals.css`) and thinking pulse (`useReducedMotion()`); no-JS/
+     pre-hydration static first frame (greeting + composer in SSR HTML) + test.
 4. **Verification:** `@persai/web` typecheck / lint / root `format:check` / full web
    vitest all PASS (one unrelated `use-chat` soft-detach polling test flaked under
    full-suite parallel load; passes 81/81 in isolation). **Both-theme browser pass done**

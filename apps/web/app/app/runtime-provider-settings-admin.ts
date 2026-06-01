@@ -1,11 +1,18 @@
 import type {
   AdminRuntimeProviderSettingsRequest,
   AdminRuntimeProviderSettingsState,
+  ManagedRuntimeCatalogProvider,
   ManagedRuntimeProvider,
   RuntimeProviderModelProfileState
 } from "@persai/contracts";
 
 export const MANAGED_RUNTIME_PROVIDERS: ManagedRuntimeProvider[] = ["openai", "anthropic"];
+export const MANAGED_RUNTIME_CATALOG_PROVIDERS: ManagedRuntimeCatalogProvider[] = [
+  "openai",
+  "anthropic",
+  "runway",
+  "kling"
+];
 
 type RuntimeProviderSelectionDraft = {
   provider: ManagedRuntimeProvider;
@@ -13,7 +20,7 @@ type RuntimeProviderSelectionDraft = {
 };
 
 type RuntimeProviderProviderKeyDraft = Record<ManagedRuntimeProvider, string>;
-type RuntimeProviderModelProfilesTextDraft = Record<ManagedRuntimeProvider, string>;
+type RuntimeProviderModelProfilesTextDraft = Record<ManagedRuntimeCatalogProvider, string>;
 type RuntimeProviderProviderKeyState = NonNullable<
   AdminRuntimeProviderSettingsState["providerKeys"]
 >;
@@ -67,7 +74,9 @@ export function createDefaultRuntimeProviderSettingsAdminDraft(): RuntimeProvide
     },
     modelProfilesTextByProvider: {
       openai: "",
-      anthropic: ""
+      anthropic: "",
+      runway: "",
+      kling: ""
     },
     providerKeys: {
       openai: "",
@@ -108,6 +117,9 @@ function inferBillingMode(
   }
   if (capabilities.includes("text_to_speech")) {
     return "text_chars_metered";
+  }
+  if (capabilities.includes("video")) {
+    return "time_metered";
   }
   return "fixed_operation";
 }
@@ -329,6 +341,12 @@ export function resolveRuntimeProviderSettingsAdminFormState(
     ),
     anthropic: formatRuntimeProviderModelProfilesText(
       settings.availableModelCatalogByProvider.anthropic.models
+    ),
+    runway: formatRuntimeProviderModelProfilesText(
+      settings.availableModelCatalogByProvider.runway.models
+    ),
+    kling: formatRuntimeProviderModelProfilesText(
+      settings.availableModelCatalogByProvider.kling.models
     )
   };
 
@@ -397,6 +415,12 @@ export function buildRuntimeProviderSettingsRequest(params: {
   const anthropicProfiles = parseRuntimeProviderModelProfilesText(
     params.draft.modelProfilesTextByProvider.anthropic
   );
+  const runwayProfiles = parseRuntimeProviderModelProfilesText(
+    params.draft.modelProfilesTextByProvider.runway
+  );
+  const klingProfiles = parseRuntimeProviderModelProfilesText(
+    params.draft.modelProfilesTextByProvider.kling
+  );
   const availableModelsByProvider = {
     openai: openaiProfiles
       .filter((profile) => profile.capabilities.includes("chat"))
@@ -413,10 +437,10 @@ export function buildRuntimeProviderSettingsRequest(params: {
       models: anthropicProfiles
     },
     runway: {
-      models: []
+      models: runwayProfiles
     },
     kling: {
-      models: []
+      models: klingProfiles
     }
   };
 

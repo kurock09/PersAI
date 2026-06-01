@@ -92,7 +92,7 @@ export class RunwayProviderClient {
   }
 
   private async pollTask(taskId: string, apiKey: string, signal: AbortSignal): Promise<unknown> {
-    while (true) {
+    while (!signal.aborted) {
       await this.delay(RUNWAY_VIDEO_POLL_INTERVAL_MS, signal);
       const response = await fetch(`${RUNWAY_API_BASE_URL}/tasks/${encodeURIComponent(taskId)}`, {
         method: "GET",
@@ -133,6 +133,7 @@ export class RunwayProviderClient {
           continue;
       }
     }
+    throw new Error("Runway video generation polling stopped before a terminal task response.");
   }
 
   private readOutputUrl(body: unknown): string {

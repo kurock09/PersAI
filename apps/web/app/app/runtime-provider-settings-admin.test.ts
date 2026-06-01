@@ -44,6 +44,22 @@ function fixedOperationDefaults() {
   };
 }
 
+function timeMeteredDefaults() {
+  return {
+    active: true,
+    billingMode: "time_metered" as const,
+    effectiveFrom: null,
+    effectiveTo: null,
+    providerPriceMetadata: {
+      currency: "USD",
+      timePricing: {
+        unit: "minute" as const,
+        pricePerUnit: 0
+      }
+    }
+  };
+}
+
 describe("runtime-provider-settings-admin", () => {
   it("hydrates global settings into the simplified admin form", () => {
     const state = resolveRuntimeProviderSettingsAdminFormState({
@@ -134,10 +150,32 @@ describe("runtime-provider-settings-admin", () => {
           ]
         },
         runway: {
-          models: []
+          models: [
+            {
+              model: "runway-gen-4",
+              capabilities: ["video"],
+              ...timeMeteredDefaults(),
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 1,
+              outputTokenWeight: 1,
+              displayLabel: "Runway Gen 4",
+              notes: null
+            }
+          ]
         },
         kling: {
-          models: []
+          models: [
+            {
+              model: "kling-v2",
+              capabilities: ["video"],
+              ...timeMeteredDefaults(),
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 1,
+              outputTokenWeight: 1,
+              displayLabel: "Kling V2",
+              notes: null
+            }
+          ]
         }
       },
       providerKeys: {
@@ -167,6 +205,12 @@ describe("runtime-provider-settings-admin", () => {
     expect(state.draft.modelProfilesTextByProvider.openai).toContain(
       "gpt-image-1.5 | image | 1 | 1 | 1 |"
     );
+    expect(state.draft.modelProfilesTextByProvider.runway).toContain(
+      "runway-gen-4 | video | 1 | 1 | 1 | Runway Gen 4"
+    );
+    expect(state.draft.modelProfilesTextByProvider.kling).toContain(
+      "kling-v2 | video | 1 | 1 | 1 | Kling V2"
+    );
     expect(state.providerKeyState.openai.lastFour).toBe("1234");
     expect(state.draft.providerKeys.openai).toBe("");
   });
@@ -189,7 +233,9 @@ describe("runtime-provider-settings-admin", () => {
             "gpt-5.4 | chat | 1 | 0.25 | 4\n" +
             "gpt-image-1.5 | image | 1 | 1 | 1\n" +
             "sora-2 | video | 1 | 1 | 1",
-          anthropic: "claude-sonnet-4-5 | chat | 1 | 1 | 1"
+          anthropic: "claude-sonnet-4-5 | chat | 1 | 1 | 1",
+          runway: "runway-gen-4 | video | 1 | 1 | 1 | Runway Gen 4",
+          kling: "kling-v2 | video | 1 | 1 | 1 | Kling V2"
         },
         providerKeys: {
           openai: "",
@@ -220,8 +266,20 @@ describe("runtime-provider-settings-admin", () => {
     });
     expect(request.availableModelsByProvider.openai).toEqual(["gpt-4.1", "gpt-5.4"]);
     expect(request.availableModelsByProvider.anthropic).toEqual(["claude-sonnet-4-5"]);
-    expect(request.availableModelCatalogByProvider.runway.models).toEqual([]);
-    expect(request.availableModelCatalogByProvider.kling.models).toEqual([]);
+    expect(request.availableModelCatalogByProvider.runway.models).toMatchObject([
+      {
+        model: "runway-gen-4",
+        capabilities: ["video"],
+        billingMode: "time_metered"
+      }
+    ]);
+    expect(request.availableModelCatalogByProvider.kling.models).toMatchObject([
+      {
+        model: "kling-v2",
+        capabilities: ["video"],
+        billingMode: "time_metered"
+      }
+    ]);
     expect(
       request.availableModelCatalogByProvider.openai.models
         .filter((profile) => profile.capabilities.includes("image"))
@@ -252,7 +310,9 @@ describe("runtime-provider-settings-admin", () => {
         },
         modelProfilesTextByProvider: {
           openai: "gpt-4.1 | chat | 1 | 1 | 1",
-          anthropic: ""
+          anthropic: "",
+          runway: "",
+          kling: ""
         },
         providerKeys: {
           openai: "",
@@ -277,7 +337,9 @@ describe("runtime-provider-settings-admin", () => {
           },
           modelProfilesTextByProvider: {
             openai: "gpt-5.4 | chat | 1 | 1 | 1",
-            anthropic: ""
+            anthropic: "",
+            runway: "",
+            kling: ""
           },
           providerKeys: {
             openai: "",
@@ -314,7 +376,9 @@ describe("runtime-provider-settings-admin", () => {
         },
         modelProfilesTextByProvider: {
           openai: "",
-          anthropic: ""
+          anthropic: "",
+          runway: "",
+          kling: ""
         },
         providerKeys: {
           openai: "",
@@ -322,5 +386,56 @@ describe("runtime-provider-settings-admin", () => {
         }
       })
     ).toBe("Primary model is required.");
+  });
+
+  it("keeps Runway and Kling catalogs out of chat model aliases", () => {
+    const request = buildRuntimeProviderSettingsRequest({
+      draft: {
+        primary: {
+          provider: "openai",
+          model: "gpt-5.4"
+        },
+        fallbackEnabled: false,
+        fallback: {
+          provider: "anthropic",
+          model: ""
+        },
+        modelProfilesTextByProvider: {
+          openai: "gpt-5.4 | chat | 1 | 1 | 1",
+          anthropic: "",
+          runway: "runway-gen-4 | video | 1 | 1 | 1",
+          kling: "kling-v2 | video | 1 | 1 | 1"
+        },
+        providerKeys: {
+          openai: "",
+          anthropic: ""
+        }
+      },
+      providerKeyState: {
+        openai: {
+          configured: true,
+          lastFour: "1234",
+          updatedAt: "2026-03-25T10:00:00.000Z"
+        },
+        anthropic: {
+          configured: false,
+          lastFour: null,
+          updatedAt: null
+        }
+      }
+    });
+
+    expect(request.availableModelsByProvider).toEqual({
+      openai: ["gpt-5.4"],
+      anthropic: []
+    });
+    expect(request.availableModelCatalogByProvider.runway.models[0]).toMatchObject({
+      model: "runway-gen-4",
+      capabilities: ["video"]
+    });
+    expect(request.availableModelCatalogByProvider.kling.models[0]).toMatchObject({
+      model: "kling-v2",
+      capabilities: ["video"]
+    });
   });
 });

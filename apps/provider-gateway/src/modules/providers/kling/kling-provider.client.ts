@@ -135,7 +135,7 @@ export class KlingProviderClient {
   }
 
   private async pollTask(taskId: string, apiKey: string, signal: AbortSignal): Promise<unknown> {
-    while (true) {
+    while (!signal.aborted) {
       await this.delay(KLING_VIDEO_POLL_INTERVAL_MS, signal);
       const response = await fetch(
         `${KLING_API_BASE_URL}/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`,
@@ -174,6 +174,7 @@ export class KlingProviderClient {
           continue;
       }
     }
+    throw new Error("Kling video generation polling stopped before a terminal task response.");
   }
 
   private readOutputUrl(body: unknown): string {

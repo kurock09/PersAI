@@ -365,6 +365,38 @@ Interpretation rules:
 7. The runtime page itself should have focused UI coverage for billing-mode editor switching and archive/version-safe row handling.
 8. Historical catalog rows may coexist for the same provider/model key, but active selection must stay unambiguous.
 
+## ADR-106 video provider routing final checks
+
+When a change touches the Runway/Kling `video_generate` provider path, run the focused checks below before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/runtime-provider-profile.test.ts
+corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/materialize-assistant-published-version.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/runtime-provider-settings-admin.test.ts app/admin/runtime/page.test.tsx app/admin/tools/page.test.tsx app/admin/plans/page.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-video-generate-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-image-generate-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-image-edit-tool.service.test.ts
+corepack pnpm --filter @persai/provider-gateway run test
+corepack pnpm -r --if-present run lint
+corepack pnpm run format:check
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/provider-gateway run typecheck
+```
+
+Interpretation rules:
+
+1. Runway/Kling are managed catalog and credential providers for `video_generate` only; they must not enter chat routing, `availableModelsByProvider`, `image_generate`, or `image_edit`.
+2. Plan video model keys stay bare strings, so duplicate active video model ids across OpenAI/Runway/Kling must be rejected or disabled before save/materialization.
+3. Materialized `video_generate` refs must carry the resolved provider id, model key, provider-specific secret id, and optional provider-aware fallback ref.
+4. Runtime/provider-gateway video result validation must reject provider mismatches and unsupported providers explicitly.
+5. Billing facts and cost-ledger lookup must use the executing provider/model/catalog row. Media quota settlement remains separate user-quota truth.
+6. Before operational readiness claims, deploy affected services and live-smoke one OpenAI video and at least one real Runway/Kling video path with operator credentials.
+
 ## ADR-099 Session B/C ledger focused checks
 
 When a change touches the unified model cost ledger, ordinary-chat money-event writes, or the catalog-price lookup used for those writes, add these focused checks before broad verification:
