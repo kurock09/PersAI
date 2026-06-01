@@ -425,11 +425,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
         JSON.stringify(
           createProviderVideoResponse(
             providerId === "runway" || providerId === "kling" ? providerId : "openai",
-            providerId === "runway"
-              ? "gen4_turbo"
-              : providerId === "kling"
-                ? "kling-v1-6"
-                : "sora-2"
+            providerId === "runway" ? "gen4_turbo" : providerId === "kling" ? "kling-v3" : "sora-2"
           )
         ),
         {
@@ -674,7 +670,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     });
     const klingVideoGenerate = await service.generateVideo({
       ...createVideoGenerateRequest(),
-      model: "kling-v1-6",
+      model: "kling-v3",
       credential: {
         toolCode: "video_generate",
         secretId: "secret-kling",
@@ -702,7 +698,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.equal(runwayVideoGenerate.provider, "runway");
     assert.equal(runwayVideoGenerate.model, "gen4_turbo");
     assert.equal(klingVideoGenerate.provider, "kling");
-    assert.equal(klingVideoGenerate.model, "kling-v1-6");
+    assert.equal(klingVideoGenerate.model, "kling-v3");
     assert.equal(speechGenerate.model, "gpt-4o-mini-tts");
     assert.equal(speechGenerate.mimeType, "audio/ogg");
     assert.equal(documentGenerate.provider, "pdfmonkey");

@@ -9,6 +9,38 @@ import {
 } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
 import { buildToolCredentialSecretRef } from "../src/modules/workspace-management/application/tool-credential-settings";
 
+const RUNWAY_VIDEO_MODEL_PARAMETERS = {
+  duration: {
+    kind: "allowed_list" as const,
+    values: [5, 8, 10]
+  },
+  aspectRatios: [
+    { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "1280:720" },
+    { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720:1280" }
+  ],
+  referenceImageSupported: true,
+  providerParameters: null
+};
+
+const KLING_VIDEO_MODEL_PARAMETERS = {
+  duration: {
+    kind: "range" as const,
+    min: 3,
+    max: 15,
+    step: null,
+    preferredValues: [4, 8, 12]
+  },
+  aspectRatios: [
+    { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "16:9" },
+    { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "9:16" }
+  ],
+  referenceImageSupported: true,
+  providerParameters: {
+    mode: "pro",
+    sound: "off" as const
+  }
+};
+
 async function run(): Promise<void> {
   const adminManagedProfile = {
     schema: "persai.runtimeProviderProfile.v1",
@@ -69,7 +101,7 @@ async function run(): Promise<void> {
             model: "sora-2-pro",
             capabilities: ["video"],
             active: true,
-            billingMode: "fixed_operation",
+            billingMode: "time_metered",
             effectiveFrom: null,
             effectiveTo: null,
             inputTokenWeight: 1,
@@ -77,11 +109,31 @@ async function run(): Promise<void> {
             outputTokenWeight: 1,
             displayLabel: null,
             notes: null,
+            videoModelParameters: {
+              duration: {
+                kind: "allowed_list" as const,
+                values: [4, 8, 12]
+              },
+              aspectRatios: [
+                {
+                  aspectRatio: "16:9" as const,
+                  size: "1280x720" as const,
+                  providerValue: "1280x720"
+                },
+                {
+                  aspectRatio: "9:16" as const,
+                  size: "720x1280" as const,
+                  providerValue: "720x1280"
+                }
+              ],
+              referenceImageSupported: true,
+              providerParameters: null
+            },
             providerPriceMetadata: {
               currency: "USD",
               tokenPricing: null,
-              timePricing: null,
-              fixedOperationPricing: { unitLabel: null, pricePerOperation: 0 },
+              timePricing: { unit: "second", pricePerUnit: 0 },
+              fixedOperationPricing: null,
               tieredOperationPricing: null
             }
           }
@@ -125,6 +177,7 @@ async function run(): Promise<void> {
             outputTokenWeight: 1,
             displayLabel: null,
             notes: null,
+            videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS,
             providerPriceMetadata: {
               currency: "USD",
               tokenPricing: null,
@@ -138,7 +191,7 @@ async function run(): Promise<void> {
       kling: {
         models: [
           {
-            model: "kling-v2-master",
+            model: "kling-v3",
             capabilities: ["video"],
             active: true,
             billingMode: "time_metered",
@@ -149,6 +202,7 @@ async function run(): Promise<void> {
             outputTokenWeight: 1,
             displayLabel: null,
             notes: null,
+            videoModelParameters: KLING_VIDEO_MODEL_PARAMETERS,
             providerPriceMetadata: {
               currency: "USD",
               tokenPricing: null,
@@ -248,10 +302,10 @@ async function run(): Promise<void> {
   assert.equal(
     resolveAllowedPlanCapabilityModelKey({
       runtimeProviderProfile: adminManagedProfile,
-      planModelKey: "kling-v2-master",
+      planModelKey: "kling-v3",
       capability: "video"
     }),
-    "kling-v2-master"
+    "kling-v3"
   );
 
   assert.deepEqual(
@@ -277,11 +331,11 @@ async function run(): Promise<void> {
   assert.deepEqual(
     resolveVideoGenerateProviderSelection({
       runtimeProviderProfile: adminManagedProfile,
-      modelKey: "kling-v2-master"
+      modelKey: "kling-v3"
     }),
     {
       providerId: "kling",
-      modelKey: "kling-v2-master"
+      modelKey: "kling-v3"
     }
   );
 
@@ -355,13 +409,14 @@ async function run(): Promise<void> {
       tool_video_generate_kling: { configured: true }
     },
     imageCredentialRef: openAiMediaRef,
-    videoGenerateModelKey: "kling-v2-master",
+    videoGenerateModelKey: "kling-v3",
     videoGenerateFallbackModelKey: null
   });
   assert.equal(materializedKlingVideoRef.secretRef.id, "tool/video_generate/kling/api-key");
   assert.equal(materializedKlingVideoRef.providerId, "kling");
-  assert.equal(materializedKlingVideoRef.modelKey, "kling-v2-master");
+  assert.equal(materializedKlingVideoRef.modelKey, "kling-v3");
   assert.equal(materializedKlingVideoRef.configured, true);
+  assert.deepEqual(materializedKlingVideoRef.videoModelParameters, KLING_VIDEO_MODEL_PARAMETERS);
 
   const crossProviderFallbackRef = buildVideoGenerateToolCredentialRef({
     runtimeProviderProfile: adminManagedProfile,
@@ -372,7 +427,7 @@ async function run(): Promise<void> {
     },
     imageCredentialRef: openAiMediaRef,
     videoGenerateModelKey: "sora-2-pro",
-    videoGenerateFallbackModelKey: "kling-v2-master"
+    videoGenerateFallbackModelKey: "kling-v3"
   });
   assert.equal(crossProviderFallbackRef.secretRef.id, "tool/image_generate/api-key");
   assert.equal(crossProviderFallbackRef.providerId, "openai");
@@ -384,6 +439,7 @@ async function run(): Promise<void> {
     })),
     [{ secretId: "tool/video_generate/kling/api-key", providerId: "kling" }]
   );
+  assert.deepEqual(materializedRunwayVideoRef.videoModelParameters, RUNWAY_VIDEO_MODEL_PARAMETERS);
 
   assert.throws(
     () =>

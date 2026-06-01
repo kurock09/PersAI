@@ -1,6 +1,16 @@
 export const RUNTIME_PROVIDER_PROFILE_SCHEMA = "persai.runtimeProviderProfile.v1";
 export const RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA = "persai.runtimeProviderCredentialRefs.v1";
 import { applyDerivedTokenMeteredWeights } from "@persai/types";
+import {
+  PERSAI_RUNTIME_VIDEO_ASPECT_RATIOS,
+  PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
+  type PersaiRuntimeVideoAspectRatio,
+  type PersaiRuntimeVideoGenerateSize,
+  type RuntimeVideoAspectRatioOption,
+  type RuntimeVideoDurationConstraint,
+  type RuntimeVideoModelParameters,
+  type RuntimeVideoProviderParameters
+} from "@persai/runtime-contract";
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 export const CHAT_ROUTING_PROVIDERS = ["openai", "anthropic"] as const;
@@ -133,6 +143,7 @@ type RuntimeProviderModelProfileBase = {
   outputTokenWeight: number;
   displayLabel: string | null;
   notes: string | null;
+  videoModelParameters?: RuntimeVideoModelParameters | null;
 };
 export type RuntimeProviderTokenMeteredModelProfile = RuntimeProviderModelProfileBase & {
   billingMode: "token_metered";
@@ -379,9 +390,138 @@ function normalizeTokenWeight(value: unknown): number {
   return normalizeNonNegativeNumber(value, DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT);
 }
 
+function normalizePositiveInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
 function nullableTrimmedString(value: unknown): string | null {
   const normalized = asNonEmptyString(value);
   return normalized === null ? null : normalized;
+}
+
+function normalizeVideoAspectRatio(value: unknown): PersaiRuntimeVideoAspectRatio | null {
+  return PERSAI_RUNTIME_VIDEO_ASPECT_RATIOS.includes(value as PersaiRuntimeVideoAspectRatio)
+    ? (value as PersaiRuntimeVideoAspectRatio)
+    : null;
+}
+
+function normalizeVideoSize(value: unknown): PersaiRuntimeVideoGenerateSize | null {
+  return PERSAI_RUNTIME_VIDEO_GENERATE_SIZES.includes(value as PersaiRuntimeVideoGenerateSize)
+    ? (value as PersaiRuntimeVideoGenerateSize)
+    : null;
+}
+
+function normalizeVideoDurationConstraint(value: unknown): RuntimeVideoDurationConstraint | null {
+  const row = asObject(value);
+  if (row === null) {
+    return null;
+  }
+  const kind = asNonEmptyString(row.kind);
+  if (kind === "allowed_list") {
+    if (!Array.isArray(row.values)) {
+      return null;
+    }
+    const values = Array.from(
+      new Set(
+        row.values
+          .map((entry) => normalizePositiveInteger(entry))
+          .filter((v): v is number => v !== null)
+      )
+    ).sort((left, right) => left - right);
+    return values.length > 0
+      ? {
+          kind: "allowed_list",
+          values
+        }
+      : null;
+  }
+  if (kind === "range") {
+    const min = normalizePositiveInteger(row.min);
+    const max = normalizePositiveInteger(row.max);
+    if (min === null || max === null || max < min) {
+      return null;
+    }
+    const step =
+      row.step === null || row.step === undefined ? null : normalizePositiveInteger(row.step);
+    const preferredValues = Array.isArray(row.preferredValues)
+      ? Array.from(
+          new Set(
+            row.preferredValues
+              .map((entry) => normalizePositiveInteger(entry))
+              .filter((entry): entry is number => entry !== null && entry >= min && entry <= max)
+          )
+        ).sort((left, right) => left - right)
+      : [];
+    return {
+      kind: "range",
+      min,
+      max,
+      step,
+      preferredValues: preferredValues.length > 0 ? preferredValues : null
+    };
+  }
+  return null;
+}
+
+function normalizeVideoAspectRatioOptions(value: unknown): RuntimeVideoAspectRatioOption[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const options: RuntimeVideoAspectRatioOption[] = [];
+  const dedupe = new Set<string>();
+  for (const entry of value) {
+    const row = asObject(entry);
+    const aspectRatio = normalizeVideoAspectRatio(row?.aspectRatio);
+    const size = normalizeVideoSize(row?.size);
+    if (row === null || aspectRatio === null || size === null) {
+      continue;
+    }
+    const providerValue = nullableTrimmedString(row.providerValue);
+    const dedupeKey = `${aspectRatio}:${size}:${providerValue ?? ""}`;
+    if (dedupe.has(dedupeKey)) {
+      continue;
+    }
+    dedupe.add(dedupeKey);
+    options.push({
+      aspectRatio,
+      size,
+      providerValue
+    });
+  }
+  return options;
+}
+
+function normalizeVideoProviderParameters(value: unknown): RuntimeVideoProviderParameters | null {
+  const row = asObject(value);
+  if (row === null) {
+    return null;
+  }
+  const mode = nullableTrimmedString(row.mode);
+  const sound = row.sound === "on" || row.sound === "off" ? row.sound : null;
+  return mode !== null || sound !== null
+    ? {
+        ...(mode === null ? {} : { mode }),
+        ...(sound === null ? {} : { sound })
+      }
+    : null;
+}
+
+function normalizeVideoModelParameters(value: unknown): RuntimeVideoModelParameters | null {
+  const row = asObject(value);
+  if (row === null) {
+    return null;
+  }
+  const duration = normalizeVideoDurationConstraint(row.duration);
+  const aspectRatios = normalizeVideoAspectRatioOptions(row.aspectRatios);
+  if (duration === null || aspectRatios.length === 0) {
+    return null;
+  }
+  return {
+    duration,
+    aspectRatios,
+    referenceImageSupported: row.referenceImageSupported === true,
+    providerParameters: normalizeVideoProviderParameters(row.providerParameters)
+  };
 }
 
 function normalizeCurrency(value: unknown): string {
@@ -770,8 +910,16 @@ function parseRuntimeProviderModelProfiles(
       cachedInputTokenWeight: normalizeTokenWeight(row.cachedInputTokenWeight),
       outputTokenWeight: normalizeTokenWeight(row.outputTokenWeight),
       displayLabel: nullableTrimmedString(row.displayLabel),
-      notes: nullableTrimmedString(row.notes)
+      notes: nullableTrimmedString(row.notes),
+      videoModelParameters: capabilities.includes("video")
+        ? normalizeVideoModelParameters(row.videoModelParameters)
+        : null
     };
+    if (capabilities.includes("video") && base.videoModelParameters === null) {
+      throw new Error(
+        `${path}[${String(index)}].videoModelParameters is required for video models.`
+      );
+    }
     switch (billingMode) {
       case "token_metered":
         result.push({

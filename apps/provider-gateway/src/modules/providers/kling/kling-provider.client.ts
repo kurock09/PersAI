@@ -9,7 +9,7 @@ import type {
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 
 const KLING_API_BASE_URL = "https://api-singapore.klingai.com";
-const KLING_DEFAULT_VIDEO_MODEL = "kling-v1";
+const KLING_DEFAULT_VIDEO_MODEL = "kling-v3";
 const KLING_VIDEO_TIMEOUT_MS = 600_000;
 const KLING_VIDEO_POLL_INTERVAL_MS = 5_000;
 const KLING_JWT_TTL_SECONDS = 1_800;
@@ -204,8 +204,8 @@ export class KlingProviderClient {
       duration: String(input.seconds),
       aspect_ratio: this.toKlingAspectRatio(input.size),
       negative_prompt: "",
-      mode: "pro",
-      sound: "off"
+      mode: input.providerParameters?.mode ?? "pro",
+      sound: input.providerParameters?.sound ?? "off"
     };
     if (taskKind === "image2video") {
       body.image = input.referenceImage?.bytesBase64 ?? null;

@@ -180,10 +180,10 @@ export class RunwayProviderClient {
     switch (size) {
       case "1280x720":
       case "1792x1024":
-        return "1280:768";
+        return "1280:720";
       case "720x1280":
       case "1024x1792":
-        return "768:1280";
+        return "720:1280";
       case null:
       case undefined:
         return undefined;
@@ -223,7 +223,20 @@ export class RunwayProviderClient {
       this.readString(body, ["error", "message"]) ??
       this.readString(body, ["message"]) ??
       this.readString(body, ["title"]);
-    return message ?? `Runway video generation request failed with status ${String(status)}.`;
+    const code =
+      this.readString(body, ["error", "code"]) ??
+      this.readString(body, ["code"]) ??
+      this.readString(body, ["errorCode"]);
+    if (message !== null && code !== null) {
+      return `Runway video generation request failed with status ${String(status)} (${code}): ${message}`;
+    }
+    if (message !== null) {
+      return `Runway video generation request failed with status ${String(status)}: ${message}`;
+    }
+    if (code !== null) {
+      return `Runway video generation request failed with status ${String(status)} (${code}).`;
+    }
+    return `Runway video generation request failed with status ${String(status)}.`;
   }
 
   private readRunwayTerminalStatusMessage(body: unknown, status: string): string {

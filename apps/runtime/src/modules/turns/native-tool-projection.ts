@@ -16,7 +16,6 @@ import {
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
-  PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
   PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS,
@@ -842,12 +841,12 @@ function createVideoGenerateToolDefinition(
           policy
         )
       ),
-      "If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer."
+      "Always specify both seconds and size/aspect when calling this tool. Runtime will normalize unsupported values from the selected model catalog, but do not omit them unless the user truly gave no preference. If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer."
     ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["prompt"],
+      required: ["prompt", "size", "seconds"],
       properties: {
         prompt: {
           type: "string",
@@ -866,12 +865,14 @@ function createVideoGenerateToolDefinition(
           type: "string",
           enum: [...PERSAI_RUNTIME_VIDEO_GENERATE_SIZES],
           description:
-            "Optional output size hint. Leave it unset when the attached reference image should drive the framing."
+            "Required output size/aspect hint. Choose the closest supported framing for the user's request."
         },
         seconds: {
           type: "integer",
-          enum: [...PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS],
-          description: "Optional output duration in seconds."
+          minimum: 1,
+          maximum: 30,
+          description:
+            "Required output duration in whole seconds. Runtime will normalize this to the nearest valid value for the selected model."
         }
       }
     }

@@ -2,6 +2,56 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — Hotfix: catalog-driven video model parameters + Kling v3
+
+### What changed & why
+
+Baseline SHA at session start: `344d0d1e32fadd2662caf74110b88a11ceb4c04f`.
+
+Applied a production fix for the live video-provider failures found after `344d0d1e`:
+
+- Video model constraints are now catalog-driven through `videoModelParameters` on managed model rows. The metadata covers duration constraints, aspect-ratio/size mappings, reference-image support, and narrow provider parameters such as Kling `mode=pro`.
+- Materialization copies `videoModelParameters` into `video_generate` credential refs, and runtime normalizes omitted/invalid `seconds` plus omitted `size` from the selected model metadata before calling provider-gateway.
+- `apps/provider-gateway` Runway video generation now maps Gen-4.5 landscape/portrait sizes to `1280:720` and `720:1280` instead of the invalid `1280:768` / `768:1280`.
+- Kling current active model is `kling-v3`, not stale `kling-v1` and not the removed KIE proxy id `kling-3.0/video`.
+
+`persai-dev` was corrected during the session: global Kling catalog is now `kling-v3`, Runway and Kling catalog rows include `videoModelParameters`, and `b2b_pro` / `ultima` plan video model keys now point to `kling-v3`.
+
+### Files touched
+
+`packages/runtime-contract/src/index.ts`; `packages/runtime-bundle/src/index.ts`; `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`; `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts`; `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`; `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`; `apps/runtime/src/modules/turns/native-tool-projection.ts`; `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts`; `apps/provider-gateway/src/modules/providers/kling/kling-provider.client.ts`; `apps/provider-gateway/src/modules/providers/runway/runway-provider.client.ts`; focused tests; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx --test test/runway-provider.client.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx --test test/kling-provider.client.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx --test test/provider-video-generation.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/provider-gateway.client.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/materialize-assistant-published-version.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS: `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- PASS: `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Deployed services must be rebuilt and rolled out before runtime/provider-gateway use the new catalog metadata. The `persai-dev` database has already been patched, but old pods will not read/use the new request fields until deploy.
+- Historical docs from earlier ADR-106 session notes still mention the old Runway `1280:768` / `768:1280` mapping; treat this handoff entry and current code as the corrected truth for the hotfix.
+- No prompt-side media heuristics were reintroduced.
+
+### Deploy
+
+- API/RUNTIME/PROVIDER-GATEWAY required so materialization, runtime normalization, and provider adapters agree on `videoModelParameters`.
+- Re-materialize affected assistants after deploy so runtime bundles receive the updated `kling-v3` catalog metadata.
+
+### Next recommended step
+
+- Commit/push/deploy this hotfix, re-materialize affected assistants in `persai-dev`, then live-smoke one Runway Gen-4.5 request and one Kling v3 request.
+
 ## 2026-06-01 (cont.) — ADR-107 provider-native video audio accepted
 
 ### What changed & why

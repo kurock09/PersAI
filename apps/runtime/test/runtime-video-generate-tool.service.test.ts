@@ -7,6 +7,7 @@ import type {
   RuntimeAttachmentRef,
   RuntimeBrowserConfig,
   RuntimeKnowledgeAccessConfig,
+  RuntimeVideoModelParameters,
   RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
 import { projectRuntimeNativeTools } from "../src/modules/turns/native-tool-projection";
@@ -58,10 +59,12 @@ function createBundle(options?: {
   providerId?: "openai" | "runway" | "kling";
   secretId?: string;
   modelKey?: string;
+  videoModelParameters?: RuntimeVideoModelParameters | null;
   fallbacks?: Array<{
     providerId: "openai" | "runway" | "kling";
     secretId: string;
     modelKey?: string;
+    videoModelParameters?: RuntimeVideoModelParameters | null;
   }>;
 }) {
   return compileAssistantRuntimeBundle({
@@ -166,6 +169,9 @@ function createBundle(options?: {
           configured: options?.configured ?? true,
           providerId: options?.providerId ?? "openai",
           ...(options?.modelKey ? { modelKey: options.modelKey } : {}),
+          ...(options?.videoModelParameters
+            ? { videoModelParameters: options.videoModelParameters }
+            : {}),
           ...(options?.fallbacks
             ? {
                 fallbacks: options.fallbacks.map((fallback) => ({
@@ -177,7 +183,10 @@ function createBundle(options?: {
                   },
                   configured: true,
                   providerId: fallback.providerId,
-                  ...(fallback.modelKey ? { modelKey: fallback.modelKey } : {})
+                  ...(fallback.modelKey ? { modelKey: fallback.modelKey } : {}),
+                  ...(fallback.videoModelParameters
+                    ? { videoModelParameters: fallback.videoModelParameters }
+                    : {})
                 }))
               }
             : {})
@@ -236,6 +245,51 @@ function createBundle(options?: {
   }).bundle;
 }
 
+const OPENAI_VIDEO_MODEL_PARAMETERS = {
+  duration: {
+    kind: "allowed_list" as const,
+    values: [4, 8, 12]
+  },
+  aspectRatios: [
+    { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "1280x720" },
+    { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720x1280" }
+  ],
+  referenceImageSupported: true,
+  providerParameters: null
+};
+
+const RUNWAY_VIDEO_MODEL_PARAMETERS = {
+  duration: {
+    kind: "allowed_list" as const,
+    values: [5, 8, 10]
+  },
+  aspectRatios: [
+    { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "1280:720" },
+    { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720:1280" }
+  ],
+  referenceImageSupported: true,
+  providerParameters: null
+};
+
+const KLING_VIDEO_MODEL_PARAMETERS = {
+  duration: {
+    kind: "range" as const,
+    min: 3,
+    max: 15,
+    step: null,
+    preferredValues: [4, 8, 12]
+  },
+  aspectRatios: [
+    { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "16:9" },
+    { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "9:16" }
+  ],
+  referenceImageSupported: true,
+  providerParameters: {
+    mode: "pro",
+    sound: "off" as const
+  }
+};
+
 function createToolCall(argumentsObject: Record<string, unknown>): ProviderGatewayToolCall {
   return {
     id: "tool-call-1",
@@ -277,7 +331,7 @@ class FakeProviderGatewayClientService {
     }
     const resolvedModel =
       input.model ??
-      (providerId === "runway" ? "gen4_turbo" : providerId === "kling" ? "kling-v1" : "sora-2");
+      (providerId === "runway" ? "gen4_turbo" : providerId === "kling" ? "kling-v3" : "sora-2");
     return {
       provider: providerId,
       model: resolvedModel,
@@ -398,38 +452,49 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   );
 
   const bundle = createBundle();
-  const bundleWithProModel = createBundle({ modelKey: "sora-2-pro" });
+  bundle.governance.toolCredentialRefs.video_generate!.videoModelParameters =
+    OPENAI_VIDEO_MODEL_PARAMETERS;
+  const bundleWithProModel = createBundle({
+    modelKey: "sora-2-pro",
+    videoModelParameters: OPENAI_VIDEO_MODEL_PARAMETERS
+  });
   const runwayBundle = createBundle({
     providerId: "runway",
     secretId: "tool/video_generate/runway/api-key",
-    modelKey: "gen4_turbo"
+    modelKey: "gen4_turbo",
+    videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS
   });
   const klingBundle = createBundle({
     providerId: "kling",
     secretId: "tool/video_generate/kling/api-key",
-    modelKey: "kling-v1"
+    modelKey: "kling-v3",
+    videoModelParameters: KLING_VIDEO_MODEL_PARAMETERS
   });
   const fallbackBundle = createBundle({
     providerId: "runway",
     secretId: "tool/video_generate/runway/api-key",
     modelKey: "gen4_turbo",
+    videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS,
     fallbacks: [
       {
         providerId: "kling",
         secretId: "tool/video_generate/kling/api-key",
-        modelKey: "kling-v1"
+        modelKey: "kling-v3",
+        videoModelParameters: KLING_VIDEO_MODEL_PARAMETERS
       }
     ]
   });
   const klingToRunwayFallbackBundle = createBundle({
     providerId: "kling",
     secretId: "tool/video_generate/kling/api-key",
-    modelKey: "kling-v1",
+    modelKey: "kling-v3",
+    videoModelParameters: KLING_VIDEO_MODEL_PARAMETERS,
     fallbacks: [
       {
         providerId: "runway",
         secretId: "tool/video_generate/runway/api-key",
-        modelKey: "gen4.5"
+        modelKey: "gen4.5",
+        videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS
       }
     ]
   });
@@ -554,13 +619,19 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(runwayResult.payload.action, "generated");
   assert.equal(runwayResult.payload.provider, "runway");
   assert.equal(runwayResult.payload.model, "gen4_turbo");
+  assert.equal(runwayResult.payload.requestedSeconds, 5);
+  assert.match(
+    runwayResult.payload.warning ?? "",
+    /Adjusted requested video duration from 4s to 5s/i
+  );
   assert.deepEqual(providerGatewayClientService.videoCalls[3], {
     input: {
       prompt: "Create a glossy product teaser video",
       model: "gen4_turbo",
       size: "1280x720",
-      seconds: 4,
+      seconds: 5,
       referenceImage: null,
+      providerParameters: null,
       credential: {
         toolCode: "video_generate",
         secretId: "tool/video_generate/runway/api-key",
@@ -585,14 +656,18 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   });
   assert.equal(klingResult.payload.action, "generated");
   assert.equal(klingResult.payload.provider, "kling");
-  assert.equal(klingResult.payload.model, "kling-v1");
+  assert.equal(klingResult.payload.model, "kling-v3");
   assert.deepEqual(providerGatewayClientService.videoCalls[4], {
     input: {
       prompt: "Create an anime-style city flythrough",
-      model: "kling-v1",
+      model: "kling-v3",
       size: "720x1280",
       seconds: 4,
       referenceImage: null,
+      providerParameters: {
+        mode: "pro",
+        sound: "off"
+      },
       credential: {
         toolCode: "video_generate",
         secretId: "tool/video_generate/kling/api-key",
@@ -622,7 +697,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   providerGatewayClientService.failuresByProvider.delete("runway");
   assert.equal(fallbackResult.payload.action, "generated");
   assert.equal(fallbackResult.payload.provider, "kling");
-  assert.equal(fallbackResult.payload.model, "kling-v1");
+  assert.equal(fallbackResult.payload.model, "kling-v3");
   assert.match(fallbackResult.payload.warning ?? "", /runway failed/i);
   assert.match(fallbackResult.payload.warning ?? "", /Used fallback provider "kling"/i);
   assert.deepEqual(providerGatewayClientService.videoCalls[5], {
@@ -632,6 +707,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       size: "1280x720",
       seconds: 8,
       referenceImage: null,
+      providerParameters: null,
       credential: {
         toolCode: "video_generate",
         secretId: "tool/video_generate/runway/api-key",
@@ -645,10 +721,14 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.deepEqual(providerGatewayClientService.videoCalls[6], {
     input: {
       prompt: "Create a moody noir trailer shot",
-      model: "kling-v1",
+      model: "kling-v3",
       size: "1280x720",
       seconds: 8,
       referenceImage: null,
+      providerParameters: {
+        mode: "pro",
+        sound: "off"
+      },
       credential: {
         toolCode: "video_generate",
         secretId: "tool/video_generate/kling/api-key",
@@ -684,10 +764,14 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.deepEqual(providerGatewayClientService.videoCalls[7], {
     input: {
       prompt: "Create a cinematic city shot from this reference",
-      model: "kling-v1",
+      model: "kling-v3",
       size: "1280x720",
       seconds: 4,
       referenceImage: null,
+      providerParameters: {
+        mode: "pro",
+        sound: "off"
+      },
       credential: {
         toolCode: "video_generate",
         secretId: "tool/video_generate/kling/api-key",
@@ -703,8 +787,9 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       prompt: "Create a cinematic city shot from this reference",
       model: "gen4.5",
       size: "1280x720",
-      seconds: 4,
+      seconds: 5,
       referenceImage: null,
+      providerParameters: null,
       credential: {
         toolCode: "video_generate",
         secretId: "tool/video_generate/runway/api-key",
@@ -732,9 +817,10 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(promptOnlyReferenceTextResult.payload.referenceImageAlias, null);
   assert.equal(promptOnlyReferenceTextResult.payload.referenceFilename, null);
   assert.equal(providerGatewayClientService.videoCalls[9]?.input.referenceImage, null);
+  assert.equal(providerGatewayClientService.videoCalls[9]?.input.size, "1280x720");
 
-  const invalid = await service.executeToolCall({
-    bundle,
+  const normalized = await service.executeToolCall({
+    bundle: runwayBundle,
     toolCall: createToolCall({
       prompt: "Animate this",
       seconds: 6
@@ -743,7 +829,14 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     sessionId: "session-1",
     requestId: "request-3"
   });
-  assert.equal(invalid.payload.action, "skipped");
-  assert.equal(invalid.payload.reason, "invalid_arguments");
-  assert.equal(invalid.isError, true);
+  assert.equal(normalized.payload.action, "generated");
+  assert.equal(normalized.payload.requestedSeconds, 5);
+  assert.equal(normalized.payload.size, "1280x720");
+  assert.match(
+    normalized.payload.warning ?? "",
+    /Adjusted requested video duration from 6s to 5s/i
+  );
+  assert.match(normalized.payload.warning ?? "", /Used default video size 1280x720/i);
+  assert.equal(providerGatewayClientService.videoCalls[10]?.input.seconds, 5);
+  assert.equal(providerGatewayClientService.videoCalls[10]?.input.size, "1280x720");
 }

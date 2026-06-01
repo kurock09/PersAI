@@ -1070,7 +1070,7 @@ describe("RecordModelCostLedgerService", () => {
           openai: {
             models: [
               {
-                model: "kling-v2-master",
+                model: "kling-v1",
                 capabilities: ["video"],
                 active: true,
                 billingMode: "time_metered",
@@ -1096,7 +1096,7 @@ describe("RecordModelCostLedgerService", () => {
           kling: {
             models: [
               {
-                model: "kling-v2-master",
+                model: "kling-v1",
                 capabilities: ["video"],
                 active: true,
                 billingMode: "time_metered",
@@ -1152,7 +1152,7 @@ describe("RecordModelCostLedgerService", () => {
       sourceEventId: "media_job:job-kling-1",
       billingFacts: {
         providerKey: "kling",
-        modelKey: "kling-v2-master",
+        modelKey: "kling-v1",
         capability: "video",
         occurredAt: "2026-05-20T09:10:00.000Z",
         metering: {
@@ -1178,7 +1178,7 @@ describe("RecordModelCostLedgerService", () => {
       },
       {
         provider: "kling",
-        model: "kling-v2-master",
+        model: "kling-v1",
         capability: "video",
         purpose: "video_generation",
         actualCostMicros: BigInt(84),

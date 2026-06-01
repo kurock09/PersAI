@@ -59,7 +59,7 @@ export async function runRunwayProviderClientTest(): Promise<void> {
         model: "gen4.5",
         promptText: "Animate a calm paper-cut forest at sunrise",
         promptImage: "data:image/png;base64,cmVmLXZpZGVvLWltYWdl",
-        ratio: "1280:768",
+        ratio: "1280:720",
         duration: 4
       });
       return new Response(JSON.stringify({ id: "rw-task-1", status: "PENDING" }), {

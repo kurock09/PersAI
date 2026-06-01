@@ -56,6 +56,57 @@ function timeMeteredDefaults() {
   };
 }
 
+function runwayVideoModelParameters() {
+  return {
+    duration: {
+      kind: "allowed_list" as const,
+      values: [5, 8, 10]
+    },
+    aspectRatios: [
+      { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "1280:720" },
+      { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720:1280" }
+    ],
+    referenceImageSupported: true,
+    providerParameters: null
+  };
+}
+
+function klingVideoModelParameters() {
+  return {
+    duration: {
+      kind: "range" as const,
+      min: 3,
+      max: 15,
+      step: null,
+      preferredValues: [4, 8, 12]
+    },
+    aspectRatios: [
+      { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "16:9" },
+      { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "9:16" }
+    ],
+    referenceImageSupported: true,
+    providerParameters: {
+      mode: "pro",
+      sound: "off" as const
+    }
+  };
+}
+
+function openAiVideoModelParameters() {
+  return {
+    duration: {
+      kind: "allowed_list" as const,
+      values: [4, 8, 12]
+    },
+    aspectRatios: [
+      { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "1280x720" },
+      { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720x1280" }
+    ],
+    referenceImageSupported: true,
+    providerParameters: null
+  };
+}
+
 function textCharsMeteredDefaults() {
   return {
     active: true,
@@ -152,7 +203,8 @@ async function run(): Promise<void> {
             cachedInputTokenWeight: 1,
             outputTokenWeight: 1,
             displayLabel: null,
-            notes: null
+            notes: null,
+            videoModelParameters: openAiVideoModelParameters()
           },
           {
             model: "sora-2-pro",
@@ -162,7 +214,8 @@ async function run(): Promise<void> {
             cachedInputTokenWeight: 1,
             outputTokenWeight: 1,
             displayLabel: null,
-            notes: null
+            notes: null,
+            videoModelParameters: openAiVideoModelParameters()
           },
           {
             model: "gpt-4o-mini-tts",
@@ -284,7 +337,8 @@ async function run(): Promise<void> {
             cachedInputTokenWeight: 1,
             outputTokenWeight: 1,
             displayLabel: "Runway Gen 4",
-            notes: null
+            notes: null,
+            videoModelParameters: runwayVideoModelParameters()
           }
         ]
       },
@@ -297,8 +351,9 @@ async function run(): Promise<void> {
             inputTokenWeight: 1,
             cachedInputTokenWeight: 1,
             outputTokenWeight: 1,
-            displayLabel: "Kling v1",
-            notes: null
+            displayLabel: "Kling v3",
+            notes: null,
+            videoModelParameters: klingVideoModelParameters()
           }
         ]
       }
@@ -319,6 +374,11 @@ async function run(): Promise<void> {
       (profile) => profile.model
     ),
     ["kling-v1"]
+  );
+  assert.deepEqual(
+    parsedWithVideoCatalogProviders.availableModelCatalogByProvider.runway.models[0]
+      ?.videoModelParameters,
+    runwayVideoModelParameters()
   );
 
   assert.throws(
@@ -478,7 +538,8 @@ async function run(): Promise<void> {
                 cachedInputTokenWeight: 1,
                 outputTokenWeight: 1,
                 displayLabel: null,
-                notes: null
+                notes: null,
+                videoModelParameters: runwayVideoModelParameters()
               }
             ]
           },
@@ -492,7 +553,8 @@ async function run(): Promise<void> {
                 cachedInputTokenWeight: 1,
                 outputTokenWeight: 1,
                 displayLabel: null,
-                notes: null
+                notes: null,
+                videoModelParameters: runwayVideoModelParameters()
               }
             ]
           },
@@ -582,7 +644,8 @@ async function run(): Promise<void> {
               cachedInputTokenWeight: 1,
               outputTokenWeight: 1,
               displayLabel: null,
-              notes: null
+              notes: null,
+              videoModelParameters: openAiVideoModelParameters()
             },
             {
               model: "sora-2-pro",
@@ -592,7 +655,8 @@ async function run(): Promise<void> {
               cachedInputTokenWeight: 1,
               outputTokenWeight: 1,
               displayLabel: null,
-              notes: null
+              notes: null,
+              videoModelParameters: openAiVideoModelParameters()
             },
             {
               model: "gpt-4o-mini-tts",

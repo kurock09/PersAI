@@ -23,7 +23,7 @@ function createConfig(): ProviderGatewayConfig {
 function createRequest(): ProviderGatewayVideoGenerateRequest {
   return {
     prompt: "Animate a calm paper-cut forest at sunrise",
-    model: "kling-v1",
+    model: "kling-v3",
     size: "1280x720",
     seconds: 4,
     referenceImage: {
@@ -35,6 +35,10 @@ function createRequest(): ProviderGatewayVideoGenerateRequest {
       toolCode: "video_generate",
       secretId: "tool/video_generate/kling/api-key",
       providerId: "kling"
+    },
+    providerParameters: {
+      mode: "pro",
+      sound: "off"
     }
   };
 }
@@ -61,7 +65,7 @@ export async function runKlingProviderClientTest(): Promise<void> {
       assert.match(authHeader ?? "", /^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
       const body = JSON.parse(String(init?.body));
       assert.deepEqual(body, {
-        model_name: "kling-v1",
+        model_name: "kling-v3",
         prompt: "Animate a calm paper-cut forest at sunrise",
         image: "cmVmLXZpZGVvLWltYWdl",
         duration: "4",
@@ -126,11 +130,11 @@ export async function runKlingProviderClientTest(): Promise<void> {
   try {
     const result = await client.generateVideo(createRequest(), { credentialValue });
     assert.equal(result.provider, "kling");
-    assert.equal(result.model, "kling-v1");
+    assert.equal(result.model, "kling-v3");
     assert.equal(result.video.bytesBase64, Buffer.from("kling-video").toString("base64"));
     assert.deepEqual(result.billingFacts, {
       providerKey: "kling",
-      modelKey: "kling-v1",
+      modelKey: "kling-v3",
       capability: "video",
       occurredAt: result.billingFacts?.occurredAt,
       metering: {

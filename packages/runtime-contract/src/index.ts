@@ -1584,17 +1584,51 @@ export const PERSAI_RUNTIME_VIDEO_GENERATE_SIZES = [
 
 export type PersaiRuntimeVideoGenerateSize = (typeof PERSAI_RUNTIME_VIDEO_GENERATE_SIZES)[number];
 
-export const PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS = [4, 8, 12] as const;
+export const PERSAI_RUNTIME_VIDEO_ASPECT_RATIOS = ["16:9", "9:16", "1:1"] as const;
 
-export type PersaiRuntimeVideoGenerateSeconds =
-  (typeof PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS)[number];
+export type PersaiRuntimeVideoAspectRatio = (typeof PERSAI_RUNTIME_VIDEO_ASPECT_RATIOS)[number];
+
+export interface RuntimeVideoDurationAllowedList {
+  kind: "allowed_list";
+  values: number[];
+}
+
+export interface RuntimeVideoDurationRange {
+  kind: "range";
+  min: number;
+  max: number;
+  step: number | null;
+  preferredValues: number[] | null;
+}
+
+export type RuntimeVideoDurationConstraint =
+  | RuntimeVideoDurationAllowedList
+  | RuntimeVideoDurationRange;
+
+export interface RuntimeVideoAspectRatioOption {
+  aspectRatio: PersaiRuntimeVideoAspectRatio;
+  size: PersaiRuntimeVideoGenerateSize;
+  providerValue: string | null;
+}
+
+export interface RuntimeVideoProviderParameters {
+  mode?: string | null;
+  sound?: "on" | "off" | null;
+}
+
+export interface RuntimeVideoModelParameters {
+  duration: RuntimeVideoDurationConstraint;
+  aspectRatios: RuntimeVideoAspectRatioOption[];
+  referenceImageSupported: boolean;
+  providerParameters: RuntimeVideoProviderParameters | null;
+}
 
 export interface RuntimeVideoGenerateRequest {
   toolCode: "video_generate";
   prompt: string;
   filename: string | null;
   size: PersaiRuntimeVideoGenerateSize | null;
-  seconds: PersaiRuntimeVideoGenerateSeconds;
+  seconds: number | null;
   referenceImageAlias: string | null;
 }
 
@@ -1604,7 +1638,7 @@ export interface RuntimeVideoGenerateToolResult {
   provider: PersaiRuntimeVideoGenerateProviderId | null;
   model: string | null;
   prompt: string | null;
-  requestedSeconds: PersaiRuntimeVideoGenerateSeconds | null;
+  requestedSeconds: number | null;
   size: PersaiRuntimeVideoGenerateSize | null;
   referenceImageAlias: string | null;
   referenceFilename: string | null;
@@ -2892,12 +2926,13 @@ export interface ProviderGatewayVideoGenerateRequest {
   prompt: string;
   model: string | null;
   size: PersaiRuntimeVideoGenerateSize | null;
-  seconds: PersaiRuntimeVideoGenerateSeconds;
+  seconds: number;
   referenceImage: {
     bytesBase64: string;
     mimeType: string;
     filename: string | null;
   } | null;
+  providerParameters?: RuntimeVideoProviderParameters | null;
   credential: {
     toolCode: "video_generate";
     secretId: string;
@@ -2915,7 +2950,7 @@ export interface ProviderGatewayVideoGenerateResult {
   model: string;
   prompt: string;
   size: PersaiRuntimeVideoGenerateSize | null;
-  seconds: PersaiRuntimeVideoGenerateSeconds;
+  seconds: number;
   video: ProviderGatewayGeneratedVideo;
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;

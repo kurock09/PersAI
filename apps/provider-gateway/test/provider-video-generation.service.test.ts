@@ -29,7 +29,8 @@ function createRequest(options?: {
       toolCode: "video_generate",
       secretId: "tool/image_generate/api-key",
       providerId: "openai"
-    }
+    },
+    providerParameters: null
   };
 }
 
@@ -107,7 +108,7 @@ class FakeKlingProviderClient {
     this.calls.push({ input, credentialValue: options?.credentialValue });
     return {
       provider: "kling",
-      model: input.model ?? "kling-v1",
+      model: input.model ?? "kling-v3",
       prompt: input.prompt,
       size: input.size,
       seconds: input.seconds,
@@ -119,7 +120,7 @@ class FakeKlingProviderClient {
       usage: null,
       billingFacts: {
         providerKey: "kling",
-        modelKey: input.model ?? "kling-v1",
+        modelKey: input.model ?? "kling-v3",
         capability: "video",
         occurredAt: "2026-06-01T15:01:00.000Z",
         metering: {
@@ -180,7 +181,8 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
 
   const klingResult = await service.generateVideo({
     ...createRequest(),
-    model: "kling-v1",
+    model: "kling-v3",
+    providerParameters: { mode: "pro", sound: "off" },
     credential: {
       ...createRequest().credential,
       secretId: "tool/video_generate/kling/api-key",
@@ -189,15 +191,19 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
   });
   assert.equal(klingResult.provider, "kling");
   assert.equal(klingProviderClient.calls[0]?.credentialValue, "resolved-tool-secret");
-  assert.equal(klingProviderClient.calls[0]?.input.model, "kling-v1");
+  assert.equal(klingProviderClient.calls[0]?.input.model, "kling-v3");
+  assert.deepEqual(klingProviderClient.calls[0]?.input.providerParameters, {
+    mode: "pro",
+    sound: "off"
+  });
 
   await assert.rejects(
     () =>
       service.generateVideo({
         ...createRequest(),
-        seconds: 6 as never
+        seconds: 0
       }),
-    /seconds must be one of/
+    /seconds must be a positive integer/
   );
 
   await assert.rejects(

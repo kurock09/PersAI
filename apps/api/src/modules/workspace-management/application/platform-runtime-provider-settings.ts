@@ -26,6 +26,16 @@ import {
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
 import { applyDerivedTokenMeteredWeights } from "@persai/types";
+import {
+  PERSAI_RUNTIME_VIDEO_ASPECT_RATIOS,
+  PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
+  type PersaiRuntimeVideoAspectRatio,
+  type PersaiRuntimeVideoGenerateSize,
+  type RuntimeVideoAspectRatioOption,
+  type RuntimeVideoDurationConstraint,
+  type RuntimeVideoModelParameters,
+  type RuntimeVideoProviderParameters
+} from "@persai/runtime-contract";
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID = "global";
@@ -263,6 +273,154 @@ function normalizePositiveIntegerInRange(
     throw new Error(`${path} must be between ${String(bounds.min)} and ${String(bounds.max)}.`);
   }
   return value;
+}
+
+function normalizePositiveInteger(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`${path} must be a positive integer.`);
+  }
+  return value;
+}
+
+function normalizeVideoAspectRatio(value: unknown, path: string): PersaiRuntimeVideoAspectRatio {
+  if (PERSAI_RUNTIME_VIDEO_ASPECT_RATIOS.includes(value as PersaiRuntimeVideoAspectRatio)) {
+    return value as PersaiRuntimeVideoAspectRatio;
+  }
+  throw new Error(`${path} must be one of: ${PERSAI_RUNTIME_VIDEO_ASPECT_RATIOS.join(", ")}.`);
+}
+
+function normalizeVideoSize(value: unknown, path: string): PersaiRuntimeVideoGenerateSize {
+  if (PERSAI_RUNTIME_VIDEO_GENERATE_SIZES.includes(value as PersaiRuntimeVideoGenerateSize)) {
+    return value as PersaiRuntimeVideoGenerateSize;
+  }
+  throw new Error(`${path} must be one of: ${PERSAI_RUNTIME_VIDEO_GENERATE_SIZES.join(", ")}.`);
+}
+
+function normalizeVideoDurationConstraint(
+  value: unknown,
+  path: string
+): RuntimeVideoDurationConstraint {
+  const row = asObject(value);
+  if (row === null) {
+    throw new Error(`${path} must be an object.`);
+  }
+  const kind = asNonEmptyString(row.kind);
+  if (kind === "allowed_list") {
+    if (!Array.isArray(row.values) || row.values.length === 0) {
+      throw new Error(`${path}.values must be a non-empty array.`);
+    }
+    return {
+      kind: "allowed_list",
+      values: Array.from(
+        new Set(
+          row.values.map((entry, index) =>
+            normalizePositiveInteger(entry, `${path}.values[${String(index)}]`)
+          )
+        )
+      ).sort((left, right) => left - right)
+    };
+  }
+  if (kind === "range") {
+    const min = normalizePositiveInteger(row.min, `${path}.min`);
+    const max = normalizePositiveInteger(row.max, `${path}.max`);
+    if (max < min) {
+      throw new Error(`${path}.max must be greater than or equal to min.`);
+    }
+    const step =
+      row.step === null || row.step === undefined
+        ? null
+        : normalizePositiveInteger(row.step, `${path}.step`);
+    const preferredValues =
+      row.preferredValues === undefined || row.preferredValues === null
+        ? null
+        : Array.from(
+            new Set(
+              (Array.isArray(row.preferredValues) ? row.preferredValues : []).map((entry, index) =>
+                normalizePositiveInteger(entry, `${path}.preferredValues[${String(index)}]`)
+              )
+            )
+          )
+            .filter((entry) => entry >= min && entry <= max)
+            .sort((left, right) => left - right);
+    return {
+      kind: "range",
+      min,
+      max,
+      step,
+      preferredValues:
+        preferredValues !== null && preferredValues.length > 0 ? preferredValues : null
+    };
+  }
+  throw new Error(`${path}.kind must be "allowed_list" or "range".`);
+}
+
+function normalizeVideoAspectRatioOptions(
+  value: unknown,
+  path: string
+): RuntimeVideoAspectRatioOption[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${path} must be a non-empty array.`);
+  }
+  return value.map((entry, index) => {
+    const row = asObject(entry);
+    const entryPath = `${path}[${String(index)}]`;
+    if (row === null) {
+      throw new Error(`${entryPath} must be an object.`);
+    }
+    return {
+      aspectRatio: normalizeVideoAspectRatio(row.aspectRatio, `${entryPath}.aspectRatio`),
+      size: normalizeVideoSize(row.size, `${entryPath}.size`),
+      providerValue:
+        row.providerValue === undefined
+          ? null
+          : normalizeOptionalBoundedString(row.providerValue, `${entryPath}.providerValue`, 64)
+    };
+  });
+}
+
+function normalizeVideoProviderParameters(
+  value: unknown,
+  path: string
+): RuntimeVideoProviderParameters | null {
+  const row = asObject(value);
+  if (row === null) {
+    return null;
+  }
+  const mode =
+    row.mode === undefined ? null : normalizeOptionalBoundedString(row.mode, `${path}.mode`, 64);
+  const sound =
+    row.sound === undefined || row.sound === null
+      ? null
+      : row.sound === "on" || row.sound === "off"
+        ? row.sound
+        : (() => {
+            throw new Error(`${path}.sound must be "on", "off", or null.`);
+          })();
+  return mode !== null || sound !== null
+    ? {
+        ...(mode === null ? {} : { mode }),
+        ...(sound === null ? {} : { sound })
+      }
+    : null;
+}
+
+function normalizeVideoModelParameters(value: unknown, path: string): RuntimeVideoModelParameters {
+  const row = asObject(value);
+  if (row === null) {
+    throw new Error(`${path} must be an object.`);
+  }
+  return {
+    duration: normalizeVideoDurationConstraint(row.duration, `${path}.duration`),
+    aspectRatios: normalizeVideoAspectRatioOptions(row.aspectRatios, `${path}.aspectRatios`),
+    referenceImageSupported:
+      row.referenceImageSupported === undefined
+        ? false
+        : normalizeBoolean(row.referenceImageSupported, `${path}.referenceImageSupported`),
+    providerParameters: normalizeVideoProviderParameters(
+      row.providerParameters,
+      `${path}.providerParameters`
+    )
+  };
 }
 
 function createDefaultPlatformRuntimeSkillRoutingPolicy(): PlatformRuntimeSkillRoutingPolicy {
@@ -778,7 +936,17 @@ function normalizeModelProfiles(
         `${entryPath}.displayLabel`,
         MAX_MODEL_DISPLAY_LABEL_LENGTH
       ),
-      notes: normalizeOptionalBoundedString(row.notes, `${entryPath}.notes`, MAX_MODEL_NOTES_LENGTH)
+      notes: normalizeOptionalBoundedString(
+        row.notes,
+        `${entryPath}.notes`,
+        MAX_MODEL_NOTES_LENGTH
+      ),
+      videoModelParameters: capabilities.includes("video")
+        ? normalizeVideoModelParameters(
+            row.videoModelParameters,
+            `${entryPath}.videoModelParameters`
+          )
+        : null
     };
     switch (billingMode) {
       case "token_metered":

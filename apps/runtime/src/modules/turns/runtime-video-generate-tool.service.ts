@@ -6,16 +6,15 @@ import type {
 } from "@persai/runtime-bundle";
 import {
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
-  PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   type PersaiRuntimeVideoGenerateProviderId,
-  type PersaiRuntimeVideoGenerateSeconds,
   type PersaiRuntimeVideoGenerateSize,
   type ProviderGatewayToolCall,
   type ProviderGatewayVideoGenerateRequest,
   type RuntimeAttachmentRef,
   type RuntimeOutputArtifact,
   type RuntimeToolPolicy,
+  type RuntimeVideoModelParameters,
   type RuntimeVideoGenerateRequest,
   type RuntimeVideoGenerateToolResult
 } from "@persai/runtime-contract";
@@ -58,6 +57,14 @@ type ResolvedVideoCredentialAttempt = {
   credential: AssistantRuntimeBundleToolCredentialRef;
   providerId: PersaiRuntimeVideoGenerateProviderId;
   model: ProviderGatewayVideoGenerateRequest["model"];
+};
+
+type NormalizedVideoExecutionRequest = {
+  request: RuntimeVideoGenerateRequest & {
+    seconds: number;
+    size: PersaiRuntimeVideoGenerateSize;
+  };
+  warning: string | null;
 };
 
 export interface RuntimeVideoGenerateToolExecutionResult {
@@ -185,6 +192,32 @@ export class RuntimeVideoGenerateToolService {
       };
     }
     const primaryModel = this.resolveVideoGenerateModelKey(credential);
+    const normalizedRequest = this.normalizeExecutionRequest(
+      request,
+      credential.videoModelParameters
+    );
+    if (normalizedRequest instanceof Error) {
+      return {
+        payload: {
+          toolCode: VIDEO_GENERATE_TOOL_CODE,
+          executionMode: "worker",
+          provider: providerId,
+          model: primaryModel,
+          prompt: request.prompt,
+          requestedSeconds: request.seconds,
+          size: request.size,
+          referenceImageAlias: request.referenceImageAlias,
+          referenceFilename: null,
+          artifact: null,
+          usage: null,
+          action: "skipped",
+          reason: "video_model_parameters_missing",
+          warning: normalizedRequest.message
+        },
+        artifacts: [],
+        isError: true
+      };
+    }
     const credentialAttempts: ResolvedVideoCredentialAttempt[] = [
       {
         credential,
@@ -241,15 +274,15 @@ export class RuntimeVideoGenerateToolService {
               provider: providerId,
               model: primaryModel,
               prompt: request.prompt,
-              requestedSeconds: request.seconds,
-              size: request.size,
+              requestedSeconds: normalizedRequest.request.seconds,
+              size: normalizedRequest.request.size,
               referenceImageAlias: selection.referenceImageAlias,
               referenceFilename: selection.referenceFilename,
               artifact: null,
               usage: null,
               action: "skipped",
               reason: enqueueOutcome.code,
-              warning: enqueueOutcome.message,
+              warning: this.mergeWarnings(normalizedRequest.warning, enqueueOutcome.message),
               ...(enqueueOutcome.guidance === null ? {} : { guidance: enqueueOutcome.guidance }),
               jobId: null
             },
@@ -264,15 +297,15 @@ export class RuntimeVideoGenerateToolService {
             provider: providerId,
             model: primaryModel,
             prompt: request.prompt,
-            requestedSeconds: request.seconds,
-            size: request.size,
+            requestedSeconds: normalizedRequest.request.seconds,
+            size: normalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
             artifact: null,
             usage: null,
             action: "pending_delivery",
             reason: null,
-            warning: null,
+            warning: normalizedRequest.warning,
             jobId: enqueueOutcome.jobId,
             canSendFileNow: false,
             messageToUser:
@@ -291,8 +324,8 @@ export class RuntimeVideoGenerateToolService {
             provider: providerId,
             model: null,
             prompt: request.prompt,
-            requestedSeconds: request.seconds,
-            size: request.size,
+            requestedSeconds: normalizedRequest.request.seconds,
+            size: normalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
             artifact: null,
@@ -325,9 +358,10 @@ export class RuntimeVideoGenerateToolService {
           {
             prompt: request.prompt,
             model: attempt.model,
-            size: request.size,
-            seconds: request.seconds,
+            size: normalizedRequest.request.size,
+            seconds: normalizedRequest.request.seconds,
             referenceImage: selection.referenceImage,
+            providerParameters: attempt.credential.videoModelParameters?.providerParameters ?? null,
             credential: {
               toolCode: VIDEO_GENERATE_TOOL_CODE,
               secretId: attempt.credential.secretRef.id,
@@ -340,7 +374,7 @@ export class RuntimeVideoGenerateToolService {
         );
         this.logger.log(
           `[video-generate] requestId=${params.requestId} provider=${providerResult.provider} seconds=${String(
-            request.seconds
+            normalizedRequest.request.seconds
           )} referenceAlias="${selection.referenceImageAlias ?? "none"}"`
         );
 
@@ -363,8 +397,8 @@ export class RuntimeVideoGenerateToolService {
             provider: providerResult.provider,
             model: providerResult.model,
             prompt: request.prompt,
-            requestedSeconds: request.seconds,
-            size: providerResult.size ?? request.size,
+            requestedSeconds: normalizedRequest.request.seconds,
+            size: providerResult.size ?? normalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
             artifact,
@@ -372,6 +406,7 @@ export class RuntimeVideoGenerateToolService {
             action: "generated",
             reason: null,
             warning: this.mergeWarnings(
+              normalizedRequest.warning,
               ...warnings,
               providerResult.warning,
               attemptIndex > 0 ? `Used fallback provider "${providerResult.provider}".` : null
@@ -402,8 +437,8 @@ export class RuntimeVideoGenerateToolService {
             provider: attempt.providerId,
             model: null,
             prompt: request.prompt,
-            requestedSeconds: request.seconds,
-            size: request.size,
+            requestedSeconds: normalizedRequest.request.seconds,
+            size: normalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
             artifact: null,
@@ -425,15 +460,19 @@ export class RuntimeVideoGenerateToolService {
         provider: providerId,
         model: null,
         prompt: request.prompt,
-        requestedSeconds: request.seconds,
-        size: request.size,
+        requestedSeconds: normalizedRequest.request.seconds,
+        size: normalizedRequest.request.size,
         referenceImageAlias: selection.referenceImageAlias,
         referenceFilename: selection.referenceFilename,
         artifact: null,
         usage: null,
         action: "skipped",
         reason: "video_generation_failed",
-        warning: this.mergeWarnings(...warnings, "Video generation failed.")
+        warning: this.mergeWarnings(
+          normalizedRequest.warning,
+          ...warnings,
+          "Video generation failed."
+        )
       },
       artifacts: [],
       isError: true
@@ -534,14 +573,12 @@ export class RuntimeVideoGenerateToolService {
 
     const seconds =
       args.seconds === undefined || args.seconds === null
-        ? 4
-        : Number.isInteger(args.seconds) && this.isVideoGenerateSeconds(Number(args.seconds))
+        ? null
+        : Number.isInteger(args.seconds) && Number(args.seconds) > 0
           ? Number(args.seconds)
           : null;
-    if (seconds === null) {
-      return new Error(
-        `seconds must be one of ${PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS.join(", ")}`
-      );
+    if ("seconds" in args && args.seconds !== null && seconds === null) {
+      return new Error("seconds must be a positive integer when provided");
     }
 
     const referenceImageAlias =
@@ -561,9 +598,90 @@ export class RuntimeVideoGenerateToolService {
       prompt,
       filename,
       size,
-      seconds: seconds as PersaiRuntimeVideoGenerateSeconds,
+      seconds,
       referenceImageAlias
     };
+  }
+
+  private normalizeExecutionRequest(
+    request: RuntimeVideoGenerateRequest,
+    params: RuntimeVideoModelParameters | null | undefined
+  ): NormalizedVideoExecutionRequest | Error {
+    if (params === null || params === undefined) {
+      return new Error(
+        "Selected video model is missing structured video parameters in the materialized catalog."
+      );
+    }
+    const normalizedSeconds = this.normalizeSeconds(request.seconds, params);
+    const normalizedSize = this.normalizeSize(request.size, params);
+    const warnings: string[] = [];
+    if (request.seconds !== null && request.seconds !== normalizedSeconds) {
+      warnings.push(
+        `Adjusted requested video duration from ${String(request.seconds)}s to ${String(
+          normalizedSeconds
+        )}s for the selected model.`
+      );
+    }
+    if (request.size !== null && request.size !== normalizedSize) {
+      warnings.push(
+        `Adjusted requested video size from ${request.size} to ${normalizedSize} for the selected model.`
+      );
+    }
+    if (request.size === null) {
+      warnings.push(`Used default video size ${normalizedSize} from the selected model catalog.`);
+    }
+    return {
+      request: {
+        ...request,
+        seconds: normalizedSeconds,
+        size: normalizedSize
+      },
+      warning: warnings.length > 0 ? warnings.join(" ") : null
+    };
+  }
+
+  private normalizeSeconds(
+    requestedSeconds: number | null,
+    params: RuntimeVideoModelParameters
+  ): number {
+    const constraint = params.duration;
+    if (constraint.kind === "allowed_list") {
+      const allowed = [...constraint.values].sort((left, right) => left - right);
+      const fallback = allowed[0];
+      if (fallback === undefined) {
+        throw new Error("Video model duration allowed_list cannot be empty.");
+      }
+      if (requestedSeconds === null) {
+        return fallback;
+      }
+      return allowed.reduce((best, current) =>
+        Math.abs(current - requestedSeconds) < Math.abs(best - requestedSeconds) ? current : best
+      );
+    }
+    const base =
+      requestedSeconds === null
+        ? constraint.min
+        : Math.max(constraint.min, Math.min(constraint.max, requestedSeconds));
+    if (constraint.step === null || constraint.step <= 1) {
+      return base;
+    }
+    const steps = Math.round((base - constraint.min) / constraint.step);
+    const stepped = constraint.min + steps * constraint.step;
+    return Math.max(constraint.min, Math.min(constraint.max, stepped));
+  }
+
+  private normalizeSize(
+    requestedSize: PersaiRuntimeVideoGenerateSize | null,
+    params: RuntimeVideoModelParameters
+  ): PersaiRuntimeVideoGenerateSize {
+    const first = params.aspectRatios[0];
+    if (first === undefined) {
+      throw new Error("Video model aspectRatios cannot be empty.");
+    }
+    if (requestedSize === null) {
+      return first.size;
+    }
+    return params.aspectRatios.find((entry) => entry.size === requestedSize)?.size ?? first.size;
   }
 
   private async resolveReferenceImageSelection(
@@ -796,12 +914,6 @@ export class RuntimeVideoGenerateToolService {
 
   private isVideoGenerateSize(value: string): value is PersaiRuntimeVideoGenerateSize {
     return PERSAI_RUNTIME_VIDEO_GENERATE_SIZES.includes(value as PersaiRuntimeVideoGenerateSize);
-  }
-
-  private isVideoGenerateSeconds(value: number): value is PersaiRuntimeVideoGenerateSeconds {
-    return PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS.includes(
-      value as PersaiRuntimeVideoGenerateSeconds
-    );
   }
 
   private resolveFilename(

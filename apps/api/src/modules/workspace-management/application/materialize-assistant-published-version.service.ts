@@ -32,6 +32,7 @@ import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platfor
 import { ResolveRuntimeProviderRoutingService } from "./resolve-runtime-provider-routing.service";
 import { buildPlatformRuntimeProviderProfileState } from "./platform-runtime-provider-settings";
 import {
+  findRuntimeProviderCatalogProfile,
   getRuntimeProviderCatalogModelsByCapability,
   resolveRuntimeProviderProfileState,
   VIDEO_GENERATE_PROVIDERS,
@@ -341,11 +342,16 @@ function buildVideoProviderToolCredentialRef(params: {
   });
   const credentialKey = VIDEO_PROVIDER_CREDENTIAL_KEY[selection.providerId];
   const ref = buildToolCredentialSecretRef(credentialKey);
+  const profile = findRuntimeProviderCatalogProfile(
+    params.runtimeProviderProfile.availableModelCatalogByProvider[selection.providerId],
+    selection.modelKey
+  );
   return {
     ...ref,
     configured: params.keyMetadata[credentialKey]?.configured ?? false,
     providerId: selection.providerId,
-    modelKey: selection.modelKey
+    modelKey: selection.modelKey,
+    videoModelParameters: profile?.videoModelParameters ?? null
   };
 }
 

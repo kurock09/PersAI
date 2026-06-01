@@ -2,7 +2,6 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import {
   PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS,
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
-  PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   isPersaiRuntimeVideoGenerateModelKey,
   type PersaiRuntimeVideoGenerateProviderId,
@@ -60,10 +59,8 @@ export class ProviderVideoGenerationService {
     if (input.size !== null && !PERSAI_RUNTIME_VIDEO_GENERATE_SIZES.includes(input.size)) {
       throw new BadRequestException("size must be a supported video-generation size or null");
     }
-    if (!PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS.includes(input.seconds)) {
-      throw new BadRequestException(
-        `seconds must be one of ${PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS.join(", ")}`
-      );
+    if (!Number.isInteger(input.seconds) || input.seconds <= 0) {
+      throw new BadRequestException("seconds must be a positive integer");
     }
     if (input.credential.toolCode !== "video_generate") {
       throw new BadRequestException('credential.toolCode must be "video_generate"');
@@ -96,6 +93,7 @@ export class ProviderVideoGenerationService {
       size: input.size,
       seconds: input.seconds,
       referenceImage,
+      providerParameters: input.providerParameters ?? null,
       credential: {
         toolCode: "video_generate",
         secretId: input.credential.secretId.trim(),
