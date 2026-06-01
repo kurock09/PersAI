@@ -13,7 +13,9 @@ import { runProviderTextGenerationServiceTest } from "./provider-text-generation
 import { runProviderWebFetchServiceTest } from "./provider-web-fetch.service.test";
 import { runProviderWebSearchServiceTest } from "./provider-web-search.service.test";
 import { runProviderWarmupServiceTest } from "./provider-warmup.service.test";
+import { runKlingProviderClientTest } from "./kling-provider.client.test";
 import { runPdfMonkeyProviderClientTest } from "./pdfmonkey-provider.client.test";
+import { runRunwayProviderClientTest } from "./runway-provider.client.test";
 import { runYandexProviderClientTest } from "./yandex-provider.client.test";
 
 async function run(): Promise<void> {
@@ -27,6 +29,8 @@ async function run(): Promise<void> {
   await runProviderAudioTranscriptionServiceTest();
   await runProviderBrowserServiceTest();
   await runProviderImageGenerationServiceTest();
+  await runRunwayProviderClientTest();
+  await runKlingProviderClientTest();
   await runProviderVideoGenerationServiceTest();
   await runProviderSpeechGenerationServiceTest();
   await runProviderWarmupServiceTest();

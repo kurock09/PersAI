@@ -1,22 +1,25 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
   PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS,
-  isPersaiRuntimeVideoGenerateModelKey,
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
-  type PersaiRuntimeVideoGenerateModelKey,
+  isPersaiRuntimeVideoGenerateModelKey,
   type PersaiRuntimeVideoGenerateProviderId,
   type ProviderGatewayVideoGenerateRequest,
   type ProviderGatewayVideoGenerateResult
 } from "@persai/runtime-contract";
+import { KlingProviderClient } from "./kling/kling-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
+import { RunwayProviderClient } from "./runway/runway-provider.client";
 
 @Injectable()
 export class ProviderVideoGenerationService {
   constructor(
     private readonly openaiProviderClient: OpenAIProviderClient,
+    private readonly runwayProviderClient: RunwayProviderClient,
+    private readonly klingProviderClient: KlingProviderClient,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService
   ) {}
 
@@ -31,13 +34,17 @@ export class ProviderVideoGenerationService {
     switch (normalized.credential.providerId ?? "openai") {
       case "openai":
         return this.openaiProviderClient.generateVideo(normalized, { apiKey });
+      case "runway":
+        return this.runwayProviderClient.generateVideo(normalized, { apiKey });
+      case "kling":
+        return this.klingProviderClient.generateVideo(normalized, { apiKey });
     }
   }
 
   private normalizeInput(
     input: ProviderGatewayVideoGenerateRequest
   ): ProviderGatewayVideoGenerateRequest & {
-    model: PersaiRuntimeVideoGenerateModelKey | null;
+    model: string | null;
     referenceImage: {
       bytesBase64: string;
       mimeType: string;
@@ -76,11 +83,12 @@ export class ProviderVideoGenerationService {
       );
     }
 
+    const providerId = input.credential.providerId ?? null;
     const referenceImage =
       input.referenceImage === null || input.referenceImage === undefined
         ? null
         : this.normalizeReferenceImage(input.referenceImage);
-    const model = this.normalizeModel(input.model);
+    const model = this.normalizeModel(input.model, providerId);
 
     return {
       prompt: input.prompt.trim(),
@@ -91,7 +99,7 @@ export class ProviderVideoGenerationService {
       credential: {
         toolCode: "video_generate",
         secretId: input.credential.secretId.trim(),
-        providerId: input.credential.providerId ?? null
+        providerId
       }
     };
   }
@@ -129,17 +137,24 @@ export class ProviderVideoGenerationService {
   }
 
   private normalizeModel(
-    input: ProviderGatewayVideoGenerateRequest["model"]
-  ): PersaiRuntimeVideoGenerateModelKey | null {
-    if (input === null || input === undefined) {
+    input: ProviderGatewayVideoGenerateRequest["model"],
+    providerId: PersaiRuntimeVideoGenerateProviderId | null
+  ): string | null {
+    if (input === null || input === undefined || input === "") {
       return null;
     }
-    const normalized = typeof input === "string" ? input.trim() : "";
-    if (isPersaiRuntimeVideoGenerateModelKey(normalized)) {
-      return normalized;
+    if (typeof input !== "string" || input.trim().length === 0) {
+      throw new BadRequestException("model must be a non-empty string or null");
     }
-    throw new BadRequestException(
-      `model must be one of ${PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS.join(", ")}, or null`
-    );
+    const normalized = input.trim();
+    if (
+      (providerId ?? "openai") === "openai" &&
+      !isPersaiRuntimeVideoGenerateModelKey(normalized)
+    ) {
+      throw new BadRequestException(
+        `model must be one of ${PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS.join(", ")}, or null for OpenAI video generation`
+      );
+    }
+    return normalized;
   }
 }

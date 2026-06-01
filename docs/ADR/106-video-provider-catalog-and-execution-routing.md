@@ -388,6 +388,8 @@ Default for this ADR: choose conservative path unless duplicate real provider mo
 
 - Provider-gateway can execute normalized video requests through OpenAI/Runway/Kling in tests.
 
+**Status (2026-06-01): Completed.** Provider-gateway now dispatches `video_generate` by materialized provider id to OpenAI, Runway, or Kling. Runway and Kling adapters implement async submit/poll/download flows with normalized gateway results and provider/model keyed time-metered billing facts. OpenAI video model validation remains Sora-only; Runway/Kling accept non-empty catalog model ids. No runtime execution/fallback orchestration, API materialization/gating, or billing ledger work was included.
+
 ### Slice 8 - Runtime execution and fallback
 
 **Scope**

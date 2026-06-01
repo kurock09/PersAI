@@ -12,6 +12,7 @@ import { ProviderWebSearchController } from "./interface/http/provider-web-searc
 import { ProviderWarmupController } from "./interface/http/provider-warmup.controller";
 import { ElevenLabsProviderClient } from "./elevenlabs/elevenlabs-provider.client";
 import { AnthropicProviderClient } from "./anthropic/anthropic-provider.client";
+import { KlingProviderClient } from "./kling/kling-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderAudioTranscriptionService } from "./provider-audio-transcription.service";
@@ -29,6 +30,7 @@ import { ProviderWarmupService } from "./provider-warmup.service";
 import { YandexProviderClient } from "./yandex/yandex-provider.client";
 import { PdfMonkeyProviderClient } from "./pdfmonkey/pdfmonkey-provider.client";
 import { GammaProviderClient } from "./gamma/gamma-provider.client";
+import { RunwayProviderClient } from "./runway/runway-provider.client";
 
 @Module({
   controllers: [
@@ -48,6 +50,8 @@ import { GammaProviderClient } from "./gamma/gamma-provider.client";
     ElevenLabsProviderClient,
     OpenAIProviderClient,
     AnthropicProviderClient,
+    RunwayProviderClient,
+    KlingProviderClient,
     YandexProviderClient,
     PdfMonkeyProviderClient,
     GammaProviderClient,

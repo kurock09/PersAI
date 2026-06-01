@@ -2,6 +2,51 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-106 Slice 7 provider-gateway clients
+
+### What changed & why
+
+Baseline SHA at session start: `1e0a217f725172a955577198c7971d4d4b201cb3`.
+
+Implemented ADR-106 Slice 7 only through a synchronous subagent, with orchestrator review, correction, and verification. Provider-gateway now dispatches normalized `video_generate` requests by materialized provider id:
+
+- `openai` -> existing OpenAI video path, preserving Sora-only model validation.
+- `runway` -> new Runway async video adapter.
+- `kling` -> new KIE/Kling async video adapter.
+
+Runway uses the documented `X-Runway-Version: 2024-11-06` task flow and maps PersAI landscape/portrait sizes to the version-specific `1280:768` / `768:1280` ratios. Kling uses KIE file upload for reference images, task creation, polling, result URL download, and normalized video output. Both adapters return provider/model keyed time-metered billing facts for gateway results; end-to-end ledger attribution remains Slice 9.
+
+Review correction applied: the initial gateway model normalization accidentally allowed arbitrary OpenAI video model ids. This was fixed so OpenAI video remains limited to `sora-2` / `sora-2-pro`, while Runway/Kling accept non-empty catalog model ids.
+
+No Slice 8+ work was done: no runtime execution/fallback orchestration, no API materialization/gating changes, and no billing ledger changes.
+
+### Files touched
+
+`apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`; `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts`; `apps/provider-gateway/src/modules/providers/runway/runway-provider.client.ts`; `apps/provider-gateway/src/modules/providers/kling/kling-provider.client.ts`; focused provider-gateway tests; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`; `docs/ADR/106-video-provider-catalog-and-execution-routing.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx --test test/provider-video-generation.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx --test test/runway-provider.client.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx --test test/kling-provider.client.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- PASS: `corepack pnpm --filter @persai/provider-gateway run test`
+- PASS: `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Runtime still needs Slice 8 to call provider-gateway with provider-aware refs/fallback behavior.
+- Slice 8 live rollout should smoke-test real operator keys and reference image upload/download behavior, especially KIE/Kling wrapper semantics.
+- Slice 9 still needs downstream billing/ledger attribution to use provider/model facts end to end.
+
+### Deploy
+
+- PROVIDER-GATEWAY.
+
+### Next recommended step
+
+- ADR-106 Slice 8 only: update runtime `video_generate` execution to use materialized provider/secret refs and implement provider-aware video fallback. Do not start billing ledger work beyond preserving returned provider-gateway facts.
+
 ## 2026-06-01 (cont.) — ADR-106 Slice 6 runtime gating
 
 ### What changed & why
