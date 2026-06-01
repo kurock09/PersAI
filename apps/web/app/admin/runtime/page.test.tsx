@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdminRuntimeProviderSettingsState } from "@persai/contracts";
 import AdminRuntimePage, {
@@ -295,6 +295,79 @@ describe("AdminRuntimePage catalog picker", () => {
     expect(screen.getAllByLabelText("Billing mode")).toHaveLength(1);
     expect(screen.queryByLabelText("Input / 1M")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Price / operation")).toBeInTheDocument();
+  });
+
+  it("renders Runway and Kling catalog cards while keeping chat provider selectors OpenAI/Anthropic-only", async () => {
+    render(<AdminRuntimePage />);
+
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+
+    expect(screen.getByRole("heading", { name: "Runway" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Kling" })).toBeInTheDocument();
+    expect(screen.getAllByText("Video only").length).toBeGreaterThanOrEqual(2);
+
+    const providerSelects = screen.getAllByLabelText("Provider");
+    expect(providerSelects.length).toBeGreaterThan(0);
+    for (const select of providerSelects) {
+      const optionValues = within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent);
+      expect(optionValues).toEqual(["OpenAI", "Anthropic"]);
+    }
+  });
+
+  it("keeps Runway rows video-only with time-metered pricing defaults", async () => {
+    render(<AdminRuntimePage />);
+
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Add model" })[2]!);
+
+    const runwayHint = screen.getByText(/Runway is a video-only catalog provider/i);
+    expect(runwayHint).toBeInTheDocument();
+    const runwayEditor = runwayHint.closest("div");
+    expect(runwayEditor).not.toBeNull();
+    const runway = within(runwayEditor!);
+
+    expect(runway.getByLabelText("Billing mode")).toHaveValue("time_metered");
+    expect(runway.getByLabelText("video")).toBeChecked();
+    expect(runway.queryByLabelText("chat")).not.toBeInTheDocument();
+    expect(runway.queryByLabelText("image")).not.toBeInTheDocument();
+    expect(runway.queryByLabelText("speech_to_text")).not.toBeInTheDocument();
+    expect(runway.queryByLabelText("text_to_speech")).not.toBeInTheDocument();
+
+    fireEvent.change(runway.getByLabelText("Model key"), {
+      target: { value: "runway-gen-4" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(apiMocks.putAdminRuntimeProviderSettings).toHaveBeenCalledWith(
+        "token-1",
+        expect.any(Object)
+      )
+    );
+
+    const request = apiMocks.putAdminRuntimeProviderSettings.mock.calls.at(-1)?.[1];
+    expect(request.availableModelCatalogByProvider.runway.models).toHaveLength(1);
+    expect(request.availableModelCatalogByProvider.runway.models[0]).toMatchObject({
+      model: "runway-gen-4",
+      capabilities: ["video"],
+      billingMode: "time_metered"
+    });
+    expect(request.availableModelsByProvider).toEqual({
+      openai: ["gpt-5.4"],
+      anthropic: []
+    });
   });
 });
 

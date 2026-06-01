@@ -6,6 +6,7 @@ import { ChevronDown, Loader2, Save, Server } from "lucide-react";
 import type {
   AdminRuntimeProviderSettingsRequest,
   AdminRuntimeProviderSettingsState,
+  ManagedRuntimeCatalogProvider,
   ManagedRuntimeProvider,
   RuntimeProviderModelCatalogByProviderState,
   RuntimeProviderModelProfileState
@@ -131,14 +132,34 @@ function modeLabel(mode: AdminRuntimeProviderSettingsState["mode"]): string {
   return mode === "global_settings" ? "Global settings" : "Unconfigured default";
 }
 
-function providerLabel(provider: ManagedRuntimeProvider): string {
-  return provider === "openai" ? "OpenAI" : "Anthropic";
+function providerLabel(provider: ManagedRuntimeProvider | ManagedRuntimeCatalogProvider): string {
+  switch (provider) {
+    case "openai":
+      return "OpenAI";
+    case "anthropic":
+      return "Anthropic";
+    case "runway":
+      return "Runway";
+    case "kling":
+      return "Kling";
+  }
 }
 
-const MANAGED_RUNTIME_PROVIDERS = [
+const CHAT_ROUTING_PROVIDERS = [
   "openai",
   "anthropic"
 ] as const satisfies readonly ManagedRuntimeProvider[];
+
+const MANAGED_CATALOG_PROVIDERS = [
+  "openai",
+  "anthropic",
+  "runway",
+  "kling"
+] as const satisfies readonly ManagedRuntimeCatalogProvider[];
+
+function isVideoOnlyCatalogProvider(provider: ManagedRuntimeCatalogProvider): boolean {
+  return provider === "runway" || provider === "kling";
+}
 
 function clampCatalogIndex(index: number, length: number): number {
   if (length <= 0) {
@@ -444,6 +465,9 @@ function inferBillingModeForCapabilities(
   if (capabilities.includes("text_to_speech")) {
     return "text_chars_metered";
   }
+  if (capabilities.includes("video")) {
+    return "time_metered";
+  }
   return "fixed_operation";
 }
 
@@ -708,11 +732,11 @@ export default function AdminRuntimePage() {
   const [modelCatalogByProvider, setModelCatalogByProvider] =
     useState<RuntimeProviderModelCatalogByProviderState>(createEmptyCatalog());
   const [selectedCatalogIndexByProvider, setSelectedCatalogIndexByProvider] = useState<
-    Record<ManagedRuntimeProvider, number>
-  >({ openai: 0, anthropic: 0 });
+    Record<ManagedRuntimeCatalogProvider, number>
+  >({ openai: 0, anthropic: 0, runway: 0, kling: 0 });
   const [newCatalogCapabilityByProvider, setNewCatalogCapabilityByProvider] = useState<
-    Record<ManagedRuntimeProvider, RuntimeProviderModelProfileState["capabilities"][number]>
-  >({ openai: "chat", anthropic: "chat" });
+    Record<ManagedRuntimeCatalogProvider, RuntimeProviderModelProfileState["capabilities"][number]>
+  >({ openai: "chat", anthropic: "chat", runway: "video", kling: "video" });
   modelCatalogRef.current = modelCatalogByProvider;
 
   useEffect(() => {
@@ -721,7 +745,9 @@ export default function AdminRuntimePage() {
       anthropic: clampCatalogIndex(
         current.anthropic,
         modelCatalogByProvider.anthropic.models.length
-      )
+      ),
+      runway: clampCatalogIndex(current.runway, modelCatalogByProvider.runway.models.length),
+      kling: clampCatalogIndex(current.kling, modelCatalogByProvider.kling.models.length)
     }));
   }, [modelCatalogByProvider]);
 
@@ -925,7 +951,7 @@ export default function AdminRuntimePage() {
 
   const updateCatalogProfile = useCallback(
     (
-      provider: ManagedRuntimeProvider,
+      provider: ManagedRuntimeCatalogProvider,
       index: number,
       updater: (profile: RuntimeProviderModelProfileState) => RuntimeProviderModelProfileState
     ) => {
@@ -943,7 +969,7 @@ export default function AdminRuntimePage() {
 
   const addCatalogProfile = useCallback(
     (
-      provider: ManagedRuntimeProvider,
+      provider: ManagedRuntimeCatalogProvider,
       capability: RuntimeProviderModelProfileState["capabilities"][number]
     ) => {
       setModelCatalogByProvider((current) => {
@@ -955,7 +981,10 @@ export default function AdminRuntimePage() {
         return {
           ...current,
           [provider]: {
-            models: [...current[provider].models, createModelProfile(capability)]
+            models: [
+              ...current[provider].models,
+              createModelProfile(isVideoOnlyCatalogProvider(provider) ? "video" : capability)
+            ]
           }
         };
       });
@@ -963,57 +992,63 @@ export default function AdminRuntimePage() {
     []
   );
 
-  const duplicateCatalogProfile = useCallback((provider: ManagedRuntimeProvider, index: number) => {
-    setModelCatalogByProvider((current) => {
-      const source = current[provider].models[index];
-      if (!source) {
-        return current;
-      }
-      const duplicate = createInactiveDuplicateProfile(source);
-      const nextModels = [...current[provider].models];
-      nextModels.splice(index + 1, 0, duplicate);
-      setSelectedCatalogIndexByProvider((selected) => ({
-        ...selected,
-        [provider]: index + 1
-      }));
-      return {
-        ...current,
-        [provider]: { models: nextModels }
-      };
-    });
-  }, []);
-
-  const archiveCatalogProfile = useCallback((provider: ManagedRuntimeProvider, index: number) => {
-    setModelCatalogByProvider((current) => {
-      const source = current[provider].models[index];
-      if (!source) {
-        return current;
-      }
-      if (source.model.trim().length === 0) {
-        const nextModels = current[provider].models.filter(
-          (_, profileIndex) => profileIndex !== index
-        );
+  const duplicateCatalogProfile = useCallback(
+    (provider: ManagedRuntimeCatalogProvider, index: number) => {
+      setModelCatalogByProvider((current) => {
+        const source = current[provider].models[index];
+        if (!source) {
+          return current;
+        }
+        const duplicate = createInactiveDuplicateProfile(source);
+        const nextModels = [...current[provider].models];
+        nextModels.splice(index + 1, 0, duplicate);
         setSelectedCatalogIndexByProvider((selected) => ({
           ...selected,
-          [provider]: clampCatalogIndex(selected[provider], nextModels.length)
+          [provider]: index + 1
         }));
+        return {
+          ...current,
+          [provider]: { models: nextModels }
+        };
+      });
+    },
+    []
+  );
+
+  const archiveCatalogProfile = useCallback(
+    (provider: ManagedRuntimeCatalogProvider, index: number) => {
+      setModelCatalogByProvider((current) => {
+        const source = current[provider].models[index];
+        if (!source) {
+          return current;
+        }
+        if (source.model.trim().length === 0) {
+          const nextModels = current[provider].models.filter(
+            (_, profileIndex) => profileIndex !== index
+          );
+          setSelectedCatalogIndexByProvider((selected) => ({
+            ...selected,
+            [provider]: clampCatalogIndex(selected[provider], nextModels.length)
+          }));
+          return {
+            ...current,
+            [provider]: {
+              models: nextModels
+            }
+          };
+        }
+        const nextModels = [...current[provider].models];
+        nextModels[index] = createArchivedProfile(source);
         return {
           ...current,
           [provider]: {
             models: nextModels
           }
         };
-      }
-      const nextModels = [...current[provider].models];
-      nextModels[index] = createArchivedProfile(source);
-      return {
-        ...current,
-        [provider]: {
-          models: nextModels
-        }
-      };
-    });
-  }, []);
+      });
+    },
+    []
+  );
 
   if (loading) {
     return (
@@ -1041,6 +1076,10 @@ export default function AdminRuntimePage() {
           <span>
             Plan-level tier selection and native context-hydration budgets still live in{" "}
             <span className="font-mono text-text">Admin &gt; Plans</span>.
+          </span>
+          <span>
+            Runway and Kling catalog rows are operator readiness only in this slice and do not make
+            video execution live by themselves.
           </span>
           {settings.notes.map((note) => (
             <span key={note}>{note}</span>
@@ -1141,7 +1180,7 @@ export default function AdminRuntimePage() {
 
       <Fold t="Provider Model Catalog">
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-          {MANAGED_RUNTIME_PROVIDERS.map((provider) => {
+          {MANAGED_CATALOG_PROVIDERS.map((provider) => {
             const models = modelCatalogByProvider[provider].models;
             const selectedIndex = clampCatalogIndex(
               selectedCatalogIndexByProvider[provider],
@@ -1149,6 +1188,7 @@ export default function AdminRuntimePage() {
             );
             const selectedProfile = models[selectedIndex] ?? null;
             const catalogEntryLabel = `${providerLabel(provider)} catalog entry`;
+            const videoOnlyProvider = isVideoOnlyCatalogProvider(provider);
 
             return (
               <Card key={provider} title={providerLabel(provider)}>
@@ -1179,24 +1219,35 @@ export default function AdminRuntimePage() {
                       />
                     </div>
                     <div className="flex flex-wrap items-end gap-1.5">
-                      <SelectField
-                        label="New entry type"
-                        value={newCatalogCapabilityByProvider[provider]}
-                        onChange={(value) =>
-                          setNewCatalogCapabilityByProvider((current) => ({
-                            ...current,
-                            [provider]:
-                              value as RuntimeProviderModelProfileState["capabilities"][number]
-                          }))
-                        }
-                        options={[
-                          { value: "chat", label: "Chat" },
-                          { value: "image", label: "Image" },
-                          { value: "video", label: "Video" },
-                          { value: "speech_to_text", label: "Speech to text" },
-                          { value: "text_to_speech", label: "Text to speech" }
-                        ]}
-                      />
+                      {videoOnlyProvider ? (
+                        <div>
+                          <label className="mb-1 block text-[10px] font-medium text-text-muted">
+                            New entry type
+                          </label>
+                          <div className="rounded border border-border/60 bg-surface-raised px-2.5 py-2 text-[10px] text-text-muted">
+                            Video only
+                          </div>
+                        </div>
+                      ) : (
+                        <SelectField
+                          label="New entry type"
+                          value={newCatalogCapabilityByProvider[provider]}
+                          onChange={(value) =>
+                            setNewCatalogCapabilityByProvider((current) => ({
+                              ...current,
+                              [provider]:
+                                value as RuntimeProviderModelProfileState["capabilities"][number]
+                            }))
+                          }
+                          options={[
+                            { value: "chat", label: "Chat" },
+                            { value: "image", label: "Image" },
+                            { value: "video", label: "Video" },
+                            { value: "speech_to_text", label: "Speech to text" },
+                            { value: "text_to_speech", label: "Text to speech" }
+                          ]}
+                        />
+                      )}
                       <button
                         type="button"
                         onClick={() =>
@@ -1211,8 +1262,10 @@ export default function AdminRuntimePage() {
 
                   {selectedProfile === null ? (
                     <p className="rounded border border-dashed border-border/60 bg-surface-raised/40 px-2.5 py-3 text-[10px] text-text-subtle">
-                      No catalog entries yet. Choose a type and click Add model to create the first
-                      version row for {providerLabel(provider)}.
+                      No catalog entries yet.{" "}
+                      {videoOnlyProvider
+                        ? `Click Add model to create the first video catalog row for ${providerLabel(provider)}.`
+                        : `Choose a type and click Add model to create the first version row for ${providerLabel(provider)}.`}
                     </p>
                   ) : (
                     <ModelProfileEditor
@@ -1236,9 +1289,9 @@ export default function AdminRuntimePage() {
                   )}
 
                   <p className="text-[10px] text-text-subtle">
-                    Active `chat` rows feed the same downstream model picks as before. Inactive rows
-                    stay in the catalog for version history and do not appear in selectors. Archive
-                    versions instead of deleting historical truth.
+                    {videoOnlyProvider
+                      ? `${providerLabel(provider)} rows stay video-only here and do not appear in primary, fallback, or router chat selectors. Catalog readiness in this page does not enable live execution by itself.`
+                      : "Active `chat` rows feed the same downstream model picks as before. Inactive rows stay in the catalog for version history and do not appear in selectors. Archive versions instead of deleting historical truth."}
                   </p>
                 </div>
               </Card>
@@ -1571,7 +1624,7 @@ function ModelProfileEditor({
   onDuplicate,
   onArchive
 }: {
-  provider: ManagedRuntimeProvider;
+  provider: ManagedRuntimeCatalogProvider;
   profile: RuntimeProviderModelProfileState;
   onChange: (profile: RuntimeProviderModelProfileState) => void;
   onProviderPriceMetadataChange: (merge: RuntimeProviderPriceMetadataMerger) => void;
@@ -1580,6 +1633,10 @@ function ModelProfileEditor({
 }) {
   const isDiscardableDraft = profile.model.trim().length === 0;
   const archiveActionDisabled = !isDiscardableDraft && !profile.active;
+  const videoOnlyProvider = isVideoOnlyCatalogProvider(provider);
+  const editableCapabilities = videoOnlyProvider
+    ? (["video"] as const)
+    : (["chat", "image", "video", "speech_to_text", "text_to_speech"] as const);
 
   const setCapabilities = (
     capability: RuntimeProviderModelProfileState["capabilities"][number]
@@ -1683,23 +1740,29 @@ function ModelProfileEditor({
         </label>
       </div>
 
+      {videoOnlyProvider && (
+        <p className="text-[10px] text-text-subtle">
+          {providerLabel(provider)} is a video-only catalog provider in ADR-106 Slice 3. Keep
+          capability scoped to video here; chat routing remains OpenAI/Anthropic-only.
+        </p>
+      )}
+
       <div className="flex flex-wrap gap-2">
-        {(["chat", "image", "video", "speech_to_text", "text_to_speech"] as const).map(
-          (capability) => (
-            <label
-              key={capability}
-              className="flex items-center gap-1 rounded border border-border/60 bg-surface-raised px-2 py-1 text-[10px] text-text-muted"
-            >
-              <input
-                type="checkbox"
-                checked={profile.capabilities.includes(capability)}
-                onChange={() => setCapabilities(capability)}
-                className="h-3.5 w-3.5 rounded border-border accent-accent"
-              />
-              {capability}
-            </label>
-          )
-        )}
+        {editableCapabilities.map((capability) => (
+          <label
+            key={capability}
+            className="flex items-center gap-1 rounded border border-border/60 bg-surface-raised px-2 py-1 text-[10px] text-text-muted"
+          >
+            <input
+              type="checkbox"
+              checked={profile.capabilities.includes(capability)}
+              onChange={() => setCapabilities(capability)}
+              disabled={videoOnlyProvider}
+              className="h-3.5 w-3.5 rounded border-border accent-accent"
+            />
+            {capability}
+          </label>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

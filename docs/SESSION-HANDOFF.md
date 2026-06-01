@@ -2,6 +2,41 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-106 Slice 3 Admin Runtime catalog UI
+
+### What changed & why
+
+Baseline SHA at session start: `88e52332f9c9d3e7dd9cf6fb9a0e2f5d27dfc2bf`.
+
+Implemented ADR-106 Slice 3 only through a synchronous subagent, with orchestrator diff-review and verification. `Admin > Runtime` now renders provider model catalog cards for OpenAI, Anthropic, Runway, and Kling. Runway/Kling catalog rows are UI-restricted to video-only capabilities, and new video rows default to `time_metered` pricing metadata. Page copy states that Runway/Kling catalog readiness does not make live video execution available.
+
+Primary/fallback/router chat provider selectors remain OpenAI/Anthropic-only. No API files changed.
+
+No Slice 4+ work was done: no plan model selection, no `video_generate` credential materialization decoupling, no runtime/provider-gateway execution widening, no provider clients, and no billing/ledger changes. `image_generate -> OpenAI` and `image_edit -> OpenAI` behavior remain unchanged.
+
+### Files touched
+
+`apps/web/app/admin/runtime/page.tsx`; `apps/web/app/admin/runtime/page.test.tsx`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`; `docs/ADR/106-video-provider-catalog-and-execution-routing.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/page.test.tsx --config vitest.config.ts`
+- PASS: `corepack pnpm --filter @persai/web run typecheck`
+- PASS: `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Plans still cannot select Runway/Kling video models. Slice 4 must resolve bare model-key ambiguity across providers before any live provider selection is claimed.
+- Runway/Kling remain non-executable until later materialization, runtime gate, provider-gateway, runtime execution, and billing slices land.
+
+### Deploy
+
+- WEB.
+
+### Next recommended step
+
+- ADR-106 Slice 4 only: make plan `videoGenerateModelKey` / fallback validation resolve video catalog rows across OpenAI/Runway/Kling. Choose the conservative duplicate-model policy before implementation; do not start materialization or runtime execution.
+
 ## 2026-06-01 (cont.) — ADR-106 Slice 2 Admin Tools video credentials
 
 ### What changed & why

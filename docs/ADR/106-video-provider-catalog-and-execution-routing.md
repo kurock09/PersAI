@@ -261,6 +261,8 @@ Do not present the feature as production-ready until the live production path is
 
 - Admin can configure active Runway/Kling video model rows with pricing metadata.
 
+**Status (2026-06-01): Completed.** `Admin > Runtime` now renders Runway/Kling catalog cards alongside OpenAI/Anthropic. Runway/Kling rows are video-only in the UI, new video rows default to `time_metered`, and chat provider selectors remain OpenAI/Anthropic-only. No plan selection, materialization, runtime/provider-gateway execution, provider clients, or billing work was included.
+
 ### Slice 4 - Plan validation and model selection
 
 **Scope**
