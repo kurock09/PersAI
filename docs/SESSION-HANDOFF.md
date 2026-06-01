@@ -2,6 +2,45 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-106 Slice 5 video credential materialization
+
+### What changed & why
+
+Baseline SHA at session start: `90aa35144020091fb3debfe59f962dd1d05d9f58`.
+
+Implemented ADR-106 Slice 5 only through a synchronous subagent, with orchestrator review and verification. Published assistant bundle materialization now resolves `video_generate` provider refs from the selected active video catalog row:
+
+- OpenAI video -> existing OpenAI media credential `tool/image_generate/api-key`
+- Runway video -> `tool/video_generate/runway/api-key`
+- Kling video -> `tool/video_generate/kling/api-key`
+
+Cross-provider video fallback refs carry their own provider/secret refs. Raw Runway/Kling tool credentials are skipped in the generic tool-credential loop so they only appear as provider-specific `video_generate` primary/fallback refs, not as accidental top-level refs. Missing selected video models now fail clearly during materialization.
+
+`image_generate` and `image_edit` materialization remain on the existing OpenAI image credential path. No Slice 6+ work was done: no runtime/provider-gateway execution widening, no provider clients, no runtime tool policy changes, and no billing/ledger changes.
+
+### Files touched
+
+`apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`; `apps/api/test/materialize-assistant-published-version.service.test.ts`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`; `docs/API-BOUNDARY.md`; `docs/ADR/106-video-provider-catalog-and-execution-routing.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/materialize-assistant-published-version.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Runtime/API execution gates may still reject or hide non-OpenAI video refs until Slice 6 intentionally widens those policies.
+- Provider-gateway still has no Runway/Kling clients; live provider dispatch remains later slices.
+
+### Deploy
+
+- API.
+
+### Next recommended step
+
+- ADR-106 Slice 6 only: widen runtime contract/native gating/API runtime tool policy to allow configured OpenAI/Runway/Kling video refs while keeping image provider constants unchanged. Do not add provider clients or provider-gateway execution.
+
 ## 2026-06-01 (cont.) — ADR-106 Slice 4 plan video model validation
 
 ### What changed & why

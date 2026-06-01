@@ -327,6 +327,8 @@ Default for this ADR: choose conservative path unless duplicate real provider mo
 
 - Runtime bundle carries honest video provider credential refs independent of image credentials.
 
+**Status (2026-06-01): Completed.** Materialization now resolves `video_generate` credential refs from the selected active video catalog provider: OpenAI video keeps the existing OpenAI media credential, while Runway/Kling use their dedicated video provider credential ids. Cross-provider video fallbacks materialize provider-specific refs. Image generate/edit materialization remains unchanged. No runtime/provider-gateway execution gates, provider clients, or billing work was included.
+
 ### Slice 6 - Runtime contract and native gating
 
 **Scope**

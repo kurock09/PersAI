@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { resolveAllowedPlanPrimaryModelKey } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
+import {
+  buildImageEditToolCredentialRef,
+  buildImageGenerateToolCredentialRef,
+  buildVideoGenerateToolCredentialRef,
+  resolveAllowedPlanCapabilityModelKey,
+  resolveAllowedPlanPrimaryModelKey,
+  resolveVideoGenerateProviderSelection
+} from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
+import { buildToolCredentialSecretRef } from "../src/modules/workspace-management/application/tool-credential-settings";
 
 async function run(): Promise<void> {
   const adminManagedProfile = {
@@ -102,6 +110,54 @@ async function run(): Promise<void> {
             }
           }
         ]
+      },
+      runway: {
+        models: [
+          {
+            model: "gen4-turbo",
+            capabilities: ["video"],
+            active: true,
+            billingMode: "time_metered",
+            effectiveFrom: null,
+            effectiveTo: null,
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: {
+              currency: "USD",
+              tokenPricing: null,
+              timePricing: { unit: "second", pricePerUnit: 0 },
+              fixedOperationPricing: null,
+              tieredOperationPricing: null
+            }
+          }
+        ]
+      },
+      kling: {
+        models: [
+          {
+            model: "kling-v2-master",
+            capabilities: ["video"],
+            active: true,
+            billingMode: "time_metered",
+            effectiveFrom: null,
+            effectiveTo: null,
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: {
+              currency: "USD",
+              tokenPricing: null,
+              timePricing: { unit: "second", pricePerUnit: 0 },
+              fixedOperationPricing: null,
+              tieredOperationPricing: null
+            }
+          }
+        ]
       }
     },
     primary: {
@@ -152,7 +208,9 @@ async function run(): Promise<void> {
         },
         availableModelCatalogByProvider: {
           openai: { models: [] },
-          anthropic: { models: [] }
+          anthropic: { models: [] },
+          runway: { models: [] },
+          kling: { models: [] }
         },
         primary: null,
         fallback: null,
@@ -161,6 +219,179 @@ async function run(): Promise<void> {
       planPrimaryModelKey: "gpt-4.1-mini"
     }),
     "gpt-4.1-mini"
+  );
+
+  assert.equal(
+    resolveAllowedPlanCapabilityModelKey({
+      runtimeProviderProfile: adminManagedProfile,
+      planModelKey: "gpt-image-1.5",
+      capability: "image"
+    }),
+    "gpt-image-1.5"
+  );
+  assert.equal(
+    resolveAllowedPlanCapabilityModelKey({
+      runtimeProviderProfile: adminManagedProfile,
+      planModelKey: "gen4-turbo",
+      capability: "image"
+    }),
+    null
+  );
+  assert.equal(
+    resolveAllowedPlanCapabilityModelKey({
+      runtimeProviderProfile: adminManagedProfile,
+      planModelKey: "gen4-turbo",
+      capability: "video"
+    }),
+    "gen4-turbo"
+  );
+  assert.equal(
+    resolveAllowedPlanCapabilityModelKey({
+      runtimeProviderProfile: adminManagedProfile,
+      planModelKey: "kling-v2-master",
+      capability: "video"
+    }),
+    "kling-v2-master"
+  );
+
+  assert.deepEqual(
+    resolveVideoGenerateProviderSelection({
+      runtimeProviderProfile: adminManagedProfile,
+      modelKey: "sora-2-pro"
+    }),
+    {
+      providerId: "openai",
+      modelKey: "sora-2-pro"
+    }
+  );
+  assert.deepEqual(
+    resolveVideoGenerateProviderSelection({
+      runtimeProviderProfile: adminManagedProfile,
+      modelKey: "gen4-turbo"
+    }),
+    {
+      providerId: "runway",
+      modelKey: "gen4-turbo"
+    }
+  );
+  assert.deepEqual(
+    resolveVideoGenerateProviderSelection({
+      runtimeProviderProfile: adminManagedProfile,
+      modelKey: "kling-v2-master"
+    }),
+    {
+      providerId: "kling",
+      modelKey: "kling-v2-master"
+    }
+  );
+
+  const openAiMediaRef = {
+    ...buildToolCredentialSecretRef("tool_image_generate"),
+    configured: true,
+    providerId: "openai",
+    modelKey: "gpt-image-1.5"
+  };
+  const materializedImageGenerateRef = buildImageGenerateToolCredentialRef({
+    imageCredentialRef: openAiMediaRef,
+    imageGenerateModelKey: "gpt-image-1.5",
+    imageGenerateFallbackModelKey: null
+  });
+  const materializedImageEditRef = buildImageEditToolCredentialRef({
+    imageCredentialRef: openAiMediaRef,
+    imageEditModelKey: "gpt-image-1.5",
+    imageEditFallbackModelKey: null
+  });
+
+  assert.equal(
+    materializedImageGenerateRef.secretRef.id,
+    "tool/image_generate/api-key",
+    "image_generate keeps the existing OpenAI media credential"
+  );
+  assert.equal(materializedImageGenerateRef.providerId, "openai");
+  assert.equal(materializedImageGenerateRef.modelKey, "gpt-image-1.5");
+  assert.equal(
+    materializedImageEditRef.secretRef.id,
+    "tool/image_generate/api-key",
+    "image_edit keeps the existing OpenAI media credential"
+  );
+  assert.equal(materializedImageEditRef.providerId, "openai");
+  assert.equal(materializedImageEditRef.modelKey, "gpt-image-1.5");
+
+  const materializedOpenAiVideoRef = buildVideoGenerateToolCredentialRef({
+    runtimeProviderProfile: adminManagedProfile,
+    keyMetadata: {
+      tool_image_generate: { configured: true },
+      tool_video_generate_runway: { configured: false },
+      tool_video_generate_kling: { configured: false }
+    },
+    imageCredentialRef: openAiMediaRef,
+    videoGenerateModelKey: "sora-2-pro",
+    videoGenerateFallbackModelKey: null
+  });
+  assert.equal(materializedOpenAiVideoRef.secretRef.id, "tool/image_generate/api-key");
+  assert.equal(materializedOpenAiVideoRef.providerId, "openai");
+  assert.equal(materializedOpenAiVideoRef.modelKey, "sora-2-pro");
+
+  const materializedRunwayVideoRef = buildVideoGenerateToolCredentialRef({
+    runtimeProviderProfile: adminManagedProfile,
+    keyMetadata: {
+      tool_image_generate: { configured: true },
+      tool_video_generate_runway: { configured: false },
+      tool_video_generate_kling: { configured: false }
+    },
+    imageCredentialRef: openAiMediaRef,
+    videoGenerateModelKey: "gen4-turbo",
+    videoGenerateFallbackModelKey: null
+  });
+  assert.equal(materializedRunwayVideoRef.secretRef.id, "tool/video_generate/runway/api-key");
+  assert.equal(materializedRunwayVideoRef.providerId, "runway");
+  assert.equal(materializedRunwayVideoRef.modelKey, "gen4-turbo");
+
+  const materializedKlingVideoRef = buildVideoGenerateToolCredentialRef({
+    runtimeProviderProfile: adminManagedProfile,
+    keyMetadata: {
+      tool_image_generate: { configured: true },
+      tool_video_generate_runway: { configured: false },
+      tool_video_generate_kling: { configured: true }
+    },
+    imageCredentialRef: openAiMediaRef,
+    videoGenerateModelKey: "kling-v2-master",
+    videoGenerateFallbackModelKey: null
+  });
+  assert.equal(materializedKlingVideoRef.secretRef.id, "tool/video_generate/kling/api-key");
+  assert.equal(materializedKlingVideoRef.providerId, "kling");
+  assert.equal(materializedKlingVideoRef.modelKey, "kling-v2-master");
+  assert.equal(materializedKlingVideoRef.configured, true);
+
+  const crossProviderFallbackRef = buildVideoGenerateToolCredentialRef({
+    runtimeProviderProfile: adminManagedProfile,
+    keyMetadata: {
+      tool_image_generate: { configured: true },
+      tool_video_generate_runway: { configured: false },
+      tool_video_generate_kling: { configured: true }
+    },
+    imageCredentialRef: openAiMediaRef,
+    videoGenerateModelKey: "sora-2-pro",
+    videoGenerateFallbackModelKey: "kling-v2-master"
+  });
+  assert.equal(crossProviderFallbackRef.secretRef.id, "tool/image_generate/api-key");
+  assert.equal(crossProviderFallbackRef.providerId, "openai");
+  assert.equal(crossProviderFallbackRef.modelKey, "sora-2-pro");
+  assert.deepEqual(
+    crossProviderFallbackRef.fallbacks?.map((ref) => ({
+      secretId: ref.secretRef.id,
+      providerId: ref.providerId
+    })),
+    [{ secretId: "tool/video_generate/kling/api-key", providerId: "kling" }]
+  );
+
+  assert.throws(
+    () =>
+      resolveVideoGenerateProviderSelection({
+        runtimeProviderProfile: adminManagedProfile,
+        modelKey: "missing-video-model"
+      }),
+    /not present in the active runtime video catalog/
   );
 }
 

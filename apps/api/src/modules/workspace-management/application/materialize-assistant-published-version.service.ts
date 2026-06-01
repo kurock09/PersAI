@@ -34,7 +34,9 @@ import { buildPlatformRuntimeProviderProfileState } from "./platform-runtime-pro
 import {
   getRuntimeProviderCatalogModelsByCapability,
   resolveRuntimeProviderProfileState,
-  type RuntimeProviderProfileState
+  VIDEO_GENERATE_PROVIDERS,
+  type RuntimeProviderProfileState,
+  type VideoGenerateRuntimeProvider
 } from "./runtime-provider-profile";
 import { resolveRuntimeToolPolicies } from "./runtime-tool-policy";
 import { buildRuntimeBrowserConfig } from "./runtime-browser";
@@ -55,6 +57,7 @@ import {
   TOOL_CODE_BY_CREDENTIAL_KEY,
   TOOL_DEFAULT_PROVIDER,
   TOOL_PROVIDER_OPTIONS,
+  type ToolCredentialKey,
   buildToolCredentialSecretRef,
   providerStorageKey
 } from "./tool-credential-settings";
@@ -167,7 +170,7 @@ export function resolveAllowedPlanPrimaryModelKey(params: {
   });
 }
 
-function resolveAllowedPlanCapabilityModelKey(params: {
+export function resolveAllowedPlanCapabilityModelKey(params: {
   runtimeProviderProfile: RuntimeProviderProfileState;
   planModelKey: string | null;
   capability: "image" | "video";
@@ -180,11 +183,170 @@ function resolveAllowedPlanCapabilityModelKey(params: {
     return normalized;
   }
   const catalog = params.runtimeProviderProfile.availableModelCatalogByProvider;
-  const models = [
-    ...getRuntimeProviderCatalogModelsByCapability(catalog.openai, params.capability),
-    ...getRuntimeProviderCatalogModelsByCapability(catalog.anthropic, params.capability)
-  ];
+  const providers =
+    params.capability === "video" ? VIDEO_GENERATE_PROVIDERS : (["openai", "anthropic"] as const);
+  const models = providers.flatMap((providerId) =>
+    getRuntimeProviderCatalogModelsByCapability(catalog[providerId], params.capability)
+  );
   return models.includes(normalized) ? normalized : null;
+}
+
+export function resolveVideoGenerateProviderSelection(params: {
+  runtimeProviderProfile: RuntimeProviderProfileState;
+  modelKey: string;
+}): {
+  providerId: VideoGenerateRuntimeProvider;
+  modelKey: string;
+} {
+  if (params.runtimeProviderProfile.mode !== "admin_managed") {
+    throw new Error(
+      `Selected video model "${params.modelKey}" cannot be resolved without an admin-managed runtime provider catalog.`
+    );
+  }
+  const matches = VIDEO_GENERATE_PROVIDERS.filter((providerId) =>
+    params.runtimeProviderProfile.availableModelCatalogByProvider[providerId].models.some(
+      (profile) =>
+        profile.active &&
+        profile.model === params.modelKey &&
+        profile.capabilities.includes("video")
+    )
+  );
+  if (matches.length === 1) {
+    const providerId = matches[0];
+    if (providerId === undefined) {
+      throw new Error(
+        `Selected video model "${params.modelKey}" could not be resolved from the active runtime video catalog.`
+      );
+    }
+    return {
+      providerId,
+      modelKey: params.modelKey
+    };
+  }
+  if (matches.length === 0) {
+    throw new Error(
+      `Selected video model "${params.modelKey}" is not present in the active runtime video catalog.`
+    );
+  }
+  throw new Error(
+    `Selected video model "${params.modelKey}" resolves ambiguously across active video providers: ${matches.join(", ")}.`
+  );
+}
+
+const VIDEO_PROVIDER_CREDENTIAL_KEY: Record<VideoGenerateRuntimeProvider, ToolCredentialKey> = {
+  openai: "tool_image_generate",
+  runway: "tool_video_generate_runway",
+  kling: "tool_video_generate_kling"
+};
+
+function cloneToolCredentialRef(
+  ref: AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string]
+): AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string] {
+  return {
+    ...ref,
+    secretRef: { ...ref.secretRef },
+    ...(ref.fallbacks
+      ? {
+          fallbacks: ref.fallbacks.map((fallback) => ({
+            ...fallback,
+            secretRef: { ...fallback.secretRef }
+          }))
+        }
+      : {})
+  };
+}
+
+function buildMediaModelFallbackPatch(
+  ref: AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string],
+  fallbackModelKey: string | null
+):
+  | Pick<AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string], "fallbacks">
+  | Record<never, never> {
+  if (fallbackModelKey === null) {
+    return {};
+  }
+  const fallback = cloneToolCredentialRef(ref);
+  return {
+    fallbacks: [
+      {
+        ...fallback,
+        modelKey: fallbackModelKey
+      }
+    ]
+  };
+}
+
+export function buildImageGenerateToolCredentialRef(params: {
+  imageCredentialRef: AssistantRuntimeBundleToolCredentialRef;
+  imageGenerateModelKey: string | null;
+  imageGenerateFallbackModelKey: string | null;
+}): AssistantRuntimeBundleToolCredentialRef {
+  return {
+    ...params.imageCredentialRef,
+    ...(params.imageGenerateModelKey !== null ? { modelKey: params.imageGenerateModelKey } : {}),
+    ...buildMediaModelFallbackPatch(params.imageCredentialRef, params.imageGenerateFallbackModelKey)
+  };
+}
+
+export function buildImageEditToolCredentialRef(params: {
+  imageCredentialRef: AssistantRuntimeBundleToolCredentialRef;
+  imageEditModelKey: string | null;
+  imageEditFallbackModelKey: string | null;
+}): AssistantRuntimeBundleToolCredentialRef {
+  return {
+    ...cloneToolCredentialRef(params.imageCredentialRef),
+    ...(params.imageEditModelKey !== null ? { modelKey: params.imageEditModelKey } : {}),
+    ...buildMediaModelFallbackPatch(params.imageCredentialRef, params.imageEditFallbackModelKey)
+  };
+}
+
+export function buildVideoGenerateToolCredentialRef(params: {
+  runtimeProviderProfile: RuntimeProviderProfileState;
+  keyMetadata: Record<string, { configured: boolean } | undefined>;
+  imageCredentialRef: AssistantRuntimeBundleToolCredentialRef;
+  videoGenerateModelKey: string | null;
+  videoGenerateFallbackModelKey: string | null;
+}): AssistantRuntimeBundleToolCredentialRef {
+  const primaryRef =
+    params.videoGenerateModelKey === null
+      ? cloneToolCredentialRef(params.imageCredentialRef)
+      : buildVideoProviderToolCredentialRef({
+          runtimeProviderProfile: params.runtimeProviderProfile,
+          keyMetadata: params.keyMetadata,
+          modelKey: params.videoGenerateModelKey
+        });
+  if (params.videoGenerateFallbackModelKey === null) {
+    return primaryRef;
+  }
+  return {
+    ...primaryRef,
+    fallbacks: [
+      buildVideoProviderToolCredentialRef({
+        runtimeProviderProfile: params.runtimeProviderProfile,
+        keyMetadata: params.keyMetadata,
+        modelKey: params.videoGenerateFallbackModelKey
+      })
+    ]
+  };
+}
+
+function buildVideoProviderToolCredentialRef(params: {
+  runtimeProviderProfile: RuntimeProviderProfileState;
+  keyMetadata: Record<string, { configured: boolean } | undefined>;
+  modelKey: string;
+}): AssistantRuntimeBundleToolCredentialRef {
+  const selection = resolveVideoGenerateProviderSelection({
+    runtimeProviderProfile: params.runtimeProviderProfile,
+    modelKey: params.modelKey
+  });
+  const credentialKey = VIDEO_PROVIDER_CREDENTIAL_KEY[selection.providerId];
+  const ref = buildToolCredentialSecretRef(credentialKey);
+  return {
+    ...ref,
+    configured: params.keyMetadata[credentialKey]?.configured ?? false,
+    providerId: selection.providerId,
+    modelKey: selection.modelKey
+  };
 }
 
 @Injectable()
@@ -423,16 +585,16 @@ export class MaterializeAssistantPublishedVersionService {
       );
     }
     if (rawPlanVideoGenerateModelKey !== null && planVideoGenerateModelKey === null) {
-      this.logger.warn(
-        `Skipping stale plan video model "${rawPlanVideoGenerateModelKey}" for assistant ${assistant.id}; it is not supported by the active runtime video catalog.`
+      throw new Error(
+        `Plan video model "${rawPlanVideoGenerateModelKey}" for assistant ${assistant.id} is not present in the active runtime video catalog.`
       );
     }
     if (
       rawPlanVideoGenerateFallbackModelKey !== null &&
       planVideoGenerateFallbackModelKey === null
     ) {
-      this.logger.warn(
-        `Skipping stale plan video fallback model "${rawPlanVideoGenerateFallbackModelKey}" for assistant ${assistant.id}; it is not supported by the active runtime video catalog.`
+      throw new Error(
+        `Plan video fallback model "${rawPlanVideoGenerateFallbackModelKey}" for assistant ${assistant.id} is not present in the active runtime video catalog.`
       );
     }
     if (
@@ -513,6 +675,7 @@ export class MaterializeAssistantPublishedVersionService {
       voiceProfile: normalizeAssistantVoiceProfile(publishedVersion.snapshotVoiceProfile)
     });
     const toolCredentialRefs = await this.resolveToolCredentialRefs({
+      runtimeProviderProfile,
       voiceProfile,
       imageGenerateModelKey: planImageGenerateModelKey,
       imageGenerateFallbackModelKey: planImageGenerateFallbackModelKey,
@@ -778,6 +941,7 @@ export class MaterializeAssistantPublishedVersionService {
   }
 
   private async resolveToolCredentialRefs(input: {
+    runtimeProviderProfile: RuntimeProviderProfileState;
     voiceProfile: AssistantRuntimeBundle["persona"]["voiceProfile"];
     imageGenerateModelKey: string | null;
     imageGenerateFallbackModelKey: string | null;
@@ -793,7 +957,11 @@ export class MaterializeAssistantPublishedVersionService {
     const documentProviderRefs: AssistantRuntimeBundleToolCredentialRef[] = [];
     for (const credentialKey of ALL_TOOL_CREDENTIAL_KEYS) {
       const toolCode = TOOL_CODE_BY_CREDENTIAL_KEY[credentialKey];
-      if (toolCode === "tts") {
+      if (
+        toolCode === "tts" ||
+        credentialKey === "tool_video_generate_runway" ||
+        credentialKey === "tool_video_generate_kling"
+      ) {
         continue;
       }
       const secretRef = buildToolCredentialSecretRef(credentialKey);
@@ -833,27 +1001,23 @@ export class MaterializeAssistantPublishedVersionService {
     }
     const imageCredentialRef = refs.image_generate;
     if (imageCredentialRef) {
-      refs.image_generate = {
-        ...imageCredentialRef,
-        ...(input.imageGenerateModelKey !== null ? { modelKey: input.imageGenerateModelKey } : {}),
-        ...this.buildMediaModelFallbackPatch(
-          imageCredentialRef,
-          input.imageGenerateFallbackModelKey
-        )
-      };
-      refs.image_edit = {
-        ...this.cloneToolCredentialRef(imageCredentialRef),
-        ...(input.imageEditModelKey !== null ? { modelKey: input.imageEditModelKey } : {}),
-        ...this.buildMediaModelFallbackPatch(imageCredentialRef, input.imageEditFallbackModelKey)
-      };
-      refs.video_generate = {
-        ...this.cloneToolCredentialRef(imageCredentialRef),
-        ...(input.videoGenerateModelKey !== null ? { modelKey: input.videoGenerateModelKey } : {}),
-        ...this.buildMediaModelFallbackPatch(
-          imageCredentialRef,
-          input.videoGenerateFallbackModelKey
-        )
-      };
+      refs.image_generate = buildImageGenerateToolCredentialRef({
+        imageCredentialRef,
+        imageGenerateModelKey: input.imageGenerateModelKey,
+        imageGenerateFallbackModelKey: input.imageGenerateFallbackModelKey
+      });
+      refs.image_edit = buildImageEditToolCredentialRef({
+        imageCredentialRef,
+        imageEditModelKey: input.imageEditModelKey,
+        imageEditFallbackModelKey: input.imageEditFallbackModelKey
+      });
+      refs.video_generate = buildVideoGenerateToolCredentialRef({
+        runtimeProviderProfile: input.runtimeProviderProfile,
+        keyMetadata,
+        imageCredentialRef,
+        videoGenerateModelKey: input.videoGenerateModelKey,
+        videoGenerateFallbackModelKey: input.videoGenerateFallbackModelKey
+      });
     }
     refs.tts = this.buildTtsToolCredentialRef(
       keyMetadata,
@@ -879,38 +1043,7 @@ export class MaterializeAssistantPublishedVersionService {
   private cloneToolCredentialRef(
     ref: AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string]
   ): AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string] {
-    return {
-      ...ref,
-      secretRef: { ...ref.secretRef },
-      ...(ref.fallbacks
-        ? {
-            fallbacks: ref.fallbacks.map((fallback) => ({
-              ...fallback,
-              secretRef: { ...fallback.secretRef }
-            }))
-          }
-        : {})
-    };
-  }
-
-  private buildMediaModelFallbackPatch(
-    ref: AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string],
-    fallbackModelKey: string | null
-  ):
-    | Pick<AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string], "fallbacks">
-    | Record<never, never> {
-    if (fallbackModelKey === null) {
-      return {};
-    }
-    const fallback = this.cloneToolCredentialRef(ref);
-    return {
-      fallbacks: [
-        {
-          ...fallback,
-          modelKey: fallbackModelKey
-        }
-      ]
-    };
+    return cloneToolCredentialRef(ref);
   }
 
   private buildTtsToolCredentialRef(
