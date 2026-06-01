@@ -129,6 +129,17 @@ async function run(): Promise<void> {
           providerId: "openai",
           modelKey: "gpt-image-1.5"
         },
+        video_generate: {
+          refKey: "persai:persai-runtime:tool/video_generate/runway/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/video_generate/runway/api-key"
+          },
+          configured: true,
+          providerId: "runway",
+          modelKey: "gen4_turbo"
+        },
         document: {
           refKey: "persai:persai-runtime:tool/document/api-key",
           secretRef: {
@@ -194,6 +205,20 @@ async function run(): Promise<void> {
           visibleToModel: true,
           visibleInPlanEditor: true,
           dailyCallLimit: 10
+        },
+        {
+          toolCode: "video_generate",
+          displayName: "Video Generate",
+          description: "Generate a short video clip from text.",
+          usageGuidance:
+            "Use a reference image when a current or recent reusable image should guide the video.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: 5
         },
         {
           toolCode: "document",
@@ -424,6 +449,7 @@ async function run(): Promise<void> {
       /do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
     );
   }
+  assert.ok(videoGenerate, "video_generate should be projected for configured Runway refs");
 
   // ADR-105 FIX A: count.maximum cascade — with perTurnCap=2, image_generate
   // must advertise count.maximum=2 (not old hardcap 4). With no perTurnCap,
@@ -579,6 +605,35 @@ async function run(): Promise<void> {
   )?.properties?.kind?.description;
   assert.match(scheduledActionKindDescription ?? "", /user_reminder/);
   assert.match(scheduledActionKindDescription ?? "", /background_task/);
+
+  const nonOpenAiImageBundle = {
+    ...artifact.bundle,
+    governance: {
+      ...artifact.bundle.governance,
+      toolCredentialRefs: {
+        ...artifact.bundle.governance.toolCredentialRefs,
+        image_generate: {
+          ...artifact.bundle.governance.toolCredentialRefs.image_generate!,
+          providerId: "runway"
+        },
+        image_edit: {
+          ...artifact.bundle.governance.toolCredentialRefs.image_edit!,
+          providerId: "kling"
+        }
+      }
+    }
+  };
+  const nonOpenAiImageProjection = projectRuntimeNativeTools(nonOpenAiImageBundle);
+  assert.equal(
+    nonOpenAiImageProjection.tools.find((tool) => tool.name === "image_generate"),
+    undefined,
+    "image_generate must remain hidden for non-OpenAI providers"
+  );
+  assert.equal(
+    nonOpenAiImageProjection.tools.find((tool) => tool.name === "image_edit"),
+    undefined,
+    "image_edit must remain hidden for non-OpenAI providers"
+  );
 }
 
 void run();

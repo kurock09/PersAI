@@ -356,6 +356,8 @@ Default for this ADR: choose conservative path unless duplicate real provider mo
 
 - Assistants configured with Runway/Kling video are not hidden or rejected before execution.
 
+**Status (2026-06-01): Completed.** The shared runtime contract and API/runtime native gates now allow configured `video_generate` refs for OpenAI, Runway, and Kling. Image generation/edit gates remain OpenAI-only and chat routing remains OpenAI/Anthropic-only. No provider-gateway clients, Runway/Kling dispatch/execution, provider adapters, or billing work was included.
+
 ### Slice 7 - Provider gateway clients
 
 **Scope**

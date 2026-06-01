@@ -15,6 +15,7 @@ import {
   PERSAI_RUNTIME_IMAGE_BACKGROUNDS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
+  PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
@@ -1416,7 +1417,9 @@ function supportsCurrentNativeImageEditProvider(providerId: string | null): bool
 
 function supportsCurrentNativeVideoGenerateProvider(providerId: string | null): boolean {
   const resolved = providerId ?? "openai";
-  return resolved === "openai";
+  return PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS.includes(
+    resolved as (typeof PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS)[number]
+  );
 }
 
 function supportsCurrentNativeTtsProvider(

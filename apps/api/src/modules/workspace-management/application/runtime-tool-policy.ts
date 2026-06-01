@@ -2,6 +2,7 @@ import type { AssistantRuntimeBundleToolCredentialRef } from "@persai/runtime-bu
 import {
   PERSAI_RUNTIME_BROWSER_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
+  PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
 import type { EffectiveToolAvailabilityState } from "./effective-tool-availability.types";
@@ -169,7 +170,10 @@ function supportsCurrentNativeImageEditProvider(providerId: string | null): bool
 }
 
 function supportsCurrentNativeVideoGenerateProvider(providerId: string | null): boolean {
-  return (providerId ?? "openai") === "openai";
+  const resolved = providerId ?? "openai";
+  return PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS.includes(
+    resolved as (typeof PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS)[number]
+  );
 }
 
 function supportsCurrentNativeTtsProvider(

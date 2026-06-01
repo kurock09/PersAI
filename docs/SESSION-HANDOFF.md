@@ -2,6 +2,44 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-106 Slice 6 runtime gating
+
+### What changed & why
+
+Baseline SHA at session start: `bb44f0352b605fd10e228872fc3d59db6fa328b1`.
+
+Implemented ADR-106 Slice 6 only through a synchronous subagent, with orchestrator review and verification. The shared runtime contract `video_generate` provider allowlist and matching API/runtime native gates now accept configured `openai`, `runway`, and `kling` video refs.
+
+API runtime tool policy now enables `video_generate` for configured Runway/Kling refs and still rejects unsupported video provider ids. Runtime native tool projection now exposes `video_generate` for configured Runway/Kling refs. Image generation/edit gates remain OpenAI-only, and chat routing remains OpenAI/Anthropic-only.
+
+No Slice 7+ work was done: no provider-gateway clients, no Runway/Kling dispatch/execution flow, no provider adapters, and no billing/ledger changes.
+
+### Files touched
+
+`packages/runtime-contract/src/index.ts`; `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`; `apps/api/test/runtime-tool-policy.test.ts`; `apps/runtime/src/modules/turns/native-tool-projection.ts`; `apps/runtime/test/native-tool-projection.test.ts`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`; `docs/ADR/106-video-provider-catalog-and-execution-routing.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/runtime-tool-policy.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS: `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Runway/Kling video refs can now pass contract/API/runtime gating, but provider-gateway still has no Runway/Kling clients and runtime dispatch is not implemented yet.
+- Live Runway/Kling video must not be presented as production-ready until Slices 7-10 land.
+
+### Deploy
+
+- runtime-contract consumers/API/RUNTIME.
+
+### Next recommended step
+
+- ADR-106 Slice 7 only: add provider-gateway Runway/Kling video clients and dispatch adapters. Do not change runtime execution/fallback semantics beyond what provider-gateway requires.
+
 ## 2026-06-01 (cont.) — ADR-106 Slice 5 video credential materialization
 
 ### What changed & why

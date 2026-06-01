@@ -252,6 +252,87 @@ async function run(): Promise<void> {
   );
   assert.doesNotMatch(markdown, /cron/);
   assert.doesNotMatch(markdown, /image_generate/);
+
+  const videoTools = tools.map((tool) =>
+    tool.code === "video_generate"
+      ? { ...tool, planActivationStatus: "active", effectiveActivation: "active" }
+      : tool.code === "image_generate" || tool.code === "image_edit"
+        ? { ...tool, planActivationStatus: "active", effectiveActivation: "active" }
+        : tool
+  );
+  const videoToolPolicies = resolveRuntimeToolPolicies({
+    tools: videoTools,
+    planToolQuotaPolicy: [],
+    toolCredentialRefs: {
+      video_generate: {
+        refKey: "tool_video_generate_runway",
+        secretRef: {
+          source: "persai",
+          provider: "persai-runtime",
+          id: "tool/video_generate/runway/api-key"
+        },
+        configured: true,
+        providerId: "runway"
+      },
+      image_generate: {
+        refKey: "tool_image_generate_runway",
+        secretRef: {
+          source: "persai",
+          provider: "persai-runtime",
+          id: "tool/video_generate/runway/api-key"
+        },
+        configured: true,
+        providerId: "runway"
+      },
+      image_edit: {
+        refKey: "tool_image_edit_kling",
+        secretRef: {
+          source: "persai",
+          provider: "persai-runtime",
+          id: "tool/video_generate/kling/api-key"
+        },
+        configured: true,
+        providerId: "kling"
+      }
+    },
+    knowledgeAccessEnabled: true,
+    sandboxEnabled: true
+  });
+  assert.ok(
+    videoToolPolicies.some((tool) => tool.toolCode === "video_generate" && tool.enabled),
+    "video_generate should be enabled for configured Runway refs"
+  );
+  assert.ok(
+    videoToolPolicies.some((tool) => tool.toolCode === "image_generate" && !tool.enabled),
+    "image_generate must remain OpenAI-only"
+  );
+  assert.ok(
+    videoToolPolicies.some((tool) => tool.toolCode === "image_edit" && !tool.enabled),
+    "image_edit must remain OpenAI-only"
+  );
+
+  const unsupportedVideoPolicies = resolveRuntimeToolPolicies({
+    tools: videoTools,
+    planToolQuotaPolicy: [],
+    toolCredentialRefs: {
+      video_generate: {
+        refKey: "tool_video_generate_unknown",
+        secretRef: {
+          source: "persai",
+          provider: "persai-runtime",
+          id: "tool/video_generate/unknown/api-key"
+        },
+        configured: true,
+        providerId: "unknown-provider"
+      }
+    },
+    knowledgeAccessEnabled: true,
+    sandboxEnabled: true
+  });
+  assert.ok(
+    unsupportedVideoPolicies.some((tool) => tool.toolCode === "video_generate" && !tool.enabled),
+    "unsupported video providers must stay hidden"
+  );
 }
 
 void run();
