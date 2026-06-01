@@ -381,6 +381,10 @@ async function run(): Promise<void> {
   );
   assert.match(imageGenerate?.description ?? "", /outputMode='series'/);
   assert.match(imageGenerate?.description ?? "", /seriesItems/);
+  assert.match(
+    imageGenerate?.description ?? "",
+    /For distinct carousel\/slideshow\/frame requests, set outputMode='series'/i
+  );
   assert.match(imageGenerate?.description ?? "", /use image_edit with sourceImageAlias/i);
   assert.match(
     imageGenerate?.description ?? "",
@@ -402,6 +406,10 @@ async function run(): Promise<void> {
   );
   assert.match(imageEdit?.description ?? "", /outputMode='series'/);
   assert.match(imageEdit?.description ?? "", /seriesItems/);
+  assert.match(
+    imageEdit?.description ?? "",
+    /For distinct carousel\/slideshow\/frame requests, set outputMode='series'/i
+  );
   assert.match(imageEdit?.description ?? "", /same source product\/object identity across slides/i);
   assert.match(
     imageEdit?.description ?? "",
@@ -439,6 +447,10 @@ async function run(): Promise<void> {
   )?.properties;
   assert.deepEqual(imageGenerateOutputMode?.outputMode?.enum, ["variants", "series"]);
   assert.equal(imageGenerateOutputMode?.seriesItems?.type, "array");
+  assert.match(
+    imageGenerateOutputMode?.outputMode?.description ?? "",
+    /Default to series for any multi-image request/i
+  );
 
   const imageEditCount = (
     imageEdit?.inputSchema as {
@@ -458,6 +470,10 @@ async function run(): Promise<void> {
   )?.properties;
   assert.deepEqual(imageEditOutputMode?.outputMode?.enum, ["variants", "series"]);
   assert.equal(imageEditOutputMode?.seriesItems?.type, "array");
+  assert.match(
+    imageEditOutputMode?.outputMode?.description ?? "",
+    /Default to series for any multi-image edit request/i
+  );
 
   // ADR-105 FIX A: with perTurnCap=10 the model sees count.maximum=10 — one job, no split.
   {

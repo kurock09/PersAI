@@ -435,6 +435,118 @@ describe("RuntimeImageGenerateToolService", () => {
     );
   });
 
+  test("keeps already persisted artifacts when a later multi-image item fails", async () => {
+    const imageCalls: Array<{ prompt: string; count: number }> = [];
+    let savedArtifacts = 0;
+    const service = new RuntimeImageGenerateToolService(
+      {
+        async generateImage(input: { prompt: string; count: number }) {
+          imageCalls.push({ prompt: input.prompt, count: input.count });
+          if (imageCalls.length <= 2) {
+            return {
+              provider: "openai",
+              model: "gpt-image-2",
+              images: [
+                {
+                  bytesBase64: Buffer.from([
+                    0x89,
+                    0x50,
+                    0x4e,
+                    0x47,
+                    0x0d,
+                    0x0a,
+                    0x1a,
+                    0x0a,
+                    imageCalls.length
+                  ]).toString("base64"),
+                  mimeType: "image/png",
+                  revisedPrompt: null
+                }
+              ],
+              respondedAt: "2026-05-31T00:00:00.000Z",
+              usage: null,
+              billingFacts: null,
+              warning: null
+            };
+          }
+          throw new ProviderGatewaySafetyRejectedError({
+            status: 400,
+            code: "image_provider_safety_rejected",
+            message: "provider blocked final series item",
+            providerStatus: {
+              provider: "openai",
+              requestId: "req_partial_generate_blocked"
+            }
+          });
+        }
+      } as never,
+      {} as never,
+      {
+        buildRuntimeOutputObjectKey(input: {
+          assistantId: string;
+          sessionId: string;
+          requestId: string;
+          artifactId?: string;
+          extension: string | null;
+        }) {
+          const extension = input.extension ?? "png";
+          return `assistant-media/assistants/${input.assistantId}/runtime-output/sessions/${input.sessionId}/requests/${input.requestId}/${input.artifactId ?? "artifact"}.${extension}`;
+        },
+        async saveObject() {
+          savedArtifacts += 1;
+          return {
+            objectKey: `runtime/generate-partial-${String(savedArtifacts)}.png`,
+            mimeType: "image/png",
+            sizeBytes: 9
+          };
+        },
+        async downloadObject() {
+          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile() {
+          return {
+            id: `file-partial-${String(savedArtifacts)}`,
+            filename: `partial-${String(savedArtifacts)}.png`,
+            mimeType: "image/png",
+            sizeBytes: 9
+          };
+        },
+        toRuntimeFileRef(file: { id: string; filename: string; mimeType: string }) {
+          return {
+            fileRef: file.id,
+            displayName: file.filename,
+            mimeType: file.mimeType
+          };
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "call-partial-generate",
+        name: "image_generate",
+        arguments: {
+          prompt: "Create 3 outputs",
+          count: 3,
+          outputMode: "series",
+          seriesItems: ["slide 1", "slide 2", "slide 3"]
+        }
+      } as never,
+      sessionId: "session-partial",
+      requestId: "request-partial"
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "generated");
+    assert.equal(result.artifacts.length, 2);
+    assert.equal(imageCalls.length, 3);
+    assert.match(result.payload.warning ?? "", /Stopped after 2 of 3 image\(s\)/);
+    assert.match(result.payload.warning ?? "", /safety system/i);
+  });
+
   test("rejects ref-bound series generate when a reusable source image is already available", async () => {
     const service = new RuntimeImageGenerateToolService(
       {} as never,

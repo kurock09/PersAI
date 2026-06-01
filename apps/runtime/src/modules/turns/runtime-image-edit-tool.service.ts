@@ -503,10 +503,9 @@ export class RuntimeImageEditToolService {
       let accumulatedWarning: string | null = modelSelection.warning;
       let revisedPrompt: string | null = null;
       const persistedArtifacts: RuntimeOutputArtifact[] = [];
+      const multiImagePlan = this.resolveMultiImageExecutionPlan(request);
       const providerResult =
-        request.outputMode === "series" && request.seriesItems !== null
-          ? null
-          : await runEditCall(request.prompt, request.count);
+        multiImagePlan === null ? await runEditCall(request.prompt, request.count) : null;
       if (providerResult !== null) {
         if (!providerResult.ok) {
           return {
@@ -546,18 +545,28 @@ export class RuntimeImageEditToolService {
         );
         persistedArtifacts.push(...artifacts);
       } else {
-        const seriesItems = request.seriesItems ?? [];
-        for (const [index, itemPrompt] of seriesItems.entries()) {
+        for (const [index, itemPrompt] of multiImagePlan.entries()) {
           const composedPrompt = this.composeSeriesPrompt({
             overallPrompt: request.prompt,
             itemPrompt,
             index,
-            total: seriesItems.length,
+            total: multiImagePlan.length,
             sourceImageAlias: selection.sourceImageAlias,
             referenceImageAlias: selection.referenceImageAlias
           });
           const seriesResult = await runEditCall(composedPrompt, 1, `:series:${String(index + 1)}`);
           if (!seriesResult.ok) {
+            if (persistedArtifacts.length > 0) {
+              accumulatedWarning = this.mergeWarnings(
+                accumulatedWarning,
+                this.buildPartialMultiImageFailureWarning({
+                  requestedCount: request.count,
+                  deliveredCount: persistedArtifacts.length,
+                  failureWarning: seriesResult.payload.warning
+                })
+              );
+              break;
+            }
             return {
               payload: seriesResult.payload,
               artifacts: [],
@@ -1109,6 +1118,38 @@ export class RuntimeImageEditToolService {
   private mergeWarnings(...warnings: Array<string | null | undefined>): string | null {
     const filtered = warnings.filter((warning): warning is string => typeof warning === "string");
     return filtered.length > 0 ? filtered.join(" ") : null;
+  }
+
+  private resolveMultiImageExecutionPlan(request: RuntimeImageEditRequest): string[] | null {
+    if (request.count <= 1) {
+      return null;
+    }
+    if (request.outputMode === "series" && request.seriesItems !== null) {
+      return request.seriesItems;
+    }
+    if (request.outputMode === "variants") {
+      return Array.from(
+        { length: request.count },
+        (_, index) =>
+          `Create variation ${String(index + 1)} of ${String(request.count)} for the same core idea. Keep the same source subject and overall intent, but make this finished image meaningfully distinct in composition, framing, lighting, palette, pose, or mood. Return one final edited image only.`
+      );
+    }
+    return Array.from(
+      { length: request.count },
+      (_, index) =>
+        `Create output ${String(index + 1)} of ${String(request.count)} as one standalone final edited image that stays faithful to the overall request. Return one final edited image only.`
+    );
+  }
+
+  private buildPartialMultiImageFailureWarning(input: {
+    requestedCount: number;
+    deliveredCount: number;
+    failureWarning: string | null;
+  }): string {
+    const base = `Stopped after ${String(input.deliveredCount)} of ${String(input.requestedCount)} image(s); the remaining item(s) could not be completed.`;
+    return input.failureWarning === null || input.failureWarning.trim().length === 0
+      ? base
+      : `${base} ${input.failureWarning.trim()}`;
   }
 
   private composeSeriesPrompt(input: {

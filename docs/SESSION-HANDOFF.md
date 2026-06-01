@@ -2,6 +2,43 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-105 follow-up: partial series artifact truth + series-first multi-image guidance
+
+### What changed & why
+
+Baseline SHA at session start: `f74cc3e47a09f76910f0db93648e5356fce6e90f`.
+
+Closed the next two live media tails found in `persai-dev` with structural runtime/API truth fixes.
+
+- **Partial series artifact truth:** late failure of one `series` item no longer erases already persisted outputs from the worker result. `apps/runtime/src/modules/turns/runtime-image-edit-tool.service.ts` and `runtime-image-generate-tool.service.ts` now execute every multi-image request as one-output-per-item work inside the same durable job and, when a later item fails after earlier artifacts were already persisted, return the produced artifacts plus a structural partial warning instead of collapsing to `artifacts=[]`. This directly fixes the live case where files for a 4-frame comic series existed in `assistant_files` but the job still terminal-failed and never entered delivery because scheduler saw an empty worker result.
+- **Series-first model guidance:** `apps/runtime/src/modules/turns/native-tool-projection.ts` now teaches the model to default to `outputMode="series"` for any multi-image `image_generate` / `image_edit` request. `variants` stays in the schema only as a compatibility fallback and is no longer advertised as the normal multi-image path. This narrows the collage-prone ambiguity where the model could pick `variants` for "3 separate images" and fall back to provider batch semantics instead of one-frame-per-item execution.
+- **Regression coverage:** added focused runtime tests for preserving already-persisted artifacts when a later multi-image item fails (`runtime-image-edit-tool.service.test.ts`, `runtime-image-generate-tool.service.test.ts`), updated native projection expectations to the new `series`-first wording, and added an API scheduler regression (`assistant-media-job-scheduler.service.test.ts`) proving a non-empty partial worker result moves to `completion_pending` instead of terminal `media_job_artifacts_missing`.
+
+### Files touched
+
+`apps/runtime/src/modules/turns/runtime-image-edit-tool.service.ts`; `apps/runtime/src/modules/turns/runtime-image-generate-tool.service.ts`; `apps/runtime/src/modules/turns/native-tool-projection.ts`; `apps/runtime/test/runtime-image-edit-tool.service.test.ts`; `apps/runtime/test/runtime-image-generate-tool.service.test.ts`; `apps/runtime/test/native-tool-projection.test.ts`; `apps/runtime/test/runtime-media-job-run.service.test.ts`; `apps/api/test/assistant-media-job-scheduler.service.test.ts`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- Focused PASS: `@persai/runtime` `test/runtime-image-edit-tool.service.test.ts`
+- Focused PASS: `@persai/runtime` `test/runtime-image-generate-tool.service.test.ts`
+- Focused PASS: `@persai/runtime` `test/native-tool-projection.test.ts`
+- Focused PASS: `@persai/runtime` `test/runtime-media-job-run.service.test.ts`
+- Focused PASS: `@persai/api` `test/assistant-media-job-scheduler.service.test.ts`
+
+### Risks / residuals
+
+- `variants` remains part of the runtime contract for compatibility, but the intended model path is now `series`-first. A later cleanup can remove `variants` entirely once no real caller/product case still needs it.
+- This session fixes the worker/scheduler truth gap where persisted files could be stranded after a late series failure. It does not yet add a separate explicit partial-delivery status in the durable `assistant_media_jobs` row; partial outcomes still travel as `completion_pending` plus partial artifact count/warning.
+
+### Deploy
+
+- runtime + api images required. No Prisma migration.
+
+### Next recommended step
+
+- Deploy runtime + api to `persai-dev`, then re-run the founder repros: (1) 4-image comic `image_edit` series with a late blocked item should now still deliver the files that were already produced, with honest partial framing; (2) multi-image edit requests for several separate final images should default to the one-frame-per-item `series` path instead of the collage-prone `variants` path.
+
 ## 2026-06-01 (cont.) — web pending-bubble attachment bleed fix + refreshed market PNGs
 
 ### What changed & why

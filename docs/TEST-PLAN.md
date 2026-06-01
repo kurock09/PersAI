@@ -316,13 +316,14 @@ When a change touches the async media lane (media tool projection/budgeting, med
 1. One structured media request with `count=N` becomes exactly one media job — no silent split, no silent trim.
 2. Media `perTurnCap` budgeting counts total requested result units, not tool calls (`tool-budget-policy` `reserve(requestedUnits)`); an oversized single request is rejected as a whole.
 3. `image_edit.count` is honored end to end (schema → parse → provider → unit budgeting → enqueue reservation units).
-4. Multi-image `series` requests stay one job but execute as multiple single-image provider calls inside that job (`outputMode="series"` + ordered `seriesItems[]`), so carousel/storyboard requests produce one distinct frame per output instead of collage-prone repeated batch prompts.
+4. Multi-image media requests are `series`-first: the model-facing path should default to ordered `seriesItems[]`, and runtime execution should still keep one job while producing one single-image provider call per output so carousel/storyboard requests yield distinct frames instead of collage-prone repeated batch prompts. `variants` may remain in the schema for compatibility but must not be the normal advertised path.
 5. Accepted async media results are model-visible `action:"pending_delivery"` (`canSendFileNow=false`) with no false ready/sent language; mixed accepted+rejected media outcomes in one turn are not collapsed into one generic pending sentence (`hadRejectedMediaRequest`).
 6. Runtime open-job context (media + document) includes a compact `sourceSummary`, and developer instructions explicitly forbid treating older open jobs as proof that the current turn started a new async job.
 7. The third concurrent open media job in a chat gets an explicit structured `media_job_concurrency_limit` rejection.
 8. **Single-owner quota invariant:** the runtime worker makes zero monthly-media-quota calls (grep `apps/runtime/src/modules/turns`); reservation happens once at enqueue admission; each reservation is resolved exactly once — scheduler `failJob` releases the full `N` once per terminal failure, completion `failDelivery` reconciles `N` once for pre-delivery failures (guarded against post-`deliver()` double-count), delivery loop settles/reconciles per artifact. No double/multi-release across concurrent jobs.
 9. A malformed media tool call that returns structural `invalid_arguments` must refund any previously reserved per-turn media units so a corrected same-turn retry is not blocked by `tool_budget_exhausted`.
 10. When a reusable current-turn image already exists, a multi-frame ref-bound request must not continue as generic `image_generate` series; runtime should structurally steer the model to `image_edit` with `sourceImageAlias`, and `series` item prompts must preserve one product/campaign identity across outputs.
+11. If a later multi-image item fails after earlier artifacts were already persisted, the worker result must preserve those artifacts and carry an honest partial warning; API scheduler should move that job to `completion_pending` rather than terminal `media_job_artifacts_missing`.
 
 Focused suites:
 

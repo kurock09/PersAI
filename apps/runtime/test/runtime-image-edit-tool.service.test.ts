@@ -609,4 +609,126 @@ describe("RuntimeImageEditToolService", () => {
       /Keep the same source product\/object identity from current image #1 across every series item/i
     );
   });
+
+  test("keeps already persisted artifacts when a later multi-image item fails", async () => {
+    const editCalls: Array<{ prompt: string; count: number }> = [];
+    let savedArtifacts = 0;
+    const service = new RuntimeImageEditToolService(
+      {
+        async editImage(input: { prompt: string; count: number }) {
+          editCalls.push({ prompt: input.prompt, count: input.count });
+          if (editCalls.length <= 2) {
+            return {
+              provider: "openai",
+              model: "gpt-image-2",
+              images: [
+                {
+                  bytesBase64: Buffer.from([
+                    0x89,
+                    0x50,
+                    0x4e,
+                    0x47,
+                    0x0d,
+                    0x0a,
+                    0x1a,
+                    0x0a,
+                    editCalls.length
+                  ]).toString("base64"),
+                  mimeType: "image/png",
+                  revisedPrompt: null
+                }
+              ],
+              respondedAt: "2026-05-31T00:00:00.000Z",
+              usage: null,
+              billingFacts: null,
+              warning: null
+            };
+          }
+          throw new ProviderGatewaySafetyRejectedError({
+            status: 400,
+            code: "image_provider_safety_rejected",
+            message: "provider blocked final series item",
+            providerStatus: {
+              provider: "openai",
+              requestId: "req_partial_edit_blocked"
+            }
+          });
+        }
+      } as never,
+      {} as never,
+      {
+        buildRuntimeOutputObjectKey(input: {
+          assistantId: string;
+          sessionId: string;
+          requestId: string;
+          artifactId?: string;
+          extension: string | null;
+        }) {
+          const extension = input.extension ?? "png";
+          return `assistant-media/assistants/${input.assistantId}/runtime-output/sessions/${input.sessionId}/requests/${input.requestId}/${input.artifactId ?? "artifact"}.${extension}`;
+        },
+        async saveObject() {
+          savedArtifacts += 1;
+          return {
+            objectKey: `runtime/edit-partial-${String(savedArtifacts)}.png`,
+            mimeType: "image/png",
+            sizeBytes: 9
+          };
+        },
+        async downloadObject() {
+          return Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+        }
+      } as never,
+      {
+        async ensureAttachmentBackedFile() {
+          return {
+            id: `file-partial-${String(savedArtifacts)}`,
+            filename: `partial-${String(savedArtifacts)}.png`,
+            mimeType: "image/png",
+            sizeBytes: 9
+          };
+        },
+        toRuntimeFileRef(file: { id: string; filename: string; mimeType: string }) {
+          return { fileRef: file.id, displayName: file.filename, mimeType: file.mimeType };
+        }
+      } as never
+    );
+
+    const attachments = [
+      {
+        attachmentId: "attachment-1",
+        kind: "image",
+        objectKey: "uploads/source.png",
+        mimeType: "image/png",
+        filename: "source.png",
+        sizeBytes: 9,
+        aliases: ["current image #1"]
+      }
+    ] as unknown as RuntimeAttachmentRef[];
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "call-partial-series-edit",
+        name: "image_edit",
+        arguments: {
+          prompt: "Create 3 edited outputs",
+          sourceImageAlias: "current image #1",
+          count: 3,
+          outputMode: "series",
+          seriesItems: ["frame 1", "frame 2", "frame 3"]
+        }
+      } as never,
+      availableAttachments: attachments,
+      sessionId: "session-partial",
+      requestId: "request-partial"
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "generated");
+    assert.equal(result.artifacts.length, 2);
+    assert.equal(editCalls.length, 3);
+    assert.match(result.payload.warning ?? "", /Stopped after 2 of 3 image\(s\)/);
+    assert.match(result.payload.warning ?? "", /safety system/i);
+  });
 });

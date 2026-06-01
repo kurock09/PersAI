@@ -691,7 +691,7 @@ function createImageGenerateToolDefinition(
         resolveToolDefinitionDescription(
           policy,
           appendPerTurnCapHint(
-            "Generate new images from a text prompt. Use outputMode='variants' for multiple alternate versions of one image idea. Use outputMode='series' with seriesItems when the user wants several distinct final frames/tiles/slides in one clean job; do not make extra calls.",
+            "Generate new images from a text prompt. For any multi-image request, use outputMode='series' with seriesItems so each requested output is described as its own final image inside one clean job; do not make extra calls. Keep outputMode='variants' only as a rare fallback for internal compatibility, not as the normal multi-image path.",
             "image_generate",
             policy
           )
@@ -719,7 +719,7 @@ function createImageGenerateToolDefinition(
           type: "string",
           enum: ["variants", "series"],
           description:
-            "Optional output shape. Use variants for multiple alternate versions of one image concept. Use series for multiple distinct final frames/items in one job."
+            "Optional output shape. Default to series for any multi-image request so each output has its own single-image instruction. Reserve variants only for rare compatibility cases."
         },
         seriesItems: {
           type: "array",
@@ -758,7 +758,7 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           resolveToolDefinitionDescription(
             policy,
             appendPerTurnCapHint(
-              "Edit a user-referenced image and return a new image file — use this only when the user explicitly wants an image modified, never to describe, analyze, or answer questions about an image (those are answered in text). Use outputMode='variants' for alternate edits of the same idea. Use outputMode='series' with seriesItems when the user wants several distinct final edited frames/items in one clean job; do not make extra calls. When another image should guide style or appearance, set referenceImageAlias to that image.",
+              "Edit a user-referenced image and return a new image file — use this only when the user explicitly wants an image modified, never to describe, analyze, or answer questions about an image (those are answered in text). For any multi-image edit request, use outputMode='series' with seriesItems so each requested output is described as its own final edited image inside one clean job; do not make extra calls. Keep outputMode='variants' only as a rare fallback for internal compatibility, not as the normal multi-image path. When another image should guide style or appearance, set referenceImageAlias to that image.",
               "image_edit",
               policy
             )
@@ -788,7 +788,7 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           type: "string",
           enum: ["variants", "series"],
           description:
-            "Optional output shape. Use variants for multiple alternate edits of one idea. Use series for multiple distinct final edited frames/items in one job."
+            "Optional output shape. Default to series for any multi-image edit request so each output has its own single-image instruction. Reserve variants only for rare compatibility cases."
         },
         seriesItems: {
           type: "array",

@@ -311,6 +311,37 @@ describe("AssistantMediaJobSchedulerService", () => {
     });
   });
 
+  test("moves partial artifact outcomes to completion_pending instead of terminal failure", async () => {
+    const { service, finalUpdates, createdMessages, releaseCalls } = createService({
+      runtimeOutcome: {
+        ok: true,
+        result: {
+          assistantText: "",
+          artifacts: [
+            { artifactId: "artifact-1", kind: "image" },
+            { artifactId: "artifact-2", kind: "image" }
+          ],
+          usage: null,
+          billingFacts: null,
+          toolInvocations: [{ name: "image_edit", iteration: 1, ok: true }],
+          rawText: null
+        }
+      }
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.length, 1);
+    assert.equal(finalUpdates[0]?.data?.status, "completion_pending");
+    assert.deepEqual(finalUpdates[0]?.data?.artifactsJson, [
+      { artifactId: "artifact-1", kind: "image" },
+      { artifactId: "artifact-2", kind: "image" }
+    ]);
+    assert.equal(createdMessages.length, 0);
+    assert.equal(releaseCalls.length, 0);
+  });
+
   test("creates a user-visible policy explanation when the provider blocks the background job", async () => {
     const { service, finalUpdates, createdMessages, releaseCalls } = createService({
       runtimeOutcome: {
