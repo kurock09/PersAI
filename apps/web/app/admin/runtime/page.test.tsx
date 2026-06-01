@@ -103,6 +103,12 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
       },
       anthropic: {
         models: []
+      },
+      runway: {
+        models: []
+      },
+      kling: {
+        models: []
       }
     },
     providerKeys: {

@@ -1,10 +1,14 @@
 import {
   RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA,
+  CHAT_ROUTING_PROVIDERS,
   DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+  MANAGED_CATALOG_PROVIDERS,
   RUNTIME_PROVIDER_BILLING_MODES,
   RUNTIME_PROVIDER_MODEL_CAPABILITIES,
   RUNTIME_PROVIDER_PROFILE_SCHEMA,
   RUNTIME_PROVIDER_TIME_PRICE_UNITS,
+  type ChatRoutingRuntimeProvider,
+  type ManagedRuntimeCatalogProvider,
   createDefaultRuntimeProviderPriceMetadata,
   type ManagedRuntimeProvider,
   type RuntimeProviderAvailableModelsByProvider,
@@ -36,7 +40,6 @@ export const PERSAI_RUNTIME_PROVIDER_SECRET_IDS: Record<ManagedRuntimeProvider, 
   anthropic: "anthropic/api-key"
 };
 
-const MANAGED_RUNTIME_PROVIDERS: ManagedRuntimeProvider[] = ["openai", "anthropic"];
 const MAX_MODEL_LENGTH = 256;
 const MAX_MODELS_PER_PROVIDER = 64;
 const MAX_PROVIDER_KEY_LENGTH = 512;
@@ -169,7 +172,9 @@ export function createEmptyAvailableModelsByProvider(): RuntimeProviderAvailable
 export function createEmptyAvailableModelCatalogByProvider(): RuntimeProviderModelCatalogByProvider {
   return {
     openai: { models: [] },
-    anthropic: { models: [] }
+    anthropic: { models: [] },
+    runway: { models: [] },
+    kling: { models: [] }
   };
 }
 
@@ -196,7 +201,15 @@ function normalizeProvider(value: unknown, path: string): ManagedRuntimeProvider
   if (normalized === "openai" || normalized === "anthropic") {
     return normalized;
   }
-  throw new Error(`${path} must be one of: ${MANAGED_RUNTIME_PROVIDERS.join(", ")}.`);
+  throw new Error(`${path} must be one of: ${CHAT_ROUTING_PROVIDERS.join(", ")}.`);
+}
+
+function isChatRoutingProvider(provider: string): provider is ChatRoutingRuntimeProvider {
+  return CHAT_ROUTING_PROVIDERS.includes(provider as ChatRoutingRuntimeProvider);
+}
+
+function isVideoOnlyCatalogProvider(provider: ManagedRuntimeCatalogProvider): boolean {
+  return provider === "runway" || provider === "kling";
 }
 
 function normalizeModel(value: unknown, path: string): string {
@@ -310,36 +323,50 @@ export function normalizeAvailableModelCatalogByProvider(
   if (row === null) {
     return {
       openai: { models: createDefaultModelProfiles(chatFallback.openai, ["chat"]) },
-      anthropic: { models: createDefaultModelProfiles(chatFallback.anthropic, ["chat"]) }
+      anthropic: { models: createDefaultModelProfiles(chatFallback.anthropic, ["chat"]) },
+      runway: { models: [] },
+      kling: { models: [] }
     };
   }
   const normalizeProviderCatalog = (
-    provider: ManagedRuntimeProvider
-  ): RuntimeProviderModelCatalogByProvider[ManagedRuntimeProvider] => {
+    provider: ManagedRuntimeCatalogProvider
+  ): RuntimeProviderModelCatalogByProvider[ManagedRuntimeCatalogProvider] => {
     const providerRow = asObject(row[provider]);
     if (providerRow === null) {
       return {
-        models: createDefaultModelProfiles(chatFallback[provider], ["chat"])
+        models: isChatRoutingProvider(provider)
+          ? createDefaultModelProfiles(chatFallback[provider], ["chat"])
+          : []
       };
     }
     if (Array.isArray(providerRow.models)) {
-      const profiles = normalizeModelProfiles(providerRow.models, `${path}.${provider}.models`);
-      if (!profiles.some((profile) => profile.capabilities.includes("chat"))) {
+      const profiles = normalizeModelProfiles(
+        provider,
+        providerRow.models,
+        `${path}.${provider}.models`
+      );
+      if (
+        isChatRoutingProvider(provider) &&
+        !profiles.some((profile) => profile.capabilities.includes("chat"))
+      ) {
         profiles.push(...createDefaultModelProfiles(chatFallback[provider], ["chat"]));
       }
       return { models: profiles };
     }
     return {
       models: normalizeLegacyCapabilityCatalog(
+        provider,
         providerRow,
-        chatFallback[provider],
+        isChatRoutingProvider(provider) ? chatFallback[provider] : [],
         `${path}.${provider}`
       )
     };
   };
   return {
     openai: normalizeProviderCatalog("openai"),
-    anthropic: normalizeProviderCatalog("anthropic")
+    anthropic: normalizeProviderCatalog("anthropic"),
+    runway: normalizeProviderCatalog("runway"),
+    kling: normalizeProviderCatalog("kling")
   };
 }
 
@@ -683,7 +710,11 @@ function normalizeProviderPriceMetadata(
   }
 }
 
-function normalizeModelProfiles(value: unknown[], path: string): RuntimeProviderModelProfile[] {
+function normalizeModelProfiles(
+  provider: ManagedRuntimeCatalogProvider,
+  value: unknown[],
+  path: string
+): RuntimeProviderModelProfile[] {
   const result: RuntimeProviderModelProfile[] = [];
   const activeModels = new Set<string>();
   for (const [index, entry] of value.entries()) {
@@ -704,11 +735,17 @@ function normalizeModelProfiles(value: unknown[], path: string): RuntimeProvider
       activeModels.add(model);
     }
     const capabilities = normalizeCapabilityList(row.capabilities, `${entryPath}.capabilities`);
+    if (
+      isVideoOnlyCatalogProvider(provider) &&
+      capabilities.some((capability) => capability !== "video")
+    ) {
+      throw new Error(
+        `${entryPath}.capabilities must contain only "video" for ${provider} catalog rows.`
+      );
+    }
     const billingMode =
       row.billingMode === undefined
-        ? capabilities.includes("chat")
-          ? "token_metered"
-          : "fixed_operation"
+        ? defaultBillingModeForCapabilities(capabilities)
         : normalizeBillingMode(row.billingMode, `${entryPath}.billingMode`);
     const effectiveFrom = normalizeIsoDateTimeOrNull(
       row.effectiveFrom,
@@ -874,6 +911,7 @@ function createDefaultModelProfiles(
 }
 
 function normalizeLegacyCapabilityCatalog(
+  provider: ManagedRuntimeCatalogProvider,
   providerRow: Record<string, unknown>,
   chatFallback: string[],
   path: string
@@ -887,8 +925,14 @@ function normalizeLegacyCapabilityCatalog(
     }
   };
   const chat = normalizeAvailableModelList(providerRow.chat ?? chatFallback, `${path}.chat`);
-  append(chat.length > 0 ? chat : chatFallback, "chat");
-  append(normalizeAvailableModelList(providerRow.image ?? [], `${path}.image`), "image");
+  const image = normalizeAvailableModelList(providerRow.image ?? [], `${path}.image`);
+  if (isVideoOnlyCatalogProvider(provider) && (chat.length > 0 || image.length > 0)) {
+    throw new Error(`${path} legacy catalog rows must not include chat or image models.`);
+  }
+  if (isChatRoutingProvider(provider)) {
+    append(chat.length > 0 ? chat : chatFallback, "chat");
+  }
+  append(image, "image");
   append(normalizeAvailableModelList(providerRow.video ?? [], `${path}.video`), "video");
   return Array.from(byModel.entries()).map(([model, capabilities]) => {
     const capabilityList = Array.from(capabilities);
@@ -1316,7 +1360,7 @@ export function buildPlatformRuntimeProviderProfileState(
         policyEnvelopeSchema: null,
         secretRefsSchema: null
       },
-      allowedProviders: [...MANAGED_RUNTIME_PROVIDERS],
+      allowedProviders: [...CHAT_ROUTING_PROVIDERS],
       availableModelsByProvider: settings.availableModelsByProvider,
       availableModelCatalogByProvider: settings.availableModelCatalogByProvider,
       primary: null,
@@ -1348,7 +1392,7 @@ export function buildPlatformRuntimeProviderProfileState(
       policyEnvelopeSchema: RUNTIME_PROVIDER_PROFILE_SCHEMA,
       secretRefsSchema: RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA
     },
-    allowedProviders: [...MANAGED_RUNTIME_PROVIDERS],
+    allowedProviders: [...CHAT_ROUTING_PROVIDERS],
     availableModelsByProvider: settings.availableModelsByProvider,
     availableModelCatalogByProvider: settings.availableModelCatalogByProvider,
     primary: {

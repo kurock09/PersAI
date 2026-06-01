@@ -229,6 +229,12 @@ async function run(): Promise<void> {
   assert.equal(parsed.skillRoutingPolicy.backgroundRecheckIntervalMessages, 6);
   assert.deepEqual(parsed.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
   assert.deepEqual(parsed.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
+  assert.deepEqual(Object.keys(parsed.availableModelCatalogByProvider).sort(), [
+    "anthropic",
+    "kling",
+    "openai",
+    "runway"
+  ]);
   assert.deepEqual(
     parsed.availableModelCatalogByProvider.openai.models
       .filter((profile) => profile.capabilities.includes("image"))
@@ -260,7 +266,60 @@ async function run(): Promise<void> {
     0.4
   );
   assert.equal(parsed.availableModelCatalogByProvider.openai.models[1]?.outputTokenWeight, 4);
+  assert.deepEqual(parsed.availableModelCatalogByProvider.runway.models, []);
+  assert.deepEqual(parsed.availableModelCatalogByProvider.kling.models, []);
   assert.equal(parsed.providerKeys.openai, "sk-openai-new");
+
+  const parsedWithVideoCatalogProviders = parseUpdatePlatformRuntimeProviderSettingsInput({
+    ...parsed,
+    availableModelCatalogByProvider: {
+      ...parsed.availableModelCatalogByProvider,
+      runway: {
+        models: [
+          {
+            model: "runway-gen-4",
+            capabilities: ["video"],
+            ...timeMeteredDefaults(),
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: "Runway Gen 4",
+            notes: null
+          }
+        ]
+      },
+      kling: {
+        models: [
+          {
+            model: "kling-v1",
+            capabilities: ["video"],
+            ...timeMeteredDefaults(),
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: "Kling v1",
+            notes: null
+          }
+        ]
+      }
+    }
+  });
+  assert.deepEqual(parsedWithVideoCatalogProviders.availableModelsByProvider, {
+    openai: ["gpt-5.4", "gpt-5.4-mini"],
+    anthropic: ["claude-sonnet-4-5"]
+  });
+  assert.deepEqual(
+    parsedWithVideoCatalogProviders.availableModelCatalogByProvider.runway.models.map(
+      (profile) => profile.model
+    ),
+    ["runway-gen-4"]
+  );
+  assert.deepEqual(
+    parsedWithVideoCatalogProviders.availableModelCatalogByProvider.kling.models.map(
+      (profile) => profile.model
+    ),
+    ["kling-v1"]
+  );
 
   assert.throws(
     () =>
@@ -358,6 +417,48 @@ async function run(): Promise<void> {
         }
       }),
     /providerPriceMetadata\.tokenPricing is not allowed when billingMode is text_chars_metered/
+  );
+
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        availableModelCatalogByProvider: {
+          ...parsed.availableModelCatalogByProvider,
+          runway: {
+            models: [
+              {
+                model: "runway-gen-4",
+                capabilities: ["chat", "video"],
+                ...timeMeteredDefaults(),
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null
+              }
+            ]
+          },
+          kling: { models: [] }
+        }
+      }),
+    /capabilities must contain only "video" for runway catalog rows/
+  );
+
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        availableModelCatalogByProvider: {
+          ...parsed.availableModelCatalogByProvider,
+          runway: {
+            chat: ["runway-chat"],
+            video: ["runway-gen-4"]
+          },
+          kling: { models: [] }
+        }
+      }),
+    /runway legacy catalog rows must not include chat or image models/
   );
 
   assert.throws(
@@ -492,6 +593,8 @@ async function run(): Promise<void> {
   assert.equal(settings.skillRoutingPolicy.backgroundRecheckIntervalMessages, 7);
   assert.deepEqual(settings.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.deepEqual(settings.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
+  assert.deepEqual(settings.availableModelCatalogByProvider.runway.models, []);
+  assert.deepEqual(settings.availableModelCatalogByProvider.kling.models, []);
   assert.deepEqual(
     settings.availableModelCatalogByProvider.openai.models
       .filter((profile) => profile.capabilities.includes("image"))
@@ -522,6 +625,7 @@ async function run(): Promise<void> {
     openai: ["gpt-5.4", "gpt-5.4-mini"],
     anthropic: ["claude-sonnet-4-5"]
   });
+  assert.deepEqual(profile.allowedProviders, ["openai", "anthropic"]);
   assert.deepEqual(
     profile.availableModelCatalogByProvider.openai.models
       .filter((modelProfile) => modelProfile.capabilities.includes("image"))

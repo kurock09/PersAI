@@ -2,6 +2,51 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-106 Slice 1 provider catalog types and normalization
+
+### What changed & why
+
+Baseline SHA at session start: `371ea3efc5b3418764cbbfbe153fd33d9bed0779`.
+
+Implemented ADR-106 Slice 1 only through a subagent, with orchestrator diff-review and verification. The runtime provider model now separates chat-routing providers from managed catalog providers:
+
+- `CHAT_ROUTING_PROVIDERS`: `openai`, `anthropic`
+- `MANAGED_CATALOG_PROVIDERS`: `openai`, `anthropic`, `runway`, `kling`
+- `VIDEO_GENERATE_PROVIDERS`: `openai`, `runway`, `kling`
+
+`availableModelsByProvider` remains chat-only and only derives active chat-capable OpenAI/Anthropic rows. `availableModelCatalogByProvider` now carries four provider buckets; Runway/Kling rows are accepted only when their capabilities are video-only, with focused tests proving they cannot become chat routing providers or non-video catalog rows.
+
+No Slice 2+ work was done: no Runway/Kling credential storage, no Admin Tools key UI, no plan provider-scoped selection, no `video_generate` credential decoupling, no runtime/provider-gateway execution widening, no provider clients, and no billing/ledger changes. `image_generate -> OpenAI` and `image_edit -> OpenAI` behavior remain unchanged.
+
+### Files touched
+
+`packages/contracts/openapi.yaml`; generated `packages/contracts/src/generated/model/*` provider-catalog files; `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts`; `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`; focused API tests; minimal web/admin compatibility test fixtures and helpers; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`; `docs/API-BOUNDARY.md`; `docs/DATA-MODEL.md`; `docs/ADR/106-video-provider-catalog-and-execution-routing.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm contracts:generate`
+- PASS: `corepack pnpm run format:check`
+- PASS: `corepack pnpm --filter @persai/contracts run typecheck`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/runtime-provider-profile.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/manage-admin-runtime-provider-settings.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Runway/Kling are catalog truth only after Slice 1. They are not configurable in Admin Tools, not selectable in plans as live video providers, and not executable.
+- Plan media model selection still stores bare model keys; Slice 4 must handle duplicate active video model keys conservatively or change the contract intentionally.
+- `video_generate` still uses the image credential ref by design until Slice 5.
+
+### Deploy
+
+- API/WEB if this catalog contract is shipped. No Prisma migration.
+
+### Next recommended step
+
+- ADR-106 Slice 2 only: add Admin Tools credential entries for Runway/Kling video provider API keys through the existing encrypted secret store. Keep OpenAI image/edit credential ids unchanged and do not start runtime execution work.
+
 ## 2026-06-01 (cont.) — ADR-106 Slice 0 baseline and contract map
 
 ### What changed & why

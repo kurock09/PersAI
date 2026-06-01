@@ -14138,6 +14138,13 @@ components:
       enum:
         - openai
         - anthropic
+    ManagedRuntimeCatalogProvider:
+      type: string
+      enum:
+        - openai
+        - anthropic
+        - runway
+        - kling
     RuntimeProviderSelection:
       type: object
       required:
@@ -14466,10 +14473,16 @@ components:
       required:
         - openai
         - anthropic
+        - runway
+        - kling
       properties:
         openai:
           $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
         anthropic:
+          $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
+        runway:
+          $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
+        kling:
           $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
     AdminRuntimeProviderSettingsMode:
       type: string

@@ -205,6 +205,8 @@ Do not present the feature as production-ready until the live production path is
 - API can read/write settings with four catalog provider buckets.
 - Chat model aliases still derive only from chat-capable OpenAI/Anthropic rows.
 
+**Status (2026-06-01): Completed.** Runtime provider types now distinguish chat routing providers (`openai`, `anthropic`) from managed catalog providers (`openai`, `anthropic`, `runway`, `kling`) and video-generate providers (`openai`, `runway`, `kling`). The OpenAPI/admin runtime provider catalog contract exposes all four catalog buckets, Runway/Kling catalog rows are video-only, and focused API tests cover chat-routing rejection plus non-video capability rejection. No Slice 2+ credential, materialization, runtime, provider-gateway, or billing work was included.
+
 ### Slice 2 - Admin Tools credentials
 
 **Scope**

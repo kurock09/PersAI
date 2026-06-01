@@ -426,7 +426,9 @@ function createArchiveTimestamp(): string {
 function createEmptyCatalog(): RuntimeProviderModelCatalogByProviderState {
   return {
     openai: { models: [] },
-    anthropic: { models: [] }
+    anthropic: { models: [] },
+    runway: { models: [] },
+    kling: { models: [] }
   };
 }
 
@@ -570,6 +572,12 @@ function withDerivedCatalogWeights(
     },
     anthropic: {
       models: catalog.anthropic.models.map((profile) => applyDerivedTokenMeteredWeights(profile))
+    },
+    runway: {
+      models: catalog.runway.models.map((profile) => applyDerivedTokenMeteredWeights(profile))
+    },
+    kling: {
+      models: catalog.kling.models.map((profile) => applyDerivedTokenMeteredWeights(profile))
     }
   };
 }
@@ -589,6 +597,12 @@ function buildCatalogFallback(
         ...createModelProfile("chat"),
         model
       }))
+    },
+    runway: {
+      models: []
+    },
+    kling: {
+      models: []
     }
   };
 }

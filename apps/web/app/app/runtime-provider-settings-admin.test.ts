@@ -132,6 +132,12 @@ describe("runtime-provider-settings-admin", () => {
               notes: null
             }
           ]
+        },
+        runway: {
+          models: []
+        },
+        kling: {
+          models: []
         }
       },
       providerKeys: {
@@ -214,6 +220,8 @@ describe("runtime-provider-settings-admin", () => {
     });
     expect(request.availableModelsByProvider.openai).toEqual(["gpt-4.1", "gpt-5.4"]);
     expect(request.availableModelsByProvider.anthropic).toEqual(["claude-sonnet-4-5"]);
+    expect(request.availableModelCatalogByProvider.runway.models).toEqual([]);
+    expect(request.availableModelCatalogByProvider.kling.models).toEqual([]);
     expect(
       request.availableModelCatalogByProvider.openai.models
         .filter((profile) => profile.capabilities.includes("image"))

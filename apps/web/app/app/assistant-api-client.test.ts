@@ -316,7 +316,9 @@ describe("admin rollout client", () => {
               }
             ]
           },
-          anthropic: { models: [] }
+          anthropic: { models: [] },
+          runway: { models: [] },
+          kling: { models: [] }
         },
         providerKeys: {
           openai: "sk-openai-new"

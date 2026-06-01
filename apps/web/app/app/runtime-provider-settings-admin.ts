@@ -411,6 +411,12 @@ export function buildRuntimeProviderSettingsRequest(params: {
     },
     anthropic: {
       models: anthropicProfiles
+    },
+    runway: {
+      models: []
+    },
+    kling: {
+      models: []
     }
   };
 

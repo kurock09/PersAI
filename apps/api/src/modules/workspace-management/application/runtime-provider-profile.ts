@@ -3,7 +3,14 @@ export const RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA = "persai.runtimeProviderCr
 import { applyDerivedTokenMeteredWeights } from "@persai/types";
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
-export type ManagedRuntimeProvider = "openai" | "anthropic";
+export const CHAT_ROUTING_PROVIDERS = ["openai", "anthropic"] as const;
+export const MANAGED_CATALOG_PROVIDERS = ["openai", "anthropic", "runway", "kling"] as const;
+export const VIDEO_GENERATE_PROVIDERS = ["openai", "runway", "kling"] as const;
+
+export type ChatRoutingRuntimeProvider = (typeof CHAT_ROUTING_PROVIDERS)[number];
+export type ManagedRuntimeCatalogProvider = (typeof MANAGED_CATALOG_PROVIDERS)[number];
+export type VideoGenerateRuntimeProvider = (typeof VIDEO_GENERATE_PROVIDERS)[number];
+export type ManagedRuntimeProvider = ChatRoutingRuntimeProvider;
 export type RuntimeCredentialSecretRefSource = "env" | "file" | "exec" | "persai";
 
 export type RuntimeCredentialSecretRef = {
@@ -157,7 +164,7 @@ export type RuntimeProviderModelCatalog = {
   models: RuntimeProviderModelProfile[];
 };
 export type RuntimeProviderModelCatalogByProvider = Record<
-  ManagedRuntimeProvider,
+  ManagedRuntimeCatalogProvider,
   RuntimeProviderModelCatalog
 >;
 
@@ -214,7 +221,18 @@ type RuntimeProviderProfilePolicy = {
   fallback: RuntimeProviderProfileSelection | null;
 };
 
-const ALLOWED_RUNTIME_PROVIDERS: ManagedRuntimeProvider[] = ["openai", "anthropic"];
+function isChatRoutingProvider(value: string): value is ChatRoutingRuntimeProvider {
+  return CHAT_ROUTING_PROVIDERS.includes(value as ChatRoutingRuntimeProvider);
+}
+
+function isManagedCatalogProvider(value: string): value is ManagedRuntimeCatalogProvider {
+  return MANAGED_CATALOG_PROVIDERS.includes(value as ManagedRuntimeCatalogProvider);
+}
+
+function isVideoOnlyCatalogProvider(value: ManagedRuntimeCatalogProvider): boolean {
+  return value === "runway" || value === "kling";
+}
+
 const MAX_MODEL_LENGTH = 256;
 const MAX_REF_KEY_LENGTH = 256;
 
@@ -254,10 +272,10 @@ function containsControlCharacters(value: string): boolean {
 
 function normalizeManagedRuntimeProvider(value: unknown, path: string): ManagedRuntimeProvider {
   const normalized = asNonEmptyString(value)?.toLowerCase();
-  if (normalized === "openai" || normalized === "anthropic") {
+  if (typeof normalized === "string" && isChatRoutingProvider(normalized)) {
     return normalized;
   }
-  throw new Error(`${path} must be one of: ${ALLOWED_RUNTIME_PROVIDERS.join(", ")}.`);
+  throw new Error(`${path} must be one of: ${CHAT_ROUTING_PROVIDERS.join(", ")}.`);
 }
 
 function normalizeModelId(value: unknown, path: string): string {
@@ -284,7 +302,9 @@ function createEmptyAvailableModelsByProvider(): RuntimeProviderAvailableModelsB
 function createEmptyModelCatalogByProvider(): RuntimeProviderModelCatalogByProvider {
   return {
     openai: { models: [] },
-    anthropic: { models: [] }
+    anthropic: { models: [] },
+    runway: { models: [] },
+    kling: { models: [] }
   };
 }
 
@@ -573,7 +593,7 @@ function parseAvailableModelsByProvider(value: unknown): RuntimeProviderAvailabl
   if (row === null) {
     return result;
   }
-  for (const provider of ALLOWED_RUNTIME_PROVIDERS) {
+  for (const provider of CHAT_ROUTING_PROVIDERS) {
     const models = row[provider];
     if (!Array.isArray(models)) {
       continue;
@@ -621,25 +641,40 @@ function parseModelCatalogByProvider(
   if (row === null) {
     return {
       openai: { models: createDefaultModelProfiles(chatFallback.openai, ["chat"]) },
-      anthropic: { models: createDefaultModelProfiles(chatFallback.anthropic, ["chat"]) }
+      anthropic: { models: createDefaultModelProfiles(chatFallback.anthropic, ["chat"]) },
+      runway: { models: [] },
+      kling: { models: [] }
     };
   }
-  for (const provider of ALLOWED_RUNTIME_PROVIDERS) {
+  for (const provider of MANAGED_CATALOG_PROVIDERS) {
     const providerRow = asObject(row[provider]);
     if (providerRow === null) {
-      result[provider].models = createDefaultModelProfiles(chatFallback[provider], ["chat"]);
+      result[provider].models = isChatRoutingProvider(provider)
+        ? createDefaultModelProfiles(chatFallback[provider], ["chat"])
+        : [];
       continue;
     }
     if (Array.isArray(providerRow.models)) {
       result[provider] = {
-        models: parseRuntimeProviderModelProfiles(providerRow.models)
+        models: parseRuntimeProviderModelProfiles(
+          provider,
+          providerRow.models,
+          `availableModelCatalogByProvider.${provider}.models`
+        )
       };
     } else {
       result[provider] = {
-        models: parseLegacyCapabilityCatalog(providerRow, chatFallback[provider])
+        models: parseLegacyCapabilityCatalog(
+          provider,
+          providerRow,
+          isChatRoutingProvider(provider) ? chatFallback[provider] : []
+        )
       };
     }
-    if (!result[provider].models.some((profile) => profile.capabilities.includes("chat"))) {
+    if (
+      isChatRoutingProvider(provider) &&
+      !result[provider].models.some((profile) => profile.capabilities.includes("chat"))
+    ) {
       result[provider].models.push(...createDefaultModelProfiles(chatFallback[provider], ["chat"]));
     }
   }
@@ -693,10 +728,14 @@ function createDefaultModelProfiles(
   });
 }
 
-function parseRuntimeProviderModelProfiles(value: unknown[]): RuntimeProviderModelProfile[] {
+function parseRuntimeProviderModelProfiles(
+  provider: ManagedRuntimeCatalogProvider,
+  value: unknown[],
+  path: string
+): RuntimeProviderModelProfile[] {
   const result: RuntimeProviderModelProfile[] = [];
   const activeModels = new Set<string>();
-  for (const entry of value) {
+  for (const [index, entry] of value.entries()) {
     const row = asObject(entry);
     if (row === null) {
       continue;
@@ -708,6 +747,14 @@ function parseRuntimeProviderModelProfiles(value: unknown[]): RuntimeProviderMod
     const capabilities = normalizeCapabilityList(row.capabilities);
     if (capabilities.length === 0) {
       continue;
+    }
+    if (
+      isVideoOnlyCatalogProvider(provider) &&
+      capabilities.some((capability) => capability !== "video")
+    ) {
+      throw new Error(
+        `${path}[${String(index)}].capabilities must contain only "video" for ${provider} catalog rows.`
+      );
     }
     const active = row.active === undefined ? true : row.active === true;
     if (active && activeModels.has(model)) {
@@ -786,6 +833,7 @@ function parseRuntimeProviderModelProfiles(value: unknown[]): RuntimeProviderMod
 }
 
 function parseLegacyCapabilityCatalog(
+  provider: ManagedRuntimeCatalogProvider,
   providerRow: Record<string, unknown>,
   chatFallback: string[]
 ): RuntimeProviderModelProfile[] {
@@ -797,13 +845,17 @@ function parseLegacyCapabilityCatalog(
       byModel.set(model, capabilities);
     }
   };
-  append(
-    normalizeCatalogList(providerRow.chat).length > 0
-      ? normalizeCatalogList(providerRow.chat)
-      : chatFallback,
-    "chat"
-  );
-  append(normalizeCatalogList(providerRow.image), "image");
+  const chatModels = normalizeCatalogList(providerRow.chat);
+  const imageModels = normalizeCatalogList(providerRow.image);
+  if (isVideoOnlyCatalogProvider(provider) && (chatModels.length > 0 || imageModels.length > 0)) {
+    throw new Error(
+      `availableModelCatalogByProvider.${provider} legacy catalog rows must not include chat or image models.`
+    );
+  }
+  if (isChatRoutingProvider(provider)) {
+    append(chatModels.length > 0 ? chatModels : chatFallback, "chat");
+  }
+  append(imageModels, "image");
   append(normalizeCatalogList(providerRow.video), "video");
   return Array.from(byModel.entries()).map(([model, capabilities]) => {
     const capabilityList = Array.from(capabilities);
@@ -907,8 +959,7 @@ export function findRuntimeProviderCatalogProfileAcrossProvidersForTimestamp(
   model: string,
   occurredAt: string | Date
 ): RuntimeProviderModelProfile | null {
-  const providers: ManagedRuntimeProvider[] = ["openai", "anthropic"];
-  for (const provider of providers) {
+  for (const provider of MANAGED_CATALOG_PROVIDERS) {
     const profile = findRuntimeProviderCatalogProfileForTimestamp(
       catalogByProvider[provider],
       model,
@@ -1020,7 +1071,7 @@ function parseRuntimeProviderCredentialRefsEnvelope(
   }
   const providers: RuntimeProviderCredentialRefsEnvelope["providers"] = {};
   for (const [key, value] of Object.entries(providersRaw)) {
-    if (key !== "openai" && key !== "anthropic") {
+    if (!isChatRoutingProvider(key)) {
       throw new Error(
         `secretRefs.refs.runtime_provider_credentials.providers.${key} is not supported in H1.`
       );
@@ -1128,7 +1179,7 @@ export function resolveRuntimeProviderProfileState(params: {
         policyEnvelopeSchema: null,
         secretRefsSchema: credentials?.schema ?? null
       },
-      allowedProviders: [...ALLOWED_RUNTIME_PROVIDERS],
+      allowedProviders: [...CHAT_ROUTING_PROVIDERS],
       availableModelsByProvider: createEmptyAvailableModelsByProvider(),
       availableModelCatalogByProvider: createEmptyModelCatalogByProvider(),
       primary: null,
@@ -1172,7 +1223,7 @@ export function resolveRuntimeProviderProfileState(params: {
       policyEnvelopeSchema: profile.schema,
       secretRefsSchema: credentials.schema
     },
-    allowedProviders: [...ALLOWED_RUNTIME_PROVIDERS],
+    allowedProviders: [...CHAT_ROUTING_PROVIDERS],
     availableModelsByProvider: profile.availableModelsByProvider,
     availableModelCatalogByProvider: profile.availableModelCatalogByProvider,
     primary: {

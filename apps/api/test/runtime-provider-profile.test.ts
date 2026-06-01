@@ -59,6 +59,79 @@ async function run(): Promise<void> {
   assert.equal(managed.primary.credentialRef.refKey, "env:default:OPENAI_API_KEY");
   assert.equal(managed.fallback?.provider, "anthropic");
   assert.equal(managed.fallback?.credentialRef.secretRef.id, "ANTHROPIC_API_KEY");
+  assert.deepEqual(managed.availableModelsByProvider, {
+    openai: [],
+    anthropic: []
+  });
+  assert.deepEqual(Object.keys(managed.availableModelCatalogByProvider).sort(), [
+    "anthropic",
+    "kling",
+    "openai",
+    "runway"
+  ]);
+  assert.deepEqual(managed.availableModelCatalogByProvider.runway.models, []);
+  assert.deepEqual(managed.availableModelCatalogByProvider.kling.models, []);
+
+  const catalogOnlyManaged = resolveRuntimeProviderProfileState({
+    policyEnvelope: {
+      runtimeProviderProfile: {
+        schema: "persai.runtimeProviderProfile.v1",
+        primary: {
+          provider: "openai",
+          model: "gpt-5.4"
+        },
+        availableModelsByProvider: {
+          openai: ["gpt-5.4"],
+          anthropic: ["claude-sonnet-4-5"],
+          runway: ["runway-gen-4"]
+        },
+        availableModelCatalogByProvider: {
+          openai: {
+            models: [{ model: "gpt-5.4", capabilities: ["chat"] }]
+          },
+          anthropic: {
+            models: [{ model: "claude-sonnet-4-5", capabilities: ["chat"] }]
+          },
+          runway: {
+            models: [{ model: "runway-gen-4", capabilities: ["video"] }]
+          },
+          kling: {
+            models: [{ model: "kling-v1", capabilities: ["video"] }]
+          }
+        }
+      }
+    },
+    secretRefs: {
+      refs: {
+        runtime_provider_credentials: {
+          schema: "persai.runtimeProviderCredentialRefs.v1",
+          providers: {
+            openai: {
+              secretRef: {
+                source: "env",
+                provider: "default",
+                id: "OPENAI_API_KEY"
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+  assert.deepEqual(catalogOnlyManaged.availableModelsByProvider, {
+    openai: ["gpt-5.4"],
+    anthropic: ["claude-sonnet-4-5"]
+  });
+  assert.deepEqual(
+    catalogOnlyManaged.availableModelCatalogByProvider.runway.models.map(
+      (profile) => profile.model
+    ),
+    ["runway-gen-4"]
+  );
+  assert.deepEqual(
+    catalogOnlyManaged.availableModelCatalogByProvider.kling.models.map((profile) => profile.model),
+    ["kling-v1"]
+  );
 
   assert.throws(
     () =>
@@ -90,6 +163,81 @@ async function run(): Promise<void> {
         }
       }),
     /requires secretRefs\.refs\.runtime_provider_credentials\.providers\.openai/
+  );
+
+  assert.throws(
+    () =>
+      resolveRuntimeProviderProfileState({
+        policyEnvelope: {
+          runtimeProviderProfile: {
+            schema: "persai.runtimeProviderProfile.v1",
+            primary: {
+              provider: "runway",
+              model: "runway-gen-4"
+            }
+          }
+        },
+        secretRefs: {
+          refs: {
+            runtime_provider_credentials: {
+              schema: "persai.runtimeProviderCredentialRefs.v1",
+              providers: {
+                openai: {
+                  secretRef: {
+                    source: "env",
+                    provider: "default",
+                    id: "OPENAI_API_KEY"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }),
+    /primary\.provider must be one of: openai, anthropic/
+  );
+
+  assert.throws(
+    () =>
+      resolveRuntimeProviderProfileState({
+        policyEnvelope: {
+          runtimeProviderProfile: {
+            schema: "persai.runtimeProviderProfile.v1",
+            primary: {
+              provider: "openai",
+              model: "gpt-5.4"
+            },
+            availableModelCatalogByProvider: {
+              openai: {
+                models: [{ model: "gpt-5.4", capabilities: ["chat"] }]
+              },
+              anthropic: {
+                models: [{ model: "claude-sonnet-4-5", capabilities: ["chat"] }]
+              },
+              runway: {
+                models: [{ model: "runway-gen-4", capabilities: ["chat", "video"] }]
+              }
+            }
+          }
+        },
+        secretRefs: {
+          refs: {
+            runtime_provider_credentials: {
+              schema: "persai.runtimeProviderCredentialRefs.v1",
+              providers: {
+                openai: {
+                  secretRef: {
+                    source: "env",
+                    provider: "default",
+                    id: "OPENAI_API_KEY"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }),
+    /must contain only "video" for runway catalog rows/
   );
 
   assert.throws(

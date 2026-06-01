@@ -86,6 +86,12 @@ describe("admin knowledge page helpers", () => {
                 }
               }
             ]
+          },
+          runway: {
+            models: []
+          },
+          kling: {
+            models: []
           }
         }
       })
@@ -179,6 +185,12 @@ describe("admin knowledge page helpers", () => {
                 }
               }
             ]
+          },
+          runway: {
+            models: []
+          },
+          kling: {
+            models: []
           }
         }
       })
@@ -286,7 +298,12 @@ describe("AdminKnowledgePage Smart Retrieval Limits (ADR-094)", () => {
       if (url.endsWith("/admin/runtime-providers")) {
         return jsonResponse({
           availableModelsByProvider: { openai: [], anthropic: [] },
-          availableModelCatalogByProvider: { openai: { models: [] }, anthropic: { models: [] } }
+          availableModelCatalogByProvider: {
+            openai: { models: [] },
+            anthropic: { models: [] },
+            runway: { models: [] },
+            kling: { models: [] }
+          }
         });
       }
       return jsonResponse({});
