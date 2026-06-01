@@ -23,7 +23,7 @@ function createConfig(): ProviderGatewayConfig {
 function createRequest(): ProviderGatewayVideoGenerateRequest {
   return {
     prompt: "Animate a calm paper-cut forest at sunrise",
-    model: "kling-3.0/video",
+    model: "kling-v1",
     size: "1280x720",
     seconds: 4,
     referenceImage: {
@@ -43,6 +43,11 @@ export async function runKlingProviderClientTest(): Promise<void> {
   const client = new KlingProviderClient(createConfig());
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const credentialValue = JSON.stringify({
+    accessKey: "kling-ak",
+    secretKey: "kling-sk"
+  });
+
   globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
     const url =
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -51,49 +56,24 @@ export async function runKlingProviderClientTest(): Promise<void> {
     } else {
       requests.push({ url, init });
     }
-    if (url === "https://kieai.redpandaai.co/api/file-stream-upload") {
-      assert.equal((init?.headers as Record<string, string>)["Authorization"], "Bearer kling-key");
-      assert.ok(init?.body instanceof FormData);
-      const formData = init.body as FormData;
-      assert.equal(formData.get("uploadPath"), "images/persai-video");
-      assert.equal(formData.get("fileName"), "forest.png");
-      assert.ok(formData.get("file") instanceof Blob);
-      return new Response(
-        JSON.stringify({
-          success: true,
-          code: 200,
-          msg: "File uploaded successfully",
-          data: {
-            downloadUrl: "https://tempfile.redpandaai.co/kling/forest.png"
-          }
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        }
-      );
-    }
-    if (url === "https://api.kie.ai/api/v1/jobs/createTask") {
-      assert.equal((init?.headers as Record<string, string>)["Authorization"], "Bearer kling-key");
+    if (url === "https://api-singapore.klingai.com/v1/videos/image2video") {
+      const authHeader = (init?.headers as Record<string, string>)["Authorization"];
+      assert.match(authHeader ?? "", /^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
       const body = JSON.parse(String(init?.body));
       assert.deepEqual(body, {
-        model: "kling-3.0/video",
-        input: {
-          prompt: "Animate a calm paper-cut forest at sunrise",
-          image_urls: ["https://tempfile.redpandaai.co/kling/forest.png"],
-          sound: false,
-          duration: "4",
-          aspect_ratio: "16:9",
-          mode: "pro",
-          multi_shots: false,
-          multi_prompt: []
-        }
+        model_name: "kling-v1",
+        prompt: "Animate a calm paper-cut forest at sunrise",
+        image: "cmVmLXZpZGVvLWltYWdl",
+        duration: "4",
+        aspect_ratio: "16:9",
+        negative_prompt: "",
+        mode: "pro",
+        sound: "off"
       });
       return new Response(
         JSON.stringify({
-          code: 200,
-          msg: "success",
-          data: { taskId: "task_kling_1" }
+          code: 0,
+          data: { task_id: "task_kling_1" }
         }),
         {
           status: 200,
@@ -101,16 +81,16 @@ export async function runKlingProviderClientTest(): Promise<void> {
         }
       );
     }
-    if (url === "https://api.kie.ai/api/v1/jobs/recordInfo?taskId=task_kling_1") {
+    if (url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_1") {
       const pollCount = requests.filter(
-        (entry) => entry.url === "https://api.kie.ai/api/v1/jobs/recordInfo?taskId=task_kling_1"
+        (entry) =>
+          entry.url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_1"
       ).length;
       if (pollCount === 1) {
         return new Response(
           JSON.stringify({
-            code: 200,
-            msg: "success",
-            data: { state: "generating" }
+            code: 0,
+            data: { task_status: "processing" }
           }),
           {
             status: 200,
@@ -120,13 +100,12 @@ export async function runKlingProviderClientTest(): Promise<void> {
       }
       return new Response(
         JSON.stringify({
-          code: 200,
-          msg: "success",
+          code: 0,
           data: {
-            state: "success",
-            resultJson: JSON.stringify({
-              resultUrls: ["https://tempfile.redpandaai.co/kling/result.mp4"]
-            })
+            task_status: "succeed",
+            task_result: {
+              videos: [{ url: "https://cdn.klingai.com/result.mp4", duration: "4", id: "video-1" }]
+            }
           }
         }),
         {
@@ -135,7 +114,7 @@ export async function runKlingProviderClientTest(): Promise<void> {
         }
       );
     }
-    if (url === "https://tempfile.redpandaai.co/kling/result.mp4") {
+    if (url === "https://cdn.klingai.com/result.mp4") {
       return new Response(Buffer.from("kling-video"), {
         status: 200,
         headers: { "Content-Type": "video/mp4" }
@@ -145,13 +124,13 @@ export async function runKlingProviderClientTest(): Promise<void> {
   }) as typeof fetch;
 
   try {
-    const result = await client.generateVideo(createRequest(), { apiKey: "kling-key" });
+    const result = await client.generateVideo(createRequest(), { credentialValue });
     assert.equal(result.provider, "kling");
-    assert.equal(result.model, "kling-3.0/video");
+    assert.equal(result.model, "kling-v1");
     assert.equal(result.video.bytesBase64, Buffer.from("kling-video").toString("base64"));
     assert.deepEqual(result.billingFacts, {
       providerKey: "kling",
-      modelKey: "kling-3.0/video",
+      modelKey: "kling-v1",
       capability: "video",
       occurredAt: result.billingFacts?.occurredAt,
       metering: {
@@ -160,6 +139,19 @@ export async function runKlingProviderClientTest(): Promise<void> {
         durationSeconds: 4
       }
     });
+
+    await assert.rejects(
+      () => client.generateVideo(createRequest(), { credentialValue: "not-json" }),
+      /must be valid JSON/i
+    );
+
+    await assert.rejects(
+      () =>
+        client.generateVideo(createRequest(), {
+          credentialValue: JSON.stringify({ access_key: "kling-ak" })
+        }),
+      /accessKey.*secretKey/i
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

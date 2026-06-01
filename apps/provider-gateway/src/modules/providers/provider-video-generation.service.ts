@@ -27,17 +27,17 @@ export class ProviderVideoGenerationService {
     input: ProviderGatewayVideoGenerateRequest
   ): Promise<ProviderGatewayVideoGenerateResult> {
     const normalized = this.normalizeInput(input);
-    const apiKey = await this.persaiInternalApiClientService.resolveSecretValue(
+    const credentialValue = await this.persaiInternalApiClientService.resolveSecretValue(
       normalized.credential.secretId
     );
 
     switch (normalized.credential.providerId ?? "openai") {
       case "openai":
-        return this.openaiProviderClient.generateVideo(normalized, { apiKey });
+        return this.openaiProviderClient.generateVideo(normalized, { apiKey: credentialValue });
       case "runway":
-        return this.runwayProviderClient.generateVideo(normalized, { apiKey });
+        return this.runwayProviderClient.generateVideo(normalized, { apiKey: credentialValue });
       case "kling":
-        return this.klingProviderClient.generateVideo(normalized, { apiKey });
+        return this.klingProviderClient.generateVideo(normalized, { credentialValue });
     }
   }
 

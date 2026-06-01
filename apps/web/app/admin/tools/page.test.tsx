@@ -64,7 +64,7 @@ const credentialsPayload = {
     {
       credentialKey: "tool_video_generate_kling",
       toolCode: "video_generate",
-      displayName: "Video Generation API Key (Kling)",
+      displayName: "Video Generation Credentials (Kling Access Key + Secret Key JSON)",
       configured: false,
       lastFour: null,
       updatedAt: null,
@@ -187,10 +187,12 @@ describe("AdminToolsPage economics", () => {
 
     expect(screen.getByText("Image Generation / Edit / OpenAI Video API Key")).toBeTruthy();
     expect(screen.getByText("Video Generation API Key (Runway)")).toBeTruthy();
-    expect(screen.getByText("Video Generation API Key (Kling)")).toBeTruthy();
+    expect(
+      screen.getByText("Video Generation Credentials (Kling Access Key + Secret Key JSON)")
+    ).toBeTruthy();
     expect(
       screen.getByText(
-        "Separate encrypted API keys for Runway and Kling video providers. These do not change the existing OpenAI image/edit credential slot."
+        "Separate encrypted credentials for Runway and Kling video providers. Kling uses official Access Key + Secret Key JSON, and these do not change the existing OpenAI image/edit credential slot."
       )
     ).toBeTruthy();
   });

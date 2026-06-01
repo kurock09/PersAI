@@ -16,7 +16,10 @@ import type {
   PersaiInternalApiClientService
 } from "../src/modules/turns/persai-internal-api.client.service";
 import type { PersaiMediaObjectStorageService } from "../src/modules/turns/persai-media-object-storage.service";
-import type { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
+import {
+  type ProviderGatewayClientService,
+  ProviderGatewayHttpError
+} from "../src/modules/turns/provider-gateway.client.service";
 
 const KNOWLEDGE_ACCESS_CONFIG = {
   searchToolCode: "knowledge_search",
@@ -274,7 +277,7 @@ class FakeProviderGatewayClientService {
     }
     const resolvedModel =
       input.model ??
-      (providerId === "runway" ? "gen4_turbo" : providerId === "kling" ? "kling-v1-6" : "sora-2");
+      (providerId === "runway" ? "gen4_turbo" : providerId === "kling" ? "kling-v1" : "sora-2");
     return {
       provider: providerId,
       model: resolvedModel,
@@ -404,7 +407,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   const klingBundle = createBundle({
     providerId: "kling",
     secretId: "tool/video_generate/kling/api-key",
-    modelKey: "kling-v1-6"
+    modelKey: "kling-v1"
   });
   const fallbackBundle = createBundle({
     providerId: "runway",
@@ -414,7 +417,19 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       {
         providerId: "kling",
         secretId: "tool/video_generate/kling/api-key",
-        modelKey: "kling-v1-6"
+        modelKey: "kling-v1"
+      }
+    ]
+  });
+  const klingToRunwayFallbackBundle = createBundle({
+    providerId: "kling",
+    secretId: "tool/video_generate/kling/api-key",
+    modelKey: "kling-v1",
+    fallbacks: [
+      {
+        providerId: "runway",
+        secretId: "tool/video_generate/runway/api-key",
+        modelKey: "gen4.5"
       }
     ]
   });
@@ -570,11 +585,11 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   });
   assert.equal(klingResult.payload.action, "generated");
   assert.equal(klingResult.payload.provider, "kling");
-  assert.equal(klingResult.payload.model, "kling-v1-6");
+  assert.equal(klingResult.payload.model, "kling-v1");
   assert.deepEqual(providerGatewayClientService.videoCalls[4], {
     input: {
       prompt: "Create an anime-style city flythrough",
-      model: "kling-v1-6",
+      model: "kling-v1",
       size: "720x1280",
       seconds: 4,
       referenceImage: null,
@@ -607,7 +622,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   providerGatewayClientService.failuresByProvider.delete("runway");
   assert.equal(fallbackResult.payload.action, "generated");
   assert.equal(fallbackResult.payload.provider, "kling");
-  assert.equal(fallbackResult.payload.model, "kling-v1-6");
+  assert.equal(fallbackResult.payload.model, "kling-v1");
   assert.match(fallbackResult.payload.warning ?? "", /runway failed/i);
   assert.match(fallbackResult.payload.warning ?? "", /Used fallback provider "kling"/i);
   assert.deepEqual(providerGatewayClientService.videoCalls[5], {
@@ -630,7 +645,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.deepEqual(providerGatewayClientService.videoCalls[6], {
     input: {
       prompt: "Create a moody noir trailer shot",
-      model: "kling-v1-6",
+      model: "kling-v1",
       size: "1280x720",
       seconds: 8,
       referenceImage: null,
@@ -645,7 +660,63 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     }
   });
 
-  const inferredPreviousAliasResult = await service.executeToolCall({
+  providerGatewayClientService.failuresByProvider.set(
+    "kling",
+    new ProviderGatewayHttpError(500, "Kling video generation request failed with status 500.")
+  );
+  const httpFallbackResult = await service.executeToolCall({
+    bundle: klingToRunwayFallbackBundle,
+    toolCall: createToolCall({
+      prompt: "Create a cinematic city shot from this reference",
+      seconds: 4,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-2f"
+  });
+  providerGatewayClientService.failuresByProvider.delete("kling");
+  assert.equal(httpFallbackResult.payload.action, "generated");
+  assert.equal(httpFallbackResult.payload.provider, "runway");
+  assert.equal(httpFallbackResult.payload.model, "gen4.5");
+  assert.match(httpFallbackResult.payload.warning ?? "", /kling failed/i);
+  assert.match(httpFallbackResult.payload.warning ?? "", /Used fallback provider "runway"/i);
+  assert.deepEqual(providerGatewayClientService.videoCalls[7], {
+    input: {
+      prompt: "Create a cinematic city shot from this reference",
+      model: "kling-v1",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: null,
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/kling/api-key",
+        providerId: "kling"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+  assert.deepEqual(providerGatewayClientService.videoCalls[8], {
+    input: {
+      prompt: "Create a cinematic city shot from this reference",
+      model: "gen4.5",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: null,
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/runway/api-key",
+        providerId: "runway"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+
+  const promptOnlyReferenceTextResult = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({
       prompt: "Animate this reference image into a short sunrise clip",
@@ -657,8 +728,10 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     sessionId: "session-1",
     requestId: "request-2b"
   });
-  assert.equal(inferredPreviousAliasResult.payload.action, "generated");
-  assert.equal(inferredPreviousAliasResult.payload.referenceImageAlias, "last generated image");
+  assert.equal(promptOnlyReferenceTextResult.payload.action, "generated");
+  assert.equal(promptOnlyReferenceTextResult.payload.referenceImageAlias, null);
+  assert.equal(promptOnlyReferenceTextResult.payload.referenceFilename, null);
+  assert.equal(providerGatewayClientService.videoCalls[9]?.input.referenceImage, null);
 
   const invalid = await service.executeToolCall({
     bundle,

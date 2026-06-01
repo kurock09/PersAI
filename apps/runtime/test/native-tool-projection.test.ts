@@ -448,6 +448,27 @@ async function run(): Promise<void> {
       videoGenerate.description ?? "",
       /do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
     );
+    const videoGenerateReferenceImageAlias = (
+      videoGenerate.inputSchema as {
+        properties?: { referenceImageAlias?: { description?: string } };
+      }
+    )?.properties?.referenceImageAlias;
+    assert.match(
+      videoGenerateReferenceImageAlias?.description ?? "",
+      /only when the user explicitly identifies or selects a specific available image alias/i
+    );
+    assert.match(
+      videoGenerateReferenceImageAlias?.description ?? "",
+      /upstream structured UI\/tool has already provided that alias/i
+    );
+    assert.match(
+      videoGenerateReferenceImageAlias?.description ?? "",
+      /Do not guess or infer aliases heuristically from context/i
+    );
+    assert.match(
+      videoGenerateReferenceImageAlias?.description ?? "",
+      /otherwise omit this field so runtime uses text-to-video/i
+    );
   }
   assert.ok(videoGenerate, "video_generate should be projected for configured Runway refs");
 

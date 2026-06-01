@@ -856,7 +856,7 @@ function createVideoGenerateToolDefinition(
         referenceImageAlias: {
           type: "string",
           description:
-            'Optional human-readable alias of an available image to use as a visual reference or first frame, for example "current image #1" or "last generated image". Set this whenever a current or recent reusable image should guide the video.'
+            'Optional human-readable alias of an available image to use as a visual reference or first frame, for example "current image #1" or "last generated image". Provide this only when the user explicitly identifies or selects a specific available image alias, or when an upstream structured UI/tool has already provided that alias. Do not guess or infer aliases heuristically from context; otherwise omit this field so runtime uses text-to-video.'
         },
         filename: {
           type: "string",

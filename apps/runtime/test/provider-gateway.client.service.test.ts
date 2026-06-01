@@ -15,6 +15,7 @@ import type {
 } from "@persai/runtime-contract";
 import {
   ProviderGatewayClientService,
+  ProviderGatewayHttpError,
   ProviderGatewaySafetyRejectedError,
   type ProviderGatewayDependencyReadiness
 } from "../src/modules/turns/provider-gateway.client.service";
@@ -932,6 +933,37 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
         assert.ok(error instanceof ProviderGatewaySafetyRejectedError);
         assert.equal(error.code, "image_provider_safety_rejected");
         assert.equal(error.requestId, "req_safety_123");
+        return true;
+      }
+    );
+
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/api/v1/providers/generate-video")) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: "Kling video generation request failed with status 500."
+            }
+          }),
+          {
+            status: 500,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => service.generateVideo(createVideoGenerateRequest()),
+      (error) => {
+        assert.ok(error instanceof ProviderGatewayHttpError);
+        assert.equal(error.httpStatus, 500);
+        assert.match(error.message, /status 500/);
         return true;
       }
     );

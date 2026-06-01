@@ -23,6 +23,7 @@ import { PersaiInternalApiClientService } from "./persai-internal-api.client.ser
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import {
   ProviderGatewayClientService,
+  ProviderGatewayHttpError,
   ProviderGatewayTimeoutError
 } from "./provider-gateway.client.service";
 import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
@@ -35,28 +36,6 @@ const SUPPORTED_VIDEO_REFERENCE_IMAGE_MIME_TYPES = new Set([
   "image/jpeg",
   "image/webp"
 ]);
-const REFERENCE_IMAGE_PROMPT_MARKERS = [
-  "reference image",
-  "reference photo",
-  "attached image",
-  "attached photo",
-  "this image",
-  "this photo",
-  "animate this image",
-  "animate this photo",
-  "turn this image into",
-  "turn this photo into",
-  "use the image as reference",
-  "use the photo as reference",
-  "по рефу",
-  "по референсу",
-  "референс",
-  "эту картинку",
-  "эту фотографию",
-  "анимируй это фото",
-  "анимируй эту картинку",
-  "сделай видео по фото"
-] as const;
 
 type ResolvedVideoReferenceSelection =
   | {
@@ -217,8 +196,7 @@ export class RuntimeVideoGenerateToolService {
 
     const selection = await this.resolveReferenceImageSelection(
       params.availableAttachments,
-      request,
-      params.requestId
+      request
     );
     if (!selection.ok) {
       return {
@@ -505,7 +483,8 @@ export class RuntimeVideoGenerateToolService {
 
   private isFallbackEligibleVideoFailure(error: unknown): boolean {
     return !(
-      error instanceof ProviderGatewayTimeoutError || error instanceof ServiceUnavailableException
+      error instanceof ProviderGatewayTimeoutError ||
+      (error instanceof ServiceUnavailableException && !(error instanceof ProviderGatewayHttpError))
     );
   }
 
@@ -589,37 +568,10 @@ export class RuntimeVideoGenerateToolService {
 
   private async resolveReferenceImageSelection(
     attachments: RuntimeAttachmentRef[],
-    request: RuntimeVideoGenerateRequest,
-    requestId: string
+    request: RuntimeVideoGenerateRequest
   ): Promise<ResolvedVideoReferenceSelection> {
     const imageAttachments = attachments.filter((attachment) => attachment.kind === "image");
-    let referenceImageAlias = request.referenceImageAlias;
-    if (referenceImageAlias === null) {
-      const inferred = this.inferReferenceImageAlias(imageAttachments, request.prompt);
-      if (inferred === "missing") {
-        return {
-          ok: false,
-          reason: "reference_image_missing",
-          warning:
-            "The prompt implies a reference image, but no recent chat image attachment is available."
-        };
-      }
-      if (inferred === "selection_required") {
-        return {
-          ok: false,
-          reason: "reference_image_alias_required",
-          warning:
-            "Multiple reusable images are available. Ask the user which image alias should guide the generated video."
-        };
-      }
-      if (typeof inferred === "string") {
-        referenceImageAlias = inferred;
-        this.logger.log(
-          `[video-generate] inferred reference image alias="${referenceImageAlias}" requestId=${requestId}`
-        );
-      }
-    }
-
+    const referenceImageAlias = request.referenceImageAlias;
     if (referenceImageAlias === null) {
       return {
         ok: true,
@@ -659,22 +611,6 @@ export class RuntimeVideoGenerateToolService {
       referenceImageAlias: this.resolvePrimaryAttachmentAlias(attachment),
       referenceFilename: attachment.filename
     };
-  }
-
-  private inferReferenceImageAlias(
-    imageAttachments: RuntimeAttachmentRef[],
-    prompt: string
-  ): string | "missing" | "selection_required" | null {
-    if (!this.promptImpliesReferenceImage(prompt)) {
-      return null;
-    }
-    if (imageAttachments.length === 0) {
-      return "missing";
-    }
-    if (imageAttachments.length === 1) {
-      return this.resolvePrimaryAttachmentAlias(imageAttachments[0]!);
-    }
-    return "selection_required";
   }
 
   private async loadReferenceImage(attachment: RuntimeAttachmentRef): Promise<
@@ -856,11 +792,6 @@ export class RuntimeVideoGenerateToolService {
   private normalizeReferenceImageMimeType(mimeType: string): string | null {
     const normalized = mimeType === "image/jpg" ? "image/jpeg" : mimeType;
     return SUPPORTED_VIDEO_REFERENCE_IMAGE_MIME_TYPES.has(normalized) ? normalized : null;
-  }
-
-  private promptImpliesReferenceImage(prompt: string): boolean {
-    const normalized = prompt.trim().toLowerCase();
-    return REFERENCE_IMAGE_PROMPT_MARKERS.some((marker) => normalized.includes(marker));
   }
 
   private isVideoGenerateSize(value: string): value is PersaiRuntimeVideoGenerateSize {

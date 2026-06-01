@@ -76,6 +76,16 @@ export class ProviderGatewayTimeoutError extends Error {
   }
 }
 
+export class ProviderGatewayHttpError extends ServiceUnavailableException {
+  readonly httpStatus: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ProviderGatewayHttpError";
+    this.httpStatus = status;
+  }
+}
+
 export class ProviderGatewaySafetyRejectedError extends Error {
   readonly status: number;
   readonly code: string;
@@ -735,7 +745,7 @@ export class ProviderGatewayClientService {
 
   private toGatewayException(
     response: JsonResponse
-  ): BadGatewayException | BadRequestException | ServiceUnavailableException {
+  ): BadGatewayException | BadRequestException | ProviderGatewayHttpError {
     const message = this.extractErrorMessage(response.body);
     if (this.isPayloadTooLargeFailure(response.status, message)) {
       return new BadRequestException(DIRECT_INPUT_PAYLOAD_TOO_LARGE_MESSAGE);
@@ -746,7 +756,8 @@ export class ProviderGatewayClientService {
       );
     }
     if (response.status >= 500) {
-      return new ServiceUnavailableException(
+      return new ProviderGatewayHttpError(
+        response.status,
         message ?? `Provider gateway request failed with status ${response.status}.`
       );
     }

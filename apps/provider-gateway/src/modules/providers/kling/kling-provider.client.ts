@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
@@ -7,11 +8,21 @@ import type {
 } from "@persai/runtime-contract";
 import { PROVIDER_GATEWAY_CONFIG } from "../../../provider-gateway-config";
 
-const KLING_API_BASE_URL = "https://api.kie.ai";
-const KLING_UPLOAD_BASE_URL = "https://kieai.redpandaai.co";
-const KLING_DEFAULT_VIDEO_MODEL = "kling-3.0/video";
+const KLING_API_BASE_URL = "https://api-singapore.klingai.com";
+const KLING_DEFAULT_VIDEO_MODEL = "kling-v1";
 const KLING_VIDEO_TIMEOUT_MS = 600_000;
 const KLING_VIDEO_POLL_INTERVAL_MS = 5_000;
+const KLING_JWT_TTL_SECONDS = 1_800;
+const KLING_JWT_NOT_BEFORE_SKEW_SECONDS = 5;
+const KLING_TEXT_TO_VIDEO_PATH = "/v1/videos/text2video";
+const KLING_IMAGE_TO_VIDEO_PATH = "/v1/videos/image2video";
+
+type KlingCredentials = {
+  accessKey: string;
+  secretKey: string;
+};
+
+type KlingTaskKind = "text2video" | "image2video";
 
 @Injectable()
 export class KlingProviderClient {
@@ -19,21 +30,19 @@ export class KlingProviderClient {
 
   async generateVideo(
     input: ProviderGatewayVideoGenerateRequest,
-    options?: { apiKey?: string }
+    options?: { credentialValue?: string }
   ): Promise<ProviderGatewayVideoGenerateResult> {
-    const apiKey = this.resolveApiKey(options?.apiKey);
+    const credentials = this.resolveCredentials(options?.credentialValue);
     const model = input.model ?? KLING_DEFAULT_VIDEO_MODEL;
+    const taskKind: KlingTaskKind = input.referenceImage === null ? "text2video" : "image2video";
+    const authToken = this.createAuthToken(credentials);
     const { signal, dispose } = this.createTimedSignal(
       Math.max(this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS, KLING_VIDEO_TIMEOUT_MS)
     );
 
     try {
-      const referenceImageUrl =
-        input.referenceImage === null
-          ? null
-          : await this.uploadReferenceImage(input.referenceImage, apiKey, signal);
-      const taskId = await this.createTask(input, model, referenceImageUrl, apiKey, signal);
-      const completedTask = await this.pollTask(taskId, apiKey, signal);
+      const taskId = await this.createTask(input, model, taskKind, authToken, signal);
+      const completedTask = await this.pollTask(taskId, taskKind, authToken, signal);
       const outputUrl = this.readOutputUrl(completedTask);
       const video = await this.downloadVideo(outputUrl, signal);
 
@@ -59,90 +68,48 @@ export class KlingProviderClient {
     }
   }
 
-  private async uploadReferenceImage(
-    referenceImage: NonNullable<ProviderGatewayVideoGenerateRequest["referenceImage"]>,
-    apiKey: string,
-    signal: AbortSignal
-  ): Promise<string> {
-    const filename = this.normalizeFilename(referenceImage.filename, referenceImage.mimeType);
-    const formData = new FormData();
-    formData.append(
-      "file",
-      new Blob([Uint8Array.from(Buffer.from(referenceImage.bytesBase64, "base64"))], {
-        type: referenceImage.mimeType
-      }),
-      filename
-    );
-    formData.append("uploadPath", "images/persai-video");
-    formData.append("fileName", filename);
-
-    const response = await fetch(`${KLING_UPLOAD_BASE_URL}/api/file-stream-upload`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: formData,
-      signal
-    });
-    const body = await this.readJsonBody(response);
-    if (!response.ok) {
-      throw new Error(this.readKlingUploadErrorMessage(body, response.status));
-    }
-    const downloadUrl = this.readString(body, ["data", "downloadUrl"]);
-    if (downloadUrl === null) {
-      throw new Error("Kling file upload completed without a download URL.");
-    }
-    return downloadUrl;
-  }
-
   private async createTask(
     input: ProviderGatewayVideoGenerateRequest,
     model: string,
-    referenceImageUrl: string | null,
-    apiKey: string,
+    taskKind: KlingTaskKind,
+    authToken: string,
     signal: AbortSignal
   ): Promise<string> {
-    const response = await fetch(`${KLING_API_BASE_URL}/api/v1/jobs/createTask`, {
+    const response = await fetch(`${KLING_API_BASE_URL}${this.taskPath(taskKind)}`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${authToken}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        model,
-        input: {
-          prompt: input.prompt,
-          image_urls: referenceImageUrl === null ? undefined : [referenceImageUrl],
-          sound: false,
-          duration: String(input.seconds),
-          aspect_ratio: this.toKlingAspectRatio(input.size),
-          mode: "pro",
-          multi_shots: false,
-          multi_prompt: []
-        }
-      }),
+      body: JSON.stringify(this.buildCreateTaskBody(input, model, taskKind)),
       signal
     });
     const body = await this.readJsonBody(response);
     if (!response.ok) {
       throw new Error(this.readKlingErrorMessage(body, response.status));
     }
-    const taskId = this.readString(body, ["data", "taskId"]);
+    const taskId =
+      this.readString(body, ["data", "task_id"]) ?? this.readString(body, ["data", "taskId"]);
     if (taskId === null) {
       throw new Error("Kling video generation returned an invalid task response.");
     }
     return taskId;
   }
 
-  private async pollTask(taskId: string, apiKey: string, signal: AbortSignal): Promise<unknown> {
+  private async pollTask(
+    taskId: string,
+    taskKind: KlingTaskKind,
+    authToken: string,
+    signal: AbortSignal
+  ): Promise<unknown> {
     while (!signal.aborted) {
       await this.delay(KLING_VIDEO_POLL_INTERVAL_MS, signal);
       const response = await fetch(
-        `${KLING_API_BASE_URL}/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`,
+        `${KLING_API_BASE_URL}${this.taskPath(taskKind)}/${encodeURIComponent(taskId)}`,
         {
           method: "GET",
           headers: {
-            Authorization: `Bearer ${apiKey}`
+            Authorization: `Bearer ${authToken}`
           },
           signal
         }
@@ -154,46 +121,36 @@ export class KlingProviderClient {
         }
         throw new Error(this.readKlingErrorMessage(body, response.status));
       }
-      const state = this.readString(body, ["data", "state"]);
-      switch (state) {
-        case "waiting":
-        case "queuing":
-        case "generating":
-          continue;
-        case "success":
-          return body;
-        case "fail":
-          throw new Error(
-            this.readString(body, ["data", "failMsg"]) ??
-              `Kling video generation ended with state "${state}".`
-          );
-        default:
-          if (state === null) {
-            throw new Error("Kling task status response was missing the task state.");
-          }
-          continue;
+      const status = this.readTaskStatus(body);
+      if (status === null) {
+        throw new Error("Kling task status response was missing the task state.");
       }
+      if (this.isPendingTaskStatus(status)) {
+        continue;
+      }
+      if (this.isSucceededTaskStatus(status)) {
+        return body;
+      }
+      if (this.isFailedTaskStatus(status)) {
+        throw new Error(this.readKlingTaskFailureMessage(body, status));
+      }
+      continue;
     }
     throw new Error("Kling video generation polling stopped before a terminal task response.");
   }
 
   private readOutputUrl(body: unknown): string {
-    const resultJson = this.readString(body, ["data", "resultJson"]);
-    if (resultJson === null) {
-      throw new Error("Kling video generation completed without resultJson.");
-    }
-    try {
-      const parsed = JSON.parse(resultJson) as { resultUrls?: unknown[] };
-      const firstUrl = parsed.resultUrls?.find(
-        (entry): entry is string => typeof entry === "string" && entry.trim().length > 0
-      );
-      if (!firstUrl) {
-        throw new Error();
-      }
-      return firstUrl.trim();
-    } catch {
+    const videoUrl =
+      this.readString(body, ["data", "task_result", "videos", "0", "url"]) ??
+      this.readString(body, ["data", "task_result", "video", "url"]) ??
+      this.readString(body, ["data", "task_result", "url"]) ??
+      this.readString(body, ["data", "videos", "0", "url"]) ??
+      this.readString(body, ["data", "video", "url"]) ??
+      this.readString(body, ["data", "url"]);
+    if (videoUrl === null) {
       throw new Error("Kling video generation completed without a downloadable video URL.");
     }
+    return videoUrl;
   }
 
   private async downloadVideo(
@@ -236,21 +193,24 @@ export class KlingProviderClient {
     }
   }
 
-  private normalizeFilename(filename: string | null, mimeType: string): string {
-    const trimmed = typeof filename === "string" ? filename.trim() : "";
-    if (trimmed.length > 0) {
-      return trimmed;
+  private buildCreateTaskBody(
+    input: ProviderGatewayVideoGenerateRequest,
+    model: string,
+    taskKind: KlingTaskKind
+  ): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+      model_name: model,
+      prompt: input.prompt,
+      duration: String(input.seconds),
+      aspect_ratio: this.toKlingAspectRatio(input.size),
+      negative_prompt: "",
+      mode: "pro",
+      sound: "off"
+    };
+    if (taskKind === "image2video") {
+      body.image = input.referenceImage?.bytesBase64 ?? null;
     }
-    switch (mimeType) {
-      case "image/jpeg":
-      case "image/jpg":
-        return "reference.jpg";
-      case "image/webp":
-        return "reference.webp";
-      case "image/png":
-      default:
-        return "reference.png";
-    }
+    return body;
   }
 
   private buildBillingFacts(
@@ -273,20 +233,76 @@ export class KlingProviderClient {
 
   private readKlingErrorMessage(body: unknown, status: number): string {
     return (
+      this.readString(body, ["error", "message"]) ??
       this.readString(body, ["msg"]) ??
       this.readString(body, ["message"]) ??
       `Kling video generation request failed with status ${String(status)}.`
     );
   }
 
-  private readKlingUploadErrorMessage(body: unknown, status: number): string {
+  private readKlingTaskFailureMessage(body: unknown, status: string): string {
     return (
-      this.readString(body, ["msg"]) ??
-      `Kling reference-image upload failed with status ${String(status)}.`
+      this.readString(body, ["data", "task_status_msg"]) ??
+      this.readString(body, ["data", "taskStatusMsg"]) ??
+      this.readString(body, ["data", "fail_reason"]) ??
+      this.readString(body, ["data", "failReason"]) ??
+      this.readString(body, ["data", "status_msg"]) ??
+      this.readString(body, ["data", "statusMsg"]) ??
+      this.readString(body, ["error", "message"]) ??
+      this.readString(body, ["message"]) ??
+      `Kling video generation ended with state "${status}".`
     );
   }
 
+  private readTaskStatus(body: unknown): string | null {
+    return (
+      this.readString(body, ["data", "task_status"]) ??
+      this.readString(body, ["data", "taskStatus"]) ??
+      this.readString(body, ["data", "status"]) ??
+      this.readString(body, ["data", "state"])
+    );
+  }
+
+  private isPendingTaskStatus(status: string): boolean {
+    return [
+      "submitted",
+      "pending",
+      "queued",
+      "processing",
+      "running",
+      "waiting",
+      "queuing"
+    ].includes(status.toLowerCase());
+  }
+
+  private isSucceededTaskStatus(status: string): boolean {
+    return ["succeed", "success", "completed"].includes(status.toLowerCase());
+  }
+
+  private isFailedTaskStatus(status: string): boolean {
+    return ["failed", "fail", "error", "cancelled", "canceled"].includes(status.toLowerCase());
+  }
+
   private readString(value: unknown, path: string[]): string | null {
+    let current: unknown = value;
+    for (const key of path) {
+      if (Array.isArray(current)) {
+        const index = Number(key);
+        if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+          return null;
+        }
+        current = current[index];
+        continue;
+      }
+      if (current === null || typeof current !== "object" || Array.isArray(current)) {
+        return null;
+      }
+      current = (current as Record<string, unknown>)[key];
+    }
+    return typeof current === "string" && current.trim().length > 0 ? current.trim() : null;
+  }
+
+  private readNumber(value: unknown, path: string[]): number | null {
     let current: unknown = value;
     for (const key of path) {
       if (current === null || typeof current !== "object" || Array.isArray(current)) {
@@ -294,7 +310,7 @@ export class KlingProviderClient {
       }
       current = (current as Record<string, unknown>)[key];
     }
-    return typeof current === "string" && current.trim().length > 0 ? current.trim() : null;
+    return typeof current === "number" && Number.isFinite(current) ? current : null;
   }
 
   private async readJsonBody(response: Response): Promise<unknown> {
@@ -309,11 +325,71 @@ export class KlingProviderClient {
     }
   }
 
-  private resolveApiKey(apiKey?: string): string {
-    if (typeof apiKey === "string" && apiKey.trim().length > 0) {
-      return apiKey.trim();
+  private resolveCredentials(credentialValue?: string): KlingCredentials {
+    if (typeof credentialValue !== "string" || credentialValue.trim().length === 0) {
+      throw new Error(
+        'Kling credentials are required and must be stored as JSON: {"accessKey":"...","secretKey":"..."}.'
+      );
     }
-    throw new Error("Kling API key is required.");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(credentialValue);
+    } catch {
+      throw new Error(
+        'Kling credentials must be valid JSON: {"accessKey":"...","secretKey":"..."}.'
+      );
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(
+        'Kling credentials must be a JSON object with "accessKey" and "secretKey" string fields.'
+      );
+    }
+    const accessKey =
+      this.asNonEmptyString((parsed as Record<string, unknown>).accessKey) ??
+      this.asNonEmptyString((parsed as Record<string, unknown>).access_key);
+    const secretKey =
+      this.asNonEmptyString((parsed as Record<string, unknown>).secretKey) ??
+      this.asNonEmptyString((parsed as Record<string, unknown>).secret_key);
+    if (accessKey === null || secretKey === null) {
+      throw new Error(
+        'Kling credentials JSON must include non-empty "accessKey" and "secretKey" string fields.'
+      );
+    }
+    return {
+      accessKey,
+      secretKey
+    };
+  }
+
+  private createAuthToken(credentials: KlingCredentials): string {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const header = {
+      alg: "HS256",
+      typ: "JWT"
+    };
+    const payload = {
+      iss: credentials.accessKey,
+      exp: nowSeconds + KLING_JWT_TTL_SECONDS,
+      nbf: nowSeconds - KLING_JWT_NOT_BEFORE_SKEW_SECONDS
+    };
+    const encodedHeader = this.base64UrlEncode(JSON.stringify(header));
+    const encodedPayload = this.base64UrlEncode(JSON.stringify(payload));
+    const signature = createHmac("sha256", credentials.secretKey)
+      .update(`${encodedHeader}.${encodedPayload}`)
+      .digest("base64url");
+    return `${encodedHeader}.${encodedPayload}.${signature}`;
+  }
+
+  private taskPath(taskKind: KlingTaskKind): string {
+    return taskKind === "image2video" ? KLING_IMAGE_TO_VIDEO_PATH : KLING_TEXT_TO_VIDEO_PATH;
+  }
+
+  private asNonEmptyString(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private base64UrlEncode(value: string): string {
+    return Buffer.from(value, "utf8").toString("base64url");
   }
 
   private createTimedSignal(timeoutMs: number): { signal: AbortSignal; dispose: () => void } {

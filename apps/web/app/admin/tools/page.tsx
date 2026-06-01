@@ -1148,8 +1148,9 @@ export default function AdminToolsPage() {
                   <div>
                     <p className="text-sm font-semibold text-text">Video Providers</p>
                     <p className="text-[11px] text-text-muted">
-                      Separate encrypted API keys for Runway and Kling video providers. These do not
-                      change the existing OpenAI image/edit credential slot.
+                      Separate encrypted credentials for Runway and Kling video providers. Kling
+                      uses official Access Key + Secret Key JSON, and these do not change the
+                      existing OpenAI image/edit credential slot.
                     </p>
                   </div>
                 </div>
@@ -1225,7 +1226,13 @@ function ToolCredentialCard({
         type="password"
         value={keyInputs[cred.credentialKey] ?? ""}
         onChange={(e) => onKeyChange(cred.credentialKey, e.target.value)}
-        placeholder={cred.configured ? `••••${cred.lastFour ?? ""}` : "Enter API key..."}
+        placeholder={
+          cred.configured
+            ? `••••${cred.lastFour ?? ""}`
+            : cred.credentialKey === "tool_video_generate_kling"
+              ? '{"accessKey":"...","secretKey":"..."}'
+              : "Enter API key..."
+        }
         className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
       />
       {cred.updatedAt && (

@@ -2,6 +2,37 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-107 provider-native video audio accepted
+
+### What changed & why
+
+Added `docs/ADR/107-provider-native-video-audio.md` while ADR-106 rollout was pending. This is a docs-only executable ADR for adding provider-native audio to `video_generate` without first building a PersAI-side TTS/mux pipeline.
+
+The ADR captures the current provider-docs finding:
+
+- Kling is the first target for native audio because Kling 3.0 docs describe native audio, voice binding, multi-character speaking, multilingual speech, dialects/accents, and provider-side audio/video output.
+- Kling API wrappers expose audio-related modes/fields such as `enable_audio`, `keep_original_audio`, `sound`, `lip_sync`, and external dubbing/audio URLs, but implementation must verify the exact API surface used by PersAI in Slice 0.
+- Runway has documented audio/no-audio pricing for `veo3.1` / `veo3.1_fast`, plus separate audio/voice/avatar APIs; ADR-107 does not assume ordinary Gen-4.5 image-to-video supports audio.
+
+ADR-107 keeps silent video as the default and preserves ADR-106 invariants: Runway/Kling remain video-only providers, chat routing remains OpenAI/Anthropic, and `image_generate` / `image_edit` remain OpenAI-only.
+
+### Files touched
+
+`docs/ADR/107-provider-native-video-audio.md`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- Docs-only; format check pending in this session.
+
+### Risks / residuals
+
+- Slice 0 must verify exact provider API references before implementation because public provider docs, API wrappers, and actual gateway endpoints may differ.
+- No code or runtime behavior changed in this docs-only step.
+
+### Next recommended step
+
+- After ADR-106 rollout/live smoke completes, start ADR-107 Slice 0 only: provider capability audit and current PersAI seam map. Do not begin implementation until the exact Kling/Runway audio fields are confirmed.
+
 ## 2026-06-01 (cont.) — ADR-106 Slice 10 final verification and docs
 
 ### What changed & why
@@ -145,9 +176,9 @@ Implemented ADR-106 Slice 7 only through a synchronous subagent, with orchestrat
 
 - `openai` -> existing OpenAI video path, preserving Sora-only model validation.
 - `runway` -> new Runway async video adapter.
-- `kling` -> new KIE/Kling async video adapter.
+- `kling` -> new official Kling async video adapter.
 
-Runway uses the documented `X-Runway-Version: 2024-11-06` task flow and maps PersAI landscape/portrait sizes to the version-specific `1280:768` / `768:1280` ratios. Kling uses KIE file upload for reference images, task creation, polling, result URL download, and normalized video output. Both adapters return provider/model keyed time-metered billing facts for gateway results; end-to-end ledger attribution remains Slice 9.
+Runway uses the documented `X-Runway-Version: 2024-11-06` task flow and maps PersAI landscape/portrait sizes to the version-specific `1280:768` / `768:1280` ratios. Kling uses the official Kling API task flow with JWT auth, `text2video` / `image2video` creation, unified task polling, direct base64 reference-image input, and normalized video output download. Both adapters return provider/model keyed time-metered billing facts for gateway results; end-to-end ledger attribution remains Slice 9.
 
 Review correction applied: the initial gateway model normalization accidentally allowed arbitrary OpenAI video model ids. This was fixed so OpenAI video remains limited to `sora-2` / `sora-2-pro`, while Runway/Kling accept non-empty catalog model ids.
 
@@ -169,7 +200,7 @@ No Slice 8+ work was done: no runtime execution/fallback orchestration, no API m
 ### Risks / residuals
 
 - Runtime still needs Slice 8 to call provider-gateway with provider-aware refs/fallback behavior.
-- Slice 8 live rollout should smoke-test real operator keys and reference image upload/download behavior, especially KIE/Kling wrapper semantics.
+- Slice 8 live rollout should smoke-test real operator keys and reference-image behavior against the official Kling API plus real Runway task completion.
 - Slice 9 still needs downstream billing/ledger attribution to use provider/model facts end to end.
 
 ### Deploy
@@ -179,6 +210,48 @@ No Slice 8+ work was done: no runtime execution/fallback orchestration, no API m
 ### Next recommended step
 
 - ADR-106 Slice 8 only: update runtime `video_generate` execution to use materialized provider/secret refs and implement provider-aware video fallback. Do not start billing ledger work beyond preserving returned provider-gateway facts.
+
+## 2026-06-01 (cont.) — Kling official API correction
+
+### What changed & why
+
+Baseline SHA at session start: `1e0a217f725172a955577198c7971d4d4b201cb3`.
+
+Replaced the active Kling implementation that incorrectly used KIE proxy endpoints and a single bearer key. The provider-gateway Kling adapter now targets the official Kling API domain (`https://api-singapore.klingai.com`), generates a short-lived JWT from the operator's official Access Key + Secret Key, and uses the official async `text2video` / `image2video` + `GET /v1/videos/{task_id}` flow instead of KIE upload/task endpoints.
+
+To fit the existing PersAI secret infrastructure without a broader UI rewrite, the existing Kling secret slot (`tool/video_generate/kling/api-key`) is retained but its value is now Kling-only JSON: `{"accessKey":"...","secretKey":"..."}`. Admin Tools labeling and placeholder text were updated so operators are no longer told to enter a misleading single "Kling API key".
+
+The runtime/provider fallback improvement remains active and verified: provider-gateway 5xx failures from a video provider attempt are fallback-eligible, while timeout/unconfigured-service failures are not retried blindly.
+
+### Files touched
+
+`apps/provider-gateway/src/modules/providers/kling/kling-provider.client.ts`; `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts`; `apps/provider-gateway/test/kling-provider.client.test.ts`; `apps/provider-gateway/test/provider-video-generation.service.test.ts`; `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`; `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`; `apps/runtime/test/provider-gateway.client.service.test.ts`; `apps/runtime/test/runtime-video-generate-tool.service.test.ts`; `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`; `apps/web/app/admin/tools/page.tsx`; `apps/web/app/admin/tools/page.test.tsx`; `docs/API-BOUNDARY.md`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx --test test/kling-provider.client.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx --test test/provider-video-generation.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/provider-gateway.client.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/web exec vitest run app/admin/tools/page.test.tsx --config vitest.config.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- PASS: `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm --filter @persai/web run typecheck`
+- PASS: `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Direct fetches of the current official Kling docs exposed the official domain and JWT auth requirements clearly, but the rendered model-reference pages were not fetchable with full parameter tables in this environment. The implementation therefore uses the verified official auth/domain and a conservative official `text2video` / `image2video` task pattern cross-checked against public SDK/examples; real-credential smoke is still required to confirm the exact enabled model names and provider-side payload/version constraints for the target account.
+- This correction intentionally keeps the existing Kling secret id path for storage compatibility; operators must update the stored value to the new Kling JSON shape before Kling video generation can work after deploy.
+
+### Deploy
+
+- API/WEB/RUNTIME/PROVIDER-GATEWAY.
+
+### Next recommended step
+
+- Deploy the affected services, update the stored Kling secret to the official JSON shape, and run one real Kling video smoke plus one Kling->Runway fallback smoke in `persai-dev`.
 
 ## 2026-06-01 (cont.) — ADR-106 Slice 6 runtime gating
 

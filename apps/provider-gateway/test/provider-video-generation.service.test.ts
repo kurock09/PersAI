@@ -95,16 +95,19 @@ class FakeRunwayProviderClient {
 }
 
 class FakeKlingProviderClient {
-  calls: Array<{ input: ProviderGatewayVideoGenerateRequest; apiKey: string | undefined }> = [];
+  calls: Array<{
+    input: ProviderGatewayVideoGenerateRequest;
+    credentialValue: string | undefined;
+  }> = [];
 
   async generateVideo(
     input: ProviderGatewayVideoGenerateRequest,
-    options?: { apiKey?: string }
+    options?: { credentialValue?: string }
   ): Promise<ProviderGatewayVideoGenerateResult> {
-    this.calls.push({ input, apiKey: options?.apiKey });
+    this.calls.push({ input, credentialValue: options?.credentialValue });
     return {
       provider: "kling",
-      model: input.model ?? "kling-3.0/video",
+      model: input.model ?? "kling-v1",
       prompt: input.prompt,
       size: input.size,
       seconds: input.seconds,
@@ -116,7 +119,7 @@ class FakeKlingProviderClient {
       usage: null,
       billingFacts: {
         providerKey: "kling",
-        modelKey: input.model ?? "kling-3.0/video",
+        modelKey: input.model ?? "kling-v1",
         capability: "video",
         occurredAt: "2026-06-01T15:01:00.000Z",
         metering: {
@@ -177,7 +180,7 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
 
   const klingResult = await service.generateVideo({
     ...createRequest(),
-    model: "kling-3.0/video",
+    model: "kling-v1",
     credential: {
       ...createRequest().credential,
       secretId: "tool/video_generate/kling/api-key",
@@ -185,8 +188,8 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
     }
   });
   assert.equal(klingResult.provider, "kling");
-  assert.equal(klingProviderClient.calls[0]?.apiKey, "resolved-tool-secret");
-  assert.equal(klingProviderClient.calls[0]?.input.model, "kling-3.0/video");
+  assert.equal(klingProviderClient.calls[0]?.credentialValue, "resolved-tool-secret");
+  assert.equal(klingProviderClient.calls[0]?.input.model, "kling-v1");
 
   await assert.rejects(
     () =>
