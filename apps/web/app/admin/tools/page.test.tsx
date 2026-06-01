@@ -40,6 +40,36 @@ const credentialsPayload = {
       updatedAt: null,
       providerId: "tavily",
       providerOptions: [{ id: "tavily", label: "Tavily", envVar: "TAVILY_API_KEY" }]
+    },
+    {
+      credentialKey: "tool_image_generate",
+      toolCode: "image_generate",
+      displayName: "Image Generation / Edit / OpenAI Video API Key",
+      configured: true,
+      lastFour: "img1",
+      updatedAt: "2026-06-01T12:00:00.000Z",
+      providerId: null,
+      providerOptions: null
+    },
+    {
+      credentialKey: "tool_video_generate_runway",
+      toolCode: "video_generate",
+      displayName: "Video Generation API Key (Runway)",
+      configured: true,
+      lastFour: "rway",
+      updatedAt: "2026-06-01T13:00:00.000Z",
+      providerId: null,
+      providerOptions: null
+    },
+    {
+      credentialKey: "tool_video_generate_kling",
+      toolCode: "video_generate",
+      displayName: "Video Generation API Key (Kling)",
+      configured: false,
+      lastFour: null,
+      updatedAt: null,
+      providerId: null,
+      providerOptions: null
     }
   ],
   documentProviderConfigs: [],
@@ -147,4 +177,21 @@ describe("AdminToolsPage economics", () => {
       0.05
     );
   }, 15_000);
+
+  it("renders separate video provider credentials without changing the media slot", async () => {
+    render(<AdminToolsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Video Providers")).toBeTruthy();
+    });
+
+    expect(screen.getByText("Image Generation / Edit / OpenAI Video API Key")).toBeTruthy();
+    expect(screen.getByText("Video Generation API Key (Runway)")).toBeTruthy();
+    expect(screen.getByText("Video Generation API Key (Kling)")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Separate encrypted API keys for Runway and Kling video providers. These do not change the existing OpenAI image/edit credential slot."
+      )
+    ).toBeTruthy();
+  });
 });

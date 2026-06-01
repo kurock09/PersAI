@@ -2,6 +2,47 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-01 (cont.) — ADR-106 Slice 2 Admin Tools video credentials
+
+### What changed & why
+
+Baseline SHA at session start: `8a89cff300727cf1e74b0f4eaa1052965dbaaaab`.
+
+Implemented ADR-106 Slice 2 only through a synchronous subagent, with orchestrator diff-review and verification. Admin Tools now has separate encrypted video-provider credential entries:
+
+- `tool_video_generate_runway` -> `tool/video_generate/runway/api-key`
+- `tool_video_generate_kling` -> `tool/video_generate/kling/api-key`
+
+The new keys use the existing `PlatformRuntimeProviderSecretStoreService` / Admin Tools masked metadata path. `Admin > Tools` renders a dedicated Video Providers section for Runway/Kling. The existing `tool_image_generate` OpenAI media credential slot is unchanged and remains the current key for image generation, image edit, and existing OpenAI video behavior.
+
+No Slice 3+ work was done: no Admin Runtime catalog UI beyond the Tools credential section, no plan model selection, no `video_generate` credential materialization decoupling, no runtime/provider-gateway execution widening, no provider clients, and no billing/ledger changes. `image_generate -> OpenAI` and `image_edit -> OpenAI` behavior remain unchanged.
+
+### Files touched
+
+`apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`; `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts`; focused API tests; `apps/web/app/admin/tools/page.tsx`; `apps/web/app/admin/tools/page.test.tsx`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`; `docs/API-BOUNDARY.md`; `docs/ADR/106-video-provider-catalog-and-execution-routing.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/tool-credential-settings.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-credentials.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/web exec vitest run app/admin/tools/page.test.tsx --config vitest.config.ts`
+- PASS: `corepack pnpm run format:check`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Runway/Kling credentials are storable and visible but still not executable. The Admin Runtime catalog UI, plan selection, materialization, runtime gates, provider clients, and dispatch remain separate future slices.
+- The Tools UI must keep making this readiness/live-execution distinction clear until the full ADR-106 production path lands.
+
+### Deploy
+
+- API/WEB.
+
+### Next recommended step
+
+- ADR-106 Slice 3 only: add Runway/Kling model catalog cards to `Admin > Runtime`, keep their row capability editor video-only, keep chat provider selectors OpenAI/Anthropic-only, and do not start plan selection or runtime execution.
+
 ## 2026-06-01 (cont.) — ADR-106 Slice 1 provider catalog types and normalization
 
 ### What changed & why

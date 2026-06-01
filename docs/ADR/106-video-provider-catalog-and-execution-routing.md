@@ -234,6 +234,8 @@ Do not present the feature as production-ready until the live production path is
 - Admin can save and see masked metadata for Runway/Kling video keys.
 - Image generate/edit credential UI and secret ids are unchanged.
 
+**Status (2026-06-01): Completed.** Admin Tools now stores and displays separate encrypted video provider keys for Runway and Kling through the existing secret-store path: `tool_video_generate_runway` -> `tool/video_generate/runway/api-key` and `tool_video_generate_kling` -> `tool/video_generate/kling/api-key`. The existing `tool_image_generate` OpenAI media credential slot remains unchanged for image generation, image edit, and current OpenAI video behavior. No Admin Runtime catalog UI, plan selection, materialization, runtime/provider-gateway execution, provider clients, or billing work was included.
+
 ### Slice 3 - Admin Runtime catalog UI
 
 **Scope**

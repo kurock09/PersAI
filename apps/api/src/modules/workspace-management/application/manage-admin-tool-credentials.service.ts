@@ -206,6 +206,8 @@ export class ManageAdminToolCredentialsService {
       tool_web_search: { configured: false, lastFour: null, updatedAt: null },
       tool_web_fetch: { configured: false, lastFour: null, updatedAt: null },
       tool_image_generate: { configured: false, lastFour: null, updatedAt: null },
+      tool_video_generate_runway: { configured: false, lastFour: null, updatedAt: null },
+      tool_video_generate_kling: { configured: false, lastFour: null, updatedAt: null },
       tool_document_pdfmonkey: { configured: false, lastFour: null, updatedAt: null },
       tool_document_gamma: { configured: false, lastFour: null, updatedAt: null },
       tool_browser: { configured: false, lastFour: null, updatedAt: null },

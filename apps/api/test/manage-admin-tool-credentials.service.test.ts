@@ -36,7 +36,9 @@ async function run(): Promise<void> {
     "admin-1",
     {
       keys: {
-        tool_browser: "browserless-secret"
+        tool_browser: "browserless-secret",
+        tool_video_generate_runway: "runway-secret",
+        tool_video_generate_kling: "kling-secret"
       },
       providers: {
         tool_browser: "browserless"
@@ -61,7 +63,11 @@ async function run(): Promise<void> {
     targetGeneration: 1,
     scopeMetadata: {
       reason: "admin.tool_credentials.update",
-      updatedCredentials: ["tool_browser"],
+      updatedCredentials: [
+        "tool_browser",
+        "tool_video_generate_runway",
+        "tool_video_generate_kling"
+      ],
       updatedProviders: [
         {
           credentialKey: "tool_browser",

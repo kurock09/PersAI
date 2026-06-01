@@ -108,6 +108,10 @@ type AdminBillingProviderCredentialsState = {
 const WEB_CREDENTIAL_KEYS = ["tool_web_search", "tool_web_fetch", "tool_browser"] as const;
 const TTS_CREDENTIAL_KEYS = ["tool_tts_elevenlabs", "tool_tts_yandex", "tool_tts_openai"] as const;
 const MEDIA_CREDENTIAL_KEYS = ["tool_image_generate"] as const;
+const VIDEO_PROVIDER_CREDENTIAL_KEYS = [
+  "tool_video_generate_runway",
+  "tool_video_generate_kling"
+] as const;
 const DOCUMENT_GENERATION_CREDENTIAL_KEYS = [
   "tool_document_pdfmonkey",
   "tool_document_gamma"
@@ -1115,8 +1119,8 @@ export default function AdminToolsPage() {
                   <div>
                     <p className="text-sm font-semibold text-text">Media</p>
                     <p className="text-[11px] text-text-muted">
-                      Shared OpenAI key for image (and related) tool paths. Token and time pricing
-                      for image/video models is configured on{" "}
+                      Shared OpenAI key for image generation, image edit, and the existing OpenAI
+                      video path. Token and time pricing for image/video models is configured on{" "}
                       <Link href="/admin/runtime" className="text-accent hover:underline">
                         Admin → Runtime
                       </Link>
@@ -1135,6 +1139,33 @@ export default function AdminToolsPage() {
                       onProviderChange={updateProviderInput}
                     />
                   ))}
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-border bg-surface-raised p-4">
+                <div className="mb-4 flex items-start gap-2">
+                  <ImageIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                  <div>
+                    <p className="text-sm font-semibold text-text">Video Providers</p>
+                    <p className="text-[11px] text-text-muted">
+                      Separate encrypted API keys for Runway and Kling video providers. These do not
+                      change the existing OpenAI image/edit credential slot.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {pickCredentials(state.credentials, VIDEO_PROVIDER_CREDENTIAL_KEYS).map(
+                    (cred) => (
+                      <ToolCredentialCard
+                        key={cred.credentialKey}
+                        cred={cred}
+                        keyInputs={keyInputs}
+                        providerInputs={providerInputs}
+                        onKeyChange={updateKeyInput}
+                        onProviderChange={updateProviderInput}
+                      />
+                    )
+                  )}
                 </div>
               </section>
             </div>

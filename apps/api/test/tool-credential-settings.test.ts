@@ -60,6 +60,11 @@ async function run(): Promise<void> {
         configured: true,
         lastFour: "abcd",
         updatedAt: "2026-04-13T12:00:00.000Z"
+      },
+      tool_video_generate_runway: {
+        configured: true,
+        lastFour: "wy42",
+        updatedAt: "2026-06-01T12:00:00.000Z"
       }
     },
     providerSelections: {
@@ -74,7 +79,7 @@ async function run(): Promise<void> {
     }
   });
 
-  assert.equal(state.credentials.length, 11); // 9 visible tool credentials + 2 notification credentials
+  assert.equal(state.credentials.length, 13); // 11 visible tool credentials + 2 notification credentials
   assert.equal(
     state.credentials.find((credential) => credential.credentialKey === "tool_memory_search"),
     undefined
@@ -116,6 +121,21 @@ async function run(): Promise<void> {
       configured: false,
       lastFour: null,
       updatedAt: null,
+      providerId: null,
+      providerOptions: null
+    }
+  );
+  assert.deepEqual(
+    state.credentials.find(
+      (credential) => credential.credentialKey === "tool_video_generate_runway"
+    ),
+    {
+      credentialKey: "tool_video_generate_runway",
+      toolCode: "video_generate",
+      displayName: "Video Generation API Key (Runway)",
+      configured: true,
+      lastFour: "wy42",
+      updatedAt: "2026-06-01T12:00:00.000Z",
       providerId: null,
       providerOptions: null
     }
