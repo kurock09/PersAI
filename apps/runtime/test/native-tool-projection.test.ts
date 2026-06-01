@@ -442,7 +442,10 @@ async function run(): Promise<void> {
   assert.match(imageGenerateCount?.description ?? "", /1\.\.2/);
   const imageGenerateOutputMode = (
     imageGenerate?.inputSchema as {
-      properties?: { outputMode?: { enum?: unknown[] }; seriesItems?: { type?: string } };
+      properties?: {
+        outputMode?: { enum?: unknown[]; description?: string };
+        seriesItems?: { type?: string };
+      };
     }
   )?.properties;
   assert.deepEqual(imageGenerateOutputMode?.outputMode?.enum, ["variants", "series"]);
@@ -465,7 +468,10 @@ async function run(): Promise<void> {
   assert.equal(imageEditCount?.minimum, 1);
   const imageEditOutputMode = (
     imageEdit?.inputSchema as {
-      properties?: { outputMode?: { enum?: unknown[] }; seriesItems?: { type?: string } };
+      properties?: {
+        outputMode?: { enum?: unknown[]; description?: string };
+        seriesItems?: { type?: string };
+      };
     }
   )?.properties;
   assert.deepEqual(imageEditOutputMode?.outputMode?.enum, ["variants", "series"]);

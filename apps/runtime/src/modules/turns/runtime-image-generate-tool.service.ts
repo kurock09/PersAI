@@ -423,10 +423,8 @@ export class RuntimeImageGenerateToolService {
       let revisedPrompt: string | null = null;
       const persistedArtifacts: RuntimeOutputArtifact[] = [];
       const multiImagePlan = this.resolveMultiImageExecutionPlan(request);
-      const providerResult =
-        multiImagePlan === null ? await runGenerateCall(request.prompt, request.count) : null;
-
-      if (providerResult !== null) {
+      if (multiImagePlan === null) {
+        const providerResult = await runGenerateCall(request.prompt, request.count);
         if (!providerResult.ok) {
           return {
             payload: providerResult.payload,
@@ -847,7 +845,7 @@ export class RuntimeImageGenerateToolService {
     if (request.count <= 1) {
       return null;
     }
-    if (request.outputMode === "series" && request.seriesItems !== null) {
+    if (request.outputMode === "series" && Array.isArray(request.seriesItems)) {
       return request.seriesItems;
     }
     if (request.outputMode === "variants") {
