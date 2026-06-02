@@ -273,7 +273,7 @@ providerGateway:
       maxSurge: 1
   image:
     name: provider-gateway
-    tag: 1d4c340c08b613c8d4983d717f2f6a3034faeb37
+    tag: ff3be117ecbec2a843aaf620105dc07449fb78ba
     pullPolicy: IfNotPresent
   env:
     APP_ENV: dev
@@ -495,6 +495,7 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
 
 
 
