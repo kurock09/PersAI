@@ -102,6 +102,11 @@ type NormalizedVideoExecutionRequest = {
   warning: string | null;
 };
 
+type AdaptedVideoAttemptRequest = {
+  request: NormalizedVideoExecutionRequest["request"];
+  warning: string | null;
+};
+
 export interface RuntimeVideoGenerateToolExecutionResult {
   payload: RuntimeVideoGenerateToolResult;
   artifacts: RuntimeOutputArtifact[];
@@ -436,9 +441,35 @@ export class RuntimeVideoGenerateToolService {
           attempt.credential.videoModelParameters
         );
         if (normalizedAttempt instanceof Error) {
-          throw normalizedAttempt;
+          if (attemptIndex === 0) {
+            throw normalizedAttempt;
+          }
+          const adaptedAttempt = this.adaptRequestForFallbackAttempt({
+            baseRequest: normalizedRequest.request,
+            fallbackModelParameters: attempt.credential.videoModelParameters
+          });
+          if (adaptedAttempt instanceof Error) {
+            throw normalizedAttempt;
+          }
+          attemptNormalizedRequest = {
+            request: adaptedAttempt.request,
+            warning: adaptedAttempt.warning
+          };
+        } else {
+          attemptNormalizedRequest =
+            attemptIndex === 0
+              ? normalizedAttempt
+              : {
+                  ...normalizedAttempt,
+                  warning: this.mergeWarnings(
+                    normalizedAttempt.warning,
+                    this.describeFallbackAdaptation(
+                      normalizedRequest.request,
+                      normalizedAttempt.request
+                    )
+                  )
+                };
         }
-        attemptNormalizedRequest = normalizedAttempt;
         const resolvedVoiceIds = this.resolveVoiceIdsForAttempt(
           attemptNormalizedRequest.request,
           attempt.credential
@@ -456,7 +487,10 @@ export class RuntimeVideoGenerateToolService {
             model: attempt.model,
             size: attemptNormalizedRequest.request.size,
             seconds: attemptNormalizedRequest.request.seconds,
-            referenceImage: selection.referenceImage,
+            referenceImage:
+              attemptNormalizedRequest.request.inputMode === "text"
+                ? null
+                : selection.referenceImage,
             providerParameters: this.resolveProviderVideoParameters({
               providerId: attempt.providerId,
               audioMode: attemptNormalizedRequest.request.audioMode,
@@ -465,7 +499,10 @@ export class RuntimeVideoGenerateToolService {
               providerParameters:
                 attempt.credential.videoModelParameters?.providerParameters ?? null
             }),
-            referenceTailImage: selection.referenceTailImage,
+            referenceTailImage:
+              attemptNormalizedRequest.request.inputMode === "multi_image"
+                ? selection.referenceTailImage
+                : null,
             voiceIds: resolvedVoiceIds.length > 0 ? resolvedVoiceIds : null,
             acceptedTask: this.readAcceptedTaskHint(request, attempt),
             credential: {
@@ -1072,6 +1109,96 @@ export class RuntimeVideoGenerateToolService {
       return new Error(this.buildUnsupportedInputModeMessage(params.inputMode));
     }
     return null;
+  }
+
+  private adaptRequestForFallbackAttempt(params: {
+    baseRequest: NormalizedVideoExecutionRequest["request"];
+    fallbackModelParameters: RuntimeVideoModelParameters | null | undefined;
+  }): AdaptedVideoAttemptRequest | Error {
+    const modelParameters = params.fallbackModelParameters;
+    if (modelParameters === null || modelParameters === undefined) {
+      return new Error(
+        "Fallback video model is missing structured video parameters in the materialized catalog."
+      );
+    }
+    const audioCapabilities = new Set(modelParameters.audioCapabilities ?? ["silent"]);
+    const inputCapabilities = new Set(
+      modelParameters.inputCapabilities ??
+        (modelParameters.referenceImageSupported === true
+          ? ["text", "single_reference_image"]
+          : ["text"])
+    );
+    const warnings: string[] = [];
+    let audioMode = params.baseRequest.audioMode;
+    let inputMode = params.baseRequest.inputMode;
+    let referenceImageAliases = params.baseRequest.referenceImageAliases;
+    let voiceKeys = params.baseRequest.voiceKeys;
+    let voiceIds = params.baseRequest.voiceIds;
+
+    if (!audioCapabilities.has(audioMode)) {
+      if (!audioCapabilities.has("silent")) {
+        return new Error(this.buildUnsupportedAudioModeMessage(audioMode));
+      }
+      warnings.push(
+        `Fallback video model does not support ${audioMode}; continuing with silent video.`
+      );
+      audioMode = "silent";
+      voiceKeys = [];
+      voiceIds = [];
+    }
+
+    if (!inputCapabilities.has(inputMode)) {
+      if (
+        inputMode === "multi_image" &&
+        referenceImageAliases.length > 0 &&
+        inputCapabilities.has("single_reference_image")
+      ) {
+        warnings.push(
+          "Fallback video model does not support multi-image input; using the first reference image."
+        );
+        inputMode = "single_reference_image";
+        referenceImageAliases = referenceImageAliases.slice(0, 1);
+      } else if (inputCapabilities.has("text")) {
+        warnings.push(
+          `Fallback video model does not support ${inputMode}; continuing with text-only video.`
+        );
+        inputMode = "text";
+        referenceImageAliases = [];
+      } else {
+        return new Error(this.buildUnsupportedInputModeMessage(inputMode));
+      }
+    }
+
+    return {
+      request: {
+        ...params.baseRequest,
+        audioMode,
+        inputMode,
+        referenceImageAlias: referenceImageAliases[0] ?? null,
+        referenceImageAliases,
+        voiceKeys,
+        voiceIds
+      },
+      warning: warnings.length > 0 ? warnings.join(" ") : null
+    };
+  }
+
+  private describeFallbackAdaptation(
+    primaryRequest: NormalizedVideoExecutionRequest["request"],
+    fallbackRequest: NormalizedVideoExecutionRequest["request"]
+  ): string | null {
+    const warnings: string[] = [];
+    if (primaryRequest.audioMode !== fallbackRequest.audioMode) {
+      warnings.push(
+        `Fallback video model uses ${fallbackRequest.audioMode} instead of ${primaryRequest.audioMode}.`
+      );
+    }
+    if (primaryRequest.inputMode !== fallbackRequest.inputMode) {
+      warnings.push(
+        `Fallback video model uses ${fallbackRequest.inputMode} instead of ${primaryRequest.inputMode}.`
+      );
+    }
+    return warnings.length > 0 ? warnings.join(" ") : null;
   }
 
   private buildUnsupportedAudioModeMessage(mode: RuntimeVideoAudioMode): string {

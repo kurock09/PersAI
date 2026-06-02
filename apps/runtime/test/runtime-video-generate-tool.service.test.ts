@@ -556,6 +556,35 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       }
     ]
   });
+  const klingVoiceToSilentRunwayFallbackBundle = createBundle({
+    providerId: "kling",
+    secretId: "tool/video_generate/kling/api-key",
+    modelKey: "kling-v3",
+    videoModelParameters: KLING_VIDEO_MODEL_PARAMETERS,
+    videoVoiceCatalog: {
+      provider: "kling",
+      fetchedAt: "2026-06-02T12:00:00.000Z",
+      shortlist: [
+        {
+          voiceKey: "owen",
+          providerVoiceId: "voice-owen",
+          displayName: "Owen",
+          locale: "en-US",
+          gender: "male",
+          description: null,
+          styleTags: []
+        }
+      ]
+    },
+    fallbacks: [
+      {
+        providerId: "runway",
+        secretId: "tool/video_generate/runway/api-key",
+        modelKey: "gen4.5",
+        videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS
+      }
+    ]
+  });
   const projection = projectRuntimeNativeTools(bundle);
   assert.equal(
     projection.tools.some((tool) => tool.name === "video_generate"),
@@ -933,6 +962,74 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
 
   providerGatewayClientService.failuresByProvider.set(
     "kling",
+    new ProviderGatewayHttpError(500, "Kling video generation request failed with status 500.")
+  );
+  const audioFallbackResult = await service.executeToolCall({
+    bundle: klingVoiceToSilentRunwayFallbackBundle,
+    toolCall: createToolCall({
+      prompt: "Create a narrated product video",
+      audioMode: "voice_control",
+      voiceKeys: ["owen"],
+      seconds: 4,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-2f-audio-fallback"
+  });
+  providerGatewayClientService.failuresByProvider.delete("kling");
+  assert.equal(audioFallbackResult.payload.action, "generated");
+  assert.equal(audioFallbackResult.payload.provider, "runway");
+  assert.equal(audioFallbackResult.payload.requestedAudioMode, "silent");
+  assert.match(audioFallbackResult.payload.warning ?? "", /continuing with silent video/i);
+  assert.deepEqual(providerGatewayClientService.videoCalls[10], {
+    input: {
+      prompt: "Create a narrated product video",
+      model: "kling-v3",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: ["voice-owen"],
+      acceptedTask: null,
+      providerParameters: {
+        mode: "pro",
+        sound: "off"
+      },
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/kling/api-key",
+        providerId: "kling"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+  assert.deepEqual(providerGatewayClientService.videoCalls[11], {
+    input: {
+      prompt: "Create a narrated product video",
+      model: "gen4.5",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
+      providerParameters: null,
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/runway/api-key",
+        providerId: "runway"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+
+  providerGatewayClientService.failuresByProvider.set(
+    "kling",
     new ServiceUnavailableException({
       error: {
         code: "accepted_primary_unconfirmed",
@@ -948,6 +1045,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       }
     })
   );
+  const videoCallsBeforeAcceptedPrimaryUnconfirmed = providerGatewayClientService.videoCalls.length;
   const acceptedPrimaryUnconfirmedResult = await service.executeToolCall({
     bundle: klingToRunwayFallbackBundle,
     toolCall: createToolCall({
@@ -963,7 +1061,10 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(acceptedPrimaryUnconfirmedResult.payload.action, "skipped");
   assert.equal(acceptedPrimaryUnconfirmedResult.payload.reason, "accepted_primary_unconfirmed");
   assert.equal(acceptedPrimaryUnconfirmedResult.isError, true);
-  assert.equal(providerGatewayClientService.videoCalls.length, 11);
+  assert.equal(
+    providerGatewayClientService.videoCalls.length,
+    videoCallsBeforeAcceptedPrimaryUnconfirmed + 1
+  );
   assert.match(
     acceptedPrimaryUnconfirmedResult.payload.warning ?? "",
     /Fallback is forbidden until provider terminal status is confirmed/i
@@ -992,10 +1093,11 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(promptOnlyReferenceTextResult.payload.action, "generated");
   assert.equal(promptOnlyReferenceTextResult.payload.referenceImageAlias, null);
   assert.equal(promptOnlyReferenceTextResult.payload.referenceFilename, null);
-  assert.equal(providerGatewayClientService.videoCalls[10]?.input.referenceImage, null);
-  assert.equal(providerGatewayClientService.videoCalls[10]?.input.referenceTailImage, null);
-  assert.equal(providerGatewayClientService.videoCalls[10]?.input.voiceIds, null);
-  assert.equal(providerGatewayClientService.videoCalls[10]?.input.size, "1280x720");
+  const promptOnlyReferenceTextCall = providerGatewayClientService.videoCalls.at(-1);
+  assert.equal(promptOnlyReferenceTextCall?.input.referenceImage, null);
+  assert.equal(promptOnlyReferenceTextCall?.input.referenceTailImage, null);
+  assert.equal(promptOnlyReferenceTextCall?.input.voiceIds, null);
+  assert.equal(promptOnlyReferenceTextCall?.input.size, "1280x720");
 
   const nativeAudioUnsupported = await service.executeToolCall({
     bundle: runwayBundle,

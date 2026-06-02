@@ -441,6 +441,21 @@ async function run(): Promise<void> {
   );
   assert.deepEqual(materializedRunwayVideoRef.videoModelParameters, RUNWAY_VIDEO_MODEL_PARAMETERS);
 
+  const incompatibleFallbackRef = buildVideoGenerateToolCredentialRef({
+    runtimeProviderProfile: adminManagedProfile,
+    keyMetadata: {
+      tool_image_generate: { configured: true },
+      tool_video_generate_runway: { configured: true },
+      tool_video_generate_kling: { configured: true }
+    },
+    imageCredentialRef: openAiMediaRef,
+    videoGenerateModelKey: "kling-v3",
+    videoGenerateFallbackModelKey: "gen4-turbo"
+  });
+  assert.equal(incompatibleFallbackRef.providerId, "kling");
+  assert.equal(incompatibleFallbackRef.fallbacks?.[0]?.providerId, "runway");
+  assert.equal(incompatibleFallbackRef.fallbacks?.[0]?.modelKey, "gen4-turbo");
+
   assert.throws(
     () =>
       resolveVideoGenerateProviderSelection({

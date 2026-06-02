@@ -72,6 +72,23 @@ function appendToolDefinitionHint(base: string, hint: string): string {
   return base.includes(hint) ? base : `${base} ${hint}`;
 }
 
+function describeVideoVoiceCatalogHint(
+  credential: AssistantRuntimeBundleToolCredentialRef
+): string | null {
+  const catalog = credential.videoVoiceCatalog;
+  const shortlist = catalog?.shortlist ?? [];
+  if (shortlist.length === 0) {
+    return null;
+  }
+  const entries = shortlist.slice(0, 12).map((entry) => {
+    const details = [entry.displayName, entry.locale, entry.gender]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .join(", ");
+    return details.length > 0 ? `${entry.voiceKey} (${details})` : entry.voiceKey;
+  });
+  return `Available voiceKeys for voice_control: ${entries.join("; ")}. When the user asks for spoken narration/dialogue and does not name a specific voice, choose the best matching voiceKey from this list and call video_generate with audioMode="voice_control".`;
+}
+
 /**
  * ADR-074 Slice L1.1 / ADR-105 FIX A — resolve the effective
  * `image_generate.count.maximum` the model should see in its tool schema.
@@ -227,7 +244,9 @@ export function projectRuntimeNativeTools(
     videoGenerateCredential !== null &&
     supportsCurrentNativeVideoGenerateProvider(videoGenerateCredential.providerId ?? null)
   ) {
-    projectedTools.push(createVideoGenerateToolDefinition(videoGeneratePolicy));
+    projectedTools.push(
+      createVideoGenerateToolDefinition(videoGeneratePolicy, videoGenerateCredential)
+    );
   }
   const ttsPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "tts", "worker");
   const ttsCredential = bundle.governance.toolCredentialRefs.tts ?? null;
@@ -828,8 +847,10 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
 }
 
 function createVideoGenerateToolDefinition(
-  policy: RuntimeToolPolicy
+  policy: RuntimeToolPolicy,
+  credential: AssistantRuntimeBundleToolCredentialRef
 ): ProviderGatewayToolDefinition {
+  const voiceCatalogHint = describeVideoVoiceCatalogHint(credential);
   return {
     name: "video_generate",
     description: appendToolDefinitionHint(
@@ -841,7 +862,12 @@ function createVideoGenerateToolDefinition(
           policy
         )
       ),
-      "Prefer calling this tool immediately when the user clearly wants a video. Pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer."
+      [
+        "Prefer calling this tool immediately when the user clearly wants a video. Pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer.",
+        voiceCatalogHint
+      ]
+        .filter((entry): entry is string => entry !== null)
+        .join(" ")
     ),
     inputSchema: {
       type: "object",

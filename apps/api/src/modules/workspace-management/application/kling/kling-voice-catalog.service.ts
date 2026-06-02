@@ -61,6 +61,10 @@ export class KlingVoiceCatalogService {
     try {
       const credentials = this.resolveCredentials(credentialValue);
       const shortlist = await this.fetchVoiceCatalog(credentials);
+      if (shortlist.length === 0) {
+        this.logger.warn("[kling-voice-catalog] refresh returned an empty shortlist.");
+        return this.toCatalog(await this.readCacheRow());
+      }
       const fetchedAt = new Date();
       await this.prisma.platformKlingVoiceCatalogCache.upsert({
         where: { cacheKey: KLING_VOICE_CACHE_KEY },
@@ -121,7 +125,7 @@ export class KlingVoiceCatalogService {
 
   private extractVoiceRows(value: unknown): unknown[] {
     if (Array.isArray(value)) {
-      return value;
+      return this.extractVoiceRowsFromArray(value);
     }
     if (value === null || typeof value !== "object") {
       return [];
@@ -130,7 +134,7 @@ export class KlingVoiceCatalogService {
     const candidates = [record.data, record.rows, record.list, record.voice_list, record.voices];
     for (const candidate of candidates) {
       if (Array.isArray(candidate)) {
-        return candidate;
+        return this.extractVoiceRowsFromArray(candidate);
       }
       if (candidate !== null && typeof candidate === "object" && !Array.isArray(candidate)) {
         const nested = candidate as Record<string, unknown>;
@@ -148,6 +152,25 @@ export class KlingVoiceCatalogService {
       }
     }
     return [];
+  }
+
+  private extractVoiceRowsFromArray(rows: unknown[]): unknown[] {
+    const directVoices = rows.filter((row) => this.parseVoiceRow(row) !== null);
+    if (directVoices.length > 0) {
+      return directVoices;
+    }
+    return rows.flatMap((row) => {
+      if (row === null || typeof row !== "object" || Array.isArray(row)) {
+        return [];
+      }
+      const record = row as Record<string, unknown>;
+      const taskResult = record.task_result;
+      if (taskResult !== null && typeof taskResult === "object" && !Array.isArray(taskResult)) {
+        const voices = (taskResult as Record<string, unknown>).voices;
+        return Array.isArray(voices) ? voices : [];
+      }
+      return [];
+    });
   }
 
   private parseVoiceRow(value: unknown): RuntimeVideoVoiceCatalogEntry | null {

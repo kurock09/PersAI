@@ -69,6 +69,64 @@ async function run(): Promise<void> {
       ["voice-2", "voice-1"]
     );
     assert.equal(upserts.length, 1);
+
+    upserts.length = 0;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          code: 0,
+          message: "SUCCEED",
+          data: [
+            {
+              task_id: "task-voice-1",
+              task_status: "succeed",
+              task_result: {
+                voices: [
+                  {
+                    voice_id: "voice-owen-nested",
+                    voice_name: "Owen",
+                    owned_by: "kling",
+                    status: "succeed"
+                  }
+                ]
+              }
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      )) as typeof fetch;
+
+    const nestedService = new KlingVoiceCatalogService(
+      {
+        platformKlingVoiceCatalogCache: {
+          async findUnique() {
+            return null;
+          },
+          async upsert(input: Record<string, unknown>) {
+            upserts.push(input);
+            return input;
+          }
+        }
+      } as never,
+      {
+        async resolveSecretValueById(secretId: string) {
+          assert.equal(secretId, "tool/video_generate/kling/api-key");
+          return JSON.stringify({
+            accessKey: "kling-access",
+            secretKey: "kling-secret"
+          });
+        }
+      } as never
+    );
+    const nestedCatalog = await nestedService.getMaterializedVoiceCatalog();
+    assert.deepEqual(
+      nestedCatalog?.shortlist.map((entry) => entry.providerVoiceId),
+      ["voice-owen-nested"]
+    );
+    assert.equal(upserts.length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

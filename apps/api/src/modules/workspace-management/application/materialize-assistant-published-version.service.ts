@@ -317,7 +317,6 @@ export function buildVideoGenerateToolCredentialRef(params: {
           keyMetadata: params.keyMetadata,
           modelKey: params.videoGenerateModelKey
         });
-  const primaryVideoModelParameters = primaryRef.videoModelParameters ?? null;
   if (params.videoGenerateFallbackModelKey === null) {
     return primaryRef;
   }
@@ -326,53 +325,10 @@ export function buildVideoGenerateToolCredentialRef(params: {
     keyMetadata: params.keyMetadata,
     modelKey: params.videoGenerateFallbackModelKey
   });
-  const fallbackVideoModelParameters = fallbackRef.videoModelParameters ?? null;
-  if (
-    primaryVideoModelParameters !== null &&
-    fallbackVideoModelParameters !== null &&
-    !supportsSameVideoRequestClasses(primaryVideoModelParameters, fallbackVideoModelParameters)
-  ) {
-    throw new Error(
-      `Configured video fallback model "${params.videoGenerateFallbackModelKey}" does not support the same ADR-107 Slice 3 request classes as primary model "${params.videoGenerateModelKey ?? "default"}".`
-    );
-  }
   return {
     ...primaryRef,
     fallbacks: [fallbackRef]
   };
-}
-
-function supportsSameVideoRequestClasses(
-  primary: NonNullable<AssistantRuntimeBundleToolCredentialRef["videoModelParameters"]>,
-  fallback: NonNullable<AssistantRuntimeBundleToolCredentialRef["videoModelParameters"]>
-): boolean {
-  const primaryAudioCapabilities = Array.isArray(primary.audioCapabilities)
-    ? primary.audioCapabilities
-    : ["silent"];
-  const primaryInputCapabilities = Array.isArray(primary.inputCapabilities)
-    ? primary.inputCapabilities
-    : primary.referenceImageSupported === true
-      ? ["text", "single_reference_image"]
-      : ["text"];
-  const fallbackAudioCapabilities = Array.isArray(fallback.audioCapabilities)
-    ? fallback.audioCapabilities
-    : ["silent"];
-  const fallbackInputCapabilities = Array.isArray(fallback.inputCapabilities)
-    ? fallback.inputCapabilities
-    : fallback.referenceImageSupported === true
-      ? ["text", "single_reference_image"]
-      : ["text"];
-  for (const capability of primaryAudioCapabilities) {
-    if (!fallbackAudioCapabilities.includes(capability)) {
-      return false;
-    }
-  }
-  for (const capability of primaryInputCapabilities) {
-    if (!fallbackInputCapabilities.includes(capability)) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function buildVideoProviderToolCredentialRef(params: {

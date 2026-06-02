@@ -138,7 +138,22 @@ async function run(): Promise<void> {
           },
           configured: true,
           providerId: "runway",
-          modelKey: "gen4_turbo"
+          modelKey: "gen4_turbo",
+          videoVoiceCatalog: {
+            provider: "kling",
+            fetchedAt: "2026-06-02T12:00:00.000Z",
+            shortlist: [
+              {
+                voiceKey: "owen",
+                providerVoiceId: "voice-owen",
+                displayName: "Owen",
+                locale: "en-US",
+                gender: "male",
+                description: null,
+                styleTags: []
+              }
+            ]
+          }
         },
         document: {
           refKey: "persai:persai-runtime:tool/document/api-key",
@@ -503,6 +518,8 @@ async function run(): Promise<void> {
       videoGenerateSchema.properties?.voiceKeys?.description ?? "",
       /materialized shortlist/i
     );
+    assert.match(videoGenerate.description ?? "", /Available voiceKeys/i);
+    assert.match(videoGenerate.description ?? "", /owen/i);
   }
   assert.ok(videoGenerate, "video_generate should be projected for configured Runway refs");
 
