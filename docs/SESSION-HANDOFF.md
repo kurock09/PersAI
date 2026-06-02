@@ -2,31 +2,33 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
-## 2026-06-02 — Hotfix follow-up: Kling official status polling endpoint
+## 2026-06-02 — Hotfix follow-up: Kling live poll endpoint correction
 
 ### What changed & why
 
-Baseline SHA at session start: `1d4c340c08b613c8d4983d717f2f6a3034faeb37`.
+Baseline SHA at session start: `ff3be117ecbec2a843aaf620105dc07449fb78ba`.
 
-Found and fixed the real Kling primary-loss root cause after checking the official Kling docs:
+Reproduced the live Kling failure directly inside the deployed `provider-gateway` pod and corrected the bad endpoint assumption:
 
-- PersAI was creating Kling tasks on the official `/v1/videos/text2video` and `/v1/videos/image2video` endpoints, but then polling the wrong follow-up path: `GET /v1/videos/{text2video|image2video}/{task_id}`.
-- Official Kling task status lookup uses a separate status endpoint with `task_id` query param, so the adapter now polls `GET /v1/videos/status?task_id=...`.
-- This keeps PersAI aligned with Kling's documented async task lifecycle instead of losing an in-flight primary job on an invalid polling route and then falling into fallback.
+- Direct live calls to `api-singapore.klingai.com` with the real deployed Kling credentials showed `POST /v1/videos/text2video` succeeds and returns a valid `task_id`, but `GET /v1/videos/status?task_id=...` returns `404 Not Found` with body `{"message":"No message available",...}`.
+- The same live task id returns the expected `task_status` payload on `GET /v1/videos/text2video/{task_id}` (and the sibling `image2video/{task_id}` route also responds), so the previous switch to `/v1/videos/status` was wrong for the deployed Kling video API path.
+- The adapter is restored to polling `GET /v1/videos/{text2video|image2video}/{task_id}`, which matches the live-working provider behavior and removes the self-inflicted `No message available` failure loop.
 
 ### Files touched
 
-`apps/provider-gateway/src/modules/providers/kling/kling-provider.client.ts`; `apps/provider-gateway/test/kling-provider.client.test.ts`; `docs/SESSION-HANDOFF.md`.
+`apps/provider-gateway/src/modules/providers/kling/kling-provider.client.ts`; `apps/provider-gateway/test/kling-provider.client.test.ts`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
 
 ### Tests run
 
+- PASS: direct live `kubectl exec` probe against deployed `provider-gateway` reproduced `POST /v1/videos/text2video` success, `GET /v1/videos/status?task_id=...` -> `404 No message available`, and `GET /v1/videos/text2video/{task_id}` -> `200` with `task_status:"processing"`
+- PASS: direct live `kubectl exec` probe followed the same `Kling` task on `GET /v1/videos/text2video/{task_id}` through `task_status:"succeed"` and downloaded a non-empty `video/mp4`
 - PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx test/kling-provider.client.test.ts`
 - PASS: `corepack pnpm --filter @persai/provider-gateway run typecheck`
 
 ### Risks / residuals
 
-- This fixes the confirmed Kling polling-path mismatch only; live deploy and smoke are still required to confirm the primary no longer gets lost in `persai-dev`.
-- Callback/webhook completion is still not wired; the adapter remains polling-based, now on the documented status endpoint.
+- This corrects the live-proven polling endpoint mismatch introduced by the prior hotfix; deploy is still required before PersAI traffic uses the restored `{task_id}` path again.
+- Callback/webhook completion is still not wired; the adapter remains polling-based.
 
 ### Deploy
 
@@ -34,7 +36,7 @@ Found and fixed the real Kling primary-loss root cause after checking the offici
 
 ### Next recommended step
 
-- Commit/push this fix, deploy provider-gateway, then immediately retry one Kling-primary video request and verify there is no fallback and no duplicate provider spend for the same user ask.
+- Commit/push this correction, deploy provider-gateway, then immediately retry one Kling-primary video request and verify the direct `provider-gateway` live probe no longer returns `No message available`.
 
 ## 2026-06-02 — Hotfix follow-up: bounded polling retry for async video providers
 

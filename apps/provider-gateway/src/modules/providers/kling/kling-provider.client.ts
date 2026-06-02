@@ -17,7 +17,6 @@ const KLING_JWT_TTL_SECONDS = 1_800;
 const KLING_JWT_NOT_BEFORE_SKEW_SECONDS = 5;
 const KLING_TEXT_TO_VIDEO_PATH = "/v1/videos/text2video";
 const KLING_IMAGE_TO_VIDEO_PATH = "/v1/videos/image2video";
-const KLING_VIDEO_STATUS_PATH = "/v1/videos/status";
 
 type KlingCredentials = {
   accessKey: string;
@@ -100,7 +99,7 @@ export class KlingProviderClient {
 
   private async pollTask(
     taskId: string,
-    _taskKind: KlingTaskKind,
+    taskKind: KlingTaskKind,
     authToken: string,
     signal: AbortSignal
   ): Promise<unknown> {
@@ -110,7 +109,7 @@ export class KlingProviderClient {
       let response: Response;
       try {
         response = await fetch(
-          `${KLING_API_BASE_URL}${KLING_VIDEO_STATUS_PATH}?task_id=${encodeURIComponent(taskId)}`,
+          `${KLING_API_BASE_URL}${this.taskPath(taskKind)}/${encodeURIComponent(taskId)}`,
           {
             method: "GET",
             headers: {
