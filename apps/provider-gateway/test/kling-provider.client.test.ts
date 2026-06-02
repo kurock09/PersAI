@@ -89,7 +89,7 @@ export async function runKlingProviderClientTest(): Promise<void> {
         }
       );
     }
-    if (url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_response") {
+    if (url === "https://api-singapore.klingai.com/v1/videos/status?task_id=task_kling_response") {
       return new Response(
         JSON.stringify({
           code: 0,
@@ -104,10 +104,10 @@ export async function runKlingProviderClientTest(): Promise<void> {
         }
       );
     }
-    if (url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_1") {
+    if (url === "https://api-singapore.klingai.com/v1/videos/status?task_id=task_kling_1") {
       const pollCount = requests.filter(
         (entry) =>
-          entry.url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_1"
+          entry.url === "https://api-singapore.klingai.com/v1/videos/status?task_id=task_kling_1"
       ).length;
       if (pollCount === 1) {
         return new Response(
@@ -203,7 +203,7 @@ export async function runKlingProviderClientTest(): Promise<void> {
           }
         );
       }
-      if (url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_retry") {
+      if (url === "https://api-singapore.klingai.com/v1/videos/status?task_id=task_kling_retry") {
         const pollCount = transientPollRequests.filter((entry) => entry.url === url).length;
         if (pollCount === 1) {
           throw new Error("fetch failed");
@@ -240,7 +240,8 @@ export async function runKlingProviderClientTest(): Promise<void> {
     assert.equal(
       transientPollRequests.filter(
         (entry) =>
-          entry.url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_retry"
+          entry.url ===
+          "https://api-singapore.klingai.com/v1/videos/status?task_id=task_kling_retry"
       ).length,
       2
     );
@@ -279,7 +280,9 @@ export async function runKlingProviderClientTest(): Promise<void> {
           }
         );
       }
-      if (url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_response") {
+      if (
+        url === "https://api-singapore.klingai.com/v1/videos/status?task_id=task_kling_response"
+      ) {
         return new Response(
           JSON.stringify({
             code: 0,
@@ -294,10 +297,10 @@ export async function runKlingProviderClientTest(): Promise<void> {
           }
         );
       }
-      if (url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_1") {
+      if (url === "https://api-singapore.klingai.com/v1/videos/status?task_id=task_kling_1") {
         const pollCount = requests.filter(
           (entry) =>
-            entry.url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_1"
+            entry.url === "https://api-singapore.klingai.com/v1/videos/status?task_id=task_kling_1"
         ).length;
         if (pollCount === 1) {
           return new Response(
