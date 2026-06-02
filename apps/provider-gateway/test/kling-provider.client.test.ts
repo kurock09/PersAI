@@ -86,6 +86,28 @@ export async function runKlingProviderClientTest(): Promise<void> {
         }
       );
     }
+    if (url === "https://api-singapore.klingai.com/v1/videos/text2video") {
+      const authHeader = (init?.headers as Record<string, string>)["Authorization"];
+      assert.match(authHeader ?? "", /^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.model_name, "kling-v3");
+      assert.equal(body.prompt, "Animate a calm paper-cut forest at sunrise");
+      assert.equal(body.duration, "4");
+      assert.equal(body.aspect_ratio, "16:9");
+      assert.equal(body.negative_prompt, "");
+      assert.equal(body.mode, "pro");
+      assert.equal(body.image, undefined);
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: { task_id: "task_kling_text_1" }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
     if (url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_response") {
       return new Response(
         JSON.stringify({
@@ -134,6 +156,23 @@ export async function runKlingProviderClientTest(): Promise<void> {
         }
       );
     }
+    if (url === "https://api-singapore.klingai.com/v1/videos/text2video/task_kling_text_1") {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            task_status: "succeed",
+            task_result: {
+              videos: [{ url: "https://cdn.klingai.com/result-text.mp4", duration: "4", id: "video-text-1" }]
+            }
+          }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
     if (url === "https://cdn.klingai.com/result.mp4") {
       return new Response(Buffer.from("kling-video"), {
         status: 200,
@@ -142,6 +181,12 @@ export async function runKlingProviderClientTest(): Promise<void> {
     }
     if (url === "https://cdn.klingai.com/result-response.mp4") {
       return new Response(Buffer.from("kling-response-video"), {
+        status: 200,
+        headers: { "Content-Type": "video/mp4" }
+      });
+    }
+    if (url === "https://cdn.klingai.com/result-text.mp4") {
+      return new Response(Buffer.from("kling-text-video"), {
         status: 200,
         headers: { "Content-Type": "video/mp4" }
       });

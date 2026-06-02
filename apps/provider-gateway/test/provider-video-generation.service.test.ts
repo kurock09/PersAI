@@ -161,7 +161,12 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
   assert.equal(result.provider, "openai");
   assert.equal(result.video.mimeType, "video/mp4");
   assert.deepEqual(openaiProviderClient.calls[0], {
-    input: createRequest({ includeReference: true, model: "sora-2-pro" }),
+    input: {
+      ...createRequest({ includeReference: true, model: "sora-2-pro" }),
+      acceptedTask: null,
+      referenceTailImage: null,
+      voiceIds: null
+    },
     apiKey: "resolved-tool-secret"
   });
   assert.deepEqual(persaiInternalApiClientService.secretIds, ["tool/image_generate/api-key"]);
