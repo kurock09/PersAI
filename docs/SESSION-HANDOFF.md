@@ -2,6 +2,51 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-02 — Hotfix follow-up: bounded polling retry for async video providers
+
+### What changed & why
+
+Baseline SHA at session start: `7160577f9d91b283e2a3de90f09f6784d2343ddc`.
+
+Closed the next live `video_generate` fallback tail:
+
+- Kling, Runway, and OpenAI async video adapters could already have a valid accepted provider task id, but still abandon the primary attempt immediately if one later polling request threw a transient transport error such as `fetch failed`.
+- Provider-gateway video polling now keeps the existing provider `taskId` / `videoId` and retries bounded transient poll-fetch failures for Kling, Runway, and OpenAI instead of failing on the first thrown transport error.
+- The retry is intentionally narrow: it applies only after the provider task already exists, it does not recreate the provider task, and it still fails honestly once the bounded retry budget is exhausted.
+- Added focused regression coverage for thrown `fetch failed` recovery in Kling, Runway, and OpenAI provider video tests.
+
+### Files touched
+
+`apps/provider-gateway/src/modules/providers/kling/kling-provider.client.ts`; `apps/provider-gateway/src/modules/providers/runway/runway-provider.client.ts`; `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`; `apps/provider-gateway/test/kling-provider.client.test.ts`; `apps/provider-gateway/test/runway-provider.client.test.ts`; `apps/provider-gateway/test/openai-provider.client.test.ts`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx test/kling-provider.client.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx test/runway-provider.client.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx test/openai-provider.client.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- PASS: `corepack pnpm -r --if-present run lint`
+- PASS: `corepack pnpm run format:check`
+- PASS: `corepack pnpm run test`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm --filter @persai/web run typecheck`
+- PASS: `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS: `corepack pnpm --filter @persai/provider-gateway run typecheck`
+
+### Risks / residuals
+
+- This still relies on polling, not provider webhook/callback completion.
+- The bounded retry handles transient thrown poll transport failures, but a provider that stays unavailable past the retry budget still fails and may fall back.
+- Live smoke in `persai-dev` is still required to confirm the retry path catches the exact transient failure shape seen in cluster logs.
+
+### Deploy
+
+- PROVIDER-GATEWAY.
+
+### Next recommended step
+
+- Commit/push this hotfix, deploy provider-gateway, then live-smoke one Kling primary request and one forced fallback request to confirm the primary attempt no longer drops on a single transient polling transport failure.
+
 ## 2026-06-02 — Hotfix follow-up: Kling result parsing + Runway fallback delivery
 
 ### What changed & why

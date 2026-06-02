@@ -147,6 +147,62 @@ export async function runRunwayProviderClientTest(): Promise<void> {
     assert.ok(
       requests.some((entry) => entry.url === "https://api.dev.runwayml.com/v1/text_to_video")
     );
+    const transientPollRequests: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (init === undefined) {
+        transientPollRequests.push({ url });
+      } else {
+        transientPollRequests.push({ url, init });
+      }
+      if (url === "https://api.dev.runwayml.com/v1/image_to_video") {
+        return new Response(
+          JSON.stringify({
+            id: "rw-task-retry",
+            status: "PENDING"
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      if (url === "https://api.dev.runwayml.com/v1/tasks/rw-task-retry") {
+        const pollCount = transientPollRequests.filter((entry) => entry.url === url).length;
+        if (pollCount === 1) {
+          throw new Error("fetch failed");
+        }
+        return new Response(
+          JSON.stringify({
+            status: "SUCCEEDED",
+            output: ["https://runway.example/output-retry.mp4"]
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      if (url === "https://runway.example/output-retry.mp4") {
+        return new Response(Buffer.from("runway-retry-video"), {
+          status: 200,
+          headers: { "Content-Type": "video/mp4" }
+        });
+      }
+      throw new Error(`Unexpected fetch URL in Runway transient poll test: ${url}`);
+    }) as typeof fetch;
+    const retriedResult = await client.generateVideo(createRequest(), { apiKey: "runway-key" });
+    assert.equal(
+      retriedResult.video.bytesBase64,
+      Buffer.from("runway-retry-video").toString("base64")
+    );
+    assert.equal(
+      transientPollRequests.filter(
+        (entry) => entry.url === "https://api.dev.runwayml.com/v1/tasks/rw-task-retry"
+      ).length,
+      2
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

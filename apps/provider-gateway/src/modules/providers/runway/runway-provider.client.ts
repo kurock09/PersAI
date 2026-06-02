@@ -14,6 +14,7 @@ const RUNWAY_IMAGE_TO_VIDEO_PATH = "/image_to_video";
 const RUNWAY_TEXT_TO_VIDEO_PATH = "/text_to_video";
 const RUNWAY_VIDEO_TIMEOUT_MS = 600_000;
 const RUNWAY_VIDEO_POLL_INTERVAL_MS = 5_000;
+const RUNWAY_MAX_TRANSIENT_POLL_FETCH_FAILURES = 3;
 
 @Injectable()
 export class RunwayProviderClient {
@@ -85,16 +86,30 @@ export class RunwayProviderClient {
   }
 
   private async pollTask(taskId: string, apiKey: string, signal: AbortSignal): Promise<unknown> {
+    let transientFetchFailures = 0;
     while (!signal.aborted) {
       await this.delay(RUNWAY_VIDEO_POLL_INTERVAL_MS, signal);
-      const response = await fetch(`${RUNWAY_API_BASE_URL}/tasks/${encodeURIComponent(taskId)}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "X-Runway-Version": RUNWAY_API_VERSION
-        },
-        signal
-      });
+      let response: Response;
+      try {
+        response = await fetch(`${RUNWAY_API_BASE_URL}/tasks/${encodeURIComponent(taskId)}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "X-Runway-Version": RUNWAY_API_VERSION
+          },
+          signal
+        });
+        transientFetchFailures = 0;
+      } catch (error) {
+        if (this.isAbortError(error) || signal.aborted) {
+          throw error;
+        }
+        transientFetchFailures += 1;
+        if (transientFetchFailures >= RUNWAY_MAX_TRANSIENT_POLL_FETCH_FAILURES) {
+          throw error;
+        }
+        continue;
+      }
       const body = await this.readJsonBody(response);
       if (!response.ok) {
         if (response.status === 408 || response.status === 429 || response.status >= 500) {

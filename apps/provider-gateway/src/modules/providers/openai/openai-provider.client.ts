@@ -41,6 +41,7 @@ const OPENAI_IMAGE_EDIT_TIMEOUT_MS = 420_000;
 const MAX_OPENAI_IMAGE_EDIT_TIMEOUT_MS = 420_000;
 const OPENAI_VIDEO_GENERATION_TIMEOUT_MS = 600_000;
 const OPENAI_VIDEO_POLL_INTERVAL_MS = 2_000;
+const OPENAI_MAX_TRANSIENT_VIDEO_POLL_FETCH_FAILURES = 3;
 const OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE = "provider_context_window_exceeded";
 type OpenAIResponseCreateParams = Parameters<OpenAI["responses"]["create"]>[0];
 type OpenAINonStreamingCreateParams = Exclude<OpenAIResponseCreateParams, { stream: true }>;
@@ -1682,15 +1683,29 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     signal: AbortSignal
   ): Promise<{ id: string; status: string; model: string | null }> {
     let completedJob: { id: string; status: string; model: string | null } | null = null;
+    let transientFetchFailures = 0;
     while (completedJob === null) {
       await this.delay(OPENAI_VIDEO_POLL_INTERVAL_MS, signal);
-      const response = await fetch(`https://api.openai.com/v1/videos/${videoId}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${apiKey}`
-        },
-        signal
-      });
+      let response: Response;
+      try {
+        response = await fetch(`https://api.openai.com/v1/videos/${videoId}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${apiKey}`
+          },
+          signal
+        });
+        transientFetchFailures = 0;
+      } catch (error) {
+        if (this.isAbortError(error) || signal.aborted) {
+          throw error;
+        }
+        transientFetchFailures += 1;
+        if (transientFetchFailures >= OPENAI_MAX_TRANSIENT_VIDEO_POLL_FETCH_FAILURES) {
+          throw error;
+        }
+        continue;
+      }
       const body = await this.readJsonBody(response);
       if (!response.ok) {
         if (this.isTransientOpenAIVideoPollStatus(response.status)) {

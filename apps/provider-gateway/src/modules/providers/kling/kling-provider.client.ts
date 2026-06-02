@@ -12,6 +12,7 @@ const KLING_API_BASE_URL = "https://api-singapore.klingai.com";
 const KLING_DEFAULT_VIDEO_MODEL = "kling-v3";
 const KLING_VIDEO_TIMEOUT_MS = 600_000;
 const KLING_VIDEO_POLL_INTERVAL_MS = 5_000;
+const KLING_MAX_TRANSIENT_POLL_FETCH_FAILURES = 3;
 const KLING_JWT_TTL_SECONDS = 1_800;
 const KLING_JWT_NOT_BEFORE_SKEW_SECONDS = 5;
 const KLING_TEXT_TO_VIDEO_PATH = "/v1/videos/text2video";
@@ -102,18 +103,32 @@ export class KlingProviderClient {
     authToken: string,
     signal: AbortSignal
   ): Promise<unknown> {
+    let transientFetchFailures = 0;
     while (!signal.aborted) {
       await this.delay(KLING_VIDEO_POLL_INTERVAL_MS, signal);
-      const response = await fetch(
-        `${KLING_API_BASE_URL}${this.taskPath(taskKind)}/${encodeURIComponent(taskId)}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${authToken}`
-          },
-          signal
+      let response: Response;
+      try {
+        response = await fetch(
+          `${KLING_API_BASE_URL}${this.taskPath(taskKind)}/${encodeURIComponent(taskId)}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${authToken}`
+            },
+            signal
+          }
+        );
+        transientFetchFailures = 0;
+      } catch (error) {
+        if (this.isAbortError(error) || signal.aborted) {
+          throw error;
         }
-      );
+        transientFetchFailures += 1;
+        if (transientFetchFailures >= KLING_MAX_TRANSIENT_POLL_FETCH_FAILURES) {
+          throw error;
+        }
+        continue;
+      }
       const body = await this.readJsonBody(response);
       if (!response.ok) {
         if (response.status === 408 || response.status === 429 || response.status >= 500) {

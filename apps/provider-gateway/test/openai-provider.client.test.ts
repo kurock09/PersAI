@@ -1236,6 +1236,78 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     globalThis.fetch = originalFetch;
   }
 
+  const thrownPollRequests: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (init === undefined) {
+      thrownPollRequests.push({ url });
+    } else {
+      thrownPollRequests.push({ url, init });
+    }
+    if (url === "https://api.openai.com/v1/videos") {
+      return new Response(
+        JSON.stringify({
+          id: "video_fetch_failed",
+          status: "queued",
+          model: "sora-2"
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+    if (url === "https://api.openai.com/v1/videos/video_fetch_failed") {
+      const pollCount = thrownPollRequests.filter((entry) => entry.url === url).length;
+      if (pollCount === 1) {
+        throw new Error("fetch failed");
+      }
+      return new Response(
+        JSON.stringify({
+          id: "video_fetch_failed",
+          status: "completed",
+          model: "sora-2"
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+    if (url === "https://api.openai.com/v1/videos/video_fetch_failed/content") {
+      return new Response(Buffer.from("video-after-thrown-retry"), {
+        status: 200,
+        headers: {
+          "Content-Type": "video/mp4"
+        }
+      });
+    }
+    throw new Error(`Unexpected fetch URL in thrown OpenAI video test: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const thrownRetryResult = await client.generateVideo(createVideoGenerateRequest(), {
+      apiKey: "tool-openai-key"
+    });
+    assert.equal(
+      thrownRetryResult.video.bytesBase64,
+      Buffer.from("video-after-thrown-retry").toString("base64")
+    );
+    assert.equal(
+      thrownPollRequests.filter(
+        (entry) => entry.url === "https://api.openai.com/v1/videos/video_fetch_failed"
+      ).length,
+      2
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
   const safetyClient = new OpenAIProviderClient(createConfig());
   (
     safetyClient as unknown as {
