@@ -163,7 +163,13 @@ export async function runKlingProviderClientTest(): Promise<void> {
           data: {
             task_status: "succeed",
             task_result: {
-              videos: [{ url: "https://cdn.klingai.com/result-text.mp4", duration: "4", id: "video-text-1" }]
+              videos: [
+                {
+                  url: "https://cdn.klingai.com/result-text.mp4",
+                  duration: "4",
+                  id: "video-text-1"
+                }
+              ]
             }
           }
         }),
