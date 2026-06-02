@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayVideoGenerateRequest,
@@ -25,8 +25,17 @@ type KlingCredentials = {
 
 type KlingTaskKind = "text2video" | "image2video";
 
+type KlingAcceptedTask = {
+  taskId: string;
+  taskKind: KlingTaskKind;
+  model: string;
+  acceptedAt: string;
+};
+
 @Injectable()
 export class KlingProviderClient {
+  private readonly logger = new Logger(KlingProviderClient.name);
+
   constructor(@Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig) {}
 
   async generateVideo(
@@ -42,8 +51,14 @@ export class KlingProviderClient {
     );
 
     try {
-      const taskId = await this.createTask(input, model, taskKind, authToken, signal);
-      const completedTask = await this.pollTask(taskId, taskKind, authToken, signal);
+      const acceptedTask = await this.resolveAcceptedTask(
+        input,
+        model,
+        taskKind,
+        authToken,
+        signal
+      );
+      const completedTask = await this.pollTask(acceptedTask, authToken, signal);
       const outputUrl = this.readOutputUrl(completedTask);
       const video = await this.downloadVideo(outputUrl, signal);
 
@@ -98,8 +113,7 @@ export class KlingProviderClient {
   }
 
   private async pollTask(
-    taskId: string,
-    taskKind: KlingTaskKind,
+    acceptedTask: KlingAcceptedTask,
     authToken: string,
     signal: AbortSignal
   ): Promise<unknown> {
@@ -109,7 +123,9 @@ export class KlingProviderClient {
       let response: Response;
       try {
         response = await fetch(
-          `${KLING_API_BASE_URL}${this.taskPath(taskKind)}/${encodeURIComponent(taskId)}`,
+          `${KLING_API_BASE_URL}${this.taskPath(acceptedTask.taskKind)}/${encodeURIComponent(
+            acceptedTask.taskId
+          )}`,
           {
             method: "GET",
             headers: {
@@ -124,8 +140,16 @@ export class KlingProviderClient {
           throw error;
         }
         transientFetchFailures += 1;
+        this.logTransportError({
+          providerTaskId: acceptedTask.taskId,
+          providerStage: "accepted",
+          acceptedAt: acceptedTask.acceptedAt,
+          transientFetchFailures,
+          maxTransientFetchFailures: KLING_MAX_TRANSIENT_POLL_FETCH_FAILURES,
+          message: error instanceof Error ? error.message : String(error)
+        });
         if (transientFetchFailures >= KLING_MAX_TRANSIENT_POLL_FETCH_FAILURES) {
-          throw error;
+          throw this.buildPollingLossError(acceptedTask, error);
         }
         continue;
       }
@@ -152,6 +176,99 @@ export class KlingProviderClient {
       continue;
     }
     throw new Error("Kling video generation polling stopped before a terminal task response.");
+  }
+
+  private async resolveAcceptedTask(
+    input: ProviderGatewayVideoGenerateRequest,
+    model: string,
+    taskKind: KlingTaskKind,
+    authToken: string,
+    signal: AbortSignal
+  ): Promise<KlingAcceptedTask> {
+    const existing = this.normalizeAcceptedTask(input.acceptedTask, model);
+    if (existing !== null) {
+      return existing;
+    }
+    const taskId = await this.createTask(input, model, taskKind, authToken, signal);
+    const acceptedAt = new Date().toISOString();
+    this.logAccepted({
+      providerTaskId: taskId,
+      model,
+      taskKind,
+      acceptedAt
+    });
+    return {
+      taskId,
+      taskKind,
+      model,
+      acceptedAt
+    };
+  }
+
+  private normalizeAcceptedTask(
+    acceptedTask: ProviderGatewayVideoGenerateRequest["acceptedTask"],
+    fallbackModel: string
+  ): KlingAcceptedTask | null {
+    if (
+      acceptedTask === null ||
+      acceptedTask === undefined ||
+      acceptedTask.provider !== "kling" ||
+      acceptedTask.providerStage !== "accepted"
+    ) {
+      return null;
+    }
+    const providerTaskId = this.asNonEmptyString(acceptedTask.providerTaskId);
+    if (providerTaskId === null) {
+      return null;
+    }
+    const taskKind = acceptedTask.taskKind === "image2video" ? "image2video" : "text2video";
+    return {
+      taskId: providerTaskId,
+      taskKind,
+      model: this.asNonEmptyString(acceptedTask.model) ?? fallbackModel,
+      acceptedAt: this.asNonEmptyString(acceptedTask.acceptedAt) ?? new Date().toISOString()
+    };
+  }
+
+  private buildPollingLossError(acceptedTask: KlingAcceptedTask, error: unknown): Error {
+    const message = error instanceof Error ? error.message : String(error);
+    const payload = {
+      providerTaskId: acceptedTask.taskId,
+      provider: "kling",
+      model: acceptedTask.model,
+      providerStage: "accepted",
+      acceptedAt: acceptedTask.acceptedAt,
+      code: "accepted_primary_unconfirmed",
+      reason: "provider accepted but polling transport lost",
+      message
+    };
+    return new Error(`PERSAI_VIDEO_POLLING_LOST::${JSON.stringify(payload)}`);
+  }
+
+  private logAccepted(input: {
+    providerTaskId: string;
+    model: string;
+    taskKind: KlingTaskKind;
+    acceptedAt: string;
+  }): void {
+    this.logger.log(
+      `[video-kling] create accepted task_id=${input.providerTaskId} model=${input.model} taskKind=${input.taskKind} acceptedAt=${input.acceptedAt}`
+    );
+  }
+
+  private logTransportError(input: {
+    providerTaskId: string;
+    providerStage: "accepted";
+    acceptedAt: string;
+    transientFetchFailures: number;
+    maxTransientFetchFailures: number;
+    message: string;
+  }): void {
+    this.logger.warn(
+      `[video-kling] poll transport_error task_id=${input.providerTaskId} providerStage=${input.providerStage} acceptedAt=${input.acceptedAt} transientFailures=${String(
+        input.transientFetchFailures
+      )}/${String(input.maxTransientFetchFailures)} message=${input.message}`
+    );
   }
 
   private readOutputUrl(body: unknown): string {
@@ -227,6 +344,13 @@ export class KlingProviderClient {
     };
     if (taskKind === "image2video") {
       body.image = input.referenceImage?.bytesBase64 ?? null;
+      if (input.referenceTailImage !== null && input.referenceTailImage !== undefined) {
+        body.image_tail = input.referenceTailImage.bytesBase64;
+      }
+    }
+    if (input.voiceIds !== null && input.voiceIds !== undefined && input.voiceIds.length > 0) {
+      body.voice_list = input.voiceIds.map((voiceId) => ({ voice_id: voiceId }));
+      body.sound = "on";
     }
     return body;
   }

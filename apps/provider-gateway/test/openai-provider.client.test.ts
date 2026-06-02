@@ -149,6 +149,7 @@ function createImageEditRequest(options?: {
 function createVideoGenerateRequest(options?: {
   includeReference?: boolean;
   model?: "sora-2" | "sora-2-pro" | null;
+  acceptedTask?: ProviderGatewayVideoGenerateRequest["acceptedTask"];
 }): ProviderGatewayVideoGenerateRequest {
   return {
     prompt: "Animate a calm paper-cut forest at sunrise",
@@ -166,7 +167,8 @@ function createVideoGenerateRequest(options?: {
       toolCode: "video_generate",
       secretId: "tool/image_generate/api-key",
       providerId: "openai"
-    }
+    },
+    acceptedTask: options?.acceptedTask ?? null
   };
 }
 
@@ -1303,6 +1305,75 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
         (entry) => entry.url === "https://api.openai.com/v1/videos/video_fetch_failed"
       ).length,
       2
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const acceptedOnlyRequests: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (init === undefined) {
+      acceptedOnlyRequests.push({ url });
+    } else {
+      acceptedOnlyRequests.push({ url, init });
+    }
+    if (url === "https://api.openai.com/v1/videos/video_accepted_only") {
+      return new Response(
+        JSON.stringify({
+          id: "video_accepted_only",
+          status: "completed",
+          model: "sora-2"
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+    if (url === "https://api.openai.com/v1/videos/video_accepted_only/content") {
+      return new Response(Buffer.from("video-accepted-only"), {
+        status: 200,
+        headers: {
+          "Content-Type": "video/mp4"
+        }
+      });
+    }
+    throw new Error(`Unexpected fetch URL in accepted-only OpenAI video test: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const acceptedOnlyResult = await client.generateVideo(
+      createVideoGenerateRequest({
+        acceptedTask: {
+          provider: "openai",
+          model: "sora-2",
+          providerTaskId: "video_accepted_only",
+          acceptedAt: "2026-06-02T12:00:00.000Z",
+          providerStage: "accepted",
+          taskKind: null
+        }
+      }),
+      {
+        apiKey: "tool-openai-key"
+      }
+    );
+    assert.equal(
+      acceptedOnlyResult.video.bytesBase64,
+      Buffer.from("video-accepted-only").toString("base64")
+    );
+    assert.equal(
+      acceptedOnlyRequests.some((entry) => entry.url === "https://api.openai.com/v1/videos"),
+      false
+    );
+    assert.equal(
+      acceptedOnlyRequests.some(
+        (entry) => entry.url === "https://api.openai.com/v1/videos/video_accepted_only"
+      ),
+      true
     );
   } finally {
     globalThis.fetch = originalFetch;

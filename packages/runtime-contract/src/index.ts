@@ -1614,12 +1614,69 @@ export interface RuntimeVideoAspectRatioOption {
 export interface RuntimeVideoProviderParameters {
   mode?: string | null;
   sound?: "on" | "off" | null;
+  audio?: boolean | null;
 }
+
+export const RUNTIME_VIDEO_VOICE_GENDERS = ["male", "female", "neutral", "unknown"] as const;
+
+export type RuntimeVideoVoiceGender = (typeof RUNTIME_VIDEO_VOICE_GENDERS)[number];
+
+export interface RuntimeVideoVoiceCatalogEntry {
+  voiceKey: string;
+  providerVoiceId: string;
+  displayName: string;
+  locale: string | null;
+  gender: RuntimeVideoVoiceGender;
+  description: string | null;
+  styleTags: string[];
+}
+
+export interface RuntimeVideoVoiceCatalog {
+  provider: "kling";
+  fetchedAt: string;
+  shortlist: RuntimeVideoVoiceCatalogEntry[];
+}
+
+export const RUNTIME_VIDEO_AUDIO_CAPABILITIES = [
+  "silent",
+  "provider_native_audio",
+  "voice_control"
+] as const;
+
+export type RuntimeVideoAudioCapability = (typeof RUNTIME_VIDEO_AUDIO_CAPABILITIES)[number];
+
+export const RUNTIME_VIDEO_AUDIO_MODES = [
+  "silent",
+  "provider_native_audio",
+  "voice_control"
+] as const;
+
+export type RuntimeVideoAudioMode = (typeof RUNTIME_VIDEO_AUDIO_MODES)[number];
+
+export const RUNTIME_VIDEO_INPUT_CAPABILITIES = [
+  "text",
+  "single_reference_image",
+  "multi_image",
+  "omni"
+] as const;
+
+export type RuntimeVideoInputCapability = (typeof RUNTIME_VIDEO_INPUT_CAPABILITIES)[number];
+
+export const RUNTIME_VIDEO_INPUT_MODES = [
+  "text",
+  "single_reference_image",
+  "multi_image",
+  "omni"
+] as const;
+
+export type RuntimeVideoInputMode = (typeof RUNTIME_VIDEO_INPUT_MODES)[number];
 
 export interface RuntimeVideoModelParameters {
   duration: RuntimeVideoDurationConstraint;
   aspectRatios: RuntimeVideoAspectRatioOption[];
   referenceImageSupported: boolean;
+  audioCapabilities: RuntimeVideoAudioCapability[];
+  inputCapabilities: RuntimeVideoInputCapability[];
   providerParameters: RuntimeVideoProviderParameters | null;
 }
 
@@ -1629,7 +1686,13 @@ export interface RuntimeVideoGenerateRequest {
   filename: string | null;
   size: PersaiRuntimeVideoGenerateSize | null;
   seconds: number | null;
+  audioMode?: RuntimeVideoAudioMode | null;
+  inputMode?: RuntimeVideoInputMode | null;
   referenceImageAlias: string | null;
+  referenceImageAliases?: string[] | null;
+  voiceKeys?: string[] | null;
+  voiceIds?: string[] | null;
+  acceptedProviderTask?: RuntimeAcceptedVideoProviderTask | null;
 }
 
 export interface RuntimeVideoGenerateToolResult {
@@ -1639,6 +1702,8 @@ export interface RuntimeVideoGenerateToolResult {
   model: string | null;
   prompt: string | null;
   requestedSeconds: number | null;
+  requestedAudioMode?: RuntimeVideoAudioMode | null;
+  requestedInputMode?: RuntimeVideoInputMode | null;
   size: PersaiRuntimeVideoGenerateSize | null;
   referenceImageAlias: string | null;
   referenceFilename: string | null;
@@ -1647,6 +1712,7 @@ export interface RuntimeVideoGenerateToolResult {
   action: "generated" | "skipped" | "pending_delivery";
   reason: string | null;
   warning: string | null;
+  providerStatus?: Record<string, unknown> | null;
   guidance?: string | null;
   jobId?: string | null;
   canSendFileNow?: false;
@@ -2932,12 +2998,28 @@ export interface ProviderGatewayVideoGenerateRequest {
     mimeType: string;
     filename: string | null;
   } | null;
+  referenceTailImage?: {
+    bytesBase64: string;
+    mimeType: string;
+    filename: string | null;
+  } | null;
+  voiceIds?: string[] | null;
+  acceptedTask?: RuntimeAcceptedVideoProviderTask | null;
   providerParameters?: RuntimeVideoProviderParameters | null;
   credential: {
     toolCode: "video_generate";
     secretId: string;
     providerId: PersaiRuntimeVideoGenerateProviderId | null;
   };
+}
+
+export interface RuntimeAcceptedVideoProviderTask {
+  provider: PersaiRuntimeVideoGenerateProviderId;
+  model: string | null;
+  providerTaskId: string;
+  acceptedAt: IsoTimestamp;
+  providerStage: "accepted";
+  taskKind?: string | null;
 }
 
 export interface ProviderGatewayGeneratedVideo {

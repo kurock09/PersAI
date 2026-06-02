@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayVideoGenerateRequest,
@@ -16,8 +16,16 @@ const RUNWAY_VIDEO_TIMEOUT_MS = 600_000;
 const RUNWAY_VIDEO_POLL_INTERVAL_MS = 5_000;
 const RUNWAY_MAX_TRANSIENT_POLL_FETCH_FAILURES = 3;
 
+type RunwayAcceptedTask = {
+  taskId: string;
+  model: string;
+  acceptedAt: string;
+};
+
 @Injectable()
 export class RunwayProviderClient {
+  private readonly logger = new Logger(RunwayProviderClient.name);
+
   constructor(@Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig) {}
 
   async generateVideo(
@@ -31,8 +39,8 @@ export class RunwayProviderClient {
     );
 
     try {
-      const createdTaskId = await this.createTask(input, model, apiKey, signal);
-      const completedTask = await this.pollTask(createdTaskId, apiKey, signal);
+      const acceptedTask = await this.resolveAcceptedTask(input, model, apiKey, signal);
+      const completedTask = await this.pollTask(acceptedTask, apiKey, signal);
       const outputUrl = this.readOutputUrl(completedTask);
       const video = await this.downloadVideo(outputUrl, signal);
 
@@ -85,28 +93,42 @@ export class RunwayProviderClient {
     return taskId;
   }
 
-  private async pollTask(taskId: string, apiKey: string, signal: AbortSignal): Promise<unknown> {
+  private async pollTask(
+    acceptedTask: RunwayAcceptedTask,
+    apiKey: string,
+    signal: AbortSignal
+  ): Promise<unknown> {
     let transientFetchFailures = 0;
     while (!signal.aborted) {
       await this.delay(RUNWAY_VIDEO_POLL_INTERVAL_MS, signal);
       let response: Response;
       try {
-        response = await fetch(`${RUNWAY_API_BASE_URL}/tasks/${encodeURIComponent(taskId)}`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "X-Runway-Version": RUNWAY_API_VERSION
-          },
-          signal
-        });
+        response = await fetch(
+          `${RUNWAY_API_BASE_URL}/tasks/${encodeURIComponent(acceptedTask.taskId)}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "X-Runway-Version": RUNWAY_API_VERSION
+            },
+            signal
+          }
+        );
         transientFetchFailures = 0;
       } catch (error) {
         if (this.isAbortError(error) || signal.aborted) {
           throw error;
         }
         transientFetchFailures += 1;
+        this.logTransportError({
+          providerTaskId: acceptedTask.taskId,
+          acceptedAt: acceptedTask.acceptedAt,
+          transientFetchFailures,
+          maxTransientFetchFailures: RUNWAY_MAX_TRANSIENT_POLL_FETCH_FAILURES,
+          message: error instanceof Error ? error.message : String(error)
+        });
         if (transientFetchFailures >= RUNWAY_MAX_TRANSIENT_POLL_FETCH_FAILURES) {
-          throw error;
+          throw this.buildPollingLossError(acceptedTask, error);
         }
         continue;
       }
@@ -142,6 +164,80 @@ export class RunwayProviderClient {
       }
     }
     throw new Error("Runway video generation polling stopped before a terminal task response.");
+  }
+
+  private async resolveAcceptedTask(
+    input: ProviderGatewayVideoGenerateRequest,
+    model: string,
+    apiKey: string,
+    signal: AbortSignal
+  ): Promise<RunwayAcceptedTask> {
+    const existing = this.normalizeAcceptedTask(input.acceptedTask, model);
+    if (existing !== null) {
+      return existing;
+    }
+    const taskId = await this.createTask(input, model, apiKey, signal);
+    const acceptedAt = new Date().toISOString();
+    this.logAccepted({ providerTaskId: taskId, model, acceptedAt });
+    return { taskId, model, acceptedAt };
+  }
+
+  private normalizeAcceptedTask(
+    acceptedTask: ProviderGatewayVideoGenerateRequest["acceptedTask"],
+    fallbackModel: string
+  ): RunwayAcceptedTask | null {
+    if (
+      acceptedTask === null ||
+      acceptedTask === undefined ||
+      acceptedTask.provider !== "runway" ||
+      acceptedTask.providerStage !== "accepted"
+    ) {
+      return null;
+    }
+    const providerTaskId = this.asNonEmptyString(acceptedTask.providerTaskId);
+    if (providerTaskId === null) {
+      return null;
+    }
+    return {
+      taskId: providerTaskId,
+      model: this.asNonEmptyString(acceptedTask.model) ?? fallbackModel,
+      acceptedAt: this.asNonEmptyString(acceptedTask.acceptedAt) ?? new Date().toISOString()
+    };
+  }
+
+  private buildPollingLossError(acceptedTask: RunwayAcceptedTask, error: unknown): Error {
+    const message = error instanceof Error ? error.message : String(error);
+    const payload = {
+      providerTaskId: acceptedTask.taskId,
+      provider: "runway",
+      model: acceptedTask.model,
+      providerStage: "accepted",
+      acceptedAt: acceptedTask.acceptedAt,
+      code: "accepted_primary_unconfirmed",
+      reason: "provider accepted but polling transport lost",
+      message
+    };
+    return new Error(`PERSAI_VIDEO_POLLING_LOST::${JSON.stringify(payload)}`);
+  }
+
+  private logAccepted(input: { providerTaskId: string; model: string; acceptedAt: string }): void {
+    this.logger.log(
+      `[video-runway] create accepted task_id=${input.providerTaskId} model=${input.model} acceptedAt=${input.acceptedAt}`
+    );
+  }
+
+  private logTransportError(input: {
+    providerTaskId: string;
+    acceptedAt: string;
+    transientFetchFailures: number;
+    maxTransientFetchFailures: number;
+    message: string;
+  }): void {
+    this.logger.warn(
+      `[video-runway] poll transport_error task_id=${input.providerTaskId} providerStage=accepted acceptedAt=${input.acceptedAt} transientFailures=${String(
+        input.transientFetchFailures
+      )}/${String(input.maxTransientFetchFailures)} message=${input.message}`
+    );
   }
 
   private readOutputUrl(body: unknown): string {
@@ -218,6 +314,9 @@ export class RunwayProviderClient {
         input.referenceImage.mimeType
       );
     }
+    if (typeof input.providerParameters?.audio === "boolean") {
+      body.audio = input.providerParameters.audio;
+    }
     return body;
   }
 
@@ -292,6 +391,10 @@ export class RunwayProviderClient {
       current = (current as Record<string, unknown>)[key];
     }
     return typeof current === "string" && current.trim().length > 0 ? current.trim() : null;
+  }
+
+  private asNonEmptyString(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
   private async readJsonBody(response: Response): Promise<unknown> {

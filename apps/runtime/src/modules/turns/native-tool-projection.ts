@@ -841,12 +841,12 @@ function createVideoGenerateToolDefinition(
           policy
         )
       ),
-      "Always specify both seconds and size/aspect when calling this tool. Runtime will normalize unsupported values from the selected model catalog, but do not omit them unless the user truly gave no preference. If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer."
+      "Prefer calling this tool immediately when the user clearly wants a video. Pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values. If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that the video is being prepared and will arrive separately; do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId. If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message. If concrete package or upgrade options are still missing, call quota_status for video_generate before the final answer."
     ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["prompt", "size", "seconds"],
+      required: ["prompt"],
       properties: {
         prompt: {
           type: "string",
@@ -857,6 +857,36 @@ function createVideoGenerateToolDefinition(
           description:
             'Optional human-readable alias of an available image to use as a visual reference or first frame, for example "current image #1" or "last generated image". Provide this only when the user explicitly identifies or selects a specific available image alias, or when an upstream structured UI/tool has already provided that alias. Do not guess or infer aliases heuristically from context; otherwise omit this field so runtime uses text-to-video.'
         },
+        referenceImageAliases: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional ordered image aliases for a true multi-image video request. Use this only when the user explicitly asked for a multi-image video composition and the exact aliases are known. Do not collapse a multi-image request into one reference image."
+        },
+        voiceIds: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional ordered provider voice ids for explicit voice-controlled Kling text-to-video or image-to-video requests only. Use this only when exact voice ids are already known from an upstream structured flow; do not invent, guess, or paraphrase voice ids from free text. Keep the order aligned with the prompt's voice placeholders."
+        },
+        voiceKeys: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional ordered PersAI voice keys for Kling voice-controlled text-to-video or image-to-video requests. Use only keys from the materialized shortlist shown in this assistant's video catalog/tool guidance; do not invent keys. Keep the order aligned with the prompt's voice placeholders."
+        },
+        audioMode: {
+          type: "string",
+          enum: ["silent", "provider_native_audio", "voice_control"],
+          description:
+            "Optional requested audio intent. Use silent for ordinary/default silent video. Use provider_native_audio when the user explicitly wants scene sound or provider-generated audio. Use voice_control only when the user explicitly wants spoken narration, singing, dialogue, or controllable human voice inside the generated video. Do not downgrade voice_control to ordinary audio or silent video without explanation."
+        },
+        inputMode: {
+          type: "string",
+          enum: ["text", "single_reference_image", "multi_image", "omni"],
+          description:
+            "Optional requested input class. Use text for prompt-only video. Use single_reference_image when exactly one reference image alias is intentionally supplied. Use multi_image when the user explicitly wants multiple images combined into one video request. Use omni only for an explicit Omni-style request. Do not silently degrade multi_image or omni requests to ordinary single-image or text video."
+        },
         filename: {
           type: "string",
           description: "Optional filename hint for the generated video attachment."
@@ -865,14 +895,14 @@ function createVideoGenerateToolDefinition(
           type: "string",
           enum: [...PERSAI_RUNTIME_VIDEO_GENERATE_SIZES],
           description:
-            "Required output size/aspect hint. Choose the closest supported framing for the user's request."
+            "Optional output size/aspect hint. Use it when the user asked for a specific framing; otherwise omit it and runtime will apply the selected model's default size."
         },
         seconds: {
           type: "integer",
           minimum: 1,
           maximum: 30,
           description:
-            "Required output duration in whole seconds. Runtime will normalize this to the nearest valid value for the selected model."
+            "Optional output duration in whole seconds. Use it when the user asked for a specific duration; otherwise omit it and runtime will apply the selected model's default duration."
         }
       }
     }

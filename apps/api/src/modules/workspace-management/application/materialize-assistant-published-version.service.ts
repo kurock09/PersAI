@@ -89,6 +89,7 @@ import {
   resolveVoiceDnaLocale,
   type VoiceDnaResolved
 } from "./voice-dna-modulator";
+import { KlingVoiceCatalogService } from "./kling/kling-voice-catalog.service";
 import type { PersonaArchetype } from "../domain/persona-archetype.entity";
 import type { AssistantPublishedVersionSnapshotVoiceDna } from "../domain/assistant-published-version.entity";
 import { buildSyntheticPromptToolOverrideMap } from "./prompt-constructor-tool-metadata";
@@ -316,19 +317,62 @@ export function buildVideoGenerateToolCredentialRef(params: {
           keyMetadata: params.keyMetadata,
           modelKey: params.videoGenerateModelKey
         });
+  const primaryVideoModelParameters = primaryRef.videoModelParameters ?? null;
   if (params.videoGenerateFallbackModelKey === null) {
     return primaryRef;
   }
+  const fallbackRef = buildVideoProviderToolCredentialRef({
+    runtimeProviderProfile: params.runtimeProviderProfile,
+    keyMetadata: params.keyMetadata,
+    modelKey: params.videoGenerateFallbackModelKey
+  });
+  const fallbackVideoModelParameters = fallbackRef.videoModelParameters ?? null;
+  if (
+    primaryVideoModelParameters !== null &&
+    fallbackVideoModelParameters !== null &&
+    !supportsSameVideoRequestClasses(primaryVideoModelParameters, fallbackVideoModelParameters)
+  ) {
+    throw new Error(
+      `Configured video fallback model "${params.videoGenerateFallbackModelKey}" does not support the same ADR-107 Slice 3 request classes as primary model "${params.videoGenerateModelKey ?? "default"}".`
+    );
+  }
   return {
     ...primaryRef,
-    fallbacks: [
-      buildVideoProviderToolCredentialRef({
-        runtimeProviderProfile: params.runtimeProviderProfile,
-        keyMetadata: params.keyMetadata,
-        modelKey: params.videoGenerateFallbackModelKey
-      })
-    ]
+    fallbacks: [fallbackRef]
   };
+}
+
+function supportsSameVideoRequestClasses(
+  primary: NonNullable<AssistantRuntimeBundleToolCredentialRef["videoModelParameters"]>,
+  fallback: NonNullable<AssistantRuntimeBundleToolCredentialRef["videoModelParameters"]>
+): boolean {
+  const primaryAudioCapabilities = Array.isArray(primary.audioCapabilities)
+    ? primary.audioCapabilities
+    : ["silent"];
+  const primaryInputCapabilities = Array.isArray(primary.inputCapabilities)
+    ? primary.inputCapabilities
+    : primary.referenceImageSupported === true
+      ? ["text", "single_reference_image"]
+      : ["text"];
+  const fallbackAudioCapabilities = Array.isArray(fallback.audioCapabilities)
+    ? fallback.audioCapabilities
+    : ["silent"];
+  const fallbackInputCapabilities = Array.isArray(fallback.inputCapabilities)
+    ? fallback.inputCapabilities
+    : fallback.referenceImageSupported === true
+      ? ["text", "single_reference_image"]
+      : ["text"];
+  for (const capability of primaryAudioCapabilities) {
+    if (!fallbackAudioCapabilities.includes(capability)) {
+      return false;
+    }
+  }
+  for (const capability of primaryInputCapabilities) {
+    if (!fallbackInputCapabilities.includes(capability)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function buildVideoProviderToolCredentialRef(params: {
@@ -378,7 +422,8 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly compilePromptConstructorService: CompilePromptConstructorService,
-    private readonly managePersonaArchetypesService: ManagePersonaArchetypesService
+    private readonly managePersonaArchetypesService: ManagePersonaArchetypesService,
+    private readonly klingVoiceCatalogService: KlingVoiceCatalogService
   ) {}
 
   async execute(
@@ -1024,6 +1069,7 @@ export class MaterializeAssistantPublishedVersionService {
         videoGenerateModelKey: input.videoGenerateModelKey,
         videoGenerateFallbackModelKey: input.videoGenerateFallbackModelKey
       });
+      refs.video_generate = await this.attachMaterializedVideoVoiceCatalog(refs.video_generate);
     }
     refs.tts = this.buildTtsToolCredentialRef(
       keyMetadata,
@@ -1031,6 +1077,22 @@ export class MaterializeAssistantPublishedVersionService {
       input.voiceProfile
     );
     return refs;
+  }
+
+  private async attachMaterializedVideoVoiceCatalog(
+    ref: AssistantRuntimeBundleToolCredentialRef
+  ): Promise<AssistantRuntimeBundleToolCredentialRef> {
+    if (ref.providerId !== "kling") {
+      return ref;
+    }
+    const catalog = await this.klingVoiceCatalogService.getMaterializedVoiceCatalog();
+    if (catalog === null || catalog.shortlist.length === 0) {
+      return ref;
+    }
+    return {
+      ...ref,
+      videoVoiceCatalog: catalog
+    };
   }
 
   private async resolveDocumentProviderConfig(): Promise<MaterializedDocumentProviderConfig> {

@@ -446,13 +446,39 @@ async function run(): Promise<void> {
   if (videoGenerate !== undefined) {
     assert.match(
       videoGenerate.description ?? "",
+      /do not ask a follow-up only to fill those fields/i
+    );
+    const videoGenerateSchema = videoGenerate.inputSchema as {
+      required?: string[];
+      properties?: {
+        size?: { description?: string };
+        seconds?: { description?: string };
+        referenceImageAlias?: { description?: string };
+        voiceKeys?: { description?: string };
+      };
+    };
+    assert.deepEqual(videoGenerateSchema.required ?? [], ["prompt"]);
+    assert.match(
+      videoGenerateSchema.properties?.size?.description ?? "",
+      /Optional output size\/aspect hint/i
+    );
+    assert.match(
+      videoGenerateSchema.properties?.size?.description ?? "",
+      /runtime will apply the selected model's default size/i
+    );
+    assert.match(
+      videoGenerateSchema.properties?.seconds?.description ?? "",
+      /Optional output duration/i
+    );
+    assert.match(
+      videoGenerateSchema.properties?.seconds?.description ?? "",
+      /runtime will apply the selected model's default duration/i
+    );
+    assert.match(
+      videoGenerate.description ?? "",
       /do NOT claim it is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
     );
-    const videoGenerateReferenceImageAlias = (
-      videoGenerate.inputSchema as {
-        properties?: { referenceImageAlias?: { description?: string } };
-      }
-    )?.properties?.referenceImageAlias;
+    const videoGenerateReferenceImageAlias = videoGenerateSchema.properties?.referenceImageAlias;
     assert.match(
       videoGenerateReferenceImageAlias?.description ?? "",
       /only when the user explicitly identifies or selects a specific available image alias/i
@@ -468,6 +494,14 @@ async function run(): Promise<void> {
     assert.match(
       videoGenerateReferenceImageAlias?.description ?? "",
       /otherwise omit this field so runtime uses text-to-video/i
+    );
+    assert.match(
+      videoGenerateSchema.properties?.voiceKeys?.description ?? "",
+      /PersAI voice keys/i
+    );
+    assert.match(
+      videoGenerateSchema.properties?.voiceKeys?.description ?? "",
+      /materialized shortlist/i
     );
   }
   assert.ok(videoGenerate, "video_generate should be projected for configured Runway refs");

@@ -20,6 +20,7 @@ export type InternalRuntimeMediaJobRunOutcome =
       status: number | null;
       code: string | null;
       message: string;
+      providerStatus: Record<string, unknown> | null;
     };
 
 @Injectable()
@@ -35,7 +36,8 @@ export class InternalRuntimeMediaJobClientService {
         retryable: false,
         status: null,
         code: "runtime_base_url_missing",
-        message: "PERSAI_RUNTIME_BASE_URL is not configured for media jobs."
+        message: "PERSAI_RUNTIME_BASE_URL is not configured for media jobs.",
+        providerStatus: null
       };
     }
     const token = config.PERSAI_INTERNAL_API_TOKEN?.trim();
@@ -45,7 +47,8 @@ export class InternalRuntimeMediaJobClientService {
         retryable: false,
         status: null,
         code: "internal_token_missing",
-        message: "PERSAI_INTERNAL_API_TOKEN is not configured for media jobs."
+        message: "PERSAI_INTERNAL_API_TOKEN is not configured for media jobs.",
+        providerStatus: null
       };
     }
 
@@ -71,7 +74,8 @@ export class InternalRuntimeMediaJobClientService {
           retryable: false,
           status: response.status,
           code: "invalid_response",
-          message: "Media-job runtime returned an unexpected response shape."
+          message: "Media-job runtime returned an unexpected response shape.",
+          providerStatus: null
         };
       }
       const error = this.extractError(body);
@@ -80,7 +84,8 @@ export class InternalRuntimeMediaJobClientService {
         retryable: response.status >= 500 || response.status === 408 || response.status === 429,
         status: response.status,
         code: error.code ?? `http_${response.status}`,
-        message: error.message ?? `Media-job runtime returned HTTP ${response.status}.`
+        message: error.message ?? `Media-job runtime returned HTTP ${response.status}.`,
+        providerStatus: error.providerStatus
       };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
@@ -89,7 +94,8 @@ export class InternalRuntimeMediaJobClientService {
           retryable: true,
           status: null,
           code: "timeout",
-          message: `Media-job runtime call timed out after ${MEDIA_JOB_RUN_TIMEOUT_MS}ms.`
+          message: `Media-job runtime call timed out after ${MEDIA_JOB_RUN_TIMEOUT_MS}ms.`,
+          providerStatus: null
         };
       }
       this.logger.warn(
@@ -100,7 +106,8 @@ export class InternalRuntimeMediaJobClientService {
         retryable: true,
         status: null,
         code: "network_error",
-        message: error instanceof Error ? error.message : "Media-job runtime call failed."
+        message: error instanceof Error ? error.message : "Media-job runtime call failed.",
+        providerStatus: null
       };
     } finally {
       clearTimeout(timeoutId);
@@ -153,15 +160,20 @@ export class InternalRuntimeMediaJobClientService {
     );
   }
 
-  private extractError(body: unknown): { code: string | null; message: string | null } {
+  private extractError(body: unknown): {
+    code: string | null;
+    message: string | null;
+    providerStatus: Record<string, unknown> | null;
+  } {
     if (typeof body === "string" && body.trim().length > 0) {
-      return { code: null, message: body.trim() };
+      return { code: null, message: body.trim(), providerStatus: null };
     }
     const row = this.asObject(body);
     const error = this.asObject(row?.error);
     return {
       code: typeof error?.code === "string" ? error.code : null,
-      message: typeof error?.message === "string" ? error.message : null
+      message: typeof error?.message === "string" ? error.message : null,
+      providerStatus: this.asObject(error?.providerStatus)
     };
   }
 

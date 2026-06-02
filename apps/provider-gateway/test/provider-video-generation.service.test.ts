@@ -182,6 +182,12 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
   const klingResult = await service.generateVideo({
     ...createRequest(),
     model: "kling-v3",
+    referenceTailImage: {
+      bytesBase64: "tail-image",
+      mimeType: "image/png",
+      filename: "forest-end.png"
+    },
+    voiceIds: ["voice-1"],
     providerParameters: { mode: "pro", sound: "off" },
     credential: {
       ...createRequest().credential,
@@ -192,6 +198,12 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
   assert.equal(klingResult.provider, "kling");
   assert.equal(klingProviderClient.calls[0]?.credentialValue, "resolved-tool-secret");
   assert.equal(klingProviderClient.calls[0]?.input.model, "kling-v3");
+  assert.deepEqual(klingProviderClient.calls[0]?.input.referenceTailImage, {
+    bytesBase64: "tail-image",
+    mimeType: "image/png",
+    filename: "forest-end.png"
+  });
+  assert.deepEqual(klingProviderClient.calls[0]?.input.voiceIds, ["voice-1"]);
   assert.deepEqual(klingProviderClient.calls[0]?.input.providerParameters, {
     mode: "pro",
     sound: "off"
@@ -239,9 +251,46 @@ export async function runProviderVideoGenerationServiceTest(): Promise<void> {
     /referenceImage\.bytesBase64 must be a non-empty string/
   );
 
+  await assert.rejects(
+    () =>
+      service.generateVideo({
+        ...createRequest(),
+        voiceIds: [""]
+      }),
+    /voiceIds must contain only non-empty strings/
+  );
+
   assert.deepEqual(persaiInternalApiClientService.secretIds, [
     "tool/image_generate/api-key",
     "tool/video_generate/runway/api-key",
     "tool/video_generate/kling/api-key"
   ]);
+
+  class ThrowingKlingProviderClient extends FakeKlingProviderClient {
+    override async generateVideo(): Promise<ProviderGatewayVideoGenerateResult> {
+      throw new Error(
+        'PERSAI_VIDEO_POLLING_LOST::{"providerTaskId":"task_kling_accepted_1","provider":"kling","model":"kling-v3","providerStage":"accepted","acceptedAt":"2026-06-02T12:00:00.000Z","code":"accepted_primary_unconfirmed","reason":"provider accepted but polling transport lost","message":"fetch failed","taskKind":"image2video"}'
+      );
+    }
+  }
+
+  const pollingLossService = new ProviderVideoGenerationService(
+    openaiProviderClient as unknown as OpenAIProviderClient,
+    runwayProviderClient as unknown as RunwayProviderClient,
+    new ThrowingKlingProviderClient() as unknown as KlingProviderClient,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  await assert.rejects(
+    () =>
+      pollingLossService.generateVideo({
+        ...createRequest(),
+        model: "kling-v3",
+        credential: {
+          ...createRequest().credential,
+          secretId: "tool/video_generate/kling/api-key",
+          providerId: "kling"
+        }
+      }),
+    /accepted_primary_unconfirmed/i
+  );
 }

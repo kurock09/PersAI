@@ -228,6 +228,7 @@ import { AssistantMediaJobService } from "./application/assistant-media-job.serv
 import { EnqueueRuntimeDeferredDocumentJobService } from "./application/enqueue-runtime-deferred-document-job.service";
 import { GammaThemeCatalogService } from "./application/gamma/gamma-theme-catalog.service";
 import { GammaThemePickerService } from "./application/gamma/gamma-theme-picker.service";
+import { KlingVoiceCatalogService } from "./application/kling/kling-voice-catalog.service";
 import { EnqueueRuntimeDeferredMediaJobService } from "./application/enqueue-runtime-deferred-media-job.service";
 import { InternalRuntimeDocumentJobClientService } from "./application/internal-runtime-document-job.client.service";
 import { InternalRuntimeMediaJobClientService } from "./application/internal-runtime-media-job.client.service";
@@ -511,6 +512,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     EnqueueRuntimeDeferredDocumentJobService,
     GammaThemeCatalogService,
     GammaThemePickerService,
+    KlingVoiceCatalogService,
     EnqueueRuntimeDeferredMediaJobService,
     InternalRuntimeCompactionClientService,
     InternalRuntimeBackgroundTaskClientService,

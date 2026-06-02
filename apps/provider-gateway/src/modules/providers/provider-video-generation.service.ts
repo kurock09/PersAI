@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import {
   PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS,
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
@@ -30,13 +30,29 @@ export class ProviderVideoGenerationService {
       normalized.credential.secretId
     );
 
-    switch (normalized.credential.providerId ?? "openai") {
-      case "openai":
-        return this.openaiProviderClient.generateVideo(normalized, { apiKey: credentialValue });
-      case "runway":
-        return this.runwayProviderClient.generateVideo(normalized, { apiKey: credentialValue });
-      case "kling":
-        return this.klingProviderClient.generateVideo(normalized, { credentialValue });
+    try {
+      switch (normalized.credential.providerId ?? "openai") {
+        case "openai":
+          return this.openaiProviderClient.generateVideo(normalized, { apiKey: credentialValue });
+        case "runway":
+          return this.runwayProviderClient.generateVideo(normalized, { apiKey: credentialValue });
+        case "kling":
+          return this.klingProviderClient.generateVideo(normalized, { credentialValue });
+      }
+    } catch (error) {
+      const pollingLoss = this.readAcceptedPrimaryUnconfirmedError(error);
+      if (pollingLoss !== null) {
+        throw new ServiceUnavailableException({
+          error: {
+            code: "accepted_primary_unconfirmed",
+            message:
+              "Provider task was accepted, but polling continuity was lost before terminal status.",
+            retryable: true,
+            providerStatus: pollingLoss
+          }
+        });
+      }
+      throw error;
     }
   }
 
@@ -49,6 +65,13 @@ export class ProviderVideoGenerationService {
       mimeType: string;
       filename: string | null;
     } | null;
+    referenceTailImage: {
+      bytesBase64: string;
+      mimeType: string;
+      filename: string | null;
+    } | null;
+    voiceIds: string[] | null;
+    acceptedTask: ProviderGatewayVideoGenerateRequest["acceptedTask"];
     credential: ProviderGatewayVideoGenerateRequest["credential"] & {
       providerId: PersaiRuntimeVideoGenerateProviderId | null;
     };
@@ -85,7 +108,12 @@ export class ProviderVideoGenerationService {
       input.referenceImage === null || input.referenceImage === undefined
         ? null
         : this.normalizeReferenceImage(input.referenceImage);
+    const referenceTailImage =
+      input.referenceTailImage === null || input.referenceTailImage === undefined
+        ? null
+        : this.normalizeReferenceImage(input.referenceTailImage);
     const model = this.normalizeModel(input.model, providerId);
+    const voiceIds = this.normalizeVoiceIds(input.voiceIds);
 
     return {
       prompt: input.prompt.trim(),
@@ -93,7 +121,10 @@ export class ProviderVideoGenerationService {
       size: input.size,
       seconds: input.seconds,
       referenceImage,
+      referenceTailImage,
+      voiceIds,
       providerParameters: input.providerParameters ?? null,
+      acceptedTask: input.acceptedTask ?? null,
       credential: {
         toolCode: "video_generate",
         secretId: input.credential.secretId.trim(),
@@ -154,5 +185,51 @@ export class ProviderVideoGenerationService {
       );
     }
     return normalized;
+  }
+
+  private normalizeVoiceIds(
+    input: ProviderGatewayVideoGenerateRequest["voiceIds"]
+  ): string[] | null {
+    if (input === null || input === undefined) {
+      return null;
+    }
+    if (!Array.isArray(input) || input.length === 0) {
+      throw new BadRequestException("voiceIds must be a non-empty array when provided");
+    }
+    const normalized = Array.from(
+      new Set(
+        input.map((entry) => {
+          if (typeof entry !== "string" || entry.trim().length === 0) {
+            throw new BadRequestException("voiceIds must contain only non-empty strings");
+          }
+          return entry.trim();
+        })
+      )
+    );
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private readAcceptedPrimaryUnconfirmedError(error: unknown): Record<string, unknown> | null {
+    const message = error instanceof Error ? error.message : null;
+    if (message === null) {
+      return null;
+    }
+    const marker = "PERSAI_VIDEO_POLLING_LOST::";
+    const markerIndex = message.indexOf(marker);
+    if (markerIndex < 0) {
+      return null;
+    }
+    const payloadText = message.slice(markerIndex + marker.length).trim();
+    if (payloadText.length === 0) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(payloadText);
+      return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
   }
 }

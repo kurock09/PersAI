@@ -31,8 +31,12 @@ import {
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   type PersaiRuntimeVideoAspectRatio,
   type PersaiRuntimeVideoGenerateSize,
+  RUNTIME_VIDEO_AUDIO_CAPABILITIES,
+  RUNTIME_VIDEO_INPUT_CAPABILITIES,
+  type RuntimeVideoAudioCapability,
   type RuntimeVideoAspectRatioOption,
   type RuntimeVideoDurationConstraint,
+  type RuntimeVideoInputCapability,
   type RuntimeVideoModelParameters,
   type RuntimeVideoProviderParameters
 } from "@persai/runtime-contract";
@@ -396,12 +400,142 @@ function normalizeVideoProviderParameters(
         : (() => {
             throw new Error(`${path}.sound must be "on", "off", or null.`);
           })();
-  return mode !== null || sound !== null
+  const audio =
+    row.audio === undefined || row.audio === null
+      ? null
+      : typeof row.audio === "boolean"
+        ? row.audio
+        : (() => {
+            throw new Error(`${path}.audio must be true, false, or null.`);
+          })();
+  return mode !== null || sound !== null || audio !== null
     ? {
         ...(mode === null ? {} : { mode }),
-        ...(sound === null ? {} : { sound })
+        ...(sound === null ? {} : { sound }),
+        ...(audio === null ? {} : { audio })
       }
     : null;
+}
+
+function validateVideoCapabilityCombination(params: {
+  audioCapabilities: RuntimeVideoAudioCapability[];
+  inputCapabilities: RuntimeVideoInputCapability[];
+  referenceImageSupported: boolean;
+  providerParameters: RuntimeVideoProviderParameters | null;
+  path: string;
+}): void {
+  const audioCapabilities = new Set(params.audioCapabilities);
+  const inputCapabilities = new Set(params.inputCapabilities);
+
+  if (inputCapabilities.has("omni")) {
+    throw new Error(
+      `${params.path}.inputCapabilities cannot include "omni" because Omni is deferred and unsupported in ADR-107 Slice 2.`
+    );
+  }
+  if (audioCapabilities.has("voice_control") && !audioCapabilities.has("provider_native_audio")) {
+    throw new Error(
+      `${params.path}.audioCapabilities cannot include "voice_control" without "provider_native_audio".`
+    );
+  }
+  if (inputCapabilities.has("single_reference_image") !== params.referenceImageSupported) {
+    throw new Error(
+      `${params.path}.inputCapabilities must align "single_reference_image" with referenceImageSupported.`
+    );
+  }
+  if (inputCapabilities.has("multi_image") && !params.referenceImageSupported) {
+    throw new Error(
+      `${params.path}.inputCapabilities cannot include "multi_image" when referenceImageSupported is false.`
+    );
+  }
+  if (
+    params.providerParameters?.sound === "on" &&
+    !audioCapabilities.has("provider_native_audio")
+  ) {
+    throw new Error(
+      `${params.path}.providerParameters.sound cannot be "on" unless "provider_native_audio" is enabled.`
+    );
+  }
+  if (
+    params.providerParameters?.audio === true &&
+    !audioCapabilities.has("provider_native_audio")
+  ) {
+    throw new Error(
+      `${params.path}.providerParameters.audio cannot be true unless "provider_native_audio" is enabled.`
+    );
+  }
+}
+
+function isRuntimeVideoAudioCapability(value: unknown): value is RuntimeVideoAudioCapability {
+  return RUNTIME_VIDEO_AUDIO_CAPABILITIES.includes(value as RuntimeVideoAudioCapability);
+}
+
+function isRuntimeVideoInputCapability(value: unknown): value is RuntimeVideoInputCapability {
+  return RUNTIME_VIDEO_INPUT_CAPABILITIES.includes(value as RuntimeVideoInputCapability);
+}
+
+function normalizeVideoAudioCapabilities(
+  value: unknown,
+  path: string
+): RuntimeVideoAudioCapability[] {
+  if (value === undefined) {
+    return ["silent"];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${path} must be an array of video audio capabilities.`);
+  }
+  const deduped = new Set<RuntimeVideoAudioCapability>();
+  for (const [index, entry] of value.entries()) {
+    if (!isRuntimeVideoAudioCapability(entry)) {
+      throw new Error(
+        `${path}[${String(index)}] must be one of: ${RUNTIME_VIDEO_AUDIO_CAPABILITIES.join(", ")}.`
+      );
+    }
+    deduped.add(entry);
+  }
+  if (deduped.size === 0) {
+    throw new Error(`${path} must include at least one video audio capability.`);
+  }
+  if (!deduped.has("silent")) {
+    deduped.add("silent");
+  }
+  return Array.from(deduped);
+}
+
+function normalizeVideoInputCapabilities(
+  value: unknown,
+  path: string,
+  referenceImageSupported: boolean
+): RuntimeVideoInputCapability[] {
+  if (value === undefined) {
+    return referenceImageSupported ? ["text", "single_reference_image"] : ["text"];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${path} must be an array of video input capabilities.`);
+  }
+  const deduped = new Set<RuntimeVideoInputCapability>();
+  for (const [index, entry] of value.entries()) {
+    if (!isRuntimeVideoInputCapability(entry)) {
+      throw new Error(
+        `${path}[${String(index)}] must be one of: ${RUNTIME_VIDEO_INPUT_CAPABILITIES.join(", ")}.`
+      );
+    }
+    deduped.add(entry);
+  }
+  if (deduped.size === 0) {
+    throw new Error(`${path} must include at least one video input capability.`);
+  }
+  if (!deduped.has("text")) {
+    deduped.add("text");
+  }
+  if (deduped.has("single_reference_image") && !referenceImageSupported) {
+    throw new Error(
+      `${path} cannot include "single_reference_image" when referenceImageSupported is false.`
+    );
+  }
+  if (referenceImageSupported && !deduped.has("single_reference_image")) {
+    deduped.add("single_reference_image");
+  }
+  return Array.from(deduped);
 }
 
 function normalizeVideoModelParameters(value: unknown, path: string): RuntimeVideoModelParameters {
@@ -409,18 +543,36 @@ function normalizeVideoModelParameters(value: unknown, path: string): RuntimeVid
   if (row === null) {
     throw new Error(`${path} must be an object.`);
   }
-  return {
+  const referenceImageSupported =
+    row.referenceImageSupported === undefined
+      ? false
+      : normalizeBoolean(row.referenceImageSupported, `${path}.referenceImageSupported`);
+  const normalized = {
     duration: normalizeVideoDurationConstraint(row.duration, `${path}.duration`),
     aspectRatios: normalizeVideoAspectRatioOptions(row.aspectRatios, `${path}.aspectRatios`),
-    referenceImageSupported:
-      row.referenceImageSupported === undefined
-        ? false
-        : normalizeBoolean(row.referenceImageSupported, `${path}.referenceImageSupported`),
+    referenceImageSupported,
+    audioCapabilities: normalizeVideoAudioCapabilities(
+      row.audioCapabilities,
+      `${path}.audioCapabilities`
+    ),
+    inputCapabilities: normalizeVideoInputCapabilities(
+      row.inputCapabilities,
+      `${path}.inputCapabilities`,
+      referenceImageSupported
+    ),
     providerParameters: normalizeVideoProviderParameters(
       row.providerParameters,
       `${path}.providerParameters`
     )
   };
+  validateVideoCapabilityCombination({
+    audioCapabilities: normalized.audioCapabilities,
+    inputCapabilities: normalized.inputCapabilities,
+    referenceImageSupported: normalized.referenceImageSupported,
+    providerParameters: normalized.providerParameters,
+    path
+  });
+  return normalized;
 }
 
 function createDefaultPlatformRuntimeSkillRoutingPolicy(): PlatformRuntimeSkillRoutingPolicy {

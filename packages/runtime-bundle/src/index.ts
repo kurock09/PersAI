@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   PERSAI_RUNTIME_CONTRACT_SCHEMA,
   type RuntimeVideoModelParameters,
+  type RuntimeVideoVoiceCatalog,
   type RuntimeAssistantVoiceProfile,
   type RuntimeBrowserConfig,
   type RuntimeContextHydrationConfig,
@@ -65,6 +66,7 @@ export interface AssistantRuntimeBundleToolCredentialRef {
   providerId?: string;
   modelKey?: string;
   videoModelParameters?: RuntimeVideoModelParameters | null;
+  videoVoiceCatalog?: RuntimeVideoVoiceCatalog | null;
   fallbacks?: AssistantRuntimeBundleToolCredentialRef[];
 }
 

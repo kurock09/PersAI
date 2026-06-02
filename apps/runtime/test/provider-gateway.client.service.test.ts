@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { ServiceUnavailableException } from "@nestjs/common";
 import type { RuntimeConfig } from "@persai/config";
 import type {
   ProviderGatewayDocumentGenerateRequest,
@@ -966,6 +967,49 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
         assert.ok(error instanceof ProviderGatewayHttpError);
         assert.equal(error.httpStatus, 500);
         assert.match(error.message, /status 500/);
+        return true;
+      }
+    );
+
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/api/v1/providers/generate-video")) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: "accepted_primary_unconfirmed",
+              message:
+                "Provider task was accepted, but polling continuity was lost before terminal status.",
+              providerStatus: {
+                providerTaskId: "task_kling_accepted_1",
+                provider: "kling",
+                model: "kling-v3",
+                acceptedAt: "2026-06-02T12:00:00.000Z",
+                providerStage: "accepted"
+              }
+            }
+          }),
+          {
+            status: 503,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => service.generateVideo(createVideoGenerateRequest()),
+      (error) => {
+        assert.ok(error instanceof ServiceUnavailableException);
+        const response = (error as ServiceUnavailableException).getResponse() as {
+          error?: { code?: string; providerStatus?: { providerTaskId?: string } };
+        };
+        assert.equal(response.error?.code, "accepted_primary_unconfirmed");
+        assert.equal(response.error?.providerStatus?.providerTaskId, "task_kling_accepted_1");
         return true;
       }
     );

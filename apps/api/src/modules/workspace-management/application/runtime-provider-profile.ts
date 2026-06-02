@@ -6,8 +6,12 @@ import {
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   type PersaiRuntimeVideoAspectRatio,
   type PersaiRuntimeVideoGenerateSize,
+  RUNTIME_VIDEO_AUDIO_CAPABILITIES,
+  RUNTIME_VIDEO_INPUT_CAPABILITIES,
+  type RuntimeVideoAudioCapability,
   type RuntimeVideoAspectRatioOption,
   type RuntimeVideoDurationConstraint,
+  type RuntimeVideoInputCapability,
   type RuntimeVideoModelParameters,
   type RuntimeVideoProviderParameters
 } from "@persai/runtime-contract";
@@ -506,6 +510,60 @@ function normalizeVideoProviderParameters(value: unknown): RuntimeVideoProviderP
     : null;
 }
 
+function isRuntimeVideoAudioCapability(value: unknown): value is RuntimeVideoAudioCapability {
+  return RUNTIME_VIDEO_AUDIO_CAPABILITIES.includes(value as RuntimeVideoAudioCapability);
+}
+
+function isRuntimeVideoInputCapability(value: unknown): value is RuntimeVideoInputCapability {
+  return RUNTIME_VIDEO_INPUT_CAPABILITIES.includes(value as RuntimeVideoInputCapability);
+}
+
+function normalizeVideoAudioCapabilities(value: unknown): RuntimeVideoAudioCapability[] {
+  if (!Array.isArray(value)) {
+    return ["silent"];
+  }
+  const deduped = new Set<RuntimeVideoAudioCapability>();
+  for (const entry of value) {
+    if (isRuntimeVideoAudioCapability(entry)) {
+      deduped.add(entry);
+    }
+  }
+  if (deduped.size === 0) {
+    deduped.add("silent");
+  }
+  if (!deduped.has("silent")) {
+    deduped.add("silent");
+  }
+  return Array.from(deduped);
+}
+
+function normalizeVideoInputCapabilities(
+  value: unknown,
+  referenceImageSupported: boolean
+): RuntimeVideoInputCapability[] {
+  if (!Array.isArray(value)) {
+    return referenceImageSupported ? ["text", "single_reference_image"] : ["text"];
+  }
+  const deduped = new Set<RuntimeVideoInputCapability>();
+  for (const entry of value) {
+    if (isRuntimeVideoInputCapability(entry)) {
+      deduped.add(entry);
+    }
+  }
+  if (deduped.size === 0) {
+    deduped.add("text");
+  }
+  if (!deduped.has("text")) {
+    deduped.add("text");
+  }
+  if (referenceImageSupported) {
+    deduped.add("single_reference_image");
+  } else {
+    deduped.delete("single_reference_image");
+  }
+  return Array.from(deduped);
+}
+
 function normalizeVideoModelParameters(value: unknown): RuntimeVideoModelParameters | null {
   const row = asObject(value);
   if (row === null) {
@@ -516,10 +574,16 @@ function normalizeVideoModelParameters(value: unknown): RuntimeVideoModelParamet
   if (duration === null || aspectRatios.length === 0) {
     return null;
   }
+  const referenceImageSupported = row.referenceImageSupported === true;
   return {
     duration,
     aspectRatios,
-    referenceImageSupported: row.referenceImageSupported === true,
+    referenceImageSupported,
+    audioCapabilities: normalizeVideoAudioCapabilities(row.audioCapabilities),
+    inputCapabilities: normalizeVideoInputCapabilities(
+      row.inputCapabilities,
+      referenceImageSupported
+    ),
     providerParameters: normalizeVideoProviderParameters(row.providerParameters)
   };
 }

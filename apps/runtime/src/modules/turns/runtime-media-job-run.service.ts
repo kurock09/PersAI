@@ -165,6 +165,12 @@ export class RuntimeMediaJobRunService {
           sessionId: `media-job:${input.job.id}`,
           requestId: toolRunKey
         });
+        this.assertVideoToolResultAccepted(
+          result.payload.reason,
+          result.payload.warning,
+          result.payload.providerStatus ?? null,
+          result.isError
+        );
         return {
           assistantText: "",
           artifacts: result.artifacts,
@@ -384,6 +390,55 @@ export class RuntimeMediaJobRunService {
       error: {
         code: reason,
         message
+      }
+    });
+  }
+
+  private assertVideoToolResultAccepted(
+    reason: string | null,
+    warning: string | null,
+    providerStatus: Record<string, unknown> | null,
+    isError: boolean
+  ): void {
+    if (reason === null) {
+      return;
+    }
+    const message =
+      typeof warning === "string" && warning.trim().length > 0
+        ? warning.trim()
+        : "Media-job video worker did not produce deliverable artifacts.";
+    if (reason === "accepted_primary_unconfirmed") {
+      throw new ServiceUnavailableException({
+        error: {
+          code: reason,
+          message,
+          providerStatus
+        }
+      });
+    }
+    if (reason === "requested_mode_unsupported") {
+      throw new BadRequestException({
+        error: {
+          code: reason,
+          message,
+          providerStatus
+        }
+      });
+    }
+    if (isError) {
+      throw new ServiceUnavailableException({
+        error: {
+          code: reason,
+          message,
+          providerStatus
+        }
+      });
+    }
+    throw new BadRequestException({
+      error: {
+        code: reason,
+        message,
+        providerStatus
       }
     });
   }

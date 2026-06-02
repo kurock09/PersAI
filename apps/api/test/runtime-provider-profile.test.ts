@@ -11,6 +11,8 @@ const RUNWAY_VIDEO_MODEL_PARAMETERS = {
     { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720:1280" }
   ],
   referenceImageSupported: true,
+  audioCapabilities: ["silent"] as const,
+  inputCapabilities: ["text", "single_reference_image"] as const,
   providerParameters: null
 };
 
@@ -21,6 +23,8 @@ const KLING_VIDEO_MODEL_PARAMETERS = {
     { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "9:16" }
   ],
   referenceImageSupported: true,
+  audioCapabilities: ["silent", "provider_native_audio", "voice_control"] as const,
+  inputCapabilities: ["text", "single_reference_image", "multi_image"] as const,
   providerParameters: {
     mode: "pro",
     sound: "off" as const
@@ -166,6 +170,77 @@ async function run(): Promise<void> {
   assert.deepEqual(
     catalogOnlyManaged.availableModelCatalogByProvider.kling.models.map((profile) => profile.model),
     ["kling-v3"]
+  );
+  assert.deepEqual(
+    catalogOnlyManaged.availableModelCatalogByProvider.runway.models[0]?.videoModelParameters
+      ?.audioCapabilities,
+    ["silent"]
+  );
+  assert.deepEqual(
+    catalogOnlyManaged.availableModelCatalogByProvider.runway.models[0]?.videoModelParameters
+      ?.inputCapabilities,
+    ["text", "single_reference_image"]
+  );
+  const legacyVideoDefaults = resolveRuntimeProviderProfileState({
+    policyEnvelope: {
+      runtimeProviderProfile: {
+        schema: "persai.runtimeProviderProfile.v1",
+        primary: {
+          provider: "openai",
+          model: "gpt-5.4"
+        },
+        availableModelCatalogByProvider: {
+          openai: {
+            models: [
+              {
+                model: "sora-2",
+                capabilities: ["video"],
+                videoModelParameters: {
+                  duration: { kind: "allowed_list", values: [4, 8, 12] },
+                  aspectRatios: [
+                    {
+                      aspectRatio: "16:9",
+                      size: "1280x720",
+                      providerValue: "1280x720"
+                    }
+                  ],
+                  referenceImageSupported: false
+                }
+              }
+            ]
+          },
+          anthropic: {
+            models: [{ model: "claude-sonnet-4-5", capabilities: ["chat"] }]
+          }
+        }
+      }
+    },
+    secretRefs: {
+      refs: {
+        runtime_provider_credentials: {
+          schema: "persai.runtimeProviderCredentialRefs.v1",
+          providers: {
+            openai: {
+              secretRef: {
+                source: "env",
+                provider: "default",
+                id: "OPENAI_API_KEY"
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+  assert.deepEqual(
+    legacyVideoDefaults.availableModelCatalogByProvider.openai.models[0]?.videoModelParameters
+      ?.audioCapabilities,
+    ["silent"]
+  );
+  assert.deepEqual(
+    legacyVideoDefaults.availableModelCatalogByProvider.openai.models[0]?.videoModelParameters
+      ?.inputCapabilities,
+    ["text"]
   );
 
   assert.throws(

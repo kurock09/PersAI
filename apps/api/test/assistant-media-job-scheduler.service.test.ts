@@ -258,6 +258,82 @@ describe("AssistantMediaJobSchedulerService", () => {
     });
   });
 
+  test("persists video billing facts unchanged for audio-capable provider rows", async () => {
+    const { service, finalUpdates, releaseCalls } = createService({
+      queryRows: [
+        {
+          id: "job-video-success-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          surface: "web",
+          kind: "video",
+          sourceUserMessageId: "user-message-1",
+          requestJson: {
+            attachments: [],
+            sourceUserMessageText: "make a storm clip with natural audio",
+            sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            directToolExecution: {
+              toolCode: "video_generate",
+              request: {
+                toolCode: "video_generate",
+                prompt: "make a storm clip with natural audio",
+                filename: null,
+                size: "1280x720",
+                seconds: 4,
+                audioMode: "provider_native_audio",
+                inputMode: "text",
+                referenceImageAlias: null
+              }
+            }
+          },
+          attemptCount: 0,
+          maxAttempts: 5
+        }
+      ],
+      runtimeOutcome: {
+        ok: true,
+        result: {
+          assistantText: "",
+          artifacts: [{ artifactId: "artifact-video-1", kind: "video" }],
+          usage: null,
+          billingFacts: {
+            providerKey: "runway",
+            modelKey: "veo3.1",
+            capability: "video",
+            occurredAt: "2026-06-02T18:00:00.000Z",
+            metering: {
+              meteringKind: "time_metered",
+              durationMs: 4_000,
+              durationSeconds: 4
+            }
+          },
+          toolInvocations: [{ name: "video_generate", iteration: 1, ok: true }],
+          rawText: null
+        }
+      }
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.length, 1);
+    assert.equal(finalUpdates[0]?.data?.status, "completion_pending");
+    assert.deepEqual(finalUpdates[0]?.data?.billingFactsJson, {
+      providerKey: "runway",
+      modelKey: "veo3.1",
+      capability: "video",
+      occurredAt: "2026-06-02T18:00:00.000Z",
+      metering: {
+        meteringKind: "time_metered",
+        durationMs: 4_000,
+        durationSeconds: 4
+      }
+    });
+    assert.equal(releaseCalls.length, 0);
+  });
+
   test("requeues retryable runtime failures with backoff", async () => {
     const { service, finalUpdates, releaseCalls } = createService({
       runtimeOutcome: {
@@ -280,6 +356,85 @@ describe("AssistantMediaJobSchedulerService", () => {
     // the scheduler must NOT release here (that would multi-release the shared
     // aggregate counter across retries).
     assert.equal(releaseCalls.length, 0);
+  });
+
+  test("requeues accepted primary video tasks without fallback and persists recovery task state", async () => {
+    const { service, finalUpdates, releaseCalls } = createService({
+      queryRows: [
+        {
+          id: "job-video-accepted-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          surface: "web",
+          kind: "video",
+          sourceUserMessageId: "user-message-1",
+          requestJson: {
+            attachments: [],
+            sourceUserMessageText: "make a clip",
+            sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            directToolExecution: {
+              toolCode: "video_generate",
+              request: {
+                toolCode: "video_generate",
+                prompt: "make a clip",
+                filename: null,
+                size: "1280x720",
+                seconds: 4,
+                referenceImageAlias: null
+              }
+            }
+          },
+          attemptCount: 1,
+          maxAttempts: 5
+        }
+      ],
+      runtimeOutcome: {
+        ok: false,
+        retryable: true,
+        status: 503,
+        code: "accepted_primary_unconfirmed",
+        message:
+          'Provider accepted the video task. PERSAI_VIDEO_ACCEPTED_PRIMARY_UNCONFIRMED::{"providerTaskId":"task_kling_accepted_1","provider":"kling","model":"kling-v3","acceptedAt":"2026-06-02T12:00:00.000Z","providerStage":"accepted","code":"accepted_primary_unconfirmed","reason":"provider accepted but polling transport lost","message":"fetch failed","taskKind":"image2video"}',
+        providerStatus: {
+          providerTaskId: "task_kling_accepted_1",
+          provider: "kling",
+          model: "kling-v3",
+          acceptedAt: "2026-06-02T12:00:00.000Z",
+          providerStage: "accepted",
+          code: "accepted_primary_unconfirmed",
+          reason: "provider accepted but polling transport lost",
+          message: "fetch failed",
+          taskKind: "image2video"
+        }
+      }
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.length, 1);
+    assert.equal(finalUpdates[0]?.data?.status, "queued");
+    assert.equal(finalUpdates[0]?.data?.lastErrorCode, "accepted_primary_unconfirmed");
+    assert.equal(releaseCalls.length, 0);
+    const requestJson = finalUpdates[0]?.data?.requestJson as
+      | {
+          directToolExecution?: {
+            request?: {
+              acceptedProviderTask?: { providerTaskId?: string; providerStage?: string };
+            };
+          };
+        }
+      | undefined;
+    assert.equal(
+      requestJson?.directToolExecution?.request?.acceptedProviderTask?.providerTaskId,
+      "task_kling_accepted_1"
+    );
+    assert.equal(
+      requestJson?.directToolExecution?.request?.acceptedProviderTask?.providerStage,
+      "accepted"
+    );
   });
 
   test("fails jobs immediately when runtime returns no deliverable artifacts", async () => {
@@ -475,6 +630,65 @@ describe("AssistantMediaJobSchedulerService", () => {
 
     assert.equal(processed, 1);
     assert.equal(finalUpdates[0]?.data?.status, "failed");
+    assert.equal(releaseCalls.length, 1);
+    assert.deepEqual(releaseCalls[0], {
+      assistant: { id: "assistant-1" },
+      toolCode: "video_generate",
+      units: 1
+    });
+  });
+
+  test("fails unsupported video audio/input requests terminally instead of requeueing them", async () => {
+    const { service, finalUpdates, releaseCalls } = createService({
+      queryRows: [
+        {
+          id: "job-video-unsupported-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          surface: "web",
+          kind: "video",
+          sourceUserMessageId: "user-message-1",
+          requestJson: {
+            attachments: [],
+            sourceUserMessageText: "make a narrated teaser with built-in speech",
+            sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            directToolExecution: {
+              toolCode: "video_generate",
+              request: {
+                toolCode: "video_generate",
+                prompt: "make a narrated teaser with built-in speech",
+                filename: null,
+                size: "1280x720",
+                seconds: 5,
+                audioMode: "provider_native_audio",
+                inputMode: "text",
+                referenceImageAlias: null
+              }
+            }
+          },
+          attemptCount: 0,
+          maxAttempts: 5
+        }
+      ],
+      runtimeOutcome: {
+        ok: false,
+        retryable: false,
+        status: 400,
+        code: "requested_mode_unsupported",
+        message:
+          "The selected video model does not support provider-native audio, so this request cannot be run honestly as an audio-capable video."
+      }
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.length, 1);
+    assert.equal(finalUpdates[0]?.data?.status, "failed");
+    assert.equal(finalUpdates[0]?.data?.lastErrorCode, "requested_mode_unsupported");
+    assert.equal(finalUpdates[0]?.data?.nextRetryAt, undefined);
     assert.equal(releaseCalls.length, 1);
     assert.deepEqual(releaseCalls[0], {
       assistant: { id: "assistant-1" },

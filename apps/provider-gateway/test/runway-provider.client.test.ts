@@ -62,20 +62,41 @@ export async function runRunwayProviderClientTest(): Promise<void> {
       assert.equal((init?.headers as Record<string, string>)["X-Runway-Version"], "2024-11-06");
       const body = JSON.parse(String(init?.body));
       if (url.endsWith("/image_to_video")) {
-        assert.deepEqual(body, {
-          model: "gen4.5",
-          promptText: "Animate a calm paper-cut forest at sunrise",
-          promptImage: "data:image/png;base64,cmVmLXZpZGVvLWltYWdl",
-          ratio: "1280:720",
-          duration: 4
-        });
+        if (body.model === "veo3.1") {
+          assert.deepEqual(body, {
+            model: "veo3.1",
+            promptText: "Animate a calm paper-cut forest at sunrise",
+            promptImage: "data:image/png;base64,cmVmLXZpZGVvLWltYWdl",
+            ratio: "1280:720",
+            duration: 4,
+            audio: true
+          });
+        } else {
+          assert.deepEqual(body, {
+            model: "gen4.5",
+            promptText: "Animate a calm paper-cut forest at sunrise",
+            promptImage: "data:image/png;base64,cmVmLXZpZGVvLWltYWdl",
+            ratio: "1280:720",
+            duration: 4
+          });
+        }
       } else {
-        assert.deepEqual(body, {
-          model: "gen4.5",
-          promptText: "Animate a calm paper-cut forest at sunrise",
-          ratio: "1280:720",
-          duration: 5
-        });
+        if (body.model === "veo3.1") {
+          assert.deepEqual(body, {
+            model: "veo3.1",
+            promptText: "Animate a calm paper-cut forest at sunrise",
+            ratio: "1280:720",
+            duration: 5,
+            audio: true
+          });
+        } else {
+          assert.deepEqual(body, {
+            model: "gen4.5",
+            promptText: "Animate a calm paper-cut forest at sunrise",
+            ratio: "1280:720",
+            duration: 5
+          });
+        }
       }
       return new Response(
         JSON.stringify({
@@ -147,6 +168,34 @@ export async function runRunwayProviderClientTest(): Promise<void> {
     assert.ok(
       requests.some((entry) => entry.url === "https://api.dev.runwayml.com/v1/text_to_video")
     );
+    requests.length = 0;
+    await client.generateVideo(
+      createRequest({
+        model: "veo3.1",
+        providerParameters: {
+          audio: true
+        }
+      }),
+      { apiKey: "runway-key" }
+    );
+    assert.ok(
+      requests.some((entry) => entry.url === "https://api.dev.runwayml.com/v1/image_to_video")
+    );
+    requests.length = 0;
+    await client.generateVideo(
+      createRequest({
+        model: "veo3.1",
+        seconds: 5,
+        referenceImage: null,
+        providerParameters: {
+          audio: true
+        }
+      }),
+      { apiKey: "runway-key" }
+    );
+    assert.ok(
+      requests.some((entry) => entry.url === "https://api.dev.runwayml.com/v1/text_to_video")
+    );
     const transientPollRequests: Array<{ url: string; init?: RequestInit }> = [];
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =
@@ -202,6 +251,65 @@ export async function runRunwayProviderClientTest(): Promise<void> {
         (entry) => entry.url === "https://api.dev.runwayml.com/v1/tasks/rw-task-retry"
       ).length,
       2
+    );
+
+    const acceptedOnlyRequests: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (init === undefined) {
+        acceptedOnlyRequests.push({ url });
+      } else {
+        acceptedOnlyRequests.push({ url, init });
+      }
+      if (url === "https://api.dev.runwayml.com/v1/tasks/rw-task-accepted-only") {
+        return new Response(
+          JSON.stringify({
+            status: "SUCCEEDED",
+            output: ["https://runway.example/output-accepted-only.mp4"]
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      if (url === "https://runway.example/output-accepted-only.mp4") {
+        return new Response(Buffer.from("runway-accepted-only-video"), {
+          status: 200,
+          headers: { "Content-Type": "video/mp4" }
+        });
+      }
+      throw new Error(`Unexpected fetch URL in Runway accepted-only test: ${url}`);
+    }) as typeof fetch;
+    const acceptedOnlyResult = await client.generateVideo(
+      createRequest({
+        acceptedTask: {
+          provider: "runway",
+          model: "gen4.5",
+          providerTaskId: "rw-task-accepted-only",
+          acceptedAt: "2026-06-02T12:00:00.000Z",
+          providerStage: "accepted",
+          taskKind: null
+        }
+      }),
+      { apiKey: "runway-key" }
+    );
+    assert.equal(
+      acceptedOnlyResult.video.bytesBase64,
+      Buffer.from("runway-accepted-only-video").toString("base64")
+    );
+    assert.equal(
+      acceptedOnlyRequests.some(
+        (entry) => entry.url === "https://api.dev.runwayml.com/v1/image_to_video"
+      ),
+      false
+    );
+    assert.equal(
+      acceptedOnlyRequests.some(
+        (entry) => entry.url === "https://api.dev.runwayml.com/v1/tasks/rw-task-accepted-only"
+      ),
+      true
     );
   } finally {
     globalThis.fetch = originalFetch;

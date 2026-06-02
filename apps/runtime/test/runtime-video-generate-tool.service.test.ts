@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { ServiceUnavailableException } from "@nestjs/common";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayToolCall,
@@ -60,6 +61,19 @@ function createBundle(options?: {
   secretId?: string;
   modelKey?: string;
   videoModelParameters?: RuntimeVideoModelParameters | null;
+  videoVoiceCatalog?: {
+    provider: "kling";
+    fetchedAt: string;
+    shortlist: Array<{
+      voiceKey: string;
+      providerVoiceId: string;
+      displayName: string;
+      locale: string | null;
+      gender: "male" | "female" | "neutral" | "unknown";
+      description: string | null;
+      styleTags: string[];
+    }>;
+  } | null;
   fallbacks?: Array<{
     providerId: "openai" | "runway" | "kling";
     secretId: string;
@@ -172,6 +186,7 @@ function createBundle(options?: {
           ...(options?.videoModelParameters
             ? { videoModelParameters: options.videoModelParameters }
             : {}),
+          ...(options?.videoVoiceCatalog ? { videoVoiceCatalog: options.videoVoiceCatalog } : {}),
           ...(options?.fallbacks
             ? {
                 fallbacks: options.fallbacks.map((fallback) => ({
@@ -245,7 +260,7 @@ function createBundle(options?: {
   }).bundle;
 }
 
-const OPENAI_VIDEO_MODEL_PARAMETERS = {
+const OPENAI_VIDEO_MODEL_PARAMETERS: RuntimeVideoModelParameters = {
   duration: {
     kind: "allowed_list" as const,
     values: [4, 8, 12]
@@ -255,10 +270,12 @@ const OPENAI_VIDEO_MODEL_PARAMETERS = {
     { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720x1280" }
   ],
   referenceImageSupported: true,
+  audioCapabilities: ["silent"],
+  inputCapabilities: ["text", "single_reference_image"],
   providerParameters: null
 };
 
-const RUNWAY_VIDEO_MODEL_PARAMETERS = {
+const RUNWAY_VIDEO_MODEL_PARAMETERS: RuntimeVideoModelParameters = {
   duration: {
     kind: "allowed_list" as const,
     values: [5, 8, 10]
@@ -268,10 +285,27 @@ const RUNWAY_VIDEO_MODEL_PARAMETERS = {
     { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720:1280" }
   ],
   referenceImageSupported: true,
+  audioCapabilities: ["silent"],
+  inputCapabilities: ["text", "single_reference_image"],
   providerParameters: null
 };
 
-const KLING_VIDEO_MODEL_PARAMETERS = {
+const RUNWAY_VEO31_VIDEO_MODEL_PARAMETERS: RuntimeVideoModelParameters = {
+  duration: {
+    kind: "allowed_list" as const,
+    values: [4, 6, 8]
+  },
+  aspectRatios: [
+    { aspectRatio: "16:9" as const, size: "1280x720" as const, providerValue: "1280:720" },
+    { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720:1280" }
+  ],
+  referenceImageSupported: true,
+  audioCapabilities: ["silent", "provider_native_audio", "voice_control"],
+  inputCapabilities: ["text", "single_reference_image"],
+  providerParameters: null
+};
+
+const KLING_VIDEO_MODEL_PARAMETERS: RuntimeVideoModelParameters = {
   duration: {
     kind: "range" as const,
     min: 3,
@@ -284,6 +318,8 @@ const KLING_VIDEO_MODEL_PARAMETERS = {
     { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "9:16" }
   ],
   referenceImageSupported: true,
+  audioCapabilities: ["silent", "provider_native_audio", "voice_control"],
+  inputCapabilities: ["text", "single_reference_image", "multi_image", "omni"],
   providerParameters: {
     mode: "pro",
     sound: "off" as const
@@ -299,14 +335,15 @@ function createToolCall(argumentsObject: Record<string, unknown>): ProviderGatew
 }
 
 function createReferenceAttachment(
-  aliases: string[] = ["current image #1", "current attachment #1"]
+  aliases: string[] = ["current image #1", "current attachment #1"],
+  options?: { objectKey?: string; filename?: string; attachmentId?: string }
 ): RuntimeAttachmentRef {
   return {
-    attachmentId: "attachment-1",
+    attachmentId: options?.attachmentId ?? "attachment-1",
     kind: "image",
-    objectKey: "media/reference-1.png",
+    objectKey: options?.objectKey ?? "media/reference-1.png",
     mimeType: "image/png",
-    filename: "forest.png",
+    filename: options?.filename ?? "forest.png",
     sizeBytes: 10,
     aliases
   };
@@ -464,11 +501,32 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     modelKey: "gen4_turbo",
     videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS
   });
+  const runwayVeoBundle = createBundle({
+    providerId: "runway",
+    secretId: "tool/video_generate/runway/api-key",
+    modelKey: "veo3.1",
+    videoModelParameters: RUNWAY_VEO31_VIDEO_MODEL_PARAMETERS
+  });
   const klingBundle = createBundle({
     providerId: "kling",
     secretId: "tool/video_generate/kling/api-key",
     modelKey: "kling-v3",
-    videoModelParameters: KLING_VIDEO_MODEL_PARAMETERS
+    videoModelParameters: KLING_VIDEO_MODEL_PARAMETERS,
+    videoVoiceCatalog: {
+      provider: "kling",
+      fetchedAt: "2026-06-02T12:00:00.000Z",
+      shortlist: [
+        {
+          voiceKey: "owen",
+          providerVoiceId: "voice-1",
+          displayName: "Owen",
+          locale: "en",
+          gender: "male",
+          description: "en | calm, narrator",
+          styleTags: ["calm", "narrator"]
+        }
+      ]
+    }
   });
   const fallbackBundle = createBundle({
     providerId: "runway",
@@ -548,6 +606,9 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       size: "1280x720",
       seconds: 4,
       referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
       providerParameters: null,
       credential: {
         toolCode: "video_generate",
@@ -566,6 +627,9 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       size: "1280x720",
       seconds: 4,
       referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
       providerParameters: null,
       credential: {
         toolCode: "video_generate",
@@ -581,6 +645,10 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   mediaObjectStorage.sourceObjects.set(
     "media/reference-1.png",
     Buffer.from("reference-image-binary")
+  );
+  mediaObjectStorage.sourceObjects.set(
+    "media/reference-2.png",
+    Buffer.from("reference-image-binary-2")
   );
   const referenceResult = await service.executeToolCall({
     bundle,
@@ -606,6 +674,8 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     providerGatewayClientService.videoCalls[2]?.input.referenceImage?.bytesBase64,
     Buffer.from("reference-image-binary").toString("base64")
   );
+  assert.equal(providerGatewayClientService.videoCalls[2]?.input.referenceTailImage, null);
+  assert.equal(providerGatewayClientService.videoCalls[2]?.input.voiceIds, null);
 
   const runwayResult = await service.executeToolCall({
     bundle: runwayBundle,
@@ -633,6 +703,9 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       size: "1280x720",
       seconds: 5,
       referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
       providerParameters: null,
       credential: {
         toolCode: "video_generate",
@@ -666,9 +739,52 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       size: "720x1280",
       seconds: 4,
       referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
       providerParameters: {
         mode: "pro",
         sound: "off"
+      },
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/kling/api-key",
+        providerId: "kling"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+
+  const klingNativeAudioResult = await service.executeToolCall({
+    bundle: klingBundle,
+    toolCall: createToolCall({
+      prompt: "Create a rainy neon alley video with natural ambient sound",
+      audioMode: "provider_native_audio",
+      seconds: 4,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-2da"
+  });
+  assert.equal(klingNativeAudioResult.payload.action, "generated");
+  assert.equal(klingNativeAudioResult.payload.provider, "kling");
+  assert.equal(klingNativeAudioResult.payload.requestedAudioMode, "provider_native_audio");
+  assert.deepEqual(providerGatewayClientService.videoCalls[5], {
+    input: {
+      prompt: "Create a rainy neon alley video with natural ambient sound",
+      model: "kling-v3",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
+      providerParameters: {
+        mode: "pro",
+        sound: "on"
       },
       credential: {
         toolCode: "video_generate",
@@ -702,13 +818,16 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(fallbackResult.payload.model, "kling-v3");
   assert.match(fallbackResult.payload.warning ?? "", /runway failed/i);
   assert.match(fallbackResult.payload.warning ?? "", /Used fallback provider "kling"/i);
-  assert.deepEqual(providerGatewayClientService.videoCalls[5], {
+  assert.deepEqual(providerGatewayClientService.videoCalls[6], {
     input: {
       prompt: "Create a moody noir trailer shot",
       model: "gen4_turbo",
       size: "1280x720",
       seconds: 8,
       referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
       providerParameters: null,
       credential: {
         toolCode: "video_generate",
@@ -720,13 +839,16 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       timeoutMs: 600000
     }
   });
-  assert.deepEqual(providerGatewayClientService.videoCalls[6], {
+  assert.deepEqual(providerGatewayClientService.videoCalls[7], {
     input: {
       prompt: "Create a moody noir trailer shot",
       model: "kling-v3",
       size: "1280x720",
       seconds: 8,
       referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
       providerParameters: {
         mode: "pro",
         sound: "off"
@@ -763,13 +885,16 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(httpFallbackResult.payload.model, "gen4.5");
   assert.match(httpFallbackResult.payload.warning ?? "", /kling failed/i);
   assert.match(httpFallbackResult.payload.warning ?? "", /Used fallback provider "runway"/i);
-  assert.deepEqual(providerGatewayClientService.videoCalls[7], {
+  assert.deepEqual(providerGatewayClientService.videoCalls[8], {
     input: {
       prompt: "Create a cinematic city shot from this reference",
       model: "kling-v3",
       size: "1280x720",
       seconds: 4,
       referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
       providerParameters: {
         mode: "pro",
         sound: "off"
@@ -784,13 +909,16 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       timeoutMs: 600000
     }
   });
-  assert.deepEqual(providerGatewayClientService.videoCalls[8], {
+  assert.deepEqual(providerGatewayClientService.videoCalls[9], {
     input: {
       prompt: "Create a cinematic city shot from this reference",
       model: "gen4.5",
       size: "1280x720",
       seconds: 5,
       referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
       providerParameters: null,
       credential: {
         toolCode: "video_generate",
@@ -802,6 +930,52 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       timeoutMs: 600000
     }
   });
+
+  providerGatewayClientService.failuresByProvider.set(
+    "kling",
+    new ServiceUnavailableException({
+      error: {
+        code: "accepted_primary_unconfirmed",
+        message:
+          "Provider task was accepted, but polling continuity was lost before terminal status.",
+        providerStatus: {
+          providerTaskId: "task_kling_accepted_1",
+          provider: "kling",
+          model: "kling-v3",
+          acceptedAt: "2026-06-02T12:00:00.000Z",
+          providerStage: "accepted"
+        }
+      }
+    })
+  );
+  const acceptedPrimaryUnconfirmedResult = await service.executeToolCall({
+    bundle: klingToRunwayFallbackBundle,
+    toolCall: createToolCall({
+      prompt: "Create a cinematic city shot with no duplicate billing",
+      seconds: 4,
+      size: "1280x720"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-2f-accepted-unconfirmed"
+  });
+  providerGatewayClientService.failuresByProvider.delete("kling");
+  assert.equal(acceptedPrimaryUnconfirmedResult.payload.action, "skipped");
+  assert.equal(acceptedPrimaryUnconfirmedResult.payload.reason, "accepted_primary_unconfirmed");
+  assert.equal(acceptedPrimaryUnconfirmedResult.isError, true);
+  assert.equal(providerGatewayClientService.videoCalls.length, 11);
+  assert.match(
+    acceptedPrimaryUnconfirmedResult.payload.warning ?? "",
+    /Fallback is forbidden until provider terminal status is confirmed/i
+  );
+  assert.equal(
+    (
+      acceptedPrimaryUnconfirmedResult.payload.providerStatus as
+        | { providerTaskId?: string }
+        | undefined
+    )?.providerTaskId,
+    "task_kling_accepted_1"
+  );
 
   const promptOnlyReferenceTextResult = await service.executeToolCall({
     bundle,
@@ -818,8 +992,299 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(promptOnlyReferenceTextResult.payload.action, "generated");
   assert.equal(promptOnlyReferenceTextResult.payload.referenceImageAlias, null);
   assert.equal(promptOnlyReferenceTextResult.payload.referenceFilename, null);
-  assert.equal(providerGatewayClientService.videoCalls[9]?.input.referenceImage, null);
-  assert.equal(providerGatewayClientService.videoCalls[9]?.input.size, "1280x720");
+  assert.equal(providerGatewayClientService.videoCalls[10]?.input.referenceImage, null);
+  assert.equal(providerGatewayClientService.videoCalls[10]?.input.referenceTailImage, null);
+  assert.equal(providerGatewayClientService.videoCalls[10]?.input.voiceIds, null);
+  assert.equal(providerGatewayClientService.videoCalls[10]?.input.size, "1280x720");
+
+  const nativeAudioUnsupported = await service.executeToolCall({
+    bundle: runwayBundle,
+    toolCall: createToolCall({
+      prompt: "Create a teaser with natural ambient sound",
+      audioMode: "provider_native_audio",
+      seconds: 5
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-audio-unsupported"
+  });
+  assert.equal(nativeAudioUnsupported.payload.action, "skipped");
+  assert.equal(nativeAudioUnsupported.payload.reason, "requested_mode_unsupported");
+  assert.match(
+    nativeAudioUnsupported.payload.warning ?? "",
+    /does not support provider-native audio/i
+  );
+
+  const runwayVeoNativeAudioResult = await service.executeToolCall({
+    bundle: runwayVeoBundle,
+    toolCall: createToolCall({
+      prompt: "Create a stormy coastline video with natural wave audio",
+      audioMode: "provider_native_audio",
+      referenceImageAlias: "current image #1",
+      seconds: 4
+    }),
+    availableAttachments: [createReferenceAttachment()],
+    sessionId: "session-1",
+    requestId: "request-runway-veo-audio"
+  });
+  assert.equal(runwayVeoNativeAudioResult.payload.action, "generated");
+  assert.equal(runwayVeoNativeAudioResult.payload.provider, "runway");
+  assert.equal(runwayVeoNativeAudioResult.payload.requestedAudioMode, "provider_native_audio");
+  assert.deepEqual(providerGatewayClientService.videoCalls.at(-1), {
+    input: {
+      prompt: "Create a stormy coastline video with natural wave audio",
+      model: "veo3.1",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: {
+        bytesBase64: Buffer.from("reference-image-binary").toString("base64"),
+        mimeType: "image/png",
+        filename: "forest.png"
+      },
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
+      providerParameters: {
+        audio: true
+      },
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/runway/api-key",
+        providerId: "runway"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+
+  const runwayVeoTextNativeAudioResult = await service.executeToolCall({
+    bundle: runwayVeoBundle,
+    toolCall: createToolCall({
+      prompt: "Create a thunderstorm teaser with natural thunder audio",
+      audioMode: "provider_native_audio",
+      seconds: 4
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-runway-veo-text-audio"
+  });
+  assert.equal(runwayVeoTextNativeAudioResult.payload.action, "generated");
+  assert.equal(runwayVeoTextNativeAudioResult.payload.provider, "runway");
+  assert.equal(runwayVeoTextNativeAudioResult.payload.requestedAudioMode, "provider_native_audio");
+  assert.deepEqual(providerGatewayClientService.videoCalls.at(-1), {
+    input: {
+      prompt: "Create a thunderstorm teaser with natural thunder audio",
+      model: "veo3.1",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: null,
+      referenceTailImage: null,
+      voiceIds: null,
+      acceptedTask: null,
+      providerParameters: {
+        audio: true
+      },
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/runway/api-key",
+        providerId: "runway"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+
+  const voiceControlMissingVoiceUnsupported = await service.executeToolCall({
+    bundle: klingBundle,
+    toolCall: createToolCall({
+      prompt: "Create a narrated product video with spoken voice-over",
+      audioMode: "voice_control",
+      seconds: 4
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-voice-unsupported"
+  });
+  assert.equal(voiceControlMissingVoiceUnsupported.payload.action, "skipped");
+  assert.equal(voiceControlMissingVoiceUnsupported.payload.reason, "requested_mode_unsupported");
+  assert.match(
+    voiceControlMissingVoiceUnsupported.payload.warning ?? "",
+    /requires explicit voice/i
+  );
+
+  const multiImageUnsupported = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      prompt: "Blend these two images into one cinematic video",
+      inputMode: "multi_image",
+      referenceImageAliases: ["current image #1", "current image #2"],
+      seconds: 4
+    }),
+    availableAttachments: [
+      createReferenceAttachment(["current image #1"]),
+      createReferenceAttachment(["current image #2"])
+    ],
+    sessionId: "session-1",
+    requestId: "request-multi-image-unsupported"
+  });
+  assert.equal(multiImageUnsupported.payload.action, "skipped");
+  assert.equal(multiImageUnsupported.payload.reason, "requested_mode_unsupported");
+  assert.match(
+    multiImageUnsupported.payload.warning ?? "",
+    /does not support multi-image video input/i
+  );
+
+  const klingVoiceControlResult = await service.executeToolCall({
+    bundle: klingBundle,
+    toolCall: createToolCall({
+      prompt: 'A presenter<<<voice_1>>> says: "Welcome to the launch."',
+      referenceImageAlias: "current image #1",
+      audioMode: "voice_control",
+      seconds: 4,
+      voiceIds: ["voice-1"]
+    }),
+    availableAttachments: [createReferenceAttachment()],
+    sessionId: "session-1",
+    requestId: "request-voice-control-success"
+  });
+  assert.equal(klingVoiceControlResult.payload.action, "generated");
+  assert.equal(klingVoiceControlResult.payload.requestedAudioMode, "voice_control");
+  assert.deepEqual(providerGatewayClientService.videoCalls.at(-1), {
+    input: {
+      prompt: 'A presenter<<<voice_1>>> says: "Welcome to the launch."',
+      model: "kling-v3",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: {
+        bytesBase64: Buffer.from("reference-image-binary").toString("base64"),
+        mimeType: "image/png",
+        filename: "forest.png"
+      },
+      referenceTailImage: null,
+      voiceIds: ["voice-1"],
+      acceptedTask: null,
+      providerParameters: {
+        mode: "pro",
+        sound: "off"
+      },
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/kling/api-key",
+        providerId: "kling"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+
+  const klingPromptOnlyVoiceControlResult = await service.executeToolCall({
+    bundle: klingBundle,
+    toolCall: createToolCall({
+      prompt: 'A presenter<<<voice_1>>> says: "Welcome to the launch."',
+      audioMode: "voice_control",
+      seconds: 4,
+      voiceKeys: ["owen"]
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-prompt-only-voice-control-success"
+  });
+  assert.equal(klingPromptOnlyVoiceControlResult.payload.action, "generated");
+  assert.equal(klingPromptOnlyVoiceControlResult.payload.referenceImageAlias, null);
+  assert.equal(providerGatewayClientService.videoCalls.at(-1)?.input.referenceImage, null);
+  assert.deepEqual(providerGatewayClientService.videoCalls.at(-1)?.input.voiceIds, ["voice-1"]);
+
+  const klingVoiceKeyResult = await service.executeToolCall({
+    bundle: klingBundle,
+    toolCall: createToolCall({
+      prompt: 'A presenter<<<voice_1>>> says: "This is the keynote opening."',
+      referenceImageAlias: "current image #1",
+      audioMode: "voice_control",
+      seconds: 4,
+      voiceKeys: ["owen"]
+    }),
+    availableAttachments: [createReferenceAttachment()],
+    sessionId: "session-1",
+    requestId: "request-voice-key-success"
+  });
+  assert.equal(klingVoiceKeyResult.payload.action, "generated");
+  assert.deepEqual(providerGatewayClientService.videoCalls.at(-1)?.input.voiceIds, ["voice-1"]);
+
+  const klingTwoImageResult = await service.executeToolCall({
+    bundle: klingBundle,
+    toolCall: createToolCall({
+      prompt: "Transition from the first product photo into the second lifestyle shot",
+      inputMode: "multi_image",
+      referenceImageAliases: ["current image #1", "current image #2"],
+      seconds: 4
+    }),
+    availableAttachments: [
+      createReferenceAttachment(["current image #1"], {
+        objectKey: "media/reference-1.png",
+        filename: "forest.png",
+        attachmentId: "attachment-1"
+      }),
+      createReferenceAttachment(["current image #2"], {
+        objectKey: "media/reference-2.png",
+        filename: "forest-2.png",
+        attachmentId: "attachment-2"
+      })
+    ],
+    sessionId: "session-1",
+    requestId: "request-kling-two-image"
+  });
+  assert.equal(klingTwoImageResult.payload.action, "generated");
+  assert.equal(klingTwoImageResult.payload.requestedInputMode, "multi_image");
+  assert.deepEqual(providerGatewayClientService.videoCalls.at(-1), {
+    input: {
+      prompt: "Transition from the first product photo into the second lifestyle shot",
+      model: "kling-v3",
+      size: "1280x720",
+      seconds: 4,
+      referenceImage: {
+        bytesBase64: Buffer.from("reference-image-binary").toString("base64"),
+        mimeType: "image/png",
+        filename: "forest.png"
+      },
+      referenceTailImage: {
+        bytesBase64: Buffer.from("reference-image-binary-2").toString("base64"),
+        mimeType: "image/png",
+        filename: "forest-2.png"
+      },
+      voiceIds: null,
+      acceptedTask: null,
+      providerParameters: {
+        mode: "pro",
+        sound: "off"
+      },
+      credential: {
+        toolCode: "video_generate",
+        secretId: "tool/video_generate/kling/api-key",
+        providerId: "kling"
+      }
+    },
+    options: {
+      timeoutMs: 600000
+    }
+  });
+
+  const omniUnsupported = await service.executeToolCall({
+    bundle: klingBundle,
+    toolCall: createToolCall({
+      prompt: "Use omni mode to combine rich inputs into a video",
+      inputMode: "omni",
+      seconds: 4
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    requestId: "request-omni-unsupported"
+  });
+  assert.equal(omniUnsupported.payload.action, "skipped");
+  assert.equal(omniUnsupported.payload.reason, "requested_mode_unsupported");
+  assert.match(omniUnsupported.payload.warning ?? "", /Omni video requests are deferred/i);
 
   const normalized = await service.executeToolCall({
     bundle: runwayBundle,
@@ -839,6 +1304,6 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     /Adjusted requested video duration from 6s to 5s/i
   );
   assert.match(normalized.payload.warning ?? "", /Used default video size 1280x720/i);
-  assert.equal(providerGatewayClientService.videoCalls[10]?.input.seconds, 5);
-  assert.equal(providerGatewayClientService.videoCalls[10]?.input.size, "1280x720");
+  assert.equal(providerGatewayClientService.videoCalls.at(-1)?.input.seconds, 5);
+  assert.equal(providerGatewayClientService.videoCalls.at(-1)?.input.size, "1280x720");
 }

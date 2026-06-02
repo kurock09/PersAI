@@ -8,6 +8,8 @@ import type {
   AdminRuntimeProviderSettingsState,
   ManagedRuntimeCatalogProvider,
   ManagedRuntimeProvider,
+  RuntimeVideoAspectRatio,
+  RuntimeVideoGenerateSize,
   RuntimeProviderModelCatalogByProviderState,
   RuntimeProviderModelProfileState
 } from "@persai/contracts";
@@ -37,19 +39,36 @@ type RuntimeVideoDurationConstraintState =
       preferredValues: number[] | null;
     };
 type RuntimeVideoAspectRatioOptionState = {
-  aspectRatio: "16:9" | "9:16" | "1:1";
-  size: "1280x720" | "720x1280" | "1024x1024";
+  aspectRatio: RuntimeVideoAspectRatio;
+  size: RuntimeVideoGenerateSize;
   providerValue: string | null;
 };
 type RuntimeVideoModelParametersState = {
   duration: RuntimeVideoDurationConstraintState;
   aspectRatios: RuntimeVideoAspectRatioOptionState[];
   referenceImageSupported: boolean;
-  providerParameters: { mode?: string | null; sound?: "on" | "off" | null } | null;
+  audioCapabilities: ("silent" | "provider_native_audio" | "voice_control")[];
+  inputCapabilities: ("text" | "single_reference_image" | "multi_image" | "omni")[];
+  providerParameters: {
+    mode?: string | null;
+    sound?: "on" | "off" | null;
+    audio?: boolean | null;
+  } | null;
 };
 type RuntimeProviderModelProfileWithVideo = RuntimeProviderModelProfileState & {
   videoModelParameters?: RuntimeVideoModelParametersState | null;
 };
+
+const ACTIVE_VIDEO_AUDIO_CAPABILITIES = [
+  "silent",
+  "provider_native_audio",
+  "voice_control"
+] as const satisfies RuntimeVideoModelParametersState["audioCapabilities"];
+const ACTIVE_VIDEO_INPUT_CAPABILITIES = [
+  "text",
+  "single_reference_image",
+  "multi_image"
+] as const satisfies Exclude<RuntimeVideoModelParametersState["inputCapabilities"], "omni">;
 
 /** Accepts `0.075` and `0,075` while typing; incomplete fragments like `0.` stay in the field until blur. */
 export function normalizeDecimalInputText(raw: string): string {
@@ -184,12 +203,14 @@ function createDefaultVideoModelParameters(
 ): RuntimeVideoModelParametersState {
   if (provider === "kling") {
     return {
-      duration: { kind: "range", min: 3, max: 15, step: 1, preferredValues: [5, 10] },
+      duration: { kind: "range", min: 3, max: 15, step: 1, preferredValues: [4, 8, 12] },
       aspectRatios: [
         { aspectRatio: "16:9", size: "1280x720", providerValue: "16:9" },
         { aspectRatio: "9:16", size: "720x1280", providerValue: "9:16" }
       ],
       referenceImageSupported: true,
+      audioCapabilities: ["silent", "provider_native_audio", "voice_control"],
+      inputCapabilities: ["text", "single_reference_image", "multi_image"],
       providerParameters: { mode: "pro", sound: "off" }
     };
   }
@@ -200,8 +221,153 @@ function createDefaultVideoModelParameters(
       { aspectRatio: "9:16", size: "720x1280", providerValue: "720:1280" }
     ],
     referenceImageSupported: true,
+    audioCapabilities: ["silent"],
+    inputCapabilities: ["text", "single_reference_image"],
     providerParameters: null
   };
+}
+
+function compactVideoProviderParameters(
+  value: RuntimeVideoModelParametersState["providerParameters"]
+): RuntimeVideoModelParametersState["providerParameters"] {
+  if (value === null) {
+    return null;
+  }
+  const mode = value.mode?.trim() ? value.mode.trim() : null;
+  const sound = value.sound ?? null;
+  const audio = typeof value.audio === "boolean" ? value.audio : null;
+  return mode === null && sound === null && audio === null
+    ? null
+    : {
+        ...(mode === null ? {} : { mode }),
+        ...(sound === null ? {} : { sound }),
+        ...(audio === null ? {} : { audio })
+      };
+}
+
+export function normalizeVideoModelParametersForSlice2(
+  value: RuntimeVideoModelParametersState
+): RuntimeVideoModelParametersState {
+  const audioCapabilities = new Set<RuntimeVideoModelParametersState["audioCapabilities"][number]>(
+    value.audioCapabilities.filter(
+      (entry): entry is (typeof ACTIVE_VIDEO_AUDIO_CAPABILITIES)[number] =>
+        ACTIVE_VIDEO_AUDIO_CAPABILITIES.includes(entry)
+    )
+  );
+  audioCapabilities.add("silent");
+  if (!audioCapabilities.has("provider_native_audio")) {
+    audioCapabilities.delete("voice_control");
+  }
+
+  const inputCapabilities = new Set<
+    Extract<
+      RuntimeVideoModelParametersState["inputCapabilities"][number],
+      "text" | "single_reference_image" | "multi_image"
+    >
+  >(
+    value.inputCapabilities.filter(
+      (entry): entry is (typeof ACTIVE_VIDEO_INPUT_CAPABILITIES)[number] =>
+        ACTIVE_VIDEO_INPUT_CAPABILITIES.includes(
+          entry as (typeof ACTIVE_VIDEO_INPUT_CAPABILITIES)[number]
+        )
+    )
+  );
+  inputCapabilities.add("text");
+  if (value.referenceImageSupported) {
+    inputCapabilities.add("single_reference_image");
+  } else {
+    inputCapabilities.delete("single_reference_image");
+    inputCapabilities.delete("multi_image");
+  }
+
+  let providerParameters = compactVideoProviderParameters(value.providerParameters);
+  if (providerParameters?.sound === "on" && !audioCapabilities.has("provider_native_audio")) {
+    providerParameters = compactVideoProviderParameters({
+      ...providerParameters,
+      sound: "off"
+    });
+  }
+  if (providerParameters?.audio === true && !audioCapabilities.has("provider_native_audio")) {
+    providerParameters = compactVideoProviderParameters({
+      ...providerParameters,
+      audio: false
+    });
+  }
+
+  return {
+    ...value,
+    audioCapabilities: Array.from(audioCapabilities),
+    inputCapabilities: Array.from(inputCapabilities),
+    providerParameters
+  };
+}
+
+export function validateVideoModelParametersForSlice2(
+  value: RuntimeVideoModelParametersState
+): string | null {
+  const audioCapabilities = new Set(value.audioCapabilities);
+  const inputCapabilities = new Set(value.inputCapabilities);
+  if (inputCapabilities.has("omni")) {
+    return 'Omni input is deferred and unsupported in ADR-107 Slice 2. Remove "omni" before saving.';
+  }
+  if (audioCapabilities.has("voice_control") && !audioCapabilities.has("provider_native_audio")) {
+    return '"voice_control" requires "provider_native_audio".';
+  }
+  if (inputCapabilities.has("single_reference_image") !== value.referenceImageSupported) {
+    return '"single_reference_image" must match the Reference image supported setting.';
+  }
+  if (inputCapabilities.has("multi_image") && !value.referenceImageSupported) {
+    return '"multi_image" requires Reference image supported.';
+  }
+  if (value.providerParameters?.sound === "on" && !audioCapabilities.has("provider_native_audio")) {
+    return 'providerParameters.sound="on" requires "provider_native_audio".';
+  }
+  if (value.providerParameters?.audio === true && !audioCapabilities.has("provider_native_audio")) {
+    return 'providerParameters.audio=true requires "provider_native_audio".';
+  }
+  return null;
+}
+
+function normalizeCatalogForSlice2(
+  catalog: RuntimeProviderModelCatalogByProviderState
+): RuntimeProviderModelCatalogByProviderState {
+  const normalizeProviderCatalog = (provider: ManagedRuntimeCatalogProvider) => ({
+    models: catalog[provider].models.map((profile) => {
+      if (!profile.capabilities.includes("video")) {
+        return profile;
+      }
+      const withVideo = profile as RuntimeProviderModelProfileWithVideo;
+      return {
+        ...profile,
+        videoModelParameters: normalizeVideoModelParametersForSlice2(
+          withVideo.videoModelParameters ?? createDefaultVideoModelParameters(provider)
+        )
+      };
+    })
+  });
+  return {
+    openai: normalizeProviderCatalog("openai"),
+    anthropic: normalizeProviderCatalog("anthropic"),
+    runway: normalizeProviderCatalog("runway"),
+    kling: normalizeProviderCatalog("kling")
+  };
+}
+
+function assertCatalogSupportsSlice2(catalog: RuntimeProviderModelCatalogByProviderState): void {
+  for (const provider of MANAGED_CATALOG_PROVIDERS) {
+    for (const profile of catalog[provider].models) {
+      if (!profile.capabilities.includes("video")) {
+        continue;
+      }
+      const message = validateVideoModelParametersForSlice2(
+        (profile as RuntimeProviderModelProfileWithVideo).videoModelParameters ??
+          createDefaultVideoModelParameters(provider)
+      );
+      if (message !== null) {
+        throw new Error(`Video model "${profile.model || "draft"}": ${message}`);
+      }
+    }
+  }
 }
 
 function withVideoModelParameters(
@@ -909,7 +1075,10 @@ export default function AdminRuntimePage() {
       );
       setModelCatalogByProvider(
         withDerivedCatalogWeights(
-          res.availableModelCatalogByProvider ?? buildCatalogFallback(res.availableModelsByProvider)
+          normalizeCatalogForSlice2(
+            res.availableModelCatalogByProvider ??
+              buildCatalogFallback(res.availableModelsByProvider)
+          )
         )
       );
     } catch (error) {
@@ -946,7 +1115,8 @@ export default function AdminRuntimePage() {
     setSaving(true);
     setFeedback(null);
     try {
-      const parsedModelCatalog = modelCatalogRef.current;
+      const parsedModelCatalog = normalizeCatalogForSlice2(modelCatalogRef.current);
+      assertCatalogSupportsSlice2(parsedModelCatalog);
       const parsedCatalog = deriveAvailableModelsByProvider(parsedModelCatalog);
 
       if (!parsedCatalog[primaryProvider].includes(primaryModel.trim())) {
@@ -1963,15 +2133,64 @@ function VideoModelParametersEditor({
   value: RuntimeVideoModelParametersState;
   onChange: (value: RuntimeVideoModelParametersState) => void;
 }) {
+  const normalized = normalizeVideoModelParametersForSlice2(value);
+  const validationMessage = validateVideoModelParametersForSlice2(normalized);
   const durationValues =
-    value.duration.kind === "allowed_list"
-      ? value.duration.values.join(", ")
+    normalized.duration.kind === "allowed_list"
+      ? normalized.duration.values.join(", ")
       : [
-          value.duration.min,
-          value.duration.max,
-          value.duration.step ?? "",
-          value.duration.preferredValues?.join(", ") ?? ""
+          normalized.duration.min,
+          normalized.duration.max,
+          normalized.duration.step ?? "",
+          normalized.duration.preferredValues?.join(", ") ?? ""
         ].join(", ");
+  const audioCapabilities = new Set(normalized.audioCapabilities);
+  const inputCapabilities = new Set(normalized.inputCapabilities);
+  const updateAudioCapability = (
+    capability: (typeof ACTIVE_VIDEO_AUDIO_CAPABILITIES)[number],
+    enabled: boolean
+  ) => {
+    const next = new Set(normalized.audioCapabilities);
+    if (capability === "silent") {
+      next.add("silent");
+    } else if (enabled) {
+      next.add(capability);
+      if (capability === "voice_control") {
+        next.add("provider_native_audio");
+      }
+    } else {
+      next.delete(capability);
+      if (capability === "provider_native_audio") {
+        next.delete("voice_control");
+      }
+    }
+    onChange(
+      normalizeVideoModelParametersForSlice2({
+        ...normalized,
+        audioCapabilities: Array.from(next)
+      })
+    );
+  };
+  const updateInputCapability = (
+    capability: (typeof ACTIVE_VIDEO_INPUT_CAPABILITIES)[number],
+    enabled: boolean
+  ) => {
+    const next = new Set(normalized.inputCapabilities);
+    if (capability === "text") {
+      next.add("text");
+    } else if (enabled) {
+      next.add(capability);
+      next.add("single_reference_image");
+    } else {
+      next.delete(capability);
+    }
+    onChange(
+      normalizeVideoModelParametersForSlice2({
+        ...normalized,
+        inputCapabilities: Array.from(next)
+      })
+    );
+  };
   return (
     <div className="space-y-2 rounded border border-border/50 bg-surface-raised/70 p-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1989,13 +2208,13 @@ function VideoModelParametersEditor({
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <SelectField
           label="Duration mode"
-          value={value.duration.kind}
+          value={normalized.duration.kind}
           onChange={(kind) =>
             onChange({
-              ...value,
+              ...normalized,
               duration:
                 kind === "range"
-                  ? { kind: "range", min: 3, max: 15, step: 1, preferredValues: [5, 10] }
+                  ? { kind: "range", min: 3, max: 15, step: 1, preferredValues: [4, 8, 12] }
                   : { kind: "allowed_list", values: [5, 8, 10] }
             })
           }
@@ -2006,7 +2225,7 @@ function VideoModelParametersEditor({
         />
         <Field
           label={
-            value.duration.kind === "allowed_list"
+            normalized.duration.kind === "allowed_list"
               ? "Allowed seconds, comma-separated"
               : "Range min, max, step, preferred"
           }
@@ -2016,11 +2235,11 @@ function VideoModelParametersEditor({
               .split(",")
               .map((entry) => entry.trim())
               .filter(Boolean);
-            if (value.duration.kind === "allowed_list") {
+            if (normalized.duration.kind === "allowed_list") {
               const values = parts
                 .map((entry) => Number.parseInt(entry, 10))
                 .filter(Number.isFinite);
-              onChange({ ...value, duration: { kind: "allowed_list", values } });
+              onChange({ ...normalized, duration: { kind: "allowed_list", values } });
               return;
             }
             const [minRaw, maxRaw, stepRaw, preferredRaw] = parts;
@@ -2035,7 +2254,7 @@ function VideoModelParametersEditor({
                     .map((entry) => Number.parseInt(entry, 10))
                     .filter(Number.isFinite);
             onChange({
-              ...value,
+              ...normalized,
               duration: {
                 kind: "range",
                 min: Number.isFinite(min) ? min : 3,
@@ -2045,27 +2264,116 @@ function VideoModelParametersEditor({
               }
             });
           }}
-          placeholder={value.duration.kind === "allowed_list" ? "5, 8, 10" : "3, 15, 1, 5 10"}
+          placeholder={normalized.duration.kind === "allowed_list" ? "5, 8, 10" : "3, 15, 1, 5 10"}
         />
       </div>
       <label className="flex items-center gap-2 text-[10px] text-text-muted">
         <input
           type="checkbox"
-          checked={value.referenceImageSupported}
+          checked={normalized.referenceImageSupported}
+          aria-label="Reference image supported"
           onChange={(event) =>
-            onChange({ ...value, referenceImageSupported: event.target.checked })
+            onChange(
+              normalizeVideoModelParametersForSlice2({
+                ...normalized,
+                referenceImageSupported: event.target.checked
+              })
+            )
           }
           className="h-3.5 w-3.5 rounded border-border accent-accent"
         />
         Reference image supported
       </label>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="space-y-1 rounded border border-border/50 bg-bg/40 p-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+            Audio capabilities
+          </p>
+          <label className="flex items-center gap-2 text-[11px] text-text">
+            <input
+              type="checkbox"
+              checked
+              disabled
+              aria-label="Silent"
+              className="h-3.5 w-3.5 rounded border-border accent-accent"
+            />
+            Silent
+          </label>
+          <label className="flex items-center gap-2 text-[11px] text-text">
+            <input
+              type="checkbox"
+              checked={audioCapabilities.has("provider_native_audio")}
+              aria-label="Provider native audio"
+              onChange={(event) =>
+                updateAudioCapability("provider_native_audio", event.target.checked)
+              }
+              className="h-3.5 w-3.5 rounded border-border accent-accent"
+            />
+            Provider native audio
+          </label>
+          <label className="flex items-center gap-2 text-[11px] text-text">
+            <input
+              type="checkbox"
+              checked={audioCapabilities.has("voice_control")}
+              aria-label="Voice control"
+              onChange={(event) => updateAudioCapability("voice_control", event.target.checked)}
+              className="h-3.5 w-3.5 rounded border-border accent-accent"
+            />
+            Voice control
+          </label>
+          <p className="text-[10px] text-text-subtle">
+            Voice control is a stricter capability than provider-native audio and cannot stand
+            alone.
+          </p>
+        </div>
+        <div className="space-y-1 rounded border border-border/50 bg-bg/40 p-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+            Input capabilities
+          </p>
+          <label className="flex items-center gap-2 text-[11px] text-text">
+            <input
+              type="checkbox"
+              checked
+              disabled
+              aria-label="Text"
+              className="h-3.5 w-3.5 rounded border-border accent-accent"
+            />
+            Text
+          </label>
+          <label className="flex items-center gap-2 text-[11px] text-text">
+            <input
+              type="checkbox"
+              checked={inputCapabilities.has("single_reference_image")}
+              disabled
+              aria-label="Single reference image"
+              className="h-3.5 w-3.5 rounded border-border accent-accent"
+            />
+            Single reference image
+          </label>
+          <label className="flex items-center gap-2 text-[11px] text-text">
+            <input
+              type="checkbox"
+              checked={inputCapabilities.has("multi_image")}
+              aria-label="Multi-image"
+              onChange={(event) => updateInputCapability("multi_image", event.target.checked)}
+              disabled={!normalized.referenceImageSupported}
+              className="h-3.5 w-3.5 rounded border-border accent-accent"
+            />
+            Multi-image
+          </label>
+          <p className="text-[10px] text-text-subtle">
+            `single_reference_image` follows the reference-image toggle automatically. Omni stays
+            deferred and is not editable in Slice 2.
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <JsonTextareaField
           label="Aspect ratios JSON"
-          value={value.aspectRatios}
+          value={normalized.aspectRatios}
           onCommit={(next) =>
             onChange({
-              ...value,
+              ...normalized,
               aspectRatios: next
             })
           }
@@ -2073,16 +2381,19 @@ function VideoModelParametersEditor({
         />
         <JsonTextareaField
           label="Provider parameters JSON"
-          value={value.providerParameters}
+          value={normalized.providerParameters}
           onCommit={(next) =>
-            onChange({
-              ...value,
-              providerParameters: next
-            })
+            onChange(
+              normalizeVideoModelParametersForSlice2({
+                ...normalized,
+                providerParameters: next
+              })
+            )
           }
           placeholder='{"mode":"pro","sound":"off"}'
         />
       </div>
+      {validationMessage ? <p className="text-[10px] text-amber-300">{validationMessage}</p> : null}
       <p className="text-[10px] text-text-subtle">
         These fields are persisted into the materialized runtime catalog and are required before
         `video_generate` can normalize duration, size, reference images, and provider-native

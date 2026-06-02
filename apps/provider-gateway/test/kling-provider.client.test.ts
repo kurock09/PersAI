@@ -67,16 +67,13 @@ export async function runKlingProviderClientTest(): Promise<void> {
       const authHeader = (init?.headers as Record<string, string>)["Authorization"];
       assert.match(authHeader ?? "", /^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
       const body = JSON.parse(String(init?.body));
-      assert.deepEqual(body, {
-        model_name: "kling-v3",
-        prompt: "Animate a calm paper-cut forest at sunrise",
-        image: body.image,
-        duration: "4",
-        aspect_ratio: "16:9",
-        negative_prompt: "",
-        mode: "pro",
-        sound: "off"
-      });
+      assert.equal(body.model_name, "kling-v3");
+      assert.equal(body.prompt, "Animate a calm paper-cut forest at sunrise");
+      assert.equal(body.duration, "4");
+      assert.equal(body.aspect_ratio, "16:9");
+      assert.equal(body.negative_prompt, "");
+      assert.equal(body.mode, "pro");
+      assert.ok(typeof body.image === "string");
       const taskId = body.image === "response-shape-image" ? "task_kling_response" : "task_kling_1";
       return new Response(
         JSON.stringify({
@@ -168,6 +165,71 @@ export async function runKlingProviderClientTest(): Promise<void> {
         durationSeconds: 4
       }
     });
+    requests.length = 0;
+    await client.generateVideo(
+      createRequest({
+        providerParameters: {
+          mode: "pro",
+          sound: "on"
+        }
+      }),
+      { credentialValue }
+    );
+    const nativeAudioCreateRequest = requests.find(
+      (entry) => entry.url === "https://api-singapore.klingai.com/v1/videos/image2video"
+    );
+    assert.notEqual(nativeAudioCreateRequest, undefined);
+    const nativeAudioBody = JSON.parse(String(nativeAudioCreateRequest?.init?.body));
+    assert.equal(nativeAudioBody.sound, "on");
+    requests.length = 0;
+    await client.generateVideo(
+      createRequest({
+        referenceTailImage: {
+          bytesBase64: "tail-image",
+          mimeType: "image/png",
+          filename: "forest-end.png"
+        },
+        voiceIds: ["voice-1", "voice-2"],
+        providerParameters: {
+          mode: "pro",
+          sound: "off"
+        }
+      }),
+      { credentialValue }
+    );
+    const voiceControlCreateRequest = requests.find(
+      (entry) => entry.url === "https://api-singapore.klingai.com/v1/videos/image2video"
+    );
+    assert.notEqual(voiceControlCreateRequest, undefined);
+    const voiceControlBody = JSON.parse(String(voiceControlCreateRequest?.init?.body));
+    assert.equal(voiceControlBody.image_tail, "tail-image");
+    assert.deepEqual(voiceControlBody.voice_list, [
+      { voice_id: "voice-1" },
+      { voice_id: "voice-2" }
+    ]);
+    assert.equal(voiceControlBody.sound, "on");
+    requests.length = 0;
+    await client.generateVideo(
+      createRequest({
+        referenceImage: null,
+        voiceIds: ["voice-1"],
+        providerParameters: {
+          mode: "pro",
+          sound: "off"
+        }
+      }),
+      { credentialValue }
+    );
+    const promptOnlyVoiceControlCreateRequest = requests.find(
+      (entry) => entry.url === "https://api-singapore.klingai.com/v1/videos/text2video"
+    );
+    assert.notEqual(promptOnlyVoiceControlCreateRequest, undefined);
+    const promptOnlyVoiceControlBody = JSON.parse(
+      String(promptOnlyVoiceControlCreateRequest?.init?.body)
+    );
+    assert.equal(promptOnlyVoiceControlBody.image, undefined);
+    assert.deepEqual(promptOnlyVoiceControlBody.voice_list, [{ voice_id: "voice-1" }]);
+    assert.equal(promptOnlyVoiceControlBody.sound, "on");
     const responseShapeResult = await client.generateVideo(
       createRequest({
         referenceImage: {
@@ -243,6 +305,74 @@ export async function runKlingProviderClientTest(): Promise<void> {
           entry.url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_retry"
       ).length,
       2
+    );
+
+    const acceptedOnlyRequests: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (init === undefined) {
+        acceptedOnlyRequests.push({ url });
+      } else {
+        acceptedOnlyRequests.push({ url, init });
+      }
+      if (
+        url === "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_accepted_only"
+      ) {
+        return new Response(
+          JSON.stringify({
+            code: 0,
+            data: {
+              task_status: "succeed",
+              task_result: {
+                videos: [{ url: "https://cdn.klingai.com/result-accepted-only.mp4" }]
+              }
+            }
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+      if (url === "https://cdn.klingai.com/result-accepted-only.mp4") {
+        return new Response(Buffer.from("kling-accepted-only-video"), {
+          status: 200,
+          headers: { "Content-Type": "video/mp4" }
+        });
+      }
+      throw new Error(`Unexpected fetch URL in Kling accepted-only test: ${url}`);
+    }) as typeof fetch;
+    const acceptedOnlyResult = await client.generateVideo(
+      createRequest({
+        acceptedTask: {
+          provider: "kling",
+          model: "kling-v3",
+          providerTaskId: "task_kling_accepted_only",
+          acceptedAt: "2026-06-02T12:00:00.000Z",
+          providerStage: "accepted",
+          taskKind: "image2video"
+        }
+      }),
+      { credentialValue }
+    );
+    assert.equal(
+      acceptedOnlyResult.video.bytesBase64,
+      Buffer.from("kling-accepted-only-video").toString("base64")
+    );
+    assert.equal(
+      acceptedOnlyRequests.some(
+        (entry) => entry.url === "https://api-singapore.klingai.com/v1/videos/image2video"
+      ),
+      false
+    );
+    assert.equal(
+      acceptedOnlyRequests.some(
+        (entry) =>
+          entry.url ===
+          "https://api-singapore.klingai.com/v1/videos/image2video/task_kling_accepted_only"
+      ),
+      true
     );
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =

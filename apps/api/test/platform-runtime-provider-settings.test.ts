@@ -67,6 +67,8 @@ function runwayVideoModelParameters() {
       { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720:1280" }
     ],
     referenceImageSupported: true,
+    audioCapabilities: ["silent"] as const,
+    inputCapabilities: ["text", "single_reference_image"] as const,
     providerParameters: null
   };
 }
@@ -85,6 +87,8 @@ function klingVideoModelParameters() {
       { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "9:16" }
     ],
     referenceImageSupported: true,
+    audioCapabilities: ["silent", "provider_native_audio", "voice_control"] as const,
+    inputCapabilities: ["text", "single_reference_image", "multi_image"] as const,
     providerParameters: {
       mode: "pro",
       sound: "off" as const
@@ -103,6 +107,8 @@ function openAiVideoModelParameters() {
       { aspectRatio: "9:16" as const, size: "720x1280" as const, providerValue: "720x1280" }
     ],
     referenceImageSupported: true,
+    audioCapabilities: ["silent"] as const,
+    inputCapabilities: ["text", "single_reference_image"] as const,
     providerParameters: null
   };
 }
@@ -380,6 +386,21 @@ async function run(): Promise<void> {
       ?.videoModelParameters,
     runwayVideoModelParameters()
   );
+  assert.deepEqual(
+    parsed.availableModelCatalogByProvider.openai.models
+      .filter((profile) => profile.capabilities.includes("video"))
+      .map((profile) => profile.videoModelParameters?.audioCapabilities),
+    [["silent"], ["silent"]]
+  );
+  assert.deepEqual(
+    parsed.availableModelCatalogByProvider.openai.models
+      .filter((profile) => profile.capabilities.includes("video"))
+      .map((profile) => profile.videoModelParameters?.inputCapabilities),
+    [
+      ["text", "single_reference_image"],
+      ["text", "single_reference_image"]
+    ]
+  );
 
   assert.throws(
     () =>
@@ -441,6 +462,94 @@ async function run(): Promise<void> {
         }
       }),
     /providerPriceMetadata\.tokenPricing is not allowed when billingMode is fixed_operation/
+  );
+
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        availableModelCatalogByProvider: {
+          ...parsed.availableModelCatalogByProvider,
+          kling: {
+            models: [
+              {
+                model: "kling-v2-6",
+                capabilities: ["video"],
+                ...timeMeteredDefaults(),
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: "Kling Voice",
+                notes: null,
+                videoModelParameters: {
+                  ...klingVideoModelParameters(),
+                  audioCapabilities: ["silent", "voice_control"]
+                }
+              }
+            ]
+          }
+        }
+      }),
+    /audioCapabilities cannot include "voice_control" without "provider_native_audio"/
+  );
+
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        availableModelCatalogByProvider: {
+          ...parsed.availableModelCatalogByProvider,
+          runway: {
+            models: [
+              {
+                model: "runway-gen-4",
+                capabilities: ["video"],
+                ...timeMeteredDefaults(),
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: "Runway",
+                notes: null,
+                videoModelParameters: {
+                  ...runwayVideoModelParameters(),
+                  referenceImageSupported: false,
+                  inputCapabilities: ["text", "multi_image"]
+                }
+              }
+            ]
+          }
+        }
+      }),
+    /inputCapabilities cannot include "multi_image" when referenceImageSupported is false/
+  );
+
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        availableModelCatalogByProvider: {
+          ...parsed.availableModelCatalogByProvider,
+          kling: {
+            models: [
+              {
+                model: "kling-v3",
+                capabilities: ["video"],
+                ...timeMeteredDefaults(),
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: "Kling",
+                notes: null,
+                videoModelParameters: {
+                  ...klingVideoModelParameters(),
+                  inputCapabilities: ["text", "single_reference_image", "omni"]
+                }
+              }
+            ]
+          }
+        }
+      }),
+    /inputCapabilities cannot include "omni" because Omni is deferred/
   );
 
   assert.throws(

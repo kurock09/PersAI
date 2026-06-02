@@ -71,6 +71,18 @@ type MediaJobRequestPayload = {
   directToolExecution: DirectToolExecutionPayload;
 };
 
+type AcceptedPrimaryUnconfirmedStatus = {
+  providerTaskId: string;
+  provider: "openai" | "runway" | "kling";
+  model: string | null;
+  acceptedAt: string;
+  providerStage: "accepted";
+  code: "accepted_primary_unconfirmed";
+  reason: string;
+  message: string;
+  taskKind: string | null;
+};
+
 type ClaimedMediaJob = {
   id: string;
   assistantId: string;
@@ -475,6 +487,17 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     locale: "ru" | "en",
     context: FailJobContext
   ): Promise<void> {
+    const acceptedPrimaryUnconfirmed = this.readAcceptedPrimaryUnconfirmed(outcome);
+    if (acceptedPrimaryUnconfirmed !== null) {
+      const movedToRecovery = await this.markAcceptedPrimaryUnconfirmedForRecovery(
+        job,
+        acceptedPrimaryUnconfirmed,
+        outcome.message
+      );
+      if (movedToRecovery) {
+        return;
+      }
+    }
     const canRetry = outcome.retryable && job.attemptCount < job.maxAttempts;
     if (canRetry) {
       // ADR-105 §5: retryable failure — requeue WITHOUT touching the quota. The
@@ -502,6 +525,245 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     // image_provider_safety_rejected). The worker no longer releases; `failJob`
     // releases the full reserved N exactly once.
     await this.failJob(job, false, outcome.code, outcome.message, locale, context);
+  }
+
+  private readAcceptedPrimaryUnconfirmed(
+    outcome: Extract<InternalRuntimeMediaJobRunOutcome, { ok: false }>
+  ): AcceptedPrimaryUnconfirmedStatus | null {
+    if (outcome.code !== "accepted_primary_unconfirmed") {
+      return null;
+    }
+    if (
+      outcome.providerStatus !== null &&
+      typeof outcome.providerStatus.providerTaskId === "string" &&
+      outcome.providerStatus.providerTaskId.trim().length > 0 &&
+      (outcome.providerStatus.provider === "openai" ||
+        outcome.providerStatus.provider === "runway" ||
+        outcome.providerStatus.provider === "kling")
+    ) {
+      return {
+        providerTaskId: outcome.providerStatus.providerTaskId.trim(),
+        provider: outcome.providerStatus.provider as "openai" | "runway" | "kling",
+        model:
+          typeof outcome.providerStatus.model === "string" &&
+          outcome.providerStatus.model.trim().length > 0
+            ? outcome.providerStatus.model.trim()
+            : null,
+        acceptedAt:
+          typeof outcome.providerStatus.acceptedAt === "string" &&
+          outcome.providerStatus.acceptedAt.trim().length > 0
+            ? outcome.providerStatus.acceptedAt
+            : new Date().toISOString(),
+        providerStage: "accepted",
+        code: "accepted_primary_unconfirmed",
+        reason:
+          typeof outcome.providerStatus.reason === "string" &&
+          outcome.providerStatus.reason.trim().length > 0
+            ? outcome.providerStatus.reason
+            : "provider accepted but polling transport lost",
+        message:
+          typeof outcome.providerStatus.message === "string" &&
+          outcome.providerStatus.message.trim().length > 0
+            ? outcome.providerStatus.message
+            : outcome.message,
+        taskKind:
+          typeof outcome.providerStatus.taskKind === "string" &&
+          outcome.providerStatus.taskKind.trim().length > 0
+            ? outcome.providerStatus.taskKind.trim()
+            : null
+      };
+    }
+    const payloadMatch = /PERSAI_VIDEO_ACCEPTED_PRIMARY_UNCONFIRMED::(\{[\s\S]*\})/.exec(
+      outcome.message
+    );
+    const parsedText = payloadMatch?.[1] ?? null;
+    const fallbackStatus = this.parseProviderStatusFromOutcomeMessage(outcome.message);
+    if (parsedText === null && fallbackStatus === null) {
+      return null;
+    }
+    if (parsedText !== null) {
+      try {
+        const parsed = JSON.parse(parsedText);
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return null;
+        }
+        const row = parsed as Record<string, unknown>;
+        if (
+          (row.provider === "openai" || row.provider === "runway" || row.provider === "kling") &&
+          row.providerStage === "accepted" &&
+          row.code === "accepted_primary_unconfirmed" &&
+          typeof row.providerTaskId === "string" &&
+          row.providerTaskId.trim().length > 0
+        ) {
+          return {
+            providerTaskId: row.providerTaskId.trim(),
+            provider: row.provider,
+            model:
+              typeof row.model === "string" && row.model.trim().length > 0
+                ? row.model.trim()
+                : null,
+            acceptedAt:
+              typeof row.acceptedAt === "string" && row.acceptedAt.trim().length > 0
+                ? row.acceptedAt
+                : new Date().toISOString(),
+            providerStage: "accepted",
+            code: "accepted_primary_unconfirmed",
+            reason:
+              typeof row.reason === "string" && row.reason.trim().length > 0
+                ? row.reason
+                : "provider accepted but polling transport lost",
+            message:
+              typeof row.message === "string" && row.message.trim().length > 0
+                ? row.message
+                : outcome.message,
+            taskKind:
+              typeof row.taskKind === "string" && row.taskKind.trim().length > 0
+                ? row.taskKind.trim()
+                : null
+          };
+        }
+      } catch {
+        // fall through to providerStatus fallback parse
+      }
+    }
+    if (fallbackStatus === null) {
+      return null;
+    }
+    try {
+      const parsed = fallbackStatus;
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+      const row = parsed as Record<string, unknown>;
+      if (
+        (row.provider === "openai" || row.provider === "runway" || row.provider === "kling") &&
+        row.providerStage === "accepted" &&
+        typeof row.providerTaskId === "string" &&
+        row.providerTaskId.trim().length > 0
+      ) {
+        return {
+          providerTaskId: row.providerTaskId.trim(),
+          provider: row.provider,
+          model:
+            typeof row.model === "string" && row.model.trim().length > 0 ? row.model.trim() : null,
+          acceptedAt:
+            typeof row.acceptedAt === "string" && row.acceptedAt.trim().length > 0
+              ? row.acceptedAt
+              : new Date().toISOString(),
+          providerStage: "accepted",
+          code: "accepted_primary_unconfirmed",
+          reason:
+            typeof row.reason === "string" && row.reason.trim().length > 0
+              ? row.reason
+              : "provider accepted but polling transport lost",
+          message:
+            typeof row.message === "string" && row.message.trim().length > 0
+              ? row.message
+              : outcome.message,
+          taskKind:
+            typeof row.taskKind === "string" && row.taskKind.trim().length > 0
+              ? row.taskKind.trim()
+              : null
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private parseProviderStatusFromOutcomeMessage(message: string): Record<string, unknown> | null {
+    const marker = 'providerStatus":';
+    const markerIndex = message.indexOf(marker);
+    if (markerIndex < 0) {
+      return null;
+    }
+    const jsonStart = message.indexOf("{", markerIndex);
+    if (jsonStart < 0) {
+      return null;
+    }
+    for (let end = message.length; end > jsonStart; end -= 1) {
+      const candidate = message.slice(jsonStart, end).trim();
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch {
+        // continue shrinking
+      }
+    }
+    return null;
+  }
+
+  private async markAcceptedPrimaryUnconfirmedForRecovery(
+    job: ClaimedMediaJob,
+    accepted: AcceptedPrimaryUnconfirmedStatus,
+    transportMessage: string
+  ): Promise<boolean> {
+    const updated = await this.prisma.assistantMediaJob.updateMany({
+      where: { id: job.id, schedulerClaimToken: job.claimToken },
+      data: {
+        status: "queued",
+        nextRetryAt: new Date(Date.now() + MEDIA_JOB_POLL_INTERVAL_MS),
+        schedulerClaimToken: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null,
+        lastErrorCode: "accepted_primary_unconfirmed",
+        lastErrorMessage: truncateLastError(transportMessage),
+        requestJson: this.withAcceptedProviderTask(job.requestJson, accepted) as never
+      }
+    });
+    if (updated.count > 0) {
+      this.logger.warn(
+        `Media job ${job.id} recovery queued: provider task already accepted provider=${accepted.provider} model=${accepted.model ?? "unknown"} taskId=${accepted.providerTaskId}. Fallback forbidden until terminal outcome.`
+      );
+      return true;
+    }
+    return false;
+  }
+
+  private withAcceptedProviderTask(
+    requestJson: unknown,
+    accepted: AcceptedPrimaryUnconfirmedStatus
+  ): unknown {
+    if (requestJson === null || typeof requestJson !== "object" || Array.isArray(requestJson)) {
+      return requestJson;
+    }
+    const row = requestJson as Record<string, unknown>;
+    const directToolExecution = row.directToolExecution;
+    if (
+      directToolExecution === null ||
+      typeof directToolExecution !== "object" ||
+      Array.isArray(directToolExecution)
+    ) {
+      return requestJson;
+    }
+    const direct = directToolExecution as Record<string, unknown>;
+    if (direct.toolCode !== "video_generate") {
+      return requestJson;
+    }
+    const request = direct.request;
+    if (request === null || typeof request !== "object" || Array.isArray(request)) {
+      return requestJson;
+    }
+    return {
+      ...row,
+      directToolExecution: {
+        ...direct,
+        request: {
+          ...(request as Record<string, unknown>),
+          acceptedProviderTask: {
+            provider: accepted.provider,
+            model: accepted.model,
+            providerTaskId: accepted.providerTaskId,
+            acceptedAt: accepted.acceptedAt,
+            providerStage: "accepted",
+            taskKind: accepted.taskKind
+          }
+        }
+      }
+    };
   }
 
   private extractDirectToolExecution(requestJson: unknown): {

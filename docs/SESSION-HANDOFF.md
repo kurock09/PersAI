@@ -2,6 +2,128 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-02 — ADR-107 Slice 5: bounded billing + unsupported-mode honesty verification
+
+### What changed & why
+
+Baseline SHA at session start: `2f549a16cb6cce55998f841f568705495c0f2cb5`.
+
+Kept ADR-107 Slice 5 intentionally narrow per the active bounded interpretation:
+
+- Verified that current video billing remains driven by persisted provider/model billing facts, with no new native-audio or voice-control pricing/accounting branches added in this slice.
+- Fixed one async honesty bug on the media-job path: unsupported `video_generate` mode requests (`requested_mode_unsupported`) now surface as terminal bad-request failures instead of retryable runtime failures, so unsupported native-audio / voice-control / deferred input-mode asks do not bounce through the scheduler like transient provider outages.
+- Added focused regression coverage that async scheduler persistence keeps video billing facts unchanged for audio-capable provider rows (for example `runway/veo3.1`) and that unsupported video mode requests fail terminally instead of requeueing.
+- Kept the rest of ADR-107 out of scope: no billing multipliers, no cost-schema changes, no multi-image expansion beyond the already-landed bounded Kling path, and no Omni/provider-route widening.
+
+### Files touched
+
+`apps/runtime/src/modules/turns/runtime-media-job-run.service.ts`; `apps/runtime/test/runtime-media-job-run.service.test.ts`; `apps/api/test/assistant-media-job-scheduler.service.test.ts`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-run.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-scheduler.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / residuals
+
+- Slice 5 still does not introduce explicit priced distinctions between silent video, native-audio video, and voice-control video. Current billing remains whatever provider/model billing facts report plus the existing catalog-ledger lookup.
+- User-visible completion framing remains intentionally generic; it avoids false success claims, but it still does not narrate audio/input-mode production details back to the user unless a future slice chooses to expose that explicitly.
+- Live smoke for real native-audio paths is still outside this local bounded slice.
+
+### Deploy
+
+- RUNTIME + API.
+
+### Next recommended step
+
+- ADR-107 deploy/live verification only: smoke one honest native-audio path and one unsupported-mode path after deploy, without expanding scope into new pricing or new provider routes.
+
+## 2026-06-02 — ADR-107 Slice 4: bounded Kling `image2video` voice control + 2-image tail mapping
+
+### What changed & why
+
+Baseline SHA at session start: `2f549a16cb6cce55998f841f568705495c0f2cb5`.
+
+Landed the next bounded ADR-107 execution slice only on the current Kling standard `image2video` path:
+
+- Added the smallest additive runtime/request shape needed to send documented Kling `voice_list` honestly: `video_generate` now accepts explicit `voiceIds[]`, but only uses them on Kling image-backed voice-control requests.
+- Runtime no longer blanket-refuses all `voice_control`. Instead, it allows only the documented bounded path: Kling + `image2video` + explicit `voiceIds[]` (max 2) + image-backed request. Provider-gateway then maps those ids to ordered `voice_list[{voice_id}]` and forces `sound:"on"` per the official schema.
+- Added the first real multi-image-compatible Kling path without inventing broader semantics: when `inputMode="multi_image"` and exactly two ordered image aliases are provided, runtime loads them as Kling `image` + `image_tail`. Requests with more than two images still fail honestly instead of degrading or pretending to support general multi-shot/custom storyboard semantics.
+- Kept the rest of ADR-107 intentionally out of scope: no Omni route, no Runway audio/voice, no broad multi-shot semantics, and no guessed voice-binding abstractions beyond explicit ordered provider voice ids.
+
+### Files touched
+
+`packages/runtime-contract/src/index.ts`; `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts`; `apps/runtime/src/modules/turns/native-tool-projection.ts`; `apps/runtime/test/runtime-video-generate-tool.service.test.ts`; `apps/provider-gateway/src/modules/providers/provider-video-generation.service.ts`; `apps/provider-gateway/src/modules/providers/kling/kling-provider.client.ts`; `apps/provider-gateway/test/kling-provider.client.test.ts`; `apps/provider-gateway/test/provider-video-generation.service.test.ts`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx test/kling-provider.client.test.ts`
+- PASS: `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-video-generation.service.test.ts`
+- PASS: `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- PASS: `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS: `corepack pnpm --filter @persai/provider-gateway run typecheck`
+
+### Risks / residuals
+
+- This is still a deliberately narrow Kling-only slice. `voice_control` remains unsupported for non-Kling providers and when explicit `voiceIds[]`/`voiceKeys[]` are absent, but the bounded documented Kling prompt-only text-to-video path is now wired and no longer should be described as unsupported.
+- Multi-image support is still only the first honest `image + image_tail` case with exactly two ordered images. Broader `multi_shot`, `multi_prompt`, or other storyboard/customized semantics remain unsupported and must not be inferred from this slice.
+- The current runtime shape carries raw ordered voice ids only. There is still no broader product-layer voice library/selection UX or generalized provider-agnostic voice-binding model in this slice.
+
+### Deploy
+
+- RUNTIME + PROVIDER-GATEWAY.
+
+### Next recommended step
+
+- ADR-107 Slice 5 only.
+
+## 2026-06-02 — ADR-107 Slice 1: contract/catalog capability truth
+
+### What changed & why
+
+Baseline SHA at session start: `2f549a16cb6cce55998f841f568705495c0f2cb5`.
+
+Landed the bounded ADR-107 Slice 1 contract/catalog truth change only:
+
+- Added the smallest additive video capability model to `RuntimeVideoModelParameters`: `audioCapabilities` (`silent`, `provider_native_audio`, `voice_control`) and `inputCapabilities` (`text`, `single_reference_image`, `multi_image`, `omni`).
+- Kept the change strictly at contract/catalog normalization seams. No execution/materialization/provider-gateway wiring was added, no continuation-bugfix framework work was started, and the earlier bounded `video_generate` optional size/seconds fix in runtime projection was left untouched.
+- API normalization/profile resolution now defaults legacy video rows to honest capability truth: `audioCapabilities:["silent"]`, `inputCapabilities:["text"]`, plus automatic `single_reference_image` whenever the existing `videoModelParameters.referenceImageSupported` flag is true.
+- Runway/Kling remain structurally video-only and out of chat routing; `availableModelsByProvider` stays OpenAI/Anthropic chat-only. `image_generate` / `image_edit` remain OpenAI-only. Kling Omni is represented only as catalog capability truth (`inputCapabilities:["omni", ...]`) and is still separate from execution routing.
+- Closed an existing contract drift at the same seam: OpenAPI/generated contracts now expose `videoModelParameters` and its full video capability shape, and the existing `Admin > Runtime` web consumer was updated only enough to stay type-compatible with the generated contract.
+
+### Files touched
+
+`packages/runtime-contract/src/index.ts`; `packages/contracts/openapi.yaml`; generated `packages/contracts/src/generated/**`; `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`; `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts`; `apps/api/test/platform-runtime-provider-settings.test.ts`; `apps/api/test/runtime-provider-profile.test.ts`; `apps/web/app/admin/runtime/page.tsx`; `apps/web/app/admin/runtime/page.test.tsx`; `apps/runtime/test/runtime-video-generate-tool.service.test.ts`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- PASS: `corepack pnpm contracts:generate`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts`
+- PASS: `corepack pnpm --filter @persai/api exec tsx test/runtime-provider-profile.test.ts`
+- PASS: `corepack pnpm --filter @persai/contracts run typecheck`
+- PASS: `corepack pnpm --filter @persai/api run typecheck`
+- PASS: `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS: `corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/page.test.tsx --config vitest.config.ts`
+- PASS: `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This slice only makes capability truth representable and normalized. Admin validation/materialization/runtime intent/provider execution for `provider_native_audio`, `voice_control`, `multi_image`, and `omni` are still future ADR-107 slices.
+- Because `multi_image` and `omni` are intentionally allowed in catalog truth now, operators could mark those capabilities on rows before the execution path exists; the system does not yet act on them. That is acceptable for Slice 1 because the new fields are contract truth only, but Slice 2/3 must prevent impossible selections/requests from masquerading as executable support.
+- Runway audio remains honest by catalog data only; nothing in this slice enables or infers audio for `gen4.5` / `gen4_turbo`.
+
+### Deploy
+
+- NO DEPLOY EXPECTED.
+
+### Next recommended step
+
+- ADR-107 Slice 2 only.
+
 ## 2026-06-02 — Hotfix follow-up: Kling live poll endpoint correction
 
 ### What changed & why
@@ -285,6 +407,37 @@ ADR-107 keeps silent video as the default and preserves ADR-106 invariants: Runw
 ### Next recommended step
 
 - After ADR-106 rollout/live smoke completes, start ADR-107 Slice 0 only: provider capability audit and current PersAI seam map. Do not begin implementation until the exact Kling/Runway audio fields are confirmed.
+
+## 2026-06-02 — ADR-107 truth correction: native audio, voice control, Kling multi-image, and Omni
+
+### What changed & why
+
+Re-read and corrected `docs/ADR/107-provider-native-video-audio.md` against the official provider docs and live probes performed during the video-provider follow-up work:
+
+- `native audio` and `voice control` are now explicitly separated. They are not the same capability. Native audio means provider-generated audio in the video; voice control means provider-controlled human speech / voice behavior.
+- Runway audio truth is narrowed to documented audio-capable models/modes such as `veo3.1` / `veo3.1_fast`; ordinary Gen-4.5 / Gen-4 Turbo must not be treated as native-audio-capable by default.
+- Kling multi-image is now documented as a separate capability family, not something the current single `referenceImage` contract already covers.
+- Kling Omni is now documented as a distinct provider route (`POST /v1/videos/omni-video`), not as an ordinary `text2video` / `image2video` model switch on the current PersAI Kling adapter.
+- The ADR execution ledger and invariants now require honest handling of voice-control, multi-image, and Omni requests instead of only a generic "audio" widening.
+
+### Files touched
+
+`docs/ADR/107-provider-native-video-audio.md`; `docs/CHANGELOG.md`; `docs/SESSION-HANDOFF.md`.
+
+### Tests run
+
+- Docs-only; no code/runtime behavior changed.
+- Provider/doc truth used for the correction came from the official Kling/Runway docs plus live provider acceptance probes performed in the same working session.
+
+### Risks / residuals
+
+- `kling-v3-omni` is documented but still not usable through the current PersAI standard Kling path; implementation requires a dedicated provider-gateway route for `/v1/videos/omni-video`.
+- Kling multi-image and Kling Omni are still architecture/runtime work, not just catalog rows.
+- Runway native audio still requires implementation work in the active PersAI Runway path even for documented audio-capable models.
+
+### Next recommended step
+
+- Start ADR-107 Slice 0/1 as the next implementation path: add explicit catalog/runtime capability truth for native audio vs voice control vs extended input mode, then wire the provider-gateway seams for Kling standard audio first, followed by Kling multi-image/Omni and Runway audio where the active API path can support them honestly.
 
 ## 2026-06-01 (cont.) — ADR-106 Slice 10 final verification and docs
 

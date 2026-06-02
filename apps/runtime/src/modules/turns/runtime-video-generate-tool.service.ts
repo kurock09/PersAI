@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException
+} from "@nestjs/common";
 import type {
   AssistantRuntimeBundle,
   AssistantRuntimeBundleToolCredentialRef
@@ -7,10 +12,17 @@ import type {
 import {
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
+  RUNTIME_VIDEO_AUDIO_MODES,
+  RUNTIME_VIDEO_INPUT_MODES,
+  type RuntimeVideoAudioCapability,
+  type RuntimeVideoAudioMode,
+  type RuntimeVideoInputCapability,
+  type RuntimeVideoInputMode,
   type PersaiRuntimeVideoGenerateProviderId,
   type PersaiRuntimeVideoGenerateSize,
   type ProviderGatewayToolCall,
   type ProviderGatewayVideoGenerateRequest,
+  type RuntimeAcceptedVideoProviderTask,
   type RuntimeAttachmentRef,
   type RuntimeOutputArtifact,
   type RuntimeToolPolicy,
@@ -44,7 +56,13 @@ type ResolvedVideoReferenceSelection =
         mimeType: string;
         filename: string | null;
       } | null;
+      referenceTailImage: {
+        bytesBase64: string;
+        mimeType: string;
+        filename: string | null;
+      } | null;
       referenceImageAlias: string | null;
+      referenceImageAliases: string[];
       referenceFilename: string | null;
     }
   | {
@@ -59,10 +77,27 @@ type ResolvedVideoCredentialAttempt = {
   model: ProviderGatewayVideoGenerateRequest["model"];
 };
 
+type ParsedAcceptedPrimaryUnconfirmed = {
+  providerTaskId: string;
+  provider: PersaiRuntimeVideoGenerateProviderId;
+  model: string | null;
+  acceptedAt: string;
+  providerStage: "accepted";
+  code: "accepted_primary_unconfirmed";
+  reason: string;
+  message: string;
+  taskKind: string | null;
+};
+
 type NormalizedVideoExecutionRequest = {
   request: RuntimeVideoGenerateRequest & {
     seconds: number;
     size: PersaiRuntimeVideoGenerateSize;
+    audioMode: RuntimeVideoAudioMode;
+    inputMode: RuntimeVideoInputMode;
+    referenceImageAliases: string[];
+    voiceKeys: string[];
+    voiceIds: string[];
   };
   warning: string | null;
 };
@@ -105,6 +140,8 @@ export class RuntimeVideoGenerateToolService {
           model: null,
           prompt: null,
           requestedSeconds: null,
+          requestedAudioMode: null,
+          requestedInputMode: null,
           size: null,
           referenceImageAlias: null,
           referenceFilename: null,
@@ -129,6 +166,8 @@ export class RuntimeVideoGenerateToolService {
           model: null,
           prompt: request.prompt,
           requestedSeconds: request.seconds,
+          requestedAudioMode: request.audioMode ?? null,
+          requestedInputMode: request.inputMode ?? null,
           size: request.size,
           referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
@@ -153,6 +192,8 @@ export class RuntimeVideoGenerateToolService {
           model: null,
           prompt: request.prompt,
           requestedSeconds: request.seconds,
+          requestedAudioMode: request.audioMode ?? null,
+          requestedInputMode: request.inputMode ?? null,
           size: request.size,
           referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
@@ -177,6 +218,8 @@ export class RuntimeVideoGenerateToolService {
           model: null,
           prompt: request.prompt,
           requestedSeconds: request.seconds,
+          requestedAudioMode: request.audioMode ?? null,
+          requestedInputMode: request.inputMode ?? null,
           size: request.size,
           referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
@@ -205,13 +248,15 @@ export class RuntimeVideoGenerateToolService {
           model: primaryModel,
           prompt: request.prompt,
           requestedSeconds: request.seconds,
+          requestedAudioMode: request.audioMode ?? null,
+          requestedInputMode: request.inputMode ?? null,
           size: request.size,
           referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
           artifact: null,
           usage: null,
           action: "skipped",
-          reason: "video_model_parameters_missing",
+          reason: "requested_mode_unsupported",
           warning: normalizedRequest.message
         },
         artifacts: [],
@@ -229,7 +274,7 @@ export class RuntimeVideoGenerateToolService {
 
     const selection = await this.resolveReferenceImageSelection(
       params.availableAttachments,
-      request
+      normalizedRequest.request
     );
     if (!selection.ok) {
       return {
@@ -240,6 +285,8 @@ export class RuntimeVideoGenerateToolService {
           model: null,
           prompt: request.prompt,
           requestedSeconds: request.seconds,
+          requestedAudioMode: normalizedRequest.request.audioMode,
+          requestedInputMode: normalizedRequest.request.inputMode,
           size: request.size,
           referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
@@ -251,6 +298,36 @@ export class RuntimeVideoGenerateToolService {
         },
         artifacts: [],
         isError: false
+      };
+    }
+
+    const primaryPathSupportError = this.validateCurrentProviderPathSupport({
+      providerId,
+      videoModelParameters: credential.videoModelParameters,
+      request: normalizedRequest.request
+    });
+    if (primaryPathSupportError !== null) {
+      return {
+        payload: {
+          toolCode: VIDEO_GENERATE_TOOL_CODE,
+          executionMode: "worker",
+          provider: providerId,
+          model: primaryModel,
+          prompt: request.prompt,
+          requestedSeconds: normalizedRequest.request.seconds,
+          requestedAudioMode: normalizedRequest.request.audioMode,
+          requestedInputMode: normalizedRequest.request.inputMode,
+          size: normalizedRequest.request.size,
+          referenceImageAlias: selection.referenceImageAlias,
+          referenceFilename: selection.referenceFilename,
+          artifact: null,
+          usage: null,
+          action: "skipped",
+          reason: "requested_mode_unsupported",
+          warning: primaryPathSupportError.message
+        },
+        artifacts: [],
+        isError: true
       };
     }
 
@@ -275,6 +352,8 @@ export class RuntimeVideoGenerateToolService {
               model: primaryModel,
               prompt: request.prompt,
               requestedSeconds: normalizedRequest.request.seconds,
+              requestedAudioMode: normalizedRequest.request.audioMode,
+              requestedInputMode: normalizedRequest.request.inputMode,
               size: normalizedRequest.request.size,
               referenceImageAlias: selection.referenceImageAlias,
               referenceFilename: selection.referenceFilename,
@@ -298,6 +377,8 @@ export class RuntimeVideoGenerateToolService {
             model: primaryModel,
             prompt: request.prompt,
             requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
             size: normalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
@@ -325,6 +406,8 @@ export class RuntimeVideoGenerateToolService {
             model: null,
             prompt: request.prompt,
             requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
             size: normalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
@@ -356,6 +439,10 @@ export class RuntimeVideoGenerateToolService {
           throw normalizedAttempt;
         }
         attemptNormalizedRequest = normalizedAttempt;
+        const resolvedVoiceIds = this.resolveVoiceIdsForAttempt(
+          attemptNormalizedRequest.request,
+          attempt.credential
+        );
         // ADR-105 §5 (single-owner reservation) — the worker NEVER touches the
         // monthly media quota. The enqueue admission seam
         // (`EnqueueRuntimeDeferredMediaJobService`) reserves the unit exactly
@@ -370,7 +457,17 @@ export class RuntimeVideoGenerateToolService {
             size: attemptNormalizedRequest.request.size,
             seconds: attemptNormalizedRequest.request.seconds,
             referenceImage: selection.referenceImage,
-            providerParameters: attempt.credential.videoModelParameters?.providerParameters ?? null,
+            providerParameters: this.resolveProviderVideoParameters({
+              providerId: attempt.providerId,
+              audioMode: attemptNormalizedRequest.request.audioMode,
+              inputMode: attemptNormalizedRequest.request.inputMode,
+              videoModelParameters: attempt.credential.videoModelParameters,
+              providerParameters:
+                attempt.credential.videoModelParameters?.providerParameters ?? null
+            }),
+            referenceTailImage: selection.referenceTailImage,
+            voiceIds: resolvedVoiceIds.length > 0 ? resolvedVoiceIds : null,
+            acceptedTask: this.readAcceptedTaskHint(request, attempt),
             credential: {
               toolCode: VIDEO_GENERATE_TOOL_CODE,
               secretId: attempt.credential.secretRef.id,
@@ -407,6 +504,8 @@ export class RuntimeVideoGenerateToolService {
             model: providerResult.model,
             prompt: request.prompt,
             requestedSeconds: attemptNormalizedRequest.request.seconds,
+            requestedAudioMode: attemptNormalizedRequest.request.audioMode,
+            requestedInputMode: attemptNormalizedRequest.request.inputMode,
             size: providerResult.size ?? attemptNormalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
@@ -427,9 +526,17 @@ export class RuntimeVideoGenerateToolService {
       } catch (error) {
         const failureMessage = error instanceof Error ? error.message : "Video generation failed.";
         const attemptWarning = `${attempt.providerId} failed: ${failureMessage}`;
+        const acceptedPrimaryUnconfirmed = this.parseAcceptedPrimaryUnconfirmed(error, attempt);
         const shouldTryFallback =
           attemptIndex < credentialAttempts.length - 1 &&
-          this.isFallbackEligibleVideoFailure(error);
+          this.isFallbackEligibleVideoFailure(error) &&
+          acceptedPrimaryUnconfirmed === null;
+        const fallbackReason =
+          acceptedPrimaryUnconfirmed !== null
+            ? "forbidden_accepted_primary_unconfirmed"
+            : shouldTryFallback
+              ? "allowed_terminal_or_eligible"
+              : "forbidden_failure_not_eligible";
         this.logger.warn(
           `[video-generate] attempt failed requestId=${params.requestId} provider=${
             attempt.providerId
@@ -437,8 +544,40 @@ export class RuntimeVideoGenerateToolService {
             attemptNormalizedRequest?.request.seconds ?? normalizedRequest.request.seconds
           )} fallback=${String(shouldTryFallback)} referenceAlias="${
             selection.referenceImageAlias ?? "none"
-          }": ${failureMessage}`
+          }" fallbackReason=${fallbackReason}: ${failureMessage}`
         );
+        if (acceptedPrimaryUnconfirmed !== null) {
+          const recoveryMarker = `PERSAI_VIDEO_ACCEPTED_PRIMARY_UNCONFIRMED::${JSON.stringify(acceptedPrimaryUnconfirmed)}`;
+          this.logger.warn(
+            `[video-generate] recovery started requestId=${params.requestId} provider=${attempt.providerId} providerTaskId=${acceptedPrimaryUnconfirmed.providerTaskId} acceptedAt=${acceptedPrimaryUnconfirmed.acceptedAt}`
+          );
+          return {
+            payload: {
+              toolCode: VIDEO_GENERATE_TOOL_CODE,
+              executionMode: "worker",
+              provider: attempt.providerId,
+              model: acceptedPrimaryUnconfirmed.model ?? attempt.model,
+              prompt: request.prompt,
+              requestedSeconds:
+                attemptNormalizedRequest?.request.seconds ?? normalizedRequest.request.seconds,
+              requestedAudioMode:
+                attemptNormalizedRequest?.request.audioMode ?? normalizedRequest.request.audioMode,
+              requestedInputMode:
+                attemptNormalizedRequest?.request.inputMode ?? normalizedRequest.request.inputMode,
+              size: attemptNormalizedRequest?.request.size ?? normalizedRequest.request.size,
+              referenceImageAlias: selection.referenceImageAlias,
+              referenceFilename: selection.referenceFilename,
+              artifact: null,
+              usage: null,
+              action: "skipped",
+              reason: "accepted_primary_unconfirmed",
+              warning: `Provider accepted the video task, but polling continuity was lost. Fallback is forbidden until provider terminal status is confirmed. ${recoveryMarker}`,
+              providerStatus: acceptedPrimaryUnconfirmed
+            },
+            artifacts: [],
+            isError: true
+          };
+        }
         if (shouldTryFallback) {
           warnings.push(attemptWarning);
           continue;
@@ -452,6 +591,10 @@ export class RuntimeVideoGenerateToolService {
             prompt: request.prompt,
             requestedSeconds:
               attemptNormalizedRequest?.request.seconds ?? normalizedRequest.request.seconds,
+            requestedAudioMode:
+              attemptNormalizedRequest?.request.audioMode ?? normalizedRequest.request.audioMode,
+            requestedInputMode:
+              attemptNormalizedRequest?.request.inputMode ?? normalizedRequest.request.inputMode,
             size: attemptNormalizedRequest?.request.size ?? normalizedRequest.request.size,
             referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
@@ -475,6 +618,8 @@ export class RuntimeVideoGenerateToolService {
         model: null,
         prompt: request.prompt,
         requestedSeconds: normalizedRequest.request.seconds,
+        requestedAudioMode: normalizedRequest.request.audioMode,
+        requestedInputMode: normalizedRequest.request.inputMode,
         size: normalizedRequest.request.size,
         referenceImageAlias: selection.referenceImageAlias,
         referenceFilename: selection.referenceFilename,
@@ -541,6 +686,93 @@ export class RuntimeVideoGenerateToolService {
     );
   }
 
+  private parseAcceptedPrimaryUnconfirmed(
+    error: unknown,
+    attempt: ResolvedVideoCredentialAttempt
+  ): ParsedAcceptedPrimaryUnconfirmed | null {
+    if (!(error instanceof BadRequestException || error instanceof ServiceUnavailableException)) {
+      return null;
+    }
+    const payload = error.getResponse() as {
+      error?: { code?: string; providerStatus?: unknown; message?: string };
+    };
+    if (payload?.error?.code !== "accepted_primary_unconfirmed") {
+      return null;
+    }
+    const providerStatus =
+      payload.error?.providerStatus !== null &&
+      typeof payload.error?.providerStatus === "object" &&
+      !Array.isArray(payload.error?.providerStatus)
+        ? (payload.error.providerStatus as Record<string, unknown>)
+        : null;
+    if (providerStatus === null) {
+      return null;
+    }
+    const providerTaskId =
+      typeof providerStatus.providerTaskId === "string" && providerStatus.providerTaskId.length > 0
+        ? providerStatus.providerTaskId
+        : null;
+    if (providerTaskId === null) {
+      return null;
+    }
+    const providerFromStatus =
+      providerStatus.provider === "openai" ||
+      providerStatus.provider === "runway" ||
+      providerStatus.provider === "kling"
+        ? (providerStatus.provider as PersaiRuntimeVideoGenerateProviderId)
+        : attempt.providerId;
+    return {
+      providerTaskId,
+      provider: providerFromStatus,
+      model:
+        typeof providerStatus.model === "string" && providerStatus.model.trim().length > 0
+          ? providerStatus.model.trim()
+          : attempt.model,
+      acceptedAt:
+        typeof providerStatus.acceptedAt === "string" && providerStatus.acceptedAt.length > 0
+          ? providerStatus.acceptedAt
+          : new Date().toISOString(),
+      providerStage: "accepted",
+      code: "accepted_primary_unconfirmed",
+      reason:
+        typeof providerStatus.reason === "string" && providerStatus.reason.length > 0
+          ? providerStatus.reason
+          : "provider accepted but polling transport lost",
+      message:
+        typeof providerStatus.message === "string" && providerStatus.message.length > 0
+          ? providerStatus.message
+          : (payload.error?.message ?? "Polling continuity lost after provider acceptance."),
+      taskKind:
+        typeof providerStatus.taskKind === "string" && providerStatus.taskKind.length > 0
+          ? providerStatus.taskKind
+          : null
+    };
+  }
+
+  private readAcceptedTaskHint(
+    request: RuntimeVideoGenerateRequest,
+    attempt: ResolvedVideoCredentialAttempt
+  ): RuntimeAcceptedVideoProviderTask | null {
+    const acceptedTask = request.acceptedProviderTask ?? null;
+    if (
+      acceptedTask === null ||
+      acceptedTask.provider !== attempt.providerId ||
+      acceptedTask.providerStage !== "accepted" ||
+      typeof acceptedTask.providerTaskId !== "string" ||
+      acceptedTask.providerTaskId.trim().length === 0
+    ) {
+      return null;
+    }
+    return {
+      provider: acceptedTask.provider,
+      model: acceptedTask.model ?? attempt.model ?? null,
+      providerTaskId: acceptedTask.providerTaskId.trim(),
+      acceptedAt: acceptedTask.acceptedAt ?? new Date().toISOString(),
+      providerStage: "accepted",
+      taskKind: acceptedTask.taskKind ?? null
+    };
+  }
+
   private readVideoGenerateArguments(
     args: Record<string, unknown>
   ): RuntimeVideoGenerateRequest | Error {
@@ -551,7 +783,12 @@ export class RuntimeVideoGenerateToolService {
         key !== "filename" &&
         key !== "size" &&
         key !== "seconds" &&
-        key !== "referenceImageAlias"
+        key !== "audioMode" &&
+        key !== "inputMode" &&
+        key !== "referenceImageAlias" &&
+        key !== "referenceImageAliases" &&
+        key !== "voiceIds" &&
+        key !== "voiceKeys"
     );
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
@@ -595,6 +832,32 @@ export class RuntimeVideoGenerateToolService {
       return new Error("seconds must be a positive integer when provided");
     }
 
+    const audioMode =
+      args.audioMode === undefined || args.audioMode === null
+        ? null
+        : typeof args.audioMode === "string" &&
+            RUNTIME_VIDEO_AUDIO_MODES.includes(args.audioMode as RuntimeVideoAudioMode)
+          ? (args.audioMode as RuntimeVideoAudioMode)
+          : null;
+    if ("audioMode" in args && args.audioMode !== null && audioMode === null) {
+      return new Error(
+        `audioMode must be one of ${RUNTIME_VIDEO_AUDIO_MODES.join(", ")} when provided`
+      );
+    }
+
+    const inputMode =
+      args.inputMode === undefined || args.inputMode === null
+        ? null
+        : typeof args.inputMode === "string" &&
+            RUNTIME_VIDEO_INPUT_MODES.includes(args.inputMode as RuntimeVideoInputMode)
+          ? (args.inputMode as RuntimeVideoInputMode)
+          : null;
+    if ("inputMode" in args && args.inputMode !== null && inputMode === null) {
+      return new Error(
+        `inputMode must be one of ${RUNTIME_VIDEO_INPUT_MODES.join(", ")} when provided`
+      );
+    }
+
     const referenceImageAlias =
       args.referenceImageAlias === undefined || args.referenceImageAlias === null
         ? null
@@ -607,13 +870,73 @@ export class RuntimeVideoGenerateToolService {
       return new Error("referenceImageAlias must be a non-empty string when provided");
     }
 
+    const referenceImageAliases =
+      args.referenceImageAliases === undefined || args.referenceImageAliases === null
+        ? null
+        : Array.isArray(args.referenceImageAliases)
+          ? args.referenceImageAliases
+          : null;
+    if ("referenceImageAliases" in args && args.referenceImageAliases !== null) {
+      if (referenceImageAliases === null || referenceImageAliases.length === 0) {
+        return new Error("referenceImageAliases must be a non-empty array when provided");
+      }
+      for (const [index, entry] of referenceImageAliases.entries()) {
+        if (this.asNonEmptyString(entry) === null) {
+          return new Error(
+            `referenceImageAliases[${String(index)}] must be a non-empty string when provided`
+          );
+        }
+      }
+    }
+
+    const voiceIds =
+      args.voiceIds === undefined || args.voiceIds === null
+        ? null
+        : Array.isArray(args.voiceIds)
+          ? args.voiceIds
+          : null;
+    if ("voiceIds" in args && args.voiceIds !== null) {
+      if (voiceIds === null || voiceIds.length === 0) {
+        return new Error("voiceIds must be a non-empty array when provided");
+      }
+      for (const [index, entry] of voiceIds.entries()) {
+        if (this.asNonEmptyString(entry) === null) {
+          return new Error(`voiceIds[${String(index)}] must be a non-empty string when provided`);
+        }
+      }
+    }
+
+    const voiceKeys =
+      args.voiceKeys === undefined || args.voiceKeys === null
+        ? null
+        : Array.isArray(args.voiceKeys)
+          ? args.voiceKeys
+          : null;
+    if ("voiceKeys" in args && args.voiceKeys !== null) {
+      if (voiceKeys === null || voiceKeys.length === 0) {
+        return new Error("voiceKeys must be a non-empty array when provided");
+      }
+      for (const [index, entry] of voiceKeys.entries()) {
+        if (this.asNonEmptyString(entry) === null) {
+          return new Error(`voiceKeys[${String(index)}] must be a non-empty string when provided`);
+        }
+      }
+    }
+
     return {
       toolCode: VIDEO_GENERATE_TOOL_CODE,
       prompt,
       filename,
       size,
       seconds,
-      referenceImageAlias
+      audioMode,
+      inputMode,
+      referenceImageAlias,
+      referenceImageAliases:
+        referenceImageAliases?.map((entry) => this.asNonEmptyString(entry)!).filter(Boolean) ??
+        null,
+      voiceKeys: voiceKeys?.map((entry) => this.asNonEmptyString(entry)!).filter(Boolean) ?? null,
+      voiceIds: voiceIds?.map((entry) => this.asNonEmptyString(entry)!).filter(Boolean) ?? null
     };
   }
 
@@ -628,6 +951,11 @@ export class RuntimeVideoGenerateToolService {
     }
     const normalizedSeconds = this.normalizeSeconds(request.seconds, params);
     const normalizedSize = this.normalizeSize(request.size, params);
+    const normalizedReferenceImageAliases = this.normalizeReferenceImageAliases(request);
+    const normalizedAudioMode = this.normalizeAudioMode(request.audioMode);
+    const normalizedInputMode = this.normalizeInputMode(request, normalizedReferenceImageAliases);
+    const normalizedVoiceKeys = this.normalizeVoiceKeys(request.voiceKeys);
+    const normalizedVoiceIds = this.normalizeVoiceIds(request.voiceIds);
     const warnings: string[] = [];
     if (request.seconds !== null && request.seconds !== normalizedSeconds) {
       warnings.push(
@@ -644,14 +972,241 @@ export class RuntimeVideoGenerateToolService {
     if (request.size === null) {
       warnings.push(`Used default video size ${normalizedSize} from the selected model catalog.`);
     }
+    const capabilityError = this.validateRequestedCapabilities({
+      audioMode: normalizedAudioMode,
+      inputMode: normalizedInputMode,
+      audioCapabilities: params.audioCapabilities,
+      inputCapabilities: params.inputCapabilities
+    });
+    if (capabilityError !== null) {
+      return capabilityError;
+    }
     return {
       request: {
         ...request,
         seconds: normalizedSeconds,
-        size: normalizedSize
+        size: normalizedSize,
+        audioMode: normalizedAudioMode,
+        inputMode: normalizedInputMode,
+        referenceImageAliases: normalizedReferenceImageAliases,
+        voiceKeys: normalizedVoiceKeys,
+        voiceIds: normalizedVoiceIds
       },
       warning: warnings.length > 0 ? warnings.join(" ") : null
     };
+  }
+
+  private normalizeAudioMode(
+    requestedMode: RuntimeVideoGenerateRequest["audioMode"]
+  ): RuntimeVideoAudioMode {
+    return requestedMode ?? "silent";
+  }
+
+  private normalizeInputMode(
+    request: RuntimeVideoGenerateRequest,
+    normalizedReferenceImageAliases: string[]
+  ): RuntimeVideoInputMode {
+    if (request.inputMode !== null && request.inputMode !== undefined) {
+      return request.inputMode;
+    }
+    const aliasCount = normalizedReferenceImageAliases.length;
+    if (aliasCount > 1) {
+      return "multi_image";
+    }
+    if (aliasCount === 1) {
+      return "single_reference_image";
+    }
+    return "text";
+  }
+
+  private normalizeReferenceImageAliases(request: RuntimeVideoGenerateRequest): string[] {
+    const aliases = new Set<string>();
+    if (request.referenceImageAlias !== null) {
+      aliases.add(request.referenceImageAlias);
+    }
+    for (const alias of request.referenceImageAliases ?? []) {
+      aliases.add(alias);
+    }
+    return Array.from(aliases);
+  }
+
+  private normalizeVoiceIds(voiceIds: RuntimeVideoGenerateRequest["voiceIds"]): string[] {
+    const ids = new Set<string>();
+    for (const voiceId of voiceIds ?? []) {
+      const normalized = this.asNonEmptyString(voiceId);
+      if (normalized !== null) {
+        ids.add(normalized);
+      }
+    }
+    return Array.from(ids);
+  }
+
+  private normalizeVoiceKeys(voiceKeys: RuntimeVideoGenerateRequest["voiceKeys"]): string[] {
+    const keys = new Set<string>();
+    for (const voiceKey of voiceKeys ?? []) {
+      const normalized = this.asNonEmptyString(voiceKey);
+      if (normalized !== null) {
+        keys.add(normalized);
+      }
+    }
+    return Array.from(keys);
+  }
+
+  private validateRequestedCapabilities(params: {
+    audioMode: RuntimeVideoAudioMode;
+    inputMode: RuntimeVideoInputMode;
+    audioCapabilities: RuntimeVideoAudioCapability[];
+    inputCapabilities: RuntimeVideoInputCapability[];
+  }): Error | null {
+    const audioCapabilities = new Set(params.audioCapabilities);
+    const inputCapabilities = new Set(params.inputCapabilities);
+    if (!audioCapabilities.has(params.audioMode)) {
+      return new Error(this.buildUnsupportedAudioModeMessage(params.audioMode));
+    }
+    if (params.inputMode === "omni") {
+      return new Error(
+        "Omni video requests are deferred and unsupported on the current PersAI runtime path."
+      );
+    }
+    if (!inputCapabilities.has(params.inputMode)) {
+      return new Error(this.buildUnsupportedInputModeMessage(params.inputMode));
+    }
+    return null;
+  }
+
+  private buildUnsupportedAudioModeMessage(mode: RuntimeVideoAudioMode): string {
+    switch (mode) {
+      case "provider_native_audio":
+        return "The selected video model does not support provider-native audio, so this request cannot be run honestly as an audio-capable video.";
+      case "voice_control":
+        return "The selected video model does not support provider-side voice control, so this request cannot be run honestly as spoken or narrated video.";
+      case "silent":
+      default:
+        return "The selected video model does not support the requested audio mode.";
+    }
+  }
+
+  private buildUnsupportedInputModeMessage(mode: RuntimeVideoInputMode): string {
+    switch (mode) {
+      case "single_reference_image":
+        return "The selected video model does not support reference-image video input.";
+      case "multi_image":
+        return "The selected video model does not support multi-image video input, so this request cannot be downgraded to single-image video without explanation.";
+      case "omni":
+        return "Omni video requests are deferred and unsupported on the current PersAI runtime path.";
+      case "text":
+      default:
+        return "The selected video model does not support the requested input mode.";
+    }
+  }
+
+  private validateCurrentProviderPathSupport(params: {
+    providerId: PersaiRuntimeVideoGenerateProviderId;
+    videoModelParameters: RuntimeVideoModelParameters | null | undefined;
+    request: NormalizedVideoExecutionRequest["request"];
+  }): Error | null {
+    if (
+      params.request.audioMode === "provider_native_audio" &&
+      params.providerId !== "kling" &&
+      params.providerId !== "runway"
+    ) {
+      return new Error(
+        "Provider-native audio is only verified on the current Kling standard video path in this slice; the selected provider cannot satisfy this request honestly."
+      );
+    }
+    if (params.request.audioMode === "provider_native_audio" && params.providerId === "runway") {
+      const audioCapabilities = new Set(params.videoModelParameters?.audioCapabilities ?? []);
+      if (!audioCapabilities.has("provider_native_audio")) {
+        return new Error(
+          "The selected Runway model does not advertise provider-native audio in the active model catalog."
+        );
+      }
+    }
+    if (params.request.audioMode === "voice_control") {
+      if (params.providerId !== "kling") {
+        return new Error(
+          "Provider-side voice control is only wired on the current Kling image-to-video path in this slice; the selected provider cannot satisfy this request honestly."
+        );
+      }
+      if (
+        params.request.inputMode !== "text" &&
+        params.request.inputMode !== "single_reference_image" &&
+        params.request.inputMode !== "multi_image"
+      ) {
+        return new Error(
+          "Provider-side voice control is only wired on the current Kling text/image video paths in this slice."
+        );
+      }
+      if (params.request.voiceIds.length === 0 && params.request.voiceKeys.length === 0) {
+        return new Error(
+          "Voice-controlled Kling video requires explicit voiceKeys from the materialized shortlist or explicit low-level voiceIds so the documented voice_list can be sent honestly."
+        );
+      }
+      const selectedVoiceCount =
+        params.request.voiceIds.length > 0
+          ? params.request.voiceIds.length
+          : params.request.voiceKeys.length;
+      if (selectedVoiceCount > 2) {
+        return new Error(
+          "The current Kling image-to-video voice-control path supports at most 2 explicit voices per request."
+        );
+      }
+    }
+    return null;
+  }
+
+  private resolveProviderVideoParameters(params: {
+    providerId: PersaiRuntimeVideoGenerateProviderId;
+    audioMode: RuntimeVideoAudioMode;
+    inputMode: RuntimeVideoInputMode;
+    videoModelParameters: RuntimeVideoModelParameters | null | undefined;
+    providerParameters: RuntimeVideoModelParameters["providerParameters"] | null;
+  }): RuntimeVideoModelParameters["providerParameters"] | null {
+    if (params.providerId === "kling") {
+      return {
+        ...(params.providerParameters ?? {}),
+        sound: params.audioMode === "provider_native_audio" ? "on" : "off"
+      };
+    }
+    if (
+      params.providerId === "runway" &&
+      new Set(params.videoModelParameters?.audioCapabilities ?? []).has("provider_native_audio")
+    ) {
+      return {
+        ...(params.providerParameters ?? {}),
+        audio: params.audioMode === "provider_native_audio"
+      };
+    }
+    return params.providerParameters ?? null;
+  }
+
+  private resolveVoiceIdsForAttempt(
+    request: NormalizedVideoExecutionRequest["request"],
+    credential: AssistantRuntimeBundleToolCredentialRef
+  ): string[] {
+    if (request.voiceIds.length > 0) {
+      return request.voiceIds;
+    }
+    if (request.voiceKeys.length === 0) {
+      return [];
+    }
+    const catalog = credential.videoVoiceCatalog;
+    if (catalog === null || catalog === undefined) {
+      return [];
+    }
+    const byKey = new Map(
+      catalog.shortlist.map(
+        (entry) => [entry.voiceKey.toLowerCase(), entry.providerVoiceId] as const
+      )
+    );
+    const resolved: string[] = [];
+    for (const voiceKey of request.voiceKeys) {
+      const providerVoiceId = byKey.get(voiceKey.toLowerCase());
+      if (providerVoiceId !== undefined) {
+        resolved.push(providerVoiceId);
+      }
+    }
+    return Array.from(new Set(resolved));
   }
 
   private normalizeSeconds(
@@ -703,12 +1258,23 @@ export class RuntimeVideoGenerateToolService {
     request: RuntimeVideoGenerateRequest
   ): Promise<ResolvedVideoReferenceSelection> {
     const imageAttachments = attachments.filter((attachment) => attachment.kind === "image");
-    const referenceImageAlias = request.referenceImageAlias;
+    const referenceImageAliases = request.referenceImageAliases ?? [];
+    const referenceImageAlias = request.referenceImageAlias ?? referenceImageAliases[0] ?? null;
+    if ((request.inputMode ?? null) === "omni") {
+      return {
+        ok: false,
+        reason: "omni_unsupported",
+        warning:
+          "Omni video requests are deferred and unsupported on the current PersAI runtime path."
+      };
+    }
     if (referenceImageAlias === null) {
       return {
         ok: true,
         referenceImage: null,
+        referenceTailImage: null,
         referenceImageAlias: null,
+        referenceImageAliases: [],
         referenceFilename: null
       };
     }
@@ -722,26 +1288,99 @@ export class RuntimeVideoGenerateToolService {
       };
     }
 
-    const attachment = this.findAttachmentByAlias(imageAttachments, referenceImageAlias);
-    if (attachment === null) {
+    const resolvedAttachments = this.resolveReferenceImageAttachments({
+      imageAttachments,
+      referenceImageAlias,
+      referenceImageAliases,
+      inputMode: request.inputMode ?? null
+    });
+    if (resolvedAttachments instanceof Error) {
       return {
         ok: false,
-        reason: "reference_image_alias_invalid",
-        warning:
-          "referenceImageAlias must match one of the available reusable image aliases in the working-files context."
+        reason:
+          (request.inputMode ?? null) === "multi_image"
+            ? "multi_image_unsupported"
+            : "reference_image_alias_invalid",
+        warning: resolvedAttachments.message
       };
     }
 
-    const loadedReference = await this.loadReferenceImage(attachment);
+    const loadedReference = await this.loadReferenceImage(resolvedAttachments.primary);
     if (!loadedReference.ok) {
       return loadedReference;
+    }
+    const loadedTailReference =
+      resolvedAttachments.tail === null
+        ? null
+        : await this.loadReferenceImage(resolvedAttachments.tail);
+    if (loadedTailReference !== null && !loadedTailReference.ok) {
+      return loadedTailReference;
     }
 
     return {
       ok: true,
       referenceImage: loadedReference.image,
-      referenceImageAlias: this.resolvePrimaryAttachmentAlias(attachment),
-      referenceFilename: attachment.filename
+      referenceTailImage: loadedTailReference?.image ?? null,
+      referenceImageAlias: this.resolvePrimaryAttachmentAlias(resolvedAttachments.primary),
+      referenceImageAliases: resolvedAttachments.aliases,
+      referenceFilename: resolvedAttachments.primary.filename
+    };
+  }
+
+  private resolveReferenceImageAttachments(params: {
+    imageAttachments: RuntimeAttachmentRef[];
+    referenceImageAlias: string;
+    referenceImageAliases: string[];
+    inputMode: RuntimeVideoGenerateRequest["inputMode"];
+  }):
+    | {
+        primary: RuntimeAttachmentRef;
+        tail: RuntimeAttachmentRef | null;
+        aliases: string[];
+      }
+    | Error {
+    const orderedAliases =
+      params.referenceImageAliases.length > 0
+        ? params.referenceImageAliases
+        : [params.referenceImageAlias];
+    const uniqueAliases = Array.from(
+      new Set(
+        orderedAliases
+          .map((alias) => this.normalizeAlias(alias))
+          .filter((alias) => alias.length > 0)
+      )
+    );
+    const resolvedAttachments = uniqueAliases
+      .map((alias) =>
+        params.imageAttachments.find((attachment) =>
+          (attachment.aliases ?? []).some((candidate) => this.normalizeAlias(candidate) === alias)
+        )
+      )
+      .filter((attachment): attachment is RuntimeAttachmentRef => attachment !== undefined);
+
+    if (resolvedAttachments.length !== uniqueAliases.length) {
+      return new Error(
+        "referenceImageAlias/referenceImageAliases must match available reusable image aliases in the working-files context."
+      );
+    }
+    if ((params.inputMode ?? null) !== "multi_image") {
+      return {
+        primary: resolvedAttachments[0]!,
+        tail: null,
+        aliases: [this.resolvePrimaryAttachmentAlias(resolvedAttachments[0]!)]
+      };
+    }
+    if (resolvedAttachments.length !== 2) {
+      return new Error(
+        "The current PersAI multi-image Kling path only supports exactly 2 ordered image aliases so they can map honestly to image + image_tail."
+      );
+    }
+    return {
+      primary: resolvedAttachments[0]!,
+      tail: resolvedAttachments[1]!,
+      aliases: resolvedAttachments.map((attachment) =>
+        this.resolvePrimaryAttachmentAlias(attachment)
+      )
     };
   }
 

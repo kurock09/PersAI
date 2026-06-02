@@ -14177,6 +14177,135 @@ components:
         - video
         - speech_to_text
         - text_to_speech
+    RuntimeVideoAudioCapability:
+      type: string
+      enum:
+        - silent
+        - provider_native_audio
+        - voice_control
+    RuntimeVideoInputCapability:
+      type: string
+      enum:
+        - text
+        - single_reference_image
+        - multi_image
+        - omni
+    RuntimeVideoDurationAllowedListState:
+      type: object
+      required:
+        - kind
+        - values
+      properties:
+        kind:
+          type: string
+          enum:
+            - allowed_list
+        values:
+          type: array
+          items:
+            type: integer
+    RuntimeVideoDurationRangeState:
+      type: object
+      required:
+        - kind
+        - min
+        - max
+        - step
+        - preferredValues
+      properties:
+        kind:
+          type: string
+          enum:
+            - range
+        min:
+          type: integer
+        max:
+          type: integer
+        step:
+          type: integer
+          nullable: true
+        preferredValues:
+          type: array
+          nullable: true
+          items:
+            type: integer
+    RuntimeVideoDurationConstraintState:
+      oneOf:
+        - $ref: "#/components/schemas/RuntimeVideoDurationAllowedListState"
+        - $ref: "#/components/schemas/RuntimeVideoDurationRangeState"
+    RuntimeVideoAspectRatio:
+      type: string
+      enum:
+        - "16:9"
+        - "9:16"
+        - "1:1"
+    RuntimeVideoGenerateSize:
+      type: string
+      enum:
+        - "720x1280"
+        - "1280x720"
+        - "1024x1792"
+        - "1792x1024"
+    RuntimeVideoAspectRatioOptionState:
+      type: object
+      required:
+        - aspectRatio
+        - size
+        - providerValue
+      properties:
+        aspectRatio:
+          $ref: "#/components/schemas/RuntimeVideoAspectRatio"
+        size:
+          $ref: "#/components/schemas/RuntimeVideoGenerateSize"
+        providerValue:
+          type: string
+          nullable: true
+    RuntimeVideoProviderParametersState:
+      type: object
+      nullable: true
+      properties:
+        mode:
+          type: string
+          nullable: true
+        sound:
+          type: string
+          nullable: true
+          enum:
+            - "on"
+            - "off"
+    RuntimeVideoModelParametersState:
+      type: object
+      required:
+        - duration
+        - aspectRatios
+        - referenceImageSupported
+        - audioCapabilities
+        - inputCapabilities
+        - providerParameters
+      properties:
+        duration:
+          $ref: "#/components/schemas/RuntimeVideoDurationConstraintState"
+        aspectRatios:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/RuntimeVideoAspectRatioOptionState"
+        referenceImageSupported:
+          type: boolean
+        audioCapabilities:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/RuntimeVideoAudioCapability"
+        inputCapabilities:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/RuntimeVideoInputCapability"
+        providerParameters:
+          $ref: "#/components/schemas/RuntimeVideoProviderParametersState"
     RuntimeProviderBillingMode:
       type: string
       enum:
@@ -14371,6 +14500,10 @@ components:
           nullable: true
         notes:
           type: string
+          nullable: true
+        videoModelParameters:
+          allOf:
+            - $ref: "#/components/schemas/RuntimeVideoModelParametersState"
           nullable: true
     RuntimeProviderTokenMeteredModelProfileState:
       allOf:

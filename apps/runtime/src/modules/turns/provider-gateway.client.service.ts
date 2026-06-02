@@ -412,6 +412,18 @@ export class ProviderGatewayClientService {
       options?.timeoutMs ?? this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
     );
     if (!response.ok) {
+      const extracted = this.extractStructuredError(response.body);
+      if (extracted.code === "accepted_primary_unconfirmed") {
+        throw new ServiceUnavailableException({
+          error: {
+            code: extracted.code,
+            message:
+              extracted.message ??
+              "Provider task was accepted, but polling continuity was lost before terminal status.",
+            providerStatus: extracted.providerStatus
+          }
+        });
+      }
       throw this.toGatewayException(response);
     }
     if (!this.isVideoGenerateResult(response.body, input.credential.providerId ?? null)) {

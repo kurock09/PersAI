@@ -111,6 +111,12 @@ type OpenAIBuiltTool = {
   strict: false;
 };
 
+type OpenAIAcceptedVideoTask = {
+  videoId: string;
+  model: string;
+  acceptedAt: string;
+};
+
 @Injectable()
 export class OpenAIProviderClient implements ProviderWarmableClient {
   readonly provider = "openai" as const;
@@ -625,12 +631,13 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       Math.max(this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS, OPENAI_VIDEO_GENERATION_TIMEOUT_MS)
     );
     try {
-      const createdJob = await this.createOpenAIVideoJob(input, apiKey, signal);
+      const acceptedTask = await this.resolveAcceptedOpenAIVideoTask(input, apiKey, signal);
+      const createdJob = acceptedTask.job;
       const completedJob =
         createdJob.status === "completed"
           ? createdJob
           : createdJob.status === "queued" || createdJob.status === "in_progress"
-            ? await this.pollOpenAIVideoJob(createdJob.id, apiKey, signal)
+            ? await this.pollOpenAIVideoJob(acceptedTask.task, apiKey, signal)
             : (() => {
                 throw new Error(
                   `OpenAI video generation ended with status "${createdJob.status}".`
@@ -1678,7 +1685,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   }
 
   private async pollOpenAIVideoJob(
-    videoId: string,
+    acceptedTask: OpenAIAcceptedVideoTask,
     apiKey: string,
     signal: AbortSignal
   ): Promise<{ id: string; status: string; model: string | null }> {
@@ -1688,7 +1695,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       await this.delay(OPENAI_VIDEO_POLL_INTERVAL_MS, signal);
       let response: Response;
       try {
-        response = await fetch(`https://api.openai.com/v1/videos/${videoId}`, {
+        response = await fetch(`https://api.openai.com/v1/videos/${acceptedTask.videoId}`, {
           method: "GET",
           headers: {
             Authorization: `Bearer ${apiKey}`
@@ -1701,8 +1708,15 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           throw error;
         }
         transientFetchFailures += 1;
+        this.logger.warn(
+          `[video-openai] poll transport_error task_id=${acceptedTask.videoId} providerStage=accepted acceptedAt=${acceptedTask.acceptedAt} transientFailures=${String(
+            transientFetchFailures
+          )}/${String(OPENAI_MAX_TRANSIENT_VIDEO_POLL_FETCH_FAILURES)} message=${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
         if (transientFetchFailures >= OPENAI_MAX_TRANSIENT_VIDEO_POLL_FETCH_FAILURES) {
-          throw error;
+          throw this.buildOpenAIVideoPollingLossError(acceptedTask, error);
         }
         continue;
       }
@@ -1723,6 +1737,95 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       completedJob = job;
     }
     return completedJob;
+  }
+
+  private async resolveAcceptedOpenAIVideoTask(
+    input: ProviderGatewayVideoGenerateRequest,
+    apiKey: string,
+    signal: AbortSignal
+  ): Promise<{
+    task: OpenAIAcceptedVideoTask;
+    job: { id: string; status: string; model: string | null };
+  }> {
+    const reusedTask = this.normalizeAcceptedOpenAIVideoTask(
+      input.acceptedTask,
+      input.model ?? OPENAI_VIDEO_GENERATION_MODEL
+    );
+    if (reusedTask !== null) {
+      const job = await this.fetchOpenAIVideoJob(reusedTask.videoId, apiKey, signal);
+      return { task: reusedTask, job };
+    }
+    const job = await this.createOpenAIVideoJob(input, apiKey, signal);
+    const acceptedAt = new Date().toISOString();
+    const task = {
+      videoId: job.id,
+      model: job.model ?? input.model ?? OPENAI_VIDEO_GENERATION_MODEL,
+      acceptedAt
+    };
+    this.logger.log(
+      `[video-openai] create accepted task_id=${task.videoId} model=${task.model} acceptedAt=${acceptedAt}`
+    );
+    return { task, job };
+  }
+
+  private normalizeAcceptedOpenAIVideoTask(
+    acceptedTask: ProviderGatewayVideoGenerateRequest["acceptedTask"],
+    fallbackModel: string
+  ): OpenAIAcceptedVideoTask | null {
+    if (
+      acceptedTask === null ||
+      acceptedTask === undefined ||
+      acceptedTask.provider !== "openai" ||
+      acceptedTask.providerStage !== "accepted"
+    ) {
+      return null;
+    }
+    const providerTaskId = this.normalizeOptionalText(acceptedTask.providerTaskId);
+    if (providerTaskId === null) {
+      return null;
+    }
+    return {
+      videoId: providerTaskId,
+      model: this.normalizeOptionalText(acceptedTask.model) ?? fallbackModel,
+      acceptedAt: this.normalizeOptionalText(acceptedTask.acceptedAt) ?? new Date().toISOString()
+    };
+  }
+
+  private async fetchOpenAIVideoJob(
+    videoId: string,
+    apiKey: string,
+    signal: AbortSignal
+  ): Promise<{ id: string; status: string; model: string | null }> {
+    const response = await fetch(`https://api.openai.com/v1/videos/${videoId}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`
+      },
+      signal
+    });
+    const body = await this.readJsonBody(response);
+    if (!response.ok) {
+      throw new Error(this.readOpenAIVideoErrorMessage(body, response.status));
+    }
+    return this.parseOpenAIVideoJob(body);
+  }
+
+  private buildOpenAIVideoPollingLossError(
+    acceptedTask: OpenAIAcceptedVideoTask,
+    error: unknown
+  ): Error {
+    const message = error instanceof Error ? error.message : String(error);
+    const payload = {
+      providerTaskId: acceptedTask.videoId,
+      provider: "openai",
+      model: acceptedTask.model,
+      providerStage: "accepted",
+      acceptedAt: acceptedTask.acceptedAt,
+      code: "accepted_primary_unconfirmed",
+      reason: "provider accepted but polling transport lost",
+      message
+    };
+    return new Error(`PERSAI_VIDEO_POLLING_LOST::${JSON.stringify(payload)}`);
   }
 
   private isTransientOpenAIVideoPollStatus(status: number): boolean {

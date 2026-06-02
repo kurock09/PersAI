@@ -4,6 +4,7 @@ import type { AdminRuntimeProviderSettingsState } from "@persai/contracts";
 import AdminRuntimePage, {
   buildRouterPrecheckRuleOverrides,
   buildSkillRoutingPolicyInput,
+  normalizeVideoModelParametersForSlice2,
   normalizeDecimalInputText,
   parseDecimalInputText,
   parseRouterTriggerTerms
@@ -370,12 +371,58 @@ describe("AdminRuntimePage catalog picker", () => {
           { aspectRatio: "9:16", size: "720x1280", providerValue: "720:1280" }
         ],
         referenceImageSupported: true,
+        audioCapabilities: ["silent"],
+        inputCapabilities: ["text", "single_reference_image"],
         providerParameters: null
       }
     });
     expect(request.availableModelsByProvider).toEqual({
       openai: ["gpt-5.4"],
       anthropic: []
+    });
+  });
+
+  it("saves active-slice Kling video defaults without deferred omni", async () => {
+    render(<AdminRuntimePage />);
+
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Add model" })[3]!);
+
+    const klingHint = screen.getByText(/Kling is a video-only catalog provider/i);
+    const klingEditor = klingHint.closest("div");
+    expect(klingEditor).not.toBeNull();
+    const kling = within(klingEditor!);
+
+    fireEvent.change(kling.getByLabelText("Model key"), {
+      target: { value: "kling-v3" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(apiMocks.putAdminRuntimeProviderSettings).toHaveBeenCalledWith(
+        "token-1",
+        expect.any(Object)
+      )
+    );
+
+    const request = apiMocks.putAdminRuntimeProviderSettings.mock.calls.at(-1)?.[1];
+    expect(request.availableModelCatalogByProvider.kling.models[0]).toMatchObject({
+      model: "kling-v3",
+      capabilities: ["video"],
+      videoModelParameters: {
+        referenceImageSupported: true,
+        audioCapabilities: ["silent", "provider_native_audio", "voice_control"],
+        inputCapabilities: ["text", "single_reference_image", "multi_image"],
+        providerParameters: {
+          mode: "pro",
+          sound: "off"
+        }
+      }
     });
   });
 });
@@ -386,6 +433,34 @@ describe("admin runtime decimal inputs", () => {
     expect(parseDecimalInputText("0.075")).toBe(0.075);
     expect(parseDecimalInputText("0,")).toBeNull();
     expect(parseDecimalInputText("0.")).toBeNull();
+  });
+});
+
+describe("admin runtime video capability helpers", () => {
+  it("normalizes active slice video capabilities dynamically", () => {
+    expect(
+      normalizeVideoModelParametersForSlice2({
+        duration: { kind: "allowed_list", values: [5, 8, 10] },
+        aspectRatios: [{ aspectRatio: "16:9", size: "1280x720", providerValue: "16:9" }],
+        referenceImageSupported: false,
+        audioCapabilities: ["voice_control"],
+        inputCapabilities: ["text", "single_reference_image", "multi_image", "omni"],
+        providerParameters: {
+          mode: "pro",
+          sound: "on"
+        }
+      })
+    ).toEqual({
+      duration: { kind: "allowed_list", values: [5, 8, 10] },
+      aspectRatios: [{ aspectRatio: "16:9", size: "1280x720", providerValue: "16:9" }],
+      referenceImageSupported: false,
+      audioCapabilities: ["silent"],
+      inputCapabilities: ["text"],
+      providerParameters: {
+        mode: "pro",
+        sound: "off"
+      }
+    });
   });
 });
 

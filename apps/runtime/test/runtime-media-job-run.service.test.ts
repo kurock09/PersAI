@@ -167,7 +167,15 @@ describe("RuntimeMediaJobRunService", () => {
                 {
                   artifactId: "artifact-1",
                   kind: "image",
-                  billingFacts: { provider: "openai", model: "gpt-image-1", costMicros: 123 }
+                  billingFacts: {
+                    providerKey: "openai",
+                    modelKey: "gpt-image-1",
+                    capability: "image",
+                    occurredAt: "2026-05-05T09:00:01.000Z",
+                    metering: {
+                      meteringKind: "fixed_operation"
+                    }
+                  }
                 }
               ],
               respondedAt: "2026-05-05T09:00:01.000Z",
@@ -225,6 +233,160 @@ describe("RuntimeMediaJobRunService", () => {
       }
     );
     assert.equal(executed, 0);
+  });
+
+  test("propagates accepted_primary_unconfirmed for video jobs to recovery path", async () => {
+    const service = new RuntimeMediaJobRunService(
+      {} as never,
+      {} as never,
+      {
+        executeToolCall: async () => ({
+          payload: {
+            toolCode: "video_generate",
+            executionMode: "worker",
+            provider: "kling",
+            model: "kling-v3",
+            prompt: "make a teaser",
+            requestedSeconds: 4,
+            requestedAudioMode: "silent",
+            requestedInputMode: "text",
+            size: "1280x720",
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "accepted_primary_unconfirmed",
+            warning: "Provider accepted the video task, but polling continuity was lost.",
+            providerStatus: {
+              providerTaskId: "task_kling_123",
+              provider: "kling",
+              model: "kling-v3",
+              acceptedAt: "2026-06-02T12:00:00.000Z",
+              providerStage: "accepted"
+            }
+          },
+          artifacts: [],
+          isError: true
+        })
+      } as never,
+      new RuntimeExecutionAdmissionService(new RuntimeObservabilityService()),
+      {
+        acceptTurn: async (input: RuntimeTurnRequest) => createAcceptedTurn(input)
+      } as never,
+      {
+        completeAcceptedTurn: async () => {
+          throw new Error("should not complete");
+        },
+        failAcceptedTurn: async () => ({
+          receiptStatus: "failed",
+          session: {} as never,
+          leaseReleased: true
+        })
+      } as never
+    );
+
+    const request = createRunRequest("make a teaser");
+    request.job.kind = "video";
+    request.directToolExecution = {
+      toolCode: "video_generate",
+      request: {
+        toolCode: "video_generate",
+        prompt: "make a teaser",
+        filename: null,
+        size: "1280x720",
+        seconds: 4,
+        referenceImageAlias: null
+      }
+    };
+
+    await assert.rejects(
+      () => service.run(request),
+      (error) => {
+        assert.ok(error instanceof ServiceUnavailableException);
+        const response = (error as ServiceUnavailableException).getResponse() as {
+          error?: { code?: string; providerStatus?: { providerTaskId?: string } };
+        };
+        assert.equal(response.error?.code, "accepted_primary_unconfirmed");
+        assert.equal(response.error?.providerStatus?.providerTaskId, "task_kling_123");
+        return true;
+      }
+    );
+  });
+
+  test("treats requested_mode_unsupported video jobs as honest bad requests", async () => {
+    const service = new RuntimeMediaJobRunService(
+      {} as never,
+      {} as never,
+      {
+        executeToolCall: async () => ({
+          payload: {
+            toolCode: "video_generate",
+            executionMode: "worker",
+            provider: "runway",
+            model: "gen4_turbo",
+            prompt: "make a narrated teaser",
+            requestedSeconds: 5,
+            requestedAudioMode: "provider_native_audio",
+            requestedInputMode: "text",
+            size: "1280x720",
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "requested_mode_unsupported",
+            warning:
+              "The selected video model does not support provider-native audio, so this request cannot be run honestly as an audio-capable video."
+          },
+          artifacts: [],
+          isError: true
+        })
+      } as never,
+      new RuntimeExecutionAdmissionService(new RuntimeObservabilityService()),
+      {
+        acceptTurn: async (input: RuntimeTurnRequest) => createAcceptedTurn(input)
+      } as never,
+      {
+        completeAcceptedTurn: async () => {
+          throw new Error("should not complete");
+        },
+        failAcceptedTurn: async () => ({
+          receiptStatus: "failed",
+          session: {} as never,
+          leaseReleased: true
+        })
+      } as never
+    );
+
+    const request = createRunRequest("make a narrated teaser");
+    request.job.kind = "video";
+    request.directToolExecution = {
+      toolCode: "video_generate",
+      request: {
+        toolCode: "video_generate",
+        prompt: "make a narrated teaser",
+        filename: null,
+        size: "1280x720",
+        seconds: 5,
+        audioMode: "provider_native_audio",
+        inputMode: "text",
+        referenceImageAlias: null
+      }
+    };
+
+    await assert.rejects(
+      () => service.run(request),
+      (error) => {
+        assert.ok(error instanceof BadRequestException);
+        const response = (error as BadRequestException).getResponse() as {
+          error?: { code?: string; message?: string };
+        };
+        assert.equal(response.error?.code, "requested_mode_unsupported");
+        assert.match(response.error?.message ?? "", /does not support provider-native audio/i);
+        return true;
+      }
+    );
   });
 });
 

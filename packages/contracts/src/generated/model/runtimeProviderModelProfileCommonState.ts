@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { RuntimeProviderModelCapability } from "./runtimeProviderModelCapability";
+import type { RuntimeProviderModelProfileCommonStateVideoModelParameters } from "./runtimeProviderModelProfileCommonStateVideoModelParameters";
 
 export interface RuntimeProviderModelProfileCommonState {
   model: string;
@@ -25,4 +26,6 @@ export interface RuntimeProviderModelProfileCommonState {
   displayLabel: string | null;
   /** @nullable */
   notes: string | null;
+  /** @nullable */
+  videoModelParameters?: RuntimeProviderModelProfileCommonStateVideoModelParameters;
 }
