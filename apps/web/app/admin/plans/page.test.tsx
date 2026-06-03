@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AdminPlanState } from "@persai/contracts";
 import {
+  PlanForm,
   ToolActivationsEdit,
   draftToPayload,
   isCreateFormDirty,
@@ -428,6 +429,99 @@ describe("admin plans page helpers", () => {
         name: "shared-video (runway) - duplicate active model id"
       })[0]
     ).toBeDisabled();
+  });
+  it("ADR-108 Slice 5 — planToDraft round-trips videoVcoinMonthlyGrant", () => {
+    const plan = { ...createPlanState(), videoVcoinMonthlyGrant: 1000 };
+    const draft = planToDraft(plan as AdminPlanState);
+    expect(draft.videoVcoinMonthlyGrant).toBe("1000");
+  });
+
+  it("ADR-108 Slice 5 — draftToPayload maps videoVcoinMonthlyGrant to top-level field", () => {
+    const draft = planToDraft({
+      ...createPlanState(),
+      videoVcoinMonthlyGrant: 1000
+    } as AdminPlanState);
+    const payload = draftToPayload({ ...draft, videoVcoinMonthlyGrant: "1000" });
+    expect(payload.videoVcoinMonthlyGrant).toBe(1000);
+    expect(payload.quotaLimits?.videoGenerateMonthlyUnitsLimit).toBe(4);
+
+    const payloadBlank = draftToPayload({ ...draft, videoVcoinMonthlyGrant: "" });
+    expect(payloadBlank.videoVcoinMonthlyGrant).toBe(0);
+  });
+
+  it("ADR-108 Slice 5 — validatePlanDraft rejects negative and non-integer VC grant, accepts 0 and blank", () => {
+    const draft = planToDraft(createPlanState());
+    expect(
+      validatePlanDraft({ ...draft, videoVcoinMonthlyGrant: "-5" }).videoVcoinMonthlyGrant
+    ).toBeTruthy();
+    expect(
+      validatePlanDraft({ ...draft, videoVcoinMonthlyGrant: "0" }).videoVcoinMonthlyGrant
+    ).toBeUndefined();
+    expect(
+      validatePlanDraft({ ...draft, videoVcoinMonthlyGrant: "" }).videoVcoinMonthlyGrant
+    ).toBeUndefined();
+    expect(
+      validatePlanDraft({ ...draft, videoVcoinMonthlyGrant: "1.5" }).videoVcoinMonthlyGrant
+    ).toBeTruthy();
+  });
+
+  it("ADR-108 Slice 5 — isPlanDraftDirty flips to true when videoVcoinMonthlyGrant changes", () => {
+    const plan = { ...createPlanState(), videoVcoinMonthlyGrant: 500 } as AdminPlanState;
+    const draft = planToDraft(plan);
+    const snapshot = normalizePlanDraftForCompare(draft);
+    expect(isPlanDraftDirty(snapshot, draft)).toBe(false);
+    expect(isPlanDraftDirty(snapshot, { ...draft, videoVcoinMonthlyGrant: "999" })).toBe(true);
+  });
+
+  it("ADR-108 Slice 5 — hint ≈ N videos recomputes correctly", () => {
+    const draft = planToDraft(createPlanState());
+    render(
+      <PlanForm
+        draft={{ ...draft, videoVcoinMonthlyGrant: "1000" }}
+        onPatch={() => {}}
+        validationErrors={{}}
+        showCode={false}
+        code="pro"
+        onCodeChange={() => {}}
+        vcoinExchangeRate={20}
+        avgVideoUsdPerSecond={0.05}
+      />
+    );
+    expect(screen.getByText("≈ 200 videos")).toBeTruthy();
+  });
+
+  it("ADR-108 Slice 5 — hint shows ≈ — videos when avgVideoUsdPerSecond is null", () => {
+    const draft = planToDraft(createPlanState());
+    render(
+      <PlanForm
+        draft={{ ...draft, videoVcoinMonthlyGrant: "1000" }}
+        onPatch={() => {}}
+        validationErrors={{}}
+        showCode={false}
+        code="pro"
+        onCodeChange={() => {}}
+        vcoinExchangeRate={20}
+        avgVideoUsdPerSecond={null}
+      />
+    );
+    expect(screen.getAllByText("≈ — videos").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("ADR-108 Slice 5 — vcoinExchangeRate label renders 1 USD = 20 VC", () => {
+    const draft = planToDraft(createPlanState());
+    render(
+      <PlanForm
+        draft={{ ...draft, videoVcoinMonthlyGrant: "500" }}
+        onPatch={() => {}}
+        validationErrors={{}}
+        showCode={false}
+        code="pro"
+        onCodeChange={() => {}}
+        vcoinExchangeRate={20}
+        avgVideoUsdPerSecond={0.05}
+      />
+    );
+    expect(screen.getAllByText("1 USD = 20 VC").length).toBeGreaterThanOrEqual(1);
   });
 });
 

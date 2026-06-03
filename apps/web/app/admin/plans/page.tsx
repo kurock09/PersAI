@@ -108,6 +108,8 @@ export type PlanDraft = {
   imageGenerateMonthlyUnitsLimit: string;
   imageEditMonthlyUnitsLimit: string;
   videoGenerateMonthlyUnitsLimit: string;
+  /** ADR-108 Slice 5 — replaces videoGenerateMonthlyUnitsLimit in the UI; top-level on AdminPlanInputBase, not nested under quotaLimits. */
+  videoVcoinMonthlyGrant: string;
   documentMonthlyUnitsLimit: string;
   mediaStorageMb: string;
   knowledgeStorageMb: string;
@@ -198,6 +200,7 @@ type NumericDraftField =
   | "imageGenerateMonthlyUnitsLimit"
   | "imageEditMonthlyUnitsLimit"
   | "videoGenerateMonthlyUnitsLimit"
+  | "videoVcoinMonthlyGrant"
   | "documentMonthlyUnitsLimit"
   | "mediaStorageMb"
   | "knowledgeStorageMb"
@@ -290,6 +293,9 @@ const TOOL_PER_TURN_CAP_DEFAULT: Readonly<Record<string, number>> = {
 };
 
 const MONTHLY_MEDIA_QUOTA_TOOL_CODES = new Set(["image_generate", "image_edit", "video_generate"]);
+
+/** ADR-108 Slice 5 — UI heuristic only: typical short video duration in seconds, used to compute the "≈ N videos" hint next to the Monthly VC grant field. Not an authoritative limit; operators see this as a rough planning aid. */
+const TYPICAL_VIDEO_SECONDS = 5;
 
 /**
  * One-sentence operator-facing description shown under each tool card title.
@@ -485,6 +491,12 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
     field: "videoGenerateMonthlyUnitsLimit",
     label: "Monthly video generations",
     min: 1,
+    allowBlank: true
+  },
+  {
+    field: "videoVcoinMonthlyGrant",
+    label: "Monthly VC grant",
+    min: 0,
     allowBlank: true
   },
   {
@@ -732,6 +744,7 @@ function emptyDraft(): PlanDraft {
     imageGenerateMonthlyUnitsLimit: "",
     imageEditMonthlyUnitsLimit: "",
     videoGenerateMonthlyUnitsLimit: "",
+    videoVcoinMonthlyGrant: "",
     documentMonthlyUnitsLimit: "",
     mediaStorageMb: "",
     knowledgeStorageMb: "",
@@ -840,6 +853,7 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     imageEditMonthlyUnitsLimit: plan.quotaLimits?.imageEditMonthlyUnitsLimit?.toString() ?? "",
     videoGenerateMonthlyUnitsLimit:
       plan.quotaLimits?.videoGenerateMonthlyUnitsLimit?.toString() ?? "",
+    videoVcoinMonthlyGrant: (plan.videoVcoinMonthlyGrant ?? 0).toString(),
     documentMonthlyUnitsLimit:
       (
         plan.quotaLimits as PlanQuotaLimitsDraftShape | undefined
@@ -1004,6 +1018,12 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       allowBlank: true
     }
   );
+  const videoVcoinMonthlyGrant =
+    parseStrictIntegerDraft(draft.videoVcoinMonthlyGrant, {
+      label: "Monthly VC grant",
+      min: 0,
+      allowBlank: true
+    }) ?? 0;
   const documentMonthlyUnitsLimit = parseStrictIntegerDraft(draft.documentMonthlyUnitsLimit, {
     label: "Monthly document generations",
     min: 1,
@@ -1330,6 +1350,7 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     imageEditFallbackModelKey: toNullable(draft.imageEditFallbackModelKey),
     videoGenerateModelKey: toNullable(draft.videoGenerateModelKey),
     videoGenerateFallbackModelKey: toNullable(draft.videoGenerateFallbackModelKey),
+    videoVcoinMonthlyGrant,
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
       active: ta.active,
@@ -2067,7 +2088,7 @@ function PlanEditorStickyActions({
 
 /* ─── Compact plan form (edit / create) ─── */
 
-function PlanForm({
+export function PlanForm({
   draft,
   onPatch,
   validationErrors,
@@ -2079,7 +2100,9 @@ function PlanForm({
   availableImageModelKeys = [],
   availableVideoModelKeys = [],
   runtimePrimaryModelKey = null,
-  tokenMeteredWeightsByModel = {}
+  tokenMeteredWeightsByModel = {},
+  vcoinExchangeRate = 20,
+  avgVideoUsdPerSecond = null
 }: {
   draft: PlanDraft;
   onPatch: (p: Partial<PlanDraft>) => void;
@@ -2093,6 +2116,8 @@ function PlanForm({
   availableVideoModelKeys?: ModelOption[];
   runtimePrimaryModelKey?: string | null;
   tokenMeteredWeightsByModel?: Record<string, TokenMeteredWeights>;
+  vcoinExchangeRate?: number;
+  avgVideoUsdPerSecond?: number | null;
 }) {
   const editableActivations = draft.toolActivations.filter(
     (ta) => ta.policyClass === "plan_managed"
@@ -2680,25 +2705,71 @@ function PlanForm({
                   />
                 </label>
                 <FieldError message={validationErrors.imageEditMonthlyUnitsLimit} />
-                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                  <span title="Monthly video generation units for the subscription period. Blank = unlimited. Reserved before provider work and settled only after delivery succeeds.">
-                    Monthly video generations
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    value={draft.videoGenerateMonthlyUnitsLimit}
-                    onChange={(e) => onPatch({ videoGenerateMonthlyUnitsLimit: e.target.value })}
-                    placeholder="unlimited"
-                    className={cn(
-                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
-                      validationErrors.videoGenerateMonthlyUnitsLimit
-                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
-                        : "border-border focus:border-accent focus:ring-accent/50"
-                    )}
-                  />
-                </label>
-                <FieldError message={validationErrors.videoGenerateMonthlyUnitsLimit} />
+                <div className="opacity-60">
+                  <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                    <span title="Monthly video generation units for the subscription period. Blank = unlimited. Reserved before provider work and settled only after delivery succeeds.">
+                      <s>Monthly video generations</s>
+                      <span className="ml-1 text-text-subtle">
+                        (deprecated — use Monthly VC grant)
+                      </span>
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={draft.videoGenerateMonthlyUnitsLimit}
+                      onChange={(e) => onPatch({ videoGenerateMonthlyUnitsLimit: e.target.value })}
+                      placeholder="unlimited"
+                      className={cn(
+                        "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                        validationErrors.videoGenerateMonthlyUnitsLimit
+                          ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                          : "border-border focus:border-accent focus:ring-accent/50"
+                      )}
+                    />
+                  </label>
+                  <FieldError message={validationErrors.videoGenerateMonthlyUnitsLimit} />
+                </div>
+                <div>
+                  <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                    <span title="Monthly Vcoin (VC) grant credited to the workspace wallet at subscription period rollover. Blank or 0 = no monthly grant; users must purchase VC packages to generate videos.">
+                      Monthly VC grant
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <div className="flex flex-col items-end gap-0.5">
+                        <span className="text-[10px] text-text-subtle">
+                          1 USD = {vcoinExchangeRate} VC
+                        </span>
+                        <span className="text-[10px] text-text-subtle">
+                          {avgVideoUsdPerSecond !== null && draft.videoVcoinMonthlyGrant !== ""
+                            ? (() => {
+                                const grant = parseInt(draft.videoVcoinMonthlyGrant, 10);
+                                if (isNaN(grant) || grant <= 0) return "≈ — videos";
+                                const vcPerVideo = Math.ceil(
+                                  avgVideoUsdPerSecond * TYPICAL_VIDEO_SECONDS * vcoinExchangeRate
+                                );
+                                if (vcPerVideo <= 0) return "≈ — videos";
+                                return `≈ ${Math.floor(grant / vcPerVideo)} videos`;
+                              })()
+                            : "≈ — videos"}
+                        </span>
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        value={draft.videoVcoinMonthlyGrant}
+                        onChange={(e) => onPatch({ videoVcoinMonthlyGrant: e.target.value })}
+                        placeholder="0"
+                        className={cn(
+                          "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                          validationErrors.videoVcoinMonthlyGrant
+                            ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                            : "border-border focus:border-accent focus:ring-accent/50"
+                        )}
+                      />
+                    </div>
+                  </label>
+                  <FieldError message={validationErrors.videoVcoinMonthlyGrant} />
+                </div>
                 <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
                   <span title="Monthly document generation units for the subscription period. Blank = unlimited. Count one successful document tool result as one used unit.">
                     Monthly document generations
@@ -3891,6 +3962,8 @@ export default function AdminPlansPage() {
   >({});
   const [packages, setPackages] = useState<MediaPackageCatalogItem[]>([]);
   const [packagesLoading, setPackagesLoading] = useState(false);
+  const [vcoinExchangeRate, setVcoinExchangeRate] = useState<number>(20);
+  const [avgVideoUsdPerSecond, setAvgVideoUsdPerSecond] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -3995,6 +4068,44 @@ export default function AdminPlansPage() {
         setAvailableVideoModelKeys(videoKeys);
       } else {
         setTokenMeteredWeightsByModel({});
+      }
+      setVcoinExchangeRate(runtimeData?.vcoinExchangeRate ?? 20);
+      if (runtimeData?.availableModelCatalogByProvider) {
+        const usdPerSecondSamples: number[] = [];
+        for (const catalog of Object.values(
+          runtimeData.availableModelCatalogByProvider as unknown as Record<
+            string,
+            {
+              models: Array<{
+                active: boolean;
+                capabilities: string[];
+                billingMode?: string;
+                providerPriceMetadata?: {
+                  timePricing?: { pricePerUnit?: number; unit?: string };
+                };
+              }>;
+            }
+          >
+        )) {
+          for (const profile of catalog.models ?? []) {
+            if (
+              profile.active &&
+              profile.capabilities.includes("video") &&
+              profile.billingMode === "time_metered" &&
+              typeof profile.providerPriceMetadata?.timePricing?.pricePerUnit === "number"
+            ) {
+              const raw = profile.providerPriceMetadata.timePricing.pricePerUnit;
+              const unit = profile.providerPriceMetadata.timePricing.unit ?? "second";
+              const perSecond = unit === "minute" ? raw / 60 : raw;
+              usdPerSecondSamples.push(perSecond);
+            }
+          }
+        }
+        setAvgVideoUsdPerSecond(
+          usdPerSecondSamples.length > 0
+            ? usdPerSecondSamples.reduce((a, b) => a + b, 0) / usdPerSecondSamples.length
+            : null
+        );
       }
     } catch (err) {
       setFeedback({
@@ -4330,6 +4441,8 @@ export default function AdminPlansPage() {
             availableVideoModelKeys={availableVideoModelKeys}
             runtimePrimaryModelKey={runtimePrimaryModelKey}
             tokenMeteredWeightsByModel={tokenMeteredWeightsByModel}
+            vcoinExchangeRate={vcoinExchangeRate}
+            avgVideoUsdPerSecond={avgVideoUsdPerSecond}
           />
           <PlanEditorStickyActions
             saving={saving}
@@ -4397,6 +4510,8 @@ export default function AdminPlansPage() {
                     availableVideoModelKeys={availableVideoModelKeys}
                     runtimePrimaryModelKey={runtimePrimaryModelKey}
                     tokenMeteredWeightsByModel={tokenMeteredWeightsByModel}
+                    vcoinExchangeRate={vcoinExchangeRate}
+                    avgVideoUsdPerSecond={avgVideoUsdPerSecond}
                   />
                   <PlanEditorStickyActions
                     saving={saving}

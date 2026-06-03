@@ -2,6 +2,59 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-03 — ADR-108 Slice 5: Admin Plans UI
+
+### What changed & why
+
+Baseline SHA at session start (after Slice 4 commit): `b999bf29`. Tree clean. ADR-108 Slice 5 was executed under the orchestrator agent execution model documented in ADR-108 `## Agent execution model`: the orchestrator stayed read-only for code, drafted Scope IN / Scope OUT / Forbidden patterns / Required tests / Verification commands, and spawned one implementation subagent. The subagent ran the full verification gate autonomously and returned a complete structured report.
+
+Slice 5 closes the operator-facing configuration loop: admins can now configure `videoVcoinMonthlyGrant` for each plan and see contextual hints about the exchange rate and typical video count. The legacy `videoGenerateMonthlyUnitsLimit` field is visually deprecated (muted, strikethrough, label note) but remains fully wired so operators can still null it out for backwards compat; Slice 8 owns its retirement.
+
+- `apps/web/app/admin/plans/page.tsx`: Added `videoVcoinMonthlyGrant: string` to `PlanDraft` type and `NumericDraftField`; added `NUMERIC_DRAFT_RULES` entry (`min: 0`, `allowBlank: true`, label `"Monthly VC grant"`); wired `planToDraft` (reads `plan.videoVcoinMonthlyGrant ?? 0` and stringifies), `draftToPayload` (blank → `0`, maps to top-level `videoVcoinMonthlyGrant` on `AdminPlanInputBase` — NOT under `quotaLimits`), `emptyDraft()` (`""`), and dirty-state tracking. Legacy `videoGenerateMonthlyUnitsLimit` stays in all wire positions with a visual deprecation wrapper (`opacity-60`, `<s>` title, `(deprecated — use Monthly VC grant)` note). New "Monthly VC grant" field inserted after the legacy field with `1 USD = N VC` and `≈ N videos` hints. Added `useState<number>(20)` for `vcoinExchangeRate` and `useState<number | null>(null)` for `avgVideoUsdPerSecond`; both set in `load()`. `TYPICAL_VIDEO_SECONDS = 5` constant added (UI heuristic only). `PlanForm` now exported and accepts `vcoinExchangeRate` and `avgVideoUsdPerSecond` props.
+- `apps/web/app/admin/runtime/page.tsx`: `ModelProfileEditor` and `PriceMetadataEditor` gained `vcoinExchangeRate?: number` prop; `time_metered` pricing block renders `<span className="text-xs text-muted-foreground">1 USD = {vcoinExchangeRate} VC</span>` next to "Price / unit" field; layout unchanged.
+- `apps/web/app/admin/plans/page.test.tsx`: +7 new test cases (round-trip, payload top-level placement, blank→0, validation rejects negative/float/accepts 0/blank, dirty detection, `≈ 200 videos` hint, `≈ — videos` null case, `1 USD = 20 VC` label).
+- `apps/web/app/admin/runtime/page.test.tsx`: +1 new case (`1 USD = 20 VC` label renders for time-metered video profile when `vcoinExchangeRate === 20`); `createRuntimeSettingsState()` augmented with `vcoinExchangeRate: 20`.
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`: Slice 5 status block appended.
+- `docs/CHANGELOG.md`: new top entry.
+- `docs/SESSION-HANDOFF.md`: this entry.
+
+### Files touched
+
+Modified:
+
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/app/admin/runtime/page.tsx`
+- `apps/web/app/admin/plans/page.test.tsx`
+- `apps/web/app/admin/runtime/page.test.tsx`
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- PASS `corepack pnpm --filter @persai/web run typecheck`
+- PASS `corepack pnpm --filter @persai/api run typecheck`
+- PASS `corepack pnpm -r --if-present run lint`
+- PASS `corepack pnpm run format:check`
+- PASS `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx` (13 tests, +7 new)
+- PASS `corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/page.test.tsx` (16 tests, +1 new)
+- PASS `corepack pnpm --filter @persai/web exec vitest run` (626 tests, full web suite)
+
+### Risks / residuals
+
+- **Legacy `videoGenerateMonthlyUnitsLimit` field is still active in the API payload.** Operators need to null it out manually if they want only VC-based billing; Slice 8 will retire the field and the admin prompt.
+- **`≈ N videos` hint is a UI heuristic** based on `TYPICAL_VIDEO_SECONDS = 5` and an arithmetic mean of active `time_metered` video catalog pricing. It is not authoritative and will diverge from real usage for long or complex videos. This is intentional and documented in the constant's JSDoc.
+- **No server-side guard prevents `videoGenerateMonthlyUnitsLimit` and `videoVcoinMonthlyGrant` from both being set simultaneously** on a plan. Slice 8 will add the migration playbook; for now, operators should null out the legacy field when they configure the grant.
+- **Admin Runtime label is only rendered when a catalog row is selected**; if no video rows exist in the catalog, the label never appears. Not a bug — it's contextually appropriate.
+
+### Deploy
+
+- **Web only.** No migration required. No API / runtime / provider-gateway / contracts change. No feature flag. The new field renders but is no-op until operators configure a `videoVcoinMonthlyGrant` value on their plans.
+
+### Next recommended slice
+
+- **ADR-108 Slice 6 — User UI updates.** Replaces the per-unit display in `assistant-settings.tsx`, `pricing-page-view.tsx`, and `packages/page.tsx` with VC-based display for `video_generate`.
+
 ## 2026-06-03 — ADR-108 Slice 4: Packages crediting flip (video_generate)
 
 ### What changed & why

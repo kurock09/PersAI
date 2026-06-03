@@ -124,6 +124,7 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
         updatedAt: null
       }
     },
+    vcoinExchangeRate: 20,
     notes: []
   };
 }
@@ -503,6 +504,50 @@ describe("AdminRuntimePage decimal pricing", () => {
         (profile: { model: string }) => profile.model === "gpt-5.4"
       );
       expect(chatProfile?.providerPriceMetadata.tokenPricing.inputPer1M).toBe(0.075);
+    });
+  });
+
+  it("ADR-108 Slice 5 — shows 1 USD = 20 VC label next to a time_metered price row", async () => {
+    const stateWithTimeMetered = {
+      ...createRuntimeSettingsState(),
+      vcoinExchangeRate: 20,
+      availableModelCatalogByProvider: {
+        ...createRuntimeSettingsState().availableModelCatalogByProvider,
+        runway: {
+          models: [
+            {
+              model: "gen4-turbo",
+              capabilities: ["video"],
+              active: true,
+              billingMode: "time_metered",
+              effectiveFrom: null,
+              effectiveTo: null,
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 1,
+              outputTokenWeight: 1,
+              displayLabel: "Gen4 Turbo",
+              notes: null,
+              providerPriceMetadata: {
+                currency: "USD",
+                timePricing: { unit: "second", pricePerUnit: 0.05 }
+              }
+            }
+          ]
+        }
+      }
+    };
+    apiMocks.getAdminRuntimeProviderSettings.mockResolvedValue(stateWithTimeMetered);
+
+    render(<AdminRuntimePage />);
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+    fireEvent.change(screen.getByLabelText("Runway catalog entry"), { target: { value: "0" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("1 USD = 20 VC")).toBeInTheDocument();
     });
   });
 });

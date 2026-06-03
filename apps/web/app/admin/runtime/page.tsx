@@ -1557,6 +1557,7 @@ export default function AdminRuntimePage() {
                       }
                       onDuplicate={() => duplicateCatalogProfile(provider, selectedIndex)}
                       onArchive={() => archiveCatalogProfile(provider, selectedIndex)}
+                      vcoinExchangeRate={settings?.vcoinExchangeRate ?? 20}
                     />
                   )}
 
@@ -1894,7 +1895,8 @@ function ModelProfileEditor({
   onChange,
   onProviderPriceMetadataChange,
   onDuplicate,
-  onArchive
+  onArchive,
+  vcoinExchangeRate = 20
 }: {
   provider: ManagedRuntimeCatalogProvider;
   profile: RuntimeProviderModelProfileState;
@@ -1902,6 +1904,7 @@ function ModelProfileEditor({
   onProviderPriceMetadataChange: (merge: RuntimeProviderPriceMetadataMerger) => void;
   onDuplicate: () => void;
   onArchive: () => void;
+  vcoinExchangeRate?: number;
 }) {
   const isDiscardableDraft = profile.model.trim().length === 0;
   const archiveActionDisabled = !isDiscardableDraft && !profile.active;
@@ -2087,7 +2090,11 @@ function ModelProfileEditor({
         )}
       </div>
 
-      <PriceMetadataEditor profile={profile} onChange={onProviderPriceMetadataChange} />
+      <PriceMetadataEditor
+        profile={profile}
+        onChange={onProviderPriceMetadataChange}
+        vcoinExchangeRate={vcoinExchangeRate}
+      />
 
       {profile.capabilities.includes("video") && (
         <VideoModelParametersEditor
@@ -2405,10 +2412,12 @@ function VideoModelParametersEditor({
 
 function PriceMetadataEditor({
   profile,
-  onChange
+  onChange,
+  vcoinExchangeRate = 20
 }: {
   profile: RuntimeProviderModelProfileState;
   onChange: (merge: RuntimeProviderPriceMetadataMerger) => void;
+  vcoinExchangeRate?: number;
 }) {
   const pricing =
     profile.providerPriceMetadata ?? createDefaultProviderPriceMetadata(profile.billingMode);
@@ -2500,21 +2509,24 @@ function PriceMetadataEditor({
               { value: "minute", label: "Minute" }
             ]}
           />
-          <NumberField
-            label="Price / unit"
-            value={timePricing.pricePerUnit}
-            onChange={(next) =>
-              onChange((current) => {
-                if (!("timePricing" in current)) {
-                  return current;
-                }
-                return {
-                  ...current,
-                  timePricing: { ...current.timePricing, pricePerUnit: next }
-                };
-              })
-            }
-          />
+          <div>
+            <NumberField
+              label="Price / unit"
+              value={timePricing.pricePerUnit}
+              onChange={(next) =>
+                onChange((current) => {
+                  if (!("timePricing" in current)) {
+                    return current;
+                  }
+                  return {
+                    ...current,
+                    timePricing: { ...current.timePricing, pricePerUnit: next }
+                  };
+                })
+              }
+            />
+            <span className="text-xs text-muted-foreground">1 USD = {vcoinExchangeRate} VC</span>
+          </div>
         </div>
       )}
 
