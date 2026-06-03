@@ -117,13 +117,27 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     );
   }
 
+  /**
+   * ADR-108 Slice 2 — settle the monthly unit counter. When `tx` is
+   * supplied (video-only settle path), the upsert + update run inside
+   * the caller's transaction so they commit/rollback atomically with the
+   * VC wallet debit. When `tx` is omitted (image / image-edit / TTS / STT
+   * call sites unchanged from before Slice 2), the implementation opens
+   * its own serializable transaction and applies the same
+   * decrement-reserved / increment-settled mutation.
+   */
   async settleMonthlyMediaQuota(
-    input: MonthlyMediaQuotaMutationInput
+    input: MonthlyMediaQuotaMutationInput,
+    tx?: Prisma.TransactionClient
   ): Promise<WorkspaceMonthlyToolQuotaCounter> {
-    return this.mutateMonthlyMediaQuota(input, (units) => ({
-      reservedUnits: { decrement: units },
-      settledUnits: { increment: units }
-    }));
+    return this.mutateMonthlyMediaQuota(
+      input,
+      (units) => ({
+        reservedUnits: { decrement: units },
+        settledUnits: { increment: units }
+      }),
+      tx
+    );
   }
 
   async consumeMonthlyToolQuotaSuccessOnly(
@@ -168,8 +182,30 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
 
   private async mutateMonthlyMediaQuota(
     input: MonthlyMediaQuotaMutationInput,
-    dataForUnits: (units: number) => Prisma.WorkspaceMediaMonthlyQuotaCounterUpdateInput
+    dataForUnits: (units: number) => Prisma.WorkspaceMediaMonthlyQuotaCounterUpdateInput,
+    externalTx?: Prisma.TransactionClient
   ): Promise<WorkspaceMonthlyToolQuotaCounter> {
+    // ADR-108 Slice 2: when the caller already owns a transaction (the
+    // video-only settle path composes settle + VC debit atomically),
+    // skip opening a nested $transaction and skip the serializable
+    // retry loop — the outer transaction owns isolation and retry. The
+    // mutation body itself is identical.
+    if (externalTx !== undefined) {
+      const counter = await this.upsertMonthlyMediaQuotaCounter(externalTx, input);
+      const units = Math.min(input.units, counter.reservedUnits);
+      if (units <= 0) {
+        return this.mapMonthlyMediaQuotaCounter(counter);
+      }
+      const updated = await externalTx.workspaceMediaMonthlyQuotaCounter.update({
+        where: { id: counter.id },
+        data: {
+          ...dataForUnits(units),
+          limitUnits: input.limitUnits,
+          lastComputedAt: new Date()
+        }
+      });
+      return this.mapMonthlyMediaQuotaCounter(updated);
+    }
     return this.withSerializableRetry("mutate monthly media quota", async () =>
       this.prisma.$transaction(
         async (tx) => {

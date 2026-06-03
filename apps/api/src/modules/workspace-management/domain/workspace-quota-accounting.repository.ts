@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import type {
   WorkspaceQuotaAccountingState,
   WorkspaceQuotaDimension
@@ -185,8 +186,20 @@ export interface WorkspaceQuotaAccountingRepository {
   reserveMonthlyMediaQuota(
     input: MonthlyMediaQuotaMutationInput
   ): Promise<ReserveMonthlyMediaQuotaResult>;
+  /**
+   * ADR-108 Slice 2 — settle the monthly unit counter for a media job.
+   *
+   * `tx` is optional. When provided, the settle runs inside the caller's
+   * transaction (used by the video-only success-delivery path so the
+   * unit-counter settle and the `workspace_vcoin_balances` debit commit
+   * or roll back together — ADR-108 cross-slice invariant 4). When
+   * omitted, the implementation opens its own serializable transaction,
+   * preserving byte-identical behavior for the image / image-edit / TTS /
+   * STT call sites that do not need transactional composition.
+   */
   settleMonthlyMediaQuota(
-    input: MonthlyMediaQuotaMutationInput
+    input: MonthlyMediaQuotaMutationInput,
+    tx?: Prisma.TransactionClient
   ): Promise<WorkspaceMonthlyToolQuotaCounter>;
   consumeMonthlyToolQuotaSuccessOnly(
     input: MonthlyMediaQuotaMutationInput

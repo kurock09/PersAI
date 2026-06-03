@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { RuntimeBillingFacts } from "@persai/runtime-contract";
 import { PlatformHttpMetricsService } from "../../../platform-core/application/platform-http-metrics.service";
 import {
   describeRuntimeMediaArtifact,
@@ -11,6 +12,11 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../../domain/assistant.repository";
 import type { Assistant } from "../../domain/assistant.entity";
 import type { WorkspaceMonthlyToolQuotaToolCode } from "../../domain/workspace-quota-accounting.repository";
+import {
+  WORKSPACE_VCOIN_BALANCE_REPOSITORY,
+  type WorkspaceVcoinBalanceRepository
+} from "../../domain/workspace-vcoin-balance.repository";
+import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 import type { AssistantWebChatMessageAttachmentState } from "../web-chat.types";
 import {
   CHANNEL_MEDIA_ADAPTERS,
@@ -33,6 +39,12 @@ import {
   RecordModelCostLedgerService,
   type ModelCostLedgerSurface
 } from "../record-model-cost-ledger.service";
+import { ResolvePlatformRuntimeProviderSettingsService } from "../resolve-platform-runtime-provider-settings.service";
+import {
+  findRuntimeProviderCatalogProfileForTimestamp,
+  type RuntimeProviderModelCatalogByProvider
+} from "../runtime-provider-profile";
+import { computeVideoVcoinCost } from "../vcoin/compute-video-vcoin-cost";
 import type { MediaChannel } from "./media.types";
 
 @Injectable()
@@ -52,7 +64,17 @@ export class MediaDeliveryService {
     private readonly assistantUploadMicroDescriptionJobService: AssistantUploadMicroDescriptionJobService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
-    private readonly recordModelCostLedgerService: RecordModelCostLedgerService
+    private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
+    // ADR-108 Slice 2 — video-only settle path needs the platform exchange
+    // rate + provider catalog (`vcoinExchangeRate` from
+    // PlatformRuntimeProviderSettings; per `(providerKey, modelKey,
+    // occurredAt)` catalog lookup), the VC wallet repository (debit
+    // primitive), and direct prisma access so the settle + debit can share
+    // ONE `$transaction` block (ADR-108 cross-slice invariant 4).
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
+    @Inject(WORKSPACE_VCOIN_BALANCE_REPOSITORY)
+    private readonly workspaceVcoinBalanceRepository: WorkspaceVcoinBalanceRepository,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {
     this.adapterMap = new Map(adapters.map((a) => [a.channel, a]));
   }
@@ -92,10 +114,27 @@ export class MediaDeliveryService {
         }
 
         results.push(persisted.state);
-        await this.settleMonthlyMediaQuotaBestEffort({
-          assistant,
-          toolCode: monthlyQuotaToolCode
-        });
+        // ADR-108 Slice 2 — for `video_generate`, settle the unit counter
+        // and debit the workspace VC wallet inside ONE transaction so
+        // retries cannot double-debit and a failed debit rolls the unit
+        // settle back. Image / image-edit branches keep their existing
+        // single-write best-effort settle (zero behavior change for
+        // image/TTS/STT — cross-slice invariant 1 / 6 in ADR-108).
+        if (
+          artifact.sourceToolCode === "video_generate" &&
+          monthlyQuotaToolCode === "video_generate"
+        ) {
+          await this.settleVideoGenerateWithVcoinDebit({
+            assistant,
+            artifact,
+            workspaceId: params.workspaceId
+          });
+        } else {
+          await this.settleMonthlyMediaQuotaBestEffort({
+            assistant,
+            toolCode: monthlyQuotaToolCode
+          });
+        }
         outcome = "success";
       } catch (err) {
         await this.markMonthlyMediaQuotaReconciliationBestEffort({
@@ -236,6 +275,131 @@ export class MediaDeliveryService {
         `Failed to settle monthly media quota for ${params.toolCode}: ${String(error)}`
       );
     }
+  }
+
+  /**
+   * ADR-108 Slice 2 — video-only success-delivery settle path.
+   *
+   * Wraps the existing monthly-unit-counter settle and the new VC wallet
+   * debit in ONE `prisma.$transaction(...)` block so both writes commit
+   * or roll back together (cross-slice invariant 4: settle + debit must
+   * be transactional; retries cannot double-debit). During the
+   * transitional period both writes happen for `video_generate`; Slice 8
+   * owns the migration playbook for retiring the per-unit counter.
+   *
+   * Failure semantics (mirrors existing per-unit lifecycle exactly):
+   *   - Missing assistant → no-op, no debit (defensive; matches today's
+   *     `settleMonthlyMediaQuotaBestEffort` early return).
+   *   - Missing billing facts on the artifact → throws so the outer
+   *     `deliver()` loop catches and runs
+   *     `markMonthlyMediaQuotaReconciliationBestEffort`. Silent zero-VC
+   *     fallback is forbidden by ADR-108 Slice 2.
+   *   - Non-time-metered metering kind → throws (same reconciliation
+   *     trigger).
+   *   - Missing catalog row at `(providerKey, modelKey, occurredAt)` →
+   *     throws (same reconciliation trigger).
+   *   - Transaction failure (settle or debit) → the entire transaction
+   *     rolls back and the outer `deliver()` catch handles
+   *     reconciliation.
+   *
+   * Notes:
+   *   - The `units: 1` constant on the unit-counter settle is preserved
+   *     for the transitional period — ADR-108 explicitly keeps the
+   *     `videoGenerateMonthlyUnitsLimit` plan check as a secondary
+   *     guard, and the counter must keep advancing so admins can audit
+   *     equivalence against the VC debit.
+   *   - The VC pre-check (`balance_vc > 0`) lives at enqueue, not here.
+   *     A settle that drives `balance_vc` below zero is permitted exactly
+   *     once per the wallet lifecycle rule; the next enqueue is rejected
+   *     with `vcoin_balance_exhausted`.
+   *   - `usdMicros` is computed but not written to the USD COGS ledger
+   *     here. The ledger write for `video_generate` already happens in
+   *     `assistant-media-job-scheduler.service.ts::recordPersistedBillingFactsEvent`
+   *     on job completion (cross-slice invariant 2: ledger writes / shape
+   *     unchanged). This local `usdMicros` is logged on debit so admins
+   *     can spot drift between the two paths.
+   */
+  private async settleVideoGenerateWithVcoinDebit(params: {
+    assistant: Assistant | null;
+    artifact: MediaArtifact;
+    workspaceId: string;
+  }): Promise<void> {
+    if (params.assistant === null) {
+      return;
+    }
+    const billingFacts = params.artifact.billingFacts ?? null;
+    if (billingFacts === null) {
+      throw new Error(
+        `video_generate settle requires billingFacts on the delivered artifact but none was present (artifact=${describeRuntimeMediaArtifact(params.artifact)}). ADR-108 Slice 2 forbids silent 0-VC fallback; this artifact must be reconciled.`
+      );
+    }
+    const platformSettings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    const catalogForProvider = this.resolveCatalogForProvider(
+      platformSettings.availableModelCatalogByProvider,
+      billingFacts.providerKey
+    );
+    if (catalogForProvider === null) {
+      throw new Error(
+        `video_generate settle: no provider catalog for "${billingFacts.providerKey}". Catalog/runtime drift; reconciliation required.`
+      );
+    }
+    const profile = findRuntimeProviderCatalogProfileForTimestamp(
+      catalogForProvider,
+      billingFacts.modelKey,
+      new Date(billingFacts.occurredAt)
+    );
+    if (profile === null) {
+      throw new Error(
+        `video_generate settle: no catalog row for (providerKey="${billingFacts.providerKey}", modelKey="${billingFacts.modelKey}", occurredAt="${billingFacts.occurredAt}"). Catalog/runtime drift; reconciliation required.`
+      );
+    }
+    const { vcCost, usdMicros } = computeVideoVcoinCost({
+      billingFacts: billingFacts as RuntimeBillingFacts,
+      profile,
+      vcoinExchangeRate: platformSettings.vcoinExchangeRate
+    });
+
+    const assistant = params.assistant;
+    // Single `prisma.$transaction` composes the unit-counter settle (via
+    // the optional `tx` overload added in Slice 2) with the VC wallet
+    // debit. If either write throws, both roll back; the outer
+    // `deliver()` catch then triggers reconciliation exactly as today.
+    const debitResult = await this.prisma.$transaction(async (tx) => {
+      await this.trackWorkspaceQuotaUsageService.settleAssistantMonthlyMediaQuota({
+        assistant,
+        toolCode: "video_generate",
+        units: 1,
+        tx
+      });
+      return this.workspaceVcoinBalanceRepository.debit({
+        workspaceId: params.workspaceId,
+        amountVc: vcCost,
+        tx
+      });
+    });
+
+    this.logger.log(
+      `adr108_video_settle workspaceId=${params.workspaceId} provider=${billingFacts.providerKey} model=${profile.model} durationSeconds=${String(
+        billingFacts.metering.meteringKind === "time_metered"
+          ? billingFacts.metering.durationSeconds
+          : "n/a"
+      )} usdMicros=${usdMicros.toString()} vcDebited=${String(vcCost)} previousBalanceVc=${String(debitResult.previousBalanceVc)} balanceVc=${String(debitResult.balanceVc)}`
+    );
+  }
+
+  private resolveCatalogForProvider(
+    catalogByProvider: RuntimeProviderModelCatalogByProvider,
+    providerKey: string
+  ): RuntimeProviderModelCatalogByProvider[keyof RuntimeProviderModelCatalogByProvider] | null {
+    if (
+      providerKey === "openai" ||
+      providerKey === "anthropic" ||
+      providerKey === "runway" ||
+      providerKey === "kling"
+    ) {
+      return catalogByProvider[providerKey];
+    }
+    return null;
   }
 
   private async markMonthlyMediaQuotaReconciliationBestEffort(params: {

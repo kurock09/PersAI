@@ -1,4 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { loadApiConfig } from "@persai/config";
 import type { RuntimeUsageAccounting, RuntimeUsageAccountingEntry } from "@persai/runtime-contract";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
@@ -1150,10 +1151,22 @@ export class TrackWorkspaceQuotaUsageService {
     };
   }
 
+  /**
+   * ADR-108 Slice 2 — settle the monthly unit counter for a media tool.
+   *
+   * `tx` is optional. When omitted, behavior is byte-identical to before
+   * Slice 2 (image / image-edit / TTS / STT call sites observe zero
+   * change). When provided, the underlying repository runs the
+   * settle inside the caller's transaction so the video-only
+   * success-delivery path can compose the unit-counter settle with the
+   * `workspace_vcoin_balances` debit and commit/rollback atomically
+   * (ADR-108 cross-slice invariant 4).
+   */
   async settleAssistantMonthlyMediaQuota(params: {
     assistant: Assistant;
     toolCode: WorkspaceMonthlyToolQuotaToolCode;
     units: number;
+    tx?: Prisma.TransactionClient;
   }): Promise<void> {
     if (params.units <= 0) {
       return;
@@ -1162,14 +1175,17 @@ export class TrackWorkspaceQuotaUsageService {
       params.assistant,
       params.toolCode
     );
-    await this.workspaceQuotaAccountingRepository.settleMonthlyMediaQuota({
-      workspaceId: params.assistant.workspaceId,
-      toolCode: params.toolCode,
-      periodStartedAt: context.period.periodStartedAt,
-      periodEndsAt: context.period.periodEndsAt,
-      units: params.units,
-      limitUnits: context.limitUnits
-    });
+    await this.workspaceQuotaAccountingRepository.settleMonthlyMediaQuota(
+      {
+        workspaceId: params.assistant.workspaceId,
+        toolCode: params.toolCode,
+        periodStartedAt: context.period.periodStartedAt,
+        periodEndsAt: context.period.periodEndsAt,
+        units: params.units,
+        limitUnits: context.limitUnits
+      },
+      params.tx
+    );
   }
 
   async consumeAssistantMonthlyToolQuotaSuccessOnly(params: {

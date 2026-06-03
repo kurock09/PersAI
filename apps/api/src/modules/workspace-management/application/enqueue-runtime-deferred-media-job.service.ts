@@ -21,6 +21,10 @@ import { QuotaGroundedLimitCopyService } from "./quota-grounded-limit-copy.servi
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import type { WorkspaceMonthlyToolQuotaToolCode } from "../domain/workspace-quota-accounting.repository";
+import {
+  WORKSPACE_VCOIN_BALANCE_REPOSITORY,
+  type WorkspaceVcoinBalanceRepository
+} from "../domain/workspace-vcoin-balance.repository";
 
 const MAX_OPEN_MEDIA_JOBS_PER_CHAT = 2;
 
@@ -53,7 +57,15 @@ export type EnqueueRuntimeDeferredMediaJobRejection = {
     | "media_job_concurrency"
     | "monthly_media_quota"
     | "plan_feature_unavailable"
-    | "runtime_degraded";
+    | "runtime_degraded"
+    /**
+     * ADR-108 Slice 2 — workspace VC wallet is empty (`balance_vc <= 0`)
+     * and this is a `video_generate` enqueue. The pre-check rejects
+     * BEFORE the existing monthly-unit-counter reservation runs, so a
+     * workspace with zero VC never starts the provider job. Image /
+     * image-edit / TTS / STT branches never produce this rejection.
+     */
+    | "vcoin_balance_exhausted";
   message: string;
   requestedUnits: number;
   activeJobs?: number;
@@ -71,7 +83,13 @@ export class EnqueueRuntimeDeferredMediaJobService {
     private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly quotaGroundedLimitCopyService: QuotaGroundedLimitCopyService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly resolveInternalRuntimeToolDailyPolicyService: ResolveInternalRuntimeToolDailyPolicyService
+    private readonly resolveInternalRuntimeToolDailyPolicyService: ResolveInternalRuntimeToolDailyPolicyService,
+    // ADR-108 Slice 2 — VC wallet repository for the advisory pre-check
+    // on `video_generate` enqueue. Image / image-edit / TTS / STT
+    // enqueues never read the wallet and never produce the
+    // `vcoin_balance_exhausted` rejection.
+    @Inject(WORKSPACE_VCOIN_BALANCE_REPOSITORY)
+    private readonly workspaceVcoinBalanceRepository: WorkspaceVcoinBalanceRepository
   ) {}
 
   parseInput(payload: unknown): EnqueueRuntimeDeferredMediaJobInput {
@@ -142,6 +160,32 @@ export class EnqueueRuntimeDeferredMediaJobService {
       return activation.rejection;
     }
     const assistant = activation.assistant;
+
+    // 2b) ADR-108 Slice 2 — advisory VC wallet pre-check for
+    //     `video_generate` only. The wallet lifecycle (ADR-108) allows
+    //     `balance_vc` to dip just-below-zero on a single in-flight
+    //     settle, then the next enqueue with `balance_vc <= 0` is
+    //     rejected here. The check is presence-only — NOT unit-count
+    //     based (cost can only be known after the provider returns
+    //     billing facts; ADR-108 explicitly chooses settle-only debit
+    //     over reserve-then-refund). The existing
+    //     `videoGenerateMonthlyUnitsLimit` reservation below remains as
+    //     the secondary plan-feature guard for the transitional period.
+    //     Image / image-edit / TTS / STT branches skip this entirely.
+    if (toolCode === "video_generate") {
+      const wallet = await this.workspaceVcoinBalanceRepository.getOrCreate(assistant.workspaceId);
+      if (wallet.balanceVc <= 0) {
+        return {
+          accepted: false,
+          code: "vcoin_balance_exhausted",
+          limitKind: "vcoin_balance_exhausted",
+          message:
+            "Your Vcoin balance is empty. Top up via the Packages page or wait for your monthly plan grant before generating another video.",
+          requestedUnits,
+          guidance: null
+        };
+      }
+    }
 
     // 3) Durable monthly media reservation at the enqueue seam (ADR-105 §7).
     //    This is the SINGLE reservation point; the worker no longer reserves.

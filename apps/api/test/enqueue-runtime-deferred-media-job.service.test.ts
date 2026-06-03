@@ -9,6 +9,9 @@ function buildService(overrides: {
   reserveAllowed?: boolean;
   toolActivationStatus?: "active" | "inactive";
   enqueueThrows?: boolean;
+  toolCode?: "image_generate" | "video_generate";
+  vcoinBalance?: number;
+  vcoinReadCalls?: string[];
 }): {
   service: EnqueueRuntimeDeferredMediaJobService;
   reserveCalls: ReserveCall[];
@@ -19,7 +22,10 @@ function buildService(overrides: {
     openJobCount = 0,
     reserveAllowed = true,
     toolActivationStatus = "active",
-    enqueueThrows = false
+    enqueueThrows = false,
+    toolCode = "image_generate",
+    vcoinBalance,
+    vcoinReadCalls
   } = overrides;
 
   const reserveCalls: ReserveCall[] = [];
@@ -95,15 +101,45 @@ function buildService(overrides: {
           planCode: "pro",
           tools: [
             {
-              toolCode: "image_generate",
-              displayName: "Image generate",
+              toolCode,
+              displayName: toolCode === "video_generate" ? "Video generate" : "Image generate",
               activationStatus: toolActivationStatus,
               dailyCallLimit: null
             }
           ]
         };
       }
-    } as never
+    } as never,
+    // ADR-108 Slice 2 — VC wallet repository. Image-only tests pass a
+    // throwing mock so any accidental wallet read on the image path is
+    // surfaced as a test failure (image enqueues must never consult the
+    // wallet — cross-slice invariant 1 / 6).
+    toolCode === "video_generate"
+      ? ({
+          async getOrCreate(workspaceId: string) {
+            if (vcoinReadCalls) {
+              vcoinReadCalls.push(workspaceId);
+            }
+            return {
+              workspaceId,
+              balanceVc: vcoinBalance ?? 0,
+              updatedAt: new Date("2026-06-03T19:00:00.000Z")
+            };
+          },
+          async debit() {
+            throw new Error("debit must not run from the enqueue path (settle-only)");
+          }
+        } as never)
+      : ({
+          async getOrCreate() {
+            throw new Error(
+              "VC wallet must NOT be read on image_generate / image_edit enqueues (invariant 1/6)"
+            );
+          },
+          async debit() {
+            throw new Error("VC wallet debit must NOT run from the enqueue path");
+          }
+        } as never)
   );
 
   return { service, reserveCalls, releaseCalls, enqueueCalls };
@@ -124,6 +160,26 @@ function imageGenerateInput(count: number, messageId: string) {
         filename: null,
         size: null,
         background: "auto" as const
+      }
+    }
+  };
+}
+
+function videoGenerateInput(messageId: string) {
+  return {
+    assistantId: "assistant-1",
+    sourceUserMessageId: messageId,
+    sourceUserMessageText: "Generate a short video",
+    attachments: [],
+    directToolExecution: {
+      toolCode: "video_generate" as const,
+      request: {
+        toolCode: "video_generate" as const,
+        prompt: "rolling waves at sunset",
+        filename: null,
+        size: null,
+        seconds: 5,
+        referenceImageAlias: null
       }
     }
   };
@@ -330,6 +386,59 @@ async function run(): Promise<void> {
       /can only be provided when outputMode="series"/,
       "seriesItems must be rejected when outputMode is not series"
     );
+  }
+
+  // ── ADR-108 Slice 2: VC pre-check rejects empty-wallet video_generate ────
+  {
+    const vcoinReadCalls: string[] = [];
+    const { service, reserveCalls, releaseCalls, enqueueCalls } = buildService({
+      toolCode: "video_generate",
+      vcoinBalance: 0,
+      vcoinReadCalls
+    });
+    const result = await service.execute(videoGenerateInput("message-vc-empty"));
+
+    assert.equal(result.accepted, false, "balance_vc=0 must reject the enqueue");
+    if (!result.accepted) {
+      assert.equal(result.code, "vcoin_balance_exhausted");
+      assert.equal(result.limitKind, "vcoin_balance_exhausted");
+      assert.equal(result.requestedUnits, 1);
+      assert.match(result.message, /Vcoin balance is empty/);
+    }
+    assert.deepEqual(vcoinReadCalls, ["workspace-1"], "wallet read once with workspace id");
+    assert.equal(reserveCalls.length, 0, "VC pre-check rejects BEFORE the unit reservation");
+    assert.equal(releaseCalls.length, 0, "no reservation → no compensating release");
+    assert.equal(enqueueCalls.count, 0, "rejected enqueue must not insert a job");
+  }
+
+  // ── ADR-108 Slice 2: positive balance proceeds through reservation ───────
+  {
+    const vcoinReadCalls: string[] = [];
+    const { service, reserveCalls, enqueueCalls } = buildService({
+      toolCode: "video_generate",
+      vcoinBalance: 5,
+      vcoinReadCalls
+    });
+    const result = await service.execute(videoGenerateInput("message-vc-ok"));
+
+    assert.equal(result.accepted, true);
+    assert.deepEqual(vcoinReadCalls, ["workspace-1"], "wallet read once on the happy path");
+    assert.equal(reserveCalls.length, 1, "video_generate still reserves the legacy unit counter");
+    assert.equal(reserveCalls[0]!.toolCode, "video_generate");
+    assert.equal(reserveCalls[0]!.units, 1, "video_generate reserves exactly 1 unit");
+    assert.equal(enqueueCalls.count, 1);
+  }
+
+  // ── ADR-108 Slice 2: image_generate enqueue NEVER consults the wallet ────
+  {
+    // The VC repo mock throws on any access; if image_generate accidentally
+    // read it, the test would fail loudly. (Cross-slice invariant 1 / 6.)
+    const { service, reserveCalls, enqueueCalls } = buildService({});
+    const result = await service.execute(imageGenerateInput(2, "message-img-no-vc"));
+    assert.equal(result.accepted, true);
+    assert.equal(reserveCalls.length, 1);
+    assert.equal(reserveCalls[0]!.toolCode, "image_generate");
+    assert.equal(enqueueCalls.count, 1);
   }
 
   console.log("[enqueue-runtime-deferred-media-job.service.test] All scenarios passed.");

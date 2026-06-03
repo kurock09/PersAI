@@ -1,0 +1,545 @@
+import assert from "node:assert/strict";
+import type { RuntimeBillingFacts } from "@persai/runtime-contract";
+import { PlatformHttpMetricsService } from "../src/modules/platform-core/application/platform-http-metrics.service";
+import { MediaDeliveryService } from "../src/modules/workspace-management/application/media/media-delivery.service";
+import type { AssistantChatMessageAttachment } from "../src/modules/workspace-management/domain/assistant-chat-message-attachment.entity";
+import type { RuntimeProviderModelCatalogByProvider } from "../src/modules/workspace-management/application/runtime-provider-profile";
+
+/**
+ * ADR-108 Slice 2 — `MediaDeliveryService` video-only success-delivery
+ * settle path tests.
+ *
+ * Cross-slice invariants exercised here:
+ *   1) Image / image-edit / TTS / STT settle paths are byte-identical
+ *      to before Slice 2 — they neither read the platform settings,
+ *      nor consult the catalog, nor touch the VC wallet, nor open a
+ *      `prisma.$transaction` (the existing best-effort settle is
+ *      preserved).
+ *   2) The USD-micros leg is computed in the same shape as
+ *      `record-model-cost-ledger.service.ts::calculateTimeMeteredCostMicros`
+ *      so admins can audit the VC debit against
+ *      `model_cost_ledger_events.actualCostMicros`.
+ *   4) For `video_generate`, the unit-counter settle and the VC wallet
+ *      debit run inside ONE `prisma.$transaction` so retries cannot
+ *      double-debit and a failed write rolls both back.
+ *   6) When a video settle fails (missing billing facts, catalog drift,
+ *      transactional rollback), the existing reconciliation path runs
+ *      exactly as before Slice 2 — the wallet is NOT debited.
+ */
+
+const billingFactsTimeMetered: RuntimeBillingFacts = {
+  providerKey: "runway",
+  modelKey: "runway-gen4-720p",
+  capability: "video",
+  occurredAt: "2026-06-03T19:00:00.000Z",
+  metering: {
+    meteringKind: "time_metered",
+    durationMs: 5000,
+    durationSeconds: 5
+  }
+};
+
+type ProviderModelEntry = {
+  providerKey: "runway" | "kling" | "openai";
+  model: string;
+  pricePerUnit: number;
+  unit: "second" | "minute";
+};
+
+function buildCatalogByProvider(
+  entries: ProviderModelEntry[] = [
+    { providerKey: "runway", model: "runway-gen4-720p", pricePerUnit: 50_000, unit: "second" }
+  ]
+): RuntimeProviderModelCatalogByProvider {
+  const emptyCatalog = { models: [] as never[] };
+  const byProvider = {
+    openai: { ...emptyCatalog, models: [] as unknown[] },
+    anthropic: emptyCatalog,
+    kling: { ...emptyCatalog, models: [] as unknown[] },
+    runway: { ...emptyCatalog, models: [] as unknown[] }
+  };
+  for (const entry of entries) {
+    byProvider[entry.providerKey].models.push({
+      model: entry.model,
+      capabilities: ["video"],
+      active: true,
+      effectiveFrom: null,
+      effectiveTo: null,
+      inputTokenWeight: 1,
+      cachedInputTokenWeight: 1,
+      outputTokenWeight: 1,
+      displayLabel: null,
+      notes: null,
+      billingMode: "time_metered",
+      providerPriceMetadata: {
+        currency: "USD",
+        timePricing: { unit: entry.unit, pricePerUnit: entry.pricePerUnit }
+      }
+    });
+  }
+  return byProvider as never;
+}
+
+function buildAttachment(
+  overrides: Partial<AssistantChatMessageAttachment> = {}
+): AssistantChatMessageAttachment {
+  return {
+    id: "att-vid-1",
+    messageId: "msg-1",
+    chatId: "chat-1",
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    assistantFileId: null,
+    attachmentType: "video",
+    storagePath: "assistant-media/runtime-output/clip.mp4",
+    originalFilename: "clip.mp4",
+    mimeType: "video/mp4",
+    sizeBytes: BigInt(64),
+    durationMs: 5000,
+    width: null,
+    height: null,
+    processingStatus: "ready",
+    transcription: null,
+    billingFacts: null,
+    metadata: null,
+    createdAt: new Date("2026-06-03T19:00:01.000Z"),
+    ...overrides
+  };
+}
+
+type SettleCall = {
+  toolCode: string;
+  units: number;
+  hasTx: boolean;
+};
+type DebitCall = {
+  workspaceId: string;
+  amountVc: number;
+  hasTx: boolean;
+};
+
+function buildVideoSettleService(opts?: {
+  reservationFails?: boolean;
+  catalogEntries?: ProviderModelEntry[];
+}): {
+  service: MediaDeliveryService;
+  settleCalls: SettleCall[];
+  debitCalls: DebitCall[];
+  reconcileCalls: Array<{ toolCode: string; units: number }>;
+  txCalls: { count: number };
+  platformSettingsReads: { count: number };
+  loggedLines: string[];
+} {
+  const settleCalls: SettleCall[] = [];
+  const debitCalls: DebitCall[] = [];
+  const reconcileCalls: Array<{ toolCode: string; units: number }> = [];
+  const txCalls = { count: 0 };
+  const platformSettingsReads = { count: 0 };
+  const loggedLines: string[] = [];
+
+  const attachmentRepo = {
+    async create() {
+      return buildAttachment();
+    }
+  } as never;
+
+  const assistantRepo = {
+    async findById(assistantId: string) {
+      return {
+        id: assistantId,
+        workspaceId: "workspace-1",
+        ownerUserId: "user-1"
+      };
+    }
+  } as never;
+
+  const objectStorage = {
+    buildChatMessageObjectKey() {
+      return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/clip.mp4";
+    },
+    async downloadObject() {
+      return {
+        buffer: Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]),
+        contentType: "video/mp4"
+      };
+    },
+    async saveObject() {
+      return {
+        objectKey: "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/clip.mp4",
+        sizeBytes: 8,
+        mimeType: "video/mp4"
+      };
+    },
+    async deleteObject() {}
+  } as never;
+
+  const fileRegistry = {
+    async ensureAttachmentFile() {
+      return { fileRef: "file-att-vid-1" };
+    },
+    async linkAttachmentToExistingFile() {
+      return undefined;
+    }
+  } as never;
+
+  const uploadDescriptionJobs = {
+    async enqueueGeneratedFileIfNeeded() {
+      return { accepted: true, reason: "queued" };
+    }
+  } as never;
+
+  const trackQuotaService = {
+    async settleAssistantMonthlyMediaQuota(params: {
+      toolCode: string;
+      units: number;
+      tx?: unknown;
+    }) {
+      settleCalls.push({
+        toolCode: params.toolCode,
+        units: params.units,
+        hasTx: params.tx !== undefined
+      });
+      if (opts?.reservationFails) {
+        throw new Error("simulated unit-counter settle failure");
+      }
+    },
+    async markAssistantMonthlyMediaQuotaReconciliationRequired(params: {
+      toolCode: string;
+      units: number;
+    }) {
+      reconcileCalls.push({ toolCode: params.toolCode, units: params.units });
+    }
+  } as never;
+
+  const httpMetrics = new PlatformHttpMetricsService();
+
+  const ledgerService = {
+    async recordPersistedBillingFactsEvent() {
+      return 0;
+    }
+  } as never;
+
+  const platformSettingsResolver = {
+    async execute() {
+      platformSettingsReads.count += 1;
+      return {
+        availableModelCatalogByProvider: buildCatalogByProvider(opts?.catalogEntries),
+        vcoinExchangeRate: 20
+      };
+    }
+  } as never;
+
+  const vcoinRepo = {
+    async getOrCreate() {
+      throw new Error("settle path must NOT call getOrCreate (it uses debit)");
+    },
+    async debit(input: { workspaceId: string; amountVc: number; tx?: unknown }) {
+      debitCalls.push({
+        workspaceId: input.workspaceId,
+        amountVc: input.amountVc,
+        hasTx: input.tx !== undefined
+      });
+      return {
+        previousBalanceVc: 100,
+        balanceVc: 100 - input.amountVc,
+        debitedAt: new Date("2026-06-03T19:00:02.000Z")
+      };
+    }
+  } as never;
+
+  // Minimal Prisma stub: only `$transaction` is exercised. The callback
+  // is invoked with a sentinel "tx" object that the trackQuotaService and
+  // vcoinRepo mocks observe via `params.tx !== undefined`.
+  const prismaStub = {
+    async $transaction(cb: (tx: unknown) => Promise<unknown>) {
+      txCalls.count += 1;
+      const txClient = { __isTx: true };
+      return cb(txClient);
+    }
+  } as never;
+
+  const service = new MediaDeliveryService(
+    attachmentRepo,
+    assistantRepo,
+    [],
+    objectStorage,
+    fileRegistry,
+    uploadDescriptionJobs,
+    trackQuotaService,
+    httpMetrics,
+    ledgerService,
+    platformSettingsResolver,
+    vcoinRepo,
+    prismaStub
+  );
+
+  // Pipe the service's logger through `console.log` indirection so we
+  // can assert the structured `adr108_video_settle ...` line is emitted.
+  // The Logger uses Nest's default logger (writes to stdout), so we
+  // just intercept via patching service["logger"].log.
+  const logger = (service as unknown as { logger: { log: (msg: string) => void } }).logger;
+  const originalLog = logger.log.bind(logger);
+  logger.log = (msg: string) => {
+    loggedLines.push(msg);
+    originalLog(msg);
+  };
+
+  return {
+    service,
+    settleCalls,
+    debitCalls,
+    reconcileCalls,
+    txCalls,
+    platformSettingsReads,
+    loggedLines
+  };
+}
+
+async function runVideoGenerateSettleDebitsInTx(): Promise<void> {
+  const ctx = buildVideoSettleService();
+  await ctx.service.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/clip.mp4",
+        type: "video",
+        sourceToolCode: "video_generate",
+        mimeType: "video/mp4",
+        filename: "clip.mp4",
+        sizeBytes: 8,
+        billingFacts: billingFactsTimeMetered
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(ctx.txCalls.count, 1, "exactly one prisma.$transaction must wrap settle + debit");
+  assert.equal(ctx.platformSettingsReads.count, 1, "platform settings resolved exactly once");
+  assert.equal(ctx.settleCalls.length, 1);
+  assert.equal(ctx.settleCalls[0]!.toolCode, "video_generate");
+  assert.equal(ctx.settleCalls[0]!.units, 1);
+  assert.equal(ctx.settleCalls[0]!.hasTx, true, "settle must run inside the caller transaction");
+  assert.equal(ctx.debitCalls.length, 1);
+  assert.equal(ctx.debitCalls[0]!.workspaceId, "workspace-1");
+  // 5s × $0.05/s × 20 VC/USD = ceil(5) = 5 VC
+  assert.equal(ctx.debitCalls[0]!.amountVc, 5);
+  assert.equal(ctx.debitCalls[0]!.hasTx, true, "debit must run inside the same transaction");
+  assert.equal(ctx.reconcileCalls.length, 0, "successful settle must not reconcile");
+  const auditLine = ctx.loggedLines.find((line) => line.startsWith("adr108_video_settle"));
+  assert.ok(auditLine, "audit log line must be emitted");
+  assert.match(auditLine!, /usdMicros=250000/);
+  assert.match(auditLine!, /vcDebited=5/);
+  assert.match(auditLine!, /previousBalanceVc=100/);
+  assert.match(auditLine!, /balanceVc=95/);
+}
+
+async function runKlingVideoSettleDebitsCorrectly(): Promise<void> {
+  const ctx = buildVideoSettleService({
+    catalogEntries: [
+      { providerKey: "kling", model: "kling-v3", pricePerUnit: 2_400_000, unit: "minute" }
+    ]
+  });
+  await ctx.service.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/kling.mp4",
+        type: "video",
+        sourceToolCode: "video_generate",
+        mimeType: "video/mp4",
+        filename: "kling.mp4",
+        sizeBytes: 8,
+        billingFacts: {
+          providerKey: "kling",
+          modelKey: "kling-v3",
+          capability: "video",
+          occurredAt: "2026-06-03T19:00:00.000Z",
+          metering: { meteringKind: "time_metered", durationMs: 12_000, durationSeconds: 12 }
+        }
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1"
+  });
+
+  // 12s × $2.40/min = $0.48 = 480_000 micros; × 20 / 1M = 9.6 → ceil = 10 VC
+  assert.equal(ctx.txCalls.count, 1);
+  assert.equal(ctx.debitCalls.length, 1);
+  assert.equal(ctx.debitCalls[0]!.amountVc, 10);
+  assert.equal(ctx.debitCalls[0]!.hasTx, true);
+  assert.equal(ctx.settleCalls[0]!.toolCode, "video_generate");
+  assert.equal(ctx.settleCalls[0]!.hasTx, true);
+}
+
+async function runOpenAIVideoSettleDebitsCorrectly(): Promise<void> {
+  const ctx = buildVideoSettleService({
+    catalogEntries: [
+      { providerKey: "openai", model: "sora-1.0-1080p", pricePerUnit: 200_000, unit: "second" }
+    ]
+  });
+  await ctx.service.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/sora.mp4",
+        type: "video",
+        sourceToolCode: "video_generate",
+        mimeType: "video/mp4",
+        filename: "sora.mp4",
+        sizeBytes: 8,
+        billingFacts: {
+          providerKey: "openai",
+          modelKey: "sora-1.0-1080p",
+          capability: "video",
+          occurredAt: "2026-06-03T19:00:00.000Z",
+          metering: { meteringKind: "time_metered", durationMs: 4_000, durationSeconds: 4 }
+        }
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1"
+  });
+
+  // 4s × $0.20/s = $0.80 = 800_000 micros; × 20 / 1M = 16 VC (no rounding)
+  assert.equal(ctx.txCalls.count, 1);
+  assert.equal(ctx.debitCalls.length, 1);
+  assert.equal(ctx.debitCalls[0]!.amountVc, 16);
+  assert.equal(ctx.debitCalls[0]!.hasTx, true);
+}
+
+async function runImageGenerateDoesNotConsultVcoin(): Promise<void> {
+  const ctx = buildVideoSettleService();
+  await ctx.service.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/render.png",
+        type: "image",
+        sourceToolCode: "image_generate",
+        mimeType: "image/png",
+        filename: "render.png",
+        sizeBytes: 9
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(ctx.txCalls.count, 0, "image settle must NOT open a $transaction (invariant 1)");
+  assert.equal(
+    ctx.platformSettingsReads.count,
+    0,
+    "image settle must NOT read platform runtime provider settings"
+  );
+  assert.equal(ctx.debitCalls.length, 0, "image settle must NEVER debit the wallet");
+  assert.equal(ctx.settleCalls.length, 1);
+  assert.equal(ctx.settleCalls[0]!.toolCode, "image_generate");
+  assert.equal(ctx.settleCalls[0]!.hasTx, false, "image settle keeps the no-tx best-effort path");
+  assert.equal(ctx.reconcileCalls.length, 0);
+}
+
+async function runVideoSettleFailureRollsBackAndReconciles(): Promise<void> {
+  // Simulate the unit-counter settle throwing inside the transaction. The
+  // outer deliver() catch must run reconciliation, and the wallet debit
+  // must NOT be invoked (the transaction never reaches the debit call
+  // because settle is awaited first inside the cb).
+  const ctx = buildVideoSettleService({ reservationFails: true });
+  await ctx.service.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/clip.mp4",
+        type: "video",
+        sourceToolCode: "video_generate",
+        mimeType: "video/mp4",
+        filename: "clip.mp4",
+        sizeBytes: 8,
+        billingFacts: billingFactsTimeMetered
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(ctx.txCalls.count, 1, "transaction was opened");
+  assert.equal(ctx.settleCalls.length, 1, "settle was attempted inside the tx");
+  assert.equal(ctx.settleCalls[0]!.hasTx, true);
+  assert.equal(
+    ctx.debitCalls.length,
+    0,
+    "debit must NOT run when settle throws (transaction rolls back)"
+  );
+  assert.equal(ctx.reconcileCalls.length, 1, "outer catch must trigger reconciliation");
+  assert.equal(ctx.reconcileCalls[0]!.toolCode, "video_generate");
+  assert.equal(ctx.reconcileCalls[0]!.units, 1);
+  assert.equal(
+    ctx.loggedLines.filter((line) => line.startsWith("adr108_video_settle")).length,
+    0,
+    "audit log line must NOT be emitted when the transaction rolled back"
+  );
+}
+
+async function runVideoSettleMissingBillingFactsReconciles(): Promise<void> {
+  const ctx = buildVideoSettleService();
+  await ctx.service.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/clip.mp4",
+        type: "video",
+        sourceToolCode: "video_generate",
+        mimeType: "video/mp4",
+        filename: "clip.mp4",
+        sizeBytes: 8
+        // no billingFacts on purpose
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(
+    ctx.platformSettingsReads.count,
+    0,
+    "missing billingFacts must short-circuit before any platform-settings IO (fail-fast)"
+  );
+  assert.equal(ctx.txCalls.count, 0, "no transaction is opened when billingFacts is missing");
+  assert.equal(ctx.settleCalls.length, 0, "settle was not invoked");
+  assert.equal(ctx.debitCalls.length, 0, "debit was not invoked");
+  assert.equal(ctx.reconcileCalls.length, 1, "reconciliation must fire — silent 0-VC is forbidden");
+  assert.equal(ctx.reconcileCalls[0]!.toolCode, "video_generate");
+}
+
+async function run(): Promise<void> {
+  await runVideoGenerateSettleDebitsInTx();
+  await runKlingVideoSettleDebitsCorrectly();
+  await runOpenAIVideoSettleDebitsCorrectly();
+  await runImageGenerateDoesNotConsultVcoin();
+  await runVideoSettleFailureRollsBackAndReconciles();
+  await runVideoSettleMissingBillingFactsReconciles();
+  console.log("media-delivery-video-vcoin-settle: all assertions passed");
+}
+
+run().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

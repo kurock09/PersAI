@@ -2,6 +2,77 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-03 — ADR-108 Slice 2: Settle path debit (video only)
+
+### What changed & why
+
+Baseline SHA at session start (after Slice 1 commit): the Slice 1 commit was the previous tip; this slice landed on top with no further commits in between. ADR-108 Slice 2 was executed under the orchestrator agent execution model documented in ADR-108 `## Agent execution model`: the orchestrator drafted the Scope IN / Scope OUT / Forbidden patterns / Required tests / Verification commands and spawned one implementation subagent for the production code. The subagent hung mid-run (~40 min) with the implementation written but tests not yet authored; rather than discarding that work, the orchestrator **dropped the read-only-for-code stance** with explicit user consent ("salvage_finish_locally"), inspected the partial diff, validated it against the slice contract, wrote the missing tests itself, and ran every verification gate. This deviation from the orchestrator's normal stance is recorded here for future audit.
+
+Slice 2 wires the user-facing Vcoin (VC) settlement for `video_generate` (not for image / image-edit / TTS / STT — those keep per-unit quotas) and the advisory wallet pre-check at enqueue. Cross-slice invariant 4 of ADR-108 demands the unit-counter settle and the VC wallet debit run inside ONE database transaction so retries cannot double-debit and a failed write rolls both back; Slice 2 delivers exactly that.
+
+- New pure helper `apps/api/src/modules/workspace-management/application/vcoin/compute-video-vcoin-cost.ts` exports `computeVideoVcoinCost({billingFacts, profile, vcoinExchangeRate}) → {vcCost, usdMicros}`. The USD-micros leg mirrors `record-model-cost-ledger.service.ts::calculateTimeMeteredCostMicros` shape (cross-slice invariant 2 — USD COGS ledger calculation stays the source of truth) and per-job `ceil` from Decision §53 is applied at the VC level via BigInt math. Throws on non-time-metered facts, non-time-metered profile (catalog drift), non-positive duration, and non-positive-integer rate — silent 0-VC fallback is forbidden.
+- `WorkspaceVcoinBalanceRepository` extended with `debit({workspaceId, amountVc, tx?})`. Zero is no-op (returns the current row unchanged), negative throws synchronously, positive decrements `balance_vc`. When `tx` is supplied all reads/writes share the caller's transaction (Slice 2 settle uses this); when omitted runs against the default client. The repo deliberately permits a one-shot below-zero write so the transaction commits cleanly when an artifact's computed VC cost overshoots the wallet — the lifecycle rejection lives at the next enqueue, not at the repo. P2002 races during the implicit row-create are recovered by re-read.
+- `WorkspaceQuotaAccountingRepository.settleMonthlyMediaQuota(input, tx?)` and `TrackWorkspaceQuotaUsageService.settleAssistantMonthlyMediaQuota({…, tx?})` gained an optional `tx`. When supplied, the Prisma implementation skips opening its own inner `$transaction` and skips the serializable retry loop (the outer tx owns isolation and retry). When omitted, byte-identical behavior to before Slice 2 — the image / image-edit / TTS / STT call sites are unchanged.
+- `MediaDeliveryService` now branches on `artifact.sourceToolCode === "video_generate"` after successful artifact persistence: resolves `PlatformRuntimeProviderSettings`, looks up the `(providerKey, modelKey, occurredAt)` time-metered profile via the existing `findRuntimeProviderCatalogProfileForTimestamp`, computes VC cost via the new helper, then opens ONE `prisma.$transaction(async tx => …)` that runs `settleAssistantMonthlyMediaQuota({tx})` followed by `workspaceVcoinBalanceRepository.debit({tx})`. Image / image-edit keep the existing single-write best-effort settle (zero behavior change for image/TTS/STT — cross-slice invariant 1 / 6). Failures inside the tx (settle throw, debit throw) propagate to the outer `deliver()` catch which calls the existing `markMonthlyMediaQuotaReconciliationBestEffort` exactly as before Slice 2. Missing billingFacts on a `video_generate` artifact throws BEFORE any platform-settings IO (fail-fast); reconciliation still runs.
+- Audit log line `adr108_video_settle workspaceId=… provider=… model=… durationSeconds=… usdMicros=… vcDebited=… previousBalanceVc=… balanceVc=…` is emitted on every successful debit so admins can spot drift between the wallet and the unchanged USD COGS ledger.
+- `EnqueueRuntimeDeferredMediaJobService` now performs an advisory pre-check on `video_generate` only, between the activation guard and the monthly-unit-counter reservation: when `balance_vc <= 0` the enqueue rejects with structured `code: "vcoin_balance_exhausted"`, `limitKind: "vcoin_balance_exhausted"`. The existing `videoGenerateMonthlyUnitsLimit` reservation remains as a secondary plan-feature guard for the transitional period.
+- `EnqueueRuntimeDeferredMediaJobRejection.limitKind` got a new `"vcoin_balance_exhausted"` member with an inline JSDoc describing the lifecycle.
+- `WORKSPACE_VCOIN_BALANCE_REPOSITORY` is wired into the existing module providers; no new module file. `MediaDeliveryService` constructor expanded to 12 args (added `ResolvePlatformRuntimeProviderSettingsService`, `WorkspaceVcoinBalanceRepository`, `WorkspaceManagementPrismaService`); `EnqueueRuntimeDeferredMediaJobService` constructor expanded to 6 args (added `WorkspaceVcoinBalanceRepository`).
+
+### Files touched
+
+Modified:
+
+- `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-media-job.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/src/modules/workspace-management/application/track-workspace-quota-usage.service.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-quota-accounting.repository.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-vcoin-balance.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-quota-accounting.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-vcoin-balance.repository.ts`
+- `apps/api/test/enqueue-runtime-deferred-media-job.service.test.ts` (added VC pre-check coverage)
+- `apps/api/test/workspace-vcoin-balance.repository.test.ts` (added 6 `debit` tests)
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md` (Slice 2 status block appended)
+- `docs/CHANGELOG.md` (new top entry)
+- `docs/SESSION-HANDOFF.md` (this entry)
+
+New:
+
+- `apps/api/src/modules/workspace-management/application/vcoin/compute-video-vcoin-cost.ts`
+- `apps/api/test/compute-video-vcoin-cost.test.ts` (8 cases)
+- `apps/api/test/media-delivery-video-vcoin-settle.test.ts` (6 cases — Runway + Kling + OpenAI cost paths, image no-VC, settle failure rollback, missing billingFacts reconciliation)
+
+### Tests run
+
+- PASS `corepack pnpm --filter @persai/api run typecheck`
+- PASS `corepack pnpm --filter @persai/web run typecheck`
+- PASS `corepack pnpm -r --if-present run lint`
+- PASS `corepack pnpm run format:check`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/compute-video-vcoin-cost.test.ts`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/workspace-vcoin-balance.repository.test.ts`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/enqueue-runtime-deferred-media-job.service.test.ts`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/media-delivery-video-vcoin-settle.test.ts`
+- PASS `corepack pnpm --filter @persai/api run test` (full API suite)
+
+### Risks / residuals
+
+- **Audit double-write equivalence not yet measured in PROD.** Slice 2 keeps the unit counter writes for `video_generate` alongside the new VC debit (transitional period). The migration playbook for retiring the unit counter is owned by Slice 8. Until then admins should periodically compare `workspace_media_monthly_quota_counters.settledUnits * known_per_unit_vc` against the actual `workspace_vcoin_balances.balance_vc` deltas via the new `adr108_video_settle` log line.
+- **Above-the-line lifecycle "exactly one below-zero one-shot" is enforced cooperatively across the repo and the enqueue.** The repo allows the below-zero write so the outer tx commits cleanly; the next enqueue rejects on `balance_vc <= 0`. If a workspace runs more than one in-flight `video_generate` concurrently, a race between two settles could in theory drive the balance further below zero before the next enqueue runs; the existing `MAX_OPEN_MEDIA_JOBS_PER_CHAT = 2` chat-scoped limit caps this in practice but is not a formal invariant. This residual is acceptable for Slice 2 per the ADR-108 wallet lifecycle wording; Slice 3 / 4 do not touch it.
+- **`videoGenerateMonthlyUnitsLimit` is still enforced.** Plans without that legacy field were already rejected pre-Slice 2 and continue to be rejected here. Slice 8 removes that guard.
+- **Provider catalog must agree with billing facts on metering kind.** The helper throws on `profile.billingMode !== "time_metered"` (catalog/runtime drift); this triggers the existing reconciliation path. No silent fallback.
+- **Subagent hung mid-run.** The implementation subagent did not finish autonomously; the orchestrator stepped in to author the tests and run gates. Future Slice 2-class work should consider splitting the subagent prompt into two narrower runs (e.g., 2a: helper + repo `debit` + tests; 2b: settle wiring + enqueue guard + tests) to stay within a single subagent's effective working time.
+
+### Deploy
+
+- **API only.** No new Prisma migration; the Slice 1 migration `20260603190000_adr108_workspace_vcoin_balance` is the only schema change required for VC and is already deployed.
+- No web / runtime / provider-gateway / contracts change.
+- No Stripe / billing webhook change.
+- No new feature flag.
+
+### Next recommended slice
+
+- **ADR-108 Slice 3 — Monthly grant on subscription period boundary.** Adds the idempotent `GrantMonthlyVcoinService.creditPeriod({workspaceId, planId, periodStart})` that credits `videoVcoinMonthlyGrant` (Slice 1 plan field) into `workspace_vcoin_balances` on subscription period rollover. Orchestrator should spawn a fresh subagent with the standard prompt template; the slice is bounded and does not touch the settle path or the enqueue.
+
 ## 2026-06-03 — ADR-108 Slice 1: Schema + platform contract for VC wallet
 
 ### What changed & why
