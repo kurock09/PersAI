@@ -131,10 +131,13 @@ function formatPrice(amountMinor: number, currency: string, locale: string): str
   }
 }
 
-function formatPackageLabel(locale: string, item: PackageOfferItem): string {
+export function formatPackageLabel(locale: string, item: PackageOfferItem): string {
   const title = pickText(locale, item.title).trim();
   if (title.length > 0) {
     return title;
+  }
+  if (item.toolCode === "video_generate") {
+    return `${item.units} VC`;
   }
   if (locale === "ru") {
     return `${item.units} единиц`;

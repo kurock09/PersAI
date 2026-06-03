@@ -1148,7 +1148,9 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Image generation")).toBeInTheDocument();
     expect(screen.getByText("3 / 20")).toBeInTheDocument();
     expect(screen.getByText("Video generation")).toBeInTheDocument();
-    expect(screen.getByText("1 / 5")).toBeInTheDocument();
+    // After Slice 6b: video card renders VC balance (balanceVc: 0 in fixture → "Remaining 0 VC").
+    expect(screen.getByText("Remaining 0 VC")).toBeInTheDocument();
+    expect(screen.queryByText("1 / 5")).toBeNull();
     // Documents card moves into the (collapsed) Tool limits accordion.
     expect(screen.queryByText("Document generation")).toBeNull();
     expect(screen.queryByText("2 / 10")).toBeNull();
@@ -1494,6 +1496,228 @@ describe("AssistantSettings limits", () => {
 
     expect(screen.queryAllByText("Image generation")).toHaveLength(1);
     expect(screen.queryAllByText("Video generation")).toHaveLength(1);
+  });
+
+  it("video monthly card renders VC balance and per-VC price; image card stays byte-identical", () => {
+    const openPackagesPage = vi.fn();
+
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "workspace_subscription",
+            subscriptionStatus: "active",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-06-09T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null,
+            price: { amount: 49, currency: "USD", billingPeriod: "month" }
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyToolQuotas: {
+              planCode: "pro",
+              periodStartedAt: "2026-05-01T00:00:00.000Z",
+              periodEndsAt: "2026-06-01T00:00:00.000Z",
+              periodSource: "subscription_period",
+              tools: [
+                {
+                  toolCode: "image_generate",
+                  displayName: "Image generation",
+                  usedUnits: 3,
+                  reservedUnits: 0,
+                  settledUnits: 3,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: 20,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: 20,
+                  bonusExpiresAt: null,
+                  remainingUnits: 17,
+                  percent: 15,
+                  finiteLimit: true,
+                  usageAvailable: true,
+                  warningThresholdPercent: 90,
+                  warningThresholdReached: false,
+                  status: "ok"
+                },
+                {
+                  toolCode: "video_generate",
+                  displayName: "Video generation",
+                  usedUnits: 2,
+                  reservedUnits: 0,
+                  settledUnits: 2,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: 5,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: 5,
+                  bonusExpiresAt: null,
+                  remainingUnits: 3,
+                  percent: 40,
+                  finiteLimit: true,
+                  usageAvailable: true,
+                  warningThresholdPercent: 90,
+                  warningThresholdReached: false,
+                  status: "ok"
+                }
+              ]
+            },
+            toolDailyLimits: [
+              {
+                toolCode: "image_generate",
+                displayName: "Image generation",
+                dailyCallLimit: null,
+                dailyCallsUsed: 0,
+                percent: null,
+                finiteLimit: false,
+                warningThresholdPercent: null,
+                warningThresholdReached: false,
+                periodStartedAt: null,
+                periodEndsAt: null,
+                periodSource: null,
+                active: true
+              },
+              {
+                toolCode: "video_generate",
+                displayName: "Video generation",
+                dailyCallLimit: null,
+                dailyCallsUsed: 0,
+                percent: null,
+                finiteLimit: false,
+                warningThresholdPercent: null,
+                warningThresholdReached: false,
+                periodStartedAt: null,
+                periodEndsAt: null,
+                periodSource: null,
+                active: true
+              }
+            ]
+          },
+          packageOffers: { packagesPurchase: null, tools: [] },
+          workspaceVcoinBalance: {
+            balanceVc: 250,
+            videoVcoinMonthlyGrant: 1000,
+            vcoinExchangeRate: 20
+          },
+          updatedAt: "2026-05-16T00:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits",
+      { onOpenPackagesPage: openPackagesPage }
+    );
+
+    // Video card renders VC balance — NOT per-unit count.
+    expect(screen.getByText("Remaining 250 VC")).toBeInTheDocument();
+    expect(screen.getByText("1 VC ≈ $0.05")).toBeInTheDocument();
+    expect(screen.queryByText("2 / 5")).toBeNull();
+    // Image card is byte-identical: still renders per-unit quota.
+    expect(screen.getByText("3 / 20")).toBeInTheDocument();
+  });
+
+  it("video monthly card renders Remaining 0 VC when balanceVc is 0 (not fallback to per-unit)", () => {
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "workspace_subscription",
+            subscriptionStatus: "active",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-06-09T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null,
+            price: { amount: 49, currency: "USD", billingPeriod: "month" }
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyToolQuotas: {
+              planCode: "pro",
+              periodStartedAt: "2026-05-01T00:00:00.000Z",
+              periodEndsAt: "2026-06-01T00:00:00.000Z",
+              periodSource: "subscription_period",
+              tools: [
+                {
+                  toolCode: "video_generate",
+                  displayName: "Video generation",
+                  usedUnits: 1,
+                  reservedUnits: 0,
+                  settledUnits: 1,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: 5,
+                  bonusLimitUnits: 0,
+                  effectiveLimitUnits: 5,
+                  bonusExpiresAt: null,
+                  remainingUnits: 4,
+                  percent: 20,
+                  finiteLimit: true,
+                  usageAvailable: true,
+                  warningThresholdPercent: 90,
+                  warningThresholdReached: false,
+                  status: "ok"
+                }
+              ]
+            },
+            toolDailyLimits: [
+              {
+                toolCode: "video_generate",
+                displayName: "Video generation",
+                dailyCallLimit: null,
+                dailyCallsUsed: 0,
+                percent: null,
+                finiteLimit: false,
+                warningThresholdPercent: null,
+                warningThresholdReached: false,
+                periodStartedAt: null,
+                periodEndsAt: null,
+                periodSource: null,
+                active: true
+              }
+            ]
+          },
+          packageOffers: { packagesPurchase: null, tools: [] },
+          workspaceVcoinBalance: {
+            balanceVc: 0,
+            videoVcoinMonthlyGrant: 1000,
+            vcoinExchangeRate: 20
+          },
+          updatedAt: "2026-05-16T00:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits"
+    );
+
+    expect(screen.getByText("Remaining 0 VC")).toBeInTheDocument();
+    // Per-unit count must not appear.
+    expect(screen.queryByText("1 / 5")).toBeNull();
   });
 
   it("opens payment settings for recurring subscribers and shows a quiet cancel-subscription action", async () => {

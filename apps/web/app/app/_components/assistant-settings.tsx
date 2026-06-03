@@ -937,6 +937,22 @@ export function AssistantSettings({
         onBuyClick: onOpenPricingPage ?? null
       };
     }
+    // VC override for video_generate: renders wallet balance instead of per-unit count.
+    // workspaceVcoinBalance is a required field on UserPlanVisibilityState (Slice 6a contract),
+    // so the undefined guard is purely defensive for the unexpected absent-data case.
+    const vcBalance = data.plan?.workspaceVcoinBalance;
+    if (toolCode === "video_generate" && vcBalance !== undefined) {
+      return {
+        toolCode,
+        label,
+        value: t("monthlyVideoVcRemaining", { count: vcBalance.balanceVc }),
+        secondary: `1 VC ≈ $${(1 / vcBalance.vcoinExchangeRate).toFixed(2)}`,
+        hasBonus: snapshot !== null ? (snapshot.bonusLimitUnits ?? 0) > 0 : false,
+        unavailable: false,
+        buyChipLabel: t("monthlyMediaBuyChip"),
+        onBuyClick: onOpenPackagesPage ?? null
+      };
+    }
     if (snapshot === null) {
       return {
         toolCode,

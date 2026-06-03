@@ -131,7 +131,14 @@ export function derivePlanFacts(
   ) {
     facts.push(t("factImages", { count: plan.quotaLimits.imageGenerateMonthlyUnitsLimit }));
   }
-  if (
+  if (enabledTools.has("video_generate") && plan.videoVcoinMonthlyGrant > 0) {
+    const approxVideos = plan.videoVcoinApproxVideosPerMonth;
+    facts.push(
+      typeof approxVideos === "number"
+        ? t("factVideosVcWithApprox", { vc: plan.videoVcoinMonthlyGrant, count: approxVideos })
+        : t("factVideosVc", { vc: plan.videoVcoinMonthlyGrant })
+    );
+  } else if (
     enabledTools.has("video_generate") &&
     plan.quotaLimits.videoGenerateMonthlyUnitsLimit != null &&
     plan.quotaLimits.videoGenerateMonthlyUnitsLimit > 0

@@ -2,6 +2,59 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-04 — ADR-108 Slice 6b: User UI rendering for VC (settings, pricing, packages)
+
+### What changed & why
+
+Baseline SHA at session start (after Slice 6a commit): `fc02efed`. Tree was clean. Slice 6b consumed the three new VC fields from `UserPlanVisibilityState.workspaceVcoinBalance` and `PublicPricingPlanState.videoVcoinMonthlyGrant/vcoinExchangeRate/videoVcoinApproxVideosPerMonth` to render VC data in user-facing UI, closing the full Slice 6 program.
+
+- `apps/web/app/app/_components/assistant-settings.tsx`: `buildMonthlyCard` function now branches on `toolCode === "video_generate"` when `data.plan?.workspaceVcoinBalance` is present. VC branch returns `value: t("monthlyVideoVcRemaining", { count: balanceVc })` ("Remaining N VC") and `secondary: "1 VC ≈ $X"` (derived from `vcoinExchangeRate`). Defensive fall-through to `formatMonthlyMediaQuotaValue`/`formatMonthlyMediaRemainingSubline` when `workspaceVcoinBalance` is undefined. All other media tools (image_generate, image_edit, tts, stt) byte-identical.
+- `apps/web/app/_components/pricing-page-view.tsx`: `derivePlanFacts` now has a VC branch before the legacy video branch. When `enabledTools.has("video_generate") && plan.videoVcoinMonthlyGrant > 0`, emits `t("factVideosVcWithApprox", {vc, count})` or `t("factVideosVc", {vc})` depending on whether `videoVcoinApproxVideosPerMonth` is present. Legacy `videoGenerateMonthlyUnitsLimit` branch retained as else-fallback (Slice 8 owns retirement). All other fact chips byte-identical.
+- `apps/web/app/app/packages/page.tsx`: `formatPackageLabel` (now exported for test access) returns `"${item.units} VC"` when `item.toolCode === "video_generate"`. All other package types byte-identical.
+- `apps/web/messages/en.json` and `ru.json`: added `settings.monthlyVideoVcRemaining`, `pricing.factVideosVc`, `pricing.factVideosVcWithApprox`.
+
+### Files touched
+
+Modified:
+- `apps/web/app/app/_components/assistant-settings.tsx`
+- `apps/web/app/app/_components/assistant-settings.test.tsx`
+- `apps/web/app/_components/pricing-page-view.tsx`
+- `apps/web/app/_components/pricing-page-view.test.tsx`
+- `apps/web/app/app/packages/page.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+New:
+- `apps/web/app/app/packages/page.test.tsx`
+
+### Tests run
+
+- PASS `corepack pnpm --filter @persai/web run typecheck`
+- PASS `corepack pnpm --filter @persai/api run typecheck`
+- PASS `corepack pnpm -r --if-present run lint`
+- PASS `corepack pnpm run format:check`
+- PASS `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/app/_components/assistant-settings.test.tsx` (63 tests)
+- PASS `corepack pnpm --filter @persai/web exec vitest run app/app/packages/page.test.tsx` (5 tests)
+- PASS `corepack pnpm --filter @persai/web exec vitest run` (637 tests, 64 files)
+
+### Risks / residuals
+
+- **Slice 7 (quota_status tool + advisor) still pending.** Nothing in the VC rendering pipeline depends on the advisor; Slice 7 is independent.
+- **Legacy `videoGenerateMonthlyUnitsLimit` fallback** is retained in `derivePlanFacts` until Slice 8.
+- **Sidebar plan compact line** intentionally out of scope (spec says "not mandatory").
+- **`videoVcoinApproxVideosPerMonth`** is a server-side marketing approximation using `TYPICAL_VIDEO_SECONDS = 5`; will diverge from real usage on long/short videos. Intentional per ADR-108.
+
+### Deploy
+
+Web only. No migration, no API change.
+
+### Next recommended slice
+
+**ADR-108 Slice 7 — Quota status tool + runtime advisor.** `quota_status` tool for `video_generate` should return `{ kind: "vcoin", balance_vc, monthly_grant_vc }` instead of `{ remaining_units, limit_units }`. Runtime advisor copy updated for VC.
+
 ## 2026-06-03 — ADR-108 Slice 6a: Public pricing + plan visibility data plumbing for VC
 
 ### What changed & why

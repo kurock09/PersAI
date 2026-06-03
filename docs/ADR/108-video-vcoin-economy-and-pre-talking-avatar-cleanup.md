@@ -470,7 +470,16 @@ Verification: PASS `corepack pnpm --filter @persai/api run typecheck`; PASS `cor
 
 - End user sees VC where they used to see unit counts for `video_generate`.
 
-**Status (2026-06-03):** Slice 6a (data plumbing) landed: see CHANGELOG. Slice 6b (UI rendering) pending.
+**Status (2026-06-04): Completed.** Slice 6 delivered in two halves:
+
+**Slice 6a** (data plumbing, commit `fc02efed`): `PublicPricingPlanState` gained `videoVcoinMonthlyGrant` (required), `vcoinExchangeRate` (required), `videoVcoinApproxVideosPerMonth` (optional, server-precomputed). `UserPlanVisibilityState` gained required `workspaceVcoinBalance: { balanceVc, videoVcoinMonthlyGrant, vcoinExchangeRate }`. API services injected `WorkspaceVcoinBalanceRepository` and `ResolvePlatformRuntimeProviderSettingsService`. Contracts regenerated; web test stubs updated mechanically. PASS: `@persai/api run typecheck`; `@persai/web run typecheck`; `pnpm -r lint`; `format:check`; full API suite.
+
+**Slice 6b** (UI rendering): Three web surfaces updated to consume the new data:
+- `apps/web/app/app/_components/assistant-settings.tsx` (`buildMonthlyCard`): `video_generate` card now renders `"Remaining N VC"` (value) and `"1 VC ≈ $X"` (secondary/tooltip) when `workspaceVcoinBalance` is present; all other media cards (image_generate, image_edit, tts, stt) byte-identical.
+- `apps/web/app/_components/pricing-page-view.tsx` (`derivePlanFacts`): new VC branch added before legacy video branch — emits `"X VC / month ≈ Y videos"` (when `videoVcoinApproxVideosPerMonth` present) or `"X VC / month"` for plans with `videoVcoinMonthlyGrant > 0`; legacy `videoGenerateMonthlyUnitsLimit` branch retained as fallback for un-migrated plans. Image/token/skill fact chips byte-identical.
+- `apps/web/app/app/packages/page.tsx` (`formatPackageLabel`): `video_generate` packages render `"N VC"` instead of `"N units"`. All other package types (image_generate, image_edit, document) byte-identical.
+- Translation keys added to `en.json` and `ru.json`: `monthlyVideoVcRemaining`, `factVideosVc`, `factVideosVcWithApprox`.
+- New test file `apps/web/app/app/packages/page.test.tsx` (5 cases). Updated `pricing-page-view.test.tsx` (+4 new `derivePlanFacts` VC cases). Updated `assistant-settings.test.tsx` (+2 new VC card cases, updated 1 existing assertion). PASS: `@persai/web run typecheck`; `@persai/api run typecheck`; `pnpm -r lint`; `format:check`; `vitest run` (637 tests, 64 files).
 
 ### Slice 7 - Quota status tool + runtime advisor
 
