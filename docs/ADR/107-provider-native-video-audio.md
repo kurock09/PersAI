@@ -322,14 +322,49 @@ Minimum production path for live provider-native audio and extended Kling video 
 
 ## Acceptance checklist
 
-- [ ] Provider capability audit completed and recorded.
-- [ ] Catalog can represent silent vs native-audio vs voice-control video capability.
-- [ ] Catalog/runtime can distinguish single-image vs multi-image vs Omni-capable video paths.
-- [ ] Admin can configure these video capability rows without polluting chat/image paths.
-- [ ] Plans/runtime reject impossible audio, voice-control, multi-image, and Omni requests honestly.
-- [ ] Kling native audio is supported where the active provider path confirms it.
-- [ ] Runway audio is supported only for documented audio-capable model/mode combinations.
-- [ ] Kling multi-image and Kling Omni are supported only through explicit provider routes.
-- [ ] Billing facts distinguish the priced execution mode where provider pricing differs.
-- [ ] Delivery/user-visible result says when audio, voice control, or extended input mode was produced or not supported.
-- [ ] Live smoke verifies at least one provider-native audio video path.
+- [x] Provider capability audit completed and recorded.
+- [x] Catalog can represent silent vs native-audio vs voice-control video capability.
+- [x] Catalog/runtime can distinguish single-image vs multi-image vs Omni-capable video paths.
+- [x] Admin can configure these video capability rows without polluting chat/image paths.
+- [x] Plans/runtime reject impossible audio, voice-control, multi-image, and Omni requests honestly.
+- [x] Kling native audio is supported where the active provider path confirms it.
+- [~] Runway audio is supported only for documented audio-capable model/mode combinations. (Deferred indefinitely; no follow-up program — see `## Program closure (2026-06-03)`.)
+- [~] Kling multi-image and Kling Omni are supported only through explicit provider routes. (Deferred indefinitely beyond the bounded `image` + `image_tail` two-image case landed in Slice 4; no follow-up program — see `## Program closure (2026-06-03)`.)
+- [~] Billing facts distinguish the priced execution mode where provider pricing differs. (Deferred indefinitely; audio-priced ledger dimensions never added; no follow-up program — see `## Program closure (2026-06-03)`.)
+- [~] Delivery/user-visible result says when audio, voice control, or extended input mode was produced or not supported. (Deferred indefinitely; delivery narration not implemented; no follow-up program — see `## Program closure (2026-06-03)`.)
+- [~] Live smoke verifies at least one provider-native audio video path. (Deferred indefinitely; live smoke not executed; no follow-up program — see `## Program closure (2026-06-03)`.)
+
+## Program closure (2026-06-03)
+
+ADR-108 Slice 0 closes ADR-107 as a program. The acceptance checklist above is now partial: landed items remain landed; the rest is deferred indefinitely with no follow-up program, no roadmap, and no candidate slice list. ADR-107 is not reopened. Reviving any deferred capability requires a new ADR.
+
+### Landed
+
+- **Slice 1 — Contract and catalog capability.** Recorded in `docs/CHANGELOG.md` 2026-06-02 entry "ADR-107 Slice 1 — video capability contract/catalog truth (`packages/runtime-contract`, `packages/contracts`, `apps/api`, `apps/web`, `apps/runtime`, `docs`; 2026-06-02)". `RuntimeVideoModelParameters.audioCapabilities` (`silent` / `provider_native_audio` / `voice_control`) and `inputCapabilities` (`text` / `single_reference_image` / `multi_image` / `omni`) are durable contract truth on video catalog rows. OpenAPI and generated contracts expose the shape; legacy rows normalize to silent + text (+ `single_reference_image` when `referenceImageSupported=true`). Runway/Kling stay video-only and out of chat routing.
+- **Slice 4 — Bounded Kling voice control + 2-image tail mapping.** Recorded in `docs/CHANGELOG.md` 2026-06-02 entry "ADR-107 Slice 4 — bounded Kling voice control + 2-image tail mapping (`packages/runtime-contract`, `apps/runtime`, `apps/provider-gateway`, `docs`; 2026-06-02)". Runtime `video_generate` accepts explicit `voiceIds[]` / `voiceKeys[]`; for Kling on `text2video` and `image2video`, `audioMode:"voice_control"` maps to the documented `voice_list` path with `sound:"on"`; `inputMode:"multi_image"` with exactly two ordered image aliases maps to Kling `image` + `image_tail`. Out-of-bounds requests fail honestly.
+- **Slice 5 — Bounded billing + unsupported-mode honesty verification.** Recorded in `docs/CHANGELOG.md` 2026-06-02 entry "ADR-107 Slice 5 — bounded billing + unsupported-mode honesty verification (`apps/runtime`, `apps/api`, `docs`; 2026-06-02)". Async `video_generate` paths preserve current provider/model billing facts; `requested_mode_unsupported` outcomes are terminal user/runtime failures rather than retryable runtime failures. No new audio-priced ledger dimensions were added; that work is deferred indefinitely (see below).
+- **Slice 2 — Admin selection and validation (code-only on the active path; not separately ledgered in CHANGELOG).** Anchored at `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts:430-433`. The runtime provider settings save path validates audio/input capability shapes for video catalog rows so admins cannot mark a row capability-of-execution that the runtime/provider-gateway path cannot honor; chat/image surfaces are unaffected.
+- **Slice 3 — Materialization and runtime intent (code-only on the active path; not separately ledgered in CHANGELOG).** Anchored at `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts:1092-1307`. Runtime `video_generate` distinguishes silent / provider-native-audio / voice-control / single-reference-image / 2-image-tail intents and rejects unsupported axes honestly via the structural unsupported-mode terminal outcome that Slice 5 then surfaces as a non-retryable failure.
+
+### Deferred indefinitely (no follow-up program)
+
+- Kling Omni provider route (`POST /v1/videos/omni-video`). The standard Kling adapter does not call it; no Omni route work is scheduled.
+- Broad Kling multi-image / multi-element generation beyond the bounded `image` + `image_tail` two-image case landed in Slice 4. Larger multi-shot, custom storyboard, and multi-element semantics are not modeled.
+- Runway voice / avatar APIs being routed through `video_generate`. Line 39-40 of this ADR ("Runway voice/avatar APIs must not be conflated with general-purpose `video_generate`") stays binding for Runway. ADR-109 carves a HeyGen-only named exception; nothing else is opened.
+- The `preserve_reference_audio` and `reference_voice_or_track` audio modes mentioned in this ADR's "Runtime contract shape" section. They were never implemented and will not be implemented.
+- Audio-priced ledger dimensions distinguishing silent vs native-audio vs voice-control cost. The internal USD COGS ledger (`model_cost_ledger_events`) keeps a single per-row provider cost without splitting by audio axis. ADR-108 introduces a separate Vcoin (VC) wallet for user-facing settlement of `video_generate`; that does not split the COGS ledger by audio axis either.
+- Delivery copy that narrates produced audio / input-mode details to the user. The current generic completion framing stays; it avoids false success claims and does not narrate audio/input-mode production.
+
+These items have no scheduled follow-up program, no roadmap, and no candidate slice list. A future need to revisit any of them requires a new ADR.
+
+### Accepted residuals
+
+The `omni` value of `inputCapabilities` is honestly representable on a video catalog row, and the Admin Runtime catalog UI accepts that capability label. However, the runtime `video_generate` execution path hard-rejects an `omni` request and the API runtime-provider settings save path also rejects `omni` for execution rows. This catalog-vs-runtime split is intentional: catalog truth stays expressive enough to describe what the provider documents, while the executable surface only advertises wired routes. It is not a bug, will not be fixed, and will stay this way until or unless a future ADR opens the dedicated `/omni-video` provider route.
+
+OpenAI video continues to share the existing `tool_image_generate` OpenAI media credential entry. The video provider selector for OpenAI does not have a dedicated `tool/video_generate/openai/api-key` slot (only Runway and Kling have dedicated video provider credential slots, added by ADR-106 Slice 2). ADR-109 does not change this and adds its own dedicated `tool/video_generate/heygen/api-key` slot through the same ADR-106 Slice 2 pattern. A future change that splits the OpenAI image and OpenAI video credentials requires its own ADR.
+
+### Cross-link
+
+This program closure track is `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`. ADR-108 does not implement any deferred item from this ADR; it documents this closure (Slice 0), introduces a Vcoin wallet for `video_generate` settlement, and prepares the substrate that ADR-109 needs.
+
+The talking-avatar program is `docs/ADR/109-heygen-talking-avatar-on-vcoin.md`. ADR-109 carries a single named exception to line 39-40 of this ADR: HeyGen `talking_avatar` mode is allowed on `video_generate` as a top-level `mode` field. Line 39-40 stays binding for Runway, OpenAI, Kling, and any future provider that is not explicitly opened by its own ADR.

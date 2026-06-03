@@ -1,0 +1,679 @@
+# ADR-109: HeyGen talking-avatar mode and workspace character registry
+
+## Status
+
+Proposed (2026-06-03). Depends on ADR-108 at minimum through slice 3 (settle path debit + monthly grant). Parallel to ADR-102.
+
+## Context
+
+ADR-106 made `video_generate` provider-aware for OpenAI/Runway/Kling. ADR-107 added the audio capability axis (`silent`, `provider_native_audio`, `voice_control`) and the input capability axis (`text`, `single_reference_image`, `multi_image`, `omni`), and explicitly stated that "Runway voice/audio/avatar APIs must not be conflated with general-purpose `video_generate`" (`docs/ADR/107-provider-native-video-audio.md:39-40`). ADR-108 introduces Vcoin (VC) as the user-facing settlement currency for `video_generate`.
+
+The next product step is HeyGen talking-avatar video. The product expectation is:
+
+- User attaches a photo and asks to make a video with spoken text -> assistant produces a talking-head video using the photo and a Russian preset voice.
+- User asks to "save Masha from this photo" -> assistant creates a workspace persona (display name + portrait + voice).
+- User later asks to "have Masha read this text" -> assistant looks up the persona, reuses the cached HeyGen avatar, and renders the new video.
+
+HeyGen exposes a Photo Avatar Video class of APIs that accept a photo and a voice id and produce a talking video without requiring the caller to first create a HeyGen avatar entity. HeyGen also exposes voice presets (`GET /v3/voices`) including Russian voices, and a voice cloning endpoint (`POST /v3/voices/clone`).
+
+The architectural tension this ADR resolves: ADR-107 line 39-40 forbids conflating Runway voice/avatar APIs with general-purpose `video_generate`. HeyGen talking-avatar is architecturally similar (single-persona talking head from a portrait plus voice plus text). This ADR makes an **explicit, named exception** for HeyGen and formalizes the new product class as a top-level `mode` on the existing `video_generate` tool, so the tool surface does not multiply.
+
+Per the 2026-06-03 audit synthesis, the user-confirmed shape is:
+
+- `mode: "cinematic" | "talking_avatar"` as a top-level field on the `video_generate` request.
+- `talking_avatar` is HeyGen-only in the first version; cinematic remains across OpenAI/Runway/Kling.
+- Voice strategy MVP: HeyGen presets only (cached as Kling voice catalog is cached). Voice cloning is deferred to a later ADR.
+- Workspace persona registry: separate PersAI entity. HeyGen avatar id is provider metadata stored on the persona row, created lazily on first use. Persona limit is configurable, default 10 per workspace.
+- Plan toggle: boolean on the `video_generate` tool activation card in plans.
+- Persona creation costs a fixed VC amount (configurable in Admin Tools) and is debited only on creation success.
+- Render cost: catalog $/sec * seconds * `vcoinExchangeRate` per ADR-108 settle path.
+- Multi-character in a single clip is deferred. MVP supports one persona per clip; the assistant proposes splitting a multi-character request into multiple clips.
+
+## Decision
+
+Add HeyGen as the fourth `video_generate` provider. Add `mode: "cinematic" | "talking_avatar"` as a top-level field on the request. Add a workspace-scoped persona registry. Gate `talking_avatar` per plan with a boolean on the `video_generate` activation card. Settle render cost through the ADR-108 VC wallet. Cache HeyGen presets the way Kling voices are cached.
+
+### Provider policy
+
+- `talking_avatar` is HeyGen-only. There is no automatic fallback to Runway, Kling, or OpenAI for `talking_avatar`. ADR-107 line 39-40 remains true for Runway and Kling; this ADR carves an exception only for HeyGen.
+- `cinematic` continues to route to OpenAI / Runway / Kling exactly as ADR-106/107 already define.
+- Voice cloning (`POST /v3/voices/clone`), avatar group APIs, scenes/montage, background music, and lipsync to third-party avatars are out of scope.
+- Multi-character in a single clip is out of scope; the assistant must propose splitting into multiple clips when the user asks for it.
+
+### User scenarios
+
+**Scenario A: ad-hoc photo + text (no persona persistence).** User attaches a photo and asks to make a video with a spoken text. Runtime resolves the `portraitImageAlias` to a stored reference image, picks the assistant's default Russian voice (or the user-supplied `voiceKey`), and calls HeyGen Photo Avatar Video directly. No persona row is created. No "create avatar" VC charge. Render is debited from VC on success.
+
+**Scenario B: explicit persona creation.** User says (or the assistant infers an explicit request) "save this as Masha". Runtime creates a `workspace_video_personas` row with `{ display_name, portrait_asset_id, heygen_voice_id, heygen_avatar_id = null }`. Persona creation debits the configured fixed VC cost on success. HeyGen avatar id is not created in this step.
+
+**Scenario C: persona reuse.** User says "have Masha read this text". Runtime looks up persona by name (case-insensitive). If exactly one match: if `heygen_avatar_id` is null, runtime triggers HeyGen avatar creation lazily, persists the id, then proceeds with render. If `heygen_avatar_id` is already set, runtime uses it directly. Render is debited from VC on success. If zero matches, the assistant asks for clarification. If multiple matches, the assistant returns a list for the user to pick from. No keyword routing, no auto-guess.
+
+### Persona registry shape
+
+```ts
+// workspace_video_personas
+{
+  id: string;                    // uuid
+  workspace_id: string;          // FK workspaces
+  display_name: string;          // unique within workspace, case-insensitive
+  portrait_asset_id: string;     // FK assistant_files (uploaded portrait)
+  heygen_voice_id: string;       // chosen at creation, from HeyGen presets
+  heygen_avatar_id: string | null; // null until first talking_avatar render with this persona
+  vc_cost_paid: number;          // VC debited at creation
+  created_at: Date;
+  updated_at: Date;
+}
+```
+
+A workspace has a configurable persona limit (default 10). The limit is stored in Admin Tools alongside the persona creation rate.
+
+### Runtime contract shape (target)
+
+The exact contract is finalized in slice 3 after a contract pass. The target shape is:
+
+```ts
+type RuntimeVideoGenerateMode = "cinematic" | "talking_avatar";
+
+interface RuntimeVideoGenerateRequest {
+  mode: RuntimeVideoGenerateMode;
+  // cinematic-only fields
+  prompt?: string;
+  // talking_avatar fields
+  speechText?: string;
+  speechLanguage?: string; // ISO code, e.g. "ru"
+  personaId?: string;          // workspace persona, optional
+  portraitImageAlias?: string; // ad-hoc photo when no persona
+  voiceKey?: string;           // explicit HeyGen preset voice id; overrides persona/default
+  // common
+  seconds?: number;
+  size?: { width: number; height: number };
+  // existing ADR-107 fields (audioMode, inputMode, voiceIds, voiceKeys, referenceTailImage, etc.)
+}
+```
+
+Validation:
+
+- `mode = "cinematic"`: same rules as ADR-106/107. `talking_avatar` fields are ignored if present.
+- `mode = "talking_avatar"`: requires `speechText`, `speechLanguage`, and exactly one of `personaId` or `portraitImageAlias`. Plan must have `talkingVideoEnabled = true`. Provider must resolve to HeyGen; if not, the request fails honestly with `talking_avatar_provider_unavailable`.
+- Multi-character requests (more than one persona reference or more than one named speaker in `speechText`) are rejected with `multi_character_not_supported`; the assistant is instructed by the tool description to split the work into multiple calls.
+
+### Plan toggle
+
+A new boolean `talkingVideoEnabled` on the `video_generate` tool activation card in the plan editor. Default false. When false, `mode = "talking_avatar"` requests fail with `feature_unavailable` and the runtime does not call HeyGen.
+
+### Voice catalog cache
+
+HeyGen voice presets are fetched via `GET /v3/voices` (or the equivalent listing endpoint), cached in a new platform table `platform_heygen_voice_catalog_cache` with the same 24h TTL pattern used by `KlingVoiceCatalogService`. Refresh is lazy on materialization (no cron). The cached shortlist is attached to the materialized assistant bundle on the `video_generate` ref when the resolved provider is `heygen`.
+
+### Cost model
+
+- **Persona creation cost (fixed VC):** stored in Admin Tools as `heygenPersonaCreationVcoin` (default 20 VC, configurable). Debited on persona row creation success. If `heygen_avatar_id` later creation fails, the persona row stays (with `heygen_avatar_id = null`) and the user is not charged twice.
+- **Render cost (variable VC):** computed on success delivery by ADR-108 settle path. Catalog $/sec for HeyGen talking-avatar rows is admin-configured in Admin Runtime (same pattern as Runway/Kling video rows).
+- **HeyGen-side avatar creation cost:** the HeyGen API may charge per avatar creation; that cost flows into the USD COGS ledger but is **not** separately surfaced to the user. The persona creation VC charge covers it conceptually.
+
+## Non-goals
+
+- Talking-avatar through Runway, OpenAI, or Kling. ADR-107 line 39-40 remains true for them.
+- Voice cloning (`POST /v3/voices/clone`).
+- Multi-character per clip / scenes / montage.
+- Background music, sound effects, lipsync to non-HeyGen avatars.
+- A standalone public Personas API / SDK.
+- Sandbox / preview UI for personas (admin-side only in the first version).
+- Auto-persisting every ad-hoc photo as a persona. Persona creation is explicit.
+- Reforming VC pricing. ADR-108 owns it.
+- Cross-plan persona sharing.
+
+## Agent execution model
+
+This ADR is executed by an **orchestrator agent that does not write code**. The orchestrator holds context across slices, plans one bounded slice at a time, spawns implementation subagents with precise prompts and file boundaries, diff-reviews every return, runs the focused tests and repo gates itself, and updates docs. Implementation subagents are the only actors that write source code.
+
+### Orchestrator role
+
+- **Read-only** for source/code files (`apps/**`, `packages/**`, `prisma/**`, infra, scripts).
+- **Write-capable** only for docs: `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`, this ADR's slice status blocks, and the doc updates listed per slice (`docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`).
+- Spawns one implementation subagent per slice. May spawn additional readonly audit subagents inside the slice's planning step for context-gathering (HeyGen API truth, persona-lookup edge cases, etc.).
+- Diff-reviews every subagent return and rejects if scope was violated.
+- Runs focused tests and repo gates through its own shell. Does not trust a subagent's PASS/FAIL claim unless verbatim command output was included.
+- Refuses to mark a slice complete if the per-slice acceptance gate fails.
+- Never commits or pushes (matches AGENTS.md).
+- Enforces the ADR-108 dependency: ADR-108 must be at least at Slice 3 (settle path debit + monthly grant) **before** ADR-109 Slice 7 (runtime talking_avatar execution) is spawned. Earlier ADR-109 slices (0-6) can interleave with later ADR-108 slices.
+
+### Per-slice orchestrator workflow
+
+1. **Confirm tree.** `git status` clean. If dirty, stop and surface to the user.
+2. **Confirm baseline.** Record SHA in `docs/SESSION-HANDOFF.md` if not already recorded for this session.
+3. **Confirm ADR-108 dependency** for slices that need it (>= ADR-108 Slice 3 required for ADR-109 Slice 7).
+4. **Read slice spec.** This ADR's `Slice specifications` for the current slice + all `Likely files` for that slice.
+5. **State plan in chat.** Slice id, purpose, Scope IN, Scope OUT, files to touch, tests to add, exit criteria. Precondition for spawning the implementation subagent.
+6. **Spawn one implementation subagent** using the prompt template below. Sequential, write-capable.
+7. **Receive subagent return.** Mandatory structure (see below).
+8. **Diff-review.** Reject if any `Scope OUT` file was touched, any `Forbidden patterns` are present, or the return structure is incomplete.
+9. **Run focused tests + repo gates** from the slice spec plus this ADR's cross-slice invariants. Through orchestrator's own shell.
+10. **Apply doc updates** listed for the slice.
+11. **Append CHANGELOG line** matching the existing pattern.
+12. **Update SESSION-HANDOFF** with baseline SHA, files touched, tests run, risks, deploy, next recommended step.
+13. **Mark slice complete** in this ADR's `Slice specifications` by appending a `**Status (YYYY-MM-DD): Completed.**` block in the ADR-106 format.
+14. **State next recommended slice** in chat.
+
+If any step fails, the orchestrator rolls back (`git restore`) or re-spawns the subagent with a corrected prompt. Partial work is not silently accepted.
+
+### Implementation subagent prompt template
+
+The orchestrator constructs every implementation subagent prompt with these exact sections, derived from the slice spec:
+
+- **ADR + slice id.** Example: `"ADR-109 Slice 6 - Provider-gateway HeyGen client"`.
+- **Required reading.** Verbatim absolute paths: this ADR + ADR-108 (always — talking-avatar settles through ADR-108 wallet) + the slice's prior-ADR list + this slice's `Likely files`.
+- **Purpose.** One paragraph from the slice's `Scope`.
+- **Scope IN.** Exact files / directories the subagent may edit.
+- **Scope OUT.** Exact files / directories the subagent must not touch (cinematic execution paths, image/tts/stt, chat routing, OpenAI image path, ADR-108 wallet code unless explicitly opened, etc.).
+- **Required tests.** Verbatim from the slice `Required tests`.
+- **Forbidden patterns.** Slice-specific anti-patterns (no keyword routing for persona lookup, no auto-guess on ambiguous persona names, no fallback to non-HeyGen for `talking_avatar`, no broad reformat, no commits, no push).
+- **Verification commands.** Exact `pnpm` invocations the subagent must run with output included.
+- **Return structure.** The mandatory structure below, listed in full so the subagent cannot omit it.
+
+### Subagent return structure (mandatory)
+
+The implementation subagent must return all seven items. Returns missing any item are rejected without diff-review:
+
+1. **Changed files** — one bullet per file with one-line behavioral summary.
+2. **Tests added or changed** — file path + assertion summary.
+3. **Tests run** — exact commands + PASS / FAIL per command + tail of output where useful.
+4. **Behavioral summary** — 3-5 bullets, no prose.
+5. **Risks observed** — anything the orchestrator should know that is not in the slice spec.
+6. **Out-of-scope discoveries** — issues found but not fixed. Orchestrator decides whether to file a follow-up slice or expand the current one.
+7. **Diff line counts per file.**
+
+### Per-slice acceptance gate
+
+Before the orchestrator marks a slice complete, all of the following must be true:
+
+- [ ] Every file in `Scope IN` was changed as planned; no file in `Scope OUT` was touched.
+- [ ] Every test listed in `Required tests` exists and passes.
+- [ ] No `Forbidden patterns` appear in the diff.
+- [ ] Doc updates listed for the slice are present in the same change set.
+- [ ] CHANGELOG line appended.
+- [ ] SESSION-HANDOFF updated.
+- [ ] This ADR's slice spec carries a `Status (YYYY-MM-DD): Completed.` block.
+- [ ] Repo verification gates for the slice pass through the orchestrator's own shell.
+- [ ] Cross-slice invariants below remain true (orchestrator may spawn a small readonly audit subagent to confirm if the diff is non-trivial).
+- [ ] For Slice 7+: ADR-108 Slice 3 was already merged before this slice was started.
+
+If any item fails, the orchestrator either re-spawns the subagent with a corrected prompt or rolls the slice back.
+
+### Subagent rules (binding on every implementation subagent)
+
+- Read this ADR + ADR-108 + the slice-specific files before editing.
+- Edit only files listed in `Scope IN`.
+- Refuse to edit `Scope OUT` files even if a refactor would seem helpful — surface as `Out-of-scope discoveries`.
+- Return the mandatory structure above in full.
+- Do not commit or push.
+- Do not run broad reformatters across files outside `Scope IN`.
+- Do not introduce keyword routing for persona lookup — that lives in the model + tool description, never in code.
+- Do not silently auto-pick a persona on ambiguous match — surface the list to the user via runtime advisor copy.
+- Do not let `mode: "talking_avatar"` fall back to non-HeyGen providers.
+- Add focused tests for each changed seam.
+- Run every verification command listed by the orchestrator and include the exact output tail.
+
+### Cross-slice invariants the orchestrator enforces (above per-slice Scope OUT)
+
+1. Cinematic mode behavior unchanged anywhere in this ADR.
+2. ADR-106 invariants preserved (Runway/Kling video-only, chat routing OpenAI/Anthropic-only, OpenAI image untouched).
+3. ADR-107 line 39-40 still applies to Runway and OpenAI; only HeyGen has the named exception.
+4. ADR-105 media-job durability preserved.
+5. Image / TTS / STT / chat routing behavior unchanged anywhere in this ADR.
+6. No keyword routing for persona lookup anywhere.
+7. `talking_avatar` mode never falls back to non-HeyGen providers.
+8. Persona registry is workspace-scoped, never assistant-scoped.
+9. VC debit for persona creation + render goes through ADR-108 wallet code (no parallel debit path).
+10. HeyGen `avatar_id` is never surfaced in user-visible labels — only the persona's `display_name`.
+
+If a subagent return violates any of these, the slice is rolled back.
+
+### Required startup reading
+
+1. `AGENTS.md`
+2. `docs/SESSION-HANDOFF.md`
+3. `docs/CHANGELOG.md`
+4. `docs/ARCHITECTURE.md`
+5. `docs/API-BOUNDARY.md`
+6. `docs/DATA-MODEL.md`
+7. `docs/TEST-PLAN.md`
+8. `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`
+9. this ADR
+10. relevant prior ADRs:
+    - `docs/ADR/082-billing-quota-and-delivery-confirmed-media-accounting.md`
+    - `docs/ADR/086-async-media-jobs-for-generated-image-audio-and-video.md`
+    - `docs/ADR/099-provider-pricing-catalog-and-unified-model-cost-ledger.md`
+    - `docs/ADR/105-media-job-truth-and-orchestrated-cleanup.md`
+    - `docs/ADR/106-video-provider-catalog-and-execution-routing.md`
+    - `docs/ADR/107-provider-native-video-audio.md`
+
+## Execution ledger
+
+| Slice | Title | Purpose | Deploy |
+| ----- | ----- | ------- | ------ |
+| 0 | Baseline + HeyGen API confirm | Re-read HeyGen Photo Avatar Video API + Voices listing. Confirm Russian preset voice availability. Confirm pricing and avatar creation semantics. Record baseline SHA. | NO |
+| 1 | HeyGen credential + Admin Tools UI | `tool_video_generate_heygen` -> `tool/video_generate/heygen/api-key`. Secret store integration. Display in Admin Tools Video Providers section alongside Runway and Kling. | API + WEB |
+| 2 | HeyGen catalog row + Admin Runtime UI | Add `heygen` to `VIDEO_GENERATE_PROVIDERS` / `MANAGED_CATALOG_PROVIDERS`. Add catalog rows for `heygen` talking-avatar models with `capabilities: ["video"]`, `billingMode: "time_metered"`. Admin Runtime renders the HeyGen card video-only. Catalog can mark a row as talking-avatar-only (so cinematic plan selection cannot pick it). | API + WEB |
+| 3 | Mode contract + tool projection | Add `RuntimeVideoGenerateMode = "cinematic" \| "talking_avatar"` to runtime contract. Add `speechText`, `speechLanguage`, `personaId`, `portraitImageAlias`, `voiceKey` fields. Native tool projection extends `video_generate` schema with new fields, conditional on plan toggle. | CONTRACT + RUNTIME + WEB |
+| 4 | HeyGen voice catalog cache | New `HeyGenVoiceCatalogService` and `platform_heygen_voice_catalog_cache` Prisma table. 24h TTL. Lazy refresh on materialization. Bundle attach when ref provider is `heygen`. | API |
+| 5 | Workspace persona registry | New `workspace_video_personas` table. CRUD service. Per-workspace persona limit setting (default 10, configurable in Admin Tools). VC debit on persona creation success (uses ADR-108 wallet). | API |
+| 6 | Provider-gateway HeyGen client | New `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts`. Submit Photo Avatar Video request, poll status, download result. Lazy avatar creation when persona reuse path requires it. Emit `billingFacts` time-metered. | PROVIDER-GATEWAY |
+| 7 | Runtime talking_avatar execution | Runtime `runtime-video-generate-tool.service.ts` routes `mode = "talking_avatar"` to HeyGen. Resolves persona or ad-hoc photo. Validates plan toggle. Validates one-persona-per-clip. Calls provider gateway. Persists artifact. VC settle through ADR-108 path. | RUNTIME + API |
+| 8 | Plan toggle + materialization gate | Add `talkingVideoEnabled` boolean on plan `video_generate` tool activation. Admin Plans UI exposes it. Materialization writes the flag onto the bundle so runtime can fail honestly when off. | API + WEB |
+| 9 | Assistant Settings UI: Characters | New section between Character (order 1) and Limits (order 2) in `apps/web/app/app/_components/assistant-settings.tsx`. Workspace personas list, create form (upload portrait + select voice + name), delete with confirm. Section hidden when plan `talkingVideoEnabled` is false. | WEB |
+| 10 | Chat UX for talking video | Tool description updated so the model knows when to ask "save as a reusable persona?" vs ad-hoc. No keyword routing. Tool description encodes multi-character refusal: split into multiple calls. Active media job pill and final artifact rendering reuse existing UX (Slice 6 of ADR-108 already adjusted balance display). | RUNTIME (tool description) |
+| 11 | Tests + docs + verification + smoke | E2E tests for ad-hoc, persona create, persona reuse, multi-character refusal. Docs updates (ARCHITECTURE, API-BOUNDARY, DATA-MODEL, TEST-PLAN). Full verification gate. Live smoke in `persai-dev` with a real HeyGen credential. | DOCS + ALL |
+
+Minimum useful path for catalog-only HeyGen (admin can configure but feature not live): `0 -> 1 -> 2 -> 3`.
+
+Minimum production path for live HeyGen talking-avatar: `0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11`.
+
+Persona-aware path requires slice 5. Ad-hoc-only path can in principle launch at slice 7 if the assistant Settings section is deferred, but slice 8 plan toggle and slice 11 smoke are still required.
+
+## Slice specifications
+
+### Slice 0 - Baseline + HeyGen API confirm
+
+**Scope**
+
+- Re-read HeyGen Photo Avatar Video documentation (or equivalent endpoint that accepts a portrait + voice id + text and returns a video task).
+- Confirm Russian preset voices in `GET /v3/voices` are reachable.
+- Record exact endpoint paths, auth header shape, polling cadence guidance, and result download shape.
+- Record HeyGen pricing model (per-second, currency).
+- Record baseline SHA in `docs/SESSION-HANDOFF.md`.
+
+**Exit**
+
+- Provider truth is written down. No code change.
+
+### Slice 1 - HeyGen credential + Admin Tools UI
+
+**Scope**
+
+- Add `tool_video_generate_heygen: "tool/video_generate/heygen/api-key"` to `TOOL_CREDENTIAL_IDS`.
+- Map to tool code `video_generate`.
+- Add display label.
+- Add to `VIDEO_PROVIDER_CREDENTIAL_KEYS` in `apps/web/app/admin/tools/page.tsx`.
+- Render in the existing Video Providers section.
+- Reuse `PlatformRuntimeProviderSecretStoreService` exactly as Runway/Kling do.
+
+**Required tests**
+
+- API: save/load HeyGen key metadata.
+- Web: Tools page renders the HeyGen row.
+
+**Exit**
+
+- Admin can store the HeyGen API key.
+
+### Slice 2 - HeyGen catalog row + Admin Runtime UI
+
+**Scope**
+
+- Extend `MANAGED_CATALOG_PROVIDERS` and `VIDEO_GENERATE_PROVIDERS` with `heygen`.
+- Extend `PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS` in `packages/runtime-contract/src/index.ts`.
+- Add empty default catalog bucket `heygen: { models: [] }`.
+- Admin Runtime renders the HeyGen card with the same video-only constraint applied to Runway/Kling.
+- Add a per-row capability flag on catalog rows to indicate talking-avatar-only models (so plan validation cannot select them for cinematic).
+- Plan validation: accept HeyGen rows only for `videoGenerateModelKey` / fallback when the model is marked talking-avatar-capable.
+
+**Required tests**
+
+- Catalog accepts HeyGen rows video-only.
+- Chat selectors do not see HeyGen.
+- Talking-avatar-only catalog rows cannot be selected as cinematic primary/fallback.
+
+**Exit**
+
+- Admin can configure HeyGen models and pricing.
+
+### Slice 3 - Mode contract + tool projection
+
+**Scope**
+
+- Add `RuntimeVideoGenerateMode = "cinematic" | "talking_avatar"`.
+- Add new request fields (`speechText`, `speechLanguage`, `personaId`, `portraitImageAlias`, `voiceKey`).
+- Tool projection in `apps/runtime/src/modules/turns/native-tool-projection.ts` exposes the new fields only when the plan has `talkingVideoEnabled` or `mode` is `cinematic`.
+- Validation: `talking_avatar` requires speech text + language + (personaId XOR portraitImageAlias).
+- Multi-character heuristic at request validation: refuse `>1 personaId` or detection of more than one named speaker pattern in speech text. Honest error code `multi_character_not_supported`.
+
+**Scope OUT (forbidden in this slice)**
+
+- Any provider-gateway code (Slice 6 owns it).
+- Any runtime execution path for `talking_avatar` (Slice 7 owns it).
+- Persona table or persona service (Slice 5).
+- ADR-108 wallet code paths.
+- Cinematic request shape — must round-trip identical bits.
+
+**Forbidden patterns**
+
+- Auto-defaulting `mode` to `"talking_avatar"` if `speechText` is present — `mode` must be an explicit top-level field set by the model.
+- Pattern-matching speech text for named speakers via regex outside the documented multi-character heuristic (which is a structural count, not a keyword list).
+- Hiding cinematic fields when `mode = "cinematic"` — the cinematic surface must remain unchanged.
+
+**Required tests**
+
+- `mode = "cinematic"` round-trips unchanged.
+- `mode = "talking_avatar"` validates required fields.
+- Multi-character refusal returns a stable error code.
+
+**Exit**
+
+- Tool schema is talking-avatar-ready (still not callable until slice 7).
+
+### Slice 4 - HeyGen voice catalog cache
+
+**Scope**
+
+- New service `HeyGenVoiceCatalogService` modeled on `KlingVoiceCatalogService`.
+- New Prisma model `PlatformHeygenVoiceCatalogCache { id, fetched_at, voices_json }` with single-row pattern keyed `heygen-presets-voices`.
+- 24h TTL.
+- Lazy refresh on materialization.
+- Materialization attaches a `videoVoiceCatalog` shortlist (provider `heygen`) on the `video_generate` ref when provider resolves to `heygen`.
+
+**Required tests**
+
+- Fresh cache returns cached shortlist.
+- Expired cache refreshes from API.
+- Materialization attaches the catalog only for `heygen` refs.
+
+**Exit**
+
+- Runtime knows which HeyGen voices it can offer.
+
+### Slice 5 - Workspace persona registry
+
+**Scope**
+
+- New `workspace_video_personas` Prisma model.
+- CRUD service + workspace-scoped HTTP endpoints.
+- Persona limit default 10, stored in Admin Tools as `heygenPersonaWorkspaceLimit`.
+- Persona creation cost setting `heygenPersonaCreationVcoin` (default 20), debited on success via ADR-108 wallet.
+- Persona deletion: cascade deletes `heygen_avatar_id` from HeyGen (best-effort) and removes the row.
+
+**Scope OUT (forbidden in this slice)**
+
+- Inventing a new VC debit path — must call the wallet service shipped by ADR-108 Slice 2 (rejection if ADR-108 Slice 2 is not merged yet).
+- Provider-gateway HeyGen client (Slice 6).
+- Runtime execution wiring (Slice 7).
+- UI (Slice 9).
+- Cross-workspace persona sharing.
+
+**Forbidden patterns**
+
+- Persona creation that proceeds when ADR-108 wallet rejects the debit — must surface honest `vcoin_balance_exhausted`.
+- Two transactions for "create persona row" + "debit VC" — must be a single transaction; rollback persona row if debit fails.
+- Hard-coding persona limit. Limit must be read from Admin Tools setting.
+- Calling HeyGen API from this slice — Slice 5 only stores PersAI-side metadata.
+
+**Required tests**
+
+- Create / list / delete persona round-trip.
+- Limit enforced.
+- VC debit happens only on success.
+- Duplicate display name within workspace rejected (case-insensitive).
+- Delete cascades to HeyGen best-effort.
+
+**Exit**
+
+- Workspace can own up to N personas.
+
+### Slice 6 - Provider-gateway HeyGen client
+
+**Scope**
+
+- New `HeyGenProviderClient` with:
+  - submit Photo Avatar Video task (portrait, voice id, text, language, seconds, size);
+  - poll task status;
+  - download result url;
+  - lazy create HeyGen avatar id when persona reuse path requires it;
+  - emit `billingFacts` time-metered (`capability: "video"`, `providerKey: "heygen"`, `modelKey: <catalog model>`, `durationMs`/`durationSeconds`).
+- Wire dispatch in `provider-video-generation.service.ts`.
+- Polling-loss / accepted-task / retry behavior mirrors Runway/Kling.
+
+**Scope OUT (forbidden in this slice)**
+
+- Runway / Kling / OpenAI provider-client code (no edits, even refactors).
+- Runtime side wiring (Slice 7).
+- Persona DB writes — only HeyGen-side `avatar_id` creation, which is returned for the caller (Slice 7) to persist.
+- ADR-108 wallet code.
+
+**Forbidden patterns**
+
+- Inlining persona DB lookups inside the provider client — the client receives a portrait URL + voice id + optional cached `heygen_avatar_id`, nothing more.
+- Hardcoding HeyGen voice list — must consume the shortlist from materialized bundle (Slice 4 cache).
+- Silent retry on 4xx HeyGen errors — only 5xx and transient transport errors retry per the existing Runway/Kling pattern.
+- Returning fake `billingFacts` when HeyGen response lacks duration — must surface and fail honestly.
+
+**Required tests**
+
+- Ad-hoc submit: portrait + voice + text -> accepted task -> poll -> download.
+- Persona reuse with cached `heygen_avatar_id`: avatar reused, no create call.
+- Persona reuse with null `heygen_avatar_id`: create-then-render, persona row updated with new id.
+- Polling loss handling matches existing pattern.
+- BillingFacts emit time-metered fact.
+
+**Exit**
+
+- Provider-gateway can talk to HeyGen end-to-end.
+
+### Slice 7 - Runtime talking_avatar execution
+
+**Scope**
+
+- `runtime-video-generate-tool.service.ts`: route `mode = "talking_avatar"` to HeyGen provider.
+- Resolve `personaId` or `portraitImageAlias` to actual portrait asset; resolve voice id (persona default, explicit `voiceKey`, or assistant's default Russian preset).
+- Validate plan toggle `talkingVideoEnabled`; honest fail when off.
+- Refuse multi-persona in one request honestly.
+- Async media job path: same lifecycle as cinematic (deferred enqueue, scheduler, completion delivery).
+- VC settle through ADR-108 path on success.
+
+**Scope OUT (forbidden in this slice)**
+
+- Cinematic execution path — must round-trip identical bits.
+- Provider-gateway code (Slice 6 owns it).
+- Persona CRUD (Slice 5 owns it; this slice only reads).
+- `media-delivery.service.ts` (settle path owned by ADR-108 Slice 2; this slice only ensures `billingFacts` flow correctly so the existing VC debit path fires).
+- New tool registration in `native-tool-projection.ts` (Slice 3 owns the projection; this slice only wires execution).
+
+**Forbidden patterns**
+
+- Any fallback to Runway / Kling / OpenAI for `talking_avatar` — must fail honestly with `talking_avatar_provider_unavailable` if HeyGen is not configured.
+- Auto-creating a persona when only `portraitImageAlias` was supplied — ad-hoc path must not persist anything.
+- Auto-resolving an ambiguous persona name by picking the most recent — must return the list to the model via tool result for user disambiguation.
+- Pattern-matching speech text for "Masha" / "Misha" / any name list — persona lookup is name-equality only against the workspace registry.
+
+**Required tests**
+
+- Ad-hoc end-to-end produces a video and debits VC.
+- Persona reuse end-to-end produces a video, debits VC, sets `heygen_avatar_id` on first use.
+- Plan toggle off blocks the request honestly.
+- Multi-persona refused honestly.
+
+**Exit**
+
+- Talking-avatar is callable end-to-end.
+
+### Slice 8 - Plan toggle + materialization
+
+**Scope**
+
+- Add `talkingVideoEnabled` boolean on plan `video_generate` tool activation card (in `manage-admin-plans.service.ts` and the editor UI).
+- Materialization writes the flag onto the `video_generate` ref in the bundle.
+- Tool projection (slice 3) reads the flag to decide whether to advertise talking-avatar fields.
+
+**Required tests**
+
+- Plan save/load round-trips the flag.
+- Materialization carries the flag.
+- Tool projection hides fields when flag is false.
+
+**Exit**
+
+- Admin can enable/disable talking-avatar per plan.
+
+### Slice 9 - Assistant Settings UI: Characters
+
+**Scope**
+
+- New section in `assistant-settings.tsx`, ordered between Character (1) and Limits (2).
+- List existing personas with portrait thumb + name + voice label.
+- Create form: upload portrait, choose voice from the HeyGen preset cache, enter name. On submit: confirm VC cost, create.
+- Delete with confirm.
+- Hidden when plan `talkingVideoEnabled` is false.
+- Empty state shows "Create a character to make talking videos with a consistent face and voice".
+
+**Required tests**
+
+- Section renders only when toggle is on.
+- Create flow validates inputs and shows VC cost.
+- Delete confirms and removes.
+
+**Exit**
+
+- Users can manage personas without leaving Assistant Settings.
+
+### Slice 10 - Chat UX for talking video
+
+**Scope**
+
+- Update the `video_generate` tool description to instruct the model:
+  - when user attaches a photo + says "make a video" + provides text, use `talking_avatar` mode;
+  - when user says "save this as <name>" (or similar explicit persona creation phrasing), create a persona first;
+  - when user references a persona by name and the lookup is ambiguous, ask the user to disambiguate;
+  - when user asks for multiple speakers in one clip, propose splitting into multiple clips.
+- No keyword routing in code paths; the model uses the tool description.
+- Active media job pill, sidebar dot, and final video rendering reuse the existing chat UX from ADR-108 Slice 6 (balance display) and ADR-105 (media job lifecycle).
+
+**Scope OUT (forbidden in this slice)**
+
+- Any new code paths in `apps/runtime/src/modules/turns/**` beyond updating tool description strings (and the matching snapshot test).
+- Web components — Slice 9 owns Assistant Settings; chat UX reuse is verified, not extended.
+- Provider-gateway changes.
+
+**Forbidden patterns**
+
+- Adding any regex / keyword routing for "talking" / "voice" / "озвучь" / "persona" / "character" / specific Russian or English verbs anywhere in code.
+- Adding code that infers `mode` from the message body — `mode` is set by the model based on the tool description, never by string matching.
+- Hard-coding the persona disambiguation copy — must come from a stable string table so locales can extend it.
+
+**Required tests**
+
+- Tool description text snapshot test (so unintended drift is visible in diffs).
+
+**Exit**
+
+- Assistant naturally drives talking-video workflows.
+
+### Slice 11 - Tests + docs + verification + live smoke
+
+**Scope**
+
+- E2E coverage: ad-hoc photo + text; persona create then reuse; multi-character refusal; plan toggle off; insufficient VC.
+- Update `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`.
+- Cross-reference ADR-108, ADR-107 (with the explicit exception note for HeyGen), ADR-106, ADR-105.
+- Full verification gate.
+- Live smoke in `persai-dev` with a real HeyGen credential: one ad-hoc talking video, one persona-based reuse.
+
+**Exit**
+
+- Feature is live-callable and documented.
+
+## Cross-slice invariants
+
+1. `talking_avatar` mode is HeyGen-only. No automatic fallback to other video providers.
+2. Cinematic mode behavior is unchanged.
+3. Image / TTS / STT / chat behavior is unchanged.
+4. Persona registry is workspace-scoped, not assistant-scoped.
+5. HeyGen `avatar_id` is provider metadata stored on the persona row, never exposed in user-visible labels.
+6. Voice cloning is out of scope; only HeyGen presets.
+7. Multi-character per single clip is rejected; assistant proposes splitting.
+8. Plan toggle gates `talking_avatar`; off plan returns honest `feature_unavailable`.
+9. Persona creation has a fixed VC cost (configurable in Admin Tools), debited on success only.
+10. Render cost is variable VC computed per ADR-108 settle path.
+11. ADR-107 line 39-40 stays true for Runway and OpenAI; this ADR carves an exception only for HeyGen.
+12. No keyword routing for persona lookup; rely on the model and tool description.
+13. ADR-106/107 invariants (Runway/Kling video-only, chat routing OpenAI/Anthropic-only, OpenAI image untouched) are preserved.
+
+## Risks
+
+- **HeyGen API rate limits / regional availability.** Mitigation: provider-gateway client surfaces honest accepted/poll/loss patterns matching Runway/Kling; document the operator-side rate limit policy.
+- **Russian voice preset quality may not match user expectations.** Mitigation: voice cloning planned for a follow-up ADR; assistant should set expectations honestly when a user asks for a custom voice.
+- **Persona limit 10 may be too low for agency-style workspaces.** Mitigation: limit is configurable in Admin Tools.
+- **Race on lazy avatar creation when two requests reference the same persona in parallel.** Mitigation: persona row lock during first creation; second request waits or replays.
+- **Photo privacy / GDPR.** HeyGen stores uploaded portraits. Mitigation: persona delete cascades to HeyGen best-effort; document retention policy.
+- **Multi-character UX gap.** Users will ask. Mitigation: assistant proposes splitting; ADR-110 (future) can introduce montage.
+- **Voice cloning deferral.** Users will ask. Mitigation: UI labels and assistant copy honest about preset-only support.
+- **Plan migration friction.** Operators must enable `talkingVideoEnabled` per plan and tune VC grants. Mitigation: ADR-108 migration runbook is the place to anchor it.
+- **HeyGen pricing changes.** Catalog $/sec is admin-editable; pricing drift handled the same as Runway/Kling drift.
+- **Costs accumulate fast at high VC grant.** Settle-only debit means a user with a large monthly grant can burn VC in seconds. Mitigation: assistant exposes balance through advisor copy (ADR-108 slice 7).
+
+## Alternatives considered
+
+### New top-level tool `talking_video_generate`
+
+Rejected. Multiplies the tool surface for a closely related class. The model already understands `video_generate`. ADR-106 explicitly chose to keep one tool with provider-neutral surface.
+
+### Extend `audioMode` enum with `talking_avatar`
+
+Rejected. `audioMode` is an ortho-axis describing audio behavior; `talking_avatar` is a structurally different request (different required inputs, different provider, different validation). Mixing them muddies both axes.
+
+### Extend `inputMode` enum with `talking_avatar`
+
+Rejected for the same reason. `inputMode` describes input shape (text, single image, multi-image, omni); `talking_avatar` is a mode of operation, not an input class.
+
+### Persona registry assistant-scoped
+
+Rejected. The product expectation is reuse across assistants in the same workspace ("Masha is my brand persona"). Workspace scope matches.
+
+### Pre-create HeyGen avatar at persona creation
+
+Rejected. Users may create personas they never use. Lazy creation avoids paying for unused HeyGen avatars and avoids a sync HeyGen call inside the persona create UX.
+
+### No persona persistence (always ad-hoc)
+
+Rejected. Reuse is the explicit product ask. Without persona persistence, every "Masha" video re-uploads the photo and re-creates the HeyGen avatar, which is wasteful and breaks naming continuity.
+
+### Multi-character via scene montage
+
+Deferred. Requires either a HeyGen multi-scene API (if/when available) or PersAI-side ffmpeg sandbox stitching. Both are larger than this ADR. Assistant proposes splitting instead.
+
+## Consequences
+
+### Positive
+
+- Talking-avatar arrives as a first-class mode on the existing tool, with explicit honest exception to the ADR-107 rule.
+- Persona reuse gives users a coherent brand-presence workflow across multiple videos.
+- Settle through ADR-108 VC keeps cost honesty.
+- Provider boundary mirrors Runway/Kling so HeyGen does not require a special-case execution path.
+
+### Negative
+
+- Adds a new provider, a new cache table, a new wallet debit category (persona creation), a new persona table, and a new section in Assistant Settings.
+- Two-axis growth in the tool schema (cinematic vs talking_avatar) needs careful tool-description writing to keep model behavior crisp.
+- Russian voice preset constraint will frustrate some users until voice cloning lands.
+- Multi-character split is a workaround until montage support lands.
+
+## Acceptance checklist
+
+- [ ] HeyGen credential stored under `tool_video_generate_heygen` and visible in Admin Tools.
+- [ ] HeyGen catalog rows configurable in Admin Runtime as video-only and talking-avatar-only.
+- [ ] Runtime contract carries `mode = "cinematic" | "talking_avatar"` plus speech / persona / portrait / voice fields.
+- [ ] Tool projection advertises the new fields only when plan toggle is on.
+- [ ] HeyGen voice presets cached and attached on materialization.
+- [ ] `workspace_video_personas` table exists with limit enforcement and VC debit on creation.
+- [ ] Provider-gateway HeyGen client submits / polls / downloads.
+- [ ] Provider-gateway lazily creates HeyGen avatar id for personas without one and persists it.
+- [ ] Runtime executes `talking_avatar` end-to-end through HeyGen and debits VC on success.
+- [ ] `talking_avatar` does not fallback to Runway / Kling / OpenAI.
+- [ ] Cinematic mode behavior is unchanged (regression test).
+- [ ] Plan toggle `talkingVideoEnabled` exists, gates execution, and hides UI fields when off.
+- [ ] Assistant Settings has a Characters section (workspace-scoped) when toggle is on.
+- [ ] Multi-character requests are refused honestly with split suggestion.
+- [ ] Persona deletion cascades to HeyGen best-effort.
+- [ ] E2E coverage exists for ad-hoc, persona create, persona reuse, multi-character refusal, plan toggle off, insufficient VC.
+- [ ] Docs updated (ARCHITECTURE / API-BOUNDARY / DATA-MODEL / TEST-PLAN).
+- [ ] ADR-107 line 39-40 exception for HeyGen recorded in this ADR and cross-referenced in ADR-107 if needed.
+- [ ] Full verification gate PASS.
+- [ ] Live smoke in `persai-dev` recorded for one ad-hoc and one persona-based talking video.

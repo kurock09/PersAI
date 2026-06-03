@@ -2,6 +2,93 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-03 — ADR-108 Slice 0: ADR-107 program closure
+
+### What changed & why
+
+Baseline SHA at session start: `9d4e51b43541211718338f9bd247e5421d9ff36d`. Tree carried only the ADR-108 / ADR-109 setup (modified `docs/CHANGELOG.md` + `docs/SESSION-HANDOFF.md`; new untracked `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md` + `docs/ADR/109-heygen-talking-avatar-on-vcoin.md`) from the prior 2026-06-03 planning session. The operator authorized that setup as Slice 0 input before this session began.
+
+ADR-108 Slice 0 is docs-only and closes ADR-107 as a program. No code changed. Implementation subagent was not spawned because every Slice 0 deliverable lives in the orchestrator's own write-zone (docs); the per-slice acceptance gate from ADR-108's `## Agent execution model` section was used as a self-checklist.
+
+- Added `## Program closure (2026-06-03)` to `docs/ADR/107-provider-native-video-audio.md` with three subsections plus a cross-link paragraph:
+  - **Landed.** Slices 1, 4, 5 are ledgered in `docs/CHANGELOG.md` 2026-06-02 entries. Slices 2 and 3 are code-only on the active path and are anchored at `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts:430-433` (Slice 2 — admin-side capability validation) and `apps/runtime/src/modules/turns/runtime-video-generate-tool.service.ts:1092-1307` (Slice 3 — runtime intent + unsupported-mode rejection).
+  - **Deferred indefinitely (no follow-up program).** Kling Omni provider route (`POST /v1/videos/omni-video`); broad Kling multi-image / multi-element generation beyond the bounded `image` + `image_tail` two-image case landed in Slice 4; Runway voice/avatar APIs being routed through `video_generate` (line 39-40 of ADR-107 stays binding for Runway); the `preserve_reference_audio` and `reference_voice_or_track` audio modes from the ADR-107 contract sketch (never implemented, will not be); audio-priced ledger dimensions distinguishing silent vs native-audio vs voice-control cost; delivery copy that narrates produced audio / input-mode details. No roadmap, no candidate slice list, no scheduled follow-up program. Reviving any of these requires a new ADR.
+  - **Accepted residuals.** First, the `omni` capability is honestly representable on a video catalog row and Admin Runtime accepts the label, but the runtime `video_generate` execution path hard-rejects an `omni` request and the API runtime-provider settings save path also rejects `omni` for execution rows. The catalog-vs-runtime split is intentional and stays this way until or unless a future ADR opens the dedicated `/omni-video` provider route. Second, OpenAI video continues to share the existing `tool_image_generate` OpenAI media credential entry; no dedicated `tool/video_generate/openai/api-key` slot exists (only Runway and Kling have dedicated slots, added by ADR-106 Slice 2). ADR-109 does not change this and will add its own dedicated `tool/video_generate/heygen/api-key` slot through the same pattern; splitting the OpenAI image and OpenAI video credentials requires its own ADR.
+  - **Cross-link.** ADR-108 is the program closure track and prepares the substrate ADR-109 needs without implementing any deferred ADR-107 item. ADR-109 carries a single HeyGen-only named exception to line 39-40 of ADR-107; that line stays binding for Runway, OpenAI, Kling, and any future provider not opened by its own ADR.
+- Updated the ADR-107 **Acceptance checklist** to reflect partial closure: 6 items now `[x]` (landed); 5 items now `[~]` with an explicit "deferred indefinitely; no follow-up program — see `## Program closure (2026-06-03)`" note. Existing slice specs and existing slice status blocks in ADR-107 were not edited.
+- Appended a `**Status (2026-06-03): Completed.**` block at the end of the ADR-108 Slice 0 spec in `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`, in the ADR-106 status-block format, with a 3-sentence behavioral summary.
+- Added a new top entry in `docs/CHANGELOG.md` describing the Slice 0 closure, the landed / deferred / accepted-residual partition, the file:line anchors for code-only slices, the cross-link to ADR-108 and ADR-109, and the explicit verification line ("docs-only; no code changed; no enum cleanup performed; Deploy: NO").
+
+### Files touched
+
+- `docs/ADR/107-provider-native-video-audio.md` (acceptance checklist marks + new `## Program closure (2026-06-03)` section appended; existing slice specs/status blocks untouched).
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md` (Slice 0 status block appended at the end of Slice 0 spec; nothing else changed).
+- `docs/SESSION-HANDOFF.md` (this entry).
+- `docs/CHANGELOG.md` (new top entry).
+
+### Tests run
+
+None. Docs-only.
+
+### Risks / residuals
+
+- ADR-107 is now closed as a program. The deferred items have no follow-up program, no roadmap, and no candidate slice list. Reopening any of them requires a new ADR.
+- The runtime audio-mode enum in `packages/runtime-contract/src/index.ts` still enumerates `preserve_reference_audio` and `reference_voice_or_track` even though those modes are never implemented and never will be. ADR-108 Slice 0 explicitly does not touch the enum; the gap is documented as accepted residual in ADR-107's `## Program closure (2026-06-03)` section. Any future enum cleanup would need its own ADR.
+- The `[~]` marker on the 5 deferred ADR-107 acceptance items communicates explicit closure with no follow-up program. It is **not** a "still in flight" indicator. Future readers must rely on the `## Program closure (2026-06-03)` section, not on the checklist marker alone.
+- ADR-102 pre-PROD path `0 → 1 → 2 → 9 → 10` remains unblocked. ADR-108 Slice 0 does not consume any ADR-102 slice and does not enter ADR-102 backlog.
+- No code is broken by this session. Nothing was deployed.
+
+### Deploy
+
+- NO. Docs-only.
+
+### Next recommended step
+
+- ADR-108 Slice 1 (Schema + platform contract for VC wallet). Awaiting operator authorization before starting it. If operator declines or remains silent, this session ends with Slice 0 closed.
+
+## 2026-06-03 — ADR-108 and ADR-109 opened (planning only, docs-only)
+
+### What changed & why
+
+Baseline SHA at session start: `9d4e51b43541211718338f9bd247e5421d9ff36d`. Tree clean.
+
+Opened two new ADR programs as parallel tracks to ADR-102. No code changed. Planning only:
+
+- **ADR-108 — Video Vcoin economy and pre-talking-avatar cleanup** (`docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`). Introduces Vcoin (VC) as the user-facing settlement currency for `video_generate` only (image / TTS / STT / other media stay per-unit). Course fixed at platform level: `1 USD = 20 VC`, minimum step `$0.05 = 1 VC`, integer VC only. New `workspace_vc_balance` table. Wallet accumulates (no expiry). Settle-only debit at delivery success. USD COGS ledger (`model_cost_ledger_events`) unchanged. ADR-106 Slice 9 explicitly superseded for `video_generate` only. Slice 0 **closes ADR-107 as a program**: landed items (slices 1, 4, 5 + code-only slices 2, 3) stay landed; the rest (Kling Omni, broad Kling multi-image, Runway voice/avatar via `video_generate`, `preserve_reference_audio` / `reference_voice_or_track` audio modes, audio-priced ledger dimensions, delivery narration) is **deferred indefinitely with no follow-up program**, recorded in a new `## Program closure` section of ADR-107 with acceptance checklist marked partial. Manual VC migration through Admin UI (5 plans). 10 slices (0..9).
+- **ADR-109 — HeyGen talking-avatar mode and workspace character registry** (`docs/ADR/109-heygen-talking-avatar-on-vcoin.md`). Adds HeyGen as the 4th `video_generate` provider with a new top-level `mode: "cinematic" | "talking_avatar"`. Talking-avatar is HeyGen-only (no fallback to Runway / Kling / OpenAI). ADR-107 line 39-40 ("Runway voice/avatar APIs must not be conflated with general-purpose `video_generate`") is preserved for those providers; this ADR carves a named exception for HeyGen. Voice strategy MVP = HeyGen presets only (voice cloning deferred). Multi-character per clip deferred. Workspace persona registry `workspace_video_personas` (default 10 per workspace, configurable in Admin Tools). HeyGen avatar id created lazily on first persona use. Persona creation costs a fixed VC amount (default 20 VC, configurable). Render cost variable VC through ADR-108 settle path. Plan toggle `talkingVideoEnabled` on `video_generate` tool activation card. 12 slices (0..11). Depends on ADR-108 at minimum through Slice 3.
+
+Both ADRs explicitly note placement: **parallel to ADR-102**, not consuming ADR-102 slices. ADR-102's pre-PROD path `0 -> 1 -> 2 -> 9 -> 10` is unblocked. The active rule `docs/.cursor/rules/adr072-runtime-continuity.mdc` remains valid for ADR-102 work; sessions advancing ADR-108 or ADR-109 must state which program they advance and follow the matching ADR's startup reading list.
+
+Both ADRs carry a full **orchestrator agent execution model** in the `## Agent execution model` section: the orchestrator is read-only for source/code and write-only for docs; it spawns one implementation subagent per slice using a documented prompt template (Scope IN / Scope OUT / Forbidden patterns / Required tests / Verification commands / Return structure); the subagent must return a mandatory seven-item structure; and the orchestrator only marks a slice complete when a per-slice acceptance gate passes (every Scope IN file changed, no Scope OUT file touched, all Required tests pass, no Forbidden patterns in diff, doc updates present, CHANGELOG appended, SESSION-HANDOFF updated, status block on the ADR slice, repo gates pass through orchestrator's own shell). Cross-slice invariants are enforced above per-slice Scope OUT and trigger rollback if violated. The risk-sensitive slices (ADR-108 slices 1/2/4/7 and ADR-109 slices 3/5/6/7/10) carry explicit Scope OUT and Forbidden patterns inline.
+
+The 2026-06-03 audit synthesis behind these ADRs was conducted by five parallel readonly subagents covering: ADR-106/107 status, video execution end-to-end, video quota/limits/pricing, admin surfaces + credential/voice-catalog pattern, frontend UX. Ten product-confirmed decisions are recorded in the Decision section of ADR-108 and reused by ADR-109.
+
+### Files touched
+
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md` (new)
+- `docs/ADR/109-heygen-talking-avatar-on-vcoin.md` (new)
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Tests run
+
+None. Docs-only.
+
+### Risks / residuals
+
+- Two open programs (ADR-102 cleanup + ADR-108 / ADR-109 video reform) require session-level discipline: every session must name the program it advances.
+- ADR-107 will be formally closed as a program by ADR-108 Slice 0 (docs-only). Remaining items are deferred indefinitely with no follow-up program; the acceptance checklist becomes partial. Until that slice lands, the ADR-107 acceptance checklist is still entirely unchecked in the file.
+- ADR-106 Slice 9 ("media quota settlement unchanged") is now scheduled to be superseded for `video_generate` only; until ADR-108 Slice 2 lands, the unit counter remains authoritative.
+- No code is broken by this session. Nothing was deployed.
+
+### Deploy
+
+- NO. Docs-only.
+
+### Next recommended step
+
+- ADR-108 Slice 0 (baseline + ADR-107 ledger reconciliation), or, if operator chooses to continue an ADR-102 slice instead, do that first and revisit ADR-108 in a later session.
+
 ## 2026-06-02 — ADR-107 Slice 5: bounded billing + unsupported-mode honesty verification
 
 ### What changed & why
