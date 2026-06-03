@@ -619,9 +619,9 @@ export class AssistantMediaJobCompletionDeliveryService {
       }
       return null;
     }
-    if (toolCode === "video_generate") {
-      return { toolCode: "video_generate", units: 1 };
-    }
+    // ADR-108 Slice 8 — `video_generate` is VC-priced and never reserves
+    // monthly media units, so terminal-failure reconciliation and
+    // remainder-release best-effort paths skip it entirely.
     return null;
   }
 

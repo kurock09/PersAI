@@ -168,10 +168,17 @@ export class EnqueueRuntimeDeferredMediaJobService {
     //     rejected here. The check is presence-only — NOT unit-count
     //     based (cost can only be known after the provider returns
     //     billing facts; ADR-108 explicitly chooses settle-only debit
-    //     over reserve-then-refund). The existing
-    //     `videoGenerateMonthlyUnitsLimit` reservation below remains as
-    //     the secondary plan-feature guard for the transitional period.
-    //     Image / image-edit / TTS / STT branches skip this entirely.
+    //     over reserve-then-refund). Image / image-edit / TTS / STT
+    //     branches skip this entirely.
+    //
+    // ADR-108 Slice 8 — the legacy `videoGenerateMonthlyUnitsLimit`
+    // monthly counter is no longer consulted for `video_generate`. The
+    // VC wallet pre-check above is the SOLE gating mechanism for
+    // video. The monthly_media_quota reservation below runs ONLY for
+    // image_generate / image_edit; video bypasses it entirely so a
+    // residual non-zero `limit_units` in `workspace_media_monthly_quota_counters`
+    // (left over from pre-Slice-8 settles) cannot reject a video
+    // enqueue while the wallet has VC available.
     if (toolCode === "video_generate") {
       const wallet = await this.workspaceVcoinBalanceRepository.getOrCreate(assistant.workspaceId);
       if (wallet.balanceVc <= 0) {
@@ -188,38 +195,39 @@ export class EnqueueRuntimeDeferredMediaJobService {
     }
 
     // 3) Durable monthly media reservation at the enqueue seam (ADR-105 §7).
-    //    This is the SINGLE reservation point; the worker no longer reserves.
-    //    The repository performs an atomic serializable check-and-increment,
-    //    so the unit reservation itself is race-safe against concurrent
-    //    enqueues for the same workspace counter.
-    const reservation =
-      await this.trackWorkspaceQuotaUsageService.reserveAssistantMonthlyMediaQuota({
-        assistant,
-        toolCode,
-        units: requestedUnits
-      });
-    if (!reservation.allowed) {
-      const copy = await this.quotaGroundedLimitCopyService.build({
-        assistantId: input.assistantId,
-        code: "monthly_media_quota_exceeded",
-        details: {
+    //    Only `image_generate` / `image_edit` (and other unit-priced
+    //    monthly tools) pass through this seam. `video_generate` is
+    //    VC-priced after Slice 8 and never reserves units.
+    if (toolCode !== "video_generate") {
+      const reservation =
+        await this.trackWorkspaceQuotaUsageService.reserveAssistantMonthlyMediaQuota({
+          assistant,
           toolCode,
-          currentUsedUnits: reservation.currentUsedUnits,
-          limitUnits: reservation.limitUnits,
+          units: requestedUnits
+        });
+      if (!reservation.allowed) {
+        const copy = await this.quotaGroundedLimitCopyService.build({
+          assistantId: input.assistantId,
+          code: "monthly_media_quota_exceeded",
+          details: {
+            toolCode,
+            currentUsedUnits: reservation.currentUsedUnits,
+            limitUnits: reservation.limitUnits,
+            requestedUnits,
+            periodStartedAt: reservation.periodStartedAt,
+            periodEndsAt: reservation.periodEndsAt,
+            periodSource: reservation.periodSource
+          }
+        });
+        return {
+          accepted: false,
+          code: "monthly_media_quota_exceeded",
+          limitKind: "monthly_media_quota",
+          message: copy?.message ?? "The monthly media quota for this tool has been exhausted.",
           requestedUnits,
-          periodStartedAt: reservation.periodStartedAt,
-          periodEndsAt: reservation.periodEndsAt,
-          periodSource: reservation.periodSource
-        }
-      });
-      return {
-        accepted: false,
-        code: "monthly_media_quota_exceeded",
-        limitKind: "monthly_media_quota",
-        message: copy?.message ?? "The monthly media quota for this tool has been exhausted.",
-        requestedUnits,
-        guidance: copy?.guidance ?? null
-      };
+          guidance: copy?.guidance ?? null
+        };
+      }
     }
 
     // 4) Persist the durable job. If the insert fails after a successful
@@ -245,7 +253,13 @@ export class EnqueueRuntimeDeferredMediaJobService {
         request
       });
     } catch (error) {
-      await this.releaseReservationBestEffort(assistant, toolCode, requestedUnits);
+      // ADR-108 Slice 8 — video_generate never reserves monthly media
+      // units, so there is nothing to release on failed enqueue. Only
+      // unit-priced tools (image/image_edit) need the compensating
+      // release here.
+      if (toolCode !== "video_generate") {
+        await this.releaseReservationBestEffort(assistant, toolCode, requestedUnits);
+      }
       throw error;
     }
     return {

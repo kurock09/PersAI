@@ -962,9 +962,9 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       }
       return null;
     }
-    if (toolCode === "video_generate") {
-      return { toolCode: "video_generate", units: 1 };
-    }
+    // ADR-108 Slice 8 — `video_generate` is VC-priced and never reserves
+    // monthly media units, so the terminal-failure release path skips
+    // it entirely.
     return null;
   }
 

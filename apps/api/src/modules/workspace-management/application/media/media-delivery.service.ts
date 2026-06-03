@@ -99,6 +99,7 @@ export class MediaDeliveryService {
     for (const artifact of params.artifacts) {
       const startedAt = process.hrtime.bigint();
       let outcome: "success" | "failure" = "failure";
+      const isVcoinPricedArtifact = artifact.sourceToolCode === "video_generate";
       const monthlyQuotaToolCode = this.resolveMonthlyMediaQuotaToolCode(artifact);
       try {
         const persisted = await this.persistArtifact(artifact, params);
@@ -114,16 +115,12 @@ export class MediaDeliveryService {
         }
 
         results.push(persisted.state);
-        // ADR-108 Slice 2 — for `video_generate`, settle the unit counter
-        // and debit the workspace VC wallet inside ONE transaction so
-        // retries cannot double-debit and a failed debit rolls the unit
-        // settle back. Image / image-edit branches keep their existing
-        // single-write best-effort settle (zero behavior change for
-        // image/TTS/STT — cross-slice invariant 1 / 6 in ADR-108).
-        if (
-          artifact.sourceToolCode === "video_generate" &&
-          monthlyQuotaToolCode === "video_generate"
-        ) {
+        // ADR-108 Slice 8 — split between two accounting surfaces:
+        //   * `video_generate` → VC wallet debit only (no monthly-unit
+        //     counter; the legacy unit-priced gate was retired).
+        //   * image / image_edit (and other unit-priced monthly tools)
+        //     → existing best-effort monthly-counter settle.
+        if (isVcoinPricedArtifact) {
           await this.settleVideoGenerateWithVcoinDebit({
             assistant,
             artifact,
@@ -137,10 +134,15 @@ export class MediaDeliveryService {
         }
         outcome = "success";
       } catch (err) {
-        await this.markMonthlyMediaQuotaReconciliationBestEffort({
-          assistant,
-          toolCode: monthlyQuotaToolCode
-        });
+        // ADR-108 Slice 8 — only unit-priced tools have a reservation
+        // to reconcile. Video failures only need to be logged because
+        // no reservation was ever taken on enqueue.
+        if (!isVcoinPricedArtifact) {
+          await this.markMonthlyMediaQuotaReconciliationBestEffort({
+            assistant,
+            toolCode: monthlyQuotaToolCode
+          });
+        }
         this.logger.warn(
           `Failed to deliver media artifact "${describeRuntimeMediaArtifact(artifact)}": ${String(err)}`
         );
@@ -244,13 +246,19 @@ export class MediaDeliveryService {
     }
   }
 
+  /**
+   * ADR-108 Slice 8 — `video_generate` is VC-priced after Slice 8 and
+   * has no row in the monthly_media_quota counter table, so it is
+   * intentionally excluded here. Callers that need to know whether an
+   * artifact is video should branch on
+   * `artifact.sourceToolCode === "video_generate"` directly.
+   */
   private resolveMonthlyMediaQuotaToolCode(
     artifact: MediaArtifact
   ): WorkspaceMonthlyToolQuotaToolCode | null {
     if (
       artifact.sourceToolCode === "image_generate" ||
-      artifact.sourceToolCode === "image_edit" ||
-      artifact.sourceToolCode === "video_generate"
+      artifact.sourceToolCode === "image_edit"
     ) {
       return artifact.sourceToolCode;
     }
@@ -278,36 +286,28 @@ export class MediaDeliveryService {
   }
 
   /**
-   * ADR-108 Slice 2 — video-only success-delivery settle path.
+   * ADR-108 Slice 2 + Slice 8 — video-only success-delivery debit path.
    *
-   * Wraps the existing monthly-unit-counter settle and the new VC wallet
-   * debit in ONE `prisma.$transaction(...)` block so both writes commit
-   * or roll back together (cross-slice invariant 4: settle + debit must
-   * be transactional; retries cannot double-debit). During the
-   * transitional period both writes happen for `video_generate`; Slice 8
-   * owns the migration playbook for retiring the per-unit counter.
+   * Slice 2 introduced the VC wallet debit on success delivery. Slice 8
+   * removes the legacy monthly-unit-counter settle entirely: the VC
+   * wallet is now the SOLE user-facing surface for `video_generate`
+   * accounting. The `prisma.$transaction(...)` wrapper is preserved so
+   * `ensureRow` + `update` inside `WorkspaceVcoinBalanceRepository.debit`
+   * remain atomic, and so future ledger-event composition can plug in
+   * without re-shaping callers.
    *
-   * Failure semantics (mirrors existing per-unit lifecycle exactly):
-   *   - Missing assistant → no-op, no debit (defensive; matches today's
-   *     `settleMonthlyMediaQuotaBestEffort` early return).
+   * Failure semantics (mirrors the original Slice 2 lifecycle):
+   *   - Missing assistant → no-op, no debit.
    *   - Missing billing facts on the artifact → throws so the outer
-   *     `deliver()` loop catches and runs
-   *     `markMonthlyMediaQuotaReconciliationBestEffort`. Silent zero-VC
-   *     fallback is forbidden by ADR-108 Slice 2.
-   *   - Non-time-metered metering kind → throws (same reconciliation
-   *     trigger).
+   *     `deliver()` loop catches and logs. Silent zero-VC fallback is
+   *     forbidden by ADR-108 Slice 2.
+   *   - Non-time-metered metering kind → throws.
    *   - Missing catalog row at `(providerKey, modelKey, occurredAt)` →
-   *     throws (same reconciliation trigger).
-   *   - Transaction failure (settle or debit) → the entire transaction
-   *     rolls back and the outer `deliver()` catch handles
-   *     reconciliation.
+   *     throws (catalog/runtime drift; reconciliation required by ops).
+   *   - Transaction failure → the transaction rolls back and the outer
+   *     `deliver()` catch handles logging.
    *
    * Notes:
-   *   - The `units: 1` constant on the unit-counter settle is preserved
-   *     for the transitional period — ADR-108 explicitly keeps the
-   *     `videoGenerateMonthlyUnitsLimit` plan check as a secondary
-   *     guard, and the counter must keep advancing so admins can audit
-   *     equivalence against the VC debit.
    *   - The VC pre-check (`balance_vc > 0`) lives at enqueue, not here.
    *     A settle that drives `balance_vc` below zero is permitted exactly
    *     once per the wallet lifecycle rule; the next enqueue is rejected
@@ -359,18 +359,12 @@ export class MediaDeliveryService {
       vcoinExchangeRate: platformSettings.vcoinExchangeRate
     });
 
-    const assistant = params.assistant;
-    // Single `prisma.$transaction` composes the unit-counter settle (via
-    // the optional `tx` overload added in Slice 2) with the VC wallet
-    // debit. If either write throws, both roll back; the outer
-    // `deliver()` catch then triggers reconciliation exactly as today.
+    // Single `prisma.$transaction` keeps `ensureRow` + balance update
+    // atomic inside the wallet repository. ADR-108 Slice 8 removed the
+    // monthly-unit-counter settle that previously composed with this
+    // debit; the VC wallet is now the only user-facing accounting
+    // surface for `video_generate`.
     const debitResult = await this.prisma.$transaction(async (tx) => {
-      await this.trackWorkspaceQuotaUsageService.settleAssistantMonthlyMediaQuota({
-        assistant,
-        toolCode: "video_generate",
-        units: 1,
-        tx
-      });
       return this.workspaceVcoinBalanceRepository.debit({
         workspaceId: params.workspaceId,
         amountVc: vcCost,
