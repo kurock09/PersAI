@@ -1643,124 +1643,143 @@ async function run(): Promise<void> {
   assert.ok(webFetchState, "web_fetch activation is surfaced");
   assert.equal(webFetchState.perTurnCap, 7);
 
-  const publicPlansService = createService({
-    planCatalogRepository: {
-      listAll: async () =>
-        [
+  // Helper to build the shared plan catalog rows used across listPublicPricingPlans tests.
+  function makePublicPlanCatalog(
+    overrides: {
+      proVcoinGrant?: number;
+    } = {}
+  ): AssistantPlanCatalog[] {
+    return [
+      {
+        id: "public-2",
+        code: "pro",
+        displayName: "Pro",
+        description: "Pro plan",
+        status: "active",
+        billingProviderHints: {
+          presentation: {
+            showOnPricingPage: true,
+            displayOrder: 2,
+            highlighted: true,
+            title: { ru: "Про", en: "Pro" },
+            subtitle: { ru: "Для роста", en: "For growth" },
+            notes: { ru: null, en: null },
+            badge: { ru: "Популярный", en: "Popular" },
+            ctaLabel: { ru: "Выбрать", en: "Choose" },
+            price: { amount: 4900, currency: "RUB", billingPeriod: "month" },
+            highlightItems: { ru: ["30 картинок"], en: ["30 images"] }
+          },
+          quotaAccounting: {
+            imageGenerateMonthlyUnitsLimit: 30,
+            videoGenerateMonthlyUnitsLimit: 8
+          },
+          skillPolicy: { maxEnabledSkills: 10 },
+          assistantPolicy: { maxAssistants: 3 },
+          ...(overrides.proVcoinGrant !== undefined
+            ? { videoVcoinMonthlyGrant: overrides.proVcoinGrant }
+            : {})
+        },
+        entitlementModel: null,
+        toolActivations: [
           {
-            id: "public-2",
-            code: "pro",
-            displayName: "Pro",
-            description: "Pro plan",
-            status: "active",
-            billingProviderHints: {
-              presentation: {
-                showOnPricingPage: true,
-                displayOrder: 2,
-                highlighted: true,
-                title: { ru: "Про", en: "Pro" },
-                subtitle: { ru: "Для роста", en: "For growth" },
-                notes: { ru: null, en: null },
-                badge: { ru: "Популярный", en: "Popular" },
-                ctaLabel: { ru: "Выбрать", en: "Choose" },
-                price: { amount: 4900, currency: "RUB", billingPeriod: "month" },
-                highlightItems: { ru: ["30 картинок"], en: ["30 images"] }
-              },
-              quotaAccounting: {
-                imageGenerateMonthlyUnitsLimit: 30,
-                videoGenerateMonthlyUnitsLimit: 8
-              },
-              skillPolicy: {
-                maxEnabledSkills: 10
-              },
-              assistantPolicy: {
-                maxAssistants: 3
-              }
-            },
-            entitlementModel: null,
-            toolActivations: [
-              {
-                toolCode: "image_generate",
-                displayName: "Image generation",
-                toolClass: "cost_driving",
-                policyClass: "plan_managed",
-                activationStatus: "active",
-                dailyCallLimit: null,
-                perTurnCap: null
-              },
-              {
-                toolCode: "video_generate",
-                displayName: "Video generation",
-                toolClass: "cost_driving",
-                policyClass: "plan_managed",
-                activationStatus: "inactive",
-                dailyCallLimit: null,
-                perTurnCap: null
-              }
-            ],
-            isDefaultFirstRegistrationPlan: false,
-            isTrialPlan: false,
-            trialDurationDays: null,
-            createdAt: new Date("2026-04-14T12:00:00.000Z"),
-            updatedAt: new Date("2026-04-14T12:00:00.000Z")
+            toolCode: "image_generate",
+            displayName: "Image generation",
+            toolClass: "cost_driving",
+            policyClass: "plan_managed",
+            activationStatus: "active",
+            dailyCallLimit: null,
+            perTurnCap: null
           },
           {
-            id: "public-1",
-            code: "starter",
-            displayName: "Starter",
-            description: "Starter plan",
-            status: "active",
-            billingProviderHints: {
-              presentation: {
-                showOnPricingPage: true,
-                displayOrder: 1,
-                highlighted: false,
-                title: { ru: "Старт", en: "Starter" },
-                subtitle: { ru: null, en: null },
-                notes: { ru: null, en: null },
-                badge: { ru: null, en: null },
-                ctaLabel: { ru: null, en: null },
-                price: { amount: 0, currency: "RUB", billingPeriod: "month" },
-                highlightItems: { ru: [], en: [] }
-              }
-            },
-            entitlementModel: null,
-            toolActivations: [],
-            isDefaultFirstRegistrationPlan: true,
-            isTrialPlan: true,
-            trialDurationDays: 7,
-            createdAt: new Date("2026-04-14T12:00:00.000Z"),
-            updatedAt: new Date("2026-04-14T12:00:00.000Z")
-          },
-          {
-            id: "hidden",
-            code: "hidden",
-            displayName: "Hidden",
-            description: null,
-            status: "active",
-            billingProviderHints: {
-              presentation: {
-                showOnPricingPage: false,
-                displayOrder: 0,
-                highlighted: false,
-                title: { ru: null, en: null },
-                subtitle: { ru: null, en: null },
-                notes: { ru: null, en: null },
-                badge: { ru: null, en: null },
-                ctaLabel: { ru: null, en: null },
-                price: { amount: null, currency: null, billingPeriod: null },
-                highlightItems: { ru: [], en: [] }
-              }
-            },
-            entitlementModel: null,
-            toolActivations: [],
-            isDefaultFirstRegistrationPlan: false,
-            isTrialPlan: false,
-            trialDurationDays: null,
-            createdAt: new Date("2026-04-14T12:00:00.000Z"),
-            updatedAt: new Date("2026-04-14T12:00:00.000Z")
+            toolCode: "video_generate",
+            displayName: "Video generation",
+            toolClass: "cost_driving",
+            policyClass: "plan_managed",
+            activationStatus: "inactive",
+            dailyCallLimit: null,
+            perTurnCap: null
           }
-        ] satisfies AssistantPlanCatalog[]
+        ],
+        isDefaultFirstRegistrationPlan: false,
+        isTrialPlan: false,
+        trialDurationDays: null,
+        createdAt: new Date("2026-04-14T12:00:00.000Z"),
+        updatedAt: new Date("2026-04-14T12:00:00.000Z")
+      },
+      {
+        id: "public-1",
+        code: "starter",
+        displayName: "Starter",
+        description: "Starter plan",
+        status: "active",
+        billingProviderHints: {
+          presentation: {
+            showOnPricingPage: true,
+            displayOrder: 1,
+            highlighted: false,
+            title: { ru: "Старт", en: "Starter" },
+            subtitle: { ru: null, en: null },
+            notes: { ru: null, en: null },
+            badge: { ru: null, en: null },
+            ctaLabel: { ru: null, en: null },
+            price: { amount: 0, currency: "RUB", billingPeriod: "month" },
+            highlightItems: { ru: [], en: [] }
+          }
+        },
+        entitlementModel: null,
+        toolActivations: [],
+        isDefaultFirstRegistrationPlan: true,
+        isTrialPlan: true,
+        trialDurationDays: 7,
+        createdAt: new Date("2026-04-14T12:00:00.000Z"),
+        updatedAt: new Date("2026-04-14T12:00:00.000Z")
+      },
+      {
+        id: "hidden",
+        code: "hidden",
+        displayName: "Hidden",
+        description: null,
+        status: "active",
+        billingProviderHints: {
+          presentation: {
+            showOnPricingPage: false,
+            displayOrder: 0,
+            highlighted: false,
+            title: { ru: null, en: null },
+            subtitle: { ru: null, en: null },
+            notes: { ru: null, en: null },
+            badge: { ru: null, en: null },
+            ctaLabel: { ru: null, en: null },
+            price: { amount: null, currency: null, billingPeriod: null },
+            highlightItems: { ru: [], en: [] }
+          }
+        },
+        entitlementModel: null,
+        toolActivations: [],
+        isDefaultFirstRegistrationPlan: false,
+        isTrialPlan: false,
+        trialDurationDays: null,
+        createdAt: new Date("2026-04-14T12:00:00.000Z"),
+        updatedAt: new Date("2026-04-14T12:00:00.000Z")
+      }
+    ] satisfies AssistantPlanCatalog[];
+  }
+
+  // Existing ordering / field tests — now with a platform settings mock (no video catalog rows).
+  const publicPlansService = createService({
+    planCatalogRepository: { listAll: async () => makePublicPlanCatalog() },
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          vcoinExchangeRate: 20,
+          availableModelCatalogByProvider: {
+            openai: { models: [] },
+            anthropic: { models: [] },
+            runway: { models: [] },
+            kling: { models: [] }
+          }
+        };
+      }
     }
   });
   const publicPlans = await publicPlansService.listPublicPricingPlans();
@@ -1773,6 +1792,104 @@ async function run(): Promise<void> {
   assert.equal(publicPlans[1]?.skillPolicy.maxEnabledSkills, 10);
   assert.equal(publicPlans[1]?.assistantPolicy.maxAssistants, 3);
   assert.deepEqual(publicPlans[1]?.enabledToolCodes, ["image_generate"]);
+
+  // ADR-108 Slice 6a — videoVcoinMonthlyGrant and vcoinExchangeRate always present.
+  assert.equal(
+    publicPlans[0]?.videoVcoinMonthlyGrant,
+    0,
+    "starter plan has no VC grant configured → 0"
+  );
+  assert.equal(publicPlans[0]?.vcoinExchangeRate, 20, "exchange rate from platform settings");
+  assert.equal(
+    publicPlans[0]?.videoVcoinApproxVideosPerMonth,
+    undefined,
+    "no approx when grant is 0"
+  );
+
+  // ADR-108 Slice 6a — plan with videoVcoinMonthlyGrant=1000; one active time-metered video row
+  // with pricePerUnit=0.05 and unit="second".
+  // Expected: vcPerVideo = ceil(0.05 × 5 × 20) = ceil(5) = 5; approxVideos = floor(1000/5) = 200.
+  const vcServiceWithGrant = createService({
+    planCatalogRepository: {
+      listAll: async () => makePublicPlanCatalog({ proVcoinGrant: 1000 })
+    },
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          vcoinExchangeRate: 20,
+          availableModelCatalogByProvider: {
+            openai: {
+              models: [
+                {
+                  model: "veo3.1",
+                  capabilities: ["video"],
+                  active: true,
+                  billingMode: "time_metered",
+                  providerPriceMetadata: {
+                    currency: "USD",
+                    timePricing: { pricePerUnit: 0.05, unit: "second" }
+                  },
+                  effectiveFrom: null,
+                  effectiveTo: null,
+                  inputTokenWeight: 1,
+                  cachedInputTokenWeight: 1,
+                  outputTokenWeight: 1,
+                  displayLabel: null,
+                  notes: null
+                }
+              ]
+            },
+            anthropic: { models: [] },
+            runway: { models: [] },
+            kling: { models: [] }
+          }
+        };
+      }
+    }
+  });
+  const plansWithGrant = await vcServiceWithGrant.listPublicPricingPlans();
+  const proWithGrant = plansWithGrant.find((p) => p.code === "pro");
+  assert.ok(proWithGrant, "pro plan present");
+  assert.equal(proWithGrant?.videoVcoinMonthlyGrant, 1000, "grant round-trips correctly");
+  assert.equal(proWithGrant?.vcoinExchangeRate, 20, "exchange rate present");
+  assert.equal(
+    proWithGrant?.videoVcoinApproxVideosPerMonth,
+    200,
+    "≈ 200 videos: vcPerVideo=ceil(0.05×5×20)=5, floor(1000/5)=200"
+  );
+
+  // ADR-108 Slice 6a — when no active video catalog rows exist, approx field is absent.
+  const vcServiceNoRows = createService({
+    planCatalogRepository: {
+      listAll: async () => makePublicPlanCatalog({ proVcoinGrant: 1000 })
+    },
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          vcoinExchangeRate: 20,
+          availableModelCatalogByProvider: {
+            openai: { models: [] },
+            anthropic: { models: [] },
+            runway: { models: [] },
+            kling: { models: [] }
+          }
+        };
+      }
+    }
+  });
+  const plansNoRows = await vcServiceNoRows.listPublicPricingPlans();
+  const proNoRows = plansNoRows.find((p) => p.code === "pro");
+  assert.ok(proNoRows, "pro plan present");
+  assert.equal(proNoRows?.videoVcoinMonthlyGrant, 1000);
+  assert.equal(
+    proNoRows?.videoVcoinApproxVideosPerMonth,
+    undefined,
+    "no time-metered rows → approx field absent from JSON"
+  );
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(proNoRows, "videoVcoinApproxVideosPerMonth"),
+    "field must not be emitted (not even as undefined) when no catalog rows"
+  );
 }
 
 void run();

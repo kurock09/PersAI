@@ -103,6 +103,8 @@ function makePlan(overrides: Partial<PublicPricingPlanState> = {}): PublicPricin
       price: { amount: 4900, currency: "RUB", billingPeriod: "month" },
       highlightItems: { ru: ["30 картинок"], en: ["30 images per month"] }
     },
+    videoVcoinMonthlyGrant: 0,
+    vcoinExchangeRate: 20,
     ...overrides
   };
 }

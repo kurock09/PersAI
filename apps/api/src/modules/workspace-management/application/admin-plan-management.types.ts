@@ -282,4 +282,14 @@ export type PublicPricingPlanState = {
   skillPolicy: AdminPlanState["skillPolicy"];
   assistantPolicy: AdminPlanState["assistantPolicy"];
   presentation: AdminPlanPresentation;
+  /** ADR-108 Slice 6a — monthly Vcoin grant credited at subscription period rollover. 0 means no monthly grant. */
+  videoVcoinMonthlyGrant: number;
+  /** ADR-108 Slice 6a — platform Vcoin exchange rate at the time of the response (VC per 1 USD). */
+  vcoinExchangeRate: number;
+  /**
+   * ADR-108 Slice 6a — server-computed marketing approximation:
+   * floor(videoVcoinMonthlyGrant / ceil(avgUsdPerSecond × 5 × vcoinExchangeRate)).
+   * Omitted when no time-metered video catalog rows are active OR when videoVcoinMonthlyGrant is 0.
+   */
+  videoVcoinApproxVideosPerMonth?: number;
 };

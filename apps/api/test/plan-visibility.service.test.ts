@@ -184,6 +184,11 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async getOrCreate(_workspaceId: string) {
+        return { balanceVc: 0 };
+      }
+    } as never,
+    {
       async execute() {
         return {
           source: "workspace_subscription",
@@ -521,6 +526,11 @@ async function run(): Promise<void> {
             updatedAt: "2026-05-01T00:00:00.000Z"
           }
         ];
+      }
+    } as never,
+    {
+      async execute() {
+        return { vcoinExchangeRate: 20, availableModelCatalogByProvider: {} };
       }
     } as never
   );

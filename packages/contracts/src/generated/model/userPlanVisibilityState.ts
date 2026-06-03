@@ -9,6 +9,7 @@ import type { UserPlanVisibilityEntitlements } from "./userPlanVisibilityEntitle
 import type { PlanQuotaAdvisoryState } from "./planQuotaAdvisoryState";
 import type { UserPlanVisibilityLimits } from "./userPlanVisibilityLimits";
 import type { UserPlanVisibilityPackageOffers } from "./userPlanVisibilityPackageOffers";
+import type { UserPlanVisibilityStateWorkspaceVcoinBalance } from "./userPlanVisibilityStateWorkspaceVcoinBalance";
 
 export interface UserPlanVisibilityState {
   effectivePlan: UserPlanVisibilityEffectivePlan;
@@ -16,5 +17,7 @@ export interface UserPlanVisibilityState {
   advisories: PlanQuotaAdvisoryState;
   limits: UserPlanVisibilityLimits;
   packageOffers: UserPlanVisibilityPackageOffers;
+  /** ADR-108 Slice 6a addition: the workspace's live VC wallet balance and plan's monthly VC grant, exposed for the user-facing settings UI rendering. */
+  workspaceVcoinBalance: UserPlanVisibilityStateWorkspaceVcoinBalance;
   updatedAt: string;
 }

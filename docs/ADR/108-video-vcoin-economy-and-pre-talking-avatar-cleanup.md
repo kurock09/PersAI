@@ -470,6 +470,8 @@ Verification: PASS `corepack pnpm --filter @persai/api run typecheck`; PASS `cor
 
 - End user sees VC where they used to see unit counts for `video_generate`.
 
+**Status (2026-06-03):** Slice 6a (data plumbing) landed: see CHANGELOG. Slice 6b (UI rendering) pending.
+
 ### Slice 7 - Quota status tool + runtime advisor
 
 **Scope**

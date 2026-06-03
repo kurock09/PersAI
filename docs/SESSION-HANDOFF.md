@@ -2,6 +2,79 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-03 — ADR-108 Slice 6a: Public pricing + plan visibility data plumbing for VC
+
+### What changed & why
+
+Baseline SHA at session start (after Slice 5 commit): `fcfd53b2`. Tree clean. ADR-108 Slice 6a was executed under the orchestrator agent execution model: read-only orchestrator, one implementation subagent. Slice 6a plumbs the user-facing API surfaces (public pricing and user plan visibility) with VC balance and plan grant data so Slice 6b can render them in three web files.
+
+- `packages/contracts/openapi.yaml`: added `videoVcoinMonthlyGrant` (required), `vcoinExchangeRate` (required), `videoVcoinApproxVideosPerMonth` (optional) to `PublicPricingPlanState`; added required `workspaceVcoinBalance: { balanceVc, videoVcoinMonthlyGrant, vcoinExchangeRate }` to `UserPlanVisibilityState`.
+- `packages/contracts/src/generated/**`: 4 files regenerated via `corepack pnpm --filter @persai/contracts run generate`.
+- `apps/api/src/modules/workspace-management/application/vcoin/typical-video-seconds.ts`: new shared constant `TYPICAL_VIDEO_SECONDS = 5` (matches Slice 5 admin UI heuristic).
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`: added `videoVcoinMonthlyGrant`, `vcoinExchangeRate`, `videoVcoinApproxVideosPerMonth?` to `PublicPricingPlanState` TS type.
+- `apps/api/src/modules/workspace-management/application/plan-visibility.types.ts`: added `workspaceVcoinBalance` to `UserPlanVisibilityState` TS type.
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`: injected `ResolvePlatformRuntimeProviderSettingsService`; `listPublicPricingPlans()` now reads `vcoinExchangeRate`, computes `avgUsdPerSecond` from active time-metered video catalog rows, and emits all three new fields.
+- `apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts`: injected `WorkspaceVcoinBalanceRepository` and `ResolvePlatformRuntimeProviderSettingsService`; `getUserVisibility()` now reads live `balanceVc` and emits `workspaceVcoinBalance`.
+- `apps/api/test/manage-admin-plans.service.test.ts`: augmented with new test cases for `videoVcoinMonthlyGrant`, `vcoinExchangeRate`, and `videoVcoinApproxVideosPerMonth` calculation/omission.
+- `apps/api/test/resolve-plan-visibility-vcoin.test.ts`: new test file covering active workspace balance, anonymous/no-workspace default, and non-default exchange rate.
+- `apps/api/test/plan-visibility.service.test.ts`: inserted `workspaceVcoinBalanceRepository` mock at position 4 and `resolvePlatformRuntimeProviderSettingsService` mock at position 11 in the positional constructor call (existing test broken by constructor parameter addition; now fixed).
+- `apps/web/app/_components/pricing-page-view.test.tsx`: added `videoVcoinMonthlyGrant: 0, vcoinExchangeRate: 20` stub to `makePlan` fixture to satisfy new required contract fields.
+- `apps/web/app/app/_components/assistant-settings.test.tsx`: added `workspaceVcoinBalance: { balanceVc: 0, videoVcoinMonthlyGrant: 0, vcoinExchangeRate: 20 }` stub to affected test fixture.
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`: Slice 6 status note appended.
+- `docs/CHANGELOG.md`: new top entry.
+- `docs/SESSION-HANDOFF.md`: this entry.
+- `docs/API-BOUNDARY.md`: new paragraph documenting the three new public pricing fields and `workspaceVcoinBalance`.
+
+### Files touched
+
+Modified:
+
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/` (4 regenerated files)
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
+- `apps/api/src/modules/workspace-management/application/plan-visibility.types.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts`
+- `apps/api/test/manage-admin-plans.service.test.ts`
+- `apps/api/test/plan-visibility.service.test.ts`
+- `apps/web/app/_components/pricing-page-view.test.tsx`
+- `apps/web/app/app/_components/assistant-settings.test.tsx`
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/API-BOUNDARY.md`
+
+New:
+
+- `apps/api/src/modules/workspace-management/application/vcoin/typical-video-seconds.ts`
+- `apps/api/test/resolve-plan-visibility-vcoin.test.ts`
+
+### Tests run
+
+- PASS `corepack pnpm --filter @persai/contracts run generate`
+- PASS `corepack pnpm --filter @persai/api run typecheck`
+- PASS `corepack pnpm --filter @persai/web run typecheck`
+- PASS `corepack pnpm -r --if-present run lint`
+- PASS `corepack pnpm run format:check`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/resolve-plan-visibility-vcoin.test.ts`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts`
+- PASS `corepack pnpm --filter @persai/api run test` (full API suite, exit code 0)
+
+### Risks / residuals
+
+- **Slice 6b (UI rendering) is still pending.** The three web files (`assistant-settings.tsx`, `pricing-page-view.tsx`, `packages/page.tsx`) still render per-unit counts for `video_generate`; the API now provides the VC data but nothing consumes it yet in production UI.
+- **`videoVcoinApproxVideosPerMonth` is a marketing approximation** using `TYPICAL_VIDEO_SECONDS = 5` and arithmetic mean pricing; it will diverge from real usage on long/short videos. Intentional per ADR-108.
+- **Web test stubs** for `pricing-page-view.test.tsx` and `assistant-settings.test.tsx` were updated to satisfy new required generated types (mechanical, no UI logic change). These were minimally scoped to unblock typecheck without touching production web code.
+
+### Deploy
+
+- **API + CONTRACTS.** No migration required. No new schema change. Slice 6b will follow with web UI.
+
+### Next recommended slice
+
+- **ADR-108 Slice 6b — User UI rendering.** Consumes the three new fields from `UserPlanVisibilityState` and `PublicPricingPlanState` to render VC counts in `assistant-settings.tsx`, `pricing-page-view.tsx`, and `packages/page.tsx`.
+
 ## 2026-06-03 — ADR-108 Slice 5: Admin Plans UI
 
 ### What changed & why

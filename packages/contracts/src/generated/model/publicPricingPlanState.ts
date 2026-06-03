@@ -25,4 +25,19 @@ export interface PublicPricingPlanState {
   skillPolicy: AdminPlanSkillPolicy;
   assistantPolicy: AdminPlanAssistantPolicy;
   presentation: AdminPlanPresentation;
+  /**
+   * ADR-108 Slice 6a. Monthly Vcoin grant credited at subscription period rollover. 0 means no monthly grant — users must purchase VC packages.
+   * @minimum 0
+   */
+  videoVcoinMonthlyGrant: number;
+  /**
+   * ADR-108 Slice 6a. Platform Vcoin exchange rate at the time of the response (VC per 1 USD).
+   * @minimum 1
+   */
+  vcoinExchangeRate: number;
+  /**
+   * ADR-108 Slice 6a. Server-computed marketing approximation: floor(videoVcoinMonthlyGrant / ceil(avgUsdPerSecond × 5 × vcoinExchangeRate)). Omitted when no time-metered video catalog rows are active OR when videoVcoinMonthlyGrant is 0.
+   * @minimum 0
+   */
+  videoVcoinApproxVideosPerMonth?: number;
 }

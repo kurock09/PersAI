@@ -48,10 +48,40 @@ import {
 } from "./tool-budgets-policy";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { parseVideoVcoinMonthlyGrant } from "./vcoin/parse-video-vcoin-monthly-grant";
+import { TYPICAL_VIDEO_SECONDS } from "./vcoin/typical-video-seconds";
 import { getRuntimeProviderCatalogModelsByCapability } from "./runtime-provider-profile";
+import type { RuntimeProviderModelCatalogByProvider } from "./runtime-provider-profile";
 import { isPlanManagedTool, TOOL_CATALOG } from "../../../../prisma/tool-catalog-data";
 import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 import { DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY } from "./knowledge-model-policy.service";
+
+/**
+ * ADR-108 Slice 6a — compute arithmetic mean of USD/second pricing across all
+ * active time-metered video catalog rows.  Returns `null` when no qualifying rows
+ * exist (the caller should omit `videoVcoinApproxVideosPerMonth` in that case).
+ */
+function computeAvgVideoUsdPerSecond(
+  catalogByProvider: RuntimeProviderModelCatalogByProvider
+): number | null {
+  const samples: number[] = [];
+  for (const providerCatalog of Object.values(catalogByProvider)) {
+    for (const profile of providerCatalog.models) {
+      if (
+        profile.active &&
+        profile.capabilities.includes("video") &&
+        profile.billingMode === "time_metered"
+      ) {
+        const { pricePerUnit, unit } = profile.providerPriceMetadata.timePricing;
+        const perSecond = unit === "minute" ? pricePerUnit / 60 : pricePerUnit;
+        samples.push(perSecond);
+      }
+    }
+  }
+  if (samples.length === 0) {
+    return null;
+  }
+  return samples.reduce((a, b) => a + b, 0) / samples.length;
+}
 
 function toBoolean(value: unknown): boolean {
   return value === true;
@@ -512,7 +542,13 @@ export class ManageAdminPlansService {
   }
 
   async listPublicPricingPlans(): Promise<PublicPricingPlanState[]> {
-    const plans = await this.planCatalogRepository.listAll();
+    const [plans, settings] = await Promise.all([
+      this.planCatalogRepository.listAll(),
+      this.resolvePlatformRuntimeProviderSettingsService.execute()
+    ]);
+    const vcoinExchangeRate = settings.vcoinExchangeRate;
+    const avgUsdPerSecond = computeAvgVideoUsdPerSecond(settings.availableModelCatalogByProvider);
+
     return plans
       .map((plan) => this.toAdminPlanState(plan))
       .filter((plan) => plan.status === "active" && plan.presentation.showOnPricingPage)
@@ -522,22 +558,37 @@ export class ManageAdminPlansService {
         }
         return left.code.localeCompare(right.code);
       })
-      .map((plan) => ({
-        code: plan.code,
-        displayName: plan.displayName,
-        description: plan.description,
-        trialEnabled: plan.trialEnabled,
-        trialDurationDays: plan.trialDurationDays,
-        defaultOnRegistration: plan.defaultOnRegistration,
-        enabledToolCodes: plan.toolActivations
-          .filter((tool) => tool.active)
-          .map((tool) => tool.toolCode),
-        entitlements: plan.entitlements,
-        quotaLimits: plan.quotaLimits,
-        skillPolicy: plan.skillPolicy,
-        assistantPolicy: plan.assistantPolicy,
-        presentation: plan.presentation
-      }));
+      .map((plan) => {
+        const grant = plan.videoVcoinMonthlyGrant;
+        let videoVcoinApproxVideosPerMonth: number | undefined;
+        if (grant > 0 && avgUsdPerSecond !== null) {
+          const vcPerVideo = Math.ceil(avgUsdPerSecond * TYPICAL_VIDEO_SECONDS * vcoinExchangeRate);
+          if (vcPerVideo > 0) {
+            videoVcoinApproxVideosPerMonth = Math.floor(grant / vcPerVideo);
+          }
+        }
+        return {
+          code: plan.code,
+          displayName: plan.displayName,
+          description: plan.description,
+          trialEnabled: plan.trialEnabled,
+          trialDurationDays: plan.trialDurationDays,
+          defaultOnRegistration: plan.defaultOnRegistration,
+          enabledToolCodes: plan.toolActivations
+            .filter((tool) => tool.active)
+            .map((tool) => tool.toolCode),
+          entitlements: plan.entitlements,
+          quotaLimits: plan.quotaLimits,
+          skillPolicy: plan.skillPolicy,
+          assistantPolicy: plan.assistantPolicy,
+          presentation: plan.presentation,
+          videoVcoinMonthlyGrant: grant,
+          vcoinExchangeRate,
+          ...(videoVcoinApproxVideosPerMonth !== undefined
+            ? { videoVcoinApproxVideosPerMonth }
+            : {})
+        };
+      });
   }
 
   parseCreateInput(body: unknown): AdminCreatePlanInput {

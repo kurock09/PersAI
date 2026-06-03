@@ -85,6 +85,15 @@ export type UserPlanVisibilityState = {
     }>;
   };
   packageOffers: QuotaOfferState;
+  /**
+   * ADR-108 Slice 6a addition: the workspace's live VC wallet balance and plan's
+   * monthly VC grant, exposed for the user-facing settings UI rendering.
+   */
+  workspaceVcoinBalance: {
+    balanceVc: number;
+    videoVcoinMonthlyGrant: number;
+    vcoinExchangeRate: number;
+  };
   updatedAt: string;
 };
 

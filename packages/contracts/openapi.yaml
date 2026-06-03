@@ -10136,6 +10136,7 @@ components:
         - advisories
         - limits
         - packageOffers
+        - workspaceVcoinBalance
         - updatedAt
       properties:
         effectivePlan:
@@ -10148,6 +10149,30 @@ components:
           $ref: "#/components/schemas/UserPlanVisibilityLimits"
         packageOffers:
           $ref: "#/components/schemas/UserPlanVisibilityPackageOffers"
+        workspaceVcoinBalance:
+          type: object
+          description: >-
+            ADR-108 Slice 6a addition: the workspace's live VC wallet balance
+            and plan's monthly VC grant, exposed for the user-facing settings
+            UI rendering.
+          required:
+            - balanceVc
+            - videoVcoinMonthlyGrant
+            - vcoinExchangeRate
+          properties:
+            balanceVc:
+              type: integer
+              description: >-
+                Current Vcoin wallet balance. May be transiently negative
+                (one-shot negative balance allowed by ADR-108 lifecycle rule).
+            videoVcoinMonthlyGrant:
+              type: integer
+              minimum: 0
+              description: Monthly Vcoin grant for the active plan (0 if no grant configured).
+            vcoinExchangeRate:
+              type: integer
+              minimum: 1
+              description: Platform Vcoin exchange rate at the time of the response (VC per 1 USD).
         updatedAt:
           type: string
           format: date-time
@@ -12064,6 +12089,8 @@ components:
         - skillPolicy
         - assistantPolicy
         - presentation
+        - videoVcoinMonthlyGrant
+        - vcoinExchangeRate
       properties:
         code:
           type: string
@@ -12093,6 +12120,27 @@ components:
           $ref: "#/components/schemas/AdminPlanAssistantPolicy"
         presentation:
           $ref: "#/components/schemas/AdminPlanPresentation"
+        videoVcoinMonthlyGrant:
+          type: integer
+          minimum: 0
+          description: >-
+            ADR-108 Slice 6a. Monthly Vcoin grant credited at subscription
+            period rollover. 0 means no monthly grant — users must purchase
+            VC packages.
+        vcoinExchangeRate:
+          type: integer
+          minimum: 1
+          description: >-
+            ADR-108 Slice 6a. Platform Vcoin exchange rate at the time of the
+            response (VC per 1 USD).
+        videoVcoinApproxVideosPerMonth:
+          type: integer
+          minimum: 0
+          description: >-
+            ADR-108 Slice 6a. Server-computed marketing approximation:
+            floor(videoVcoinMonthlyGrant / ceil(avgUsdPerSecond × 5 ×
+            vcoinExchangeRate)). Omitted when no time-metered video catalog
+            rows are active OR when videoVcoinMonthlyGrant is 0.
     AdminPlanToolActivation:
       type: object
       required:

@@ -1133,6 +1133,11 @@ describe("AssistantSettings limits", () => {
             packagesPurchase: null,
             tools: []
           },
+          workspaceVcoinBalance: {
+            balanceVc: 0,
+            videoVcoinMonthlyGrant: 0,
+            vcoinExchangeRate: 20
+          },
           updatedAt: "2026-05-16T00:00:00.000Z"
         }
       }),

@@ -7,6 +7,10 @@ import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
   type AssistantPlanCatalogRepository
 } from "../domain/assistant-plan-catalog.repository";
+import {
+  WORKSPACE_VCOIN_BALANCE_REPOSITORY,
+  type WorkspaceVcoinBalanceRepository
+} from "../domain/workspace-vcoin-balance.repository";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import {
@@ -24,6 +28,8 @@ import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
 import { buildQuotaOfferState } from "./quota-offers";
 import { ManageMediaPackageCatalogService } from "./manage-media-package-catalog.service";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
+import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
+import { parseVideoVcoinMonthlyGrant } from "./vcoin/parse-video-vcoin-monthly-grant";
 
 function indexQuotaBuckets(
   buckets: QuotaVisibilityBucketState[]
@@ -160,12 +166,15 @@ export class ResolvePlanVisibilityService {
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
     private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository,
+    @Inject(WORKSPACE_VCOIN_BALANCE_REPOSITORY)
+    private readonly workspaceVcoinBalanceRepository: WorkspaceVcoinBalanceRepository,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly manageAdminPlansService: ManageAdminPlansService,
-    private readonly manageMediaPackageCatalogService: ManageMediaPackageCatalogService
+    private readonly manageMediaPackageCatalogService: ManageMediaPackageCatalogService,
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
   ) {}
 
   async getUserVisibility(userId: string): Promise<UserPlanVisibilityState> {
@@ -200,8 +209,14 @@ export class ResolvePlanVisibilityService {
       await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyToolQuotaSnapshot(
         assistant
       );
-    const publicPricingPlans = await this.manageAdminPlansService.listPublicPricingPlans();
-    const publicPackages = await this.manageMediaPackageCatalogService.listPublic();
+    const [publicPricingPlans, publicPackages, platformSettings, walletBalance] = await Promise.all(
+      [
+        this.manageAdminPlansService.listPublicPricingPlans(),
+        this.manageMediaPackageCatalogService.listPublic(),
+        this.resolvePlatformRuntimeProviderSettingsService.execute(),
+        this.workspaceVcoinBalanceRepository.getOrCreate(assistant.workspaceId)
+      ]
+    );
     const lifecyclePolicy = resolveStoredPlanLifecyclePolicy(plan?.billingProviderHints ?? null);
     const bucketsByCode = indexQuotaBuckets(quotaSnapshot.buckets);
     return {
@@ -266,6 +281,13 @@ export class ResolvePlanVisibilityService {
         ),
         publicPackages
       }),
+      workspaceVcoinBalance: {
+        balanceVc: walletBalance.balanceVc,
+        videoVcoinMonthlyGrant: parseVideoVcoinMonthlyGrant(
+          (plan?.billingProviderHints as Record<string, unknown> | null)?.videoVcoinMonthlyGrant
+        ),
+        vcoinExchangeRate: platformSettings.vcoinExchangeRate
+      },
       updatedAt: new Date().toISOString()
     };
   }
