@@ -2147,11 +2147,28 @@ export class PersaiInternalApiClientService {
     value: unknown
   ): value is RuntimeMonthlyToolQuotaStatus["tools"][number] {
     const row = this.asObject(value);
+    if (row === null) return false;
+    // ADR-108 Slice 7: discriminated union — route validation by `kind`.
+    if (row.kind === "vcoin") {
+      // vcoin variant: video_generate only.
+      return (
+        row.toolCode === "video_generate" &&
+        typeof row.displayName === "string" &&
+        this.isNonNegativeInteger(row.balanceVc) &&
+        this.isNonNegativeInteger(row.monthlyGrantVc) &&
+        (row.typicalVideoCostVc === null || this.isNonNegativeInteger(row.typicalVideoCostVc)) &&
+        (row.typicalVideoSeconds === null ||
+          (typeof row.typicalVideoSeconds === "number" &&
+            Number.isFinite(row.typicalVideoSeconds) &&
+            row.typicalVideoSeconds >= 0)) &&
+        typeof row.typicalCostFromPlatformFallback === "boolean" &&
+        (row.status === "ok" || row.status === "balance_exhausted")
+      );
+    }
+    // units variant (kind: "units" or legacy rows without kind field).
     return (
-      row !== null &&
       (row.toolCode === "image_generate" ||
         row.toolCode === "image_edit" ||
-        row.toolCode === "video_generate" ||
         row.toolCode === "document") &&
       typeof row.displayName === "string" &&
       this.isNonNegativeInteger(row.usedUnits) &&

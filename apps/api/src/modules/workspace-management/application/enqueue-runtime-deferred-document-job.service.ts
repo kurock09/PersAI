@@ -379,10 +379,16 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       return { allowed: true };
     }
     const status = await this.readInternalRuntimeQuotaStatusService.execute({ assistantId });
-    const quotaRow =
+    const quotaRowRaw =
       status.monthlyToolQuotas === null
         ? null
         : (status.monthlyToolQuotas.tools.find((entry) => entry.toolCode === "document") ?? null);
+    // ADR-108 Slice 7: document always uses the units variant; exclude vcoin rows defensively.
+    // Accept rows where kind is "units" OR kind is absent (backward-compat with test stubs).
+    const quotaRow =
+      quotaRowRaw !== null && quotaRowRaw.kind !== "vcoin"
+        ? (quotaRowRaw as import("@persai/runtime-contract").RuntimeMonthlyToolQuotaStatusToolRowUnits)
+        : null;
     if (quotaRow?.status === "limit_reached" || quotaRow?.remainingUnits === 0) {
       const copy = await this.quotaGroundedLimitCopyService.build({
         assistantId,

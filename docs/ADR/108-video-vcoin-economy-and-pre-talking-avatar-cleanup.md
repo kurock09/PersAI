@@ -510,6 +510,45 @@ Verification: PASS `corepack pnpm --filter @persai/api run typecheck`; PASS `cor
 
 - Assistant can answer "how many videos can I make" honestly in VC terms.
 
+---
+
+**Status (2026-06-04): Completed.**
+
+**Contract change** — `RuntimeMonthlyToolQuotaStatusToolRow` in `packages/runtime-contract/src/index.ts` converted from a flat interface to a discriminated union:
+- `RuntimeMonthlyToolQuotaStatusToolRowUnits` (`kind: "units"`) for `image_generate`, `image_edit`, `document`. All prior fields preserved byte-identical. Optional `effectiveLimitUnits` carry-over added for backward compat.
+- `RuntimeMonthlyToolQuotaStatusToolRowVcoin` (`kind: "vcoin"`) for `video_generate`. Fields: `balanceVc`, `monthlyGrantVc`, `typicalVideoCostVc`, `typicalVideoSeconds`, `typicalCostFromPlatformFallback`, `status: "ok" | "balance_exhausted"`.
+
+**New service** — `apps/api/src/modules/workspace-management/application/vcoin/compute-typical-video-vcoin-cost.service.ts` (`ComputeTypicalVideoVcoinCostService`). Queries rolling 30-day arithmetic mean `durationSeconds` from `model_cost_ledger_events` via `$queryRaw`. Falls back to `TYPICAL_VIDEO_SECONDS_FALLBACK = 5` when no workspace history. Returns null typical cost when no active video catalog pricing. Uses BigInt ceil division (mirrors `compute-video-vcoin-cost.ts`).
+
+**Producer** — `read-internal-runtime-quota-status.service.ts` gains three new injections (`WorkspaceVcoinBalanceRepository`, `ResolvePlatformRuntimeProviderSettingsService`, `ComputeTypicalVideoVcoinCostService`). `execute()` transforms the raw `AssistantMonthlyToolQuotaSnapshot` tools array: units tools get `kind: "units"`, `video_generate` gets the full `kind: "vcoin"` shape. Return type updated to `RuntimeAwareMonthlyToolQuotas`. `computeAdvisoryCandidates` narrows on `tool.kind !== "units"` to skip vcoin rows.
+
+**Advisor copy** — `quota-grounded-limit-copy.service.ts::buildMonthlyToolCopy` has a new `video_generate` branch that returns vcoin-flavored messages: "You have N VC remaining. A typical video costs about K VC." / "Your video credits are exhausted. Top up to continue." The units path narrowed to `kind === "units"`.
+
+**Typical cost** — derived from `avgSeconds × avgUsdPerSecond × vcoinExchangeRate` with BigInt ceil at VC step. Fallback: platform constant (5 s) when no workspace history. Null when no active video catalog rows.
+
+**Fallback behavior** — all reads degrade gracefully; missing VC balance → 0; missing exchange rate → 20; failing typical cost service → null cost fields.
+
+**Consumers narrowed**:
+- `apps/api/src/modules/workspace-management/application/read-internal-runtime-quota-status.service.ts` — `computeAdvisoryCandidates` skips vcoin rows.
+- `apps/api/src/modules/workspace-management/application/quota-grounded-limit-copy.service.ts` — `buildMonthlyToolCopy` narrows `kind === "units"` before accessing unit fields.
+- `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts` — excludes `kind === "vcoin"` rows before reading unit fields; accepts rows without `kind` for test-stub backward compat.
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts` — `isMonthlyToolQuotaStatusTool` validates both variants using `kind` discriminator.
+
+**Verification PASS**:
+- `corepack pnpm --filter @persai/api run pretypecheck` — PASS
+- `corepack pnpm --filter @persai/api run typecheck` — PASS
+- `corepack pnpm --filter @persai/web run typecheck` — PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` — PASS
+- `corepack pnpm -r --if-present run lint` — PASS
+- `corepack pnpm run format:check` — PASS
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts` — PASS (6 new tests + 2 existing)
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts` — PASS (vcoin passthrough test added)
+- `corepack pnpm --filter @persai/api run test` — PASS (full suite green)
+- `corepack pnpm --filter @persai/runtime run test` — PASS (full suite green)
+
+---
+
 ### Slice 8 - Manual migration playbook
 
 **Scope**

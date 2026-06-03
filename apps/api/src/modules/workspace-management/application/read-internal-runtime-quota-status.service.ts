@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { ManageAdminPlansService } from "./manage-admin-plans.service";
 import type {
   AssistantMonthlyToolQuotaSnapshot,
+  AssistantMonthlyToolQuotaToolSnapshot,
   AssistantQuotaBucketSnapshot
 } from "./track-workspace-quota-usage.service";
 import {
@@ -18,6 +19,28 @@ import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
   type AssistantPlanCatalogRepository
 } from "../domain/assistant-plan-catalog.repository";
+import {
+  WORKSPACE_VCOIN_BALANCE_REPOSITORY,
+  type WorkspaceVcoinBalanceRepository
+} from "../domain/workspace-vcoin-balance.repository";
+import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
+import { parseVideoVcoinMonthlyGrant } from "./vcoin/parse-video-vcoin-monthly-grant";
+import { ComputeTypicalVideoVcoinCostService } from "./vcoin/compute-typical-video-vcoin-cost.service";
+import type {
+  RuntimeMonthlyToolQuotaStatusToolRow,
+  RuntimeMonthlyToolQuotaStatusToolRowUnits,
+  RuntimeMonthlyToolQuotaStatusToolRowVcoin
+} from "@persai/runtime-contract";
+
+/**
+ * ADR-108 Slice 7 — monthly tool quota snapshot with the video_generate row
+ * replaced by the vcoin-flavored shape (kind: "vcoin"). Non-video rows have
+ * kind: "units" added. This is the shape returned by `execute()` and consumed
+ * by `QuotaGroundedLimitCopyService` and the runtime advisor.
+ */
+export type RuntimeAwareMonthlyToolQuotas = Omit<AssistantMonthlyToolQuotaSnapshot, "tools"> & {
+  tools: RuntimeMonthlyToolQuotaStatusToolRow[];
+};
 
 export type QuotaAdvisoryCandidateState = {
   dedupeKey: string;
@@ -105,7 +128,11 @@ export class ReadInternalRuntimeQuotaStatusService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly manageMediaPackageCatalogService: ManageMediaPackageCatalogService,
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
-    private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository
+    private readonly assistantPlanCatalogRepository: AssistantPlanCatalogRepository,
+    @Inject(WORKSPACE_VCOIN_BALANCE_REPOSITORY)
+    private readonly workspaceVcoinBalanceRepository: WorkspaceVcoinBalanceRepository,
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
+    private readonly computeTypicalVideoVcoinCostService: ComputeTypicalVideoVcoinCostService
   ) {}
 
   parseInput(payload: unknown): ReadInternalRuntimeQuotaStatusRequest {
@@ -203,7 +230,7 @@ export class ReadInternalRuntimeQuotaStatusService {
     }>;
     tools: ToolDailyQuotaStatusRow[];
     buckets: AssistantQuotaBucketSnapshot[];
-    monthlyToolQuotas: AssistantMonthlyToolQuotaSnapshot;
+    monthlyToolQuotas: RuntimeAwareMonthlyToolQuotas;
     packagesAvailableByTool: Record<string, boolean>;
     packageOffers: QuotaOfferState;
     advisories: UserPlanVisibilityState["advisories"];
@@ -289,9 +316,42 @@ export class ReadInternalRuntimeQuotaStatusService {
       await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyToolQuotaSnapshot(
         resolved.assistant
       );
-    const monthlyToolQuotas = {
+
+    // ADR-108 Slice 7: Determine if video_generate is active so we can
+    // avoid unnecessary VC balance / exchange-rate reads when it is not.
+    const filteredRawTools = monthlyToolQuotasRaw.tools.filter((tool) =>
+      activeToolCodes.has(tool.toolCode)
+    );
+    const hasActiveVideoGenerate = filteredRawTools.some(
+      (tool) => tool.toolCode === "video_generate"
+    );
+
+    // Parallel reads: vcoin balance + exchange rate only when needed.
+    const [vcoinBalance, platformSettings] = hasActiveVideoGenerate
+      ? await Promise.all([
+          this.workspaceVcoinBalanceRepository
+            .getOrCreate(resolved.assistant.workspaceId)
+            .catch(() => null),
+          this.resolvePlatformRuntimeProviderSettingsService.execute().catch(() => null)
+        ])
+      : [null, null];
+
+    const transformedTools: RuntimeMonthlyToolQuotaStatusToolRow[] = await Promise.all(
+      filteredRawTools.map(async (rawTool) => {
+        if (rawTool.toolCode === "video_generate") {
+          return this.buildVcoinToolRow(rawTool, resolved.assistant.workspaceId, {
+            balanceVc: vcoinBalance?.balanceVc ?? 0,
+            vcoinExchangeRate: platformSettings?.vcoinExchangeRate ?? 20,
+            planCode: resolved.planCode
+          });
+        }
+        return this.buildUnitsToolRow(rawTool);
+      })
+    );
+
+    const monthlyToolQuotas: RuntimeAwareMonthlyToolQuotas = {
       ...monthlyToolQuotasRaw,
-      tools: monthlyToolQuotasRaw.tools.filter((tool) => activeToolCodes.has(tool.toolCode))
+      tools: transformedTools
     };
     const visiblePlans = await this.manageAdminPlansService.listPublicPricingPlans();
     const currentVisiblePlan = visiblePlans.find((plan) => plan.code === resolved.planCode) ?? null;
@@ -432,6 +492,97 @@ export class ReadInternalRuntimeQuotaStatusService {
     };
   }
 
+  /**
+   * ADR-108 Slice 7 — builds the units-flavored row for image/image-edit/document.
+   * Adds `kind: "units"` discriminator; all other fields pass through unchanged.
+   */
+  private buildUnitsToolRow(
+    rawTool: AssistantMonthlyToolQuotaToolSnapshot
+  ): RuntimeMonthlyToolQuotaStatusToolRowUnits {
+    return {
+      kind: "units",
+      toolCode: rawTool.toolCode as RuntimeMonthlyToolQuotaStatusToolRowUnits["toolCode"],
+      displayName: rawTool.displayName,
+      usedUnits: rawTool.usedUnits,
+      reservedUnits: rawTool.reservedUnits,
+      settledUnits: rawTool.settledUnits,
+      releasedUnits: rawTool.releasedUnits,
+      reconciliationRequiredUnits: rawTool.reconciliationRequiredUnits,
+      limitUnits: rawTool.limitUnits,
+      effectiveLimitUnits: rawTool.effectiveLimitUnits,
+      remainingUnits: rawTool.remainingUnits,
+      percent: rawTool.percent,
+      finiteLimit: rawTool.finiteLimit,
+      usageAvailable: rawTool.usageAvailable,
+      warningThresholdPercent: rawTool.warningThresholdPercent,
+      warningThresholdReached: rawTool.warningThresholdReached,
+      status: rawTool.status
+    };
+  }
+
+  /**
+   * ADR-108 Slice 7 — builds the vcoin-flavored row for video_generate.
+   * Reads VC balance, monthly grant, and typical cost from the injected
+   * services. Degrades gracefully on missing data (zero balance, null cost).
+   */
+  private async buildVcoinToolRow(
+    rawTool: AssistantMonthlyToolQuotaToolSnapshot,
+    workspaceId: string,
+    opts: {
+      balanceVc: number;
+      vcoinExchangeRate: number;
+      planCode: string | null;
+    }
+  ): Promise<RuntimeMonthlyToolQuotaStatusToolRowVcoin> {
+    const monthlyGrantVc = await this.resolveMonthlyGrantVc(opts.planCode);
+
+    const typicalCostResult = await this.computeTypicalVideoVcoinCostService
+      .resolveTypicalVideoVcoinCost({
+        workspaceId,
+        vcoinExchangeRate: opts.vcoinExchangeRate
+      })
+      .catch(() => ({
+        typicalSeconds: null,
+        typicalCostVc: null,
+        fromPlatformFallback: false
+      }));
+
+    return {
+      kind: "vcoin",
+      toolCode: "video_generate",
+      displayName: rawTool.displayName,
+      balanceVc: opts.balanceVc,
+      monthlyGrantVc,
+      typicalVideoCostVc: typicalCostResult.typicalCostVc,
+      typicalVideoSeconds: typicalCostResult.typicalSeconds,
+      typicalCostFromPlatformFallback: typicalCostResult.fromPlatformFallback,
+      status: opts.balanceVc <= 0 ? "balance_exhausted" : "ok"
+    };
+  }
+
+  /**
+   * ADR-108 Slice 7 — reads the monthly VC grant from the active plan.
+   * Reuses `assistantPlanCatalogRepository.findByCode` (already injected for
+   * `resolveCurrentPlanAmountMinor`). Returns 0 on any failure.
+   */
+  private async resolveMonthlyGrantVc(planCode: string | null): Promise<number> {
+    if (typeof planCode !== "string" || planCode.length === 0) {
+      return 0;
+    }
+    try {
+      const plan = await this.assistantPlanCatalogRepository.findByCode(planCode);
+      const hints =
+        plan?.billingProviderHints !== null &&
+        typeof plan?.billingProviderHints === "object" &&
+        !Array.isArray(plan?.billingProviderHints)
+          ? (plan.billingProviderHints as Record<string, unknown>)
+          : null;
+      return parseVideoVcoinMonthlyGrant(hints?.videoVcoinMonthlyGrant);
+    } catch {
+      return 0;
+    }
+  }
+
   private async computeAdvisoryCandidates(input: {
     assistantId: string;
     channel?: string | undefined;
@@ -442,7 +593,7 @@ export class ReadInternalRuntimeQuotaStatusService {
       periodEndsAt: string;
       periodSource: string;
     };
-    monthlyToolQuotas: AssistantMonthlyToolQuotaSnapshot;
+    monthlyToolQuotas: RuntimeAwareMonthlyToolQuotas;
   }): Promise<QuotaAdvisoryCandidateState[]> {
     const threadPrefix =
       input.channel && input.externalThreadKey
@@ -470,6 +621,9 @@ export class ReadInternalRuntimeQuotaStatusService {
     }
 
     for (const tool of input.monthlyToolQuotas.tools) {
+      // ADR-108 Slice 7: vcoin rows (video_generate) use balance exhaustion
+      // rather than threshold-percent advisories; skip them here.
+      if (tool.kind !== "units") continue;
       if (!tool.finiteLimit) continue;
       if (!tool.warningThresholdReached || tool.status === "limit_reached") continue;
       rawCandidates.push({

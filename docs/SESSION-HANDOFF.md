@@ -2,6 +2,67 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-04 — ADR-108 Slice 7: Quota status tool + runtime advisor (vcoin variant)
+
+### What changed & why
+
+Baseline SHA at session start (after Slice 6b commit): `174f2787`. Tree was clean. Slice 7 makes the runtime `quota_status` tool return a vcoin-flavored shape for `video_generate` (VC balance, monthly grant, typical-video cost) instead of the per-unit `{ limitUnits, remainingUnits }` shape, and adds runtime-advisor copy "remaining N VC; a typical video costs about K VC" derived from a rolling 30-day workspace average.
+
+- `packages/runtime-contract/src/index.ts`: `RuntimeMonthlyToolQuotaStatusToolRow` converted from flat interface to discriminated union. New interfaces `RuntimeMonthlyToolQuotaStatusToolRowUnits` (`kind: "units"`) and `RuntimeMonthlyToolQuotaStatusToolRowVcoin` (`kind: "vcoin"`). `video_generate` toolCode moved from units to vcoin variant. All existing unit fields preserved on the units variant; optional `effectiveLimitUnits` carry-over added for backward compat.
+- `apps/api/src/modules/workspace-management/application/vcoin/compute-typical-video-vcoin-cost.service.ts` (NEW): rolling 30-day workspace average via `$queryRaw` on `model_cost_ledger_events`; fallback to `TYPICAL_VIDEO_SECONDS_FALLBACK = 5`; null when no catalog pricing; BigInt ceil cost.
+- `apps/api/src/modules/workspace-management/application/read-internal-runtime-quota-status.service.ts`: three new injections; `execute()` transforms raw snapshot to discriminated union array; `computeAdvisoryCandidates` narrows on `kind !== "units"`; return type updated to `RuntimeAwareMonthlyToolQuotas`.
+- `apps/api/src/modules/workspace-management/application/quota-grounded-limit-copy.service.ts`: new vcoin branch for `video_generate` in `buildMonthlyToolCopy`; units path narrowed.
+- `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts`: `kind !== "vcoin"` guard before unit-field access; backward-compat with test stubs.
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`: `isMonthlyToolQuotaStatusTool` routes validation by `kind`.
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`: `ComputeTypicalVideoVcoinCostService` registered.
+
+### Files touched
+
+Modified:
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/read-internal-runtime-quota-status.service.ts`
+- `apps/api/src/modules/workspace-management/application/quota-grounded-limit-copy.service.ts`
+- `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/read-internal-runtime-quota-status.service.test.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/test/runtime-quota-status-tool.service.test.ts`
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/API-BOUNDARY.md`
+
+New:
+- `apps/api/src/modules/workspace-management/application/vcoin/compute-typical-video-vcoin-cost.service.ts`
+
+### Tests run
+
+- PASS `corepack pnpm --filter @persai/api run pretypecheck`
+- PASS `corepack pnpm --filter @persai/api run typecheck`
+- PASS `corepack pnpm --filter @persai/web run typecheck`
+- PASS `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- PASS `corepack pnpm -r --if-present run lint`
+- PASS `corepack pnpm run format:check`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts` (6 new + 2 existing tests)
+- PASS `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts` (vcoin passthrough added)
+- PASS `corepack pnpm --filter @persai/api run test` (full API suite)
+- PASS `corepack pnpm --filter @persai/runtime run test` (full runtime suite)
+
+### Risks / residuals
+
+- `quota-grounded-limit-copy.service.ts` vcoin branch is called from `monthly_media_quota_exceeded` / `monthly_tool_quota_exceeded` codes. The triggering mechanism (rejected enqueue due to `vcoin_balance_exhausted`) lands advisor copy via a different path in Slice 2 already; Slice 7 wires the copy for when the quota-status surface is queried directly by the LLM.
+- `enqueue-runtime-deferred-document-job.service.ts` guard uses `kind !== "vcoin"` (not strict `kind === "units"`) for backward compat with test stubs lacking `kind`. Production rows from `execute()` will always have `kind` set correctly.
+- No advisory candidates for `balance_exhausted` video rows — the LLM reads the `quota_status` tool result directly and sees `status: "balance_exhausted"`. A dedicated advisory channel for vcoin exhaustion is Slice 8+ territory.
+
+### Deploy
+
+API + runtime worker. No migration.
+
+### Next recommended slice
+
+**ADR-108 Slice 8 — Manual migration playbook.** Write `docs/runbooks/vcoin-plan-migration.md` explaining the admin walk for each of the 5 production plans; mark `videoGenerateMonthlyUnitsLimit` deprecated in plan editor copy; update ADR-106 Slice 9 supersession note.
+
 ## 2026-06-04 — ADR-108 Slice 6b: User UI rendering for VC (settings, pricing, packages)
 
 ### What changed & why

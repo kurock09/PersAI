@@ -394,6 +394,8 @@ class FakePersaiInternalApiClientService {
       periodSource: "subscription_period",
       tools: [
         {
+          // ADR-108 Slice 7: units variant with kind discriminator.
+          kind: "units" as const,
           toolCode: "image_generate",
           displayName: "Image generation",
           usedUnits: 3,
@@ -408,7 +410,19 @@ class FakePersaiInternalApiClientService {
           usageAvailable: true,
           warningThresholdPercent: 90,
           warningThresholdReached: false,
-          status: "ok"
+          status: "ok" as const
+        },
+        {
+          // ADR-108 Slice 7: vcoin variant for video_generate.
+          kind: "vcoin" as const,
+          toolCode: "video_generate",
+          displayName: "Video generation",
+          balanceVc: 500,
+          monthlyGrantVc: 1000,
+          typicalVideoCostVc: 4,
+          typicalVideoSeconds: 7,
+          typicalCostFromPlatformFallback: false,
+          status: "ok" as const
         }
       ]
     },
@@ -589,9 +603,22 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.tools[0]?.toolCode, "web_search");
   assert.equal(success.payload.buckets[0]?.bucketCode, "token_budget");
   assert.equal(success.payload.buckets.length, 1);
+  // Test 7: runtime worker passes through kind: "vcoin" row without crashing.
   assert.equal(success.payload.monthlyToolQuotas?.tools[0]?.toolCode, "image_generate");
-  assert.equal(success.payload.monthlyToolQuotas?.tools[0]?.usedUnits, 3);
-  assert.equal(success.payload.monthlyToolQuotas?.tools[0]?.limitUnits, 30);
+  assert.equal(success.payload.monthlyToolQuotas?.tools[0]?.kind, "units");
+  const imageToolRow = success.payload.monthlyToolQuotas?.tools[0];
+  assert.ok(imageToolRow?.kind === "units");
+  assert.equal(imageToolRow.usedUnits, 3);
+  assert.equal(imageToolRow.limitUnits, 30);
+  const videoToolRow = success.payload.monthlyToolQuotas?.tools[1];
+  assert.ok(videoToolRow !== undefined, "vcoin video row should pass through");
+  assert.equal(videoToolRow?.kind, "vcoin");
+  assert.ok(videoToolRow?.kind === "vcoin");
+  assert.equal(videoToolRow.toolCode, "video_generate");
+  assert.equal(videoToolRow.balanceVc, 500);
+  assert.equal(videoToolRow.monthlyGrantVc, 1000);
+  assert.equal(videoToolRow.typicalVideoCostVc, 4);
+  assert.equal(videoToolRow.status, "ok");
   assert.equal(success.payload.packagesAvailableByTool.image_generate, true);
   assert.equal(success.payload.packagesAvailableByTool.document, true);
   assert.equal(success.payload.packagesAvailableByTool.video_generate, false);

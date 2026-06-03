@@ -1067,8 +1067,20 @@ export interface RuntimeQuotaStatusBucket {
   status: "ok" | "limit_reached" | "usage_unavailable";
 }
 
-export interface RuntimeMonthlyToolQuotaStatusToolRow {
-  toolCode: "image_generate" | "image_edit" | "video_generate" | "document";
+/**
+ * ADR-108 Slice 7 — per-unit variant of the monthly tool quota row.
+ * Used for `image_generate`, `image_edit`, and `document` which keep the
+ * existing per-unit quota model. The `kind: "units"` discriminator allows
+ * consumers to narrow away from the vcoin variant without breaking older
+ * code that only reads unit-flavored fields.
+ *
+ * `effectiveLimitUnits` is an optional carry-over from the server-side
+ * `AssistantMonthlyToolQuotaToolSnapshot` (base + bonus package units).
+ * Consumers that only need the hard limit can fall back to `limitUnits`.
+ */
+export interface RuntimeMonthlyToolQuotaStatusToolRowUnits {
+  kind: "units";
+  toolCode: "image_generate" | "image_edit" | "document";
   displayName: string;
   usedUnits: number;
   reservedUnits: number;
@@ -1076,6 +1088,8 @@ export interface RuntimeMonthlyToolQuotaStatusToolRow {
   releasedUnits: number;
   reconciliationRequiredUnits: number;
   limitUnits: number | null;
+  /** Effective limit = base + bonus package units. Null when base is null (unlimited). */
+  effectiveLimitUnits?: number | null;
   remainingUnits: number | null;
   percent: number | null;
   finiteLimit: boolean;
@@ -1084,6 +1098,52 @@ export interface RuntimeMonthlyToolQuotaStatusToolRow {
   warningThresholdReached: boolean;
   status: "ok" | "limit_reached" | "usage_unavailable";
 }
+
+/**
+ * ADR-108 Slice 7 — vcoin variant of the monthly tool quota row.
+ * Used exclusively for `video_generate`, which is priced in Vcoin (VC)
+ * rather than per-unit quota. The `kind: "vcoin"` discriminator lets
+ * consumers branch on the currency model without reading unit fields.
+ */
+export interface RuntimeMonthlyToolQuotaStatusToolRowVcoin {
+  kind: "vcoin";
+  toolCode: "video_generate";
+  displayName: string;
+  /** Current integer VC balance for the workspace. */
+  balanceVc: number;
+  /** Monthly VC grant from the active plan (0 when plan has no grant). */
+  monthlyGrantVc: number;
+  /**
+   * Approximate VC cost of a typical video, derived from the rolling
+   * 30-day workspace average duration (or the platform fallback of
+   * `TYPICAL_VIDEO_SECONDS_FALLBACK = 5` when no history exists) combined
+   * with the platform-average USD/sec across active time-metered catalog rows.
+   * Null when no active video catalog pricing is available.
+   */
+  typicalVideoCostVc: number | null;
+  /**
+   * Rolling 30-day workspace average video duration in seconds used to
+   * compute `typicalVideoCostVc`. Null when no workspace history exists
+   * (in which case `typicalCostFromPlatformFallback` is true).
+   */
+  typicalVideoSeconds: number | null;
+  /**
+   * True when `typicalVideoCostVc` was derived from the platform fallback
+   * constant rather than real workspace history.
+   */
+  typicalCostFromPlatformFallback: boolean;
+  status: "ok" | "balance_exhausted";
+}
+
+/**
+ * ADR-108 Slice 7 — discriminated union for monthly tool quota rows.
+ * Non-video tools (`image_generate`, `image_edit`, `document`) produce
+ * `kind: "units"` rows. `video_generate` produces `kind: "vcoin"` rows.
+ * Narrow on `row.kind` before accessing kind-specific fields.
+ */
+export type RuntimeMonthlyToolQuotaStatusToolRow =
+  | RuntimeMonthlyToolQuotaStatusToolRowUnits
+  | RuntimeMonthlyToolQuotaStatusToolRowVcoin;
 
 export interface RuntimeMonthlyToolQuotaStatus {
   planCode: string | null;

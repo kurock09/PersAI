@@ -63,26 +63,58 @@ export class QuotaGroundedLimitCopyService {
     const tool =
       quotaStatus.monthlyToolQuotas.tools.find((row) => row.toolCode === toolCode) ?? null;
     const displayName = tool?.displayName ?? toolCode.replace(/_/g, " ");
+
+    // ADR-108 Slice 7 — vcoin variant: video_generate uses VC balance semantics.
+    if (toolCode === "video_generate" && tool !== null && tool.kind === "vcoin") {
+      if (code === "monthly_media_quota_rejected" || code === "monthly_tool_quota_rejected") {
+        return {
+          message: `${displayName} is not active on the current plan.`,
+          guidance: this.buildInactiveToolGuidance(quotaStatus, toolCode)
+        };
+      }
+      if (tool.status === "balance_exhausted" || tool.balanceVc <= 0) {
+        return {
+          message: "Your video credits are exhausted. Top up to continue.",
+          guidance: this.buildMonthlyToolUpgradeGuidance(
+            quotaStatus,
+            toolCode,
+            "Top up your Vcoin balance to generate more videos."
+          )
+        };
+      }
+      const typicalCostSuffix =
+        tool.typicalVideoCostVc !== null
+          ? ` A typical video costs about ${String(tool.typicalVideoCostVc)} VC.`
+          : "";
+      return {
+        message: `You have ${String(tool.balanceVc)} VC remaining.${typicalCostSuffix}`,
+        guidance: null
+      };
+    }
+
     if (code === "monthly_media_quota_rejected" || code === "monthly_tool_quota_rejected") {
       return {
         message: `${displayName} is not active on the current plan.`,
         guidance: this.buildInactiveToolGuidance(quotaStatus, toolCode)
       };
     }
+
+    // Narrow to units row for the units-based path.
+    const unitsRow = tool !== null && tool.kind === "units" ? tool : null;
     const used =
       typeof details?.currentUsedUnits === "number"
         ? details.currentUsedUnits
-        : typeof tool?.usedUnits === "number"
-          ? tool.usedUnits
+        : unitsRow !== null
+          ? unitsRow.usedUnits
           : null;
     const effectiveLimit =
       typeof details?.limitUnits === "number"
         ? details.limitUnits
-        : typeof tool?.effectiveLimitUnits === "number"
-          ? tool.effectiveLimitUnits
-          : typeof tool?.limitUnits === "number"
-            ? tool.limitUnits
-            : null;
+        : unitsRow !== null
+          ? typeof unitsRow.effectiveLimitUnits === "number"
+            ? unitsRow.effectiveLimitUnits
+            : unitsRow.limitUnits
+          : null;
     const resetAt =
       typeof details?.periodEndsAt === "string"
         ? details.periodEndsAt
