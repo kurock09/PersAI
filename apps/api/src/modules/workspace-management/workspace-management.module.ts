@@ -277,6 +277,8 @@ import { WORKSPACE_SUBSCRIPTION_REPOSITORY } from "./domain/workspace-subscripti
 import { WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY } from "./domain/workspace-quota-accounting.repository";
 import { WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY } from "./domain/workspace-tool-daily-usage.repository";
 import { PrismaWorkspaceToolDailyUsageRepository } from "./infrastructure/persistence/prisma-workspace-tool-daily-usage.repository";
+import { WORKSPACE_VCOIN_BALANCE_REPOSITORY } from "./domain/workspace-vcoin-balance.repository";
+import { PrismaWorkspaceVcoinBalanceRepository } from "./infrastructure/persistence/prisma-workspace-vcoin-balance.repository";
 import { ASSISTANT_MEMORY_REGISTRY_REPOSITORY } from "./domain/assistant-memory-registry.repository";
 import { ASSISTANT_TASK_REGISTRY_REPOSITORY } from "./domain/assistant-task-registry.repository";
 import { ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY } from "./domain/assistant-channel-surface-binding.repository";
@@ -660,6 +662,10 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     {
       provide: WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY,
       useClass: PrismaWorkspaceToolDailyUsageRepository
+    },
+    {
+      provide: WORKSPACE_VCOIN_BALANCE_REPOSITORY,
+      useClass: PrismaWorkspaceVcoinBalanceRepository
     },
     {
       provide: BILLING_PROVIDER_PORT,

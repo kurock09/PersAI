@@ -163,6 +163,10 @@ async function run(): Promise<void> {
   assert.equal(parsed.imageEditFallbackModelKey, "gpt-image-1.5");
   assert.equal(parsed.videoGenerateModelKey, "sora-2-pro");
   assert.equal(parsed.videoGenerateFallbackModelKey, "sora-2");
+  // ADR-108 Slice 1 — when the admin payload omits `videoVcoinMonthlyGrant`,
+  // the parser defaults it to 0 ("no grant"). Slice 3 owns the granting
+  // service; Slice 5 owns the admin UI flip.
+  assert.equal(parsed.videoVcoinMonthlyGrant, 0);
   assert.equal(parsed.contextPolicy.preset, "balanced");
   assert.equal(parsed.lifecyclePolicy.trialFallbackPlanCode, "starter_fallback");
   assert.equal(parsed.lifecyclePolicy.paidFallbackPlanCode, null);
@@ -193,6 +197,13 @@ async function run(): Promise<void> {
   assert.equal(
     (writeInput.billingProviderHints as Record<string, unknown>).videoGenerateFallbackModelKey,
     "sora-2"
+  );
+  // ADR-108 Slice 1 — `videoVcoinMonthlyGrant` is always persisted on the
+  // plan's billingProviderHints (even when 0) so the granting service in
+  // Slice 3 has an explicit signal for "this plan grants zero VC monthly".
+  assert.equal(
+    (writeInput.billingProviderHints as Record<string, unknown>).videoVcoinMonthlyGrant,
+    0
   );
   assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).lifecyclePolicy, {
     schema: "persai.planLifecyclePolicy.v1",
@@ -304,6 +315,85 @@ async function run(): Promise<void> {
   assert.equal(state.imageEditFallbackModelKey, "gpt-image-1.5");
   assert.equal(state.videoGenerateModelKey, "sora-2-pro");
   assert.equal(state.videoGenerateFallbackModelKey, "sora-2");
+  // ADR-108 Slice 1 — loader round-trips `videoVcoinMonthlyGrant` from
+  // billingProviderHints. Absent / null / non-integer values must default
+  // to 0 so legacy plan rows surface a usable integer.
+  const stateWithVcoinGrant = (
+    service as unknown as {
+      toAdminPlanState(plan: AssistantPlanCatalog): {
+        videoVcoinMonthlyGrant: number;
+      };
+    }
+  ).toAdminPlanState({
+    id: "plan-vcoin",
+    code: "vcoin-plan",
+    displayName: "VC Plan",
+    description: null,
+    status: "active",
+    billingProviderHints: {
+      ...(writeInput.billingProviderHints as Record<string, unknown>),
+      videoVcoinMonthlyGrant: 250
+    },
+    entitlementModel: null,
+    toolActivations: [],
+    isDefaultFirstRegistrationPlan: false,
+    isTrialPlan: false,
+    trialDurationDays: null,
+    createdAt: new Date("2026-04-14T12:00:00.000Z"),
+    updatedAt: new Date("2026-04-14T12:00:00.000Z")
+  });
+  assert.equal(stateWithVcoinGrant.videoVcoinMonthlyGrant, 250);
+
+  const stateWithMissingVcoinGrant = (
+    service as unknown as {
+      toAdminPlanState(plan: AssistantPlanCatalog): {
+        videoVcoinMonthlyGrant: number;
+      };
+    }
+  ).toAdminPlanState({
+    id: "plan-vcoin-legacy",
+    code: "vcoin-legacy",
+    displayName: "Legacy Plan",
+    description: null,
+    status: "active",
+    // Legacy row predating ADR-108 Slice 1 — no `videoVcoinMonthlyGrant`
+    // on the JSON. Loader must default to 0, not undefined or NaN.
+    billingProviderHints: null,
+    entitlementModel: null,
+    toolActivations: [],
+    isDefaultFirstRegistrationPlan: false,
+    isTrialPlan: false,
+    trialDurationDays: null,
+    createdAt: new Date("2026-04-14T12:00:00.000Z"),
+    updatedAt: new Date("2026-04-14T12:00:00.000Z")
+  });
+  assert.equal(stateWithMissingVcoinGrant.videoVcoinMonthlyGrant, 0);
+
+  const stateWithInvalidVcoinGrant = (
+    service as unknown as {
+      toAdminPlanState(plan: AssistantPlanCatalog): {
+        videoVcoinMonthlyGrant: number;
+      };
+    }
+  ).toAdminPlanState({
+    id: "plan-vcoin-invalid",
+    code: "vcoin-invalid",
+    displayName: "Invalid Plan",
+    description: null,
+    status: "active",
+    billingProviderHints: {
+      ...(writeInput.billingProviderHints as Record<string, unknown>),
+      videoVcoinMonthlyGrant: -42
+    },
+    entitlementModel: null,
+    toolActivations: [],
+    isDefaultFirstRegistrationPlan: false,
+    isTrialPlan: false,
+    trialDurationDays: null,
+    createdAt: new Date("2026-04-14T12:00:00.000Z"),
+    updatedAt: new Date("2026-04-14T12:00:00.000Z")
+  });
+  assert.equal(stateWithInvalidVcoinGrant.videoVcoinMonthlyGrant, 0);
   assert.equal(state.contextPolicy.preset, "balanced");
   assert.equal(state.lifecyclePolicy.trialFallbackPlanCode, "starter_fallback");
   assert.equal(state.lifecyclePolicy.paidFallbackPlanCode, null);

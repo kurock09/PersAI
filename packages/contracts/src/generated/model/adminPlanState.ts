@@ -63,6 +63,11 @@ export interface AdminPlanState {
   videoGenerateModelKey?: string | null;
   /** @nullable */
   videoGenerateFallbackModelKey?: string | null;
+  /**
+   * ADR-108 Slice 1 — monthly Vcoin grant credited into `WorkspaceVcoinBalance` on subscription period boundary for plans whose users get a recurring `video_generate` Vcoin budget. Default 0 ⇒ no grant. Slice 1 only round-trips the value; Slice 3 owns the granting service; Slice 5 owns the admin UI flip.
+   * @minimum 0
+   */
+  videoVcoinMonthlyGrant?: number;
   /** @nullable */
   runtimeTierDefault?: AdminPlanStateRuntimeTierDefault;
   createdAt: string;

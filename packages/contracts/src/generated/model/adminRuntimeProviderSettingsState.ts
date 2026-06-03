@@ -27,5 +27,10 @@ export interface AdminRuntimeProviderSettingsState {
   availableModelsByProvider: RuntimeProviderAvailableModelsByProviderState;
   availableModelCatalogByProvider: RuntimeProviderModelCatalogByProviderState;
   providerKeys: AdminRuntimeProviderSettingsStateProviderKeys;
+  /**
+   * ADR-108 Slice 1 — platform Vcoin (VC) exchange rate, integer VC per 1 USD. Defaults to 20 (`1 USD = 20 VC` ⇒ `1 VC = $0.05`) on read when the persisted record omits the field (legacy rows from before Slice 1 landed). Single platform-level numeric setting; not plan-scoped. Slice 1 only round-trips the value (this slice is contract-carrying); Slices 2/3/4 wire the actual debit / credit paths; Slice 5 owns the admin UI surface.
+   * @minimum 1
+   */
+  vcoinExchangeRate?: number;
   notes: string[];
 }

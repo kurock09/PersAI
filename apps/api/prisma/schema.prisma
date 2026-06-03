@@ -688,6 +688,7 @@ model Workspace {
   notificationDeadLetters           NotificationDeadLetter[]        @relation("NotificationDeadLetterWorkspace")
   supportTickets                    SupportTicket[]
   mediaPackageGrants                WorkspaceMediaPackageGrant[]
+  workspaceVcoinBalance             WorkspaceVcoinBalance?
 
   @@map("workspaces")
 }
@@ -950,6 +951,8 @@ model PlatformRuntimeProviderSettings {
   documentProcessingPolicy        Json                            @default("{}") @map("document_processing_policy") @db.JsonB
   toolPathPricingCatalog          Json                            @default("{\"schema\":\"persai.toolPathPricingCatalog.v1\",\"rows\":[]}") @map("tool_path_pricing_catalog") @db.JsonB
   adminKnowledgeRetrievalPolicy   Json                            @default("{}") @map("admin_knowledge_retrieval_policy") @db.JsonB
+  /// ADR-108 Slice 1 — platform Vcoin exchange rate (integer VC per 1 USD). Default 20 (`1 USD = 20 VC`, `1 VC = $0.05`). Single platform-level numeric field; not plan-scoped. Slices 2/3/4 wire the actual debit/credit paths.
+  vcoinExchangeRate               Int                             @default(20) @map("vcoin_exchange_rate")
   updatedByUserId                 String?                         @map("updated_by_user_id") @db.Uuid
   createdAt                       DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1424,6 +1427,26 @@ model WorkspaceMediaPackageGrant {
   @@index([paymentIntentId])
   @@unique([paymentIntentId, packageCatalogItemId], name: "uniq_grant_intent_item")
   @@map("workspace_media_package_grants")
+}
+
+/// ADR-108 Slice 1 — Workspace-scoped Vcoin (VC) wallet for `video_generate`
+/// settlement. The course is platform-level (`PlatformRuntimeProviderSettings.vcoinExchangeRate`,
+/// default 20 → `1 USD = 20 VC`). This slice introduces the table and a
+/// read-only get-or-create access path; no debit/credit operations exist
+/// yet (those land in ADR-108 Slices 2/3/4). `balance_vc` is a non-negative
+/// integer except for the one-shot negative balance permitted by the
+/// lifecycle rule (settle-only debit can drive the balance just below zero
+/// exactly once; the next enqueue is rejected with
+/// `vcoin_balance_exhausted`). Image / TTS / STT / document quotas remain
+/// per-unit and are NOT affected by this wallet.
+model WorkspaceVcoinBalance {
+  workspaceId String    @id @map("workspace_id") @db.Uuid
+  balanceVc   Int       @default(0) @map("balance_vc")
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("workspace_vcoin_balances")
 }
 
 model WorkspaceQuotaAccountingState {

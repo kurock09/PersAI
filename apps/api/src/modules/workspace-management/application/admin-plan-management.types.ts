@@ -149,6 +149,13 @@ export type AdminPlanInput = {
     messagesPerChat: number | null;
     imageGenerateMonthlyUnitsLimit: number | null;
     imageEditMonthlyUnitsLimit: number | null;
+    /**
+     * @deprecated ADR-108 Slice 1 — Vcoin (`videoVcoinMonthlyGrant`)
+     * supersedes per-unit monthly limits for `video_generate`. Kept on
+     * the row for one release cycle as rollback insurance per ADR-108
+     * Non-goals. New plan editors should set `videoVcoinMonthlyGrant`
+     * instead. Slice 5 owns the admin UI flip.
+     */
     videoGenerateMonthlyUnitsLimit: number | null;
     documentMonthlyUnitsLimit: number | null;
     mediaStorageBytesLimit: number | null;
@@ -174,6 +181,15 @@ export type AdminPlanInput = {
   imageEditFallbackModelKey: string | null;
   videoGenerateModelKey: string | null;
   videoGenerateFallbackModelKey: string | null;
+  /**
+   * ADR-108 Slice 1 — monthly Vcoin grant credited into
+   * `WorkspaceVcoinBalance` on subscription period boundary for plans whose
+   * users get a recurring `video_generate` Vcoin budget. Stored inside the
+   * plan's `billingProviderHints` JSON column. Slice 1 only round-trips the
+   * value (default 0 ⇒ no grant); Slice 3 owns the granting service. Image
+   * / TTS / STT / document quotas remain per-unit and are unaffected.
+   */
+  videoVcoinMonthlyGrant: number;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations?: AdminPlanToolActivationInput[];
   /**
@@ -212,6 +228,12 @@ export type AdminPlanState = {
     messagesPerChat: number | null;
     imageGenerateMonthlyUnitsLimit: number | null;
     imageEditMonthlyUnitsLimit: number | null;
+    /**
+     * @deprecated ADR-108 Slice 1 — see `AdminPlanInput.quotaLimits.videoGenerateMonthlyUnitsLimit`.
+     * Kept on the row for one release cycle as rollback insurance per
+     * ADR-108 Non-goals. Read paths still surface the legacy value;
+     * `videoVcoinMonthlyGrant` is the new authoritative field.
+     */
     videoGenerateMonthlyUnitsLimit: number | null;
     documentMonthlyUnitsLimit: number | null;
     mediaStorageBytesLimit: number | null;
@@ -237,6 +259,8 @@ export type AdminPlanState = {
   imageEditFallbackModelKey: string | null;
   videoGenerateModelKey: string | null;
   videoGenerateFallbackModelKey: string | null;
+  /** ADR-108 Slice 1 — see `AdminPlanInput.videoVcoinMonthlyGrant`. */
+  videoVcoinMonthlyGrant: number;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations: AdminPlanToolActivation[];
   /** ADR-074 Slice L1 — see `AdminPlanInput.toolBudgets`. */

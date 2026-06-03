@@ -48,6 +48,16 @@ export const PERSAI_RUNTIME_SECRET_PROVIDER_ALIAS = "persai-runtime";
 export const DEFAULT_SKILL_ROUTING_INITIAL_CHECK_USER_MESSAGE_INDEX = 3;
 export const DEFAULT_SKILL_ROUTING_BACKGROUND_RECHECK_INTERVAL_MESSAGES = 5;
 
+/**
+ * ADR-108 Slice 1 — default platform Vcoin exchange rate (integer VC per 1
+ * USD). Stored on `PlatformRuntimeProviderSettings.vcoinExchangeRate`; this
+ * constant is used as the fallback when the persisted JSON omits the field
+ * (legacy rows from before Slice 1 landed). Per ADR-108 line 47 the course
+ * is platform-level: `1 USD = 20 VC` ⇒ `1 VC = $0.05`. Slices 2/3/4 wire
+ * the actual debit/credit paths; this slice is contract-carrying only.
+ */
+export const DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE = 20;
+
 export const PERSAI_RUNTIME_PROVIDER_SECRET_IDS: Record<ManagedRuntimeProvider, string> = {
   openai: "openai/api-key",
   anthropic: "anthropic/api-key"
@@ -63,6 +73,13 @@ const MAX_MODEL_NOTES_LENGTH = 512;
 const MAX_TOKEN_WEIGHT = 1_000_000;
 const MAX_PRICE_LABEL_LENGTH = 128;
 const MAX_TIER_COUNT = 16;
+/**
+ * ADR-108 Slice 1 — defensive upper bound on the platform Vcoin exchange
+ * rate. The product course is `1 USD = 20 VC`; the cap exists to reject
+ * obviously-malformed admin saves (negative, fractional, or absurdly large
+ * values). Slice 1 does not constrain this beyond honesty.
+ */
+const MAX_PLATFORM_VCOIN_EXCHANGE_RATE = 1_000_000;
 
 export type PlatformRuntimeProviderSelection = {
   provider: ManagedRuntimeProvider;
@@ -125,6 +142,14 @@ export type PlatformRuntimeProviderSettingsState = {
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
   availableModelCatalogByProvider: RuntimeProviderModelCatalogByProvider;
   providerKeys: Record<ManagedRuntimeProvider, PlatformRuntimeProviderKeyMetadata>;
+  /**
+   * ADR-108 Slice 1 — platform Vcoin exchange rate (integer VC per 1 USD).
+   * Always a positive integer; the resolver defaults to
+   * `DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE` (20) when the persisted record
+   * omits the field. Slices 2/3/4 will wire the actual debit/credit paths;
+   * this field is contract-carrying only in Slice 1.
+   */
+  vcoinExchangeRate: number;
   notes: string[];
 };
 
@@ -137,6 +162,12 @@ export type PlatformRuntimeProviderSettingsRecord = {
   routerPolicy: unknown;
   availableModelsByProvider: unknown;
   availableModelCatalogByProvider: unknown;
+  /**
+   * ADR-108 Slice 1 — persisted platform Vcoin exchange rate. Nullable on
+   * the record shape so legacy rows (pre-Slice 1) and missing-column reads
+   * resolve to the platform default via `DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE`.
+   */
+  vcoinExchangeRate: number | null;
 };
 
 export type UpdatePlatformRuntimeProviderSettingsInput = {
@@ -148,6 +179,13 @@ export type UpdatePlatformRuntimeProviderSettingsInput = {
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
   availableModelCatalogByProvider: RuntimeProviderModelCatalogByProvider;
   providerKeys: Partial<Record<ManagedRuntimeProvider, string>>;
+  /**
+   * ADR-108 Slice 1 — platform Vcoin exchange rate carried through the
+   * admin save path. Optional on input; missing values are treated as
+   * `DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE` (20). Slice 5 owns the admin UI
+   * surface for editing this; Slice 1 only round-trips the value.
+   */
+  vcoinExchangeRate: number;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -1563,6 +1601,7 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
   if (anthropicKey !== undefined) {
     providerKeys.anthropic = anthropicKey;
   }
+  const vcoinExchangeRate = normalizeVcoinExchangeRate(row.vcoinExchangeRate, "vcoinExchangeRate");
   return {
     primary,
     fallback,
@@ -1571,8 +1610,49 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     skillRoutingPolicy,
     availableModelsByProvider,
     availableModelCatalogByProvider,
-    providerKeys
+    providerKeys,
+    vcoinExchangeRate
   };
+}
+
+/**
+ * ADR-108 Slice 1 — normalize and validate a platform-level Vcoin exchange
+ * rate. Accepts:
+ *   - `undefined` / `null` → returns `DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE`
+ *     (20) so legacy admin payloads stay compatible.
+ *   - positive integer ≤ `MAX_PLATFORM_VCOIN_EXCHANGE_RATE` → returned as-is.
+ * Rejects non-integers, zero, negatives, and absurdly large values.
+ */
+function normalizeVcoinExchangeRate(value: unknown, path: string): number {
+  if (value === undefined || value === null) {
+    return DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`${path} must be a positive integer.`);
+  }
+  if (value > MAX_PLATFORM_VCOIN_EXCHANGE_RATE) {
+    throw new Error(`${path} must be at most ${String(MAX_PLATFORM_VCOIN_EXCHANGE_RATE)}.`);
+  }
+  return value;
+}
+
+/**
+ * ADR-108 Slice 1 — read-side coercion for the persisted exchange rate.
+ * Used by `buildPlatformRuntimeProviderSettingsState` so a legacy row whose
+ * `vcoinExchangeRate` column was added by migration without an admin save
+ * (or that is otherwise missing/invalid) still surfaces a usable integer.
+ */
+function resolveStoredVcoinExchangeRate(value: number | null | undefined): number {
+  if (value === undefined || value === null) {
+    return DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    return DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE;
+  }
+  if (value > MAX_PLATFORM_VCOIN_EXCHANGE_RATE) {
+    return DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE;
+  }
+  return value;
 }
 
 export function buildPlatformRuntimeProviderSettingsState(params: {
@@ -1591,6 +1671,7 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
       availableModelsByProvider: createEmptyAvailableModelsByProvider(),
       availableModelCatalogByProvider: createEmptyAvailableModelCatalogByProvider(),
       providerKeys: params.providerKeys,
+      vcoinExchangeRate: DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE,
       notes: [
         "Global runtime provider settings are not configured yet.",
         "The active runtime keeps its existing configured default model path until global settings are saved.",
@@ -1650,6 +1731,7 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
     availableModelsByProvider,
     availableModelCatalogByProvider,
     providerKeys: params.providerKeys,
+    vcoinExchangeRate: resolveStoredVcoinExchangeRate(params.settings.vcoinExchangeRate),
     notes: [
       "Provider keys are managed as one global platform setting for all assistants.",
       "Raw provider keys are write-only in the admin UI and stay in encrypted PersAI storage.",

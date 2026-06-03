@@ -82,6 +82,7 @@ export class ManageAdminRuntimeProviderSettingsService {
         availableModelsByProvider: input.availableModelsByProvider as Prisma.InputJsonValue,
         availableModelCatalogByProvider:
           input.availableModelCatalogByProvider as Prisma.InputJsonValue,
+        vcoinExchangeRate: input.vcoinExchangeRate,
         updatedByUserId: userId
       },
       update: {
@@ -97,6 +98,7 @@ export class ManageAdminRuntimeProviderSettingsService {
         availableModelsByProvider: input.availableModelsByProvider as Prisma.InputJsonValue,
         availableModelCatalogByProvider:
           input.availableModelCatalogByProvider as Prisma.InputJsonValue,
+        vcoinExchangeRate: input.vcoinExchangeRate,
         updatedByUserId: userId
       }
     });

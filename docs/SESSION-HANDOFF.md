@@ -2,6 +2,91 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-03 — ADR-108 Slice 1: Schema + platform contract for VC wallet
+
+### What changed & why
+
+Baseline SHA at session start (after Slice 0 commit): `9cf9dfe240b7b7373cba9c7fb4ccf3f88acf835b`. Tree clean. ADR-108 Slice 1 was executed under the orchestrator agent execution model documented in ADR-108 `## Agent execution model`: the orchestrator stayed read-only for code, drafted Scope IN / Scope OUT / Forbidden patterns / Required tests / Verification commands, and spawned one implementation subagent. The orchestrator diff-reviewed the return, ran every verification command from its own shell, and applied the doc updates listed below.
+
+Slice 1 makes the schema and platform contract VC-wallet-ready **without** changing any runtime behavior. No debit, credit, settlement, grant, or quota path was added in this slice. Slice 2 (settle-path debit), Slice 3 (subscription-period grant), and Slice 4 (packages crediting flip) remain the writers.
+
+- New Prisma model `WorkspaceVcoinBalance` mapped to `workspace_vcoin_balances`: PK on `workspace_id`, `balance_vc` integer default 0, `created_at` / `updated_at` timestamps, FK to `workspaces(id)` with `ON DELETE RESTRICT / ON UPDATE CASCADE`. Migration: `apps/api/prisma/migrations/20260603190000_adr108_workspace_vcoin_balance/migration.sql`.
+- New scalar column `platform_runtime_provider_settings.vcoin_exchange_rate` integer NOT NULL DEFAULT 20 — the single platform-level VC course (default `1 USD = 20 VC` ⇔ `1 VC = $0.05`). Not plan-scoped; the cross-slice invariant 5 of ADR-108 forbids per-plan or per-workspace courses.
+- `PlatformRuntimeProviderSettings` read path now defaults `vcoinExchangeRate` to 20 when persisted JSON omits the field; admin save round-trips the value with a positive-integer guard. Wired in `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`, `resolve-platform-runtime-provider-settings.service.ts`, and `manage-admin-runtime-provider-settings.service.ts`.
+- Plan `billingProviderHints` gains `videoVcoinMonthlyGrant` (integer, default 0). Admin plan parser / write / load layered through `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` and `admin-plan-management.types.ts`. Pure pass-through in this slice; Slice 3 owns the actual subscription-period credit.
+- New pure helper `apps/api/src/modules/workspace-management/application/vcoin/convert-usd-micros-to-vcoin.ts` exporting `convertUsdMicrosToVcoin(micros: bigint, rate: number): number`. Uses round-half-up at the half-VC midpoint (per ADR-108 Decision §51-52). Throws on negative `micros`, non-positive non-integer `rate`, NaN, Infinity, non-bigint `micros`. The per-job `ceil` from Decision §53 is intentionally NOT applied here — that wraps the helper at the Slice 2 settle path.
+- New read-only-with-create repository: domain port at `apps/api/src/modules/workspace-management/domain/workspace-vcoin-balance.repository.ts` (with `WORKSPACE_VCOIN_BALANCE_REPOSITORY` injection symbol), Prisma implementation at `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-vcoin-balance.repository.ts`. Exposes `getOrCreate(workspaceId): { workspaceId, balanceVc, updatedAt }` only; no debit, credit, or mutation methods. P2002 race during create is recovered by re-read. Registered as a provider in `workspace-management.module.ts`.
+- `videoGenerateMonthlyUnitsLimit` is JSDoc-`@deprecated` in `packages/runtime-contract/src/index.ts` and in `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`. In `packages/contracts/openapi.yaml` it carries `deprecated: true` plus an explanatory description that points operators at the new VC fields. The field stays present on the row for one release cycle as rollback insurance per ADR-108 Non-goals; no consumer logic was changed.
+- Generated contracts (`packages/contracts/src/generated/**`) regenerated via `corepack pnpm contracts:generate` and prettier-formatted to match repo convention.
+- `docs/DATA-MODEL.md` gained a new paragraph describing the wallet substrate (table, column, helper, repository, no-behavior-change posture, cross-slice invariants preserved).
+
+### Files touched
+
+Modified:
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-runtime-provider-settings.service.ts`
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-platform-runtime-provider-settings.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/manage-admin-plans.service.test.ts`
+- `apps/api/test/platform-runtime-provider-settings.test.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/model/adminPlanInputBase.ts`
+- `packages/contracts/src/generated/model/adminPlanQuotaLimits.ts`
+- `packages/contracts/src/generated/model/adminPlanState.ts`
+- `packages/contracts/src/generated/model/adminRuntimeProviderSettingsState.ts`
+- `packages/contracts/src/generated/model/index.ts`
+- `packages/runtime-contract/src/index.ts`
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md` (Slice 1 status block appended; nothing else changed)
+- `docs/CHANGELOG.md` (new top entry)
+- `docs/DATA-MODEL.md` (new wallet substrate paragraph)
+- `docs/SESSION-HANDOFF.md` (this entry)
+
+New:
+
+- `apps/api/prisma/migrations/20260603190000_adr108_workspace_vcoin_balance/migration.sql`
+- `apps/api/src/modules/workspace-management/application/vcoin/convert-usd-micros-to-vcoin.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-vcoin-balance.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-vcoin-balance.repository.ts`
+- `apps/api/test/convert-usd-micros-to-vcoin.test.ts`
+- `apps/api/test/workspace-vcoin-balance.repository.test.ts`
+
+### Tests run (verbatim, all PASS)
+
+- `corepack pnpm contracts:generate` — PASS
+- `corepack pnpm --filter @persai/contracts run typecheck` — PASS
+- `corepack pnpm --filter @persai/api run typecheck` — PASS
+- `corepack pnpm --filter @persai/web run typecheck` — PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+- `corepack pnpm --filter @persai/api exec tsx test/convert-usd-micros-to-vcoin.test.ts` — PASS (`convert-usd-micros-to-vcoin: all assertions passed`)
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-vcoin-balance.repository.test.ts` — PASS (`workspace-vcoin-balance.repository: all assertions passed`)
+- `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts` — PASS (silent, exit 0)
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts` — PASS (silent, exit 0)
+- `corepack pnpm --filter @persai/api run lint` — PASS (`--max-warnings=0`)
+- `corepack pnpm run format:check` — PASS (`All matched files use Prettier code style!`)
+
+`provider-gateway` typecheck was not re-run because Slice 1 only adds JSDoc to existing runtime-contract types; the provider-gateway has no consumer that would type-shift on a JSDoc-only change. If a future audit finds drift there it will be a Slice 2 concern.
+
+### Risks / residuals
+
+- **Prisma migration is unapplied.** The migration was authored by hand against the most recent existing migration template (`20260602195500_kling_voice_catalog_cache`); it has NOT been run against `persai-dev`. Per AGENTS.md, Prisma changes are risky and are gated by the `persai-dev-migrations` GitHub Environment approval inside `Dev Image Publish` → GitOps pin. Slice 2 (settle-path debit) is the first slice that actually writes to `workspace_vcoin_balances`, so the migration must land on dev before Slice 2 runtime changes can be deployed.
+- **Acceptance checklist of ADR-108.** Items "`workspace_vc_balance` table exists and is wired into settle path", "`vcoinExchangeRate` is in `PlatformRuntimeProviderSettings`, default 20", "`videoVcoinMonthlyGrant` is on plan `billingProviderHints`", and "`videoGenerateMonthlyUnitsLimit` is marked deprecated in source and admin UI copy" are partially satisfied by Slice 1 (substrate exists and is contract-truth, deprecation comments in source / OpenAPI are in place). The "wired into settle path" half lands in Slice 2; the "admin UI copy" half lands in Slice 5. Acceptance checklist itself is NOT being marked yet — it only flips when the corresponding slice that ships the user-visible behavior lands.
+- **`videoGenerateMonthlyUnitsLimit` JSDoc-deprecation is partial.** It is marked at the two declaration sites inside Scope IN. Four further re-declarations live in Scope OUT files (`apps/api/src/modules/workspace-management/application/quota-offers.ts`, `read-internal-runtime-quota-status.service.ts`, `track-workspace-quota-usage.service.ts`, `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`). Their JSDoc sweep belongs naturally to Slice 2 (touches several quota / runtime call sites) or Slice 7 (`quota_status` runtime advisor). Recorded as Out-of-scope discoveries; no follow-up task is scheduled separately.
+- **OpenAPI request shape.** `vcoinExchangeRate` is on the read-state schema (`AdminRuntimeProviderSettingsState`) but not on the save-request body schema (`AdminRuntimeProviderSettingsRequest`). The save path still works because the parser defaults missing values to 20, but Slice 5 (Admin UI) will need to add it to the request body when wiring the form so the admin can change the course.
+- **No cross-slice invariant violation.** `model_cost_ledger_events`, `RuntimeBillingFacts`, image / TTS / STT / chat / OpenAI image paths, runtime, provider-gateway, web — all untouched (verified via `git diff --stat`).
+- **ADR-102 pre-PROD path** `0 → 1 → 2 → 9 → 10` remains unblocked; ADR-108 Slice 1 does not consume any ADR-102 slice.
+
+### Deploy
+
+- API + CONTRACT (Prisma migration). Migration approval gated by `persai-dev-migrations` Environment per AGENTS.md before GitOps pin. **Not pushed in this session** (orchestrator does not push without explicit operator command).
+
+### Next recommended step
+
+- ADR-108 Slice 2 (Settle path debit, video only): wire `media-delivery.service.ts` to debit `workspace_vcoin_balances` on `video_generate` delivery success in the same DB transaction as the existing settle write (during transitional period both writes happen), and add the `vcoin_balance_exhausted` advisory pre-check in `enqueue-runtime-deferred-media-job.service.ts` for `video_generate`. Image / TTS / STT settle paths must remain unchanged. Awaiting operator authorization before spawning the Slice 2 implementation subagent.
+
 ## 2026-06-03 — ADR-108 Slice 0: ADR-107 program closure
 
 ### What changed & why

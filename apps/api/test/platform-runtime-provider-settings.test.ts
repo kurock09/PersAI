@@ -832,6 +832,75 @@ async function run(): Promise<void> {
     }
   });
   assert.deepEqual(settings.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
+  // ADR-108 Slice 1 — record with no persisted `vcoinExchangeRate` (legacy
+  // row, or a pre-Slice-1 admin save) must surface the platform default 20
+  // on read. The reader is the single source of truth here.
+  assert.equal(settings.vcoinExchangeRate, 20);
+
+  const settingsWithExplicitRate = buildPlatformRuntimeProviderSettingsState({
+    settings: {
+      primaryProvider: "openai",
+      primaryModel: "gpt-5.4",
+      fallbackProvider: null,
+      fallbackModel: null,
+      routingFastModelKey: null,
+      routerPolicy: null,
+      availableModelsByProvider: null,
+      availableModelCatalogByProvider: null,
+      vcoinExchangeRate: 25
+    },
+    providerKeys
+  });
+  // ADR-108 Slice 1 — explicit persisted value round-trips unchanged.
+  assert.equal(settingsWithExplicitRate.vcoinExchangeRate, 25);
+
+  const settingsWithInvalidRate = buildPlatformRuntimeProviderSettingsState({
+    settings: {
+      primaryProvider: "openai",
+      primaryModel: "gpt-5.4",
+      fallbackProvider: null,
+      fallbackModel: null,
+      routingFastModelKey: null,
+      routerPolicy: null,
+      availableModelsByProvider: null,
+      availableModelCatalogByProvider: null,
+      // Defensively coerce negative / zero / fractional persisted values to
+      // the platform default rather than propagating poison. Slice 5's
+      // admin save path rejects bad input up front, but a hand-edited DB
+      // row should not break the resolver.
+      vcoinExchangeRate: -7 as unknown as number
+    },
+    providerKeys
+  });
+  assert.equal(settingsWithInvalidRate.vcoinExchangeRate, 20);
+
+  // Parser default: when admin payload omits the field, normalize to 20.
+  assert.equal(parsed.vcoinExchangeRate, 20);
+
+  const parsedWithExplicitRate = parseUpdatePlatformRuntimeProviderSettingsInput({
+    ...parsed,
+    vcoinExchangeRate: 30
+  });
+  assert.equal(parsedWithExplicitRate.vcoinExchangeRate, 30);
+
+  // Parser must reject obviously invalid rates so a bad admin save cannot
+  // poison the persisted JSON.
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        vcoinExchangeRate: 0
+      }),
+    /vcoinExchangeRate must be a positive integer/
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        vcoinExchangeRate: 1.5
+      }),
+    /vcoinExchangeRate must be a positive integer/
+  );
 
   const profile = buildPlatformRuntimeProviderProfileState(settings);
   assert.equal(profile.mode, "admin_managed");

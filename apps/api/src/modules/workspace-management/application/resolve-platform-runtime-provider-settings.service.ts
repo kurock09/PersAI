@@ -38,7 +38,8 @@ export class ResolvePlatformRuntimeProviderSettingsService {
         routingFastModelKey: true,
         routerPolicy: true,
         availableModelsByProvider: true,
-        availableModelCatalogByProvider: true
+        availableModelCatalogByProvider: true,
+        vcoinExchangeRate: true
       }
     });
     if (row === null) {
@@ -53,7 +54,8 @@ export class ResolvePlatformRuntimeProviderSettingsService {
       routingFastModelKey: row.routingFastModelKey,
       routerPolicy: row.routerPolicy,
       availableModelsByProvider: row.availableModelsByProvider,
-      availableModelCatalogByProvider: row.availableModelCatalogByProvider
+      availableModelCatalogByProvider: row.availableModelCatalogByProvider,
+      vcoinExchangeRate: row.vcoinExchangeRate
     };
   }
 

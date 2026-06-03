@@ -181,6 +181,21 @@ function toNullableNonNegativeInt(value: unknown): number | null {
   return null;
 }
 
+/**
+ * ADR-108 Slice 1 — parse a plan's monthly Vcoin grant (`videoVcoinMonthlyGrant`)
+ * from admin input. Missing / null inputs default to 0 ("no grant"). Negative
+ * values, non-integers, and other invalid types fall back to 0 instead of
+ * raising — the field is currency-additive and an honest zero is the correct
+ * conservative default. Slice 3 owns the granting service; Slice 5 owns the
+ * admin UI; Slice 1 only round-trips the value.
+ */
+function toVideoVcoinMonthlyGrant(value: unknown): number {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  return 0;
+}
+
 function parseRequiredPositiveInt(value: unknown, fieldName: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
     throw new BadRequestException(`${fieldName} must be an integer greater than 0.`);
@@ -906,6 +921,7 @@ export class ManageAdminPlansService {
         parsed.videoGenerateFallbackModelKey,
         "videoGenerateFallbackModelKey"
       ),
+      videoVcoinMonthlyGrant: toVideoVcoinMonthlyGrant(parsed.videoVcoinMonthlyGrant),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault),
       toolBudgets
     };
@@ -1073,6 +1089,7 @@ export class ManageAdminPlansService {
         ...(input.videoGenerateFallbackModelKey !== null
           ? { videoGenerateFallbackModelKey: input.videoGenerateFallbackModelKey }
           : {}),
+        videoVcoinMonthlyGrant: input.videoVcoinMonthlyGrant,
         ...(input.runtimeTierDefault !== null
           ? { runtimeTierDefault: input.runtimeTierDefault }
           : {}),
@@ -1441,6 +1458,7 @@ export class ManageAdminPlansService {
       videoGenerateFallbackModelKey: toNormalizedNonEmptyModelKey(
         billingHints.videoGenerateFallbackModelKey
       ),
+      videoVcoinMonthlyGrant: toVideoVcoinMonthlyGrant(billingHints.videoVcoinMonthlyGrant),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
       toolActivations: plan.toolActivations.map((ta) => ({
         toolCode: ta.toolCode,

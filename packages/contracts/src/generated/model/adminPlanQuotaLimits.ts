@@ -16,7 +16,11 @@ export interface AdminPlanQuotaLimits {
   imageGenerateMonthlyUnitsLimit?: number | null;
   /** @nullable */
   imageEditMonthlyUnitsLimit?: number | null;
-  /** @nullable */
+  /**
+   * ADR-108 Slice 1 — DEPRECATED. Superseded by the platform Vcoin (VC) wallet for `video_generate`. The field is kept on the row for one release cycle as rollback insurance per ADR-108 Non-goals. New plan editors set `videoVcoinMonthlyGrant` instead; user-facing surfaces should consume the workspace VC balance. Image / image-edit / TTS / STT / document quotas remain per-unit and are unaffected.
+   * @deprecated
+   * @nullable
+   */
   videoGenerateMonthlyUnitsLimit?: number | null;
   /** @nullable */
   documentMonthlyUnitsLimit?: number | null;
