@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
+  WorkspaceVcoinBalanceCreditInput,
+  WorkspaceVcoinBalanceCreditResult,
   WorkspaceVcoinBalanceDebitInput,
   WorkspaceVcoinBalanceDebitResult,
   WorkspaceVcoinBalanceRecord,
@@ -150,6 +152,69 @@ export class PrismaWorkspaceVcoinBalanceRepository implements WorkspaceVcoinBala
       }
       throw error;
     }
+  }
+
+  /**
+   * ADR-108 Slice 3 — credits `amountVc` to the workspace wallet.
+   *
+   * Symmetric to `debit` in implementation. Key differences:
+   *   - `amountVc < 0` throws synchronously (credit cannot be negative).
+   *   - positive amounts INCREMENT rather than decrement the balance.
+   *
+   * `kind` is accepted for callsite documentation and future evolution but
+   * is NOT persisted here — the `WorkspaceVcoinLedgerEventRepository` row
+   * is the persistence layer for kind-tagged events (ledger-first →
+   * credit-second order is enforced by the caller).
+   *
+   * When `input.tx` is supplied, all reads/writes use that transaction so
+   * the credit commits or rolls back atomically with the ledger event insert
+   * in `GrantMonthlyVcoinService`. When omitted, runs against the default
+   * client (useful for future admin manual credit paths).
+   */
+  async credit(
+    input: WorkspaceVcoinBalanceCreditInput
+  ): Promise<WorkspaceVcoinBalanceCreditResult> {
+    if (!Number.isInteger(input.amountVc)) {
+      throw new RangeError(
+        `WorkspaceVcoinBalanceRepository.credit: amountVc must be an integer (got ${String(input.amountVc)}).`
+      );
+    }
+    if (input.amountVc < 0) {
+      throw new RangeError(
+        `WorkspaceVcoinBalanceRepository.credit: amountVc must be non-negative (got ${String(input.amountVc)}); use debit for decrements.`
+      );
+    }
+
+    const KNOWN_KINDS: ReadonlyArray<WorkspaceVcoinBalanceCreditInput["kind"]> = [
+      "monthly_grant",
+      "package_purchase",
+      "manual"
+    ];
+    if (!KNOWN_KINDS.includes(input.kind)) {
+      throw new RangeError(
+        `WorkspaceVcoinBalanceRepository.credit: unknown kind "${String(input.kind)}".`
+      );
+    }
+
+    const client: WorkspaceVcoinBalanceClient = input.tx ?? this.prisma;
+    const ensured = await this.ensureRow(client, input.workspaceId);
+    if (input.amountVc === 0) {
+      return {
+        previousBalanceVc: ensured.balanceVc,
+        balanceVc: ensured.balanceVc,
+        creditedAt: ensured.updatedAt
+      };
+    }
+
+    const updated = await client.workspaceVcoinBalance.update({
+      where: { workspaceId: input.workspaceId },
+      data: { balanceVc: { increment: input.amountVc } }
+    });
+    return {
+      previousBalanceVc: ensured.balanceVc,
+      balanceVc: updated.balanceVc,
+      creditedAt: updated.updatedAt
+    };
   }
 
   private mapToDomain(row: {

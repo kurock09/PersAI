@@ -373,6 +373,215 @@ async function runDebitCreatesRowIfMissing(): Promise<void> {
   assert.equal(result.balanceVc, -2, "first-debit overshoot is permitted by lifecycle");
 }
 
+/**
+ * ADR-108 Slice 3 — `credit` mutation tests.
+ *
+ * Mirrors the debit tests: zero is no-op, negative throws, positive increments
+ * (symmetric to debit's decrement), tx is propagated, missing row is created.
+ */
+
+async function runCreditZeroIsNoOp(): Promise<void> {
+  let updateCalls = 0;
+  const repo = new PrismaWorkspaceVcoinBalanceRepository({
+    workspaceVcoinBalance: {
+      findUnique: async () => ({
+        workspaceId: "ws-credit-zero",
+        balanceVc: 50,
+        updatedAt: new Date("2026-06-03T19:30:00.000Z"),
+        createdAt: new Date("2026-06-01T00:00:00.000Z")
+      }),
+      create: async () => {
+        throw new Error("create must not be called when row exists");
+      },
+      update: async () => {
+        updateCalls += 1;
+        throw new Error("update must NOT be called for amountVc=0");
+      }
+    }
+  } as never);
+
+  const result = await repo.credit({
+    workspaceId: "ws-credit-zero",
+    amountVc: 0,
+    kind: "monthly_grant"
+  });
+  assert.equal(updateCalls, 0, "amountVc=0 must short-circuit before update");
+  assert.equal(result.previousBalanceVc, 50);
+  assert.equal(result.balanceVc, 50);
+}
+
+async function runCreditNegativeThrows(): Promise<void> {
+  const repo = new PrismaWorkspaceVcoinBalanceRepository({
+    workspaceVcoinBalance: {
+      findUnique: async () => null,
+      create: async () => {
+        throw new Error("create must not be called for negative amount path");
+      },
+      update: async () => {
+        throw new Error("update must not be called for negative amount path");
+      }
+    }
+  } as never);
+
+  await assert.rejects(
+    () => repo.credit({ workspaceId: "ws-credit-neg", amountVc: -1, kind: "monthly_grant" }),
+    /amountVc must be non-negative/,
+    "negative credit is forbidden — use debit for decrements"
+  );
+  await assert.rejects(
+    () => repo.credit({ workspaceId: "ws-credit-neg", amountVc: 1.5, kind: "monthly_grant" }),
+    /amountVc must be an integer/
+  );
+}
+
+async function runCreditPositiveIncrementsDefaultClient(): Promise<void> {
+  let findUniqueCalls = 0;
+  const updateCalls: Array<{ workspaceId: string; increment: number }> = [];
+  const repo = new PrismaWorkspaceVcoinBalanceRepository({
+    workspaceVcoinBalance: {
+      findUnique: async ({ where }: { where: { workspaceId: string } }) => {
+        findUniqueCalls += 1;
+        return {
+          workspaceId: where.workspaceId,
+          balanceVc: 20,
+          updatedAt: new Date("2026-06-03T19:30:00.000Z"),
+          createdAt: new Date("2026-06-01T00:00:00.000Z")
+        };
+      },
+      create: async () => {
+        throw new Error("create must not be called when row exists");
+      },
+      update: async ({
+        where,
+        data
+      }: {
+        where: { workspaceId: string };
+        data: { balanceVc: { increment: number } };
+      }) => {
+        updateCalls.push({
+          workspaceId: where.workspaceId,
+          increment: data.balanceVc.increment
+        });
+        return {
+          workspaceId: where.workspaceId,
+          balanceVc: 20 + data.balanceVc.increment,
+          updatedAt: new Date("2026-06-03T19:31:00.000Z"),
+          createdAt: new Date("2026-06-01T00:00:00.000Z")
+        };
+      }
+    }
+  } as never);
+
+  const result = await repo.credit({
+    workspaceId: "ws-cred",
+    amountVc: 300,
+    kind: "monthly_grant"
+  });
+  assert.equal(findUniqueCalls, 1, "ensureRow must read once before update");
+  assert.equal(updateCalls.length, 1);
+  assert.equal(updateCalls[0]!.increment, 300);
+  assert.equal(result.previousBalanceVc, 20);
+  assert.equal(result.balanceVc, 320);
+}
+
+async function runCreditWithTxRoutesThroughTx(): Promise<void> {
+  let defaultClientCalls = 0;
+  let txFindUniqueCalls = 0;
+  let txUpdateCalls = 0;
+  const txClient = {
+    workspaceVcoinBalance: {
+      findUnique: async () => {
+        txFindUniqueCalls += 1;
+        return {
+          workspaceId: "ws-cred-tx",
+          balanceVc: 10,
+          updatedAt: new Date("2026-06-03T19:30:00.000Z"),
+          createdAt: new Date("2026-06-01T00:00:00.000Z")
+        };
+      },
+      create: async () => {
+        throw new Error("create must not be called when row exists in tx");
+      },
+      update: async ({ data }: { data: { balanceVc: { increment: number } } }) => {
+        txUpdateCalls += 1;
+        return {
+          workspaceId: "ws-cred-tx",
+          balanceVc: 10 + data.balanceVc.increment,
+          updatedAt: new Date("2026-06-03T19:31:00.000Z"),
+          createdAt: new Date("2026-06-01T00:00:00.000Z")
+        };
+      }
+    }
+  };
+
+  const repo = new PrismaWorkspaceVcoinBalanceRepository({
+    workspaceVcoinBalance: {
+      findUnique: async () => {
+        defaultClientCalls += 1;
+        throw new Error("default client must NOT be touched when tx is supplied");
+      },
+      create: async () => {
+        defaultClientCalls += 1;
+        throw new Error("default client must NOT be touched when tx is supplied");
+      },
+      update: async () => {
+        defaultClientCalls += 1;
+        throw new Error("default client must NOT be touched when tx is supplied");
+      }
+    }
+  } as never);
+
+  const result = await repo.credit({
+    workspaceId: "ws-cred-tx",
+    amountVc: 100,
+    kind: "monthly_grant",
+    tx: txClient as never
+  });
+  assert.equal(defaultClientCalls, 0);
+  assert.equal(txFindUniqueCalls, 1);
+  assert.equal(txUpdateCalls, 1);
+  assert.equal(result.previousBalanceVc, 10);
+  assert.equal(result.balanceVc, 110);
+}
+
+async function runCreditCreatesRowIfMissing(): Promise<void> {
+  let createCalls = 0;
+  let updateCalls = 0;
+  const repo = new PrismaWorkspaceVcoinBalanceRepository({
+    workspaceVcoinBalance: {
+      findUnique: async () => null,
+      create: async ({ data }: { data: { workspaceId: string } }) => {
+        createCalls += 1;
+        return {
+          workspaceId: data.workspaceId,
+          balanceVc: 0,
+          updatedAt: new Date("2026-06-03T19:30:00.000Z"),
+          createdAt: new Date("2026-06-03T19:30:00.000Z")
+        };
+      },
+      update: async () => {
+        updateCalls += 1;
+        return {
+          workspaceId: "ws-cred-missing",
+          balanceVc: 500,
+          updatedAt: new Date("2026-06-03T19:31:00.000Z"),
+          createdAt: new Date("2026-06-03T19:30:00.000Z")
+        };
+      }
+    }
+  } as never);
+
+  const result = await repo.credit({
+    workspaceId: "ws-cred-missing",
+    amountVc: 500,
+    kind: "monthly_grant"
+  });
+  assert.equal(createCalls, 1, "missing row must be created before credit");
+  assert.equal(updateCalls, 1);
+  assert.equal(result.previousBalanceVc, 0);
+  assert.equal(result.balanceVc, 500);
+}
+
 async function run(): Promise<void> {
   await runGetOrCreateCreatesOnFirstRead();
   await runGetOrCreateReturnsExistingRow();
@@ -384,6 +593,11 @@ async function run(): Promise<void> {
   await runDebitWithTxRoutesThroughTx();
   await runDebitAllowsBelowZero();
   await runDebitCreatesRowIfMissing();
+  await runCreditZeroIsNoOp();
+  await runCreditNegativeThrows();
+  await runCreditPositiveIncrementsDefaultClient();
+  await runCreditWithTxRoutesThroughTx();
+  await runCreditCreatesRowIfMissing();
   console.log("workspace-vcoin-balance.repository: all assertions passed");
 }
 

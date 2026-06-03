@@ -689,6 +689,7 @@ model Workspace {
   supportTickets                    SupportTicket[]
   mediaPackageGrants                WorkspaceMediaPackageGrant[]
   workspaceVcoinBalance             WorkspaceVcoinBalance?
+  workspaceVcoinLedgerEvents        WorkspaceVcoinLedgerEvent[]
 
   @@map("workspaces")
 }
@@ -1447,6 +1448,45 @@ model WorkspaceVcoinBalance {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("workspace_vcoin_balances")
+}
+
+/**
+ * ADR-108 Slice 3 — append-only VC ledger event.
+ *
+ * This table serves two purposes:
+ *   1. Idempotency gate: the UNIQUE constraint on (workspaceId, kind, referenceKey)
+ *      prevents the same logical event from being applied twice. A Prisma P2002
+ *      error on insert signals "already applied" to the caller.
+ *   2. Audit trail: each credit/debit event is persisted here with its kind
+ *      discriminator and signed amountVc (positive = credit, negative = debit).
+ *
+ * Slice 3 only writes kind = "monthly_grant". Slice 4 will add
+ * "package_purchase" / "package_refund". A "manual" kind is reserved for
+ * future operator tooling.
+ *
+ * referenceKey semantics by kind:
+ *   - "monthly_grant": ISO 8601 UTC string of periodStartedAt
+ *     (e.g. "2026-06-01T00:00:00.000Z")
+ *   - "package_purchase": future — Slice 4 will document this
+ *
+ * This table is independent of and parallel to model_cost_ledger_events
+ * (the USD COGS ledger). ADR-108 cross-slice invariant 2 requires
+ * model_cost_ledger_events to remain unchanged in shape and write site.
+ */
+model WorkspaceVcoinLedgerEvent {
+  id           String    @id @default(uuid())
+  workspaceId  String    @map("workspace_id") @db.Uuid
+  kind         String
+  amountVc     Int       @map("amount_vc")
+  referenceKey String    @map("reference_key")
+  planCode     String?   @map("plan_code")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([workspaceId, kind, referenceKey], name: "uniq_workspace_vcoin_ledger_event_kind_ref")
+  @@index([workspaceId, kind])
+  @@map("workspace_vcoin_ledger_events")
 }
 
 model WorkspaceQuotaAccountingState {

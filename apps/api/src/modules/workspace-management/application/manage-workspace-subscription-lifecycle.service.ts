@@ -3,6 +3,7 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  Logger,
   NotFoundException
 } from "@nestjs/common";
 import type { Prisma, WorkspaceSubscriptionStatus } from "@prisma/client";
@@ -12,6 +13,7 @@ import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
 import { BillingLifecycleProducerService } from "./billing-lifecycle-producer.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import { MaterializationRolloutService } from "./materialization-rollout.service";
+import { GrantMonthlyVcoinService } from "./vcoin/grant-monthly-vcoin.service";
 
 export type WorkspaceSubscriptionLifecycleEventSource = "system" | "admin" | "provider" | "manual";
 
@@ -52,13 +54,16 @@ type PendingPlanChange = {
 
 @Injectable()
 export class ManageWorkspaceSubscriptionLifecycleService {
+  private readonly logger = new Logger(ManageWorkspaceSubscriptionLifecycleService.name);
+
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly billingLifecycleSettingsService: ManageAdminBillingLifecycleSettingsService,
     private readonly BillingLifecycleProducerService: BillingLifecycleProducerService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     @Inject(forwardRef(() => MaterializationRolloutService))
-    private readonly materializationRolloutService: MaterializationRolloutService
+    private readonly materializationRolloutService: MaterializationRolloutService,
+    private readonly grantMonthlyVcoinService: GrantMonthlyVcoinService
   ) {}
 
   private fallbackProviderResetData(): Pick<
@@ -1126,6 +1131,24 @@ export class ManageWorkspaceSubscriptionLifecycleService {
           refs: input.refs
         })
       );
+
+      // ADR-108 Slice 3 — monthly Vcoin grant. Must be inside the same
+      // transaction as the subscription upsert above so a failed grant
+      // rolls the entire rollover back (ADR-108 Slice 3 forbidden patterns:
+      // "two separate transactions for rollover + grant" is forbidden).
+      // Any throw here bubbles out of the $transaction callback and rolls
+      // back all writes above. Do not catch.
+      const grantResult = await this.grantMonthlyVcoinService.creditPeriod({
+        workspaceId: input.workspaceId,
+        planCode: input.paidPlanCode,
+        periodStartedAt,
+        tx
+      });
+      if (!grantResult.alreadyGranted && grantResult.creditedVc > 0) {
+        this.logger.log(
+          `adr108_vcoin_grant_credited workspaceId=${input.workspaceId} planCode=${input.paidPlanCode} periodStartedAt=${periodStartedAt.toISOString()} vcGranted=${grantResult.creditedVc} previousBalanceVc=${grantResult.balanceVc - grantResult.creditedVc} balanceVc=${grantResult.balanceVc}`
+        );
+      }
     });
 
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);

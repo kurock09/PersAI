@@ -279,6 +279,9 @@ import { WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY } from "./domain/workspace-tool-d
 import { PrismaWorkspaceToolDailyUsageRepository } from "./infrastructure/persistence/prisma-workspace-tool-daily-usage.repository";
 import { WORKSPACE_VCOIN_BALANCE_REPOSITORY } from "./domain/workspace-vcoin-balance.repository";
 import { PrismaWorkspaceVcoinBalanceRepository } from "./infrastructure/persistence/prisma-workspace-vcoin-balance.repository";
+import { WORKSPACE_VCOIN_LEDGER_EVENT_REPOSITORY } from "./domain/workspace-vcoin-ledger-event.repository";
+import { PrismaWorkspaceVcoinLedgerEventRepository } from "./infrastructure/persistence/prisma-workspace-vcoin-ledger-event.repository";
+import { GrantMonthlyVcoinService } from "./application/vcoin/grant-monthly-vcoin.service";
 import { ASSISTANT_MEMORY_REGISTRY_REPOSITORY } from "./domain/assistant-memory-registry.repository";
 import { ASSISTANT_TASK_REGISTRY_REPOSITORY } from "./domain/assistant-task-registry.repository";
 import { ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY } from "./domain/assistant-channel-surface-binding.repository";
@@ -667,6 +670,11 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
       provide: WORKSPACE_VCOIN_BALANCE_REPOSITORY,
       useClass: PrismaWorkspaceVcoinBalanceRepository
     },
+    {
+      provide: WORKSPACE_VCOIN_LEDGER_EVENT_REPOSITORY,
+      useClass: PrismaWorkspaceVcoinLedgerEventRepository
+    },
+    GrantMonthlyVcoinService,
     {
       provide: BILLING_PROVIDER_PORT,
       useClass: CloudpaymentsConstructorBillingProviderAdapter

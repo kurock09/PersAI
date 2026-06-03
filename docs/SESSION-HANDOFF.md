@@ -2,6 +2,78 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-03 — ADR-108 Slice 3: Monthly grant on subscription period boundary
+
+### What changed & why
+
+Baseline SHA at session start (after Slice 2 commit): `3e0e8113`. Tree clean. ADR-108 Slice 3 was executed under the orchestrator agent execution model documented in ADR-108 `## Agent execution model`: the orchestrator stayed read-only for code, drafted Scope IN / Scope OUT / Forbidden patterns / Required tests / Verification commands, and spawned one implementation subagent. The subagent ran the full verification gate autonomously and returned a complete structured report. The orchestrator diff-reviewed the return, verified the invariants, applied the doc updates, and marked the slice complete.
+
+Slice 3 wires the idempotent monthly Vcoin grant path. Wallet balance accumulates across subscription periods (no reset). Plans with `videoVcoinMonthlyGrant = 0` produce a no-op without writing the idempotency mark (so a future config bump from 0 to a positive value can credit retroactively on the next period boundary). The credit must commit atomically with the subscription period upsert — a failed grant rolls the entire rollover back — and a duplicate webhook delivery cannot double-credit.
+
+- New Prisma model `WorkspaceVcoinLedgerEvent` (`workspace_vcoin_ledger_events`) serves as the idempotency surface (UNIQUE on `(workspace_id, kind, reference_key)`) and as an audit trail for VC credits. Slice 3 only writes `kind = "monthly_grant"`. Slice 4 will add `package_purchase` / `package_refund`. This table is independent of and parallel to `model_cost_ledger_events` (ADR-108 cross-slice invariant 2 preserved).
+- Shared parse helper `parseVideoVcoinMonthlyGrant` extracted from `manage-admin-plans.service.ts` into `apps/api/src/modules/workspace-management/application/vcoin/parse-video-vcoin-monthly-grant.ts`. Both call sites in `manage-admin-plans.service.ts` use the shared import. No parse logic duplication.
+- `WorkspaceVcoinLedgerEventRepository` port + Prisma impl: `recordEvent({…, tx})` → `{recorded: bool}`. P2002 → `recorded: false`. Non-P2002 errors re-thrown.
+- `WorkspaceVcoinBalanceRepository` extended with `credit({workspaceId, amountVc, kind, tx?})`. Symmetric to `debit`: zero no-op, negative throws, positive increments. `credit` does NOT write the ledger event (caller's responsibility; ledger-first → credit-second order required).
+- `GrantMonthlyVcoinService.creditPeriod({workspaceId, planCode, periodStartedAt, tx})` — reads plan via tx, parses grant, handles zero/already-granted short-circuits, writes ledger first, then credits wallet.
+- Rollover hook in `ManageWorkspaceSubscriptionLifecycleService.applyActivePaidTransition` INSIDE the existing `prisma.$transaction` block. Post-tx side effects unchanged in shape and order.
+
+### Files touched
+
+Modified:
+
+- `apps/api/prisma/schema.prisma` (added `WorkspaceVcoinLedgerEvent` model + relation on `Workspace`)
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` (import shared helper, replace 2 call sites)
+- `apps/api/src/modules/workspace-management/application/manage-workspace-subscription-lifecycle.service.ts` (inject `GrantMonthlyVcoinService`, add grant call inside tx + log)
+- `apps/api/src/modules/workspace-management/domain/workspace-vcoin-balance.repository.ts` (add `credit` method + input/result types)
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-vcoin-balance.repository.ts` (implement `credit`)
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` (register `WORKSPACE_VCOIN_LEDGER_EVENT_REPOSITORY` + `GrantMonthlyVcoinService`)
+- `apps/api/test/workspace-vcoin-balance.repository.test.ts` (+5 `credit` tests)
+- `apps/api/test/workspace-subscription-lifecycle.service.test.ts` (add grant stub to existing service construction; +3 new grant hook cases)
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md` (Slice 3 status block appended)
+- `docs/CHANGELOG.md` (new top entry)
+- `docs/DATA-MODEL.md` (new `workspace_vcoin_ledger_events` paragraph)
+- `docs/SESSION-HANDOFF.md` (this entry)
+
+New:
+
+- `apps/api/prisma/migrations/20260603220000_adr108_vcoin_ledger_event/migration.sql`
+- `apps/api/src/modules/workspace-management/application/vcoin/parse-video-vcoin-monthly-grant.ts`
+- `apps/api/src/modules/workspace-management/application/vcoin/grant-monthly-vcoin.service.ts`
+- `apps/api/src/modules/workspace-management/domain/workspace-vcoin-ledger-event.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-vcoin-ledger-event.repository.ts`
+- `apps/api/test/grant-monthly-vcoin.service.test.ts` (7 cases)
+- `apps/api/test/workspace-vcoin-ledger-event.repository.test.ts` (4 cases)
+
+### Tests run
+
+- PASS `corepack pnpm --filter @persai/api run pretypecheck`
+- PASS `corepack pnpm --filter @persai/api run typecheck`
+- PASS `corepack pnpm --filter @persai/web run typecheck`
+- PASS `corepack pnpm -r --if-present run lint`
+- PASS `corepack pnpm run format:check`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/grant-monthly-vcoin.service.test.ts` (7 cases)
+- PASS `corepack pnpm --filter @persai/api exec tsx test/workspace-vcoin-balance.repository.test.ts` (15 cases, +5 credit)
+- PASS `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts` (+3 grant hook cases)
+- PASS `corepack pnpm --filter @persai/api exec tsx test/workspace-vcoin-ledger-event.repository.test.ts` (4 cases)
+- PASS `corepack pnpm --filter @persai/api run test` (full API suite)
+
+### Risks / residuals
+
+- **Zero-grant idempotency mark semantics.** By design, zero-grant plans do NOT write the idempotency mark. If an admin later bumps a plan from grant=0 to grant>N, the workspace will receive a credit on the next period rollover. This is the intended behavior per the spec ("prefer the simpler 'no mark when no money moved' semantics"). Document in operator runbook when Slice 8 lands.
+- **Below-zero balance interaction with grant.** Slice 2 allows the wallet to go below zero on a one-shot debit. Slice 3's `credit` will correctly add to that negative balance (accumulating). The enqueue pre-check (`balance > 0`) will continue to reject until enough credits push the balance positive again. No remediation needed — this is the documented lifecycle behavior.
+- **Rollover seam is `applyActivePaidTransition` only.** The hook covers `activatePaidSubscription` (payment_activated / renewal_succeeded) and `recoverPayment` (payment_recovered) which both call `applyActivePaidTransition`. Other lifecycle transitions (grace, fallback, trial, cancel) do not call `applyActivePaidTransition` and do not trigger a grant. This matches the intended semantics: grants are issued on period activation, not on any state transition.
+
+### Deploy
+
+- **API only.** Requires migration `20260603220000_adr108_vcoin_ledger_event` via `Dev Image Publish` migration approval gate per AGENTS.md.
+- No web / runtime / provider-gateway / contracts change.
+- No Stripe / billing webhook change.
+- No new feature flag.
+
+### Next recommended slice
+
+- **ADR-108 Slice 4 — Packages crediting flip.** Wires `manage-media-package-purchase.service.ts` to credit VC into `workspace_vcoin_balances` on successful `video_generate` package purchase instead of granting `granted_units`. Reuses the `WorkspaceVcoinLedgerEventRepository` with `kind = "package_purchase"` / `"package_refund"`. Image / audio packages unchanged.
+
 ## 2026-06-03 — ADR-108 Slice 2: Settle path debit (video only)
 
 ### What changed & why

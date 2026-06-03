@@ -67,6 +67,40 @@ export type WorkspaceVcoinBalanceDebitResult = {
   debitedAt: Date;
 };
 
+/**
+ * ADR-108 Slice 3 — input for the wallet credit mutation.
+ *
+ * `amountVc` must be a positive integer. Zero is a no-op; negative throws
+ * synchronously. Use a `debit` call for decrements.
+ *
+ * `kind` names the credit source for callsite-level documentation purposes.
+ * The repository does NOT persist `kind` — the `WorkspaceVcoinLedgerEventRepository`
+ * is the persistence layer for kind-tagged events. The `kind` argument on
+ * `credit` exists so callers are explicit about the economic source and to
+ * support future evolution (e.g. asserting `kind` is a known union member).
+ *
+ * `tx` is required for Slice 3's monthly-grant path (the credit must share
+ * the transaction that inserts the idempotency ledger row). When omitted,
+ * the credit runs against the default Prisma client without an enclosing
+ * transaction.
+ */
+export type WorkspaceVcoinBalanceCreditInput = {
+  workspaceId: string;
+  amountVc: number;
+  kind: "monthly_grant" | "package_purchase" | "manual";
+  tx?: Prisma.TransactionClient;
+};
+
+/**
+ * ADR-108 Slice 3 — result of a wallet credit. Mirrors the debit result
+ * shape for symmetry and auditability.
+ */
+export type WorkspaceVcoinBalanceCreditResult = {
+  balanceVc: number;
+  previousBalanceVc: number;
+  creditedAt: Date;
+};
+
 export interface WorkspaceVcoinBalanceRepository {
   /**
    * Returns the wallet row for the given workspace, creating it with
@@ -100,4 +134,32 @@ export interface WorkspaceVcoinBalanceRepository {
    * lifecycle transition (incl. the one-shot below-zero case).
    */
   debit(input: WorkspaceVcoinBalanceDebitInput): Promise<WorkspaceVcoinBalanceDebitResult>;
+
+  /**
+   * ADR-108 Slice 3 — increments the wallet balance by `amountVc`.
+   *
+   * Behavior contract:
+   *   - `amountVc < 0` → throws synchronously. Use `debit` for decrements.
+   *     A "negative credit = debit" trick is forbidden (ADR-108 Slice 3
+   *     forbidden patterns).
+   *   - `amountVc === 0` → no-op; returns the current row unchanged.
+   *   - `amountVc > 0` → increments the row's `balance_vc` by `amountVc`.
+   *   - When `tx` is provided, all reads/writes use that transaction client
+   *     so the credit commits or rolls back atomically with the caller's
+   *     other writes (the ledger event insert in `GrantMonthlyVcoinService`).
+   *   - When `tx` is omitted, the credit runs against the default Prisma
+   *     client without an enclosing transaction.
+   *
+   * **Note:** `credit` does NOT itself write the ledger event. The ledger
+   * insert is the caller's responsibility. `GrantMonthlyVcoinService` writes
+   * the `WorkspaceVcoinLedgerEvent` row BEFORE calling `credit` so the ledger
+   * row is the idempotency gate; a subsequent `credit` call inside the same
+   * transaction is always a confirmed "new credit" (ADR-108 Slice 3 forbidden
+   * patterns: "ledger-first → credit-second").
+   *
+   * The `kind` argument is accepted for callsite documentation and future
+   * evolution. It is NOT persisted by this repository (the ledger event row
+   * owns the kind persistence).
+   */
+  credit(input: WorkspaceVcoinBalanceCreditInput): Promise<WorkspaceVcoinBalanceCreditResult>;
 }
