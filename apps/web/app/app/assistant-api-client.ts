@@ -3873,11 +3873,13 @@ export async function postAdminMediaPackage(
   }
 ): Promise<MediaPackageCatalogItem> {
   try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.update");
     const base = getApiBaseUrl();
     const res = await fetch(`${base}/admin/plans/packages`, {
       method: "POST",
       headers: {
         ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken,
         "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
@@ -3910,11 +3912,13 @@ export async function patchAdminMediaPackage(
   }>
 ): Promise<MediaPackageCatalogItem> {
   try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.update");
     const base = getApiBaseUrl();
     const res = await fetch(`${base}/admin/plans/packages/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: {
         ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken,
         "Content-Type": "application/json"
       },
       body: JSON.stringify(patch)
@@ -3931,10 +3935,14 @@ export async function patchAdminMediaPackage(
 
 export async function deleteAdminMediaPackage(token: string, id: string): Promise<void> {
   try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.update");
     const base = getApiBaseUrl();
     const res = await fetch(`${base}/admin/plans/packages/${encodeURIComponent(id)}`, {
       method: "DELETE",
-      headers: getAuthHeaders(token)
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
     });
     if (!res.ok) {
       throw new Error(await readJsonErrorMessage(res, "Failed to delete package offer."));
