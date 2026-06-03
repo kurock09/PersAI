@@ -143,6 +143,32 @@ async function runNonP2002ErrorIsRethrown(): Promise<void> {
   );
 }
 
+// ── Negative amountVc (package_refund) round-trips successfully ───────────────
+
+async function runNegativeAmountVcIsAccepted(): Promise<void> {
+  // The schema stores signed integers; package_refund events use negative amountVc
+  // to represent a debit in the audit ledger. The repository must NOT validate
+  // the sign — it stores whatever the caller supplies.
+  let storedAmountVc: number | null = null;
+  const tx = makeTx(async (args: CreateArgs) => {
+    storedAmountVc = args.data.amountVc;
+    return { id: "evt-refund-1" };
+  });
+
+  const repo = new PrismaWorkspaceVcoinLedgerEventRepository();
+  const result = await repo.recordEvent({
+    workspaceId: "ws-refund-1",
+    kind: "package_refund",
+    amountVc: -1000,
+    referenceKey: "pi-refund-uuid-1111",
+    planCode: null,
+    tx: tx as never
+  });
+
+  assert.equal(result.recorded, true, "negative amountVc must be accepted");
+  assert.equal(storedAmountVc, -1000, "negative amountVc must be stored as-is");
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 
 async function run(): Promise<void> {
@@ -150,6 +176,7 @@ async function run(): Promise<void> {
   await runDuplicateReturnsRecordedFalse();
   await runDifferentKindIsAllowed();
   await runNonP2002ErrorIsRethrown();
+  await runNegativeAmountVcIsAccepted();
   console.log("workspace-vcoin-ledger-event.repository: all assertions passed");
 }
 

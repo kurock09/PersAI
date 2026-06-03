@@ -2,6 +2,58 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-03 — ADR-108 Slice 4: Packages crediting flip (video_generate)
+
+### What changed & why
+
+Baseline SHA at session start (after Slice 3 commit): `382f8511`. Tree clean. ADR-108 Slice 4 was executed under the orchestrator agent execution model documented in ADR-108 `## Agent execution model`: the orchestrator stayed read-only for code, drafted Scope IN / Scope OUT / Forbidden patterns / Required tests / Verification commands, and spawned one implementation subagent. The subagent ran the full verification gate autonomously and returned a complete structured report.
+
+Slice 4 closes the packages crediting loop: a successful `video_generate` package purchase now credits VC to the workspace wallet instead of writing a `WorkspaceMediaPackageGrant.granted_units` row, and a refund of the same purchase debits the VC back. The flip is unconditional (no feature flag). Image / image-edit / document package purchases and refunds remain byte-identical to before.
+
+- `manage-media-package-purchase.service.ts::fulfillPackagePaymentIntent` refactored from a batch-array `prisma.$transaction([...])` to an interactive `prisma.$transaction(async tx => {...})`. For video items: one `recordEvent({kind: "package_purchase", amountVc: videoVcCreditTotal, referenceKey: paymentIntentId, tx})` + one `credit({amountVc: videoVcCreditTotal, kind: "package_purchase", tx})`. No `WorkspaceMediaPackageGrant` row written. For non-video items: existing grant upsert with byte-identical payload. Period resolution (`resolveEffectiveSubscriptionStateService`) is only called when non-video items are present.
+- New method `reversePackagePaymentIntent({paymentIntentId, workspaceId})`: reads metadata snapshot, computes `videoVcDebitTotal`, opens interactive tx → `recordEvent({kind: "package_refund", amountVc: -videoVcDebitTotal, ...})` → `debit({amountVc: videoVcDebitTotal, tx})`. No grant rows touched. Idempotent via `(workspaceId, "package_refund", paymentIntentId)` unique index.
+- `handle-cloudpayments-webhook.service.ts`: after `updatePaymentIntent`, before `deriveLifecycleEvent`, new block for `notificationType === "refund"` + `purpose === "media_package_purchase"` → calls `reversePackagePaymentIntent`. `payment_reversed` lifecycle event flow unchanged.
+- Two new constructor injects: `WORKSPACE_VCOIN_LEDGER_EVENT_REPOSITORY` + `WORKSPACE_VCOIN_BALANCE_REPOSITORY` (both already in `workspace-management.module.ts`).
+
+### Files touched
+
+Modified:
+
+- `apps/api/src/modules/workspace-management/application/manage-media-package-purchase.service.ts` (refactored fulfillPackagePaymentIntent, added reversePackagePaymentIntent, added Logger, added repo injects)
+- `apps/api/src/modules/workspace-management/application/handle-cloudpayments-webhook.service.ts` (refund hook before deriveLifecycleEvent)
+- `apps/api/test/manage-media-package-purchase.service.test.ts` (augmented: 11 cases covering purchase, refund, idempotency, mixed, zero-units)
+- `apps/api/test/handle-cloudpayments-webhook.service.test.ts` (augmented: +2 refund webhook cases)
+- `apps/api/test/workspace-vcoin-ledger-event.repository.test.ts` (augmented: +1 negative amountVc case)
+- `docs/ADR/108-video-vcoin-economy-and-pre-talking-avatar-cleanup.md` (Slice 4 status block appended)
+- `docs/CHANGELOG.md` (new top entry)
+- `docs/DATA-MODEL.md` (MediaPackageCatalogItem.units semantic note)
+- `docs/SESSION-HANDOFF.md` (this entry)
+
+### Tests run
+
+- PASS `corepack pnpm --filter @persai/api run typecheck`
+- PASS `corepack pnpm --filter @persai/web run typecheck`
+- PASS `corepack pnpm -r --if-present run lint`
+- PASS `corepack pnpm run format:check`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/manage-media-package-purchase.service.test.ts` (11 cases)
+- PASS `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts` (existing + 2 new refund cases)
+- PASS `corepack pnpm --filter @persai/api exec tsx test/workspace-vcoin-ledger-event.repository.test.ts` (4 existing + 1 new negative-amountVc case)
+- PASS `corepack pnpm --filter @persai/api run test` (full API suite)
+
+### Risks / residuals
+
+- **Image / audio package refund does not reverse the `WorkspaceMediaPackageGrant` row.** Pre-existing bug (Scope OUT of this slice). When a user refunds an image package, the grant row remains active and continues to provide quota until the period expires. Document in operator runbook when Slice 8 lands.
+- **Admin catalog re-encode required.** The semantic of `MediaPackageCatalogItem.units` for `video_generate` items has changed from "number of videos" to "VC amount". Existing catalog rows must be re-encoded before deploying the API image. No schema change; admin must manually update units values via Admin UI.
+- **Idempotency gap for video-only purchase duplicate webhooks.** The webhook's existing `alreadyFulfilled` check queries `workspaceMediaPackageGrant.count`, which is always 0 for video-only intents (no grant row written). `fulfillPackagePaymentIntent` may be called multiple times for the same intent on duplicate webhook delivery, but each call after the first is a no-op via `recordEvent → recorded: false`. Documented; not a correctness issue; performance-only residual.
+
+### Deploy
+
+- **API only.** No migration required (Slice 3 migration covers the ledger table). No web / runtime / provider-gateway / contracts change. No Stripe / billing webhook change. No new feature flag. Admin operator must re-encode existing `video_generate` catalog package `units` fields in VC semantics before deploying the API image.
+
+### Next recommended slice
+
+- **ADR-108 Slice 5 — Admin Plans UI.** Replaces the "Monthly video generations" field on the `video_generate` plan card with "Monthly VC grant" and shows the platform course context.
+
 ## 2026-06-03 — ADR-108 Slice 3: Monthly grant on subscription period boundary
 
 ### What changed & why

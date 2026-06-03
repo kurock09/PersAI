@@ -352,6 +352,22 @@ export class HandleCloudpaymentsWebhookService {
       return { status: "processed" };
     }
 
+    // ADR-108 Slice 4 — media package refund handler.
+    // For video_generate items the VC wallet is debited. Non-video items are NOT
+    // touched (image/audio refund-not-reversing-grant bug is a known residual).
+    // The payment_reversed subscription lifecycle event is NOT suppressed — it
+    // continues to flow through deriveLifecycleEvent as before.
+    if (
+      paymentIntent !== null &&
+      readPaymentIntentPurpose(paymentIntent.metadata) === "media_package_purchase" &&
+      input.notificationType === "refund"
+    ) {
+      await this.manageMediaPackagePurchaseService.reversePackagePaymentIntent({
+        paymentIntentId: paymentIntent.id,
+        workspaceId: paymentIntent.workspaceId
+      });
+    }
+
     const lifecycleEvent = await this.deriveLifecycleEvent(
       input.notificationType,
       payload,

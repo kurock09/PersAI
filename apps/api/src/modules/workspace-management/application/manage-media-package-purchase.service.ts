@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { BILLING_PROVIDER_PORT, type BillingProviderPort } from "./billing-provider.port";
@@ -13,18 +13,40 @@ import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-su
 import { resolveRecurringQuotaPeriod } from "./recurring-quota-period";
 import type { AssistantPaymentIntentState } from "./manage-assistant-payment-intents.service";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
+import {
+  WORKSPACE_VCOIN_LEDGER_EVENT_REPOSITORY,
+  type WorkspaceVcoinLedgerEventRepository
+} from "../domain/workspace-vcoin-ledger-event.repository";
+import {
+  WORKSPACE_VCOIN_BALANCE_REPOSITORY,
+  type WorkspaceVcoinBalanceRepository
+} from "../domain/workspace-vcoin-balance.repository";
 
 const PACKAGE_INTENT_PLAN_SENTINEL = "__media_package__";
 
+/** Shape of a package item snapshot stored in WorkspacePaymentIntent.metadata.packageItems. */
+type PackageItemSnapshot = {
+  catalogItemId: string;
+  packageType: string;
+  units: number;
+  amountMinor: number;
+};
+
 @Injectable()
 export class ManageMediaPackagePurchaseService {
+  private readonly logger = new Logger(ManageMediaPackagePurchaseService.name);
+
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly catalogService: ManageMediaPackageCatalogService,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(BILLING_PROVIDER_PORT)
-    private readonly billingProviderPort: BillingProviderPort
+    private readonly billingProviderPort: BillingProviderPort,
+    @Inject(WORKSPACE_VCOIN_LEDGER_EVENT_REPOSITORY)
+    private readonly workspaceVcoinLedgerEventRepository: WorkspaceVcoinLedgerEventRepository,
+    @Inject(WORKSPACE_VCOIN_BALANCE_REPOSITORY)
+    private readonly workspaceVcoinBalanceRepository: WorkspaceVcoinBalanceRepository
   ) {}
 
   /**
@@ -210,8 +232,23 @@ export class ManageMediaPackagePurchaseService {
   }
 
   /**
-   * Fulfills a confirmed media_package_purchase payment intent by writing grant rows.
-   * Called from HandleCloudpaymentsWebhookService after confirming payment.
+   * ADR-108 Slice 4 — Fulfills a confirmed media_package_purchase payment intent.
+   *
+   * For `video_generate` items: credits `item.units` VC into the workspace wallet
+   * via a single `(workspaceId, "package_purchase", paymentIntentId)` ledger event
+   * and a single `WorkspaceVcoinBalanceRepository.credit` call. No
+   * `WorkspaceMediaPackageGrant` row is written for video items — the flip is
+   * unconditional (no feature flag).
+   *
+   * For all other package types (image_generate, image_edit, document): the existing
+   * `workspaceMediaPackageGrant` upsert runs byte-identically to before this slice.
+   *
+   * Both paths share a single `prisma.$transaction` (interactive form) so a failure
+   * in either path rolls back the entire fulfillment atomically.
+   *
+   * Idempotent: a second call for the same `paymentIntentId` is a no-op for the video
+   * path (proven by `recordEvent → recorded: false`) and for the non-video path (the
+   * upsert `update: {}` is a no-op on conflict).
    */
   async fulfillPackagePaymentIntent(
     paymentIntentId: string,
@@ -229,29 +266,73 @@ export class ManageMediaPackagePurchaseService {
     }
 
     const metadata = intent.metadata as Record<string, unknown>;
-    const packageItems = metadata.packageItems as Array<{
-      catalogItemId: string;
-      packageType: string;
-      units: number;
-      amountMinor: number;
-    }>;
+    const packageItems = metadata.packageItems as PackageItemSnapshot[];
 
     if (!Array.isArray(packageItems) || packageItems.length === 0) {
       throw new BadRequestException("Payment intent has no package items in metadata.");
     }
 
-    const effectiveSubscription = await this.resolveEffectiveSubscriptionStateService.execute({
-      userId,
-      workspaceId,
-      assistantId: "package-fulfillment",
-      assistantPlanOverrideCode: null,
-      assistantQuotaPlanCode: null
-    });
-    const period = resolveRecurringQuotaPeriod(effectiveSubscription);
+    // Partition items into video and non-video upfront.
+    const videoItems = packageItems.filter((item) => item.packageType === "video_generate");
+    const nonVideoItems = packageItems.filter((item) => item.packageType !== "video_generate");
 
-    await this.prisma.$transaction(
-      packageItems.map((item) =>
-        this.prisma.workspaceMediaPackageGrant.upsert({
+    // Pre-compute the total VC to credit across all video_generate items.
+    // A single (workspaceId, "package_purchase", paymentIntentId) ledger row covers
+    // the entire intent — accumulating across all video items before calling
+    // recordEvent keeps idempotency airtight even when an intent contains multiple
+    // video catalog items.
+    const videoVcCreditTotal = videoItems.reduce((sum, item) => sum + item.units, 0);
+
+    // Only resolve the billing period if there are non-video items that need a grant row.
+    let period: RecurringQuotaPeriod | null = null;
+    if (nonVideoItems.length > 0) {
+      const effectiveSubscription = await this.resolveEffectiveSubscriptionStateService.execute({
+        userId,
+        workspaceId,
+        assistantId: "package-fulfillment",
+        assistantPlanOverrideCode: null,
+        assistantQuotaPlanCode: null
+      });
+      period = resolveRecurringQuotaPeriod(effectiveSubscription);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // ── Video path: credit VC wallet (no grant row) ──────────────────────────
+      //
+      // One recordEvent + one credit per intent (not per item). If recorded===false
+      // the ledger row already exists — this is an idempotent retry; skip silently.
+      if (videoVcCreditTotal > 0) {
+        const { recorded } = await this.workspaceVcoinLedgerEventRepository.recordEvent({
+          workspaceId,
+          kind: "package_purchase",
+          amountVc: videoVcCreditTotal,
+          referenceKey: paymentIntentId,
+          planCode: null,
+          tx
+        });
+
+        if (recorded) {
+          const creditResult = await this.workspaceVcoinBalanceRepository.credit({
+            workspaceId,
+            amountVc: videoVcCreditTotal,
+            kind: "package_purchase",
+            tx
+          });
+          const videoCatalogItemIds = videoItems.map((i) => i.catalogItemId).join(",");
+          this.logger.log(
+            `adr108_vcoin_package_purchase_credited workspaceId=${workspaceId}` +
+              ` paymentIntentId=${paymentIntentId} catalogItemId=${videoCatalogItemIds}` +
+              ` vcCredited=${videoVcCreditTotal} previousBalanceVc=${creditResult.previousBalanceVc}` +
+              ` balanceVc=${creditResult.balanceVc}`
+          );
+        }
+        // recorded === false → quiet idempotent retry; do not log.
+      }
+
+      // ── Non-video path: grant upsert (byte-identical to prior behavior) ──────
+      for (const item of nonVideoItems) {
+        // period is guaranteed non-null here (set above when nonVideoItems.length > 0).
+        await tx.workspaceMediaPackageGrant.upsert({
           where: {
             uniq_grant_intent_item: {
               paymentIntentId,
@@ -266,14 +347,96 @@ export class ManageMediaPackagePurchaseService {
             amountMinorSnapshot: item.amountMinor,
             currencySnapshot: intent.currency,
             paymentIntentId,
-            periodStartedAt: period.periodStartedAt,
-            periodEndsAt: period.periodEndsAt,
+            periodStartedAt: period!.periodStartedAt,
+            periodEndsAt: period!.periodEndsAt,
             status: "active"
           },
           update: {}
-        })
-      )
-    );
+        });
+      }
+    });
+  }
+
+  /**
+   * ADR-108 Slice 4 — Reverses a confirmed media_package_purchase payment intent
+   * by debiting the VC wallet for all `video_generate` items in the intent.
+   *
+   * Reading source of truth: `WorkspacePaymentIntent.metadata.packageItems` is used
+   * to determine which items and how many VC to debit. The catalog row is NOT
+   * re-read — the snapshot in metadata is the source of truth (the catalog row may
+   * have been edited or deactivated since the purchase).
+   *
+   * Idempotent: a second call with the same `paymentIntentId` is a no-op
+   * (proven by `recordEvent → recorded: false` on the `package_refund` event).
+   *
+   * Non-video items (image_generate, image_edit, document): the pre-existing bug
+   * where image/audio refunds do not reverse the `WorkspaceMediaPackageGrant` row
+   * is intentionally preserved as a known residual. This method does NOT touch
+   * grant rows for any item type.
+   *
+   * @throws NotFoundException when the payment intent is not found.
+   * @throws BadRequestException when metadata.packageItems is missing or malformed.
+   */
+  async reversePackagePaymentIntent(input: {
+    paymentIntentId: string;
+    workspaceId: string;
+  }): Promise<void> {
+    const { paymentIntentId, workspaceId } = input;
+
+    const intent = await this.prisma.workspacePaymentIntent.findUnique({
+      where: { id: paymentIntentId }
+    });
+    if (intent === null) {
+      throw new NotFoundException(`Payment intent "${paymentIntentId}" not found.`);
+    }
+
+    const metadata = intent.metadata as Record<string, unknown>;
+    const packageItems = metadata.packageItems;
+    if (!Array.isArray(packageItems) || packageItems.length === 0) {
+      throw new BadRequestException("Payment intent has no package items in metadata.");
+    }
+
+    const items = packageItems as PackageItemSnapshot[];
+    const videoVcDebitTotal = items
+      .filter((item) => item.packageType === "video_generate")
+      .reduce((sum, item) => sum + item.units, 0);
+
+    if (videoVcDebitTotal === 0) {
+      // No video items in this intent — nothing to do for the VC path.
+      // Non-video refund behavior (image/audio grant not reversed) is a known residual.
+      return;
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Negative amountVc is the correct ledger entry for a debit event:
+      // the schema accepts signed amounts; the wallet repo debit always takes
+      // the absolute value.
+      const { recorded } = await this.workspaceVcoinLedgerEventRepository.recordEvent({
+        workspaceId,
+        kind: "package_refund",
+        amountVc: -videoVcDebitTotal,
+        referenceKey: paymentIntentId,
+        planCode: null,
+        tx
+      });
+
+      if (!recorded) {
+        // Idempotent retry — already reversed; do not log.
+        return;
+      }
+
+      const debitResult = await this.workspaceVcoinBalanceRepository.debit({
+        workspaceId,
+        amountVc: videoVcDebitTotal,
+        tx
+      });
+
+      this.logger.log(
+        `adr108_vcoin_package_refund_debited workspaceId=${workspaceId}` +
+          ` paymentIntentId=${paymentIntentId} vcDebited=${videoVcDebitTotal}` +
+          ` previousBalanceVc=${debitResult.previousBalanceVc} balanceVc=${debitResult.balanceVc}`
+      );
+    });
   }
 
   private toIntentState(row: {

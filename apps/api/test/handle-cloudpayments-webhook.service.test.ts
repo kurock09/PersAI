@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { HandleCloudpaymentsWebhookService } from "../src/modules/workspace-management/application/handle-cloudpayments-webhook.service";
+import type { ManageMediaPackagePurchaseService } from "../src/modules/workspace-management/application/manage-media-package-purchase.service";
 
 async function run(): Promise<void> {
   const paymentIntentId = "11111111-1111-4111-8111-111111111111";
@@ -565,4 +566,205 @@ async function run(): Promise<void> {
   );
 }
 
+// ── ADR-108 Slice 4: refund webhook tests ─────────────────────────────────────
+
+async function runRefundWebhookForPackageIntentInvokesReverse(): Promise<void> {
+  const packagePaymentIntentId = "22222222-2222-4222-8222-222222222222";
+  const reverseCallInputs: Array<Record<string, unknown>> = [];
+  const appliedBillingEventsLocal: Array<Record<string, unknown>> = [];
+  const paymentIntentUpdatesLocal: Array<Record<string, unknown>> = [];
+
+  const packagePaymentIntent = {
+    id: packagePaymentIntentId,
+    workspaceId: "ws-pkg-1",
+    userId: "user-pkg-1",
+    targetPlanCode: "__media_package__",
+    action: "new_purchase",
+    status: "succeeded",
+    paymentMethodClass: "card",
+    amountMinor: 99900,
+    currency: "RUB",
+    billingPeriod: "month",
+    billingProvider: "cloudpayments",
+    providerCustomerRef: null,
+    providerSessionRef: packagePaymentIntentId,
+    providerPaymentRef: null,
+    metadata: {
+      purpose: "media_package_purchase",
+      packageItems: [
+        {
+          catalogItemId: "cat-video-pkg",
+          packageType: "video_generate",
+          units: 1000,
+          amountMinor: 99900
+        }
+      ]
+    }
+  };
+
+  const svc = new HandleCloudpaymentsWebhookService(
+    {
+      workspacePaymentIntent: {
+        findMany: async () => [packagePaymentIntent],
+        update: async (args: { data: Record<string, unknown> }) => {
+          paymentIntentUpdatesLocal.push(args.data);
+          return { ...packagePaymentIntent, ...args.data };
+        }
+      },
+      workspaceSubscription: {
+        findUnique: async () => null,
+        findFirst: async () => null
+      },
+      planCatalogPlan: {
+        findUnique: async () => null
+      }
+    } as never,
+    {
+      resolveSecretValueByProviderKey: async () => "test-secret"
+    } as never,
+    {
+      apply: async (input: Record<string, unknown>) => {
+        appliedBillingEventsLocal.push(input);
+        return { status: "applied", billingEventId: "be-1" };
+      }
+    } as never,
+    {
+      async reversePackagePaymentIntent(input: Record<string, unknown>) {
+        reverseCallInputs.push(input);
+      },
+      async fulfillPackagePaymentIntent() {}
+    } as unknown as ManageMediaPackagePurchaseService
+  );
+
+  const refundBody = {
+    TransactionId: 999001,
+    PaymentTransactionId: 999000,
+    Amount: 999,
+    Currency: "RUB",
+    InvoiceId: packagePaymentIntentId,
+    Status: "Completed",
+    DateTime: "2026-06-03 22:00:00"
+  };
+  const refundRawBody = Buffer.from(JSON.stringify(refundBody), "utf8");
+  const refundHmac = createHmac("sha256", "test-secret").update(refundRawBody).digest("base64");
+
+  const result = await svc.handle({
+    notificationType: "refund",
+    body: refundBody,
+    rawBody: refundRawBody,
+    headers: { "x-content-hmac": refundHmac }
+  });
+
+  assert.deepEqual(result, { status: "processed" });
+
+  // reversePackagePaymentIntent was called with the correct args
+  assert.equal(reverseCallInputs.length, 1, "reversePackagePaymentIntent called once");
+  assert.equal(reverseCallInputs[0]!.paymentIntentId, packagePaymentIntentId);
+  assert.equal(reverseCallInputs[0]!.workspaceId, "ws-pkg-1");
+}
+
+async function runRefundWebhookForNonPackageIntentDoesNotInvokeReverse(): Promise<void> {
+  const subscriptionPaymentIntentId = "33333333-3333-4333-8333-333333333333";
+  let reverseCallCount = 0;
+  const appliedBillingEventsLocal: Array<Record<string, unknown>> = [];
+
+  const subscriptionPaymentIntent = {
+    id: subscriptionPaymentIntentId,
+    workspaceId: "ws-sub-1",
+    userId: "user-sub-1",
+    targetPlanCode: "pro",
+    action: "upgrade",
+    status: "succeeded",
+    paymentMethodClass: "card",
+    amountMinor: 9900,
+    currency: "RUB",
+    billingPeriod: "month",
+    billingProvider: "cloudpayments",
+    providerCustomerRef: null,
+    providerSessionRef: subscriptionPaymentIntentId,
+    providerPaymentRef: null,
+    metadata: { purpose: "plan_purchase" }
+  };
+
+  const svc = new HandleCloudpaymentsWebhookService(
+    {
+      workspacePaymentIntent: {
+        findMany: async () => [subscriptionPaymentIntent],
+        update: async (args: { data: Record<string, unknown> }) => ({
+          ...subscriptionPaymentIntent,
+          ...args.data
+        })
+      },
+      workspaceSubscription: {
+        findUnique: async () => ({
+          id: "sub-1",
+          workspaceId: "ws-sub-1",
+          planCode: "pro",
+          status: "active",
+          providerCustomerRef: null,
+          providerSubscriptionRef: null,
+          metadata: null
+        }),
+        findFirst: async () => null
+      },
+      planCatalogPlan: {
+        findUnique: async () => null
+      }
+    } as never,
+    {
+      resolveSecretValueByProviderKey: async () => "test-secret"
+    } as never,
+    {
+      apply: async (input: Record<string, unknown>) => {
+        appliedBillingEventsLocal.push(input);
+        return { status: "applied", billingEventId: "be-2" };
+      }
+    } as never,
+    {
+      async reversePackagePaymentIntent() {
+        reverseCallCount += 1;
+      },
+      async fulfillPackagePaymentIntent() {}
+    } as unknown as ManageMediaPackagePurchaseService
+  );
+
+  const refundBody = {
+    TransactionId: 999002,
+    PaymentTransactionId: 999001,
+    Amount: 99,
+    Currency: "RUB",
+    InvoiceId: subscriptionPaymentIntentId,
+    Status: "Completed",
+    DateTime: "2026-06-03 22:01:00"
+  };
+  const refundRawBody = Buffer.from(JSON.stringify(refundBody), "utf8");
+  const refundHmac = createHmac("sha256", "test-secret").update(refundRawBody).digest("base64");
+
+  const result = await svc.handle({
+    notificationType: "refund",
+    body: refundBody,
+    rawBody: refundRawBody,
+    headers: { "x-content-hmac": refundHmac }
+  });
+
+  assert.deepEqual(result, { status: "processed" });
+  assert.equal(
+    reverseCallCount,
+    0,
+    "reversePackagePaymentIntent must NOT be called for non-package intent refund"
+  );
+  // payment_reversed lifecycle event was dispatched (for subscription refund)
+  assert.ok(
+    appliedBillingEventsLocal.some((e) => e.eventCode === "payment_reversed"),
+    "payment_reversed lifecycle event must still fire for subscription refunds"
+  );
+}
+
+async function runRefundTests(): Promise<void> {
+  await runRefundWebhookForPackageIntentInvokesReverse();
+  await runRefundWebhookForNonPackageIntentDoesNotInvokeReverse();
+  console.log("handle-cloudpayments-webhook.service (refund tests): all assertions passed");
+}
+
 void run();
+void runRefundTests();
