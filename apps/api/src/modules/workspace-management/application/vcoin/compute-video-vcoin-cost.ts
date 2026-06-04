@@ -5,10 +5,15 @@ import type { RuntimeProviderModelProfile } from "../runtime-provider-profile";
  * ADR-108 Slice 2 — pure helper that computes the Vcoin (VC) cost of a
  * single successful `video_generate` artifact at settle time.
  *
- * Formula (ADR-108 Decision §51-53):
+ * Formula (ADR-108 Decision §51-53, Slice 9 pricing math correctness):
  *
- *   `usdMicros = round(durationSeconds * pricePerSecondUsdMicros)`
- *   `vcCost  = ceil(usdMicros * vcoinExchangeRate / 1_000_000)`
+ *   `usdMicros = round(durationSeconds * pricePerUnitUsd * 1_000_000)`
+ *   `vcCost    = ceil(usdMicros * vcoinExchangeRate / 1_000_000)`
+ *
+ * `pricePerUnit` is stored in the catalog as **plain USD per second/minute**
+ * (e.g. `0.14` = $0.14/sec, the way the operator types it in `Admin >
+ * Runtime`). The `* 1_000_000` factor converts USD → USD micros so the
+ * result lines up with `model_cost_ledger_events.actual_cost_micros`.
  *
  * The USD-micros leg is intentionally computed the same way as
  * `record-model-cost-ledger.service.ts::calculateTimeMeteredCostMicros`
@@ -92,7 +97,15 @@ export function computeVideoVcoinCost(
     pricing.unit === "minute" ? metering.durationSeconds / 60 : metering.durationSeconds;
   // Same shape as record-model-cost-ledger.service.ts::calculateTimeMeteredCostMicros
   // (cross-slice invariant 2: USD ledger calculation stays the source of truth).
-  const usdMicros = BigInt(Math.max(0, Math.round(billableUnits * pricing.pricePerUnit)));
+  // Catalog stores `pricePerUnit` as plain USD per second/minute; multiply by
+  // 1_000_000 to lift it into USD micros (ADR-108 Slice 9 — pricing math
+  // correctness; before the fix this read raw `pricePerUnit` as if it were
+  // already in micros and produced a sub-cent ledger row + 1-VC dust debit
+  // for every video, regardless of provider catalog truth).
+  const MICROS_PER_USD_NUM = 1_000_000;
+  const usdMicros = BigInt(
+    Math.max(0, Math.round(billableUnits * pricing.pricePerUnit * MICROS_PER_USD_NUM))
+  );
   if (usdMicros === 0n) {
     return { vcCost: 0, usdMicros };
   }

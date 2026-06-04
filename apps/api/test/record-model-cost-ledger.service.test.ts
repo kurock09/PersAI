@@ -798,7 +798,8 @@ describe("RecordModelCostLedgerService", () => {
                   currency: "USD",
                   timePricing: {
                     unit: "second",
-                    pricePerUnit: 10
+                    // ADR-108 Slice 9 — plain USD per second (admin UI input shape).
+                    pricePerUnit: 0.1
                   }
                 }
               }
@@ -869,7 +870,8 @@ describe("RecordModelCostLedgerService", () => {
         model: "sora-2",
         capability: "video",
         purpose: "video_generation",
-        actualCostMicros: BigInt(80),
+        // 8 sec × $0.10/sec × 1_000_000 micros/USD = 800_000 micros = $0.80.
+        actualCostMicros: BigInt(800_000),
         billingMode: "time_metered",
         snapshotProvider: "openai"
       }
@@ -916,7 +918,10 @@ describe("RecordModelCostLedgerService", () => {
                   currency: "USD",
                   timePricing: {
                     unit: "second",
-                    pricePerUnit: 999
+                    // ADR-108 Slice 9 — plain USD per second. Decoy "OpenAI"
+                    // row priced wildly higher than the real Runway pricing
+                    // so the assertion catches any cross-provider leakage.
+                    pricePerUnit: 0.999
                   }
                 }
               }
@@ -941,7 +946,11 @@ describe("RecordModelCostLedgerService", () => {
                   currency: "USD",
                   timePricing: {
                     unit: "second",
-                    pricePerUnit: 25
+                    // ADR-108 Slice 9 — plain USD per second. Historical row
+                    // active during 2026-01..2026-05-15; an occurredAt inside
+                    // that window must select THIS row (and its $0.025 price)
+                    // even though a newer active row exists.
+                    pricePerUnit: 0.025
                   }
                 }
               },
@@ -961,7 +970,10 @@ describe("RecordModelCostLedgerService", () => {
                   currency: "USD",
                   timePricing: {
                     unit: "second",
-                    pricePerUnit: 40
+                    // ADR-108 Slice 9 — plain USD per second. Different value
+                    // from the historical row so the assertion fails loudly
+                    // if timestamp matching ever regresses.
+                    pricePerUnit: 0.04
                   }
                 }
               }
@@ -1037,7 +1049,9 @@ describe("RecordModelCostLedgerService", () => {
         capability: "video",
         purpose: "video_generation",
         surface: "telegram",
-        actualCostMicros: BigInt(200),
+        // 8 sec × $0.025/sec × 1_000_000 = 200_000 USD micros = $0.20
+        // (historical Runway row selected by occurredAt = 2026-05-10 ∈ [2026-01..2026-05-15]).
+        actualCostMicros: BigInt(200_000),
         billingMode: "time_metered",
         snapshotProvider: "runway",
         snapshotEffectiveTo: "2026-05-15T00:00:00.000Z"
@@ -1085,7 +1099,10 @@ describe("RecordModelCostLedgerService", () => {
                   currency: "USD",
                   timePricing: {
                     unit: "second",
-                    pricePerUnit: 500
+                    // ADR-108 Slice 9 — plain USD per second. Decoy OpenAI
+                    // row priced 100x higher than the real Kling row so a
+                    // wrong-provider lookup would blow up the assertion.
+                    pricePerUnit: 5
                   }
                 }
               }
@@ -1111,7 +1128,8 @@ describe("RecordModelCostLedgerService", () => {
                   currency: "USD",
                   timePricing: {
                     unit: "second",
-                    pricePerUnit: 7
+                    // ADR-108 Slice 9 — plain USD per second.
+                    pricePerUnit: 0.07
                   }
                 }
               }
@@ -1181,7 +1199,8 @@ describe("RecordModelCostLedgerService", () => {
         model: "kling-v1",
         capability: "video",
         purpose: "video_generation",
-        actualCostMicros: BigInt(84),
+        // 12 sec × $0.07/sec × 1_000_000 = 840_000 USD micros = $0.84.
+        actualCostMicros: BigInt(840_000),
         billingMode: "time_metered",
         snapshotProvider: "kling"
       }
@@ -1228,7 +1247,9 @@ describe("RecordModelCostLedgerService", () => {
                   currency: "USD",
                   timePricing: {
                     unit: "minute",
-                    pricePerUnit: 60
+                    // ADR-108 Slice 9 — plain USD per minute. STT pricing is
+                    // catalog-driven; this value just exercises the unit path.
+                    pricePerUnit: 0.06
                   }
                 }
               }
@@ -1290,7 +1311,8 @@ describe("RecordModelCostLedgerService", () => {
       },
       {
         purpose: "stt",
-        actualCostMicros: BigInt(90),
+        // 90 sec / 60 sec/min × $0.06/min × 1_000_000 = 1.5 × 60_000 = 90_000 micros.
+        actualCostMicros: BigInt(90_000),
         billingMode: "time_metered"
       }
     );
@@ -1732,7 +1754,8 @@ describe("RecordModelCostLedgerService", () => {
               currency: "USD",
               fixedOperationPricing: {
                 unitLabel: "search call",
-                pricePerOperation: 8
+                // Tool-path catalog: price is already USD micros ($0.008 = 8000).
+                pricePerOperation: 8000
               }
             }
           }
@@ -1770,7 +1793,7 @@ describe("RecordModelCostLedgerService", () => {
     assert.equal(createdRows[0]?.capability, "web_search");
     assert.equal(createdRows[0]?.model, "web_search:tavily");
     assert.equal(createdRows[0]?.billingMode, "fixed_operation");
-    assert.equal(createdRows[0]?.actualCostMicros, 8n);
+    assert.equal(createdRows[0]?.actualCostMicros, 8000n);
   });
 
   test("records document generation usage with purpose document_generation (token_metered chat model)", async () => {

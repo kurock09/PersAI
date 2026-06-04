@@ -48,7 +48,8 @@ type ProviderModelEntry = {
 
 function buildCatalogByProvider(
   entries: ProviderModelEntry[] = [
-    { providerKey: "runway", model: "runway-gen4-720p", pricePerUnit: 50_000, unit: "second" }
+    // Plain USD per second/minute (ADR-108 Slice 9 pricing-math fix).
+    { providerKey: "runway", model: "runway-gen4-720p", pricePerUnit: 0.05, unit: "second" }
   ]
 ): RuntimeProviderModelCatalogByProvider {
   const emptyCatalog = { models: [] as never[] };
@@ -347,9 +348,7 @@ async function runVideoGenerateSettleDebitsInTx(): Promise<void> {
 
 async function runKlingVideoSettleDebitsCorrectly(): Promise<void> {
   const ctx = buildVideoSettleService({
-    catalogEntries: [
-      { providerKey: "kling", model: "kling-v3", pricePerUnit: 2_400_000, unit: "minute" }
-    ]
+    catalogEntries: [{ providerKey: "kling", model: "kling-v3", pricePerUnit: 2.4, unit: "minute" }]
   });
   await ctx.service.deliver({
     artifacts: [
@@ -390,7 +389,7 @@ async function runKlingVideoSettleDebitsCorrectly(): Promise<void> {
 async function runOpenAIVideoSettleDebitsCorrectly(): Promise<void> {
   const ctx = buildVideoSettleService({
     catalogEntries: [
-      { providerKey: "openai", model: "sora-1.0-1080p", pricePerUnit: 200_000, unit: "second" }
+      { providerKey: "openai", model: "sora-1.0-1080p", pricePerUnit: 0.2, unit: "second" }
     ]
   });
   await ctx.service.deliver({

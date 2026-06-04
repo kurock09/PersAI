@@ -461,20 +461,36 @@ function buildBillingFactsPriceCatalogSnapshot(input: {
   };
 }
 
+/**
+ * ADR-108 — video VC settle correctness (2026-06-04): model-catalog
+ * `time_metered` rows (Admin > Runtime, e.g. Kling `pricePerUnit: 0.14`
+ * = $0.14/sec) store **plain USD per unit**. Tool-path catalog rows
+ * (`tool_path_pricing_catalog`, Tavily/Browserless/etc.) keep the legacy
+ * convention where `pricePerUnit` / `pricePerOperation` are already in
+ * **USD micros** — do not multiply those paths by `MICROS_PER_USD`.
+ */
+const MICROS_PER_USD = 1_000_000;
+
+type TimeMeteredPriceConvention = "model_catalog_plain_usd" | "tool_path_usd_micros";
+
 function calculateTimeMeteredCostMicros(
   metering: Extract<RuntimeBillingFactMetering, { meteringKind: "time_metered" }>,
-  profile: RuntimeProviderTimeMeteredModelProfile
+  profile: RuntimeProviderTimeMeteredModelProfile,
+  convention: TimeMeteredPriceConvention
 ): bigint {
   const pricing = profile.providerPriceMetadata.timePricing;
   const billableUnits =
     pricing.unit === "minute" ? metering.durationSeconds / 60 : metering.durationSeconds;
-  return BigInt(Math.max(0, Math.round(billableUnits * pricing.pricePerUnit)));
+  const usdScale = convention === "model_catalog_plain_usd" ? MICROS_PER_USD : 1;
+  return BigInt(Math.max(0, Math.round(billableUnits * pricing.pricePerUnit * usdScale)));
 }
 
 function calculateTextCharsMeteredCostMicros(
   metering: Extract<RuntimeBillingFactMetering, { meteringKind: "text_chars_metered" }>,
   profile: RuntimeProviderTextCharsMeteredModelProfile
 ): bigint {
+  // Catalog stores `pricePer1MChars` as plain USD per 1M chars (e.g. 15 = $15/1M).
+  // `chars * (USD / 1_000_000 chars) * 1_000_000 micros/USD == chars * pricePer1MChars`.
   const pricePer1MChars = profile.providerPriceMetadata.textCharsPricing.pricePer1MChars;
   return BigInt(Math.max(0, Math.round(metering.textChars * pricePer1MChars)));
 }
@@ -512,8 +528,10 @@ function resolveTieredOperationPrice(
 
 function calculateBillingFactsCostMicros(
   facts: RuntimeBillingFacts,
-  profile: RuntimeProviderModelProfile
+  profile: RuntimeProviderModelProfile,
+  options?: { timeMeteredConvention?: TimeMeteredPriceConvention }
 ): bigint | null {
+  const timeMeteredConvention = options?.timeMeteredConvention ?? "tool_path_usd_micros";
   switch (facts.metering.meteringKind) {
     case "token_metered":
       if (profile.billingMode !== "token_metered") {
@@ -527,7 +545,7 @@ function calculateBillingFactsCostMicros(
       if (profile.billingMode !== "time_metered") {
         return null;
       }
-      return calculateTimeMeteredCostMicros(facts.metering, profile);
+      return calculateTimeMeteredCostMicros(facts.metering, profile, timeMeteredConvention);
     case "text_chars_metered":
       if (profile.billingMode !== "text_chars_metered") {
         return null;
@@ -1000,7 +1018,9 @@ export class RecordModelCostLedgerService {
       return 0;
     }
 
-    const actualCostMicros = calculateBillingFactsCostMicros(facts, profile);
+    const actualCostMicros = calculateBillingFactsCostMicros(facts, profile, {
+      timeMeteredConvention: "tool_path_usd_micros"
+    });
     if (actualCostMicros === null) {
       return 0;
     }
@@ -1098,7 +1118,9 @@ export class RecordModelCostLedgerService {
       return 0;
     }
 
-    const actualCostMicros = calculateBillingFactsCostMicros(facts, profile);
+    const actualCostMicros = calculateBillingFactsCostMicros(facts, profile, {
+      timeMeteredConvention: "model_catalog_plain_usd"
+    });
     if (actualCostMicros === null) {
       return 0;
     }
