@@ -2,6 +2,90 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-04 — ADR-109 Slice 5: Workspace persona registry (substrate + REST + wallet integration + Admin knobs)
+
+### What changed & why
+
+Baseline SHA at session start: Slice 4 closure commit (`f2b124f8`). Tree clean.
+
+Subagent: Claude Sonnet 4.6 medium thinking, single run, clean exit. Subagent autonomy note (orchestrator residual): the subagent self-edited `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`, and `docs/ADR/109-heygen-talking-avatar-on-vcoin.md` despite the orchestrator's instruction to leave docs to the orchestrator. The orchestrator diff-reviewed and lightly amended the docs (fixing one inaccurate "uncommitted Slice 4 artifacts" line and tightening the Slice 6 next-step pointer to the correct v3 HeyGen endpoints per erratum E6). The substantive content was accurate; the orchestrator chose to keep the subagent's authored docs rather than rewrite from scratch.
+
+Slice 5 lands the **workspace video persona registry** — the PersAI-side substrate for HeyGen talking-avatar persona management. This slice delivers the full stack from Prisma model to REST controller, with vcoin wallet integration (ledger-first → debit-second per ADR-108 discipline) and platform admin knobs.
+
+Key design decisions:
+- **Soft-delete only** (`archived=true`). The row is kept so Slice 6 can cascade the HeyGen avatar DELETE via `heygenAvatarId`. A hard-delete in this slice would permanently lose the `heygenAvatarId` needed for the Slice 6 cascade.
+- **No vcoin refund on archive.** Persona creation is a final spend (mirrors HeyGen's per-avatar billing). Documented in honesty section.
+- **Workspace authorization via `req.workspaceId` identity check.** The middleware-resolved workspace must match the `:workspaceId` URL param. Fail-closed: any mismatch → 401.
+- **Storage after transaction.** Portrait is saved to object storage AFTER `prisma.$transaction` commits. If storage fails, the persona row and debit are committed and a `storageWarning` is surfaced.
+- **Non-filtered unique index.** Prisma 6.x doesn't support filtered unique indexes. `@@unique([workspaceId, displayNameLower])` — archived rows block name reuse until Slice 6 cleanup.
+- **Fixed pre-existing test regression.** `platform-runtime-provider-settings.test.ts` was failing due to a Slice 4 fixture omission: `"heygen"` in `MANAGED_CATALOG_PROVIDERS` wasn't reflected in a `deepEqual`. Fixed here (additive, per Slice 4 precedent).
+- **`vcoinExchangeRate` admin UI properly wired.** Pre-existing bug: field was display-only. This slice wires it into form state and save payload alongside new persona knobs.
+
+### Files touched (Scope IN)
+
+**New files:**
+- `apps/api/prisma/migrations/20260604230000_slice5_workspace_video_persona/migration.sql`
+- `apps/api/src/modules/workspace-management/domain/workspace-video-persona.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-workspace-video-persona.repository.ts`
+- `apps/api/src/modules/workspace-management/application/heygen/manage-workspace-video-personas.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/workspace-video-personas.controller.ts`
+- `packages/contracts/src/generated/model/workspaceVideoPersonaState.ts`
+- `packages/contracts/src/generated/model/workspaceVideoPersonaCreateResponse.ts`
+- `packages/contracts/src/generated/model/workspaceVideoPersonaListState.ts`
+- `apps/api/test/manage-workspace-video-personas.service.test.ts` (9 assertions)
+
+**Modified files:**
+- `apps/api/prisma/schema.prisma` — `WorkspaceVideoPersona` model + persona knob columns
+- `apps/api/src/modules/workspace-management/domain/workspace-vcoin-ledger-event.repository.ts` — widened kind union (`"persona_creation"`)
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts` — new fields
+- `apps/api/src/modules/workspace-management/application/resolve-platform-runtime-provider-settings.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-runtime-provider-settings.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `packages/contracts/openapi.yaml` — persona paths + schemas + admin settings fields
+- `packages/contracts/src/generated/model/adminRuntimeProviderSettingsState.ts`
+- `packages/contracts/src/generated/model/adminRuntimeProviderSettingsRequest.ts`
+- `packages/contracts/src/generated/model/index.ts`
+- `apps/web/app/admin/runtime/page.tsx`
+- `apps/api/test/platform-runtime-provider-settings.test.ts` (pre-existing fix + new assertions)
+
+### Verification (all 12 gates PASS)
+
+1. `corepack pnpm -r --if-present run lint` — all workspaces `Done`. ✅
+2. `corepack pnpm run format:check` — `All matched files use Prettier code style!` ✅
+3. `corepack pnpm --filter @persai/api run typecheck` — Prisma generate (`workspaceVideoPersona` model present) + `tsc --noEmit` exit 0. ✅
+4. `corepack pnpm --filter @persai/web run typecheck` — exit 0. ✅
+5. `corepack pnpm --filter @persai/runtime run typecheck` — exit 0 (runtime untouched). ✅
+6. `corepack pnpm --filter @persai/provider-gateway run typecheck` — exit 0. ✅
+7. `corepack pnpm --filter @persai/contracts run typecheck` — exit 0. ✅
+8. `tsx apps/api/test/manage-workspace-video-personas.service.test.ts` — 9/9 pass. ✅
+9. `tsx apps/api/test/platform-runtime-provider-settings.test.ts` — exit 0. ✅
+10. `tsx apps/api/test/grant-monthly-vcoin.service.test.ts` — `all assertions passed`. ✅
+11. `tsx apps/api/test/workspace-vcoin-balance.repository.test.ts` — `all assertions passed`. ✅
+12. `tsx apps/api/test/workspace-vcoin-ledger-event.repository.test.ts` — `all assertions passed`. ✅
+
+### Honest subtleties
+
+- **Soft-delete:** `archive` sets `archived=true` + `archivedAt=now()`. Row persists for Slice 6 HeyGen cascade. Slice 6 will hard-delete tombstones after successful HeyGen cleanup.
+- **No VC refund on archive:** Cost is final on create. Mirrors HeyGen's per-avatar billing model.
+- **Non-filtered unique index:** Archived rows block name reuse; Slice 6 will clean up or add a conditional index.
+- **Storage after tx:** Portrait saves AFTER commit. Failed storage → `storageWarning: "persona_created_storage_failed"` returned to caller; debit and persona row already committed.
+- **Workspace authorization:** `req.workspaceId` identity check (middleware-resolved). Any mismatch → 401. No extra DB lookup.
+- **Controller test skipped:** Service-level tests cover all business logic. Controller tests require full NestJS test harness.
+- **`vcoinExchangeRate` admin UI bug pre-existed.** Bundled fix since it's in the same save payload path.
+
+### Cross-slice invariants
+
+- **#11** (ADR-107 carve-out): no Runway/Kling/OpenAI changes. ✅
+- **#12**: no keyword routing. ✅
+- **#14** (REST-only): `apps/runtime/**` untouched. Persona only mutates via new REST controller. ✅
+- **#15** (no regex): voice match is exact string equality. Duplicate-name check is lowercase equality. ✅
+
+### Next recommended slice
+
+**Slice 6: Provider-gateway HeyGen client** (per ADR-109 Slice 6 spec) — new `HeyGenProviderClient` covering submit Photo Avatar Video (`POST /v3/videos` with `type: image` for Scenario A and `type: avatar` for Scenario C), poll (`GET /v3/videos/{video_id}`), lazy avatar creation (`POST /v3/avatars`, populates `heygenAvatarId` on the persona row on first reuse), cascade delete for archived personas (best-effort `DELETE /v3/avatars/looks/{look_id}` + `DELETE /v3/avatars/{group_id}` per erratum E6). Wire dispatch in `provider-video-generation.service.ts` HeyGen `case` (currently Slice 2a placeholder throw). Emits `billingFacts` time-metered. Polling cadence 10s per erratum E10. ALL HeyGen endpoints are v3 per invariant from erratum E6 — NO v1/v2 calls.
+
+---
+
 ## 2026-06-04 — ADR-109 Slice 4: HeyGen voice catalog cache (substrate, symmetric with Kling)
 
 ### What changed & why

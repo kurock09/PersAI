@@ -290,6 +290,7 @@ async function run(): Promise<void> {
   assert.deepEqual(parsed.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.deepEqual(Object.keys(parsed.availableModelCatalogByProvider).sort(), [
     "anthropic",
+    "heygen",
     "kling",
     "openai",
     "runway"
@@ -836,6 +837,9 @@ async function run(): Promise<void> {
   // row, or a pre-Slice-1 admin save) must surface the platform default 20
   // on read. The reader is the single source of truth here.
   assert.equal(settings.vcoinExchangeRate, 20);
+  // ADR-109 Slice 5 — new platform knobs surface defaults when omitted.
+  assert.equal(settings.heygenPersonaWorkspaceLimit, 10);
+  assert.equal(settings.heygenPersonaCreationVcoin, 20);
 
   const settingsWithExplicitRate = buildPlatformRuntimeProviderSettingsState({
     settings: {
@@ -847,7 +851,9 @@ async function run(): Promise<void> {
       routerPolicy: null,
       availableModelsByProvider: null,
       availableModelCatalogByProvider: null,
-      vcoinExchangeRate: 25
+      vcoinExchangeRate: 25,
+      heygenPersonaWorkspaceLimit: null,
+      heygenPersonaCreationVcoin: null
     },
     providerKeys
   });
@@ -868,14 +874,39 @@ async function run(): Promise<void> {
       // the platform default rather than propagating poison. Slice 5's
       // admin save path rejects bad input up front, but a hand-edited DB
       // row should not break the resolver.
-      vcoinExchangeRate: -7 as unknown as number
+      vcoinExchangeRate: -7 as unknown as number,
+      heygenPersonaWorkspaceLimit: null,
+      heygenPersonaCreationVcoin: null
     },
     providerKeys
   });
   assert.equal(settingsWithInvalidRate.vcoinExchangeRate, 20);
 
+  // ADR-109 Slice 5 — explicit persisted persona knob values round-trip unchanged.
+  const settingsWithPersonaKnobs = buildPlatformRuntimeProviderSettingsState({
+    settings: {
+      primaryProvider: "openai",
+      primaryModel: "gpt-5.4",
+      fallbackProvider: null,
+      fallbackModel: null,
+      routingFastModelKey: null,
+      routerPolicy: null,
+      availableModelsByProvider: null,
+      availableModelCatalogByProvider: null,
+      vcoinExchangeRate: null,
+      heygenPersonaWorkspaceLimit: 5,
+      heygenPersonaCreationVcoin: 0
+    },
+    providerKeys
+  });
+  assert.equal(settingsWithPersonaKnobs.heygenPersonaWorkspaceLimit, 5);
+  assert.equal(settingsWithPersonaKnobs.heygenPersonaCreationVcoin, 0);
+
   // Parser default: when admin payload omits the field, normalize to 20.
   assert.equal(parsed.vcoinExchangeRate, 20);
+  // ADR-109 Slice 5 — parser defaults for new persona knobs.
+  assert.equal(parsed.heygenPersonaWorkspaceLimit, 10);
+  assert.equal(parsed.heygenPersonaCreationVcoin, 20);
 
   const parsedWithExplicitRate = parseUpdatePlatformRuntimeProviderSettingsInput({
     ...parsed,
@@ -900,6 +931,58 @@ async function run(): Promise<void> {
         vcoinExchangeRate: 1.5
       }),
     /vcoinExchangeRate must be a positive integer/
+  );
+
+  // ADR-109 Slice 5 — explicit round-trips for persona knobs.
+  const parsedWithPersonaKnobs = parseUpdatePlatformRuntimeProviderSettingsInput({
+    ...parsed,
+    heygenPersonaWorkspaceLimit: 15,
+    heygenPersonaCreationVcoin: 0
+  });
+  assert.equal(parsedWithPersonaKnobs.heygenPersonaWorkspaceLimit, 15);
+  assert.equal(parsedWithPersonaKnobs.heygenPersonaCreationVcoin, 0);
+
+  // Reject zero/negative/fractional for persona workspace limit (must be ≥ 1).
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        heygenPersonaWorkspaceLimit: 0
+      }),
+    /heygenPersonaWorkspaceLimit must be a positive integer/
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        heygenPersonaWorkspaceLimit: -1
+      }),
+    /heygenPersonaWorkspaceLimit must be a positive integer/
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        heygenPersonaWorkspaceLimit: 1.5
+      }),
+    /heygenPersonaWorkspaceLimit must be a positive integer/
+  );
+  // Reject negative for persona creation cost (must be ≥ 0, 0 is allowed).
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        heygenPersonaCreationVcoin: -1
+      }),
+    /heygenPersonaCreationVcoin must be a non-negative integer/
+  );
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        heygenPersonaCreationVcoin: 1.5
+      }),
+    /heygenPersonaCreationVcoin must be a non-negative integer/
   );
 
   const profile = buildPlatformRuntimeProviderProfileState(settings);

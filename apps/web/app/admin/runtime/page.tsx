@@ -1013,6 +1013,9 @@ export default function AdminRuntimePage() {
   ] = useState("5");
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
+  const [vcoinExchangeRateText, setVcoinExchangeRateText] = useState("20");
+  const [heygenPersonaWorkspaceLimitText, setHeygenPersonaWorkspaceLimitText] = useState("10");
+  const [heygenPersonaCreationVcoinText, setHeygenPersonaCreationVcoinText] = useState("20");
   const modelCatalogRef = useRef<RuntimeProviderModelCatalogByProviderState>(createEmptyCatalog());
   const [modelCatalogByProvider, setModelCatalogByProvider] =
     useState<RuntimeProviderModelCatalogByProviderState>(createEmptyCatalog());
@@ -1102,6 +1105,9 @@ export default function AdminRuntimePage() {
           )
         )
       );
+      setVcoinExchangeRateText(String(res.vcoinExchangeRate ?? 20));
+      setHeygenPersonaWorkspaceLimitText(String(res.heygenPersonaWorkspaceLimit ?? 10));
+      setHeygenPersonaCreationVcoinText(String(res.heygenPersonaCreationVcoin ?? 20));
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to load runtime settings.");
     }
@@ -1177,6 +1183,30 @@ export default function AdminRuntimePage() {
         throw new Error("Fast routing model is required when the router is enabled.");
       }
 
+      const parsedVcoinExchangeRate = parseInt(vcoinExchangeRateText, 10);
+      if (
+        !Number.isInteger(parsedVcoinExchangeRate) ||
+        parsedVcoinExchangeRate <= 0 ||
+        isNaN(parsedVcoinExchangeRate)
+      ) {
+        throw new Error("VC exchange rate must be a positive integer.");
+      }
+      const parsedPersonaWorkspaceLimit = parseInt(heygenPersonaWorkspaceLimitText, 10);
+      if (
+        !Number.isInteger(parsedPersonaWorkspaceLimit) ||
+        parsedPersonaWorkspaceLimit <= 0 ||
+        isNaN(parsedPersonaWorkspaceLimit)
+      ) {
+        throw new Error("HeyGen persona limit must be a positive integer.");
+      }
+      const parsedPersonaCreationVcoin = parseInt(heygenPersonaCreationVcoinText, 10);
+      if (
+        !Number.isInteger(parsedPersonaCreationVcoin) ||
+        parsedPersonaCreationVcoin < 0 ||
+        isNaN(parsedPersonaCreationVcoin)
+      ) {
+        throw new Error("HeyGen persona creation cost must be a non-negative integer.");
+      }
       const request: AdminRuntimeProviderSettingsRequest = {
         primary: { provider: primaryProvider, model: primaryModel.trim() },
         ...(fallbackEnabled && fallbackModel.trim()
@@ -1198,7 +1228,10 @@ export default function AdminRuntimePage() {
         providerKeys: {
           ...(openaiKey ? { openai: openaiKey } : {}),
           ...(anthropicKey ? { anthropic: anthropicKey } : {})
-        }
+        },
+        vcoinExchangeRate: parsedVcoinExchangeRate,
+        heygenPersonaWorkspaceLimit: parsedPersonaWorkspaceLimit,
+        heygenPersonaCreationVcoin: parsedPersonaCreationVcoin
       };
       await putAdminRuntimeProviderSettings(token, request);
       setFeedback("Saved successfully. Changes propagate lazily after save.");
@@ -1236,7 +1269,10 @@ export default function AdminRuntimePage() {
     openaiKey,
     primaryModel,
     primaryProvider,
-    settings
+    settings,
+    vcoinExchangeRateText,
+    heygenPersonaWorkspaceLimitText,
+    heygenPersonaCreationVcoinText
   ]);
 
   const updateCatalogProfile = useCallback(
@@ -1781,6 +1817,45 @@ export default function AdminRuntimePage() {
               {settings?.providerKeys.anthropic.configured
                 ? `${providerLabel("anthropic")} key is already configured. Leave blank to keep it.`
                 : "Required when Anthropic is selected and no stored key exists yet."}
+            </p>
+          </Card>
+        </div>
+      </Fold>
+
+      <Fold t="Vcoin Economy">
+        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+          <Card title="VC Exchange Rate">
+            <Field
+              label="VC per 1 USD"
+              value={vcoinExchangeRateText}
+              onChange={setVcoinExchangeRateText}
+              type="number"
+            />
+            <p className="text-[10px] text-text-subtle">
+              Platform-level integer exchange rate. Default 20 (1 USD = 20 VC, 1 VC = $0.05).
+            </p>
+          </Card>
+          <Card title="HeyGen persona limit per workspace">
+            <Field
+              label="Max active personas"
+              value={heygenPersonaWorkspaceLimitText}
+              onChange={setHeygenPersonaWorkspaceLimitText}
+              type="number"
+            />
+            <p className="text-[10px] text-text-subtle">
+              Maximum non-archived video personas per workspace. Default 10.
+            </p>
+          </Card>
+          <Card title="HeyGen persona creation cost (VC)">
+            <Field
+              label="Cost per persona (VC)"
+              value={heygenPersonaCreationVcoinText}
+              onChange={setHeygenPersonaCreationVcoinText}
+              type="number"
+            />
+            <p className="text-[10px] text-text-subtle">
+              VC debited from the workspace wallet when a persona is created. 0 = free. Default 20
+              (≈ $1.00 at default rate). 1 VC ≈ $0.05
             </p>
           </Card>
         </div>

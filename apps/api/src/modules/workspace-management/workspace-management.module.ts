@@ -230,6 +230,10 @@ import { GammaThemeCatalogService } from "./application/gamma/gamma-theme-catalo
 import { GammaThemePickerService } from "./application/gamma/gamma-theme-picker.service";
 import { KlingVoiceCatalogService } from "./application/kling/kling-voice-catalog.service";
 import { HeyGenVoiceCatalogService } from "./application/heygen/heygen-voice-catalog.service";
+import { ManageWorkspaceVideoPersonasService } from "./application/heygen/manage-workspace-video-personas.service";
+import { WorkspaceVideoPersonasController } from "./interface/http/workspace-video-personas.controller";
+import { WORKSPACE_VIDEO_PERSONA_REPOSITORY } from "./domain/workspace-video-persona.repository";
+import { PrismaWorkspaceVideoPersonaRepository } from "./infrastructure/persistence/prisma-workspace-video-persona.repository";
 import { EnqueueRuntimeDeferredMediaJobService } from "./application/enqueue-runtime-deferred-media-job.service";
 import { InternalRuntimeDocumentJobClientService } from "./application/internal-runtime-document-job.client.service";
 import { InternalRuntimeMediaJobClientService } from "./application/internal-runtime-media-job.client.service";
@@ -403,7 +407,8 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalSmokeReceiptsController,
     AdminForceReapplyController,
     MediaAttachmentController,
-    TelegramWebhookController
+    TelegramWebhookController,
+    WorkspaceVideoPersonasController
   ],
   providers: [
     {
@@ -758,7 +763,12 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
       useExisting: PostgresPgvectorKnowledgeIndex
     },
     ManageMediaPackageCatalogService,
-    ManageMediaPackagePurchaseService
+    ManageMediaPackagePurchaseService,
+    ManageWorkspaceVideoPersonasService,
+    {
+      provide: WORKSPACE_VIDEO_PERSONA_REPOSITORY,
+      useClass: PrismaWorkspaceVideoPersonaRepository
+    }
   ],
   exports: [
     ApplyAssistantPublishedVersionService,

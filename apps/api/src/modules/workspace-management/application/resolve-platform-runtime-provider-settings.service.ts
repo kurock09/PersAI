@@ -39,7 +39,9 @@ export class ResolvePlatformRuntimeProviderSettingsService {
         routerPolicy: true,
         availableModelsByProvider: true,
         availableModelCatalogByProvider: true,
-        vcoinExchangeRate: true
+        vcoinExchangeRate: true,
+        heygenPersonaWorkspaceLimit: true,
+        heygenPersonaCreationVcoin: true
       }
     });
     if (row === null) {
@@ -55,7 +57,9 @@ export class ResolvePlatformRuntimeProviderSettingsService {
       routerPolicy: row.routerPolicy,
       availableModelsByProvider: row.availableModelsByProvider,
       availableModelCatalogByProvider: row.availableModelCatalogByProvider,
-      vcoinExchangeRate: row.vcoinExchangeRate
+      vcoinExchangeRate: row.vcoinExchangeRate,
+      heygenPersonaWorkspaceLimit: row.heygenPersonaWorkspaceLimit,
+      heygenPersonaCreationVcoin: row.heygenPersonaCreationVcoin
     };
   }
 

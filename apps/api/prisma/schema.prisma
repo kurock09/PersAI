@@ -690,6 +690,7 @@ model Workspace {
   mediaPackageGrants                WorkspaceMediaPackageGrant[]
   workspaceVcoinBalance             WorkspaceVcoinBalance?
   workspaceVcoinLedgerEvents        WorkspaceVcoinLedgerEvent[]
+  workspaceVideoPersonas            WorkspaceVideoPersona[]
 
   @@map("workspaces")
 }
@@ -962,6 +963,10 @@ model PlatformRuntimeProviderSettings {
   adminKnowledgeRetrievalPolicy   Json                            @default("{}") @map("admin_knowledge_retrieval_policy") @db.JsonB
   /// ADR-108 Slice 1 — platform Vcoin exchange rate (integer VC per 1 USD). Default 20 (`1 USD = 20 VC`, `1 VC = $0.05`). Single platform-level numeric field; not plan-scoped. Slices 2/3/4 wire the actual debit/credit paths.
   vcoinExchangeRate               Int                             @default(20) @map("vcoin_exchange_rate")
+  /// ADR-109 Slice 5 — maximum active (non-archived) personas allowed per workspace. Default 10. Operator-editable in Admin > Runtime.
+  heygenPersonaWorkspaceLimit     Int                             @default(10) @map("heygen_persona_workspace_limit")
+  /// ADR-109 Slice 5 — VC cost to create one persona. Default 20 (= $1.00 at 1 VC = $0.05). Set to 0 for free creation.
+  heygenPersonaCreationVcoin      Int                             @default(20) @map("heygen_persona_creation_vcoin")
   updatedByUserId                 String?                         @map("updated_by_user_id") @db.Uuid
   createdAt                       DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -3346,4 +3351,39 @@ model SupportTicketAttachment {
 
   @@index([messageId, createdAt(sort: Asc)])
   @@map("support_ticket_attachments")
+}
+
+/// ADR-109 Slice 5 — workspace-scoped talking-avatar persona.
+///
+/// One persona = one HeyGen avatar identity (display name + voice binding +
+/// portrait). `heygenAvatarId` is NULL at creation; Slice 6 will lazily
+/// populate it on first render by calling the HeyGen avatar create API.
+///
+/// Soft-delete: the `archived` flag is set to true on delete (the row is kept
+/// so Slice 6 can cascade the HeyGen avatar deletion via `heygenAvatarId`).
+///
+/// Partial unique index: Prisma 6.x schema language does not support filtered
+/// unique indexes directly. The plain @@unique([workspaceId, displayNameLower])
+/// below means archived rows block name reuse until they are renamed or
+/// hard-deleted. Slice 6 will address this during the HeyGen cascade cleanup.
+model WorkspaceVideoPersona {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId            String    @map("workspace_id") @db.Uuid
+  displayName            String    @map("display_name") @db.VarChar(80)
+  displayNameLower       String    @map("display_name_lower") @db.VarChar(80)
+  portraitImageUrl       String    @map("portrait_image_url")
+  portraitImageStorageKey String   @map("portrait_image_storage_key")
+  heygenVoiceId          String    @map("heygen_voice_id") @db.VarChar(128)
+  heygenVoiceLabel       String    @map("heygen_voice_label") @db.VarChar(120)
+  heygenAvatarId         String?   @map("heygen_avatar_id") @db.VarChar(128)
+  archived               Boolean   @default(false)
+  archivedAt             DateTime? @map("archived_at") @db.Timestamptz(6)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([workspaceId, displayNameLower], name: "uniq_workspace_video_persona_name")
+  @@index([workspaceId, archived])
+  @@map("workspace_video_personas")
 }

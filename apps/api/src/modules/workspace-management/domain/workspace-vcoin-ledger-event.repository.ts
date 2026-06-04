@@ -31,12 +31,23 @@ export const WORKSPACE_VCOIN_LEDGER_EVENT_REPOSITORY = Symbol(
   "WorkspaceVcoinLedgerEventRepository"
 );
 
-/** Supported `kind` values for VC ledger events. */
+/**
+ * Supported `kind` values for VC ledger events.
+ *
+ * `referenceKey` semantics by kind:
+ *   - `"monthly_grant"` → ISO 8601 UTC string of `periodStartedAt`.
+ *   - `"package_purchase"` / `"package_refund"` → media package purchase UUID.
+ *   - `"manual"` → arbitrary admin-supplied reference.
+ *   - `"persona_creation"` (ADR-109 Slice 5) → persona UUID. Records a VC
+ *     debit when a new workspace video persona is created. The debit is
+ *     part of the same `prisma.$transaction` that inserts the persona row.
+ */
 export type WorkspaceVcoinLedgerEventKind =
   | "monthly_grant"
   | "package_purchase"
   | "package_refund"
-  | "manual";
+  | "manual"
+  | "persona_creation";
 
 /**
  * Input for recording a single VC ledger event.
@@ -44,7 +55,9 @@ export type WorkspaceVcoinLedgerEventKind =
  * `referenceKey` semantics by kind:
  *   - `"monthly_grant"` → ISO 8601 UTC string of `periodStartedAt`
  *     (e.g. `"2026-06-01T00:00:00.000Z"`).
- *   - `"package_purchase"` / `"package_refund"` → Slice 4 will document.
+ *   - `"package_purchase"` / `"package_refund"` → media package purchase UUID.
+ *   - `"manual"` → arbitrary admin-supplied reference.
+ *   - `"persona_creation"` → persona UUID (ADR-109 Slice 5).
  *
  * `tx` MUST be the same `Prisma.TransactionClient` that is also passed to
  * `WorkspaceVcoinBalanceRepository.credit` in the same call so the ledger

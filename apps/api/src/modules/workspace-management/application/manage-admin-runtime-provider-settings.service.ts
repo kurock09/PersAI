@@ -83,6 +83,8 @@ export class ManageAdminRuntimeProviderSettingsService {
         availableModelCatalogByProvider:
           input.availableModelCatalogByProvider as Prisma.InputJsonValue,
         vcoinExchangeRate: input.vcoinExchangeRate,
+        heygenPersonaWorkspaceLimit: input.heygenPersonaWorkspaceLimit,
+        heygenPersonaCreationVcoin: input.heygenPersonaCreationVcoin,
         updatedByUserId: userId
       },
       update: {
@@ -99,6 +101,8 @@ export class ManageAdminRuntimeProviderSettingsService {
         availableModelCatalogByProvider:
           input.availableModelCatalogByProvider as Prisma.InputJsonValue,
         vcoinExchangeRate: input.vcoinExchangeRate,
+        heygenPersonaWorkspaceLimit: input.heygenPersonaWorkspaceLimit,
+        heygenPersonaCreationVcoin: input.heygenPersonaCreationVcoin,
         updatedByUserId: userId
       }
     });

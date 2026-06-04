@@ -23,4 +23,19 @@ export interface AdminRuntimeProviderSettingsRequest {
   availableModelsByProvider: RuntimeProviderAvailableModelsByProviderState;
   availableModelCatalogByProvider: RuntimeProviderModelCatalogByProviderState;
   providerKeys?: AdminRuntimeProviderSettingsProviderKeysInput;
+  /**
+   * ADR-108 Slice 1 — platform Vcoin exchange rate (VC per 1 USD). Optional on write; omitted values resolve to the platform default (20).
+   * @minimum 1
+   */
+  vcoinExchangeRate?: number;
+  /**
+   * ADR-109 Slice 5 — max active personas per workspace. Optional on write; omitted values resolve to the platform default (10).
+   * @minimum 1
+   */
+  heygenPersonaWorkspaceLimit?: number;
+  /**
+   * ADR-109 Slice 5 — VC cost to create one persona. Optional on write; omitted values resolve to the platform default (20).
+   * @minimum 0
+   */
+  heygenPersonaCreationVcoin?: number;
 }

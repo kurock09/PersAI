@@ -5901,6 +5901,166 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /workspaces/{workspaceId}/video-personas:
+    post:
+      operationId: createWorkspaceVideoPersona
+      summary: Create a workspace video persona (ADR-109 Slice 5)
+      description: >-
+        Creates a new workspace-scoped video persona. Persona creation is
+        REST-only (ADR-109 cross-slice invariant #14). Debits
+        `heygenPersonaCreationVcoin` VC from the workspace wallet when the
+        platform cost > 0. Portrait image is normalized to JPEG 1024×1024.
+        Validates the provided `heygenVoiceId` against the cached HeyGen
+        voice shortlist.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - portrait
+                - displayName
+                - heygenVoiceId
+              properties:
+                portrait:
+                  type: string
+                  format: binary
+                  description: Portrait image file (JPEG, PNG, or WebP). Normalized to 1024×1024 JPEG server-side.
+                displayName:
+                  type: string
+                  maxLength: 80
+                  description: Display name for the persona. Must be unique within the workspace (case-insensitive).
+                heygenVoiceId:
+                  type: string
+                  maxLength: 128
+                  description: HeyGen voice ID. Must exist in the cached HeyGen voice shortlist.
+      responses:
+        "201":
+          description: Persona created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceVideoPersonaCreateResponse"
+        "400":
+          description: >-
+            Bad request. Possible error codes: `persona_limit_reached`,
+            `persona_duplicate_name`, `voice_not_found`,
+            `vcoin_balance_exhausted`, `portrait_required`, `invalid_field`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      operationId: listWorkspaceVideoPersonas
+      summary: List workspace video personas (ADR-109 Slice 5)
+      description: Returns all non-archived personas for the workspace, ordered by creation date ascending.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: List of active personas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceVideoPersonaListState"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /workspaces/{workspaceId}/video-personas/{personaId}:
+    delete:
+      operationId: archiveWorkspaceVideoPersona
+      summary: Archive (soft-delete) a workspace video persona (ADR-109 Slice 5)
+      description: >-
+        Soft-deletes the persona by setting `archived = true`. Does NOT call
+        HeyGen API (Slice 6 owns the cascade delete). Does NOT refund the VC
+        creation cost.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: workspaceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: personaId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Persona archived
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - archived
+                  - personaId
+                properties:
+                  archived:
+                    type: boolean
+                  personaId:
+                    type: string
+                    format: uuid
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Persona not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 components:
   securitySchemes:
     bearerAuth:
@@ -14908,9 +15068,22 @@ components:
             per 1 USD. Defaults to 20 (`1 USD = 20 VC` ⇒ `1 VC = $0.05`) on
             read when the persisted record omits the field (legacy rows from
             before Slice 1 landed). Single platform-level numeric setting;
-            not plan-scoped. Slice 1 only round-trips the value (this slice
-            is contract-carrying); Slices 2/3/4 wire the actual debit /
-            credit paths; Slice 5 owns the admin UI surface.
+            not plan-scoped.
+        heygenPersonaWorkspaceLimit:
+          type: integer
+          minimum: 1
+          description: >-
+            ADR-109 Slice 5 — maximum number of active (non-archived) video
+            personas allowed per workspace. Defaults to 10 when the persisted
+            record omits the field. Operator-editable in Admin > Runtime.
+        heygenPersonaCreationVcoin:
+          type: integer
+          minimum: 0
+          description: >-
+            ADR-109 Slice 5 — VC cost to create one workspace video persona.
+            Non-negative integer. 0 means creation is free (no ledger event
+            recorded). Defaults to 20 (= $1.00 at 1 VC = $0.05) when the
+            persisted record omits the field.
         notes:
           type: array
           items:
@@ -15033,6 +15206,24 @@ components:
           $ref: "#/components/schemas/RuntimeProviderModelCatalogByProviderState"
         providerKeys:
           $ref: "#/components/schemas/AdminRuntimeProviderSettingsProviderKeysInput"
+        vcoinExchangeRate:
+          type: integer
+          minimum: 1
+          description: >-
+            ADR-108 Slice 1 — platform Vcoin exchange rate (VC per 1 USD).
+            Optional on write; omitted values resolve to the platform default (20).
+        heygenPersonaWorkspaceLimit:
+          type: integer
+          minimum: 1
+          description: >-
+            ADR-109 Slice 5 — max active personas per workspace.
+            Optional on write; omitted values resolve to the platform default (10).
+        heygenPersonaCreationVcoin:
+          type: integer
+          minimum: 0
+          description: >-
+            ADR-109 Slice 5 — VC cost to create one persona.
+            Optional on write; omitted values resolve to the platform default (20).
     GetAdminRuntimeProviderSettingsResponse:
       type: object
       required:
@@ -15869,3 +16060,64 @@ components:
         details:
           type: object
           additionalProperties: true
+    WorkspaceVideoPersonaState:
+      type: object
+      required:
+        - id
+        - displayName
+        - portraitImageUrl
+        - heygenVoiceId
+        - heygenVoiceLabel
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          maxLength: 80
+        portraitImageUrl:
+          type: string
+        heygenVoiceId:
+          type: string
+        heygenVoiceLabel:
+          type: string
+        heygenAvatarId:
+          type: string
+          nullable: true
+          description: NULL at creation; set by Slice 6 on first HeyGen render.
+        createdAt:
+          type: string
+          format: date-time
+    WorkspaceVideoPersonaCreateResponse:
+      type: object
+      required:
+        - persona
+        - walletBalanceVc
+      properties:
+        persona:
+          $ref: "#/components/schemas/WorkspaceVideoPersonaState"
+        walletBalanceVc:
+          type: integer
+          description: Workspace VC wallet balance after the persona creation debit.
+        storageWarning:
+          type: string
+          nullable: true
+          description: >-
+            When non-null, the persona row was committed and the wallet was
+            debited but the portrait image failed to save to object storage.
+            The value is `"persona_created_storage_failed"`.
+    WorkspaceVideoPersonaListState:
+      type: object
+      required:
+        - personas
+        - limit
+      properties:
+        personas:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceVideoPersonaState"
+        limit:
+          type: integer
+          minimum: 1
+          description: Platform-configured maximum active personas per workspace (`heygenPersonaWorkspaceLimit`).

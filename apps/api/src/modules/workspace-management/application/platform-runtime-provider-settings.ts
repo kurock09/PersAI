@@ -82,6 +82,22 @@ const MAX_TIER_COUNT = 16;
  */
 const MAX_PLATFORM_VCOIN_EXCHANGE_RATE = 1_000_000;
 
+/**
+ * ADR-109 Slice 5 — default and cap for HeyGen persona platform knobs.
+ *
+ * `DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT` — maximum active personas per
+ * workspace (10 default, matches the HeyGen free-tier avatar headcount).
+ *
+ * `DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN` — VC cost to create one persona
+ * (20 VC default; mirrors the `1 VC = $0.05` course → $1.00 per persona,
+ * aligning with HeyGen's per-avatar billing). Can be set to 0 to make
+ * creation free for operator use.
+ */
+export const DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT = 10;
+export const DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN = 20;
+const MAX_HEYGEN_PERSONA_WORKSPACE_LIMIT = 1_000;
+const MAX_HEYGEN_PERSONA_CREATION_VCOIN = 1_000_000;
+
 export type PlatformRuntimeProviderSelection = {
   provider: ManagedRuntimeProvider;
   model: string;
@@ -151,6 +167,20 @@ export type PlatformRuntimeProviderSettingsState = {
    * this field is contract-carrying only in Slice 1.
    */
   vcoinExchangeRate: number;
+  /**
+   * ADR-109 Slice 5 — maximum number of active (non-archived) personas
+   * allowed per workspace. Operator-editable in Admin > Runtime. Defaults
+   * to `DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT` (10) when the persisted
+   * record omits the field.
+   */
+  heygenPersonaWorkspaceLimit: number;
+  /**
+   * ADR-109 Slice 5 — VC cost to create one persona. Non-negative integer.
+   * When 0, creation is free (no ledger event recorded). Defaults to
+   * `DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN` (20) when omitted.
+   * `1 VC ≈ $0.05`, so the default is $1.00 per persona.
+   */
+  heygenPersonaCreationVcoin: number;
   notes: string[];
 };
 
@@ -169,6 +199,16 @@ export type PlatformRuntimeProviderSettingsRecord = {
    * resolve to the platform default via `DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE`.
    */
   vcoinExchangeRate: number | null;
+  /**
+   * ADR-109 Slice 5 — persisted max active personas per workspace.
+   * Nullable so rows predating Slice 5 resolve to the platform default.
+   */
+  heygenPersonaWorkspaceLimit: number | null;
+  /**
+   * ADR-109 Slice 5 — persisted persona creation VC cost.
+   * Nullable so rows predating Slice 5 resolve to the platform default.
+   */
+  heygenPersonaCreationVcoin: number | null;
 };
 
 export type UpdatePlatformRuntimeProviderSettingsInput = {
@@ -187,6 +227,16 @@ export type UpdatePlatformRuntimeProviderSettingsInput = {
    * surface for editing this; Slice 1 only round-trips the value.
    */
   vcoinExchangeRate: number;
+  /**
+   * ADR-109 Slice 5 — max active personas per workspace. Positive integer.
+   * Defaults to `DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT` (10) when omitted.
+   */
+  heygenPersonaWorkspaceLimit: number;
+  /**
+   * ADR-109 Slice 5 — VC cost to create one persona. Non-negative integer.
+   * Defaults to `DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN` (20) when omitted.
+   */
+  heygenPersonaCreationVcoin: number;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -1609,6 +1659,14 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     providerKeys.anthropic = anthropicKey;
   }
   const vcoinExchangeRate = normalizeVcoinExchangeRate(row.vcoinExchangeRate, "vcoinExchangeRate");
+  const heygenPersonaWorkspaceLimit = normalizeHeygenPersonaWorkspaceLimit(
+    row.heygenPersonaWorkspaceLimit,
+    "heygenPersonaWorkspaceLimit"
+  );
+  const heygenPersonaCreationVcoin = normalizeHeygenPersonaCreationVcoin(
+    row.heygenPersonaCreationVcoin,
+    "heygenPersonaCreationVcoin"
+  );
   return {
     primary,
     fallback,
@@ -1618,7 +1676,9 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     availableModelsByProvider,
     availableModelCatalogByProvider,
     providerKeys,
-    vcoinExchangeRate
+    vcoinExchangeRate,
+    heygenPersonaWorkspaceLimit,
+    heygenPersonaCreationVcoin
   };
 }
 
@@ -1662,6 +1722,74 @@ function resolveStoredVcoinExchangeRate(value: number | null | undefined): numbe
   return value;
 }
 
+/**
+ * ADR-109 Slice 5 — normalize admin-input persona workspace limit.
+ * Accepts `undefined`/`null` → returns `DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT`.
+ * Rejects non-integers, zero, and negatives.
+ */
+function normalizeHeygenPersonaWorkspaceLimit(value: unknown, path: string): number {
+  if (value === undefined || value === null) {
+    return DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`${path} must be a positive integer.`);
+  }
+  if (value > MAX_HEYGEN_PERSONA_WORKSPACE_LIMIT) {
+    throw new Error(`${path} must be at most ${String(MAX_HEYGEN_PERSONA_WORKSPACE_LIMIT)}.`);
+  }
+  return value;
+}
+
+/**
+ * ADR-109 Slice 5 — normalize admin-input persona creation VC cost.
+ * Accepts `undefined`/`null` → returns `DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN`.
+ * Rejects non-integers and negatives (0 is allowed: free creation).
+ */
+function normalizeHeygenPersonaCreationVcoin(value: unknown, path: string): number {
+  if (value === undefined || value === null) {
+    return DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${path} must be a non-negative integer.`);
+  }
+  if (value > MAX_HEYGEN_PERSONA_CREATION_VCOIN) {
+    throw new Error(`${path} must be at most ${String(MAX_HEYGEN_PERSONA_CREATION_VCOIN)}.`);
+  }
+  return value;
+}
+
+/**
+ * ADR-109 Slice 5 — read-side coercion for persisted persona limit.
+ */
+function resolveStoredHeygenPersonaWorkspaceLimit(value: number | null | undefined): number {
+  if (value === undefined || value === null) {
+    return DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    return DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT;
+  }
+  if (value > MAX_HEYGEN_PERSONA_WORKSPACE_LIMIT) {
+    return DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT;
+  }
+  return value;
+}
+
+/**
+ * ADR-109 Slice 5 — read-side coercion for persisted persona creation cost.
+ */
+function resolveStoredHeygenPersonaCreationVcoin(value: number | null | undefined): number {
+  if (value === undefined || value === null) {
+    return DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    return DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN;
+  }
+  if (value > MAX_HEYGEN_PERSONA_CREATION_VCOIN) {
+    return DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN;
+  }
+  return value;
+}
+
 export function buildPlatformRuntimeProviderSettingsState(params: {
   settings: PlatformRuntimeProviderSettingsRecord | null;
   providerKeys: Record<ManagedRuntimeProvider, PlatformRuntimeProviderKeyMetadata>;
@@ -1679,6 +1807,8 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
       availableModelCatalogByProvider: createEmptyAvailableModelCatalogByProvider(),
       providerKeys: params.providerKeys,
       vcoinExchangeRate: DEFAULT_PLATFORM_VCOIN_EXCHANGE_RATE,
+      heygenPersonaWorkspaceLimit: DEFAULT_HEYGEN_PERSONA_WORKSPACE_LIMIT,
+      heygenPersonaCreationVcoin: DEFAULT_HEYGEN_PERSONA_CREATION_VCOIN,
       notes: [
         "Global runtime provider settings are not configured yet.",
         "The active runtime keeps its existing configured default model path until global settings are saved.",
@@ -1739,6 +1869,12 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
     availableModelCatalogByProvider,
     providerKeys: params.providerKeys,
     vcoinExchangeRate: resolveStoredVcoinExchangeRate(params.settings.vcoinExchangeRate),
+    heygenPersonaWorkspaceLimit: resolveStoredHeygenPersonaWorkspaceLimit(
+      params.settings.heygenPersonaWorkspaceLimit
+    ),
+    heygenPersonaCreationVcoin: resolveStoredHeygenPersonaCreationVcoin(
+      params.settings.heygenPersonaCreationVcoin
+    ),
     notes: [
       "Provider keys are managed as one global platform setting for all assistants.",
       "Raw provider keys are write-only in the admin UI and stay in encrypted PersAI storage.",
