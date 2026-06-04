@@ -258,7 +258,8 @@ If a subagent return violates any of these, the slice is rolled back.
 | 3     | Mode contract + tool projection       | Add `RuntimeVideoGenerateMode = "cinematic" \| "talking_avatar"` to runtime contract. Add `speechText`, `speechLanguage`, `personaId`, `portraitImageAlias`, `voiceKey` fields. Native tool projection extends `video_generate` schema with new fields, conditional on plan toggle.                                                        | CONTRACT + RUNTIME + WEB   |
 | 4     | HeyGen voice catalog cache            | New `HeyGenVoiceCatalogService` and `platform_heygen_voice_catalog_cache` Prisma table. 24h TTL. Lazy refresh on materialization. Bundle attach when ref provider is `heygen`.                                                                                                                                                             | API                        |
 | 5     | Workspace persona registry            | New `workspace_video_personas` table. CRUD service. Per-workspace persona limit setting (default 10, configurable in Admin Tools). VC debit on persona creation success (uses ADR-108 wallet).                                                                                                                                             | API                        |
-| 6     | Provider-gateway HeyGen client        | New `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts`. Submit Photo Avatar Video request, poll status, download result. Lazy avatar creation when persona reuse path requires it. Emit `billingFacts` time-metered.                                                                                           | PROVIDER-GATEWAY           |
+| 5b    | Eager HeyGen avatar at persona POST   | Retrofit `ManageWorkspaceVideoPersonasService.createPersona` to call provider-gateway → HeyGen `POST /v3/assets` + `POST /v3/avatars` BEFORE the DB transaction. `heygen_avatar_id` becomes NOT NULL. New provider-gateway "create photo avatar only" endpoint. HeyGen failure short-circuits cleanly (no DB write, no VC debit). E12.    | API + PROVIDER-GATEWAY     |
+| 6     | Provider-gateway HeyGen client        | New `apps/provider-gateway/src/modules/providers/heygen/heygen-provider.client.ts`. Submit Photo Avatar Video request, poll status, download result. Lazy avatar creation when persona reuse path requires it (defensive fallback only after E12; normal flow uses eager-created `avatar_id` from Slice 5b). Emit `billingFacts` time-metered. | PROVIDER-GATEWAY        |
 | 7     | Runtime talking_avatar execution      | Runtime `runtime-video-generate-tool.service.ts` routes `mode = "talking_avatar"` to HeyGen. Resolves persona or ad-hoc photo. Validates plan toggle. Validates one-persona-per-clip. Calls provider gateway. Persists artifact. VC settle through ADR-108 path.                                                                           | RUNTIME + API              |
 | 8     | Plan toggle + materialization gate    | Add `talkingVideoEnabled` boolean on plan `video_generate` tool activation. Admin Plans UI exposes it. Materialization writes the flag onto the bundle so runtime can fail honestly when off.                                                                                                                                              | API + WEB                  |
 | 9     | Assistant Settings UI: Characters     | New section between Character (order 1) and Limits (order 2) in `apps/web/app/app/_components/assistant-settings.tsx`. Workspace personas list, create form (upload portrait + select voice + name), delete with confirm. Section hidden when plan `talkingVideoEnabled` is false.                                                         | WEB                        |
@@ -897,6 +898,30 @@ HeyGen recommends webhooks (`callback_url` in create body or `POST /v3/webhooks/
 
 **Slice impact:** Slice 6 provider client uses polling. Polling cadence default = 10s (matching HeyGen v3 quick-start), tolerant to the 5–30s spread documented across HeyGen sources. Polling-loss tolerance follows the existing Runway/Kling pattern.
 
+### E12 — Eager HeyGen avatar creation at persona POST (added 2026-06-05 01:06 MSK)
+
+**Supersedes the "lazy create on first use" decision in § Decision (line 26), § Scenario B (line 47), § Slice 6 Scope, and § Alternatives "Pre-create HeyGen avatar at persona creation" rejection (line 654).**
+
+The original design deferred HeyGen `POST /v3/avatars` to first video render ("lazy create") to avoid paying $1 to HeyGen for personas that users create but never use. After re-evaluating during Slice 6 closure, the operator chose **simplicity and architectural honesty over the marginal economic optimization**. Lazy-create conflicted with cross-slice invariant #14 (REST-only persona mutation) because runtime would need to write `heygen_avatar_id` back to the persona row after first video, breaking the "only REST mutates `workspace_video_personas`" rule.
+
+**The binding amendment:**
+
+- HeyGen avatar creation happens **synchronously at persona POST**, inside the `ManageWorkspaceVideoPersonasService.createPersona` flow, BEFORE the DB transaction opens.
+- `heygen_avatar_id` column is **NOT NULL going forward**. (Slice 5 migration left the column nullable; Slice 5b migration tightens it to NOT NULL after backfill — there are no production rows yet, so backfill is trivial.)
+- If HeyGen `POST /v3/avatars` fails, the persona is NOT created and VC is NOT debited. Honest error returned to the user (e.g. `heygen_unavailable`, `heygen_avatar_create_failed`).
+- The VC cost (`heygenPersonaCreationVcoin`, Slice 5 default 20 VC) covers the HeyGen $1 avatar-create credit one-for-one at the default `vcoinExchangeRate = $0.05/VC` (ADR-108). Operators may adjust both knobs in Admin Runtime.
+- Provider-gateway gets a new internal endpoint `POST /api/v1/providers/heygen/avatars` (or equivalent name — final naming is at subagent discretion within the existing controller conventions) that wraps HeyGen `POST /v3/assets` + `POST /v3/avatars`. The API service calls this endpoint with the (already-normalized) portrait bytes and persona name; it receives `{ avatarId }` back. Provider-gateway remains the sole HTTP caller of HeyGen — the HeyGen API key stays in one place (the gateway's credential resolution path).
+- **Cross-slice invariant #14 stays in its original form, unchanged.** Runtime never writes `heygen_avatar_id`.
+- The lazy-create code path in `HeyGenProviderClient.generateVideo` (Slice 6) **remains as a defensive fallback** so that if a persona row somehow lands with `heygen_avatar_id === null`, the client still recovers gracefully. The normal-flow execution after Slice 5b never exercises this path. The Slice 6 `lazyCreatedHeygenAvatarId` result field also stays as the gateway's return contract surface (always `null` in normal flow).
+
+**Why not the "internal REST PATCH from runtime" alternative (deferred):** Adding a runtime → internal API → DB hop solely to update a single `heygen_avatar_id` field doubles the moving parts of a hot-path render call. Eager-create at REST POST is one fewer HTTP call per render and preserves the invariant naturally.
+
+**Why not "lazy + erratum to invariant #14":** Erratum would have read "runtime may write exactly one field, `heygen_avatar_id`, on persona rows it did not create". That's a slippery slope — once one runtime-write is allowed for one field, the next persona feature is tempted to add another. Eager-create keeps the invariant clean.
+
+**Operational consequence:** `Slice 5b` is a follow-up slice (between Slice 5 and Slice 7 in execution order) that retrofits eager-create into the existing persona POST endpoint and adds the provider-gateway "create avatar only" endpoint. Slice 7 (runtime talking_avatar execution) is then simpler: persona reads always return a populated `heygen_avatar_id`; Scenario C always uses `type: "avatar"` with the cached id.
+
+---
+
 ### E11 — "Tool description" terminology + Admin Presets editor (added 2026-06-04 20:21 MSK)
 
 **Clarifies what "tool description" means across this ADR (no new behavior, terminology pinning only).**
@@ -927,3 +952,7 @@ Append to § Acceptance checklist above when implementation lands:
 - [ ] HeyGen poll defensively treats any non-terminal status as in-progress (E7, invariant #15).
 - [ ] `video_generate` result type includes `needs_disambiguation` variant (E8).
 - [ ] No keyword routing / message-body parsing introduced anywhere (E7, invariant #15).
+- [ ] `heygen_avatar_id` is NOT NULL on every `workspace_video_personas` row created after Slice 5b lands (E12).
+- [ ] Persona POST short-circuits cleanly when HeyGen avatar create fails: no persona row, no VC debit, honest error (E12).
+- [ ] Provider-gateway exposes a "create photo avatar only" endpoint distinct from video submit (E12).
+- [ ] Lazy-create code path in `HeyGenProviderClient.generateVideo` remains as defensive fallback but is never exercised by normal flow (E12).
