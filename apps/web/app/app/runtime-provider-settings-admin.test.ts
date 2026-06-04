@@ -7,6 +7,7 @@ import {
 
 function tokenMeteredDefaults() {
   return {
+    kind: "cinematic" as const,
     active: true,
     billingMode: "token_metered" as const,
     effectiveFrom: null,
@@ -27,6 +28,7 @@ function tokenMeteredDefaults() {
 
 function fixedOperationDefaults() {
   return {
+    kind: "cinematic" as const,
     active: true,
     billingMode: "fixed_operation" as const,
     effectiveFrom: null,
@@ -46,6 +48,7 @@ function fixedOperationDefaults() {
 
 function timeMeteredDefaults() {
   return {
+    kind: "cinematic" as const,
     active: true,
     billingMode: "time_metered" as const,
     effectiveFrom: null,

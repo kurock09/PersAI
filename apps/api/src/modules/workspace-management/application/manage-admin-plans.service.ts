@@ -50,7 +50,10 @@ import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platfor
 import { parseVideoVcoinMonthlyGrant } from "./vcoin/parse-video-vcoin-monthly-grant";
 import { TYPICAL_VIDEO_SECONDS } from "./vcoin/typical-video-seconds";
 import { getRuntimeProviderCatalogModelsByCapability } from "./runtime-provider-profile";
-import type { RuntimeProviderModelCatalogByProvider } from "./runtime-provider-profile";
+import type {
+  RuntimeProviderModelCatalogByProvider,
+  RuntimeVideoModelKind
+} from "./runtime-provider-profile";
 import { isPlanManagedTool, TOOL_CATALOG } from "../../../../prisma/tool-catalog-data";
 import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 import { DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY } from "./knowledge-model-policy.service";
@@ -1258,9 +1261,28 @@ export class ManageAdminPlansService {
         {
           provider: "kling",
           models: getCapabilityModels(catalogs.kling, "video")
+        },
+        {
+          provider: "heygen",
+          models: getCapabilityModels(catalogs.heygen, "video")
         }
       ]
     };
+    const videoModelKindMap = new Map<string, RuntimeVideoModelKind>();
+    for (const provider of ["openai", "runway", "kling", "heygen"] as const) {
+      const providerCatalog = catalogs[provider];
+      if (providerCatalog === undefined) {
+        continue;
+      }
+      for (const profile of providerCatalog.models) {
+        if (profile.active && profile.capabilities.includes("video")) {
+          videoModelKindMap.set(
+            profile.model,
+            (profile as { kind?: RuntimeVideoModelKind }).kind ?? "cinematic"
+          );
+        }
+      }
+    }
     const providersByVideoModel = new Map<string, Set<string>>();
     for (const catalog of capabilityCatalogs.video) {
       for (const model of catalog.models) {
@@ -1291,6 +1313,14 @@ export class ManageAdminPlansService {
       if (!catalog.includes(entry.modelKey)) {
         throw new BadRequestException(
           `"${entry.modelKey}" must be selected from Runtime Admin ${entry.capability} models.`
+        );
+      }
+      if (
+        entry.capability === "video" &&
+        videoModelKindMap.get(entry.modelKey) === "talking_avatar"
+      ) {
+        throw new BadRequestException(
+          `"${entry.modelKey}" is a talking_avatar (cinematic_only) model and cannot be used as a plan videoGenerateModelKey or videoGenerateFallbackModelKey. Talking-avatar models are exposed separately via the workspace plan toggle (Slice 9).`
         );
       }
     }

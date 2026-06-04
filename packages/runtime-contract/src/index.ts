@@ -1628,6 +1628,17 @@ export const PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS = [
 export type PersaiRuntimeVideoGenerateProviderId =
   (typeof PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS)[number];
 
+export const PERSAI_RUNTIME_TALKING_AVATAR_VIDEO_PROVIDER_IDS = ["heygen"] as const;
+
+export type PersaiRuntimeTalkingAvatarVideoProviderId =
+  (typeof PERSAI_RUNTIME_TALKING_AVATAR_VIDEO_PROVIDER_IDS)[number];
+
+export function isTalkingAvatarVideoProvider(providerId: string | null | undefined): boolean {
+  return (PERSAI_RUNTIME_TALKING_AVATAR_VIDEO_PROVIDER_IDS as readonly string[]).includes(
+    providerId ?? ""
+  );
+}
+
 export const PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS = ["sora-2", "sora-2-pro"] as const;
 
 export type PersaiRuntimeVideoGenerateModelKey =

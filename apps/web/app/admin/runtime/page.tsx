@@ -11,7 +11,8 @@ import type {
   RuntimeVideoAspectRatio,
   RuntimeVideoGenerateSize,
   RuntimeProviderModelCatalogByProviderState,
-  RuntimeProviderModelProfileState
+  RuntimeProviderModelProfileState,
+  RuntimeVideoModelKind
 } from "@persai/contracts";
 import { applyDerivedTokenMeteredWeights, formatTokenMeteredWeight } from "@persai/types";
 import {
@@ -703,6 +704,10 @@ function inferBillingModeForCapabilities(
   return "fixed_operation";
 }
 
+function kindForProvider(provider: ManagedRuntimeCatalogProvider | null): RuntimeVideoModelKind {
+  return provider === "heygen" ? "talking_avatar" : "cinematic";
+}
+
 function createModelProfile(
   capability: RuntimeProviderModelProfileState["capabilities"][number] = "chat",
   provider: ManagedRuntimeCatalogProvider | null = null
@@ -712,6 +717,7 @@ function createModelProfile(
   const base = {
     model: "",
     capabilities,
+    kind: kindForProvider(provider),
     active: true,
     effectiveFrom: null,
     effectiveTo: null,
@@ -777,6 +783,7 @@ function rebuildProfileForBillingMode(
   const base = {
     model: profile.model,
     capabilities: profile.capabilities,
+    kind: profile.kind,
     active: profile.active,
     effectiveFrom: profile.effectiveFrom,
     effectiveTo: profile.effectiveTo,
@@ -1961,6 +1968,12 @@ function ModelProfileEditor({
           </span>
           <span className="text-[10px] text-text-muted">
             {providerLabel(provider)} • {profile.billingMode}
+          </span>
+          <span
+            className="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300"
+            aria-label="Capability kind"
+          >
+            {provider === "heygen" ? "Talking Avatar" : "Cinematic"}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-1">

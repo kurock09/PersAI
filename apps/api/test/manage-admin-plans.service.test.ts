@@ -1109,6 +1109,59 @@ async function run(): Promise<void> {
       error.message.includes("ambiguous across active Runtime Admin video models")
   );
 
+  // ADR-109 Slice 2b: talking_avatar rows must be refused as videoGenerateModelKey
+  const talkingAvatarCatalogService = createService({
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          availableModelsByProvider: {
+            openai: ["gpt-5.4"],
+            anthropic: []
+          },
+          availableModelCatalogByProvider: {
+            openai: { models: [] },
+            anthropic: { models: [] },
+            runway: {
+              models: [
+                { model: "runway-gen-4", capabilities: ["video"], kind: "cinematic", active: true }
+              ]
+            },
+            kling: { models: [] },
+            heygen: {
+              models: [
+                {
+                  model: "heygen-v2",
+                  capabilities: ["video"],
+                  kind: "talking_avatar",
+                  active: true
+                }
+              ]
+            }
+          }
+        };
+      }
+    }
+  });
+  await assert.rejects(
+    () =>
+      (
+        talkingAvatarCatalogService as unknown as {
+          assertCapabilityModelKeysAvailable(
+            entries: Array<{ modelKey: string | null; capability: "image" | "video" }>
+          ): Promise<void>;
+        }
+      ).assertCapabilityModelKeysAvailable([{ modelKey: "heygen-v2", capability: "video" }]),
+    (error) => error instanceof BadRequestException && error.message.includes("cinematic_only")
+  );
+  // cinematic runway model still passes through
+  await (
+    talkingAvatarCatalogService as unknown as {
+      assertCapabilityModelKeysAvailable(
+        entries: Array<{ modelKey: string | null; capability: "image" | "video" }>
+      ): Promise<void>;
+    }
+  ).assertCapabilityModelKeysAvailable([{ modelKey: "runway-gen-4", capability: "video" }]);
+
   assert.throws(
     () =>
       service.parseUpdateInput({

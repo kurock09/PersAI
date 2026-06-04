@@ -17,6 +17,7 @@ import {
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
+  isTalkingAvatarVideoProvider,
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
   PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS,
   PERSAI_RUNTIME_TTS_DELIVERY_KINDS,
@@ -242,7 +243,9 @@ export function projectRuntimeNativeTools(
   if (
     videoGeneratePolicy !== null &&
     videoGenerateCredential !== null &&
-    supportsCurrentNativeVideoGenerateProvider(videoGenerateCredential.providerId ?? null)
+    supportsCurrentNativeVideoGenerateProvider(videoGenerateCredential.providerId ?? null) &&
+    // ADR-109 Slice 2b: talking_avatar rows are exposed via the Slice 9 plan toggle, not via the cinematic video_generate tool surface
+    !isTalkingAvatarVideoProvider(videoGenerateCredential.providerId)
   ) {
     projectedTools.push(
       createVideoGenerateToolDefinition(videoGeneratePolicy, videoGenerateCredential)

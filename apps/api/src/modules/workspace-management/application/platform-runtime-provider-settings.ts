@@ -23,7 +23,8 @@ import {
   type RuntimeProviderTieredOperationPriceConfig,
   type RuntimeProviderTierPriceMetadata,
   type RuntimeProviderCredentialRefState,
-  type RuntimeProviderProfileState
+  type RuntimeProviderProfileState,
+  type RuntimeVideoModelKind
 } from "./runtime-provider-profile";
 import { applyDerivedTokenMeteredWeights } from "@persai/types";
 import {
@@ -1112,6 +1113,7 @@ function normalizeModelProfiles(
     const base = {
       model,
       capabilities,
+      kind: (provider === "heygen" ? "talking_avatar" : "cinematic") as RuntimeVideoModelKind,
       active,
       effectiveFrom,
       effectiveTo,
@@ -1259,6 +1261,7 @@ function createDefaultModelProfiles(
     const base = {
       model,
       capabilities,
+      kind: "cinematic" as RuntimeVideoModelKind,
       active: true,
       effectiveFrom: null,
       effectiveTo: null,
@@ -1327,6 +1330,7 @@ function normalizeLegacyCapabilityCatalog(
     const base = {
       model,
       capabilities: capabilityList,
+      kind: (provider === "heygen" ? "talking_avatar" : "cinematic") as RuntimeVideoModelKind,
       active: true,
       effectiveFrom: null,
       effectiveTo: null,

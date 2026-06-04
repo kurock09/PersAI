@@ -374,6 +374,202 @@ async function run(): Promise<void> {
       }),
     /targetPatch\.secretRefs\.refs\.runtime_provider_credentials is required/
   );
+
+  // ADR-109 Slice 2b: kind field assertions
+  {
+    // Parser defaults non-HeyGen rows to "cinematic"
+    const runwayProfile = resolveRuntimeProviderProfileState({
+      policyEnvelope: {
+        runtimeProviderProfile: {
+          schema: "persai.runtimeProviderProfile.v1",
+          primary: { provider: "openai", model: "gpt-5.4" },
+          availableModelCatalogByProvider: {
+            runway: {
+              models: [
+                {
+                  model: "runway-gen-4",
+                  capabilities: ["video"],
+                  videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS
+                }
+              ]
+            }
+          }
+        }
+      },
+      secretRefs: {
+        refs: {
+          runtime_provider_credentials: {
+            schema: "persai.runtimeProviderCredentialRefs.v1",
+            providers: {
+              openai: {
+                secretRef: { source: "env", provider: "default", id: "OPENAI_API_KEY" }
+              }
+            }
+          }
+        }
+      }
+    });
+    assert.equal(runwayProfile.mode, "admin_managed");
+    const runwayRow = runwayProfile.availableModelCatalogByProvider.runway.models[0];
+    assert.equal(runwayRow?.kind, "cinematic", "runway rows must default to cinematic");
+  }
+
+  {
+    // Parser defaults HeyGen rows to "talking_avatar"
+    const heygenProfile = resolveRuntimeProviderProfileState({
+      policyEnvelope: {
+        runtimeProviderProfile: {
+          schema: "persai.runtimeProviderProfile.v1",
+          primary: { provider: "openai", model: "gpt-5.4" },
+          availableModelCatalogByProvider: {
+            heygen: {
+              models: [
+                {
+                  model: "heygen-v2",
+                  capabilities: ["video"],
+                  videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS
+                }
+              ]
+            }
+          }
+        }
+      },
+      secretRefs: {
+        refs: {
+          runtime_provider_credentials: {
+            schema: "persai.runtimeProviderCredentialRefs.v1",
+            providers: {
+              openai: {
+                secretRef: { source: "env", provider: "default", id: "OPENAI_API_KEY" }
+              }
+            }
+          }
+        }
+      }
+    });
+    assert.equal(heygenProfile.mode, "admin_managed");
+    const heygenRow = heygenProfile.availableModelCatalogByProvider.heygen.models[0];
+    assert.equal(heygenRow?.kind, "talking_avatar", "heygen rows must default to talking_avatar");
+  }
+
+  {
+    // Parser accepts explicit kind field on a catalog row
+    const explicitKindProfile = resolveRuntimeProviderProfileState({
+      policyEnvelope: {
+        runtimeProviderProfile: {
+          schema: "persai.runtimeProviderProfile.v1",
+          primary: { provider: "openai", model: "gpt-5.4" },
+          availableModelCatalogByProvider: {
+            runway: {
+              models: [
+                {
+                  model: "runway-gen-4",
+                  capabilities: ["video"],
+                  kind: "cinematic",
+                  videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS
+                }
+              ]
+            }
+          }
+        }
+      },
+      secretRefs: {
+        refs: {
+          runtime_provider_credentials: {
+            schema: "persai.runtimeProviderCredentialRefs.v1",
+            providers: {
+              openai: {
+                secretRef: { source: "env", provider: "default", id: "OPENAI_API_KEY" }
+              }
+            }
+          }
+        }
+      }
+    });
+    assert.equal(explicitKindProfile.mode, "admin_managed");
+    const explicitKindRow = explicitKindProfile.availableModelCatalogByProvider.runway.models[0];
+    assert.equal(
+      explicitKindRow?.kind,
+      "cinematic",
+      "parser must accept explicit kind='cinematic'"
+    );
+  }
+
+  // Parser refuses incompatible kind/provider: HeyGen with kind="cinematic"
+  assert.throws(
+    () =>
+      resolveRuntimeProviderProfileState({
+        policyEnvelope: {
+          runtimeProviderProfile: {
+            schema: "persai.runtimeProviderProfile.v1",
+            primary: { provider: "openai", model: "gpt-5.4" },
+            availableModelCatalogByProvider: {
+              heygen: {
+                models: [
+                  {
+                    model: "heygen-v2",
+                    capabilities: ["video"],
+                    kind: "cinematic",
+                    videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS
+                  }
+                ]
+              }
+            }
+          }
+        },
+        secretRefs: {
+          refs: {
+            runtime_provider_credentials: {
+              schema: "persai.runtimeProviderCredentialRefs.v1",
+              providers: {
+                openai: {
+                  secretRef: { source: "env", provider: "default", id: "OPENAI_API_KEY" }
+                }
+              }
+            }
+          }
+        }
+      }),
+    /HeyGen rows must have kind='talking_avatar'/
+  );
+
+  // Parser refuses incompatible kind/provider: non-HeyGen with kind="talking_avatar"
+  assert.throws(
+    () =>
+      resolveRuntimeProviderProfileState({
+        policyEnvelope: {
+          runtimeProviderProfile: {
+            schema: "persai.runtimeProviderProfile.v1",
+            primary: { provider: "openai", model: "gpt-5.4" },
+            availableModelCatalogByProvider: {
+              runway: {
+                models: [
+                  {
+                    model: "runway-gen-4",
+                    capabilities: ["video"],
+                    kind: "talking_avatar",
+                    videoModelParameters: RUNWAY_VIDEO_MODEL_PARAMETERS
+                  }
+                ]
+              }
+            }
+          }
+        },
+        secretRefs: {
+          refs: {
+            runtime_provider_credentials: {
+              schema: "persai.runtimeProviderCredentialRefs.v1",
+              providers: {
+                openai: {
+                  secretRef: { source: "env", provider: "default", id: "OPENAI_API_KEY" }
+                }
+              }
+            }
+          }
+        }
+      }),
+    /only HeyGen rows may have kind='talking_avatar'/
+  );
 }
 
 void run();

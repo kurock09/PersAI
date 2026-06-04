@@ -142,9 +142,12 @@ export type RuntimeProviderPriceMetadata =
 export type RuntimeProviderPriceMetadataForBillingMode<M extends RuntimeProviderBillingMode> =
   RuntimeProviderPriceMetadataByBillingMode[M];
 
+export type RuntimeVideoModelKind = "cinematic" | "talking_avatar";
+
 type RuntimeProviderModelProfileBase = {
   model: string;
   capabilities: RuntimeProviderModelCapability[];
+  kind: RuntimeVideoModelKind;
   active: boolean;
   effectiveFrom: string | null;
   effectiveTo: string | null;
@@ -248,6 +251,12 @@ function isChatRoutingProvider(value: string): value is ChatRoutingRuntimeProvid
 
 function isVideoOnlyCatalogProvider(value: ManagedRuntimeCatalogProvider): boolean {
   return value === "runway" || value === "kling" || value === "heygen";
+}
+
+function defaultVideoModelKindForProvider(
+  provider: ManagedRuntimeCatalogProvider
+): RuntimeVideoModelKind {
+  return provider === "heygen" ? "talking_avatar" : "cinematic";
 }
 
 const MAX_MODEL_LENGTH = 256;
@@ -898,6 +907,7 @@ function createDefaultModelProfiles(
     const base = {
       model,
       capabilities,
+      kind: "cinematic" as RuntimeVideoModelKind,
       active: true,
       effectiveFrom: null,
       effectiveTo: null,
@@ -972,9 +982,24 @@ function parseRuntimeProviderModelProfiles(
       activeModels.add(model);
     }
     const billingMode = normalizeBillingMode(row.billingMode, capabilities);
+    const defaultKind = defaultVideoModelKindForProvider(provider);
+    const rawKind = asNonEmptyString(row.kind);
+    const kind: RuntimeVideoModelKind =
+      rawKind === "cinematic" || rawKind === "talking_avatar" ? rawKind : defaultKind;
+    if (provider === "heygen" && kind !== "talking_avatar") {
+      throw new Error(
+        `${path}[${String(index)}].kind: HeyGen rows must have kind='talking_avatar'; received '${kind}'.`
+      );
+    }
+    if (provider !== "heygen" && kind === "talking_avatar") {
+      throw new Error(
+        `${path}[${String(index)}].kind: only HeyGen rows may have kind='talking_avatar'; provider '${provider}' received 'talking_avatar'.`
+      );
+    }
     const base = {
       model,
       capabilities,
+      kind,
       active,
       effectiveFrom: asIsoStringOrNull(row.effectiveFrom),
       effectiveTo: asIsoStringOrNull(row.effectiveTo),
@@ -1079,6 +1104,7 @@ function parseLegacyCapabilityCatalog(
     const base = {
       model,
       capabilities: capabilityList,
+      kind: defaultVideoModelKindForProvider(provider),
       active: true,
       effectiveFrom: null,
       effectiveTo: null,

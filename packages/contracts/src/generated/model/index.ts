@@ -675,6 +675,7 @@ export * from "./runtimeVideoDurationRangeState";
 export * from "./runtimeVideoDurationRangeStateKind";
 export * from "./runtimeVideoGenerateSize";
 export * from "./runtimeVideoInputCapability";
+export * from "./runtimeVideoModelKind";
 export * from "./runtimeVideoModelParametersState";
 export * from "./runtimeVideoProviderParametersState";
 export * from "./runtimeVideoProviderParametersStateSound";

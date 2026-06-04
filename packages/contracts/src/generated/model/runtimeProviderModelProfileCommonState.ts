@@ -6,9 +6,11 @@
  */
 import type { RuntimeProviderModelCapability } from "./runtimeProviderModelCapability";
 import type { RuntimeProviderModelProfileCommonStateVideoModelParameters } from "./runtimeProviderModelProfileCommonStateVideoModelParameters";
+import type { RuntimeVideoModelKind } from "./runtimeVideoModelKind";
 
 export interface RuntimeProviderModelProfileCommonState {
   model: string;
+  kind: RuntimeVideoModelKind;
   /** @minItems 1 */
   capabilities: RuntimeProviderModelCapability[];
   active: boolean;

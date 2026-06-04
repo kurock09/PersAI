@@ -50,6 +50,7 @@ describe("admin knowledge page helpers", () => {
               {
                 model: "ignored-chat",
                 capabilities: ["chat"],
+                kind: "cinematic",
                 active: true,
                 billingMode: "token_metered",
                 effectiveFrom: null,
@@ -71,6 +72,7 @@ describe("admin knowledge page helpers", () => {
               {
                 model: "ignored-chat",
                 capabilities: ["chat"],
+                kind: "cinematic",
                 active: true,
                 billingMode: "token_metered",
                 effectiveFrom: null,
@@ -118,6 +120,7 @@ describe("admin knowledge page helpers", () => {
               {
                 model: "gpt-5.4-mini",
                 capabilities: ["chat"],
+                kind: "cinematic",
                 active: true,
                 billingMode: "token_metered",
                 effectiveFrom: null,
@@ -135,6 +138,7 @@ describe("admin knowledge page helpers", () => {
               {
                 model: "gpt-image-2",
                 capabilities: ["image"],
+                kind: "cinematic",
                 active: true,
                 billingMode: "fixed_operation",
                 effectiveFrom: null,
@@ -152,6 +156,7 @@ describe("admin knowledge page helpers", () => {
               {
                 model: "sora-2",
                 capabilities: ["video"],
+                kind: "cinematic",
                 active: true,
                 billingMode: "fixed_operation",
                 effectiveFrom: null,
@@ -173,6 +178,7 @@ describe("admin knowledge page helpers", () => {
               {
                 model: "claude-4.6-sonnet-medium-thinking",
                 capabilities: ["chat"],
+                kind: "cinematic",
                 active: true,
                 billingMode: "token_metered",
                 effectiveFrom: null,

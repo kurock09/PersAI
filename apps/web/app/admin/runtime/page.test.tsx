@@ -62,6 +62,7 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
           {
             model: "gpt-5.4",
             capabilities: ["chat"],
+            kind: "cinematic",
             active: true,
             billingMode: "token_metered",
             effectiveFrom: null,
@@ -83,6 +84,7 @@ function createRuntimeSettingsState(): AdminRuntimeProviderSettingsState {
           {
             model: "gpt-image-2",
             capabilities: ["image"],
+            kind: "cinematic",
             active: true,
             billingMode: "fixed_operation",
             effectiveFrom: "2026-05-01T00:00:00.000Z",
@@ -429,6 +431,53 @@ describe("AdminRuntimePage catalog picker", () => {
       }
     });
   });
+  // ADR-109 Slice 2b: capability kind badge renders per-row
+  it("renders Cinematic badge for non-HeyGen rows and Talking Avatar badge for HeyGen rows", async () => {
+    const stateWithHeygen = {
+      ...createRuntimeSettingsState(),
+      availableModelCatalogByProvider: {
+        ...createRuntimeSettingsState().availableModelCatalogByProvider,
+        heygen: {
+          models: [
+            {
+              model: "heygen-v2",
+              capabilities: ["video"],
+              kind: "talking_avatar",
+              active: true,
+              billingMode: "fixed_operation",
+              effectiveFrom: null,
+              effectiveTo: null,
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 1,
+              outputTokenWeight: 1,
+              displayLabel: null,
+              notes: null,
+              providerPriceMetadata: {
+                currency: "USD",
+                fixedOperationPricing: { unitLabel: null, pricePerOperation: 0 }
+              }
+            }
+          ]
+        }
+      }
+    };
+    apiMocks.getAdminRuntimeProviderSettings.mockResolvedValue(stateWithHeygen);
+
+    render(<AdminRuntimePage />);
+
+    await waitFor(() =>
+      expect(apiMocks.getAdminRuntimeProviderSettings).toHaveBeenCalledWith("token-1")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Provider Model Catalog/i }));
+
+    // OpenAI rows (non-HeyGen) show "Cinematic"
+    const cinematicBadges = screen.getAllByLabelText("Capability kind");
+    expect(cinematicBadges.some((el) => el.textContent === "Cinematic")).toBe(true);
+
+    // HeyGen row shows "Talking Avatar"
+    expect(cinematicBadges.some((el) => el.textContent === "Talking Avatar")).toBe(true);
+  });
 });
 
 describe("admin runtime decimal inputs", () => {
@@ -521,6 +570,7 @@ describe("AdminRuntimePage decimal pricing", () => {
             {
               model: "gen4-turbo",
               capabilities: ["video"],
+              kind: "cinematic",
               active: true,
               billingMode: "time_metered",
               effectiveFrom: null,

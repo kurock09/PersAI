@@ -266,6 +266,7 @@ describe("admin rollout client", () => {
               {
                 model: "gpt-5.4",
                 capabilities: ["chat"],
+                kind: "cinematic",
                 active: true,
                 billingMode: "token_metered",
                 effectiveFrom: null,
@@ -283,6 +284,7 @@ describe("admin rollout client", () => {
               {
                 model: "gpt-image-1.5",
                 capabilities: ["image"],
+                kind: "cinematic",
                 active: true,
                 billingMode: "fixed_operation",
                 effectiveFrom: null,
@@ -300,6 +302,7 @@ describe("admin rollout client", () => {
               {
                 model: "sora-2",
                 capabilities: ["video"],
+                kind: "cinematic",
                 active: true,
                 billingMode: "fixed_operation",
                 effectiveFrom: null,

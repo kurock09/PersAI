@@ -6,7 +6,8 @@ import type {
   RuntimeProviderTieredOperationModelProfile,
   RuntimeProviderTieredOperationPriceConfig,
   RuntimeProviderTimeMeteredModelProfile,
-  RuntimeProviderTimeMeteredPriceConfig
+  RuntimeProviderTimeMeteredPriceConfig,
+  RuntimeVideoModelKind
 } from "./runtime-provider-profile";
 import { createDefaultRuntimeProviderPriceMetadata } from "./runtime-provider-profile";
 
@@ -603,6 +604,7 @@ export function toToolPathPricingProfileForLedger(
   const base = {
     model: row.pathKey,
     capabilities: [] as RuntimeProviderModelCapability[],
+    kind: "cinematic" as RuntimeVideoModelKind,
     active: row.active,
     effectiveFrom: row.effectiveFrom,
     effectiveTo: row.effectiveTo,

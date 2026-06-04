@@ -250,6 +250,7 @@ export function parseRuntimeProviderModelProfilesText(
     const base = {
       model: modelRaw,
       capabilities,
+      kind: "cinematic" as const,
       active: true,
       effectiveFrom: null,
       effectiveTo: null,

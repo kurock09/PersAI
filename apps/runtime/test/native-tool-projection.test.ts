@@ -706,6 +706,34 @@ async function run(): Promise<void> {
     undefined,
     "image_edit must remain hidden for non-OpenAI providers"
   );
+
+  // ADR-109 Slice 2b: talking_avatar provider rows must be filtered from cinematic video_generate surface
+  const heygenVideoBundle = {
+    ...artifact.bundle,
+    governance: {
+      ...artifact.bundle.governance,
+      toolCredentialRefs: {
+        ...artifact.bundle.governance.toolCredentialRefs,
+        video_generate: {
+          ...artifact.bundle.governance.toolCredentialRefs.video_generate!,
+          providerId: "heygen"
+        }
+      }
+    }
+  };
+  const heygenVideoProjection = projectRuntimeNativeTools(heygenVideoBundle);
+  assert.equal(
+    heygenVideoProjection.tools.find((tool) => tool.name === "video_generate"),
+    undefined,
+    "video_generate must be hidden for talking_avatar (heygen) providers on the cinematic surface"
+  );
+
+  // Runway (cinematic) must still appear after the filter
+  const runwayVideoProjection = projectRuntimeNativeTools(artifact.bundle);
+  assert.ok(
+    runwayVideoProjection.tools.find((tool) => tool.name === "video_generate"),
+    "video_generate must remain visible for cinematic (runway) providers"
+  );
 }
 
 void run();

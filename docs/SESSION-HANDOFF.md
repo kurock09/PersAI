@@ -2,6 +2,114 @@
 
 > Archive: handoff sections from 2026-05-19 and earlier moved to `docs/SESSION-HANDOFF.archive-2026-05-19-and-earlier.md`. Keep using this file for the active 2026-05-20 working set, including all ADR-099 entries.
 
+## 2026-06-04 — ADR-109 Slice 2b: capability axis + plan validation + chat tool projection filter + Admin UI badge
+
+### What changed & why
+
+Baseline SHA at session start: `f999d889` (Slice 2a closure commit `feat(adr-109): Slice 2a - HeyGen catalog provider substrate + Admin Runtime card`). Tree clean.
+
+Slice 2b introduces the **capability axis** on runtime catalog rows — a per-row structural field `kind: "cinematic" | "talking_avatar"` that allows the platform to tell HeyGen-style talking-avatar models apart from general-purpose cinematic models (Runway, Kling, OpenAI). The axis is **purely structural**: derived from provider identity at parse time, never from any string matching, regex, or user-input parsing (cross-slice invariant #15 remains NON-NEGOTIABLE).
+
+The axis unlocks three behaviors that land in this slice:
+
+1. **Parser-side enforcement**: HeyGen rows MUST be `talking_avatar`; Runway/Kling/OpenAI/Anthropic rows MUST be `cinematic`. Parser throws on incompatible combinations. This codifies ADR-107 line 39-40 (Runway voice/audio/avatar must not be conflated with general-purpose video_generate).
+2. **Plan validation refusal**: when a workspace plan tries to select a `talking_avatar` model as its `videoGenerateModelKey` or `videoGenerateFallbackModelKey`, the service raises `BadRequestException` with a clear honest error message pointing operators to the future Slice 9 plan toggle.
+3. **Chat tool projection filter**: the `video_generate` tool exposed to the LLM in the cinematic surface now hides talking-avatar providers via the `isTalkingAvatarVideoProvider(providerId)` structural helper. When the assistant's video credential resolves to HeyGen, the cinematic `video_generate` tool is simply absent from the projected toolset — no fake errors, no fallback to a different provider.
+
+Executed under the ADR-109 orchestrator execution model. Single Sonnet 4.6 medium thinking subagent, single run, no resume needed. Subagent honestly self-reported a 7-file implicit scope expansion of pure-additive `kind` data defaults; orchestrator diff-reviewed every implicit-scope edit and confirmed pure data-default pattern (same precedent as Slices 1 and 2a).
+
+### OpenAPI architecture note (clean win)
+
+All 5 oneOf billing-mode variants of `RuntimeProviderModelProfileState` already `allOf`-extend `RuntimeProviderModelProfileCommonState`. So adding the new `kind` field as a single edit in the common base propagates the field to all 5 variants without any duplication or per-variant changes. This is exactly the OpenAPI inheritance pattern working as designed.
+
+### Contracts/generated discipline
+
+Slice 2b kept the contracts edit surface to exactly 3 generated files + 1 new file:
+
+- New: `packages/contracts/src/generated/model/runtimeVideoModelKind.ts` (manually mirroring the orval const-enum style used by `managedRuntimeCatalogProvider.ts`).
+- Augmented: `runtimeProviderModelProfileCommonState.ts` (added `kind` field + import).
+- Augmented: `model/index.ts` (added one new `export * from "./runtimeVideoModelKind"`).
+- OpenAPI: `openapi.yaml` (added `RuntimeVideoModelKind` enum component + `kind` field on `RuntimeProviderModelProfileCommonState`).
+
+Orchestrator did NOT run `orval generate` (which would surface the pre-existing ~580-file repo-wide drift again). The pre-existing drift remains a separate concern outside ADR-109 scope.
+
+### Files touched (18 + 1 new total, +445 / −5)
+
+**Core (Scope IN):**
+
+- `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts` — `RuntimeVideoModelKind` type alias, `kind` field on base, `defaultVideoModelKindForProvider()` helper, parser-side throw on incompatible kind/provider, updated `createDefaultModelProfiles` + `parseLegacyCapabilityCatalog`.
+- `packages/contracts/openapi.yaml` — `RuntimeVideoModelKind` enum + `kind` field on `RuntimeProviderModelProfileCommonState`.
+- `packages/contracts/src/generated/model/runtimeVideoModelKind.ts` — new orval-style const enum.
+- `packages/contracts/src/generated/model/runtimeProviderModelProfileCommonState.ts` — `kind` field + import.
+- `packages/contracts/src/generated/model/index.ts` — one new export.
+- `packages/runtime-contract/src/index.ts` — `PERSAI_RUNTIME_TALKING_AVATAR_VIDEO_PROVIDER_IDS`, `PersaiRuntimeTalkingAvatarVideoProviderId`, `isTalkingAvatarVideoProvider(providerId)`.
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` — `videoModelKindMap` build + refusal check in `assertCapabilityModelKeysAvailable`.
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` — `!isTalkingAvatarVideoProvider(videoGenerateCredential.providerId)` guard on `video_generate` tool exposure.
+- `apps/web/app/admin/runtime/page.tsx` — `kindForProvider()` helper + read-only badge per row (`aria-label="Capability kind"`).
+
+**Implicit-scope data defaults (subagent self-reported, orchestrator diff-reviewed; all pure-additive `kind`):**
+
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts` (3 sites with provider-aware default).
+- `apps/api/src/modules/workspace-management/application/tool-path-pricing-catalog.ts` (1 site, `kind: "cinematic"` for ledger pseudo-profile).
+- `apps/web/app/app/runtime-provider-settings-admin.ts` (1 site).
+- `apps/web/app/app/runtime-provider-settings-admin.test.ts` (3 sites).
+- `apps/web/app/app/assistant-api-client.test.ts` (3 sites).
+- `apps/web/app/admin/knowledge/page.test.tsx` (6 sites).
+- `apps/web/app/admin/runtime/page.test.tsx` (3 sites).
+
+**Tests (augmented, no new files):**
+
+- `apps/api/test/runtime-provider-profile.test.ts` — 5 new assertions.
+- `apps/api/test/manage-admin-plans.service.test.ts` — new block with `talkingAvatarCatalogService` mock.
+- `apps/runtime/test/native-tool-projection.test.ts` — 2 new assertions.
+- `apps/web/app/admin/runtime/page.test.tsx` — 1 new test for badge rendering.
+
+### Tests run (all 10 PASS via orchestrator's own shell)
+
+- PASS `corepack pnpm -r --if-present run lint` (all 6 packages Done)
+- PASS `corepack pnpm run format:check` ("All matched files use Prettier code style!")
+- PASS `corepack pnpm --filter @persai/api run typecheck`
+- PASS `corepack pnpm --filter @persai/web run typecheck`
+- PASS `corepack pnpm --filter @persai/runtime run typecheck`
+- PASS `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/runtime-provider-profile.test.ts`
+- PASS `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- PASS `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- PASS `corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/page.test.tsx` (18 tests, including new HeyGen badge test)
+
+### Cross-slice invariants verified (1–15)
+
+- ✅ #1 Cinematic mode unchanged — no cinematic execution path modified; the cinematic tool surface now actively excludes talking-avatar providers via a structural filter.
+- ✅ #2 ADR-106 invariants preserved — Runway/Kling video-only preserved; chat routing OpenAI/Anthropic-only; OpenAI image untouched.
+- ✅ #3, #4, #5 — N/A (no media-job / image / TTS / STT / chat code touched).
+- ✅ #6–#10 — N/A (no persona, no VC settle, no render path).
+- ✅ #11 ADR-107 line 39-40 carve-out enforced parser-side: Runway/Kling structurally cannot be `talking_avatar`.
+- ✅ #12 No keyword routing introduced.
+- ✅ #13 ADR-106/107 invariants preserved.
+- ✅ #14 Persona REST-only — N/A.
+- ✅ #15 NON-NEGOTIABLE — capability derivation is purely structural via `providerId` enum membership + the explicit `kind` field; never via user-input parsing, regex, or model-name string matching. The plan validation refusal reads from `videoModelKindMap`, the chat filter reads from `providerId`, the parser reads from `provider` + `row.kind`. No string-match on user-provided text anywhere.
+
+### Risks / residuals
+
+- **Slice 3 spec contains a "multi-character heuristic at request validation: refuse `>1 personaId` or detection of more than one named speaker pattern in speech text".** The first half (`>1 personaId`) is structural and fine. The second half ("named speaker pattern in speech text") would constitute keyword/regex parsing of user-input text — that's a direct invariant #15 violation. **This needs to be revised before Slice 3 starts.** Suggested alternative: refuse only on structural signal (`>1 personaId` is the binding case), and let the LLM-side tool description (Slice 8) tell the LLM "talking_avatar supports exactly one speaker per render". The model decides via natural-language instruction, not code-side regex. To be raised with the operator before Slice 3 kicks off.
+- **HeyGen rows can be added but never rendered yet.** Admin can now create a HeyGen catalog row with `kind: "talking_avatar"`, but runtime execution remains a placeholder throw `"ADR-109 Slice 6: HeyGen runtime execution not yet implemented"`. This is honest-fail behavior; Slice 6 will land the HTTP client.
+- **Plan toggle `talkingVideoEnabled` is Slice 9.** Until then, talking-avatar models are simply never exposed to the LLM in the cinematic surface — operators can preconfigure HeyGen rows, but workspaces cannot use them until Slice 9. This is intentional sequencing.
+
+### Deploy
+
+- **API + WEB + RUNTIME.** No Prisma migration. No new feature flag. provider-gateway typecheck passes but its code path is unchanged (the Slice 2a throw stays).
+
+### Next recommended slice
+
+**ADR-109 Slice 3 — Mode contract + tool projection (revised, awaiting operator decision on multi-character refusal heuristic):**
+
+- Add `RuntimeVideoGenerateMode = "cinematic" | "talking_avatar"` to the request contract.
+- Add new request fields: `speechText`, `speechLanguage`, `personaId`, `portraitImageAlias`, `voiceKey`.
+- Tool projection in `native-tool-projection.ts` exposes the new fields only when `mode === "cinematic"` OR (when Slice 9 lands) the plan has `talkingVideoEnabled`. For Slice 3 specifically: tool description text + structural acceptance of new fields, gated structurally.
+- Validation: `talking_avatar` requires speech text + language + (personaId XOR portraitImageAlias) — all structural checks.
+- **Multi-character refusal — open question for operator.** ADR-109 Slice 3 spec says "refuse `>1 personaId` or detection of more than one named speaker pattern in speech text. Honest error code `multi_character_not_supported`." The first half (`>1 personaId`) is structural (count of references in the request) and fine. The second half ("named speaker pattern in speech text") would parse user-input text — that violates invariant #15. **To be raised with the operator before Slice 3 starts.** Likely resolution: keep only the `>1 personaId` refusal and document the single-speaker constraint in the LLM-facing tool description (Slice 8 territory), letting the LLM hold the single-speaker rule instead of parsing user text in code.
+- Subagent model: Sonnet 4.6 medium thinking again (it has been zero-regression so far).
+
 ## 2026-06-04 — ADR-109 Slice 2a: HeyGen catalog provider substrate + Admin Runtime UI card
 
 ### What changed & why
